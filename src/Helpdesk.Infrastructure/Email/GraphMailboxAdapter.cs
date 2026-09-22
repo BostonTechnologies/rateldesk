@@ -114,20 +114,44 @@ public sealed class GraphMailboxAdapter(MailboxCredentialProtector secrets, Func
 
     public async Task AcknowledgeAsync(EmailInboxSettings settings, string key, CancellationToken ct)
     {
-        try
+        using var client = Create(settings);
+        if (settings.MarkReadAfterSuccess)
         {
-            using var client = Create(settings);
-            if (settings.MarkReadAfterSuccess)
+            try
+            {
                 await client.Users[settings.MailboxAddress].Messages[key].PatchAsync(new Message { IsRead = true },
                     request => request.Headers.Add("Prefer", "IdType=\"ImmutableId\""), ct);
-            if (!string.IsNullOrWhiteSpace(settings.ProcessedFolder))
-                await client.Users[settings.MailboxAddress].Messages[key].Move.PostAsync(
-                    new Microsoft.Graph.Users.Item.Messages.Item.Move.MovePostRequestBody { DestinationId = settings.ProcessedFolder },
-                    request => request.Headers.Add("Prefer", "IdType=\"ImmutableId\""), ct);
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException error) when (error.ResponseStatusCode == 404)
+            {
+                // PATCH identifies only the source message, so this response is definitive.
+                throw new InboundSourceMissingException("Graph source message is already absent.");
+            }
+        }
+        if (string.IsNullOrWhiteSpace(settings.ProcessedFolder)) return;
+        try
+        {
+            await client.Users[settings.MailboxAddress].Messages[key].Move.PostAsync(
+                new Microsoft.Graph.Users.Item.Messages.Item.Move.MovePostRequestBody { DestinationId = settings.ProcessedFolder },
+                request => request.Headers.Add("Prefer", "IdType=\"ImmutableId\""), ct);
         }
         catch (Microsoft.Kiota.Abstractions.ApiException error) when (error.ResponseStatusCode == 404)
         {
-            throw new InboundSourceMissingException("Graph source message is already absent.");
+            // MOVE can fail because either the source or destination is unavailable. Probe
+            // the immutable source ID instead of making a terminal decision from status alone.
+            try
+            {
+                await client.Users[settings.MailboxAddress].Messages[key].GetAsync(request =>
+                {
+                    request.Headers.Add("Prefer", "IdType=\"ImmutableId\"");
+                    request.QueryParameters.Select = ["id"];
+                }, ct);
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException probeError) when (probeError.ResponseStatusCode == 404)
+            {
+                throw new InboundSourceMissingException("Graph source message is already absent.");
+            }
+            throw;
         }
     }
 }

@@ -84,7 +84,7 @@ public sealed class InboundEmailActionExecutor(
             if (ingressReason is not null)
             {
                 await TryLogAsync(context, rule, actionKey, true, InboundEmailProcessingStatus.Failed, null, ingressReason, ct);
-                return new InboundEmailRuleProcessingResult(true, true, null);
+                return new InboundEmailRuleProcessingResult(true, true, null, ingressReason);
             }
             if (context.SourceMessageKey?.StartsWith("ingress:", StringComparison.Ordinal) == true)
                 db.RestrictIngressToOrganization(tenantResult.Organization.Id);

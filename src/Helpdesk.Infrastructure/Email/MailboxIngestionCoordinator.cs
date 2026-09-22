@@ -18,6 +18,12 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
 {
     private const int MaximumReceiptAttempts = 5;
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
+    private readonly TimeSpan pollTimeout = ReadPositiveDuration(configuration,
+        "EmailIngestion:PollTimeout", TimeSpan.FromSeconds(80));
+    private readonly TimeSpan acknowledgmentTimeout = ReadPositiveDuration(configuration,
+        "EmailIngestion:AcknowledgmentTimeout", TimeSpan.FromSeconds(20));
+    private readonly TimeSpan acknowledgmentPhaseBudget = ReadPositiveDuration(configuration,
+        "EmailIngestion:AcknowledgmentPhaseBudget", TimeSpan.FromSeconds(20));
     private readonly string owner = Guid.NewGuid().ToString("N");
     private readonly Dictionary<Guid, DateTimeOffset> due = [];
     private readonly Dictionary<Guid, Runner> running = [];
@@ -121,7 +127,7 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
         var lease = await leases.TryAcquireAsync(mailbox.Id, owner, TimeSpan.FromMinutes(2), ct);
         if (lease is null) return;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeout.CancelAfter(TimeSpan.FromSeconds(80));
+        timeout.CancelAfter(pollTimeout);
         var workToken = timeout.Token;
         try
         {
@@ -131,7 +137,6 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
                 .Select(x => x.TransportKey).Take(100001).ToListAsync(workToken)).ToHashSet(StringComparer.Ordinal);
             if (known.Count > 100000) throw new InvalidOperationException("ReceiptCapacityExceeded");
             await ProcessPendingAsync(db, mailbox, lease, workToken);
-            await RecoverAcknowledgmentsAsync(mailbox, lease, adapter, workToken);
 
             string? fetchError = null;
             var fetchAttempted = state.NextRetryUnixMilliseconds is null ||
@@ -231,14 +236,25 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
                 .Take(mailbox.BatchSize).Select(x => x.Id).ToListAsync(ct);
         }
 
+        using var phaseTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        phaseTimeout.CancelAfter(acknowledgmentPhaseBudget);
+        var phaseToken = phaseTimeout.Token;
         foreach (var id in ids)
         {
-            var work = await TryClaimAcknowledgmentAsync(mailbox, lease, id, ct);
+            AcknowledgmentWork? work;
+            try
+            {
+                work = await TryClaimAcknowledgmentAsync(mailbox, lease, id, phaseToken);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested && phaseToken.IsCancellationRequested)
+            {
+                break;
+            }
             if (work is null) continue;
             try
             {
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                timeout.CancelAfter(TimeSpan.FromSeconds(20));
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(phaseToken);
+                timeout.CancelAfter(acknowledgmentTimeout);
                 await adapter.AcknowledgeAsync(work.Mailbox, work.TransportKey, timeout.Token);
                 await CompleteAcknowledgmentAsync(work, ct);
             }
@@ -247,6 +263,13 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
                 await CompleteMissingAcknowledgmentAsync(work, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (OperationCanceledException)
+            {
+                logger.LogWarning("Mailbox {MailboxId} acknowledgment for receipt {ReceiptId} timed out.",
+                    mailbox.Id, id);
+                await ReleaseAcknowledgmentAsync(work, "AcknowledgmentTimeout", ct);
+                if (phaseToken.IsCancellationRequested) break;
+            }
             catch (Exception error)
             {
                 logger.LogWarning("Mailbox {MailboxId} acknowledgment for receipt {ReceiptId} failed ({FailureType}).",
@@ -254,6 +277,12 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
                 await ReleaseAcknowledgmentAsync(work, error.GetType().Name, ct);
             }
         }
+    }
+
+    private static TimeSpan ReadPositiveDuration(IConfiguration configuration, string key, TimeSpan fallback)
+    {
+        var configured = configuration.GetValue<TimeSpan?>(key);
+        return configured is { } duration && duration > TimeSpan.Zero ? duration : fallback;
     }
 
     private async Task<AcknowledgmentWork?> TryClaimAcknowledgmentAsync(EmailInboxSettings mailbox,
@@ -372,11 +401,17 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
                 var router = services.GetRequiredService<InboundTenantRouter>();
                 var isDeliveryFailure = InboundTicketProcessor.IsDeliveryFailureMessage(message);
                 var route = await router.ResolveAsync(mailbox, message, ct, isDeliveryFailure);
-                organizationId = route.OrganizationId;
+                var canEvaluateForwardedRoute = route.ForwardedCandidate?.OrganizationId is not null &&
+                    route.Reason is "RequesterOwnershipConflict" or "TenantUsesDedicatedMailbox";
+                organizationId = canEvaluateForwardedRoute
+                    ? route.ForwardedCandidate!.OrganizationId
+                    : route.OrganizationId;
                 receipt.OrganizationId = organizationId;
-                if (organizationId is not null) db.RestrictIngressToOrganization(organizationId);
+                if (route.Reason is null && organizationId is not null)
+                    db.RestrictIngressToOrganization(organizationId);
                 receipt.Reason = null;
-                if (route.Reason is not null) throw new InboundReceiptHoldException(route.Reason);
+                if (route.Reason is not null && !canEvaluateForwardedRoute)
+                    throw new InboundReceiptHoldException(route.Reason);
                 if (EmailAddressGuard.IsSameAddress(message.FromEmail, mailbox.MailboxAddress) || isDeliveryFailure)
                 {
                     receipt.Outcome = InboundReceiptOutcome.Ignored;
@@ -404,6 +439,8 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
                         throw new InboundReceiptHoldException(result.HoldReason ?? "RuleRequiresReview");
                     if (!result.Handled)
                     {
+                        if (route.Reason is not null)
+                            throw new InboundReceiptHoldException(route.Reason);
                         var customer = await router.GetRequesterAsync(route, ct);
                         db.RestrictIngressToOrganization(customer.OrganizationId);
                         message = message with { MailboxTenantId = customer.OrganizationId };
