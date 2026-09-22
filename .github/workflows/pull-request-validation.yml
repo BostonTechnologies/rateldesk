@@ -128,7 +128,8 @@ jobs:
       - name: Run local-only Playwright validation
         env:
           HELPDESK_E2E_AUTH_MODE: development
-        run: tools/ci/run-ux-local.sh
+          PLAYWRIGHT_HTML_OUTPUT_DIR: artifacts/e2e/main-report
+        run: tools/ci/run-ux-local.sh --output=artifacts/e2e/main-test-results
 
       - name: Run AI Assistant Playwright validation
         env:
