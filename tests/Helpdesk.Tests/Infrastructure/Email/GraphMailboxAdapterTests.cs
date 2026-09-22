@@ -1,9 +1,11 @@
 using System.Net;
 using System.Text;
+using Helpdesk.Application.Services.Email;
 using Helpdesk.Infrastructure.Email;
 using Helpdesk.Shared.Models;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Graph;
+using Microsoft.Kiota.Abstractions;
 using Microsoft.Kiota.Abstractions.Authentication;
 
 namespace Helpdesk.Tests.Infrastructure.Email;
@@ -109,6 +111,45 @@ public sealed class GraphMailboxAdapterTests
         Assert.Contains("Nested Graph body", Encoding.UTF8.GetString(attachment.ContentBytes!));
     }
 
+    [Fact]
+    public async Task Move_not_found_with_available_source_remains_retryable()
+    {
+        var transport = new MoveNotFoundTransport(HttpStatusCode.OK);
+        var adapter = CreateAdapter(transport);
+        var mailbox = new EmailInboxSettings
+        {
+            Id = Guid.NewGuid(), MailboxAddress = "support@example.test", MailboxFolder = "inbox",
+            MarkReadAfterSuccess = true, ProcessedFolder = "missing-destination"
+        };
+
+        var error = await Assert.ThrowsAnyAsync<ApiException>(() =>
+            adapter.AcknowledgeAsync(mailbox, "source-id", default));
+
+        Assert.Equal(404, error.ResponseStatusCode);
+        Assert.True(transport.MarkReadAttempted);
+        Assert.True(transport.MoveAttempted);
+        Assert.True(transport.SourceProbeAttempted);
+    }
+
+    [Fact]
+    public async Task Move_not_found_with_definitively_missing_source_is_terminal()
+    {
+        var transport = new MoveNotFoundTransport(HttpStatusCode.NotFound);
+        var adapter = CreateAdapter(transport);
+        var mailbox = new EmailInboxSettings
+        {
+            Id = Guid.NewGuid(), MailboxAddress = "support@example.test", MailboxFolder = "inbox",
+            MarkReadAfterSuccess = true, ProcessedFolder = "processed"
+        };
+
+        await Assert.ThrowsAsync<InboundSourceMissingException>(() =>
+            adapter.AcknowledgeAsync(mailbox, "source-id", default));
+
+        Assert.True(transport.MarkReadAttempted);
+        Assert.True(transport.MoveAttempted);
+        Assert.True(transport.SourceProbeAttempted);
+    }
+
     [Theory]
     [InlineData("http://graph.microsoft.com/v1.0/delta")]
     [InlineData("https://attacker.example.test/delta")]
@@ -166,6 +207,44 @@ public sealed class GraphMailboxAdapterTests
                     Encoding.UTF8, "application/json")
             });
         }
+    }
+
+    private sealed class MoveNotFoundTransport(HttpStatusCode sourceProbeStatus) : HttpMessageHandler
+    {
+        public bool MarkReadAttempted { get; private set; }
+        public bool MoveAttempted { get; private set; }
+        public bool SourceProbeAttempted { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (request.Method == HttpMethod.Patch)
+            {
+                MarkReadAttempted = true;
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NoContent));
+            }
+            if (path.EndsWith("/move", StringComparison.Ordinal))
+            {
+                MoveAttempted = true;
+                return Task.FromResult(Error(HttpStatusCode.NotFound, "ErrorItemNotFound"));
+            }
+            if (request.Method == HttpMethod.Get && path.EndsWith("/messages/source-id", StringComparison.Ordinal))
+            {
+                SourceProbeAttempted = true;
+                return Task.FromResult(sourceProbeStatus == HttpStatusCode.OK
+                    ? new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent("{\"id\":\"source-id\"}", Encoding.UTF8, "application/json")
+                    }
+                    : Error(sourceProbeStatus, "ErrorItemNotFound"));
+            }
+            throw new InvalidOperationException($"Unexpected Graph request: {request.Method} {request.RequestUri}");
+        }
+
+        private static HttpResponseMessage Error(HttpStatusCode status, string code) => new(status)
+        {
+            Content = new StringContent($"{{\"error\":{{\"code\":\"{code}\"}}}}", Encoding.UTF8, "application/json")
+        };
     }
 
     private sealed class GraphTransport : HttpMessageHandler
