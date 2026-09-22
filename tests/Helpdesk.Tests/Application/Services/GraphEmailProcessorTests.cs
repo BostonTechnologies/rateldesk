@@ -90,7 +90,7 @@ public class GraphEmailProcessorTests
             var storage = new Helpdesk.Infrastructure.Storage.InlineImageStorageService(Substitute.For<IHostEnvironment>(), options,
                 new Helpdesk.Infrastructure.Storage.ImageLinkSigner(options, NullLogger<Helpdesk.Infrastructure.Storage.ImageLinkSigner>.Instance),
                 NullLogger<Helpdesk.Infrastructure.Storage.InlineImageStorageService>.Instance);
-            var incident = new Incident { Id = "inc-783", TrackingId = "INC-783" };
+            var incident = new Incident { OrganizationId = "org", Id = "inc-783", TrackingId = "INC-783" };
             var repo = Substitute.For<IRepository<Incident>>();
             repo.GetAllAsync().Returns(Array.Empty<Incident>());
             var sender = Substitute.For<IRequestSender>();
@@ -143,7 +143,7 @@ public class GraphEmailProcessorTests
         var mediator = Substitute.For<IRequestSender>();
         var incidentRepo = Substitute.For<IRepository<Incident>>();
         incidentRepo.GetAllAsync().Returns(Task.FromResult<IEnumerable<Incident>>(Array.Empty<Incident>()));
-        var created = new Incident { Id = "1", TrackingId = "INC-NEW-1" };
+        var created = new Incident { OrganizationId = "org1", Id = "1", TrackingId = "INC-NEW-1" };
         CreateIncidentCommand? capturedCmd = null;
         mediator.Send(Arg.Do<CreateIncidentCommand>(c => capturedCmd = c), Arg.Any<CancellationToken>()).Returns(created);
         var tempRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
@@ -247,7 +247,7 @@ public class GraphEmailProcessorTests
     [Fact]
     public async Task ProcessIncidentAsync_AddsWorkLog_WhenReferenceExists()
     {
-        var existing = new Incident { Id = "2", TrackingId = "INC-EXIST-123" };
+        var existing = new Incident { OrganizationId = "org1", Id = "2", TrackingId = "INC-EXIST-123" };
         var incidentRepo = Substitute.For<IRepository<Incident>>();
         incidentRepo.GetAllAsync().Returns(Task.FromResult<IEnumerable<Incident>>(new[] { existing }));
         var mediator = Substitute.For<IRequestSender>();
@@ -336,7 +336,7 @@ public class GraphEmailProcessorTests
     public async Task ProcessIncidentAsync_IgnoresReferencedMarketingSpamTicket()
     {
         var existing = new Incident
-        {
+        { OrganizationId = "org1",
             Id = "spam-incident",
             TrackingId = "INC-SPAM-123",
             State = TicketState.Resolved,
@@ -390,9 +390,9 @@ public class GraphEmailProcessorTests
     [Fact]
     public async Task ProcessIncidentAsync_ReturnsExistingIncident_WhenInboundMessageAlreadyRecorded()
     {
-        var existing = new Incident { Id = "2", TrackingId = "INC-EXIST-123" };
+        var existing = new Incident { OrganizationId = "org1", Id = "2", TrackingId = "INC-EXIST-123" };
         var incidentRepo = Substitute.For<IRepository<Incident>>();
-        incidentRepo.GetAllAsync().Returns(Task.FromResult<IEnumerable<Incident>>(Array.Empty<Incident>()));
+        incidentRepo.GetAllAsync().Returns(Task.FromResult<IEnumerable<Incident>>(new[] { existing }));
         incidentRepo.GetAsync(existing.Id).Returns(existing);
 
         var timelineRepo = Substitute.For<IRepository<TicketTimelineEvent>>();
@@ -435,7 +435,7 @@ public class GraphEmailProcessorTests
     [Fact]
     public async Task ProcessIncidentAsync_DoesNotAddDuplicateWorkLog_WhenMessageIdAlreadyProcessed()
     {
-        var existing = new Incident { Id = "2", TrackingId = "INC-EXIST-123" };
+        var existing = new Incident { OrganizationId = "org1", Id = "2", TrackingId = "INC-EXIST-123" };
         var incidentRepo = Substitute.For<IRepository<Incident>>();
         incidentRepo.GetAllAsync().Returns(Task.FromResult<IEnumerable<Incident>>(new[] { existing }));
 
@@ -493,7 +493,7 @@ public class GraphEmailProcessorTests
     [Fact]
     public async Task ProcessTicketEmailAsync_AddsWorkLog_WhenRequestReferenceExists()
     {
-        var existing = new Helpdesk.Shared.Models.Request { Id = "req-1", TrackingId = "REQ-Y2P-J6C-H3K" };
+        var existing = new Helpdesk.Shared.Models.Request { OrganizationId = "org1", Id = "req-1", TrackingId = "REQ-Y2P-J6C-H3K" };
         var ticketRepo = Substitute.For<IRepository<Ticket>>();
         ticketRepo.GetAllAsync().Returns(Task.FromResult<IEnumerable<Ticket>>(new[] { existing }));
         ticketRepo.GetAsync(existing.Id).Returns(existing);
@@ -570,7 +570,7 @@ public class GraphEmailProcessorTests
     [Fact]
     public async Task ProcessTicketEmailAsync_DoesNotAddDuplicateRequestWorkLog_WhenMessageIdAlreadyProcessed()
     {
-        var existing = new Helpdesk.Shared.Models.Request { Id = "req-1", TrackingId = "REQ-DUP-123" };
+        var existing = new Helpdesk.Shared.Models.Request { OrganizationId = "org1", Id = "req-1", TrackingId = "REQ-DUP-123" };
         var ticketRepo = Substitute.For<IRepository<Ticket>>();
         ticketRepo.GetAllAsync().Returns(Task.FromResult<IEnumerable<Ticket>>(new[] { existing }));
         ticketRepo.GetAsync(existing.Id).Returns(existing);
@@ -623,7 +623,7 @@ public class GraphEmailProcessorTests
 
         var incidentRepo = Substitute.For<IRepository<Incident>>();
         incidentRepo.GetAllAsync().Returns(Task.FromResult<IEnumerable<Incident>>(Array.Empty<Incident>()));
-        var created = new Incident { Id = "inc-1", TrackingId = "INC-NEW-1" };
+        var created = new Incident { OrganizationId = "org1", Id = "inc-1", TrackingId = "INC-NEW-1" };
         var mediator = Substitute.For<IRequestSender>();
         mediator.Send(Arg.Any<CreateIncidentCommand>(), Arg.Any<CancellationToken>()).Returns(created);
         var timelineRepo = Substitute.For<IRepository<TicketTimelineEvent>>();
@@ -653,7 +653,7 @@ public class GraphEmailProcessorTests
     [Fact]
     public async Task ProcessTicketEmailAsync_MatchesRequestReference_CaseInsensitively()
     {
-        var existing = new Helpdesk.Shared.Models.Request { Id = "req-1", TrackingId = "REQ-LOW-123" };
+        var existing = new Helpdesk.Shared.Models.Request { OrganizationId = "org1", Id = "req-1", TrackingId = "REQ-LOW-123" };
         var ticketRepo = Substitute.For<IRepository<Ticket>>();
         ticketRepo.GetAllAsync().Returns(Task.FromResult<IEnumerable<Ticket>>(new[] { existing }));
         ticketRepo.GetAsync(existing.Id).Returns(existing);
@@ -691,7 +691,7 @@ public class GraphEmailProcessorTests
     [Fact]
     public async Task ProcessTicketEmailAsync_IgnoresDsnBounce_ForResolvedIncident()
     {
-        var existing = new Incident { Id = "inc-1", TrackingId = "INC-BOUNCE-1", State = TicketState.Resolved };
+        var existing = new Incident { OrganizationId = "org1", Id = "inc-1", TrackingId = "INC-BOUNCE-1", State = TicketState.Resolved };
         var incidentRepo = Substitute.For<IRepository<Incident>>();
         incidentRepo.GetAllAsync().Returns(Task.FromResult<IEnumerable<Incident>>(new[] { existing }));
         var mediator = Substitute.For<IRequestSender>();
@@ -726,7 +726,7 @@ public class GraphEmailProcessorTests
     [Fact]
     public async Task ProcessTicketEmailAsync_IgnoresDsnBounce_ForOpenIncident()
     {
-        var existing = new Incident { Id = "inc-1", TrackingId = "INC-OPEN-1", State = TicketState.InProgress };
+        var existing = new Incident { OrganizationId = "org1", Id = "inc-1", TrackingId = "INC-OPEN-1", State = TicketState.InProgress };
         var incidentRepo = Substitute.For<IRepository<Incident>>();
         incidentRepo.GetAllAsync().Returns(Task.FromResult<IEnumerable<Incident>>(new[] { existing }));
         var mediator = Substitute.For<IRequestSender>();
@@ -753,7 +753,7 @@ public class GraphEmailProcessorTests
     [Fact]
     public async Task ProcessTicketEmailAsync_IgnoresDsnBounce_ForRequestReference()
     {
-        var existing = new Helpdesk.Shared.Models.Request { Id = "req-1", TrackingId = "REQ-BOUNCE-1", State = TicketState.OnHold };
+        var existing = new Helpdesk.Shared.Models.Request { OrganizationId = "org1", Id = "req-1", TrackingId = "REQ-BOUNCE-1", State = TicketState.OnHold };
         var ticketRepo = Substitute.For<IRepository<Ticket>>();
         ticketRepo.GetAllAsync().Returns(Task.FromResult<IEnumerable<Ticket>>(new[] { existing }));
         var incidentRepo = Substitute.For<IRepository<Incident>>();
@@ -813,7 +813,7 @@ public class GraphEmailProcessorTests
     [Fact]
     public async Task ProcessTicketEmailAsync_CustomerForwardedUndeliverableSubject_ProcessesNormally()
     {
-        var existing = new Incident { Id = "inc-1", TrackingId = "INC-CUSTOMER-1", State = TicketState.Resolved };
+        var existing = new Incident { OrganizationId = "org1", Id = "inc-1", TrackingId = "INC-CUSTOMER-1", State = TicketState.Resolved };
         var incidentRepo = Substitute.For<IRepository<Incident>>();
         incidentRepo.GetAllAsync().Returns(Task.FromResult<IEnumerable<Incident>>(new[] { existing }));
         var mediator = Substitute.For<IRequestSender>();
@@ -858,8 +858,8 @@ public class GraphEmailProcessorTests
     [Fact]
     public async Task ProcessTicketEmailAsync_DsnBounceWithMultipleReferences_DoesNotMutateTickets()
     {
-        var first = new Incident { Id = "inc-1", TrackingId = "INC-MULTI-1", State = TicketState.Resolved };
-        var second = new Incident { Id = "inc-2", TrackingId = "INC-MULTI-2", State = TicketState.InProgress };
+        var first = new Incident { OrganizationId = "org1", Id = "inc-1", TrackingId = "INC-MULTI-1", State = TicketState.Resolved };
+        var second = new Incident { OrganizationId = "org1", Id = "inc-2", TrackingId = "INC-MULTI-2", State = TicketState.InProgress };
         var incidentRepo = Substitute.For<IRepository<Incident>>();
         incidentRepo.GetAllAsync().Returns(Task.FromResult<IEnumerable<Incident>>(new[] { first, second }));
         var mediator = Substitute.For<IRequestSender>();
@@ -888,7 +888,7 @@ public class GraphEmailProcessorTests
     [Fact]
     public async Task ProcessTicketEmailAsync_DsnBounceDuplicateMessage_HasNoRepeatedSideEffects()
     {
-        var existing = new Incident { Id = "inc-1", TrackingId = "INC-DUP-DSN", State = TicketState.Resolved };
+        var existing = new Incident { OrganizationId = "org1", Id = "inc-1", TrackingId = "INC-DUP-DSN", State = TicketState.Resolved };
         var incidentRepo = Substitute.For<IRepository<Incident>>();
         incidentRepo.GetAllAsync().Returns(Task.FromResult<IEnumerable<Incident>>(new[] { existing }));
         var mediator = Substitute.For<IRequestSender>();

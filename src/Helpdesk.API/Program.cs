@@ -431,7 +431,7 @@ builder.Services.AddSingleton<IBackgroundJobQueue, BackgroundJobQueue>();
 if (!skipDatabaseStartup)
 {
     builder.Services.AddHostedService<BackgroundJobRunner>();
-    builder.Services.AddHostedService<EmailIngestionWorker>();
+    builder.Services.AddHostedService<Helpdesk.Infrastructure.Email.MailboxIngestionCoordinator>();
 }
 builder.Services.AddScoped<ISelfServiceAudienceService, SelfServiceAudienceService>();
 
@@ -458,7 +458,7 @@ builder.Services.AddOptions<NotificationFeatureOptions>()
 builder.Services.AddSingleton<AppServices.Email.IImapEmailService, AppServices.Email.ImapEmailService>();
 if (!skipDatabaseStartup)
 {
-    builder.Services.AddHostedService(provider => (AppServices.Email.ImapEmailService)provider.GetRequiredService<AppServices.Email.IImapEmailService>());
+    // Canonical mailbox coordinator owns every inbound connection.
 }
 
 
@@ -1092,28 +1092,8 @@ if (!skipDatabaseStartup)
         await SlaPolicySeed.SeedAsync(ctx);
         await RoleDefinitionSeeder.EnsureBuiltInsAsync(ctx);
 
-        var legacy = app.Configuration.GetSection("ExchangeEmail").Get<ExchangeEmailOptions>();
-        if (legacy?.MailboxAddress?.Length > 0 &&
-            !await ctx.EmailInboxSettings.AnyAsync(e => e.MailboxAddress == legacy.MailboxAddress))
-        {
-            ctx.EmailInboxSettings.Add(new EmailInboxSettings
-            {
-                Id = Guid.NewGuid(),
-                MailHost = "outlook.office365.com",
-                Port = 993,
-                UseSsl = true,
-                MailboxAddress = legacy.MailboxAddress!,
-                TenantId = legacy.TenantId!,
-                ClientId = legacy.ClientId!,
-                ClientSecret = legacy.ClientSecret!,
-                Enabled = false,
-                BackgroundSyncEnabled = false,
-                CreatedAt = DateTimeOffset.UtcNow,
-                UpdatedAt = DateTimeOffset.UtcNow
-            });
-            await ctx.SaveChangesAsync();
-            app.Logger.LogWarning("Imported legacy Exchange settings into DB for {Mailbox}. Processing remains DISABLED until enabled in UI.", legacy.MailboxAddress);
-        }
+        await scope.ServiceProvider.GetRequiredService<Helpdesk.Infrastructure.Email.MailboxConfigurationMigration>()
+            .RunAsync(CancellationToken.None);
     }
 }
 else

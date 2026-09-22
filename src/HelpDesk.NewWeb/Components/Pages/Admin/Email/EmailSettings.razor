@@ -1,6 +1,7 @@
 @page "/admin/email-settings"
 @attribute [Authorize(Roles = "HelpdeskAdmin")]
 @using System.Net.Http.Json
+@using System.Text.Json
 @implements IDisposable
 @inject IHttpClientFactory HttpClientFactory
 @inject IJSRuntime JS
@@ -33,28 +34,80 @@
     }
     else
     {
+        <MudPaper Class="pa-4 mb-4" Outlined="true">
+            <MudText Typo="Typo.h6">Global mailbox and tenant overrides</MudText>
+            <MudText>@(organizations.Count(x => x.Status == "Inherited global")) organizations inherit the global connection.</MudText>
+            <MudSelect T="Guid" Label="Selected mailbox" Value="model.Id" ValueChanged="SelectMailboxAsync" Disabled="@mutationsDisabled">
+                <MudSelectItem T="Guid" Value="Guid.Empty">New mailbox</MudSelectItem>
+                @foreach (var mailbox in mailboxes.Where(x => !x.Archived))
+                {
+                    <MudSelectItem T="Guid" Value="mailbox.Id">@mailbox.DisplayName — @mailbox.MailboxAddress (@(mailbox.Scope == MailboxScope.Global ? "Instance-global" : "Dedicated"), @mailbox.Provider)</MudSelectItem>
+                }
+            </MudSelect>
+            <MudButton OnClick="() => NewMailboxAsync(MailboxScope.Global)" Disabled="@(mutationsDisabled || mailboxes.Any(x => !x.Archived && x.Scope == MailboxScope.Global))">Add global mailbox</MudButton>
+            <MudButton OnClick="() => NewMailboxAsync(MailboxScope.Organization)" Disabled="@mutationsDisabled">Add tenant override</MudButton>
+            @if (model.Id != Guid.Empty)
+            {
+                <MudButton OnClick="ArchiveAsync" Disabled="@mutationsDisabled">@(model.Scope == MailboxScope.Organization ? "Revert to global mailbox" : "Archive global mailbox")</MudButton>
+                <MudButton Href="@($"/admin/email-settings/{model.Id}/ingestion")">Inbound diagnostics</MudButton>
+                <MudButton Href="@($"/admin/email-rules?mailboxId={model.Id}")">Mailbox rules</MudButton>
+            }
+            <MudText Typo="Typo.caption">Pausing a dedicated mailbox keeps its assignment. Revert explicitly to inherit the global connection.</MudText>
+        </MudPaper>
         <MudForm @ref="form" Model="model">
+            <MudTextField Label="Mailbox display name" @bind-Value="model.DisplayName" @bind-Value:after="MarkDirty" Immediate="true" Disabled="@mutationsDisabled" />
+            <MudSelect T="MailboxScope" Label="Assignment" @bind-Value="model.Scope" @bind-Value:after="MarkDirty" Disabled="@(mutationsDisabled || model.Id != Guid.Empty)">
+                <MudSelectItem Value="MailboxScope.Global">Instance-global mailbox</MudSelectItem>
+                <MudSelectItem Value="MailboxScope.Organization">Dedicated tenant mailbox</MudSelectItem>
+            </MudSelect>
+            @if (model.Scope == MailboxScope.Organization)
+            {
+                <MudTextField Label="Search organizations" @bind-Value="organizationSearch" Immediate="true" />
+                <MudSelect T="string" Label="RatelDesk organization" @bind-Value="model.OrganizationId" @bind-Value:after="MarkDirty" Required="true" Disabled="@(mutationsDisabled || model.Id != Guid.Empty)">
+                    @foreach (var org in organizations.Where(x => x.Name.Contains(organizationSearch, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        <MudSelectItem Value="org.Id">@org.Name — @org.Status</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            <MudSelect T="InboundMailboxProvider" Label="Inbound provider" @bind-Value="model.Provider" @bind-Value:after="ProviderChanged" Disabled="@(mutationsDisabled || model.Id != Guid.Empty)">
+                <MudSelectItem Value="InboundMailboxProvider.Graph">Microsoft 365 — Microsoft Graph</MudSelectItem>
+                <MudSelectItem Value="InboundMailboxProvider.Imap">IMAP</MudSelectItem>
+                <MudSelectItem Value="InboundMailboxProvider.Pop3">POP3</MudSelectItem>
+            </MudSelect>
+            @if (model.Id != Guid.Empty)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true">Source and organization changes require archiving this connection and creating a new one. Historical receipts are retained.</MudAlert>
+            }
+
             <MudGrid Spacing="3" Class="mt-1">
                 <MudItem xs="12" md="6">
                     <MudPaper Class="pa-4 h-100" Outlined="true">
                         <MudText Typo="Typo.h6" HtmlTag="h2">Mailbox connection</MudText>
                         <MudText Typo="Typo.caption" Class="d-block mb-3">Connection details used to read incoming mail.</MudText>
                         <MudGrid Spacing="2">
-                            <MudItem xs="12" sm="8">
-                                <MudTextField Label="Mail host" @bind-Value="model.MailHost" @bind-Value:after="MarkDirty" Required="true" Immediate="true" Disabled="@mutationsDisabled" />
-                            </MudItem>
-                            <MudItem xs="12" sm="4">
-                                <MudNumericField T="int" Label="Port" @bind-Value="model.Port" @bind-Value:after="MarkDirty" Min="1" Max="65535" Required="true" Immediate="true" Disabled="@mutationsDisabled" Validation="ValidatePort" />
-                            </MudItem>
-                            <MudItem xs="12" sm="4" Class="d-flex align-center">
-                                <MudCheckBox T="bool" Label="Use SSL" @bind-Value="model.UseSsl" @bind-Value:after="MarkDirty" Disabled="@mutationsDisabled" />
-                            </MudItem>
+                            @if (model.Provider != InboundMailboxProvider.Graph)
+                            {
+                                <MudItem xs="12" sm="8"><MudTextField Label="Mail host" @bind-Value="model.MailHost" @bind-Value:after="MarkDirty" Required="true" Immediate="true" Disabled="@mutationsDisabled" /></MudItem>
+                                <MudItem xs="12" sm="4"><MudNumericField T="int" Label="Port" @bind-Value="model.Port" @bind-Value:after="MarkDirty" Min="1" Max="65535" Disabled="@mutationsDisabled" /></MudItem>
+                                <MudItem xs="12"><MudSelect T="MailboxTlsMode" Label="Required TLS" @bind-Value="model.TlsMode" @bind-Value:after="MarkDirty">
+                                    <MudSelectItem Value="MailboxTlsMode.TlsOnConnect">TLS on connect</MudSelectItem>
+                                    <MudSelectItem Value="MailboxTlsMode.StartTls">Mandatory STARTTLS</MudSelectItem>
+                                </MudSelect></MudItem>
+                            }
                             <MudItem xs="12" sm="8">
                                 <MudTextField Label="Mailbox address" @bind-Value="model.MailboxAddress" @bind-Value:after="MarkDirty" Required="true" Immediate="true" Disabled="@mutationsDisabled" Validation="ValidateMailboxAddress" />
                             </MudItem>
+                            @if (model.Provider != InboundMailboxProvider.Pop3)
+                            {
                             <MudItem xs="12">
                                 <MudTextField Label="Mailbox folder" @bind-Value="model.MailboxFolder" @bind-Value:after="MarkDirty" Immediate="true" Disabled="@mutationsDisabled" />
                             </MudItem>
+                            }
+                            else
+                            {
+                                <MudItem xs="12"><MudAlert Severity="Severity.Info">POP3 keeps messages on the server. UIDL receipts prevent replay. Manage server retention separately.</MudAlert></MudItem>
+                            }
                         </MudGrid>
                     </MudPaper>
                 </MudItem>
@@ -63,10 +116,33 @@
                     <MudPaper Class="pa-4 h-100" Outlined="true">
                         <MudText Typo="Typo.h6" HtmlTag="h2">Provider credentials</MudText>
                         <MudText Typo="Typo.caption" Class="d-block mb-3">These identify the mail provider; Tenant ID is not a RatelDesk organization selection.</MudText>
+                        @if (model.Provider != InboundMailboxProvider.Graph)
+                        {
+                            <MudSelect T="MailboxAuthentication" Label="Authentication" @bind-Value="model.Authentication" @bind-Value:after="MarkDirty">
+                                <MudSelectItem Value="MailboxAuthentication.Password">Username and password/app password</MudSelectItem>
+                                <MudSelectItem Value="MailboxAuthentication.MicrosoftApplication">Microsoft OAuth application</MudSelectItem>
+                            </MudSelect>
+                        }
+                        @if (model.Authentication == MailboxAuthentication.Password)
+                        {
+                            <MudTextField Label="Protocol username" @bind-Value="model.Username" @bind-Value:after="MarkDirty" autocomplete="off" />
+                            <MudTextField Label="Protocol password" @bind-Value="model.Password" @bind-Value:after="MarkDirty" InputType="InputType.Password" autocomplete="new-password" />
+                            @if (model.HasPassword)
+                            {
+                                <MudCheckBox T="bool" Label="Clear saved password" @bind-Value="model.ClearPassword" @bind-Value:after="MarkDirty" Disabled="@(mutationsDisabled || model.Enabled)" />
+                            }
+                            <MudText Typo="Typo.caption">@(model.HasPassword ? "Password configured; leave blank to retain." : "No password configured.") Password authentication must be permitted by your mail server.</MudText>
+                        }
+                        else
+                        {
                         <MudStack Spacing="2">
-                            <MudTextField Label="Provider Tenant ID" @bind-Value="model.TenantId" @bind-Value:after="MarkDirty" Immediate="true" Disabled="@mutationsDisabled" />
+                            <MudTextField Label="Microsoft directory / provider tenant ID" @bind-Value="model.TenantId" @bind-Value:after="MarkDirty" Immediate="true" Disabled="@mutationsDisabled" />
                             <MudTextField Label="Client ID" @bind-Value="model.ClientId" @bind-Value:after="MarkDirty" Immediate="true" Disabled="@mutationsDisabled" />
                             <MudTextField Label="Client secret" @bind-Value="model.ClientSecret" @bind-Value:after="MarkDirty" Immediate="true" Disabled="@mutationsDisabled" Placeholder="Leave blank to keep the existing secret" InputType="InputType.Password" />
+                            @if (model.HasClientSecret)
+                            {
+                                <MudCheckBox T="bool" Label="Clear saved client secret" @bind-Value="model.ClearClientSecret" @bind-Value:after="MarkDirty" Disabled="@(mutationsDisabled || model.Enabled)" />
+                            }
                             <MudText Typo="Typo.caption" Class="text-secondary">
                                 @if (model.HasClientSecret)
                                 {
@@ -78,6 +154,7 @@
                                 }
                             </MudText>
                         </MudStack>
+                        }
                     </MudPaper>
                 </MudItem>
 
@@ -93,6 +170,15 @@
                                 <MudSwitch T="bool" Label="Background ingestion enabled" @bind-Value="model.BackgroundSyncEnabled" @bind-Value:after="MarkDirty" Color="Color.Primary" Disabled="@mutationsDisabled" />
                             </MudItem>
                         </MudGrid>
+                        <MudGrid Spacing="2" Class="mt-2">
+                            <MudItem xs="12" sm="6"><MudNumericField T="int" Label="Poll interval (seconds)" @bind-Value="model.PollIntervalSeconds" @bind-Value:after="MarkDirty" Min="10" Max="300" Disabled="@mutationsDisabled" /></MudItem>
+                            <MudItem xs="12" sm="6"><MudNumericField T="int" Label="Messages per poll" @bind-Value="model.BatchSize" @bind-Value:after="MarkDirty" Min="1" Max="100" Disabled="@mutationsDisabled" /></MudItem>
+                            @if (model.Provider != InboundMailboxProvider.Pop3)
+                            {
+                                <MudItem xs="12" sm="6"><MudSwitch T="bool" Label="Mark read after success" @bind-Value="model.MarkReadAfterSuccess" @bind-Value:after="MarkDirty" Disabled="@mutationsDisabled" /></MudItem>
+                                <MudItem xs="12" sm="6"><MudTextField Label="Processed folder (optional)" @bind-Value="model.ProcessedFolder" @bind-Value:after="MarkDirty" Immediate="true" Disabled="@mutationsDisabled" HelperText="IMAP requires MOVE capability; leave empty to retain messages in the source folder." /></MudItem>
+                            }
+                        </MudGrid>
                         @if (!model.Enabled)
                         {
                             <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mt-3">This mailbox is disabled. No email will be ingested until it is enabled and saved.</MudAlert>
@@ -105,6 +191,15 @@
                 </MudItem>
             </MudGrid>
 
+            <MudSelect T="InitialMailImport" Label="Initial import" @bind-Value="model.InitialImport" @bind-Value:after="MarkDirty" Disabled="@(mutationsDisabled || model.Id != Guid.Empty)">
+                <MudSelectItem Value="InitialMailImport.NewOnly">New messages only</MudSelectItem>
+                @if (model.Provider != InboundMailboxProvider.Pop3) { <MudSelectItem Value="InitialMailImport.ExistingUnread">Existing unread messages</MudSelectItem> }
+                <MudSelectItem Value="InitialMailImport.All">Import existing messages</MudSelectItem>
+            </MudSelect>
+            @if (model.Id == Guid.Empty && model.InitialImport != InitialMailImport.NewOnly)
+            {
+                <MudCheckBox T="bool" Label="I confirm importing existing messages may create tickets" @bind-Value="model.ConfirmExistingImport" @bind-Value:after="MarkDirty" />
+            }
             @if (testResult is not null)
             {
                 <MudAlert Class="mt-4" Severity="@(testResult.Success ? Severity.Success : Severity.Error)" Variant="Variant.Outlined">
@@ -135,6 +230,10 @@
 
 @code {
     private readonly CancellationTokenSource disposeCts = new();
+    private List<EmailInboxSettingsDto> mailboxes = [];
+    private List<EffectiveOrganization> organizations = [];
+    private string organizationSearch = string.Empty;
+    private sealed record EffectiveOrganization(string Id, string Name, Guid? MailboxId, string Status);
     private MudForm form = default!;
     private EmailInboxSettingsForm model = new();
     private EmailInboxSettingsForm? savedBaseline;
@@ -165,7 +264,10 @@
         try
         {
             var settings = await HelpdeskApi.GetFromJsonAsync<List<EmailInboxSettingsDto>>("/api/v1/email-settings", disposeCts.Token);
-            model = settings is { Count: > 0 } ? EmailInboxSettingsForm.FromDto(settings[0]) : new EmailInboxSettingsForm();
+            mailboxes = settings ?? [];
+            organizations = await HelpdeskApi.GetFromJsonAsync<List<EffectiveOrganization>>("/api/v1/email-settings/effective", disposeCts.Token) ?? [];
+            var global = mailboxes.SingleOrDefault(x => !x.Archived && x.Scope == MailboxScope.Global);
+            model = global is null ? new EmailInboxSettingsForm() : EmailInboxSettingsForm.FromDto(global);
             savedBaseline = model.Clone();
             isDirty = false;
             loaded = true;
@@ -219,6 +321,9 @@
                 return;
             }
 
+            mailboxes.RemoveAll(x => x.Id == saved.Id);
+            mailboxes.Add(saved);
+            organizations = await HelpdeskApi.GetFromJsonAsync<List<EffectiveOrganization>>("/api/v1/email-settings/effective", disposeCts.Token) ?? [];
             model = EmailInboxSettingsForm.FromDto(saved);
             savedBaseline = model.Clone();
             isDirty = false;
@@ -262,8 +367,8 @@
             if (response.IsSuccessStatusCode)
             {
                 var result = await response.Content.ReadFromJsonAsync<ConnectionTestResponse>(disposeCts.Token);
-                testResult = new(true, result?.Message ?? "Connection test passed.");
-                Snackbar.Add("Mailbox connection test passed.", Severity.Success);
+                testResult = new(result?.Success == true, result?.Message ?? "Connection test did not return a result.");
+                Snackbar.Add(testResult.Message, testResult.Success ? Severity.Success : Severity.Error);
             }
             else
             {
@@ -338,20 +443,37 @@
         testResult = null;
     }
 
-    private EmailInboxSettings BuildPayload() => new()
+    private MailboxSettingsRequest BuildPayload() => JsonSerializer.Deserialize<MailboxSettingsRequest>(JsonSerializer.Serialize(model))!;
+
+    private async Task SelectMailboxAsync(Guid id)
     {
-        Id = model.Id,
-        MailHost = model.MailHost,
-        Port = model.Port,
-        UseSsl = model.UseSsl,
-        MailboxAddress = model.MailboxAddress,
-        TenantId = model.TenantId,
-        ClientId = model.ClientId,
-        ClientSecret = string.IsNullOrWhiteSpace(model.ClientSecret) ? null : model.ClientSecret,
-        MailboxFolder = model.MailboxFolder,
-        Enabled = model.Enabled,
-        BackgroundSyncEnabled = model.BackgroundSyncEnabled
-    };
+        if (isDirty && !await JS.InvokeAsync<bool>("confirm", "Discard unsaved mailbox changes?")) return;
+        model = id == Guid.Empty ? new() : EmailInboxSettingsForm.FromDto(mailboxes.Single(x => x.Id == id));
+        savedBaseline = model.Clone(); isDirty = false; testResult = null;
+    }
+    private async Task NewMailboxAsync(MailboxScope scope)
+    {
+        await SelectMailboxAsync(Guid.Empty);
+        if (model.Id != Guid.Empty || isDirty) return;
+        model.Scope = scope; savedBaseline = model.Clone();
+    }
+    private void ProviderChanged()
+    {
+        model.Authentication = model.Provider == InboundMailboxProvider.Graph ? MailboxAuthentication.MicrosoftApplication : MailboxAuthentication.Password;
+        model.Port = model.Provider == InboundMailboxProvider.Pop3 ? 995 : 993;
+        model.MarkReadAfterSuccess = model.Provider != InboundMailboxProvider.Pop3;
+        model.MailboxFolder = model.Provider == InboundMailboxProvider.Pop3 ? string.Empty : "inbox";
+        model.InitialImport = InitialMailImport.NewOnly;
+        model.ClientSecret = model.Password = string.Empty;
+        MarkDirty();
+    }
+    private async Task ArchiveAsync()
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Archive this assignment? A dedicated tenant will explicitly revert to the global mailbox. Historical receipts are retained.")) return;
+        using var response = await HelpdeskApi.PostAsJsonAsync($"/api/v1/email-settings/{model.Id}/archive", new { model.Version, Confirmed = true }, disposeCts.Token);
+        if (response.IsSuccessStatusCode) await LoadAsync();
+        else Snackbar.Add("Assignment changed; reload before retrying.", Severity.Error);
+    }
 
     private static IEnumerable<string> ValidatePort(int port)
         => port is >= 1 and <= 65535 ? [] : ["Enter a port between 1 and 65535."];
@@ -370,63 +492,41 @@
 
     private sealed class EmailInboxSettingsForm
     {
-        public Guid Id { get; set; }
-        public string MailHost { get; set; } = "outlook.office365.com";
-        public int Port { get; set; } = 993;
-        public bool UseSsl { get; set; } = true;
-        public string MailboxAddress { get; set; } = string.Empty;
-        public string? TenantId { get; set; }
-        public string? ClientId { get; set; }
-        public string? ClientSecret { get; set; }
-        public string MailboxFolder { get; set; } = "INBOX";
-        public bool Enabled { get; set; }
-        public bool BackgroundSyncEnabled { get; set; }
+
+    public string DisplayName { get; set; } = string.Empty;
+    public InboundMailboxProvider Provider { get; set; } = InboundMailboxProvider.Graph;
+    public MailboxAuthentication Authentication { get; set; } = MailboxAuthentication.MicrosoftApplication;
+    public MailboxScope Scope { get; set; } = MailboxScope.Global;
+    public string? OrganizationId { get; set; }
+    public long Version { get; set; } = 1;
+    public string Username { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
+    public bool ClearPassword { get; set; }
+    public bool ClearClientSecret { get; set; }
+    public bool ConfirmExistingImport { get; set; }
+    public InitialMailImport InitialImport { get; set; } = InitialMailImport.NewOnly;
+    public MailboxTlsMode TlsMode { get; set; } = MailboxTlsMode.TlsOnConnect;
+    public string? ProcessedFolder { get; set; }
+    public bool MarkReadAfterSuccess { get; set; } = true;
+    public int PollIntervalSeconds { get; set; } = 30;
+    public int BatchSize { get; set; } = 25;
+
+    public Guid Id { get; set; }
+    public string MailHost { get; set; } = string.Empty;
+    public int Port { get; set; } = 993;
+    public bool UseSsl { get; set; } = true;
+    public string MailboxAddress { get; set; } = string.Empty;
+    public string TenantId { get; set; } = string.Empty;
+    public string ClientId { get; set; } = string.Empty;
+    public string ClientSecret { get; set; } = string.Empty;
+    public string MailboxFolder { get; set; } = "INBOX";
+    public bool Enabled { get; set; } = false;
+    public bool BackgroundSyncEnabled { get; set; } = false;
         public bool HasClientSecret { get; set; }
-
-        public static EmailInboxSettingsForm FromDto(EmailInboxSettingsDto dto) => new()
-        {
-            Id = dto.Id,
-            MailHost = dto.MailHost,
-            Port = dto.Port,
-            UseSsl = dto.UseSsl,
-            MailboxAddress = dto.MailboxAddress,
-            TenantId = dto.TenantId,
-            ClientId = dto.ClientId,
-            MailboxFolder = dto.MailboxFolder,
-            Enabled = dto.Enabled,
-            BackgroundSyncEnabled = dto.BackgroundSyncEnabled,
-            HasClientSecret = dto.HasClientSecret
-        };
-
-        public EmailInboxSettingsForm Clone() => new()
-        {
-            Id = Id,
-            MailHost = MailHost,
-            Port = Port,
-            UseSsl = UseSsl,
-            MailboxAddress = MailboxAddress,
-            TenantId = TenantId,
-            ClientId = ClientId,
-            ClientSecret = ClientSecret,
-            MailboxFolder = MailboxFolder,
-            Enabled = Enabled,
-            BackgroundSyncEnabled = BackgroundSyncEnabled,
-            HasClientSecret = HasClientSecret
-        };
-
-        public bool Matches(EmailInboxSettingsForm other) =>
-            Id == other.Id &&
-            MailHost == other.MailHost &&
-            Port == other.Port &&
-            UseSsl == other.UseSsl &&
-            MailboxAddress == other.MailboxAddress &&
-            TenantId == other.TenantId &&
-            ClientId == other.ClientId &&
-            ClientSecret == other.ClientSecret &&
-            MailboxFolder == other.MailboxFolder &&
-            Enabled == other.Enabled &&
-            BackgroundSyncEnabled == other.BackgroundSyncEnabled &&
-            HasClientSecret == other.HasClientSecret;
+        public bool HasPassword { get; set; }
+        public static EmailInboxSettingsForm FromDto(EmailInboxSettingsDto dto) => JsonSerializer.Deserialize<EmailInboxSettingsForm>(JsonSerializer.Serialize(dto))!;
+        public EmailInboxSettingsForm Clone() => (EmailInboxSettingsForm)MemberwiseClone();
+        public bool Matches(EmailInboxSettingsForm other) => JsonSerializer.Serialize(this) == JsonSerializer.Serialize(other);
     }
 
     private sealed record ConnectionTestResult(bool Success, string Message);

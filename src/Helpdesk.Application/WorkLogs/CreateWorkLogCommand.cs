@@ -70,7 +70,8 @@ public class CreateWorkLogCommandHandler(
     ITicketSlaService? ticketSlaService = null,
     ISlaEscalationEvaluator? slaEscalationEvaluator = null,
     ITicketSlaRepository? ticketSlaRepository = null,
-    ILogger<CreateWorkLogCommandHandler>? logger = null) : IRequestHandler<CreateWorkLogCommand, WorkLog>
+    ILogger<CreateWorkLogCommandHandler>? logger = null,
+    IIngressEffectContext? ingressEffects = null) : IRequestHandler<CreateWorkLogCommand, WorkLog>
 {
     private readonly ITicketSlaService? _ticketSlaService = ticketSlaService;
     private readonly ISlaEscalationEvaluator? _slaEscalationEvaluator = slaEscalationEvaluator;
@@ -315,16 +316,31 @@ public class CreateWorkLogCommandHandler(
                     try
                     {
                         var started = DateTimeOffset.UtcNow;
-                        var sent = await emailService.SendEmailAsync(
-                            new[] { primaryRecipient },
-                            subject,
-                            body,
-                            ccFinal.Count > 0 ? ccFinal : null,
-                            cancellationToken,
-                            request.TicketId,
-                            fromName: branding.FromName,
-                            replyTo: branding.ReplyTo,
-                            suppressTimeline: true);
+                        bool sent;
+                        var previousDelivery = ingressEffects?.TimelineDeliveryId;
+                        try
+                        {
+                            if (ingressEffects?.IsActive == true)
+                                ingressEffects.TimelineDeliveryId = deliveryEvent.Id;
+                            sent = await emailService.SendEmailAsync(
+                                new[] { primaryRecipient },
+                                subject,
+                                body,
+                                ccFinal.Count > 0 ? ccFinal : null,
+                                cancellationToken,
+                                request.TicketId,
+                                fromName: branding.FromName,
+                                replyTo: branding.ReplyTo,
+                                suppressTimeline: true);
+                        }
+                        finally
+                        {
+                            if (ingressEffects is not null)
+                                ingressEffects.TimelineDeliveryId = previousDelivery;
+                        }
+
+                        if (ingressEffects?.IsActive == true)
+                            return log; // Keep the delivery Pending until the durable effect is dispatched.
 
                         var durationMs = (DateTimeOffset.UtcNow - started).TotalMilliseconds;
                         HelpdeskTelemetry.RecordEmailDeliveryAttempt("worklog", "configured", sent ? "delivered" : "failed");

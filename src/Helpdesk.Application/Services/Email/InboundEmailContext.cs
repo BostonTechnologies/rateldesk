@@ -17,7 +17,14 @@ public sealed record InboundEmailContext(
     string TextBody,
     DateTimeOffset? ReceivedUtc,
     IReadOnlyDictionary<string, string> Headers,
-    IReadOnlyList<InboundEmailAttachmentContext> Attachments);
+    IReadOnlyList<InboundEmailAttachmentContext> Attachments)
+{
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> RepeatedHeaders { get; init; }
+        = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+    public string? SourceMessageKey { get; init; }
+    public string? InReplyTo { get; init; }
+    public IReadOnlyList<string> References { get; init; } = [];
+}
 
 public sealed record InboundEmailAttachmentContext(
     string Name,

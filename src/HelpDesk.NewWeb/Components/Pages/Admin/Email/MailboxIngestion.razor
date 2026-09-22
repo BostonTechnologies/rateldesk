@@ -1,0 +1,63 @@
+@page "/admin/email-settings/{MailboxId:guid}/ingestion"
+@attribute [Authorize(Roles = "HelpdeskAdmin")]
+@using System.Net.Http.Json
+@using Helpdesk.Shared.Models
+@implements IDisposable
+@inject IHttpClientFactory Clients
+@inject ISnackbar Snackbar
+
+<PageTitle>Inbound mailbox diagnostics</PageTitle>
+<MudContainer MaxWidth="MaxWidth.Large">
+    <MudText Typo="Typo.h4" HtmlTag="h1">Inbound mailbox diagnostics</MudText>
+    <MudButton Href="/admin/email-settings">Mailbox settings</MudButton>
+    <MudButton OnClick="LoadAsync" Disabled="loading">Refresh</MudButton>
+    <MudText>Held messages remain on their source server. Retry applies current tenant routing and rule guards.</MudText>
+    @if (error is not null) { <MudAlert Severity="Severity.Error">@error</MudAlert> }
+    @if (loading) { <MudProgressLinear Indeterminate="true" /> }
+    @if (diagnostics is not null)
+    {
+        <MudText>Last successful sync: @Format(diagnostics.State?.LastSyncUnixMilliseconds)</MudText>
+        <MudText>Last successful saved-configuration test: @Format(diagnostics.State?.LastTestUnixMilliseconds) (version @diagnostics.State?.TestedVersion)</MudText>
+        <MudText>Operational error: @(diagnostics.State?.ErrorCode ?? "None")</MudText>
+        <MudTable Items="diagnostics.Receipts" Breakpoint="Breakpoint.Md" Class="ingress-receipts">
+            <HeaderContent><MudTh>Received</MudTh><MudTh>Outcome</MudTh><MudTh>Reason</MudTh><MudTh>Organization</MudTh><MudTh>Ticket</MudTh><MudTh>Action</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Received">@Format(context.CreatedUnixMilliseconds)</MudTd>
+                <MudTd DataLabel="Outcome">@context.Outcome</MudTd>
+                <MudTd DataLabel="Reason">@context.Reason</MudTd>
+                <MudTd DataLabel="Organization">@context.OrganizationId</MudTd>
+                <MudTd DataLabel="Ticket">@context.TicketId</MudTd>
+                <MudTd DataLabel="Action">
+                    @if (context.Outcome is InboundReceiptOutcome.NeedsReview or InboundReceiptOutcome.RetryableFailure)
+                    { <MudButton OnClick="() => RetryAsync(context.Id)" Disabled="loading">Retry</MudButton> }
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+</MudContainer>
+@code {
+    [Parameter] public Guid MailboxId { get; set; }
+    private readonly CancellationTokenSource cancellation = new();
+    private bool loading;
+    private string? error;
+    private Diagnostics? diagnostics;
+    protected override Task OnParametersSetAsync() => LoadAsync();
+    private async Task LoadAsync()
+    {
+        loading = true; error = null;
+        try { diagnostics = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<Diagnostics>($"/api/v1/email-settings/{MailboxId}/diagnostics", cancellation.Token); }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
+        catch (HttpRequestException) { error = "Inbound diagnostics could not be loaded."; }
+        finally { loading = false; }
+    }
+    private async Task RetryAsync(Guid id)
+    {
+        using var response = await Clients.CreateClient("HelpdeskApi").PostAsync($"/api/v1/email-settings/{MailboxId}/receipts/{id}/retry", null, cancellation.Token);
+        Snackbar.Add(response.IsSuccessStatusCode ? "Receipt queued for guarded retry." : "Receipt is no longer eligible for retry.", response.IsSuccessStatusCode ? Severity.Success : Severity.Warning);
+        await LoadAsync();
+    }
+    private static string Format(long? timestamp) => timestamp.HasValue ? DateTimeOffset.FromUnixTimeMilliseconds(timestamp.Value).ToLocalTime().ToString("g") : "Never";
+    private sealed record Receipt(Guid Id, InboundReceiptOutcome Outcome, string? Reason, string? OrganizationId, string? TicketId, long CreatedUnixMilliseconds);
+    private sealed record Diagnostics(MailboxIngestionState? State, List<Receipt> Receipts);
+    public void Dispose() { cancellation.Cancel(); cancellation.Dispose(); }
+}

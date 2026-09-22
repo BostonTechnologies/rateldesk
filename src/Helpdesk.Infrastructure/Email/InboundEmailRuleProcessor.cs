@@ -30,6 +30,8 @@ public sealed class InboundEmailRuleProcessor(
         }
 
         ForwardedEmailParseResult? forwarded = null;
+        var handledAny = false;
+        Ticket? handledTicket = null;
         foreach (var rule in rules)
         {
             var conditions = Deserialize<List<InboundEmailRuleConditionConfig>>(rule.ConditionsJson) ?? [];
@@ -47,6 +49,11 @@ public sealed class InboundEmailRuleProcessor(
             foreach (var action in actions)
             {
                 var result = await actionExecutor.ExecuteAsync(rule, action, context, forwarded, ct);
+                if (result.Handled)
+                {
+                    handledAny = true;
+                    handledTicket ??= result.Ticket;
+                }
                 if (result.Handled && (rule.StopProcessing || result.StopDefaultProcessing))
                 {
                     return new InboundEmailRuleProcessingResult(true, true, result.Ticket);
@@ -54,7 +61,7 @@ public sealed class InboundEmailRuleProcessor(
             }
         }
 
-        return new InboundEmailRuleProcessingResult(false, false, null);
+        return new InboundEmailRuleProcessingResult(handledAny, false, handledTicket);
     }
 
     private async Task<List<InboundEmailRule>> LoadRulesAsync(InboundEmailContext context, CancellationToken ct)
@@ -63,15 +70,14 @@ public sealed class InboundEmailRuleProcessor(
             .Where(x => x.Enabled)
             .Where(x => x.MailboxId == null || x.MailboxId == context.MailboxId);
 
-        if (!string.IsNullOrWhiteSpace(context.MailboxTenantId))
-        {
-            query = query.Where(x => x.ScopeType == InboundEmailRuleScopeType.Global || x.TenantId == context.MailboxTenantId);
-        }
+        query = query.Where(x => x.ScopeType == InboundEmailRuleScopeType.Global ||
+            (context.MailboxTenantId != null && x.ScopeType == InboundEmailRuleScopeType.Tenant && x.TenantId == context.MailboxTenantId));
 
         return (await query.ToListAsync(ct))
             .OrderByDescending(x => x.ScopeType == InboundEmailRuleScopeType.Tenant)
             .ThenBy(x => x.Priority)
             .ThenBy(x => x.CreatedAtUtc)
+            .ThenBy(x => x.Id)
             .ToList();
     }
 
@@ -145,13 +151,17 @@ public sealed class InboundEmailRuleProcessor(
     private async Task<bool> AlreadyProcessedAsync(InboundEmailRule rule, InboundEmailContext context, CancellationToken ct)
     {
         var mailboxKey = context.MailboxId?.ToString("D") ?? "default";
+        var messageKey = MessageKey(context);
         return await db.InboundEmailProcessingLogs.AsNoTracking().AnyAsync(x =>
-            x.MessageId == context.InternetMessageId &&
+            x.MessageId == messageKey &&
             x.MailboxKey == mailboxKey &&
             x.RuleId == rule.Id &&
             (x.Status == InboundEmailProcessingStatus.Succeeded || x.Status == InboundEmailProcessingStatus.Duplicate),
             ct);
     }
+
+    internal static string MessageKey(InboundEmailContext context) =>
+        string.IsNullOrWhiteSpace(context.SourceMessageKey) ? context.InternetMessageId : context.SourceMessageKey;
 
     private static bool MatchesMailbox(InboundEmailRuleConditionConfig condition, InboundEmailContext context)
     {

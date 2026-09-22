@@ -22,6 +22,8 @@ public class ImapEmailServiceSettingsTests
         var earlier = CreateSettings(false, false, "earlier@example.com", DateTimeOffset.Parse("2026-09-13T12:00:00+02:00"));
         var later = CreateSettings(false, false, "later@example.com", DateTimeOffset.Parse("2026-09-13T06:01:00-04:00"));
         var enabled = CreateSettings(true, true, "enabled@example.com", earlier.UpdatedAt.AddDays(-1));
+        // Archived rows represent the pre-reconciliation historical sources.
+        earlier.Archived = later.Archived = enabled.Archived = true;
         db.EmailInboxSettings.AddRange(earlier, later, enabled);
         await db.SaveChangesAsync();
         db.ChangeTracker.Clear();

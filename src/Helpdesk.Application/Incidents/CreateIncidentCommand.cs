@@ -6,6 +6,10 @@ using Helpdesk.Shared.Services;
 using Helpdesk.Application.Messaging;
 using Helpdesk.Application.Services.SupportNotifications;
 using Dodo.Primitives;
+using Helpdesk.Application.Services.Email;
+using System.Security.Cryptography;
+using System.Text;
+using Microsoft.Extensions.Logging;
 
 namespace Helpdesk.Application.Incidents;
 
@@ -52,7 +56,9 @@ public class CreateIncidentCommandHandler(
     ISupportNotificationService supportNotificationService,
     ITicketSlaInitializer? ticketSlaInitializer = null,
     IDomainEventPublisher? domainEvents = null,
-    ICorrelationContext? correlationContext = null)
+    ICorrelationContext? correlationContext = null,
+    IIngressEffectContext? ingress = null,
+    ILogger<CreateIncidentCommandHandler>? logger = null)
     : IRequestHandler<CreateIncidentCommand, Incident>
 {
     private readonly ITicketSlaInitializer? _ticketSlaInitializer = ticketSlaInitializer;
@@ -63,7 +69,9 @@ public class CreateIncidentCommandHandler(
     {
         var incident = new Incident
         {
-            Id = Uuid.CreateVersion7().ToString(),
+            Id = ingress?.IsActive == true
+                ? new Guid(SHA256.HashData(Encoding.UTF8.GetBytes($"{ingress.ReceiptId:D}:incident:{ingress.NextCreationOrdinal()}"))[..16]).ToString()
+                : Uuid.CreateVersion7().ToString(),
             Title = request.Title,
             Description = request.Description,
             Priority = request.Priority ?? TicketPriority.Low,
@@ -97,9 +105,10 @@ public class CreateIncidentCommandHandler(
                 await _ticketSlaInitializer.InitializeAsync(incident);
             }
         }
-        catch
+        catch (Exception error)
         {
-            // Ticket creation must not fail if SLA initialization fails.
+            if (ingress?.IsActive == true) throw;
+            logger?.LogWarning("Incident SLA initialization failed ({ErrorCode}).", error.GetType().Name);
         }
 
         await _domainEvents.PublishAsync(
@@ -117,9 +126,10 @@ public class CreateIncidentCommandHandler(
             {
                 await supportNotificationService.NotifyTicketCreatedUnassignedAsync(incident, cancellationToken);
             }
-            catch
+            catch (Exception error)
             {
-                // Ticket creation must not fail if support notification routing fails.
+                if (ingress?.IsActive == true) throw;
+                logger?.LogWarning("Incident support notification routing failed ({ErrorCode}).", error.GetType().Name);
             }
         }
 

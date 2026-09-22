@@ -1,4 +1,7 @@
 using System.Net;
+using Helpdesk.Infrastructure.Email;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.Data.Sqlite;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Claims;
@@ -28,209 +31,154 @@ public class EmailSettingsEndpointsTests
     public async Task Get_RequiresHelpdeskAdminAndDoesNotReturnSettingsToDeniedCallers()
     {
         await using var harness = await Harness.CreateAsync();
-        await harness.SeedAsync(clientSecret: "stored-secret");
-
-        using var anonymousClient = harness.CreateClient();
-        var anonymous = await anonymousClient.GetAsync("/api/v1/email-settings");
-
-        Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
-
-        using var ordinaryClient = harness.CreateClient("Technician");
-        var ordinaryUser = await ordinaryClient.GetAsync("/api/v1/email-settings");
-        var deniedContent = await ordinaryUser.Content.ReadAsStringAsync();
-
-        Assert.Equal(HttpStatusCode.Forbidden, ordinaryUser.StatusCode);
-        Assert.DoesNotContain("stored-secret", deniedContent, StringComparison.Ordinal);
-        Assert.DoesNotContain("helpdesk@example.com", deniedContent, StringComparison.Ordinal);
+        await harness.SeedAsync();
+        using var anonymous = harness.CreateClient();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync("/api/v1/email-settings")).StatusCode);
+        using var ordinary = harness.CreateClient("Technician");
+        Assert.Equal(HttpStatusCode.Forbidden, (await ordinary.GetAsync("/api/v1/email-settings")).StatusCode);
     }
 
     [Fact]
-    public async Task Get_ReturnsDisabledSettings()
+    public async Task Get_ReturnsDisabledSettingsWithExplicitScopeAndRedactedCredentials()
     {
         await using var harness = await Harness.CreateAsync();
-        var seeded = await harness.SeedAsync(enabled: false, backgroundSyncEnabled: false);
-
+        var saved = await harness.SeedAsync(enabled: false, backgroundSyncEnabled: false);
         var settings = await harness.Client.GetFromJsonAsync<List<EmailInboxSettingsDto>>("/api/v1/email-settings");
-
-        var setting = Assert.Single(settings!);
-        Assert.Equal(seeded.Id, setting.Id);
-        Assert.False(setting.Enabled);
-        Assert.False(setting.BackgroundSyncEnabled);
-        Assert.Equal("helpdesk@example.com", setting.MailboxAddress);
+        var row = Assert.Single(settings!);
+        Assert.Equal(saved.Id, row.Id); Assert.False(row.Enabled); Assert.Equal(MailboxScope.Global, row.Scope);
+        Assert.True(row.HasClientSecret);
+        Assert.DoesNotContain(saved.ClientSecret, await harness.Client.GetStringAsync("/api/v1/email-settings"));
     }
 
     [Fact]
-    public async Task Get_ReturnsCurrentEnabledSettingsFirst()
+    public async Task Put_PreservesBlankSecretForUnchangedSourceAndRejectsStaleVersion()
     {
         await using var harness = await Harness.CreateAsync();
-        var disabledOldest = await harness.SeedAsync(enabled: false, backgroundSyncEnabled: false, mailboxAddress: "older@example.com", updatedAt: DateTimeOffset.UtcNow.AddDays(-3));
-        var current = await harness.SeedAsync(enabled: true, backgroundSyncEnabled: true, mailboxAddress: "helpdesk@example.com", updatedAt: DateTimeOffset.UtcNow.AddDays(-1));
-        var disabledNewest = await harness.SeedAsync(enabled: false, backgroundSyncEnabled: false, mailboxAddress: "newer@example.com", updatedAt: DateTimeOffset.UtcNow);
-
-        var settings = await harness.Client.GetFromJsonAsync<List<EmailInboxSettingsDto>>("/api/v1/email-settings");
-
-        Assert.NotNull(settings);
-        Assert.Equal(3, settings.Count);
-        Assert.Equal(current.Id, settings[0].Id);
-        Assert.Contains(settings, x => x.Id == disabledOldest.Id);
-        Assert.Contains(settings, x => x.Id == disabledNewest.Id);
-    }
-
-    [Fact]
-    public async Task Put_UpdatesExistingSettingsAndPreservesBlankSecret()
-    {
-        await using var harness = await Harness.CreateAsync();
-        var seeded = await harness.SeedAsync(enabled: true, backgroundSyncEnabled: true, clientSecret: "existing-secret");
-
-        var response = await harness.Client.PutAsJsonAsync($"/api/v1/email-settings/{seeded.Id}", new EmailInboxSettings
-        {
-            Id = seeded.Id,
-            MailHost = "outlook.office365.com",
-            Port = 1993,
-            UseSsl = false,
-            MailboxAddress = "updated@example.com",
-            TenantId = "tenant-2",
-            ClientId = "client-2",
-            ClientSecret = "",
-            MailboxFolder = "Inbox/Sub",
-            Enabled = false,
-            BackgroundSyncEnabled = false
-        });
-
+        var saved = await harness.SeedAsync();
+        var request = Payload(saved); request.DisplayName = "Renamed support";
+        var response = await harness.Client.PutAsJsonAsync($"/api/v1/email-settings/{saved.Id}", request);
         response.EnsureSuccessStatusCode();
-        var all = await harness.AllSettingsAsync();
-        var updated = Assert.Single(all);
-        Assert.Equal(seeded.Id, updated.Id);
-        Assert.Equal("updated@example.com", updated.MailboxAddress);
-        Assert.False(updated.UseSsl);
-        Assert.False(updated.Enabled);
-        Assert.False(updated.BackgroundSyncEnabled);
-        Assert.Equal("existing-secret", updated.ClientSecret);
-    }
-
-    [Fact]
-    public async Task PutTwice_UpdatesExistingSettingsWithoutCreatingDuplicate()
-    {
-        await using var harness = await Harness.CreateAsync();
-        var seeded = await harness.SeedAsync(enabled: true, backgroundSyncEnabled: true, clientSecret: "existing-secret");
-
-        static EmailInboxSettings Payload(Guid id, string mailboxAddress) => new()
-        {
-            Id = id,
-            MailHost = "outlook.office365.com",
-            Port = 993,
-            UseSsl = true,
-            MailboxAddress = mailboxAddress,
-            TenantId = "tenant",
-            ClientId = "client",
-            ClientSecret = "",
-            MailboxFolder = "INBOX",
-            Enabled = true,
-            BackgroundSyncEnabled = true
-        };
-
-        var first = await harness.Client.PutAsJsonAsync($"/api/v1/email-settings/{seeded.Id}", Payload(seeded.Id, "updated@example.com"));
-        var second = await harness.Client.PutAsJsonAsync($"/api/v1/email-settings/{seeded.Id}", Payload(seeded.Id, "helpdesk@example.com"));
-
-        first.EnsureSuccessStatusCode();
-        second.EnsureSuccessStatusCode();
         var updated = Assert.Single(await harness.AllSettingsAsync());
-        Assert.Equal(seeded.Id, updated.Id);
-        Assert.Equal("helpdesk@example.com", updated.MailboxAddress);
-        Assert.Equal("existing-secret", updated.ClientSecret);
+        Assert.Equal(saved.ClientSecret, updated.ClientSecret); Assert.Equal(saved.Version + 1, updated.Version);
+        Assert.Equal(HttpStatusCode.Conflict, (await harness.Client.PutAsJsonAsync($"/api/v1/email-settings/{saved.Id}", request)).StatusCode);
     }
 
     [Fact]
-    public async Task PostWithoutId_UpdatesExistingSingleMailboxInsteadOfCreatingDuplicate()
+    public async Task Put_RejectsSourceChangesWithoutReassigningCredentials()
     {
-        await using var harness = await Harness.CreateAsync();
-        var seeded = await harness.SeedAsync();
-
-        var response = await harness.Client.PostAsJsonAsync("/api/v1/email-settings", new EmailInboxSettings
-        {
-            MailHost = "outlook.office365.com",
-            Port = 993,
-            UseSsl = true,
-            MailboxAddress = "updated@example.com",
-            TenantId = "tenant-updated",
-            ClientId = "client-updated",
-            ClientSecret = "",
-            MailboxFolder = "INBOX",
-            Enabled = true,
-            BackgroundSyncEnabled = false
-        });
-
-        response.EnsureSuccessStatusCode();
-        var all = await harness.AllSettingsAsync();
-        var updated = Assert.Single(all);
-        Assert.Equal(seeded.Id, updated.Id);
-        Assert.Equal("updated@example.com", updated.MailboxAddress);
-        Assert.Equal("tenant-updated", updated.TenantId);
+        await using var harness = await Harness.CreateAsync(); var saved = await harness.SeedAsync();
+        var request = Payload(saved); request.MailHost = "attacker.example.test";
+        Assert.Equal(HttpStatusCode.BadRequest, (await harness.Client.PutAsJsonAsync($"/api/v1/email-settings/{saved.Id}", request)).StatusCode);
+        Assert.Equal(saved.MailHost, Assert.Single(await harness.AllSettingsAsync()).MailHost);
     }
 
     [Fact]
-    public async Task PostWithoutId_UpdatesCurrentEnabledMailboxWhenOlderDisabledRowsExist()
+    public async Task PostWithoutId_ConflictsWithExistingGlobalRatherThanUpdatingFirstRow()
     {
-        await using var harness = await Harness.CreateAsync();
-        await harness.SeedAsync(enabled: false, backgroundSyncEnabled: false, mailboxAddress: "older@example.com", updatedAt: DateTimeOffset.UtcNow.AddDays(-3));
-        var current = await harness.SeedAsync(enabled: true, backgroundSyncEnabled: true, mailboxAddress: "helpdesk@example.com", updatedAt: DateTimeOffset.UtcNow.AddDays(-1));
-        await harness.SeedAsync(enabled: false, backgroundSyncEnabled: false, mailboxAddress: "newer@example.com", updatedAt: DateTimeOffset.UtcNow);
-
-        var response = await harness.Client.PostAsJsonAsync("/api/v1/email-settings", new EmailInboxSettings
-        {
-            MailHost = "outlook.office365.com",
-            Port = 993,
-            UseSsl = true,
-            MailboxAddress = "helpdesk-updated@example.com",
-            TenantId = "tenant-updated",
-            ClientId = "client-updated",
-            ClientSecret = "",
-            MailboxFolder = "INBOX",
-            Enabled = true,
-            BackgroundSyncEnabled = true
-        });
-
-        response.EnsureSuccessStatusCode();
-        var all = await harness.AllSettingsAsync();
-        Assert.Equal(3, all.Count);
-        var updated = Assert.Single(all, x => x.Id == current.Id);
-        Assert.Equal("helpdesk-updated@example.com", updated.MailboxAddress);
-        Assert.Equal("tenant-updated", updated.TenantId);
+        await using var harness = await Harness.CreateAsync(); var saved = await harness.SeedAsync();
+        var request = Payload(saved); request.Id = Guid.Empty; request.MailboxAddress = "second@example.test"; request.ClientSecret = "synthetic-secret";
+        Assert.Equal(HttpStatusCode.Conflict, (await harness.Client.PostAsJsonAsync("/api/v1/email-settings", request)).StatusCode);
+        Assert.Equal(saved.MailboxAddress, Assert.Single(await harness.AllSettingsAsync()).MailboxAddress);
     }
 
     [Fact]
-    public async Task Test_UsesSubmittedValuesAndDoesNotPersist()
+    public async Task Post_ExplicitCreateReturnsNewIdAndDoesNotEnableIngestion()
     {
         await using var harness = await Harness.CreateAsync();
-        var seeded = await harness.SeedAsync(clientSecret: "stored-secret");
-
-        var response = await harness.Client.PostAsJsonAsync("/api/v1/email-settings/test", new EmailInboxSettings
-        {
-            Id = seeded.Id,
-            MailHost = "imap.example.test",
-            Port = 1993,
-            UseSsl = false,
-            MailboxAddress = "unsaved@example.com",
-            TenantId = "tenant-test",
-            ClientId = "client-test",
-            ClientSecret = "",
-            MailboxFolder = "Unsaved",
-            Enabled = true,
-            BackgroundSyncEnabled = true
-        });
-
-        response.EnsureSuccessStatusCode();
-        await harness.Imap.Received(1).TestConnectionAsync(
-            Arg.Is<ImapEmailSettings>(x =>
-                x.Host == "imap.example.test" &&
-                x.Port == 1993 &&
-                !x.UseSsl &&
-                x.UserEmail == "unsaved@example.com" &&
-                x.ClientSecret == "stored-secret"),
-            Arg.Any<CancellationToken>());
-        var persisted = Assert.Single(await harness.AllSettingsAsync());
-        Assert.Equal("helpdesk@example.com", persisted.MailboxAddress);
+        var request = Payload(new EmailInboxSettings { MailboxAddress = "support@example.test", MailHost = "mail.example.test", MailboxFolder = "inbox", TenantId = DirectoryId, ClientId = ClientId });
+        var response = await harness.Client.PostAsJsonAsync("/api/v1/email-settings", request);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var result = await response.Content.ReadFromJsonAsync<EmailInboxSettingsDto>();
+        Assert.NotEqual(Guid.Empty, result!.Id); Assert.False(result.Enabled); Assert.False(result.BackgroundSyncEnabled);
     }
+
+    [Fact]
+    public async Task Test_UsesDraftDoesNotPersistAndDispatchesToSelectedProvider()
+    {
+        await using var harness = await Harness.CreateAsync(); var saved = await harness.SeedAsync();
+        var request = Payload(saved); request.DisplayName = "Unsaved draft";
+        var response = await harness.Client.PostAsJsonAsync("/api/v1/email-settings/test", request);
+        response.EnsureSuccessStatusCode();
+        Assert.NotEqual(request.DisplayName, Assert.Single(await harness.AllSettingsAsync()).DisplayName);
+        await harness.Graph.Received(1).TestAsync(Arg.Is<EmailInboxSettings>(x => x.DisplayName == "Unsaved draft" && x.ClientSecret == saved.ClientSecret), Arg.Any<CancellationToken>());
+        await harness.Imap.DidNotReceive().TestConnectionAsync(Arg.Any<ImapEmailSettings>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Test_ChangedDestinationCannotReuseSavedCredentials()
+    {
+        await using var harness = await Harness.CreateAsync(); var saved = await harness.SeedAsync();
+        var request = Payload(saved); request.MailHost = "attacker.example.test";
+        Assert.Equal(HttpStatusCode.BadRequest, (await harness.Client.PostAsJsonAsync("/api/v1/email-settings/test", request)).StatusCode);
+        await harness.Graph.DidNotReceive().TestAsync(Arg.Any<EmailInboxSettings>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("enable")]
+    [InlineData("disable")]
+    public async Task EnableDisable_AlwaysReturnsRedactedDto(string action)
+    {
+        await using var harness = await Harness.CreateAsync(); var saved = await harness.SeedAsync();
+        var response = await harness.Client.PostAsync($"/api/v1/email-settings/{saved.Id}/{action}", null);
+        response.EnsureSuccessStatusCode(); var json = await response.Content.ReadAsStringAsync();
+        Assert.DoesNotContain(saved.ClientSecret, json); Assert.Contains("hasClientSecret", json);
+    }
+
+    [Fact]
+    public async Task Diagnostics_redacts_provider_checkpoint_and_source_identity()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var saved = await harness.SeedAsync();
+        await harness.WithDbAsync(async db =>
+        {
+            var state = await db.Set<MailboxIngestionState>().SingleAsync();
+            state.Cursor = "synthetic-sensitive-provider-cursor";
+            await db.SaveChangesAsync();
+        });
+        var json = await harness.Client.GetStringAsync($"/api/v1/email-settings/{saved.Id}/diagnostics");
+        Assert.DoesNotContain("synthetic-sensitive-provider-cursor", json);
+        Assert.DoesNotContain("sourceKey", json);
+        Assert.Contains("hasCheckpoint", json);
+    }
+
+    [Fact]
+    public async Task Configuration_audit_records_actor_and_actions_without_draft_secrets()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var request = Payload(new EmailInboxSettings { MailboxAddress = "support@example.test", MailHost = "mail.example.test", MailboxFolder = "inbox", TenantId = DirectoryId, ClientId = ClientId });
+        request.ClientSecret = "synthetic-audit-secret";
+        (await harness.Client.PostAsJsonAsync("/api/v1/email-settings", request)).EnsureSuccessStatusCode();
+        var saved = Assert.Single(await harness.AllSettingsAsync());
+        var update = Payload(saved); update.DisplayName = "synthetic-sensitive-display";
+        (await harness.Client.PutAsJsonAsync($"/api/v1/email-settings/{saved.Id}", update)).EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.Conflict, (await harness.Client.PutAsJsonAsync($"/api/v1/email-settings/{saved.Id}", update)).StatusCode);
+        (await harness.Client.PostAsync($"/api/v1/email-settings/{saved.Id}/enable", null)).EnsureSuccessStatusCode();
+        (await harness.Client.PostAsync($"/api/v1/email-settings/{saved.Id}/disable", null)).EnsureSuccessStatusCode();
+        (await harness.Client.PostAsJsonAsync($"/api/v1/email-settings/{saved.Id}/archive", new { Confirmed = true, Version = (await harness.AllSettingsAsync()).Single().Version })).EnsureSuccessStatusCode();
+        await harness.WithDbAsync(async db =>
+        {
+            var logs = await db.ActivityLogs.ToListAsync();
+            Assert.Equal(5, logs.Count);
+            Assert.All(logs, log =>
+            {
+                Assert.Equal("email-settings-test", log.UserId);
+                Assert.Equal(saved.Id.ToString("D"), log.RelatedEntityId);
+                Assert.DoesNotContain("synthetic-audit-secret", log.Message);
+                Assert.DoesNotContain("synthetic-sensitive-display", log.Message);
+            });
+            foreach (var action in new[] { "created", "updated", "enabled", "disabled", "archived" })
+                Assert.Contains(logs, log => log.Message.Contains($"configuration {action}."));
+        });
+    }
+
+    private const string DirectoryId = "11111111-1111-4111-8111-111111111111";
+    private const string ClientId = "22222222-2222-4222-8222-222222222222";
+    private static MailboxSettingsRequest Payload(EmailInboxSettings s) => new()
+    {
+        Id = s.Id, Version = s.Version, MailHost = s.MailHost, MailboxAddress = s.MailboxAddress,
+        TenantId = s.TenantId, ClientId = s.ClientId, MailboxFolder = s.MailboxFolder,
+        Enabled = s.Enabled, BackgroundSyncEnabled = s.BackgroundSyncEnabled
+    };
 
     private sealed class Harness : IAsyncDisposable
     {
@@ -245,6 +193,7 @@ public class EmailSettingsEndpointsTests
 
         public HttpClient Client { get; }
         public IImapEmailService Imap { get; }
+        public IInboundMailboxAdapter Graph => _app.Services.GetRequiredService<IInboundMailboxAdapter>();
 
         public HttpClient CreateClient(string? role = null)
         {
@@ -262,9 +211,14 @@ public class EmailSettingsEndpointsTests
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
             builder.WebHost.UseTestServer();
             builder.Services.AddHttpContextAccessor();
-            var databaseRoot = new InMemoryDatabaseRoot();
-            var databaseName = $"email-settings-{Guid.NewGuid():N}";
-            builder.Services.AddDbContext<HelpdeskDbContext>(options => options.UseInMemoryDatabase(databaseName, databaseRoot));
+            builder.Services.AddSingleton(_ => { var c = new SqliteConnection("Data Source=:memory:"); c.Open(); return c; });
+            builder.Services.AddDbContext<HelpdeskDbContext>((sp, options) => options.UseSqlite(sp.GetRequiredService<SqliteConnection>()));
+            builder.Services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
+            builder.Services.AddScoped<MailboxCredentialProtector>();
+            builder.Services.AddScoped<MailboxSettingsService>();
+            var graph = Substitute.For<IInboundMailboxAdapter>(); graph.Provider.Returns(InboundMailboxProvider.Graph);
+            graph.TestAsync(Arg.Any<EmailInboxSettings>(), Arg.Any<CancellationToken>()).Returns(new MailboxConnectionTest(true, "Synthetic provider test."));
+            builder.Services.AddSingleton(graph);
             builder.Services.AddScoped<ITenantContext>(_ => Substitute.For<ITenantContext>());
             var imap = Substitute.For<IImapEmailService>();
             imap.TestConnectionAsync(Arg.Any<ImapEmailSettings>(), Arg.Any<CancellationToken>()).Returns(true);
@@ -285,6 +239,7 @@ public class EmailSettingsEndpointsTests
             });
 
             var app = builder.Build();
+            using (var scope = app.Services.CreateScope()) await scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>().Database.EnsureCreatedAsync();
             app.UseAuthentication();
             app.UseAuthorization();
             app.MapEmailSettingsEndpoints();
@@ -311,25 +266,35 @@ public class EmailSettingsEndpointsTests
                 Port = 993,
                 UseSsl = true,
                 MailboxAddress = mailboxAddress,
-                TenantId = "tenant",
-                ClientId = "client",
+                TenantId = DirectoryId,
+                ClientId = ClientId,
                 ClientSecret = clientSecret,
+                CredentialVersion = 1,
                 MailboxFolder = "INBOX",
                 Enabled = enabled,
                 BackgroundSyncEnabled = backgroundSyncEnabled,
                 CreatedAt = timestamp.AddMinutes(-5),
                 UpdatedAt = timestamp
             };
+            settings.ClientSecret = scope.ServiceProvider.GetRequiredService<MailboxCredentialProtector>().Protect(settings.Id, clientSecret);
+            settings.SourceKey = MailboxSettingsService.SourceKey(settings);
             db.EmailInboxSettings.Add(settings);
+            db.Set<MailboxIngestionState>().Add(new() { MailboxId = settings.Id, SourceKey = settings.SourceKey });
             await db.SaveChangesAsync();
             return settings;
+        }
+
+        public async Task WithDbAsync(Func<HelpdeskDbContext, Task> action)
+        {
+            using var scope = _app.Services.CreateScope();
+            await action(scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>());
         }
 
         public async Task<List<EmailInboxSettings>> AllSettingsAsync()
         {
             using var scope = _app.Services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
-            return await db.EmailInboxSettings.AsNoTracking().OrderBy(x => x.CreatedAt).ToListAsync();
+            return (await db.EmailInboxSettings.AsNoTracking().ToListAsync()).OrderBy(x => x.CreatedAt).ToList();
         }
 
         public async ValueTask DisposeAsync()

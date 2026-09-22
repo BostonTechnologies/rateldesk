@@ -18,6 +18,24 @@ public class HelpdeskDbContext(
     private readonly ITenantContext _tenantContext = tenantContext;
     private readonly IHttpContextAccessor _httpContextAccessor = httpContextAccessor;
 
+    private bool _ingressScope;
+    private string? _ingressOrganizationId;
+
+    public void BeginIngressRoutingScope()
+    {
+        if (_httpContextAccessor.HttpContext is not null)
+            throw new InvalidOperationException("Ingress system scope is only available to background processing.");
+        _ingressScope = true;
+        _ingressOrganizationId = null;
+    }
+
+    public void RestrictIngressToOrganization(string organizationId)
+    {
+        if (!_ingressScope || string.IsNullOrWhiteSpace(organizationId))
+            throw new InvalidOperationException("An explicit ingress scope and organization are required.");
+        _ingressOrganizationId = organizationId;
+    }
+
     public DbSet<Incident> Incidents => Set<Incident>();
     public DbSet<Request> Requests => Set<Request>();
     public DbSet<Customer> Customers => Set<Customer>();
@@ -131,6 +149,7 @@ public class HelpdeskDbContext(
             entity.HasOne<Helpdesk.Shared.AiAssistant.Chat.AiAssistantChatConversation>().WithMany().HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Restrict);
         });
         modelBuilder.Entity<Ticket>().HasQueryFilter(ticket =>
+            _ingressScope ? ticket.OrganizationId == _ingressOrganizationId :
             _tenantContext.IsHelpdeskAdmin ||
             string.IsNullOrWhiteSpace(_tenantContext.TenantId) ||
             ticket.OrganizationId == _tenantContext.TenantId ||
@@ -479,9 +498,48 @@ public class HelpdeskDbContext(
             entity.HasKey(x => x.Id);
         });
 
-        modelBuilder.Entity<EmailInboxSettings>()
-            .HasIndex(e => e.MailboxAddress)
-            .IsUnique();
+        modelBuilder.Entity<EmailInboxSettings>(entity =>
+        {
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.Property(x => x.SourceKey).HasMaxLength(64);
+            entity.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(x => x.Scope).IsUnique().HasFilter("\"Archived\" = false AND \"Scope\" = 0");
+            entity.HasIndex(x => x.OrganizationId).IsUnique().HasFilter("\"Archived\" = false AND \"Scope\" = 1");
+            entity.HasIndex(x => x.MailboxAddress).IsUnique().HasFilter("\"Archived\" = false AND \"Enabled\" = true");
+            entity.HasIndex(x => x.SourceKey).IsUnique().HasFilter("\"Archived\" = false AND \"Enabled\" = true");
+            entity.ToTable(t => t.HasCheckConstraint("CK_Mailbox_Assignment",
+                "(\"Scope\" = 0 AND \"OrganizationId\" IS NULL) OR (\"Scope\" = 1 AND \"OrganizationId\" IS NOT NULL)"));
+        });
+        modelBuilder.Entity<MailboxLease>(entity =>
+        {
+            entity.HasKey(x => x.MailboxId);
+            entity.HasOne<EmailInboxSettings>().WithMany().HasForeignKey(x => x.MailboxId).OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<MailboxIngestionState>(entity =>
+        {
+            entity.HasKey(x => x.MailboxId);
+            entity.HasOne<EmailInboxSettings>().WithMany().HasForeignKey(x => x.MailboxId).OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<InboundMessageReceipt>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasOne<EmailInboxSettings>().WithMany().HasForeignKey(x => x.MailboxId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(x => new { x.MailboxId, x.SourceKey, x.TransportKey }).IsUnique();
+            entity.HasIndex(x => new { x.MailboxId, x.Outcome, x.Acknowledged });
+            entity.Property(x => x.TransportKey).HasMaxLength(1024);
+            entity.Property(x => x.SourceKey).HasMaxLength(64);
+        });
+        modelBuilder.Entity<MailboxMigrationState>().HasKey(x => x.Id);
+        modelBuilder.Entity<MailboxOutboxEffect>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.ReceiptId, x.EffectKey }).IsUnique();
+            entity.HasIndex(x => x.DeliveryEventId).IsUnique();
+            entity.HasIndex(x => new { x.State, x.AvailableUnixMilliseconds });
+            entity.HasIndex(x => new { x.State, x.LeaseExpiresUnixMilliseconds });
+            entity.Property(x => x.Owner).HasMaxLength(128);
+            entity.Property(x => x.LastErrorCode).HasMaxLength(128);
+        });
 
         modelBuilder.Entity<InboundEmailRule>(entity =>
         {

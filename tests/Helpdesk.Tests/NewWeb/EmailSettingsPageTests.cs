@@ -5,12 +5,12 @@ public class EmailSettingsPageTests
     private static readonly string Source = ReadPageSource();
 
     [Fact]
-    public void PageLoadsTheFirstOrderedEmailSettingsRecordWithoutWritingDefaults()
+    public void PageSelectsExplicitGlobalAssignmentWithoutWritingDefaults()
     {
         Assert.Contains("@page \"/admin/email-settings\"", Source);
         Assert.Contains("@attribute [Authorize(Roles = \"HelpdeskAdmin\")]", Source);
         Assert.Contains("GetFromJsonAsync<List<EmailInboxSettingsDto>>(\"/api/v1/email-settings\"", Source);
-        Assert.Contains("settings is { Count: > 0 } ? EmailInboxSettingsForm.FromDto(settings[0])", Source);
+        Assert.Contains("mailboxes.SingleOrDefault(x => !x.Archived && x.Scope == MailboxScope.Global)", Source);
         Assert.Contains("savedBaseline = model.Clone();", Source);
         Assert.DoesNotContain("PostAsJsonAsync(\"/api/v1/email-settings\"", Source[..Source.IndexOf("private async Task SaveAsync", StringComparison.Ordinal)]);
     }
@@ -37,7 +37,7 @@ public class EmailSettingsPageTests
     public void PageBindsMailboxSslAndIndependentIngestionFields()
     {
         Assert.Contains("@bind-Value=\"model.MailboxAddress\"", Source);
-        Assert.Contains("@bind-Value=\"model.UseSsl\"", Source);
+        Assert.Contains("@bind-Value=\"model.TlsMode\"", Source);
         Assert.Contains("@bind-Value=\"model.Enabled\"", Source);
         Assert.Contains("@bind-Value=\"model.BackgroundSyncEnabled\"", Source);
         Assert.Contains("Label=\"Mailbox enabled\"", Source);
@@ -47,7 +47,8 @@ public class EmailSettingsPageTests
     [Fact]
     public void BlankClientSecretIsNotSentAsANewSecret()
     {
-        Assert.Contains("ClientSecret = string.IsNullOrWhiteSpace(model.ClientSecret) ? null : model.ClientSecret", Source);
+        Assert.Contains("FromDto(EmailInboxSettingsDto dto)", Source);
+        Assert.DoesNotContain("ClientSecret = dto.", Source);
         Assert.Contains("A client secret is configured. Leave this field blank to keep it.", Source);
         Assert.Contains("model = EmailInboxSettingsForm.FromDto(saved);", Source);
     }

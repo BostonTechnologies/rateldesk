@@ -1,0 +1,161 @@
+using Helpdesk.Infrastructure.Email;
+using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Shared.Models;
+using Helpdesk.Shared.Services;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.Extensions.Configuration;
+using NSubstitute;
+using Testcontainers.PostgreSql;
+
+namespace Helpdesk.Tests.Infrastructure.Email;
+
+public sealed class MailboxConfigurationTests
+{
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Fresh_schema_enforces_four_assignments_for_thirteen_organizations_and_keeps_disabled_overrides(bool postgres)
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync(postgres);
+        await using var db = fixture.Open();
+        await db.Database.MigrateAsync();
+        for (var i = 1; i <= 13; i++) db.Organizations.Add(new Organization { Id = $"tenant-{i:00}", Name = $"Tenant {i:00}" });
+        await db.SaveChangesAsync();
+        var service = new MailboxSettingsService(db, fixture.Secrets);
+        var global = await service.PrepareAsync(Request("support@example.test"), null, default);
+        db.EmailInboxSettings.Add(global);
+        for (var i = 11; i <= 13; i++)
+        {
+            var request = Request($"support@tenant{i}.example.test");
+            request.Scope = MailboxScope.Organization; request.OrganizationId = $"tenant-{i:00}";
+            request.Provider = i == 11 ? InboundMailboxProvider.Imap : i == 12 ? InboundMailboxProvider.Pop3 : InboundMailboxProvider.Graph;
+            request.MarkReadAfterSuccess = request.Provider != InboundMailboxProvider.Pop3;
+            db.EmailInboxSettings.Add(await service.PrepareAsync(request, null, default));
+        }
+        await db.SaveChangesAsync();
+        Assert.Equal(4, await db.EmailInboxSettings.CountAsync());
+        var dedicated = await db.EmailInboxSettings.Where(x => x.OrganizationId != null).Select(x => x.OrganizationId).ToListAsync();
+        Assert.Equal(10, await db.Organizations.CountAsync(x => !dedicated.Contains(x.Id)));
+        db.EmailInboxSettings.Add(await service.PrepareAsync(Request("second@example.test"), null, default));
+        await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
+        db.ChangeTracker.Clear();
+        var duplicate = Request("duplicate@example.test"); duplicate.Scope = MailboxScope.Organization; duplicate.OrganizationId = "tenant-11";
+        db.EmailInboxSettings.Add(await service.PrepareAsync(duplicate, null, default));
+        await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Upgrade_preserves_effective_guid_protects_credentials_and_does_not_reimport_on_restart(bool postgres)
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync(postgres);
+        await using var db = fixture.Open();
+        var migrations = db.Database.GetMigrations().ToArray();
+        await db.GetService<IMigrator>().MigrateAsync(migrations[^2]);
+        var id = Guid.NewGuid();
+        var created = DateTimeOffset.UtcNow;
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "EmailInboxSettings" ("Id", "MailHost", "Port", "UseSsl", "MailboxAddress", "TenantId", "ClientId", "ClientSecret", "MailboxFolder", "Enabled", "BackgroundSyncEnabled", "CreatedAt", "UpdatedAt")
+            VALUES ({id}, {"outlook.office365.com"}, {993}, {true}, {"support@example.test"}, {"11111111-1111-4111-8111-111111111111"}, {"22222222-2222-4222-8222-222222222222"}, {"synthetic-secret with spaces "}, {"inbox"}, {false}, {true}, {created}, {created});
+            """);
+        await db.Database.MigrateAsync();
+        var migrator = new MailboxConfigurationMigration(db, fixture.Secrets, new ConfigurationBuilder().Build());
+        await migrator.RunAsync(default);
+        await migrator.RunAsync(default);
+        db.ChangeTracker.Clear();
+        var migrated = await db.EmailInboxSettings.SingleAsync();
+        Assert.Equal(id, migrated.Id);
+        Assert.False(migrated.Archived);
+        Assert.False(migrated.Enabled);
+        Assert.True(migrated.BackgroundSyncEnabled);
+        Assert.Equal(InitialMailImport.ExistingUnread, migrated.InitialImport);
+        Assert.Equal("synthetic-secret with spaces ", fixture.Secrets.Unprotect(migrated, migrated.ClientSecret));
+        Assert.DoesNotContain("synthetic-secret", migrated.ClientSecret);
+        Assert.Single(await db.Set<MailboxMigrationState>().ToListAsync());
+        Assert.Single(await db.Set<MailboxLease>().ToListAsync());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Multiple_historic_sources_keep_one_effective_global_and_freeze_sender(bool postgres)
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync(postgres);
+        await using var db = fixture.Open();
+        await db.Database.MigrateAsync();
+        var older = new EmailInboxSettings { Id = Guid.NewGuid(), MailboxAddress = "old@example.test", MailHost = "outlook.office365.com", TenantId = "fixture-directory", ClientId = "fixture-app", Enabled = true,
+            Archived = true, BackgroundSyncEnabled = false, ClientSecret = "fixture-old", CreatedAt = DateTimeOffset.UtcNow.AddDays(-2) };
+        var effective = new EmailInboxSettings { Id = Guid.NewGuid(), MailboxAddress = "effective@example.test", MailHost = "outlook.office365.com", TenantId = "fixture-directory", ClientId = "fixture-app", Enabled = true,
+            Archived = true, BackgroundSyncEnabled = true, ClientSecret = "fixture-current", CreatedAt = DateTimeOffset.UtcNow.AddDays(-1) };
+        db.EmailInboxSettings.AddRange(older, effective);
+        await db.SaveChangesAsync();
+        var migration = new MailboxConfigurationMigration(db, fixture.Secrets, new ConfigurationBuilder().Build());
+        await migration.RunAsync(default);
+        await migration.RunAsync(default);
+        db.ChangeTracker.Clear();
+        Assert.Equal(effective.Id, (await db.EmailInboxSettings.SingleAsync(x => !x.Archived)).Id);
+        Assert.Equal("effective@example.test", (await db.Set<MailboxMigrationState>().SingleAsync()).OutboundMailboxAddress);
+        Assert.Equal(2, await db.Set<MailboxLease>().CountAsync());
+        Assert.True((await db.EmailInboxSettings.SingleAsync(x => x.Id == older.Id)).Enabled);
+    }
+
+    [Fact]
+    public async Task Changed_draft_destination_cannot_reuse_saved_secret_and_secret_loss_never_falls_back_to_plaintext()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync(false);
+        await using var db = fixture.Open(); await db.Database.MigrateAsync();
+        var service = new MailboxSettingsService(db, fixture.Secrets);
+        var request = Request("support@example.test");
+        var saved = await service.PrepareAsync(request, null, default);
+        request.Id = saved.Id; request.Version = saved.Version; request.ClientSecret = string.Empty;
+        var retained = await service.PrepareAsync(request, saved, default);
+        Assert.Equal(saved.ClientSecret, retained.ClientSecret);
+        request.MailHost = "attacker.example.test";
+        await Assert.ThrowsAsync<ArgumentException>(() => service.PrepareAsync(request, saved, default));
+        var otherKeys = new MailboxCredentialProtector(new EphemeralDataProtectionProvider());
+        Assert.Throws<System.Security.Cryptography.CryptographicException>(() => otherKeys.Unprotect(saved, saved.ClientSecret));
+    }
+
+    private static MailboxSettingsRequest Request(string address) => new()
+    {
+        DisplayName = address, MailboxAddress = address, MailHost = "mail.example.test",
+        TenantId = "11111111-1111-4111-8111-111111111111", ClientId = "22222222-2222-4222-8222-222222222222",
+        ClientSecret = "synthetic-secret", MailboxFolder = "inbox"
+    };
+
+    private sealed class DatabaseFixture : IAsyncDisposable
+    {
+        private PostgreSqlContainer? container;
+        private SqliteConnection? sqlite;
+        private DbContextOptions<HelpdeskDbContext> options = null!;
+        public MailboxCredentialProtector Secrets { get; } = new(new EphemeralDataProtectionProvider());
+        public static async Task<DatabaseFixture> CreateAsync(bool postgres)
+        {
+            var fixture = new DatabaseFixture();
+            var builder = new DbContextOptionsBuilder<HelpdeskDbContext>();
+            if (postgres)
+            {
+                fixture.container = new PostgreSqlBuilder("postgres:16").Build();
+                await fixture.container.StartAsync(); builder.UseNpgsql(fixture.container.GetConnectionString());
+            }
+            else
+            {
+                fixture.sqlite = new SqliteConnection("Data Source=:memory:"); await fixture.sqlite.OpenAsync();
+                builder.UseSqlite(fixture.sqlite, x => x.MigrationsAssembly("Helpdesk.Infrastructure.SqliteMigrations"));
+            }
+            fixture.options = builder.Options; return fixture;
+        }
+        public HelpdeskDbContext Open() => new(options, Substitute.For<ITenantContext>(), new HttpContextAccessor());
+        public async ValueTask DisposeAsync()
+        {
+            if (container is not null) await container.DisposeAsync();
+            if (sqlite is not null) await sqlite.DisposeAsync();
+        }
+    }
+}

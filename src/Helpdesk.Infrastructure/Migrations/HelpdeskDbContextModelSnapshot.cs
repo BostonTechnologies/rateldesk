@@ -6,7 +6,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
-using Pgvector;
 
 #nullable disable
 
@@ -22,7 +21,6 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                 .HasAnnotation("ProductVersion", "10.0.12")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
-            NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("Helpdesk.Infrastructure.Persistence.Connectivity.M2MConnectivitySettings", b =>
@@ -557,136 +555,6 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.HasIndex("OrganizationId", "TicketArea", "TicketId", "OccurredUtc");
 
                     b.ToTable("AiInvestigationWorklogEntries");
-                });
-
-            modelBuilder.Entity("Helpdesk.Shared.Models.AiModel", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("AiProviderId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp without time zone")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<string>("ExtraHeadersJson")
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("IsEnabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp without time zone")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AiProviderId");
-
-                    b.ToTable("AiModels", (string)null);
-                });
-
-            modelBuilder.Entity("Helpdesk.Shared.Models.AiOperationAuditRecord", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("CorrelationId")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("ModelId")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("Notes")
-                        .HasColumnType("text");
-
-                    b.Property<string>("OperationName")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("OrganizationId")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("ProviderName")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("SubjectId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OrganizationId", "CreatedAt");
-
-                    b.HasIndex("SubjectId", "CreatedAt");
-
-                    b.ToTable("AiOperationAuditRecords");
-                });
-
-            modelBuilder.Entity("Helpdesk.Shared.Models.AiProvider", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ApiKeyEncrypted")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("BaseUrl")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp without time zone")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<string>("DefaultModel")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ExtraHeadersJson")
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("IsEnabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("ProviderType")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp without time zone")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("AiProviders", (string)null);
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.Asset", b =>
@@ -1259,8 +1127,17 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("Archived")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("Authentication")
+                        .HasColumnType("integer");
+
                     b.Property<bool>("BackgroundSyncEnabled")
                         .HasColumnType("boolean");
+
+                    b.Property<int>("BatchSize")
+                        .HasColumnType("integer");
 
                     b.Property<string>("ClientId")
                         .IsRequired()
@@ -1273,7 +1150,20 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int>("CredentialVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("InitialImport")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("LegacySource")
                         .HasColumnType("boolean");
 
                     b.Property<string>("MailHost")
@@ -1288,12 +1178,42 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<bool>("MarkReadAfterSuccess")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("OrganizationId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Password")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("PollIntervalSeconds")
+                        .HasColumnType("integer");
+
                     b.Property<int>("Port")
                         .HasColumnType("integer");
+
+                    b.Property<string>("ProcessedFolder")
+                        .HasColumnType("text");
+
+                    b.Property<int>("Provider")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Scope")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SourceKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<int>("TlsMode")
+                        .HasColumnType("integer");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -1301,12 +1221,36 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Property<bool>("UseSsl")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("MailboxAddress")
-                        .IsUnique();
+                    b.HasIndex("OrganizationId")
+                        .IsUnique()
+                        .HasFilter("\"Archived\" = false AND \"Scope\" = 1");
 
-                    b.ToTable("EmailInboxSettings");
+                    b.HasIndex("Scope")
+                        .IsUnique()
+                        .HasFilter("\"Archived\" = false AND \"Scope\" = 0");
+
+                    b.HasIndex("MailboxAddress")
+                        .IsUnique()
+                        .HasFilter("\"Archived\" = false AND \"Enabled\" = true");
+
+                    b.HasIndex("SourceKey")
+                        .IsUnique()
+                        .HasFilter("\"Archived\" = false AND \"Enabled\" = true");
+
+                    b.ToTable("EmailInboxSettings", t =>
+                        {
+                            t.HasCheckConstraint("CK_Mailbox_Assignment", "(\"Scope\" = 0 AND \"OrganizationId\" IS NULL) OR (\"Scope\" = 1 AND \"OrganizationId\" IS NOT NULL)");
+                        });
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.EmailLayout", b =>
@@ -1598,6 +1542,69 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.ToTable("InboundEmailRules", (string)null);
                 });
 
+            modelBuilder.Entity("Helpdesk.Shared.Models.InboundMessageReceipt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Acknowledged")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("ConfigurationVersion")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("CreatedUnixMilliseconds")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("InternetMessageId")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("MailboxId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("OrganizationId")
+                        .HasColumnType("text");
+
+                    b.Property<int>("Outcome")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ProtectedEnvelope")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Reason")
+                        .HasColumnType("text");
+
+                    b.Property<string>("SourceKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("TicketId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("TransportKey")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<long>("UpdatedUnixMilliseconds")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MailboxId", "Outcome", "Acknowledged");
+
+                    b.HasIndex("MailboxId", "SourceKey", "TransportKey")
+                        .IsUnique();
+
+                    b.ToTable("InboundMessageReceipt");
+                });
+
             modelBuilder.Entity("Helpdesk.Shared.Models.IncidentCategoryLink", b =>
                 {
                     b.Property<string>("IncidentId")
@@ -1699,193 +1706,139 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.ToTable("InstanceInitializations", (string)null);
                 });
 
-            modelBuilder.Entity("Helpdesk.Shared.Models.KnowledgeBaseArticle", b =>
+            modelBuilder.Entity("Helpdesk.Shared.Models.MailboxIngestionState", b =>
                 {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
+                    b.Property<Guid>("MailboxId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("Application")
+                    b.Property<string>("Cursor")
                         .HasColumnType("text");
 
-                    b.Property<string>("AutomationBindingId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("AutomationOrchestrationJobDefinitionId")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("AutomationOrchestrationRequestDefinitionId")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("AutomationRequestFormId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<Guid?>("AutomationTaskTemplateId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("AutomationTaskTemplateName")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp without time zone")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<string>("CreatedByModel")
+                    b.Property<string>("ErrorCode")
                         .HasColumnType("text");
 
-                    b.Property<bool>("IsPublished")
+                    b.Property<bool>("Initialized")
                         .HasColumnType("boolean");
 
-                    b.Property<DateTime?>("LastRegeneratedAt")
-                        .HasColumnType("timestamp without time zone");
+                    b.Property<long?>("LastSyncUnixMilliseconds")
+                        .HasColumnType("bigint");
 
-                    b.Property<string>("LinkedTicketId")
-                        .HasColumnType("text");
+                    b.Property<long?>("LastTestUnixMilliseconds")
+                        .HasColumnType("bigint");
 
-                    b.Property<string>("OrganizationId")
+                    b.Property<long?>("NextRetryUnixMilliseconds")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("SourceKey")
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("Problem")
-                        .HasColumnType("text");
+                    b.Property<long?>("TestedVersion")
+                        .HasColumnType("bigint");
 
-                    b.Property<DateTime?>("PublishedAt")
-                        .HasColumnType("timestamp without time zone");
+                    b.HasKey("MailboxId");
 
-                    b.Property<string>("PublishedById")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Resolution")
-                        .HasColumnType("text");
-
-                    b.Property<string>("RootCause")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Service")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("SourceIncidentId")
-                        .HasColumnType("text");
-
-                    b.Property<string>("State")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("text")
-                        .HasDefaultValue("Draft");
-
-                    b.Property<string>("Summary")
-                        .HasColumnType("text");
-
-                    b.PrimitiveCollection<string>("Tags")
-                        .IsRequired()
-                        .HasColumnType("jsonb");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp without time zone")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OrganizationId");
-
-                    b.HasIndex("OrganizationId", "AutomationBindingId");
-
-                    b.ToTable("KnowledgeBaseArticles", (string)null);
+                    b.ToTable("MailboxIngestionState");
                 });
 
-            modelBuilder.Entity("Helpdesk.Shared.Models.KnowledgeBaseCategory", b =>
+            modelBuilder.Entity("Helpdesk.Shared.Models.MailboxLease", b =>
                 {
-                    b.Property<string>("Id")
+                    b.Property<Guid>("MailboxId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("ExpiresUnixMilliseconds")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("Fence")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Owner")
                         .HasColumnType("text");
 
-                    b.Property<string>("Name")
+                    b.HasKey("MailboxId");
+
+                    b.ToTable("MailboxLease");
+                });
+
+            modelBuilder.Entity("Helpdesk.Shared.Models.MailboxMigrationState", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Completed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("OutboundMailboxAddress")
                         .IsRequired()
                         .HasColumnType("text");
 
                     b.HasKey("Id");
 
-                    b.ToTable("KnowledgeBaseCategories");
+                    b.ToTable("MailboxMigrationState");
                 });
 
-            modelBuilder.Entity("Helpdesk.Shared.Models.KnowledgeEmbedding", b =>
+            modelBuilder.Entity("Helpdesk.Shared.Models.MailboxOutboxEffect", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<string>("ChunkId")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
 
-                    b.Property<int>("ChunkIndex")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0);
+                    b.Property<long>("AvailableUnixMilliseconds")
+                        .HasColumnType("bigint");
 
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp without time zone")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<string>("DocumentTitle")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid?>("KnowledgeBaseArticleId")
+                    b.Property<Guid?>("DeliveryEventId")
                         .HasColumnType("uuid");
 
-                    b.Property<double>("LastScore")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("double precision")
-                        .HasDefaultValue(0.0);
-
-                    b.Property<string>("MetadataJson")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("OrganizationId")
+                    b.Property<string>("EffectKey")
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("SourceId")
+                    b.Property<long>("Fence")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("LastErrorCode")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<long>("LeaseExpiresUnixMilliseconds")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Owner")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("Payload")
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("SourceType")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<Guid>("ReceiptId")
+                        .HasColumnType("uuid");
 
-                    b.Property<string>("Text")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Vector>("Vector")
-                        .IsRequired()
-                        .HasColumnType("vector(768)");
+                    b.Property<int>("State")
+                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("KnowledgeBaseArticleId");
+                    b.HasIndex("DeliveryEventId")
+                        .IsUnique();
 
-                    b.HasIndex("OrganizationId", "SourceType")
-                        .HasDatabaseName("ix_embedding_org_source");
+                    b.HasIndex("ReceiptId", "EffectKey")
+                        .IsUnique();
 
-                    b.HasIndex("OrganizationId", "SourceType", "SourceId", "ChunkIndex")
-                        .HasDatabaseName("ix_embedding_org_document_chunk");
+                    b.HasIndex("State", "AvailableUnixMilliseconds");
 
-                    b.ToTable("KnowledgeEmbeddings", (string)null);
+                    b.HasIndex("State", "LeaseExpiresUnixMilliseconds");
+
+                    b.ToTable("MailboxOutboxEffect");
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.Organization", b =>
@@ -1901,9 +1854,6 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("DnsName")
                         .HasColumnType("text");
-
-                    b.Property<bool>("EnableAiIntake")
-                        .HasColumnType("boolean");
 
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("boolean");
@@ -1935,72 +1885,6 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.HasIndex("ItSupportOrganizationId");
 
                     b.ToTable("Organizations");
-                });
-
-            modelBuilder.Entity("Helpdesk.Shared.Models.OrganizationAiKbSettings", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasColumnType("text");
-
-                    b.Property<string>("AllowedServicesCsv")
-                        .HasColumnType("text");
-
-                    b.Property<double>("AnswerThreshold")
-                        .HasColumnType("double precision");
-
-                    b.Property<int>("EmbeddingDimensions")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("EmbeddingModel")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("EmbeddingProviderId")
-                        .HasColumnType("text");
-
-                    b.Property<bool>("EnableAiAnswers")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("EnableAiSearch")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("EnableProviderFallback")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("KnowledgeModelName")
-                        .HasColumnType("text");
-
-                    b.Property<string>("KnowledgeProviderId")
-                        .HasColumnType("text");
-
-                    b.Property<int>("MaxProviderAttempts")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("MinimumAutomationFeedbackCount")
-                        .HasColumnType("integer");
-
-                    b.Property<double>("MinimumAutomationResolvedRate")
-                        .HasColumnType("double precision");
-
-                    b.Property<int>("MinimumSuggestionFeedbackCount")
-                        .HasColumnType("integer");
-
-                    b.Property<double>("MinimumSuggestionHelpfulRate")
-                        .HasColumnType("double precision");
-
-                    b.Property<string>("OrganizationId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<double>("SearchThreshold")
-                        .HasColumnType("double precision");
-
-                    b.Property<int>("SuggestionLimit")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("OrganizationAiKbSettings", (string)null);
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.OrganizationSupportCoverage", b =>
@@ -2780,9 +2664,6 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Property<string>("Id")
                         .HasColumnType("text");
 
-                    b.Property<string>("AiUnderstanding")
-                        .HasColumnType("text");
-
                     b.Property<string>("AssignedToId")
                         .HasColumnType("text");
 
@@ -2881,76 +2762,6 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.UseTphMappingStrategy();
                 });
 
-            modelBuilder.Entity("Helpdesk.Shared.Models.TicketAiFeedback", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ArticleId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedByName")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("CreatedByUserId")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("FeedbackType")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("FeedbackValue")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("Notes")
-                        .HasColumnType("text");
-
-                    b.Property<string>("RequestId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("TicketId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TicketId", "CreatedAt");
-
-                    b.HasIndex("TicketId", "ArticleId", "FeedbackType", "FeedbackValue");
-
-                    b.HasIndex("TicketId", "RequestId", "FeedbackType", "FeedbackValue");
-
-                    b.ToTable("TicketAiFeedback", (string)null);
-                });
-
-            modelBuilder.Entity("Helpdesk.Shared.Models.TicketAiSuggestions", b =>
-                {
-                    b.Property<string>("TicketId")
-                        .HasColumnType("text");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("ItemsJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("TicketId");
-
-                    b.ToTable("TicketAiSuggestions");
-                });
-
             modelBuilder.Entity("Helpdesk.Shared.Models.TicketCategory", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3020,34 +2831,6 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("TicketEvents");
-                });
-
-            modelBuilder.Entity("Helpdesk.Shared.Models.TicketKnowledgeSuggestion", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp without time zone")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<Guid>("KnowledgeBaseArticleId")
-                        .HasColumnType("uuid");
-
-                    b.Property<double>("Score")
-                        .HasColumnType("double precision");
-
-                    b.Property<string>("TicketId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("KnowledgeBaseArticleId");
-
-                    b.ToTable("TicketKnowledgeSuggestions", (string)null);
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.TicketRelation", b =>
@@ -3419,44 +3202,6 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                 {
                     b.HasBaseType("Helpdesk.Shared.Models.Ticket");
 
-                    b.Property<DateTimeOffset?>("AiReviewAcknowledgedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("AiReviewAcknowledgedByName")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("AiReviewAcknowledgedByUserId")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("AiReviewAcknowledgementNotes")
-                        .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)");
-
-                    b.Property<DateTimeOffset?>("AiReviewCompletedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("AiReviewCorrelationId")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("AiReviewFailureReason")
-                        .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)");
-
-                    b.Property<int>("AiReviewGateState")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("AiReviewOutputJson")
-                        .HasColumnType("jsonb");
-
-                    b.Property<DateTimeOffset?>("AiReviewRequestedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("AiReviewStatus")
-                        .HasColumnType("integer");
-
                     b.Property<string>("ApproverUserIds")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
@@ -3535,9 +3280,6 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
-                    b.Property<Guid?>("SourceKnowledgeArticleId")
-                        .HasColumnType("uuid");
-
                     b.Property<string>("SourceTicketId")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
@@ -3550,8 +3292,6 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTimeOffset?>("WorkflowUpdatedAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.HasIndex("OrganizationId", "SourceKnowledgeArticleId");
 
                     b.HasIndex("OrganizationId", "SourceTicketId");
 
@@ -3733,17 +3473,6 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Helpdesk.Shared.Models.AiModel", b =>
-                {
-                    b.HasOne("Helpdesk.Shared.Models.AiProvider", "Provider")
-                        .WithMany("Models")
-                        .HasForeignKey("AiProviderId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Provider");
-                });
-
             modelBuilder.Entity("Helpdesk.Shared.Models.ChangeApproval", b =>
                 {
                     b.HasOne("Helpdesk.Shared.Models.Change", "Change")
@@ -3783,12 +3512,29 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Helpdesk.Shared.Models.EmailInboxSettings", b =>
+                {
+                    b.HasOne("Helpdesk.Shared.Models.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("Helpdesk.Shared.Models.EmailTemplate", b =>
                 {
                     b.HasOne("Helpdesk.Shared.Models.EmailLayout", null)
                         .WithMany()
                         .HasForeignKey("LayoutId")
                         .OnDelete(DeleteBehavior.SetNull);
+                });
+
+            modelBuilder.Entity("Helpdesk.Shared.Models.InboundMessageReceipt", b =>
+                {
+                    b.HasOne("Helpdesk.Shared.Models.EmailInboxSettings", null)
+                        .WithMany()
+                        .HasForeignKey("MailboxId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.IncidentCategoryLink", b =>
@@ -3810,13 +3556,22 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Navigation("TicketCategory");
                 });
 
-            modelBuilder.Entity("Helpdesk.Shared.Models.KnowledgeEmbedding", b =>
+            modelBuilder.Entity("Helpdesk.Shared.Models.MailboxIngestionState", b =>
                 {
-                    b.HasOne("Helpdesk.Shared.Models.KnowledgeBaseArticle", "Article")
-                        .WithMany("Embeddings")
-                        .HasForeignKey("KnowledgeBaseArticleId");
+                    b.HasOne("Helpdesk.Shared.Models.EmailInboxSettings", null)
+                        .WithMany()
+                        .HasForeignKey("MailboxId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
 
-                    b.Navigation("Article");
+            modelBuilder.Entity("Helpdesk.Shared.Models.MailboxLease", b =>
+                {
+                    b.HasOne("Helpdesk.Shared.Models.EmailInboxSettings", null)
+                        .WithMany()
+                        .HasForeignKey("MailboxId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.Organization", b =>
@@ -3912,41 +3667,12 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Helpdesk.Shared.Models.TicketAiFeedback", b =>
-                {
-                    b.HasOne("Helpdesk.Shared.Models.Ticket", null)
-                        .WithMany()
-                        .HasForeignKey("TicketId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("Helpdesk.Shared.Models.TicketAiSuggestions", b =>
-                {
-                    b.HasOne("Helpdesk.Shared.Models.Ticket", null)
-                        .WithOne()
-                        .HasForeignKey("Helpdesk.Shared.Models.TicketAiSuggestions", "TicketId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("Helpdesk.Shared.Models.TicketCategory", b =>
                 {
                     b.HasOne("Helpdesk.Shared.Models.TicketCategory", null)
                         .WithMany()
                         .HasForeignKey("ParentCategoryId")
                         .OnDelete(DeleteBehavior.Restrict);
-                });
-
-            modelBuilder.Entity("Helpdesk.Shared.Models.TicketKnowledgeSuggestion", b =>
-                {
-                    b.HasOne("Helpdesk.Shared.Models.KnowledgeBaseArticle", "Article")
-                        .WithMany()
-                        .HasForeignKey("KnowledgeBaseArticleId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Article");
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.TicketSlaEscalationEvent", b =>
@@ -3981,16 +3707,6 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("Helpdesk.Infrastructure.Persistence.Entities.NotificationEntity", b =>
                 {
                     b.Navigation("Reads");
-                });
-
-            modelBuilder.Entity("Helpdesk.Shared.Models.AiProvider", b =>
-                {
-                    b.Navigation("Models");
-                });
-
-            modelBuilder.Entity("Helpdesk.Shared.Models.KnowledgeBaseArticle", b =>
-                {
-                    b.Navigation("Embeddings");
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.Role", b =>

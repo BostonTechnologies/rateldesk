@@ -3,7 +3,6 @@ using Helpdesk.Application.WorkLogs;
 using Helpdesk.Application.Services.Tickets;
 using Helpdesk.Application.Messaging;
 using Helpdesk.Application.Services.Email;
-using Helpdesk.Application.Services.Tenants;
 using Helpdesk.Infrastructure.Email;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.Identity;
@@ -22,24 +21,24 @@ namespace Helpdesk.Tests.Application.Services;
 public class InboundEmailActionExecutorTests
 {
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task ExecuteAsync_AuthorizedForward_CreatesNewUnassignedIncidentForOriginalRequester(bool withInlineImage)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task ExecuteAsync_AuthorizedForward_CreatesNewUnassignedIncidentForOriginalRequester(bool withInlineImage, bool existingRequester)
     {
         await using var db = CreateDb();
         db.Organizations.Add(new Organization { Id = "tenant-1", Name = "Tenant", DnsName = "example.com" });
         db.Users.Add(new User { Id = "tech-1", Email = "tech@support.local", Name = "Tech", Role = HelpdeskRoleBundles.Technical, OrganizationId = "tenant-1" });
         LinkLegacyForwarder(db, "tenant-1");
+        if (existingRequester)
+            db.Customers.Add(new Customer { Id = "customer-1", Email = "jane@example.com", Name = "Jane", OrganizationId = "tenant-1" });
         await db.SaveChangesAsync();
 
         var sender = Substitute.For<IRequestSender>();
         var created = new Incident { Id = "inc-1", TrackingId = "INC-1", State = TicketState.New };
         CreateIncidentCommand? command = null;
         sender.Send(Arg.Do<CreateIncidentCommand>(x => command = x), Arg.Any<CancellationToken>()).Returns(created);
-
-        var provisioning = Substitute.For<ITenantProvisioningService>();
-        provisioning.GetOrCreateCustomerAsync("jane@example.com", "Jane", "example.com")
-            .Returns((new Customer { Id = "customer-1", Email = "jane@example.com", Name = "Jane", OrganizationId = "tenant-1" }, false));
 
         var incidentRepo = Substitute.For<IRepository<Incident>>();
         incidentRepo.UpdateAsync(Arg.Any<Incident>()).Returns(call => call.Arg<Incident>());
@@ -62,7 +61,6 @@ public class InboundEmailActionExecutorTests
         var executor = new InboundEmailActionExecutor(
             db,
             sender,
-            provisioning,
             incidentRepo,
             timelineRepo,
             NullLogger<InboundEmailActionExecutor>.Instance,
@@ -88,12 +86,37 @@ public class InboundEmailActionExecutorTests
         Assert.True(result.Handled);
         Assert.True(result.StopDefaultProcessing);
         Assert.Equal("jane@example.com", command!.RequesterEmail);
-        Assert.Equal("customer-1", command.CustomerId);
+        var requester = Assert.Single(await db.Customers.Where(x => x.Email == "jane@example.com").ToListAsync());
+        Assert.Equal("tenant-1", requester.OrganizationId);
+        Assert.Equal("Jane", requester.Name);
+        Assert.Equal(requester.Id, command.CustomerId);
+        if (existingRequester) Assert.Equal("customer-1", command.CustomerId);
         Assert.Equal("tenant-1", command.OrganizationId);
         Assert.Null(command.AssignedToId);
         await incidentRepo.Received(1).UpdateAsync(Arg.Is<Incident>(x => x.State == TicketState.New && x.AssignedToId == null && x.EmailFrom == "jane@example.com"));
         await timelineRepo.Received(1).CreateAsync(Arg.Is<TicketTimelineEvent>(x => x.EventType == TimelineEventType.InternalNote && x.MessageText!.Contains("tech@support.local")));
         Assert.Contains(db.InboundEmailProcessingLogs, x => x.Status == InboundEmailProcessingStatus.Succeeded && x.TicketId == "inc-1");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExecuteAsync_Forward_cannot_reassign_foreign_or_blocked_requester(bool blocked)
+    {
+        await using var db = CreateDb();
+        db.Organizations.Add(new Organization { Id = "tenant-1", Name = "Tenant", DnsName = "example.com" });
+        db.Users.Add(new User { Id = "tech-1", Email = "tech@support.local", Role = HelpdeskRoleBundles.Technical, OrganizationId = "tenant-1" });
+        LinkLegacyForwarder(db, "tenant-1");
+        db.Customers.Add(new Customer { Id = "requester", Email = "jane@example.com", OrganizationId = blocked ? "tenant-1" : "foreign", State = blocked ? Helpdesk.Shared.Models.EntityState.Blocked : Helpdesk.Shared.Models.EntityState.Enabled });
+        await db.SaveChangesAsync();
+        var sender = Substitute.For<IRequestSender>();
+        var result = await CreateExecutor(db, sender).ExecuteAsync(Rule("tenant-1"), Action(), Context(), Forwarded());
+        Assert.True(result.Handled);
+        Assert.Null(result.Ticket);
+        await sender.DidNotReceive().Send(Arg.Any<CreateIncidentCommand>(), Arg.Any<CancellationToken>());
+        var requester = await db.Customers.SingleAsync(x => x.Id == "requester");
+        Assert.Equal(blocked ? "tenant-1" : "foreign", requester.OrganizationId);
+        Assert.Equal(blocked ? Helpdesk.Shared.Models.EntityState.Blocked : Helpdesk.Shared.Models.EntityState.Enabled, requester.State);
     }
 
     [Fact]
@@ -226,13 +249,11 @@ public class InboundEmailActionExecutorTests
 
     private static InboundEmailActionExecutor CreateExecutor(HelpdeskDbContext db, IRequestSender sender, RatelDeskIdentityDbContext? identityDb = null)
     {
-        var provisioning = Substitute.For<ITenantProvisioningService>();
         var incidentRepo = Substitute.For<IRepository<Incident>>();
         var timelineRepo = Substitute.For<IRepository<TicketTimelineEvent>>();
         return new InboundEmailActionExecutor(
             db,
             sender,
-            provisioning,
             incidentRepo,
             timelineRepo,
             NullLogger<InboundEmailActionExecutor>.Instance,

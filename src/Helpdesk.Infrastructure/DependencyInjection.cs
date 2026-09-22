@@ -111,23 +111,44 @@ public static class DependencyInjection
         services.AddScoped<ISecretProtector, DataProtectionSecretProtector>();
         services.AddScoped<IInboundInlineImageResolver, InboundInlineImageResolver>();
         services.AddScoped<IGraphEmailProcessor, GraphEmailProcessor>();
+        services.AddSingleton(TimeProvider.System);
+        services.AddScoped<Helpdesk.Infrastructure.Email.MailboxCredentialProtector>();
+        services.AddScoped<Helpdesk.Infrastructure.Email.MailboxDestinationPolicy>();
+        services.AddScoped<Helpdesk.Infrastructure.Email.MailboxSettingsService>();
+        services.AddScoped<Helpdesk.Infrastructure.Email.MailboxConfigurationMigration>();
+        services.AddScoped<Helpdesk.Infrastructure.Email.MailboxLeaseStore>();
+        services.AddScoped<Helpdesk.Infrastructure.Email.InboundTenantRouter>();
+        services.AddScoped<IIngressEffectContext, IngressEffectContext>();
+        services.AddScoped<Helpdesk.Infrastructure.Email.MailboxOutboxStore>();
+        services.AddHostedService<Helpdesk.Infrastructure.Email.MailboxOutboxDispatcher>();
+        services.AddScoped<IInboundMailboxAdapter, Helpdesk.Infrastructure.Email.GraphMailboxAdapter>();
+        services.AddScoped<IInboundMailboxAdapter>(sp => new Helpdesk.Infrastructure.Email.ProtocolMailboxAdapter(
+            Helpdesk.Shared.Models.InboundMailboxProvider.Imap, sp.GetRequiredService<Helpdesk.Infrastructure.Email.MailboxDestinationPolicy>(), sp.GetRequiredService<Helpdesk.Infrastructure.Email.MailboxCredentialProtector>()));
+        services.AddScoped<IInboundMailboxAdapter>(sp => new Helpdesk.Infrastructure.Email.ProtocolMailboxAdapter(
+            Helpdesk.Shared.Models.InboundMailboxProvider.Pop3, sp.GetRequiredService<Helpdesk.Infrastructure.Email.MailboxDestinationPolicy>(), sp.GetRequiredService<Helpdesk.Infrastructure.Email.MailboxCredentialProtector>()));
+        services.AddScoped<InboundTicketProcessor>(sp => ActivatorUtilities.CreateInstance<InboundTicketProcessor>(sp,
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<InboundTicketProcessor>>()));
+
         services.AddScoped<IForwardedEmailParser, ForwardedEmailParser>();
         services.AddScoped<IInboundEmailRuleProcessor, InboundEmailRuleProcessor>();
         services.AddScoped<IInboundEmailActionExecutor, InboundEmailActionExecutor>();
         services.AddScoped<IEmailIngestionService, EmailIngestionService>();
         services.AddSingleton<IImapEmailService, ImapEmailService>();
-        services.AddScoped<IEmailService, GraphEmailService>();
+        services.AddScoped<GraphEmailService>();
+        services.AddScoped<IEmailService, Helpdesk.Infrastructure.Email.IngressEmailService>();
         services.AddScoped<IEmailSettingsProvider, EmailSettingsProvider>();
         services.AddScoped<IPasswordResetService, PasswordResetService>();
         services.AddScoped<ITwoFactorService, TwoFactorService>();
         services.AddSingleton<ICaptchaService, CaptchaService>();
         services.AddScoped<INotificationRepository, NotificationRepository>();
         services.AddScoped<INotificationService, NotificationService>();
-        services.AddSingleton<INotificationEventBus, NotificationEventBus>();
+        services.AddSingleton<NotificationEventBus>();
+        services.AddScoped<INotificationEventBus, Helpdesk.Infrastructure.Email.IngressNotificationEventBus>();
         services.AddScoped<IDomainEventPublisher, NotificationDomainEventPublisher>();
         services.AddScoped<ICorrelationContext, HttpCorrelationContext>();
         services.AddScoped<ITimelineService, TimelineService>();
-        services.AddSingleton<ITimelineEventBus, TimelineEventBus>();
+        services.AddSingleton<TimelineEventBus>();
+        services.AddScoped<ITimelineEventBus, Helpdesk.Infrastructure.Email.IngressTimelineEventBus>();
         services.AddSingleton<IAiInvestigationEventBus, AiInvestigationEventBus>();
         services.AddScoped<IAiAssistantAiAssistantService, AiAssistantAiAssistantService>();
         services.AddScoped<ISlaPolicyResolver, SlaPolicyResolver>();

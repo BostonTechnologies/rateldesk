@@ -8,10 +8,12 @@ public interface IInboundEmailRuleAdminClient
 {
     Task<IReadOnlyList<InboundEmailRuleDto>> GetRulesAsync(string? tenantId = null, Guid? mailboxId = null);
     Task<InboundEmailRuleDto?> GetRuleAsync(string id);
+    Task<InboundEmailRuleDto?> CreateAsync(CreateInboundEmailRuleRequest request);
+    Task<InboundEmailRuleDto?> UpdateAsync(string id, UpdateInboundEmailRuleRequest request);
     Task<InboundEmailRuleDto?> EnableAsync(string id);
     Task<InboundEmailRuleDto?> DisableAsync(string id);
     Task<IReadOnlyList<InboundEmailRuleDto>> ReorderAsync(IEnumerable<InboundEmailRulePriorityDto> rules);
-    Task<IReadOnlyList<InboundEmailRuleAuditDto>> GetAuditAsync(string? messageId = null, string? ticketId = null, string? tenantId = null);
+    Task<IReadOnlyList<InboundEmailRuleAuditDto>> GetAuditAsync(string? messageId = null, string? ticketId = null, string? tenantId = null, Guid? mailboxId = null);
 }
 
 public sealed class InboundEmailRuleAdminClient(IHttpClientFactory httpClientFactory) : IInboundEmailRuleAdminClient
@@ -50,6 +52,18 @@ public sealed class InboundEmailRuleAdminClient(IHttpClientFactory httpClientFac
         return await ReadResultAsync<InboundEmailRuleDto>(response, "Load inbound email rule failed.");
     }
 
+    public async Task<InboundEmailRuleDto?> CreateAsync(CreateInboundEmailRuleRequest request)
+    {
+        using var response = await http.PostAsJsonAsync("api/v1/inbound-email-rules", request);
+        return await ReadResultAsync<InboundEmailRuleDto>(response, "Create inbound email rule failed.");
+    }
+
+    public async Task<InboundEmailRuleDto?> UpdateAsync(string id, UpdateInboundEmailRuleRequest request)
+    {
+        using var response = await http.PutAsJsonAsync($"api/v1/inbound-email-rules/{Uri.EscapeDataString(id)}", request);
+        return await ReadResultAsync<InboundEmailRuleDto>(response, "Update inbound email rule failed.");
+    }
+
     public async Task<InboundEmailRuleDto?> EnableAsync(string id)
     {
         var response = await http.PostAsync($"api/v1/inbound-email-rules/{Uri.EscapeDataString(id)}/enable", null);
@@ -70,9 +84,10 @@ public sealed class InboundEmailRuleAdminClient(IHttpClientFactory httpClientFac
         return await ReadResultAsync<List<InboundEmailRuleDto>>(response, "Reorder inbound email rules failed.") ?? [];
     }
 
-    public async Task<IReadOnlyList<InboundEmailRuleAuditDto>> GetAuditAsync(string? messageId = null, string? ticketId = null, string? tenantId = null)
+    public async Task<IReadOnlyList<InboundEmailRuleAuditDto>> GetAuditAsync(string? messageId = null, string? ticketId = null, string? tenantId = null, Guid? mailboxId = null)
     {
         var query = new List<string>();
+        if (mailboxId.HasValue) query.Add($"mailboxId={mailboxId.Value:D}");
         if (!string.IsNullOrWhiteSpace(messageId))
         {
             query.Add($"messageId={Uri.EscapeDataString(messageId)}");

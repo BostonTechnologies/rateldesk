@@ -39,6 +39,31 @@
         <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="mb-3" />
     }
 
+    <MudSelect T="Guid?" Label="Filter by source mailbox" @bind-Value="MailboxId" @bind-Value:after="LoadAuditAsync" Class="mb-3">
+        <MudSelectItem T="Guid?" Value="@((Guid?)null)">All mailboxes</MudSelectItem>
+        @foreach (var mailbox in mailboxes)
+        {
+            <MudSelectItem T="Guid?" Value="@((Guid?)mailbox.Id)">@mailbox.DisplayName — @mailbox.MailboxAddress @(mailbox.Archived ? "(archived)" : "")</MudSelectItem>
+        }
+    </MudSelect>
+    @if (cloneSource is not null)
+    {
+        <MudPaper Outlined="true" Class="pa-4 mb-3">
+            <MudText Typo="Typo.h6">Clone rule</MudText>
+            <MudTextField Label="Cloned rule name" @bind-Value="cloneName" Immediate="true" MaxLength="200" />
+            <MudTextField Label="Cloned rule description" @bind-Value="cloneDescription" Immediate="true" Lines="3" />
+            <MudSelect T="string" Label="Cloned rule organization" @bind-Value="cloneOrganization">
+                <MudSelectItem Value="@(string.Empty)">Global rule</MudSelectItem>
+                @foreach (var organization in tenantNames)
+                {
+                    <MudSelectItem Value="organization.Key">@organization.Value</MudSelectItem>
+                }
+            </MudSelect>
+            <MudText Typo="Typo.caption">The copy retains conditions and actions and starts disabled. Choose its source mailbox after saving.</MudText>
+            <MudButton OnClick="SaveCloneAsync" Disabled="@(loading || string.IsNullOrWhiteSpace(cloneName))">Save disabled copy</MudButton>
+            <MudButton OnClick="() => cloneSource = null">Cancel clone</MudButton>
+        </MudPaper>
+    }
     <MudTabs Rounded="true" Border="true" PanelClass="pt-3">
         <MudTabPanel Text="Rules" Icon="@Icons.Material.Filled.Rule">
             @if (!loading && rules.Count == 0)
@@ -48,7 +73,7 @@
             else
             {
                 <div class="email-rules-table-wrap">
-                    <MudTable Items="OrderedRules" Dense="true" Hover="true" Breakpoint="Breakpoint.None" Class="email-rules-table">
+                    <MudTable Items="OrderedRules" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Class="email-rules-table">
                         <HeaderContent>
                             <MudTh>Name</MudTh>
                             <MudTh>Scope</MudTh>
@@ -61,7 +86,7 @@
                             <MudTh Class="email-rules-actions"></MudTh>
                         </HeaderContent>
                         <RowTemplate>
-                            <MudTd DataLabel="Name">
+                            <MudTd DataLabel="Name" Class="email-rule-name">
                                 <MudStack Spacing="0">
                                     <MudText Typo="Typo.body2">@context.Name</MudText>
                                     @if (!string.IsNullOrWhiteSpace(context.Description))
@@ -72,7 +97,13 @@
                             </MudTd>
                             <MudTd DataLabel="Scope">@InboundEmailRuleLabels.Scope(context.ScopeType)</MudTd>
                             <MudTd DataLabel="Tenant">@TenantDisplay(context.TenantId)</MudTd>
-                            <MudTd DataLabel="Mailbox">@(context.MailboxId?.ToString() ?? "-")</MudTd>
+                            <MudTd DataLabel="Mailbox"><MudSelect T="Guid?" Label="Source mailbox" Value="context.MailboxId" ValueChanged="id => BindMailboxAsync(context, id)" Disabled="@loading">
+                                <MudSelectItem T="Guid?" Value="@((Guid?)null)">All eligible mailboxes</MudSelectItem>
+                                @foreach (var mailbox in mailboxes.Where(x => !x.Archived && (context.ScopeType == InboundEmailRuleScopeType.Global || x.OrganizationId == null || x.OrganizationId == context.TenantId)))
+                                {
+                                    <MudSelectItem T="Guid?" Value="@((Guid?)mailbox.Id)">@mailbox.DisplayName — @mailbox.MailboxAddress (@(mailbox.OrganizationId is null ? "Instance-global mailbox" : "Dedicated"))</MudSelectItem>
+                                }
+                            </MudSelect></MudTd>
                             <MudTd DataLabel="Status">
                                 <MudChip T="string" Size="Size.Small" Color="@(context.Enabled ? Color.Success : Color.Default)" Variant="Variant.Filled">
                                     @(context.Enabled ? "Enabled" : "Disabled")
@@ -82,6 +113,7 @@
                             <MudTd DataLabel="Stop">@(context.StopProcessing ? "Yes" : "No")</MudTd>
                             <MudTd DataLabel="Updated">@context.UpdatedAtUtc.ToLocalTime().ToString("g")</MudTd>
                             <MudTd Class="email-rules-actions">
+                                <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" aria-label="Clone rule" Size="Size.Small" OnClick="() => BeginClone(context)" />
                                 <MudTooltip Text="Move up">
                                     <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowUp"
                                                    Size="Size.Small"
@@ -188,7 +220,7 @@
             else
             {
                 <div class="email-rules-table-wrap">
-                    <MudTable Items="FilteredAudit" Dense="true" Hover="true" Breakpoint="Breakpoint.None" Class="email-rules-table">
+                    <MudTable Items="FilteredAudit" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Class="email-rules-table">
                         <HeaderContent>
                             <MudTh>Timestamp</MudTh>
                             <MudTh>Rule</MudTh>
@@ -229,29 +261,62 @@
     </MudTabs>
 </MudPaper>
 
-<style>
-    .email-rules-table-wrap {
-        overflow-x: auto;
-    }
 
-    .email-rules-table th,
-    .email-rules-table td {
-        white-space: nowrap;
-        padding: 4px 8px;
-    }
-
-    .email-rules-actions {
-        width: 190px;
-        text-align: right;
-    }
-</style>
 
 @code {
+    [SupplyParameterFromQuery(Name = "mailboxId")] public Guid? MailboxId { get; set; }
+    private InboundEmailRuleDto? cloneSource;
+    private string cloneName = string.Empty;
+    private string? cloneDescription;
+    private string cloneOrganization = string.Empty;
+    private void BeginClone(InboundEmailRuleDto rule)
+    {
+        cloneSource = rule;
+        cloneName = rule.Name + " (copy)";
+        cloneDescription = rule.Description;
+        cloneOrganization = rule.TenantId ?? string.Empty;
+    }
+    private async Task SaveCloneAsync()
+    {
+        if (cloneSource is null) return;
+        loading = true;
+        try
+        {
+            var tenant = string.IsNullOrWhiteSpace(cloneOrganization) ? null : cloneOrganization;
+            await RulesClient.CreateAsync(new CreateInboundEmailRuleRequest(
+                tenant is null ? InboundEmailRuleScopeType.Global : InboundEmailRuleScopeType.Tenant,
+                tenant, null, cloneName, cloneDescription, false, cloneSource.Priority,
+                cloneSource.Conditions, cloneSource.Actions, cloneSource.StopProcessing));
+            cloneSource = null;
+            await RefreshAsync();
+        }
+        catch (InvalidOperationException)
+        {
+            Snackbar.Add("The copy could not be saved. Check organization and mailbox conditions.", Severity.Error);
+        }
+        finally { loading = false; }
+    }
+    private List<EmailInboxSettingsDto> mailboxes = [];
     private const string AllStatusesValue = "";
 
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
     private readonly List<InboundEmailRuleDto> rules = new();
     private readonly List<InboundEmailRuleAuditDto> auditRows = new();
+    private async Task BindMailboxAsync(InboundEmailRuleDto rule, Guid? mailboxId)
+    {
+        var request = new UpdateInboundEmailRuleRequest(rule.ScopeType, rule.TenantId, mailboxId, rule.Name,
+            rule.Description, rule.Enabled, rule.Priority, rule.Conditions, rule.Actions, rule.StopProcessing);
+        try
+        {
+            await RulesClient.UpdateAsync(rule.Id, request);
+            await RefreshAsync();
+        }
+        catch (InvalidOperationException)
+        {
+            Snackbar.Add("Mailbox binding was rejected. Check organization, source status and MailboxEquals conditions.", Severity.Error);
+        }
+    }
+
     private readonly Dictionary<string, string> tenantNames = new(StringComparer.OrdinalIgnoreCase);
     private bool loading;
     private bool auditLoading;
@@ -262,6 +327,7 @@
     private string auditStatus = AllStatusesValue;
 
     private List<InboundEmailRuleDto> OrderedRules => rules
+        .Where(x => !MailboxId.HasValue || x.MailboxId == null || x.MailboxId == MailboxId)
         .OrderByDescending(x => x.ScopeType == InboundEmailRuleScopeType.Tenant)
         .ThenBy(x => x.TenantId)
         .ThenBy(x => x.MailboxId)
@@ -285,6 +351,8 @@
         loadError = null;
         try
         {
+            mailboxes = await HttpClientFactory.CreateClient("HelpdeskApi").GetFromJsonAsync<List<EmailInboxSettingsDto>>("api/v1/email-settings") ?? [];
+
             await LoadTenantsAsync();
             rules.Clear();
             rules.AddRange(await RulesClient.GetRulesAsync());
@@ -324,7 +392,7 @@
         try
         {
             auditRows.Clear();
-            auditRows.AddRange(await RulesClient.GetAuditAsync(auditMessageId, auditTicketId, auditTenantId));
+            auditRows.AddRange(await RulesClient.GetAuditAsync(auditMessageId, auditTicketId, auditTenantId, MailboxId));
         }
         catch (Exception ex)
         {
