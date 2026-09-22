@@ -1,0 +1,65 @@
+# Inbound mailbox administration
+
+An instance administrator configures ingress at `/admin/email-settings`. Provider selection is independent for every connection. The application organization is separate from the Microsoft directory ID (`tenantId` in the compatibility request contract).
+
+| Provider | Authentication | Source identity | Disposition |
+| --- | --- | --- | --- |
+| Microsoft Graph | Microsoft application directory/client ID and secret | Immutable Graph message ID, folder delta checkpoint | Mark read; optionally move to a configured folder ID |
+| IMAP | Password/app password or Microsoft application OAuth | Configured folder, UIDVALIDITY and UID | Mark seen; optional MOVE when the server supports it |
+| POP3 | Password/app password or Microsoft application OAuth | Stable UIDL | Leave messages on server |
+
+Password authentication only works where the server permits it. Microsoft protocol OAuth requires Exchange protocol application permissions and mailbox authorization; Graph consent does not grant IMAP/POP access. Graph reads MIME directly and does not connect to IMAP. See [Microsoft protocol OAuth](https://learn.microsoft.com/en-us/exchange/client-developer/legacy-protocols/how-to-authenticate-an-imap-pop-smtp-application-by-using-oauth), [Graph delta synchronization](https://learn.microsoft.com/en-us/graph/delta-query-messages), and [immutable Graph IDs](https://learn.microsoft.com/en-us/graph/outlook-immutable-id).
+
+Graph read/move processing requires application `Mail.ReadWrite` access restricted to the intended mailboxes by the Microsoft administrator. Inbound testing does not need `Mail.Send`. A read-only connection test proves authentication and folder access, not permission to move mail. IMAP and POP require verified TLS on connect or mandatory STARTTLS; opportunistic TLS and certificate bypasses are not supported.
+
+## Global inheritance and dedicated overrides
+
+There is one global assignment and at most one dedicated assignment per organization, including disabled assignments. Ten organizations inheriting the global mailbox and three using dedicated Graph/IMAP/POP3 mailboxes use four connections. Each dedicated connection operates independently when global ingress is absent, paused or unavailable.
+
+Pausing a dedicated connection keeps its assignment. Failure never switches it to global automatically. **Revert to global mailbox** explicitly archives the dedicated assignment; receipts and rule history remain. Global mail for an organization with a dedicated assignment is held as `TenantUsesDedicatedMailbox`, without provisioning a customer or creating a ticket. Correct the routing/assignment, then retry through inbound diagnostics.
+
+Configure external delivery and announce dedicated addresses before cutover. This application does not change MX records or forward messages between mail providers. Replies to older tickets may still arrive at the old global address and be held. Review existing organization branding Reply-To before switching ingress; conflicting Reply-To must be reconciled. Outbound From and Microsoft sending credentials remain separately configured through `ExchangeEmail`. Generic protocol ingestion does not configure an SMTP sender.
+
+## Import, retention and source changes
+
+New connections default to new messages only. Importing historical messages requires explicit confirmation. Existing unread import is available for Graph and IMAP; POP has no unread state. Migrated hybrid settings retain unread-backlog behavior and their original GUID and enabled/background flags. Additional historic settings are archived and cannot poll.
+
+Changing provider, server, account, folder or organization requires archiving and creating a new source. Credential rotation on an unchanged source preserves progress. IMAP UIDVALIDITY changes create a new epoch: messages already present are captured for review without business processing, while later arrivals continue normally. Review historical tickets before explicitly retrying epoch-reset messages. POP requires UIDL, retains all messages and provides no folder/read-state/delete controls. Operators must manage server retention. The protocol adapter limits POP enumeration to 10,000 entries; mailbox receipt storage is capped at 100,000 deliveries pending operator retention maintenance.
+
+## Credentials and network policy
+
+Responses expose credential-present flags, never stored credentials. Empty credentials retain the saved value on an unchanged source. A changed draft destination cannot borrow a saved secret. Credential clear requests are explicit and cannot leave an enabled connection without credentials.
+
+Mailbox credentials and captured normalized message envelopes use the existing Data Protection key ring, with a separate mailbox-specific versioned purpose. Preserve `DataProtection:ApplicationName` and persist/share `DataProtection:KeyRingPath` across replicas. Back up the key ring with the database. Missing keys fail closed and require recovery or re-entry; ciphertext is never used as plaintext.
+
+Both draft tests and workers apply `EmailIngestion:AllowedPrivateHosts`, an operator-controlled array of exact private mail-server hostnames. Public server addresses are permitted; unapproved private/loopback addresses and metadata/link-local destinations are denied. DNS addresses are validated and the connection is pinned to the validated address. Use network egress controls as an additional deployment boundary. Only instance administrators may configure connections, tests, bindings and retries.
+
+## Processing and diagnostics
+
+Both mailbox switches must be enabled, and the deployment-wide `EmailIngestion:Enabled` switch must permit processing. Healthy reconciliation runs every five seconds. Up to four independent mailbox operations run concurrently. Database leases, fencing and source-version checks prevent obsolete workers from committing after ownership changes. Replicas need synchronized UTC clocks.
+
+Source capture and checkpoint advancement share a database transaction. A definitive Graph MIME-content 404 or IMAP expunge is captured as a source-missing tombstone so other items in the batch can progress; transient provider or MIME failures do not advance the checkpoint. Already captured receipts continue during a fresh enumeration outage. Each poll gives fresh capture and durable business processing an opportunity before entering a separately bounded acknowledgment-recovery phase, so slow disposition calls cannot indefinitely postpone new input.
+
+Ticket/rule changes and durable notification work share a separate fenced transaction. Provider acknowledgment happens after business commit. Each acknowledgment uses a short durable claim, performs provider I/O without a database write transaction, then conditionally completes that claim. A target fingerprint prevents a changed disposition from redirecting old work. Unknown failures retry without replaying ticket changes, and a provider-confirmed missing source is recorded explicitly. A Graph move 404 is ambiguous because either the source or destination may be unavailable; RatelDesk probes the immutable source ID and records terminal source-missing only when that probe also returns 404. A receipt distinguishes pending, succeeded, ignored, held and failed outcomes. Inbound diagnostics show state and safe retries without exposing message bodies. `/admin/pending-emails` remains the existing outbound delivery view.
+
+MIME normalization preserves attached `message/rfc822` entities as safe `.eml` downloads. Nested headers, bodies and attachments remain inside that file and count toward the same attachment-count, MIME-depth and byte limits as other inbound content.
+
+Notification dispatch uses a bounded durable outbox. External mail is at-least-once when the provider accepts a send but its response is lost; local ticket changes are not rerun for that uncertainty. Persisted notifications are shared, while the existing live notification buses remain per replica.
+
+## Rule scope and source binding
+
+Tenant rules run before global fallback rules, with priority and stable tie-breaking within each tier. **All eligible mailboxes** preserves reusable rules. A source binding restricts eligibility; it does not change priority or grant tenant authority. Global rules may target a dedicated source; a tenant cannot target another tenant's dedicated source. Reordering operates within one scope/organization/source bucket. Explicit priorities determine how different buckets interleave.
+
+The forwarded-support template remains disabled until explicitly enabled. Parsing a forwarded body records only a candidate requester; it never changes the ordinary fallback requester. An applicable rule must resolve the candidate organization, authorize the outer support sender for that organization, and validate the actual mailbox source for that target before substitution. A specialized authorized rule may resolve an outer-contact ownership conflict or the outer contact's dedicated-mailbox restriction; disabled or inapplicable rules retain the ordinary hold. Cross-tenant references, blocked senders and a candidate using the wrong source remain terminal holds. A denied operation is held and cannot fall through to equivalent ticket creation. Authorized forwarded incidents preserve their original requester and New/Unassigned behavior without the ordinary new-requester confirmation. Ownership conflicts, ambiguous routing and unconfident requester parsing require review. Existing customers are never moved between organizations by ingress.
+
+## Upgrade and recovery
+
+Back up both databases, attachment storage and the shared Data Protection key ring before upgrade. Stop old application replicas before migration so the retired hybrid worker cannot consume alongside the coordinator. Both PostgreSQL and SQLite have additive mailbox/receipt/lease/outbox schema migrations. Application-side credential protection runs before workers and has a durable completion marker; restarts do not recreate removed assignments.
+
+The upgrade preserves historical data for previously retired application features; mailbox migration does not delete those unrelated tables. Review archived mailbox rows and explicit outbound identity, test the saved global connection, then enable any new sources deliberately. The schema down migration is intentionally rejected: restoring the pre-upgrade database and key backup is a recovery operation, not a lossless rollback after processing new mail.
+
+## Validation and live-provider acceptance
+
+The feature suite covers Graph SDK HTTP/MIME fixtures, isolated TLS IMAP/POP3 servers, real adapter-to-ticket persistence, acknowledgment recovery, mixed 10+3 routing, tenant conflicts, leases/restarts, credential boundaries and both database upgrade paths. These fixtures use synthetic accounts; they are not live Exchange or hosted mailbox acceptance. PR validation executes the .NET suite and the mailbox Playwright cases alongside setup, authorization, AI Assistant, image and Compose gates. The PR records the exact results and screenshot artifacts.
+
+Before enabling a real source, the mailbox administrator must grant the provider-specific permissions, verify delivery/forwarding and retention, use the read-only connection test, and send a controlled new message and reply. Confirm the intended organization, one ticket/reply, expected attachments and successful provider disposition in inbound diagnostics. Live provider throttling, tenant-specific consent and external delivery rules still require that operator acceptance.

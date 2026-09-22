@@ -17,7 +17,17 @@ public sealed record InboundEmailContext(
     string TextBody,
     DateTimeOffset? ReceivedUtc,
     IReadOnlyDictionary<string, string> Headers,
-    IReadOnlyList<InboundEmailAttachmentContext> Attachments);
+    IReadOnlyList<InboundEmailAttachmentContext> Attachments)
+{
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> RepeatedHeaders { get; init; }
+        = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+    public string? SourceMessageKey { get; init; }
+    public string? InReplyTo { get; init; }
+    public IReadOnlyList<string> References { get; init; } = [];
+    public string? ForwardedRequesterEmail { get; init; }
+    public string? ForwardedRequesterName { get; init; }
+    public string? ForwardedRequesterTenantId { get; init; }
+}
 
 public sealed record InboundEmailAttachmentContext(
     string Name,
@@ -30,7 +40,8 @@ public sealed record InboundEmailAttachmentContext(
 public sealed record InboundEmailRuleProcessingResult(
     bool Handled,
     bool StopDefaultProcessing,
-    Ticket? Ticket);
+    Ticket? Ticket,
+    string? HoldReason = null);
 
 public sealed record ForwardedEmailParseResult(
     Helpdesk.Shared.Enums.ForwardedEmailParseStatus Status,

@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using Helpdesk.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 using Azure.Identity;
 using Helpdesk.Application.Events;
 using Helpdesk.Application.Notifications;
@@ -37,6 +39,7 @@ public sealed class GraphEmailService : IEmailService
     private readonly IRepository<TicketTimelineEvent> _timelineEvents;
     private readonly ITimelineEventBus _timelineEventBus;
     private readonly bool _initialized;
+    private readonly HelpdeskDbContext? _db;
 
     public GraphEmailService(
         IOptions<ExchangeEmailOptions> opts,
@@ -45,7 +48,8 @@ public sealed class GraphEmailService : IEmailService
         ICorrelationContext correlationContext,
         IRepository<TicketTimelineEvent> timelineEvents,
         ITimelineEventBus timelineEventBus,
-        IEmailSettingsProvider emailSettingsProvider)
+        IEmailSettingsProvider emailSettingsProvider,
+        HelpdeskDbContext? db = null)
         : this(
             opts,
             logger,
@@ -54,8 +58,9 @@ public sealed class GraphEmailService : IEmailService
             timelineEvents,
             timelineEventBus,
             emailSettingsProvider,
-            null)
+            sendMailAsync: null)
     {
+        _db = db;
     }
 
     internal GraphEmailService(
@@ -70,8 +75,10 @@ public sealed class GraphEmailService : IEmailService
             string,
             Microsoft.Graph.Users.Item.SendMail.SendMailPostRequestBody,
             CancellationToken,
-            Task>? sendMailAsync)
+            Task>? sendMailAsync,
+        HelpdeskDbContext? db = null)
     {
+        _db = db;
         _options = opts.Value;
         _logger = logger;
         _domainEvents = domainEvents;
@@ -189,6 +196,20 @@ public sealed class GraphEmailService : IEmailService
         }
 
         var senderMailbox = await ResolveSenderMailboxAsync(ct);
+        if (_db is not null && !string.IsNullOrWhiteSpace(ticketId))
+        {
+            var organizationId = await _db.Tickets.IgnoreQueryFilters().Where(x => x.Id == ticketId).Select(x => x.OrganizationId).SingleOrDefaultAsync(ct);
+            var assignments = await _db.EmailInboxSettings.AsNoTracking().Where(x => !x.Archived &&
+                (x.OrganizationId == organizationId || x.Scope == MailboxScope.Global)).ToListAsync(ct);
+            var ingress = assignments.SingleOrDefault(x => x.OrganizationId == organizationId && x.Scope == MailboxScope.Organization)
+                ?? assignments.SingleOrDefault(x => x.Scope == MailboxScope.Global);
+            if (ingress is not null)
+            {
+                if (!string.IsNullOrWhiteSpace(replyTo) && !EmailAddressGuard.IsSameAddress(replyTo, ingress.MailboxAddress))
+                    throw new InvalidOperationException("Configured Reply-To conflicts with the ticket organization's ingress mailbox.");
+                replyTo = ingress.MailboxAddress;
+            }
+        }
         var normalizedTo = EmailAddressGuard.NormalizeRecipients(recipients);
         var normalizedCc = EmailAddressGuard.NormalizeRecipients(cc);
         var filteredTo = EmailAddressGuard.NormalizeRecipients(normalizedTo, senderMailbox);
@@ -452,23 +473,11 @@ public sealed class GraphEmailService : IEmailService
 
     private async Task<string> ResolveSenderMailboxAsync(CancellationToken ct)
     {
-        try
+        if (_db is not null)
         {
-            var enabledSettings = await _emailSettingsProvider.GetAllEnabledAsync(ct);
-            var syncedSetting = enabledSettings
-                .FirstOrDefault(x => x.BackgroundSyncEnabled)
-                ?? enabledSettings.FirstOrDefault();
-
-            if (syncedSetting is not null && !string.IsNullOrWhiteSpace(syncedSetting.MailboxAddress))
-            {
-                return syncedSetting.MailboxAddress.Trim();
-            }
+            var pin = await _db.Set<MailboxMigrationState>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == 1, ct);
+            if (!string.IsNullOrWhiteSpace(pin?.OutboundMailboxAddress)) return pin.OutboundMailboxAddress;
         }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to resolve sender mailbox from DB settings. Falling back to configured ExchangeEmail.MailboxAddress.");
-        }
-
         return _options.MailboxAddress.Trim();
     }
 

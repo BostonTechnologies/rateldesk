@@ -1,0 +1,13 @@
+.email-rules-table-wrap { min-width: 0; max-width: 100%; }
+.email-rules-table-wrap ::deep .mud-table-root { table-layout: fixed; width: 100%; }
+.email-rules-table-wrap ::deep td, .email-rules-table-wrap ::deep th { white-space: normal; overflow-wrap: anywhere; padding: 4px 8px; }
+.email-rules-table-wrap ::deep .email-rule-name { width: 28%; }
+.email-rules-table-wrap ::deep .email-rule-mailbox { width: 20%; }
+.email-rules-table-wrap ::deep .mud-stack, .email-rules-table-wrap ::deep .mud-typography { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.email-rules-table-wrap ::deep .email-rules-actions { width: 164px; text-align: right; }
+@media (max-width: 1280px) {
+    .email-rules-table-wrap ::deep .email-rule-name, .email-rules-table-wrap ::deep .email-rule-mailbox, .email-rules-table-wrap ::deep .email-rules-actions { width: auto; }
+    .email-rules-table-wrap ::deep .mud-table-cell::before { flex-shrink: 0; white-space: nowrap; }
+    .email-rules-table-wrap ::deep .email-rule-name { align-items: flex-start; }
+    .email-rules-table-wrap ::deep .mud-table-cell { gap: 12px; min-width: 0; }
+}

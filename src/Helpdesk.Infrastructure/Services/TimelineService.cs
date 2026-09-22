@@ -3,6 +3,7 @@ using Helpdesk.Application.Services.EmailTemplates;
 using Helpdesk.Application.Tickets;
 using Helpdesk.Application.Timeline;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Email;
 using Helpdesk.Shared.DTOs.Worklog;
 using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
@@ -19,7 +20,8 @@ public class TimelineService(
     ITenantBrandingResolver tenantBrandingResolver,
     IPublicTicketLinkSigner publicTicketLinkSigner,
     ITimelineEventBus timelineEventBus,
-    IConfiguration config) : ITimelineService
+    IConfiguration config,
+    MailboxOutboxStore? mailboxOutbox = null) : ITimelineService
 {
     private readonly HelpdeskDbContext _db = db;
     private readonly IEmailService _emailService = emailService;
@@ -42,6 +44,9 @@ public class TimelineService(
 
         if (evt == null)
             throw new InvalidOperationException("Retryable email not found.");
+
+        if (mailboxOutbox is not null && await mailboxOutbox.RetryForTimelineAsync(timelineEventId, ct))
+            return;
 
         var ccRecipients = await _db.Tickets
             .AsNoTracking()

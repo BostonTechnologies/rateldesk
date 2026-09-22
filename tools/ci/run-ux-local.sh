@@ -80,9 +80,11 @@ wait_for_health() {
   return 1
 }
 
+# The image briefly starts a socket-only server during initialization. Wait for
+# TCP before the host-side initializer connects to the published port.
 wait_for_database() {
   for _ in $(seq 1 90); do
-    if RATELDESK_POSTGRES_PORT="$database_port" docker compose -p "$compose_project" -f "$compose_file" exec -T postgres pg_isready --username rateldesk --dbname rateldesk >/dev/null 2>&1; then
+    if RATELDESK_POSTGRES_PORT="$database_port" docker compose -p "$compose_project" -f "$compose_file" exec -T postgres pg_isready --host 127.0.0.1 --username rateldesk --dbname rateldesk >/dev/null 2>&1; then
       return 0
     fi
 
@@ -190,6 +192,8 @@ SYSTEM_TOKEN_SECRET="$e2e_system_secret" \
 dotnet run --project src/Helpdesk.API/Helpdesk.API.csproj --configuration Release --no-build --no-launch-profile >"$api_log" 2>&1 &
 api_pid=$!
 wait_for_health 'Helpdesk API' "$api_pid" "$api_url" '/health/live' "$api_log"
+# A bootstrap-only host is live too; browser authentication needs completed setup.
+curl --fail --silent --show-error "$api_url/api/v1/setup/status" | python3 -c 'import json, sys; assert json.load(sys.stdin)["state"] == "Ready", "UX database initialization did not complete"'
 
 ASPNETCORE_ENVIRONMENT=Development \
 ASPNETCORE_URLS="$web_url" \

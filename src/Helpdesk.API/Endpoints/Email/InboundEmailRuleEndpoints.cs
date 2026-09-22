@@ -55,7 +55,8 @@ public static class InboundEmailRuleEndpoints
             ClaimsPrincipal user,
             CancellationToken ct) =>
         {
-            var validation = Validate(request.ScopeType, request.TenantId, request.Name, request.Conditions, request.Actions);
+            var validation = Validate(request.ScopeType, request.TenantId, request.Name, request.Conditions, request.Actions)
+                ?? await ValidateBindingAsync(db, request.ScopeType, request.TenantId, request.MailboxId, request.Conditions, request.Enabled, ct);
             if (validation is not null) return validation;
 
             var now = DateTimeOffset.UtcNow;
@@ -90,7 +91,8 @@ public static class InboundEmailRuleEndpoints
         {
             var rule = await db.InboundEmailRules.FirstOrDefaultAsync(x => x.Id == id, ct);
             if (rule is null) return Results.NotFound();
-            var validation = Validate(request.ScopeType, request.TenantId, request.Name, request.Conditions, request.Actions);
+            var validation = Validate(request.ScopeType, request.TenantId, request.Name, request.Conditions, request.Actions)
+                ?? await ValidateBindingAsync(db, request.ScopeType, request.TenantId, request.MailboxId, request.Conditions, request.Enabled, ct);
             if (validation is not null) return validation;
 
             rule.ScopeType = request.ScopeType;
@@ -131,6 +133,8 @@ public static class InboundEmailRuleEndpoints
                 });
             }
 
+            if (request.Rules.Count != ids.Count || rules.Select(x => (x.ScopeType, x.TenantId, x.MailboxId)).Distinct().Count() != 1)
+                return Results.BadRequest(new { message = "Reorder requires distinct rules from one scope, tenant and mailbox bucket." });
             var actor = Actor(user);
             foreach (var rule in rules)
             {
@@ -148,9 +152,11 @@ public static class InboundEmailRuleEndpoints
             [FromQuery] string? messageId,
             [FromQuery] string? ticketId,
             [FromQuery] string? tenantId,
+            [FromQuery] Guid? mailboxId,
             CancellationToken ct) =>
         {
             var query = db.InboundEmailProcessingLogs.AsNoTracking();
+            if (mailboxId.HasValue) query = query.Where(x => x.MailboxId == mailboxId.Value);
             if (!string.IsNullOrWhiteSpace(messageId))
             {
                 query = query.Where(x => x.MessageId == messageId);
@@ -176,6 +182,14 @@ public static class InboundEmailRuleEndpoints
     {
         var rule = await db.InboundEmailRules.FirstOrDefaultAsync(x => x.Id == id, ct);
         if (rule is null) return Results.NotFound();
+        if (enabled)
+        {
+            var conditions = Deserialize<List<InboundEmailRuleConditionConfig>>(rule.ConditionsJson);
+            var actions = Deserialize<List<InboundEmailRuleActionConfig>>(rule.ActionsJson);
+            var validation = Validate(rule.ScopeType, rule.TenantId, rule.Name, conditions, actions)
+                ?? await ValidateBindingAsync(db, rule.ScopeType, rule.TenantId, rule.MailboxId, conditions, true, ct);
+            if (validation is not null) return validation;
+        }
         rule.Enabled = enabled;
         rule.UpdatedBy = actor;
         rule.UpdatedAtUtc = DateTimeOffset.UtcNow;
@@ -191,6 +205,9 @@ public static class InboundEmailRuleEndpoints
         List<InboundEmailRuleActionConfig>? actions)
     {
         var errors = new Dictionary<string, string[]>();
+        if (!Enum.IsDefined(scopeType)) errors["scopeType"] = ["Unsupported scope."];
+        if (conditions?.Any(x => !Enum.IsDefined(x.Type)) == true) errors["conditions"] = ["Unsupported condition."];
+        if (actions?.Any(x => !Enum.IsDefined(x.Type)) == true) errors["actions"] = ["Unsupported action."];
         if (string.IsNullOrWhiteSpace(name))
         {
             errors["name"] = ["Name is required."];
@@ -213,6 +230,30 @@ public static class InboundEmailRuleEndpoints
         }
 
         return errors.Count == 0 ? null : Results.ValidationProblem(errors);
+    }
+
+    private static async Task<IResult?> ValidateBindingAsync(HelpdeskDbContext db, InboundEmailRuleScopeType scope,
+        string? tenantId, Guid? mailboxId, List<InboundEmailRuleConditionConfig>? conditions, bool enabled, CancellationToken ct)
+    {
+        if (scope == InboundEmailRuleScopeType.Tenant && !await db.Organizations.AnyAsync(x => x.Id == tenantId, ct))
+            return Results.BadRequest(new { message = "Rule organization does not exist." });
+        var ids = new HashSet<Guid>();
+        if (mailboxId.HasValue) ids.Add(mailboxId.Value);
+        foreach (var condition in conditions ?? [])
+        {
+            if (condition.Type != InboundEmailRuleConditionType.MailboxEquals) continue;
+            if (!Guid.TryParse(condition.MailboxId, out var id)) return Results.BadRequest(new { message = "MailboxEquals requires a mailbox ID." });
+            ids.Add(id);
+        }
+        if (ids.Count > 1) return Results.BadRequest(new { message = "Mailbox conditions conflict with the source binding." });
+        foreach (var id in ids)
+        {
+            var mailbox = await db.EmailInboxSettings.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
+            if (mailbox is null || mailbox.Archived || enabled && !mailbox.Enabled ||
+                scope == InboundEmailRuleScopeType.Tenant && mailbox.OrganizationId is not null && mailbox.OrganizationId != tenantId)
+                return Results.BadRequest(new { message = "Mailbox binding is unavailable or belongs to another organization." });
+        }
+        return null;
     }
 
     private static InboundEmailRuleDto ToDto(InboundEmailRule rule) => new(

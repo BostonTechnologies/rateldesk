@@ -20,7 +20,8 @@ public sealed class SupportNotificationService(
     IEmailService emailService,
     IPublicTicketLinkSigner publicTicketLinkSigner,
     IConfiguration configuration,
-    ILogger<SupportNotificationService> logger) : ISupportNotificationService
+    ILogger<SupportNotificationService> logger,
+    IIngressEffectContext? ingressEffects = null) : ISupportNotificationService
 {
     private const string TicketCreatedUnassignedTemplate = "SupportTicketCreatedUnassigned";
     private const string TicketAssignedTemplate = "SupportTicketAssigned";
@@ -154,20 +155,35 @@ public sealed class SupportNotificationService(
             var context = BuildContext(ticket, recipient, layout, branding);
             var subject = RenderSubject(template.Subject ?? string.Empty, context);
             var body = templateRenderer.Render(template.HtmlContent ?? string.Empty, context);
-            var sent = await emailService.SendEmailAsync(
-                [recipient.Email],
-                subject,
-                body,
-                null,
-                ct,
-                ticket.Id,
-                fromName: branding.FromName,
-                replyTo: branding.ReplyTo);
+            bool sent;
+            var previousDelivery = ingressEffects?.SupportDeliveryId;
+            try
+            {
+                if (ingressEffects?.IsActive == true)
+                    ingressEffects.SupportDeliveryId = delivery.Id;
+                sent = await emailService.SendEmailAsync(
+                    [recipient.Email],
+                    subject,
+                    body,
+                    null,
+                    ct,
+                    ticket.Id,
+                    fromName: branding.FromName,
+                    replyTo: branding.ReplyTo);
+            }
+            finally
+            {
+                if (ingressEffects is not null)
+                    ingressEffects.SupportDeliveryId = previousDelivery;
+            }
 
             if (!sent)
             {
                 throw new InvalidOperationException("Email service returned false.");
             }
+
+            if (ingressEffects?.IsActive == true)
+                return; // The outbox dispatcher records the actual delivery outcome after commit.
 
             delivery.Status = SupportNotificationDeliveryStatus.Sent;
             delivery.SentUtc = DateTimeOffset.UtcNow;

@@ -1,0 +1,19 @@
+From: Requester <requester@example.test>
+To: support@example.test
+Subject: Fixture
+Received: first
+Received: second
+Message-Id: <fixture@example.test>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary=fixture
+
+--fixture
+Content-Type: text/plain
+
+Hello
+--fixture
+Content-Type: text/plain
+Content-Disposition: attachment; filename=example.txt
+
+Attachment
+--fixture--

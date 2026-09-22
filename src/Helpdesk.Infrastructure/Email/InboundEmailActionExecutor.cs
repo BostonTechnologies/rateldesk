@@ -3,7 +3,6 @@ using Helpdesk.Application.Services.Tickets;
 using Helpdesk.Shared.DTOs.Attachment;
 using Helpdesk.Application.Messaging;
 using Helpdesk.Application.Services.Email;
-using Helpdesk.Application.Services.Tenants;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.DTOs.EmailRules;
 using Helpdesk.Shared.Enums;
@@ -19,7 +18,6 @@ namespace Helpdesk.Infrastructure.Email;
 public sealed class InboundEmailActionExecutor(
     HelpdeskDbContext db,
     IRequestSender requestSender,
-    ITenantProvisioningService tenantProvisioningService,
     IRepository<Incident> incidentRepo,
     IRepository<TicketTimelineEvent> timelineRepo,
     ILogger<InboundEmailActionExecutor> logger,
@@ -49,7 +47,7 @@ public sealed class InboundEmailActionExecutor(
         if (!InboundForwarderAuthorization.CanForward(forwarderAccess))
         {
             await TryLogAsync(context, rule, actionKey, true, InboundEmailProcessingStatus.UnauthorizedSender, null, "Forwarding sender is not an authorized support user.", ct);
-            return new InboundEmailRuleProcessingResult(false, false, null);
+            return new InboundEmailRuleProcessingResult(true, true, null, "ForwarderUnauthorized");
         }
 
         if (forwarded?.HasConfidentRequester != true)
@@ -74,21 +72,37 @@ public sealed class InboundEmailActionExecutor(
         if (!forwarderAccess!.CanManageIncident(tenantResult.Organization.Id))
         {
             await TryLogAsync(context, rule, actionKey, true, InboundEmailProcessingStatus.UnauthorizedSender, null, "Forwarding sender cannot create incidents in the selected organization.", ct);
-            return new InboundEmailRuleProcessingResult(false, false, null);
+            return new InboundEmailRuleProcessingResult(true, true, null, "ForwarderUnauthorizedForTenant");
+        }
+
+        // A global rule can resolve an organization when the router could not. It must
+        // acquire the same routing lock and enforce dedicated ingress before any writes.
+        if (db.Database.CurrentTransaction is not null)
+        {
+            var ingressReason = await InboundTenantRouter.ValidateOrganizationIngressAsync(db,
+                context.MailboxId, tenantResult.Organization.Id, ct);
+            if (ingressReason is not null)
+            {
+                await TryLogAsync(context, rule, actionKey, true, InboundEmailProcessingStatus.Failed, null, ingressReason, ct);
+                return new InboundEmailRuleProcessingResult(true, true, null, ingressReason);
+            }
+            if (context.SourceMessageKey?.StartsWith("ingress:", StringComparison.Ordinal) == true)
+                db.RestrictIngressToOrganization(tenantResult.Organization.Id);
         }
 
         try
         {
-            var domain = forwarded.OriginalFromEmail!.Split('@').Last();
-            var (customer, _) = await tenantProvisioningService.GetOrCreateCustomerAsync(
-                forwarded.OriginalFromEmail!,
-                forwarded.OriginalFromDisplayName ?? forwarded.OriginalFromEmail!,
-                domain);
-
-            if (!string.Equals(customer.OrganizationId, tenantResult.Organization.Id, StringComparison.OrdinalIgnoreCase))
+            var requesterEmail = forwarded.OriginalFromEmail!.Trim().ToLowerInvariant();
+            var customer = await db.Customers.SingleOrDefaultAsync(x => x.Email.ToLower() == requesterEmail, ct);
+            if (customer is not null && (customer.OrganizationId != tenantResult.Organization.Id || customer.State != Helpdesk.Shared.Models.EntityState.Enabled))
             {
-                customer.OrganizationId = tenantResult.Organization.Id;
-                db.Customers.Update(customer);
+                await TryLogAsync(context, rule, actionKey, true, InboundEmailProcessingStatus.Failed, null, "Requester ownership conflict or blocked requester.", ct);
+                return new InboundEmailRuleProcessingResult(true, true, null);
+            }
+            if (customer is null)
+            {
+                customer = new Customer { Email = requesterEmail, Name = forwarded.OriginalFromDisplayName ?? requesterEmail, OrganizationId = tenantResult.Organization.Id };
+                db.Customers.Add(customer);
                 await db.SaveChangesAsync(ct);
             }
 
@@ -143,8 +157,10 @@ public sealed class InboundEmailActionExecutor(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Inbound forwarded email action failed for MessageId={MessageId}", context.InternetMessageId);
-            await TryLogAsync(context, rule, actionKey, true, InboundEmailProcessingStatus.Failed, null, ex.Message, ct);
+            logger.LogWarning("Inbound forwarded email action failed ({FailureType}).", ex.GetType().Name);
+            if (db.Database.CurrentTransaction is not null)
+                throw; // The receipt coordinator must roll back partial business effects.
+            await TryLogAsync(context, rule, actionKey, true, InboundEmailProcessingStatus.Failed, null, ex.GetType().Name, ct);
             return new InboundEmailRuleProcessingResult(true, true, null);
         }
     }
@@ -160,9 +176,18 @@ public sealed class InboundEmailActionExecutor(
         CancellationToken ct)
     {
         var candidates = new List<Organization>();
+        if (!string.IsNullOrWhiteSpace(context.ForwardedRequesterTenantId))
+        {
+            await AddOrganizationAsync(candidates, context.ForwardedRequesterTenantId, ct);
+            if (rule.ScopeType == InboundEmailRuleScopeType.Tenant &&
+                !string.Equals(rule.TenantId, context.ForwardedRequesterTenantId, StringComparison.OrdinalIgnoreCase))
+                return new TenantResolutionResult(null, true);
+            return new TenantResolutionResult(candidates.SingleOrDefault(), false);
+        }
         if (!string.IsNullOrWhiteSpace(context.MailboxTenantId))
         {
             await AddOrganizationAsync(candidates, context.MailboxTenantId, ct);
+            return new TenantResolutionResult(candidates.SingleOrDefault(), false);
         }
 
         if (rule.ScopeType == InboundEmailRuleScopeType.Tenant && !string.IsNullOrWhiteSpace(rule.TenantId))
@@ -219,8 +244,9 @@ public sealed class InboundEmailActionExecutor(
     private async Task<bool> HasProcessingLogAsync(InboundEmailContext context, string ruleId, string actionKey, CancellationToken ct)
     {
         var mailboxKey = MailboxKey(context.MailboxId);
+        var messageKey = InboundEmailRuleProcessor.MessageKey(context);
         return await db.InboundEmailProcessingLogs.AsNoTracking().AnyAsync(x =>
-            x.MessageId == context.InternetMessageId &&
+            x.MessageId == messageKey &&
             x.MailboxKey == mailboxKey &&
             x.RuleId == ruleId &&
             x.ActionKey == actionKey &&
@@ -240,7 +266,7 @@ public sealed class InboundEmailActionExecutor(
     {
         db.InboundEmailProcessingLogs.Add(new InboundEmailProcessingLog
         {
-            MessageId = context.InternetMessageId,
+            MessageId = InboundEmailRuleProcessor.MessageKey(context),
             MailboxId = context.MailboxId,
             MailboxKey = MailboxKey(context.MailboxId),
             TenantId = rule.TenantId ?? context.MailboxTenantId,

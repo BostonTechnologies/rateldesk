@@ -517,6 +517,11 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.Property<DateTimeOffset>("OccurredUtc")
                         .HasColumnType("TEXT");
 
+                    b.Property<long>("OccurredUtcSortTicks")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("INTEGER")
+                        .HasComputedColumnSql("CAST((julianday(\"OccurredUtc\") - 2440587.5) * 864000000000 + 621355968000000000 AS INTEGER)");
+
                     b.Property<string>("OrganizationId")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -540,159 +545,17 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<long>("OccurredUtcSortTicks")
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("INTEGER")
-                        .HasComputedColumnSql("CAST((julianday(\"OccurredUtc\") - 2440587.5) * 864000000000 + 621355968000000000 AS INTEGER)");
-
                     b.HasKey("Id");
 
                     b.HasIndex("CallbackEventId")
                         .IsUnique()
                         .HasFilter("\"CallbackEventId\" IS NOT NULL");
 
-                    b.HasIndex("OrganizationId", "TicketArea", "TicketId", "OccurredUtc");
-
                     b.HasIndex("OccurredUtcSortTicks");
 
+                    b.HasIndex("OrganizationId", "TicketArea", "TicketId", "OccurredUtc");
+
                     b.ToTable("AiInvestigationWorklogEntries");
-                });
-
-            modelBuilder.Entity("Helpdesk.Shared.Models.AiModel", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid>("AiProviderId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<string>("ExtraHeadersJson")
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("IsEnabled")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AiProviderId");
-
-                    b.ToTable("AiModels", (string)null);
-                });
-
-            modelBuilder.Entity("Helpdesk.Shared.Models.AiOperationAuditRecord", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("CorrelationId")
-                        .HasMaxLength(128)
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ModelId")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Notes")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("OperationName")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("OrganizationId")
-                        .HasMaxLength(128)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ProviderName")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("SubjectId")
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<long>("CreatedAtSortTicks")
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("INTEGER")
-                        .HasComputedColumnSql("CAST((julianday(\"CreatedAt\") - 2440587.5) * 864000000000 + 621355968000000000 AS INTEGER)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OrganizationId", "CreatedAt");
-
-                    b.HasIndex("SubjectId", "CreatedAt");
-
-                    b.HasIndex("CreatedAtSortTicks");
-
-                    b.ToTable("AiOperationAuditRecords");
-                });
-
-            modelBuilder.Entity("Helpdesk.Shared.Models.AiProvider", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ApiKeyEncrypted")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("BaseUrl")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<string>("DefaultModel")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ExtraHeadersJson")
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("IsEnabled")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ProviderType")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("AiProviders", (string)null);
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.Asset", b =>
@@ -1188,6 +1051,11 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("TEXT");
 
+                    b.Property<long>("CreatedAtUtcSortTicks")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("INTEGER")
+                        .HasComputedColumnSql("CAST((julianday(\"CreatedAtUtc\") - 2440587.5) * 864000000000 + 621355968000000000 AS INTEGER)");
+
                     b.Property<string>("DatasetId")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -1206,18 +1074,13 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<long>("CreatedAtUtcSortTicks")
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("INTEGER")
-                        .HasComputedColumnSql("CAST((julianday(\"CreatedAtUtc\") - 2440587.5) * 864000000000 + 621355968000000000 AS INTEGER)");
-
                     b.HasKey("Id");
+
+                    b.HasIndex("CreatedAtUtcSortTicks");
 
                     b.HasIndex("DatasetId", "KeyHash");
 
                     b.HasIndex("DatasetId", "Name");
-
-                    b.HasIndex("CreatedAtUtcSortTicks");
 
                     b.ToTable("DatasetIngestCredentials", (string)null);
                 });
@@ -1279,7 +1142,16 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("Archived")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Authentication")
+                        .HasColumnType("INTEGER");
+
                     b.Property<bool>("BackgroundSyncEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("BatchSize")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("ClientId")
@@ -1293,7 +1165,20 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("CredentialVersion")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("InitialImport")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("LegacySource")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("MailHost")
@@ -1308,12 +1193,42 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("MarkReadAfterSuccess")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("OrganizationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Password")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("PollIntervalSeconds")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("Port")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("ProcessedFolder")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Provider")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Scope")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SourceKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasColumnType("TEXT");
+
+                    b.Property<int>("TlsMode")
+                        .HasColumnType("INTEGER");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("TEXT");
@@ -1321,12 +1236,36 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.Property<bool>("UseSsl")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER");
+
                     b.HasKey("Id");
 
                     b.HasIndex("MailboxAddress")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"Archived\" = false AND \"Enabled\" = true");
 
-                    b.ToTable("EmailInboxSettings");
+                    b.HasIndex("OrganizationId")
+                        .IsUnique()
+                        .HasFilter("\"Archived\" = false AND \"Scope\" = 1");
+
+                    b.HasIndex("Scope")
+                        .IsUnique()
+                        .HasFilter("\"Archived\" = false AND \"Scope\" = 0");
+
+                    b.HasIndex("SourceKey")
+                        .IsUnique()
+                        .HasFilter("\"Archived\" = false AND \"Enabled\" = true");
+
+                    b.ToTable("EmailInboxSettings", t =>
+                        {
+                            t.HasCheckConstraint("CK_Mailbox_Assignment", "(\"Scope\" = 0 AND \"OrganizationId\" IS NULL) OR (\"Scope\" = 1 AND \"OrganizationId\" IS NOT NULL)");
+                        });
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.EmailLayout", b =>
@@ -1495,6 +1434,11 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("TEXT");
 
+                    b.Property<long>("CreatedAtUtcSortTicks")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("INTEGER")
+                        .HasComputedColumnSql("CAST((julianday(\"CreatedAtUtc\") - 2440587.5) * 864000000000 + 621355968000000000 AS INTEGER)");
+
                     b.Property<string>("Error")
                         .HasMaxLength(2048)
                         .HasColumnType("TEXT");
@@ -1530,12 +1474,9 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
-                    b.Property<long>("CreatedAtUtcSortTicks")
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("INTEGER")
-                        .HasComputedColumnSql("CAST((julianday(\"CreatedAtUtc\") - 2440587.5) * 864000000000 + 621355968000000000 AS INTEGER)");
-
                     b.HasKey("Id");
+
+                    b.HasIndex("CreatedAtUtcSortTicks");
 
                     b.HasIndex("TicketId");
 
@@ -1544,8 +1485,6 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .HasFilter("\"Status\" = 1");
 
                     b.HasIndex("MessageId", "MailboxKey", "RuleId", "ActionKey", "Status");
-
-                    b.HasIndex("CreatedAtUtcSortTicks");
 
                     b.ToTable("InboundEmailProcessingLogs", (string)null);
                 });
@@ -1614,6 +1553,91 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.HasIndex("Enabled", "ScopeType", "TenantId", "MailboxId", "Priority");
 
                     b.ToTable("InboundEmailRules", (string)null);
+                });
+
+            modelBuilder.Entity("Helpdesk.Shared.Models.InboundMessageReceipt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Acknowledged")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("AcknowledgmentAttempts")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("AcknowledgmentClaimExpiresUnixMilliseconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid?>("AcknowledgmentClaimId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AcknowledgmentErrorCode")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("AcknowledgmentNextRetryUnixMilliseconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("AcknowledgmentStatus")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AcknowledgmentTargetFingerprint")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("ConfigurationVersion")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("CreatedUnixMilliseconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("InternetMessageId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("MailboxId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OrganizationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Outcome")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ProtectedEnvelope")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Reason")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SourceKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TicketId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TransportKey")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("UpdatedUnixMilliseconds")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MailboxId", "Outcome", "Acknowledged");
+
+                    b.HasIndex("MailboxId", "SourceKey", "TransportKey")
+                        .IsUnique();
+
+                    b.ToTable("InboundMessageReceipt");
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.IncidentCategoryLink", b =>
@@ -1713,193 +1737,137 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.ToTable("InstanceInitializations", (string)null);
                 });
 
-            modelBuilder.Entity("Helpdesk.Shared.Models.KnowledgeBaseArticle", b =>
+            modelBuilder.Entity("Helpdesk.Shared.Models.MailboxIngestionState", b =>
                 {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
+                    b.Property<Guid>("MailboxId")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("Application")
+                    b.Property<string>("Cursor")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("AutomationBindingId")
-                        .HasMaxLength(64)
+                    b.Property<string>("ErrorCode")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("AutomationOrchestrationJobDefinitionId")
-                        .HasMaxLength(256)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("AutomationOrchestrationRequestDefinitionId")
-                        .HasMaxLength(256)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("AutomationRequestFormId")
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid?>("AutomationTaskTemplateId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("AutomationTaskTemplateName")
-                        .HasMaxLength(256)
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<string>("CreatedByModel")
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("IsPublished")
+                    b.Property<bool>("Initialized")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTime?>("LastRegeneratedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("LastSyncUnixMilliseconds")
+                        .HasColumnType("INTEGER");
 
-                    b.Property<string>("LinkedTicketId")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("LastTestUnixMilliseconds")
+                        .HasColumnType("INTEGER");
 
-                    b.Property<string>("OrganizationId")
+                    b.Property<long?>("NextRetryUnixMilliseconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SourceKey")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("Problem")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("TestedVersion")
+                        .HasColumnType("INTEGER");
 
-                    b.Property<DateTime?>("PublishedAt")
-                        .HasColumnType("TEXT");
+                    b.HasKey("MailboxId");
 
-                    b.Property<string>("PublishedById")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Resolution")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("RootCause")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Service")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("SourceIncidentId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("State")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT")
-                        .HasDefaultValue("Draft");
-
-                    b.Property<string>("Summary")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Tags")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OrganizationId");
-
-                    b.HasIndex("OrganizationId", "AutomationBindingId");
-
-                    b.ToTable("KnowledgeBaseArticles", (string)null);
+                    b.ToTable("MailboxIngestionState");
                 });
 
-            modelBuilder.Entity("Helpdesk.Shared.Models.KnowledgeBaseCategory", b =>
+            modelBuilder.Entity("Helpdesk.Shared.Models.MailboxLease", b =>
                 {
-                    b.Property<string>("Id")
+                    b.Property<Guid>("MailboxId")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("Name")
+                    b.Property<long>("ExpiresUnixMilliseconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("Fence")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Owner")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("MailboxId");
+
+                    b.ToTable("MailboxLease");
+                });
+
+            modelBuilder.Entity("Helpdesk.Shared.Models.MailboxMigrationState", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("Completed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("OutboundMailboxAddress")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
 
-                    b.ToTable("KnowledgeBaseCategories");
+                    b.ToTable("MailboxMigrationState");
                 });
 
-            modelBuilder.Entity("Helpdesk.Shared.Models.KnowledgeEmbedding", b =>
+            modelBuilder.Entity("Helpdesk.Shared.Models.MailboxOutboxEffect", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("ChunkId")
+                    b.Property<int>("Attempts")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("AvailableUnixMilliseconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid?>("DeliveryEventId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("EffectKey")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<int>("ChunkIndex")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasDefaultValue(0);
+                    b.Property<long>("Fence")
+                        .HasColumnType("INTEGER");
 
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+                    b.Property<int>("Kind")
+                        .HasColumnType("INTEGER");
 
-                    b.Property<string>("DocumentTitle")
+                    b.Property<string>("LastErrorCode")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("LeaseExpiresUnixMilliseconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Owner")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Payload")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<Guid?>("KnowledgeBaseArticleId")
+                    b.Property<Guid>("ReceiptId")
                         .HasColumnType("TEXT");
 
-                    b.Property<double>("LastScore")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("REAL")
-                        .HasDefaultValue(0.0);
-
-                    b.Property<string>("MetadataJson")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("OrganizationId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("SourceId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("SourceType")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Text")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Vector")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
+                    b.Property<int>("State")
+                        .HasColumnType("INTEGER");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("KnowledgeBaseArticleId");
+                    b.HasIndex("DeliveryEventId")
+                        .IsUnique();
 
-                    b.HasIndex("OrganizationId", "SourceType")
-                        .HasDatabaseName("ix_embedding_org_source");
+                    b.HasIndex("ReceiptId", "EffectKey")
+                        .IsUnique();
 
-                    b.HasIndex("OrganizationId", "SourceType", "SourceId", "ChunkIndex")
-                        .HasDatabaseName("ix_embedding_org_document_chunk");
+                    b.HasIndex("State", "AvailableUnixMilliseconds");
 
-                    b.ToTable("KnowledgeEmbeddings", (string)null);
+                    b.HasIndex("State", "LeaseExpiresUnixMilliseconds");
+
+                    b.ToTable("MailboxOutboxEffect");
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.Organization", b =>
@@ -1915,9 +1883,6 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
 
                     b.Property<string>("DnsName")
                         .HasColumnType("TEXT");
-
-                    b.Property<bool>("EnableAiIntake")
-                        .HasColumnType("INTEGER");
 
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("INTEGER");
@@ -1949,72 +1914,6 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.HasIndex("ItSupportOrganizationId");
 
                     b.ToTable("Organizations");
-                });
-
-            modelBuilder.Entity("Helpdesk.Shared.Models.OrganizationAiKbSettings", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("AllowedServicesCsv")
-                        .HasColumnType("TEXT");
-
-                    b.Property<double>("AnswerThreshold")
-                        .HasColumnType("REAL");
-
-                    b.Property<int>("EmbeddingDimensions")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("EmbeddingModel")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("EmbeddingProviderId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("EnableAiAnswers")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<bool>("EnableAiSearch")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<bool>("EnableProviderFallback")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("KnowledgeModelName")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("KnowledgeProviderId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("MaxProviderAttempts")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("MinimumAutomationFeedbackCount")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<double>("MinimumAutomationResolvedRate")
-                        .HasColumnType("REAL");
-
-                    b.Property<int>("MinimumSuggestionFeedbackCount")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<double>("MinimumSuggestionHelpfulRate")
-                        .HasColumnType("REAL");
-
-                    b.Property<string>("OrganizationId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<double>("SearchThreshold")
-                        .HasColumnType("REAL");
-
-                    b.Property<int>("SuggestionLimit")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("OrganizationAiKbSettings", (string)null);
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.OrganizationSupportCoverage", b =>
@@ -2792,9 +2691,6 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("AiUnderstanding")
-                        .HasColumnType("TEXT");
-
                     b.Property<string>("AssignedToId")
                         .HasColumnType("TEXT");
 
@@ -2893,83 +2789,6 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.UseTphMappingStrategy();
                 });
 
-            modelBuilder.Entity("Helpdesk.Shared.Models.TicketAiFeedback", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ArticleId")
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("CreatedByName")
-                        .HasMaxLength(256)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("CreatedByUserId")
-                        .HasMaxLength(128)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("FeedbackType")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("FeedbackValue")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Notes")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("RequestId")
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("TicketId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<long>("CreatedAtSortTicks")
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("INTEGER")
-                        .HasComputedColumnSql("CAST((julianday(\"CreatedAt\") - 2440587.5) * 864000000000 + 621355968000000000 AS INTEGER)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TicketId", "CreatedAt");
-
-                    b.HasIndex("TicketId", "ArticleId", "FeedbackType", "FeedbackValue");
-
-                    b.HasIndex("TicketId", "RequestId", "FeedbackType", "FeedbackValue");
-
-                    b.HasIndex("CreatedAtSortTicks");
-
-                    b.ToTable("TicketAiFeedback", (string)null);
-                });
-
-            modelBuilder.Entity("Helpdesk.Shared.Models.TicketAiSuggestions", b =>
-                {
-                    b.Property<string>("TicketId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ItemsJson")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("TicketId");
-
-                    b.ToTable("TicketAiSuggestions");
-                });
-
             modelBuilder.Entity("Helpdesk.Shared.Models.TicketCategory", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3039,34 +2858,6 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.HasKey("Id");
 
                     b.ToTable("TicketEvents");
-                });
-
-            modelBuilder.Entity("Helpdesk.Shared.Models.TicketKnowledgeSuggestion", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<Guid>("KnowledgeBaseArticleId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<double>("Score")
-                        .HasColumnType("REAL");
-
-                    b.Property<string>("TicketId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("KnowledgeBaseArticleId");
-
-                    b.ToTable("TicketKnowledgeSuggestions", (string)null);
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.TicketRelation", b =>
@@ -3457,44 +3248,6 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                 {
                     b.HasBaseType("Helpdesk.Shared.Models.Ticket");
 
-                    b.Property<DateTimeOffset?>("AiReviewAcknowledgedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("AiReviewAcknowledgedByName")
-                        .HasMaxLength(256)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("AiReviewAcknowledgedByUserId")
-                        .HasMaxLength(128)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("AiReviewAcknowledgementNotes")
-                        .HasMaxLength(1024)
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTimeOffset?>("AiReviewCompletedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("AiReviewCorrelationId")
-                        .HasMaxLength(128)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("AiReviewFailureReason")
-                        .HasMaxLength(1024)
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("AiReviewGateState")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("AiReviewOutputJson")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTimeOffset?>("AiReviewRequestedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("AiReviewStatus")
-                        .HasColumnType("INTEGER");
-
                     b.Property<string>("ApproverUserIds")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
@@ -3573,9 +3326,6 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
-                    b.Property<Guid?>("SourceKnowledgeArticleId")
-                        .HasColumnType("TEXT");
-
                     b.Property<string>("SourceTicketId")
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
@@ -3588,8 +3338,6 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
 
                     b.Property<DateTimeOffset?>("WorkflowUpdatedAt")
                         .HasColumnType("TEXT");
-
-                    b.HasIndex("OrganizationId", "SourceKnowledgeArticleId");
 
                     b.HasIndex("OrganizationId", "SourceTicketId");
 
@@ -3785,17 +3533,6 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Helpdesk.Shared.Models.AiModel", b =>
-                {
-                    b.HasOne("Helpdesk.Shared.Models.AiProvider", "Provider")
-                        .WithMany("Models")
-                        .HasForeignKey("AiProviderId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Provider");
-                });
-
             modelBuilder.Entity("Helpdesk.Shared.Models.ChangeApproval", b =>
                 {
                     b.HasOne("Helpdesk.Shared.Models.Change", "Change")
@@ -3835,12 +3572,29 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Helpdesk.Shared.Models.EmailInboxSettings", b =>
+                {
+                    b.HasOne("Helpdesk.Shared.Models.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("Helpdesk.Shared.Models.EmailTemplate", b =>
                 {
                     b.HasOne("Helpdesk.Shared.Models.EmailLayout", null)
                         .WithMany()
                         .HasForeignKey("LayoutId")
                         .OnDelete(DeleteBehavior.SetNull);
+                });
+
+            modelBuilder.Entity("Helpdesk.Shared.Models.InboundMessageReceipt", b =>
+                {
+                    b.HasOne("Helpdesk.Shared.Models.EmailInboxSettings", null)
+                        .WithMany()
+                        .HasForeignKey("MailboxId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.IncidentCategoryLink", b =>
@@ -3862,13 +3616,22 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.Navigation("TicketCategory");
                 });
 
-            modelBuilder.Entity("Helpdesk.Shared.Models.KnowledgeEmbedding", b =>
+            modelBuilder.Entity("Helpdesk.Shared.Models.MailboxIngestionState", b =>
                 {
-                    b.HasOne("Helpdesk.Shared.Models.KnowledgeBaseArticle", "Article")
-                        .WithMany("Embeddings")
-                        .HasForeignKey("KnowledgeBaseArticleId");
+                    b.HasOne("Helpdesk.Shared.Models.EmailInboxSettings", null)
+                        .WithMany()
+                        .HasForeignKey("MailboxId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
 
-                    b.Navigation("Article");
+            modelBuilder.Entity("Helpdesk.Shared.Models.MailboxLease", b =>
+                {
+                    b.HasOne("Helpdesk.Shared.Models.EmailInboxSettings", null)
+                        .WithMany()
+                        .HasForeignKey("MailboxId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.Organization", b =>
@@ -3964,41 +3727,12 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Helpdesk.Shared.Models.TicketAiFeedback", b =>
-                {
-                    b.HasOne("Helpdesk.Shared.Models.Ticket", null)
-                        .WithMany()
-                        .HasForeignKey("TicketId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("Helpdesk.Shared.Models.TicketAiSuggestions", b =>
-                {
-                    b.HasOne("Helpdesk.Shared.Models.Ticket", null)
-                        .WithOne()
-                        .HasForeignKey("Helpdesk.Shared.Models.TicketAiSuggestions", "TicketId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("Helpdesk.Shared.Models.TicketCategory", b =>
                 {
                     b.HasOne("Helpdesk.Shared.Models.TicketCategory", null)
                         .WithMany()
                         .HasForeignKey("ParentCategoryId")
                         .OnDelete(DeleteBehavior.Restrict);
-                });
-
-            modelBuilder.Entity("Helpdesk.Shared.Models.TicketKnowledgeSuggestion", b =>
-                {
-                    b.HasOne("Helpdesk.Shared.Models.KnowledgeBaseArticle", "Article")
-                        .WithMany()
-                        .HasForeignKey("KnowledgeBaseArticleId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Article");
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.TicketSlaEscalationEvent", b =>
@@ -4033,16 +3767,6 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
             modelBuilder.Entity("Helpdesk.Infrastructure.Persistence.Entities.NotificationEntity", b =>
                 {
                     b.Navigation("Reads");
-                });
-
-            modelBuilder.Entity("Helpdesk.Shared.Models.AiProvider", b =>
-                {
-                    b.Navigation("Models");
-                });
-
-            modelBuilder.Entity("Helpdesk.Shared.Models.KnowledgeBaseArticle", b =>
-                {
-                    b.Navigation("Embeddings");
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.Role", b =>

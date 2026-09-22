@@ -35,7 +35,7 @@ public class EmailRulesAdminUxTests
         Assert.Contains("RulesClient.EnableAsync(rule.Id)", source, StringComparison.Ordinal);
         Assert.Contains("RulesClient.DisableAsync(rule.Id)", source, StringComparison.Ordinal);
         Assert.Contains("RulesClient.ReorderAsync(payload)", source, StringComparison.Ordinal);
-        Assert.Contains("RulesClient.GetAuditAsync(auditMessageId, auditTicketId, auditTenantId)", source, StringComparison.Ordinal);
+        Assert.Contains("RulesClient.GetAuditAsync(auditMessageId, auditTicketId, auditTenantId, MailboxId)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("PostAsJsonAsync(\"api/v1/inbound-email-rules", source, StringComparison.Ordinal);
         Assert.DoesNotContain("PutAsJsonAsync(\"api/v1/inbound-email-rules", source, StringComparison.Ordinal);
     }

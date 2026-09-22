@@ -230,3 +230,5 @@ Outside Compose, the default storage path is `storage` under the API content roo
 For the bundled PostgreSQL sidecar, use host `postgres`, port `5432`, and the configured database credentials in setup. Leave **Require TLS** unchecked for that private Compose network; the bundled server does not configure TLS. Use **Require TLS** for an external server with TLS configured.
 
 Explicit `Authentication__Mode` values remain authoritative after setup. Without an explicit mode, fresh instances use Local and adopted legacy installations use OIDC. `Branding__ApplicationName` and `Branding__ApplicationUrl` prefill deployment-managed setup fields; optional visual branding does not discard the instance name.
+
+Inbound provider configuration, tenant overrides and upgrade procedures are documented in [Inbound mailbox administration](mailbox-ingestion.md).
