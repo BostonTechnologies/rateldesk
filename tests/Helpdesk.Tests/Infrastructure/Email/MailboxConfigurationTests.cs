@@ -57,7 +57,10 @@ public sealed class MailboxConfigurationTests
         await using var fixture = await DatabaseFixture.CreateAsync(postgres);
         await using var db = fixture.Open();
         var migrations = db.Database.GetMigrations().ToArray();
-        await db.GetService<IMigrator>().MigrateAsync(migrations[^2]);
+        var mailboxMigration = Array.FindIndex(migrations,
+            migration => migration.EndsWith("_MultiProviderMailboxes", StringComparison.Ordinal));
+        Assert.True(mailboxMigration > 0);
+        await db.GetService<IMigrator>().MigrateAsync(migrations[mailboxMigration - 1]);
         var id = Guid.NewGuid();
         var created = DateTimeOffset.UtcNow;
         await db.Database.ExecuteSqlInterpolatedAsync($"""

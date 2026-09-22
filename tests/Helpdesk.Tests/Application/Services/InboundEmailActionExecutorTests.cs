@@ -130,7 +130,9 @@ public class InboundEmailActionExecutorTests
 
         var result = await executor.ExecuteAsync(Rule("tenant-1"), Action(), Context(), Forwarded());
 
-        Assert.False(result.Handled);
+        Assert.True(result.Handled);
+        Assert.True(result.StopDefaultProcessing);
+        Assert.Equal("ForwarderUnauthorized", result.HoldReason);
         await sender.DidNotReceive().Send(Arg.Any<CreateIncidentCommand>(), Arg.Any<CancellationToken>());
         Assert.Contains(db.InboundEmailProcessingLogs, x => x.Status == InboundEmailProcessingStatus.UnauthorizedSender);
     }

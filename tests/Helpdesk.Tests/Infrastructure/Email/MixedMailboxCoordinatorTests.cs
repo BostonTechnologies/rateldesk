@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using Microsoft.Graph;
 using Microsoft.Kiota.Abstractions.Authentication;
 using Helpdesk.API.DependencyInjection;
@@ -18,6 +19,8 @@ using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.Storage;
 using Helpdesk.Shared.DTOs.Attachment;
+using Helpdesk.Shared.DTOs.EmailRules;
+using Helpdesk.Shared.Enums;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Helpdesk.Shared.Models;
@@ -36,6 +39,203 @@ namespace Helpdesk.Tests.Infrastructure.Email;
 
 public sealed class MixedMailboxCoordinatorTests
 {
+    [Fact]
+    public async Task Durable_pending_receipt_processes_when_fresh_enumeration_fails()
+    {
+        await using var fixture = await MixedHarness.CreateAsync(InboundMailboxProvider.Graph, seedMessages: false);
+        await fixture.SeedReceiptAsync(fixture.Global, "durable-pending", InboundReceiptOutcome.Pending,
+            "requester@tenant0.example.com");
+        fixture.Adapters[InboundMailboxProvider.Graph].FetchFailureMailbox = fixture.Global.Id;
+
+        await fixture.Coordinator.PollAsync(fixture.Global, default);
+
+        await using var verify = fixture.Open();
+        Assert.Single(await verify.Incidents.ToListAsync());
+        var receipt = await verify.Set<InboundMessageReceipt>().SingleAsync();
+        Assert.Equal(InboundReceiptOutcome.Succeeded, receipt.Outcome);
+        Assert.Equal(1, receipt.Attempts);
+        Assert.Equal(nameof(IOException), (await verify.Set<MailboxIngestionState>().SingleAsync(x => x.MailboxId == fixture.Global.Id)).ErrorCode);
+    }
+
+    [Fact]
+    public async Task Durable_acknowledgment_recovers_when_fresh_enumeration_fails()
+    {
+        await using var fixture = await MixedHarness.CreateAsync(InboundMailboxProvider.Graph, seedMessages: false);
+        await fixture.SeedReceiptAsync(fixture.Global, "durable-ack", InboundReceiptOutcome.Succeeded, envelope: false);
+        var adapter = fixture.Adapters[InboundMailboxProvider.Graph];
+        adapter.FetchFailureMailbox = fixture.Global.Id;
+
+        await fixture.Coordinator.PollAsync(fixture.Global, default);
+
+        await using var verify = fixture.Open();
+        Assert.True((await verify.Set<InboundMessageReceipt>().SingleAsync()).Acknowledged);
+        Assert.Equal(1, adapter.Acknowledgements.GetValueOrDefault(fixture.Global.Id));
+        Assert.Equal(nameof(IOException), (await verify.Set<MailboxIngestionState>().SingleAsync(x => x.MailboxId == fixture.Global.Id)).ErrorCode);
+    }
+
+    [Fact]
+    public async Task Blocked_remote_acknowledgment_does_not_hold_sqlite_write_lock_and_archive_can_complete()
+    {
+        await using var fixture = await MixedHarness.CreateAsync(InboundMailboxProvider.Graph, seedMessages: false);
+        await fixture.SeedReceiptAsync(fixture.Global, "blocked-ack", InboundReceiptOutcome.Succeeded, envelope: false);
+        var adapter = fixture.Adapters[InboundMailboxProvider.Graph];
+        adapter.BlockedAcknowledgmentMailbox = fixture.Global.Id;
+
+        var poll = fixture.Coordinator.PollAsync(fixture.Global, default);
+        await adapter.AcknowledgmentEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await using (var unrelated = fixture.Open())
+        {
+            unrelated.Organizations.Add(new Organization { Id = "unrelated-write", Name = "Unrelated write" });
+            await unrelated.SaveChangesAsync().WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        await using (var archive = fixture.Open())
+            await archive.EmailInboxSettings.Where(x => x.Id == fixture.Global.Id).ExecuteUpdateAsync(update => update
+                .SetProperty(x => x.Archived, true).SetProperty(x => x.Version, x => x.Version + 1));
+        adapter.ReleaseAcknowledgment();
+        await poll.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await using var verify = fixture.Open();
+        var receipt = await verify.Set<InboundMessageReceipt>().SingleAsync();
+        Assert.True(receipt.Acknowledged);
+        Assert.Equal(InboundAcknowledgmentStatus.Succeeded, receipt.AcknowledgmentStatus);
+        Assert.Equal(1, receipt.AcknowledgmentAttempts);
+    }
+
+    [Fact]
+    public async Task Failed_acknowledgment_does_not_starve_later_receipt()
+    {
+        await using var fixture = await MixedHarness.CreateAsync(InboundMailboxProvider.Graph, seedMessages: false);
+        await fixture.SeedReceiptAsync(fixture.Global, "first-fails", InboundReceiptOutcome.Succeeded, envelope: false);
+        await fixture.SeedReceiptAsync(fixture.Global, "second-succeeds", InboundReceiptOutcome.Succeeded, envelope: false);
+        var adapter = fixture.Adapters[InboundMailboxProvider.Graph];
+        adapter.FailingAcknowledgmentKeys.Add("first-fails");
+
+        await fixture.Coordinator.PollAsync(fixture.Global, default);
+
+        await using var verify = fixture.Open();
+        var first = await verify.Set<InboundMessageReceipt>().SingleAsync(x => x.TransportKey == "first-fails");
+        var second = await verify.Set<InboundMessageReceipt>().SingleAsync(x => x.TransportKey == "second-succeeds");
+        Assert.False(first.Acknowledged);
+        Assert.Equal(nameof(IOException), first.AcknowledgmentErrorCode);
+        Assert.True(second.Acknowledged);
+        Assert.Equal(2, adapter.Acknowledgements.GetValueOrDefault(fixture.Global.Id));
+    }
+
+    [Fact]
+    public async Task Disposition_change_before_claim_requires_review_without_redirecting_acknowledgment()
+    {
+        await using var fixture = await MixedHarness.CreateAsync(InboundMailboxProvider.Graph, seedMessages: false);
+        await fixture.SeedReceiptAsync(fixture.Global, "stale-target", InboundReceiptOutcome.Succeeded, envelope: false);
+        await using (var setup = fixture.Open())
+            await setup.Set<InboundMessageReceipt>().ExecuteUpdateAsync(update => update
+                .SetProperty(x => x.AcknowledgmentTargetFingerprint, "captured-for-another-target"));
+
+        await fixture.Coordinator.PollAsync(fixture.Global, default);
+
+        await using var verify = fixture.Open();
+        var receipt = await verify.Set<InboundMessageReceipt>().SingleAsync();
+        Assert.False(receipt.Acknowledged);
+        Assert.Equal(InboundAcknowledgmentStatus.NeedsReview, receipt.AcknowledgmentStatus);
+        Assert.Equal("AcknowledgmentConfigurationChanged", receipt.AcknowledgmentErrorCode);
+        Assert.Equal(0, fixture.Adapters[InboundMailboxProvider.Graph].Acknowledgements.GetValueOrDefault(fixture.Global.Id));
+    }
+
+    [Fact]
+    public async Task Missing_source_after_uncertain_acknowledgment_is_terminal_and_visible()
+    {
+        await using var fixture = await MixedHarness.CreateAsync(InboundMailboxProvider.Graph, seedMessages: false);
+        await fixture.SeedReceiptAsync(fixture.Global, "already-moved", InboundReceiptOutcome.Succeeded, envelope: false);
+        fixture.Adapters[InboundMailboxProvider.Graph].MissingAcknowledgmentKeys.Add("already-moved");
+
+        await fixture.Coordinator.PollAsync(fixture.Global, default);
+
+        await using var verify = fixture.Open();
+        var receipt = await verify.Set<InboundMessageReceipt>().SingleAsync();
+        Assert.True(receipt.Acknowledged);
+        Assert.Equal(InboundAcknowledgmentStatus.NotRequired, receipt.AcknowledgmentStatus);
+        Assert.Equal("SourceMissingDuringAcknowledgment", receipt.AcknowledgmentErrorCode);
+        Assert.Equal("SourceMissingDuringAcknowledgment", receipt.Reason);
+    }
+
+    [Theory]
+    [InlineData(true, "tenant-0", false, InboundReceiptOutcome.NeedsReview)]
+    [InlineData(false, "tenant-0", false, InboundReceiptOutcome.Succeeded)]
+    [InlineData(true, "tenant-1", false, InboundReceiptOutcome.Succeeded)]
+    [InlineData(true, "tenant-0", true, InboundReceiptOutcome.Succeeded)]
+    public async Task Forwarded_requester_is_used_only_by_an_applicable_authorized_rule(
+        bool enabledRule, string forwarderTenant, bool instanceAdmin, InboundReceiptOutcome expectedOutcome)
+    {
+        var parser = Substitute.For<IForwardedEmailParser>();
+        parser.Parse(Arg.Any<string>(), Arg.Any<string>()).Returns(new ForwardedEmailParseResult(
+            ForwardedEmailParseStatus.Parsed, "customer@tenant1.example.com", "Customer B", null,
+            DateTimeOffset.UtcNow, "No ticket reference", "<p>Original request</p>", "Original request", 0.99));
+        await using var fixture = await MixedHarness.CreateAsync(InboundMailboxProvider.Graph,
+            parser: parser, realRuleExecutor: true, seedMessages: false);
+        await using (var setup = fixture.Open())
+        {
+            setup.Users.Add(new User
+            {
+                Id = "forwarder", Email = "tech@support.local", Name = "Forwarder",
+                Role = instanceAdmin ? "HelpdeskAdmin" : "Technician", OrganizationId = forwarderTenant
+            });
+            setup.Customers.AddRange(
+                new Customer { Id = "forwarder-contact", Email = "forwarder-contact@support.local", OrganizationId = forwarderTenant },
+                new Customer { Id = "customer-b", Email = "customer@tenant1.example.com", Name = "Customer B", OrganizationId = "tenant-1" });
+            setup.CustomerAuthLinks.Add(new CustomerAuthLink
+            {
+                CustomerId = "forwarder-contact", DomainUserId = "forwarder",
+                OidcIssuer = "https://issuer.example", OidcSubject = "forwarder"
+            });
+            setup.InboundEmailRules.Add(new InboundEmailRule
+            {
+                Id = "forward-rule", Name = "Forwarded request", Enabled = enabledRule,
+                ScopeType = InboundEmailRuleScopeType.Tenant, TenantId = "tenant-1", StopProcessing = true,
+                ConditionsJson = JsonSerializer.Serialize(new[]
+                {
+                    new InboundEmailRuleConditionConfig(InboundEmailRuleConditionType.SenderIsInternalSupportUser),
+                    new InboundEmailRuleConditionConfig(InboundEmailRuleConditionType.IsForwardedEmail),
+                    new InboundEmailRuleConditionConfig(InboundEmailRuleConditionType.OriginalForwardedSenderExists)
+                }),
+                ActionsJson = JsonSerializer.Serialize(new[]
+                {
+                    new InboundEmailRuleActionConfig(InboundEmailRuleActionType.CreateIncidentForOriginalForwardedSender)
+                })
+            });
+            await setup.SaveChangesAsync();
+        }
+        fixture.AddMessage(fixture.Global, "forward-without-reference", "tech@support.local");
+
+        await fixture.Coordinator.PollAsync(fixture.Global, default);
+
+        await using var verify = fixture.Open();
+        var receipt = await verify.Set<InboundMessageReceipt>().SingleAsync();
+        Assert.Equal(expectedOutcome, receipt.Outcome);
+        var incidents = await verify.Incidents.ToListAsync();
+        if (expectedOutcome == InboundReceiptOutcome.NeedsReview)
+        {
+            Assert.Empty(incidents);
+            Assert.Contains("Unauthorized", receipt.Reason, StringComparison.OrdinalIgnoreCase);
+            Assert.Empty(await verify.Set<MailboxOutboxEffect>().ToListAsync());
+        }
+        else
+        {
+            var incident = Assert.Single(incidents);
+            if (enabledRule)
+            {
+                Assert.Equal("tenant-1", incident.OrganizationId);
+                Assert.Equal("customer@tenant1.example.com", incident.RequesterEmail);
+                Assert.Equal(TicketState.New, incident.State);
+                Assert.Null(incident.AssignedToId);
+                Assert.Empty(await verify.Set<MailboxOutboxEffect>().ToListAsync());
+            }
+            else
+            {
+                Assert.Equal("tech@support.local", incident.RequesterEmail);
+                Assert.NotEqual("tenant-1", incident.OrganizationId);
+            }
+        }
+    }
+
     [Fact]
     public async Task Real_Graph_MIME_creates_ticket_before_ack_and_failed_ack_recovers_without_duplicate()
     {
@@ -87,6 +287,37 @@ public sealed class MixedMailboxCoordinatorTests
         Assert.Equal(2, transport.DeltaFetches);
         Assert.Equal(2, transport.Acknowledgements);
         Assert.Equal(2, transport.CommittedChecks);
+    }
+
+    [Fact]
+    public async Task Graph_missing_item_and_valid_neighbor_commit_tombstone_checkpoint_and_one_ticket()
+    {
+        using var transport = new MissingNeighborGraphTransport();
+        var secrets = new MailboxCredentialProtector(new EphemeralDataProtectionProvider());
+        var adapter = new GraphMailboxAdapter(secrets,
+            _ => new GraphServiceClient(new HttpClient(transport, disposeHandler: false), new AnonymousAuthenticationProvider()));
+        await using var fixture = await MixedHarness.CreateAsync(InboundMailboxProvider.Graph, adapter, seedMessages: false);
+        fixture.Global.InitialImport = InitialMailImport.All;
+        await using (var setup = fixture.Open())
+            await setup.EmailInboxSettings.Where(x => x.Id == fixture.Global.Id)
+                .ExecuteUpdateAsync(update => update.SetProperty(x => x.InitialImport, InitialMailImport.All));
+
+        await fixture.Coordinator.PollAsync(fixture.Global, default);
+        fixture.Clock.Advance(TimeSpan.FromSeconds(31));
+        await fixture.Coordinator.PollAsync(fixture.Global, default);
+
+        await using var verify = fixture.Open();
+        Assert.Single(await verify.Incidents.ToListAsync());
+        var receipts = await verify.Set<InboundMessageReceipt>().OrderBy(x => x.TransportKey).ToListAsync();
+        Assert.Equal(2, receipts.Count);
+        var missing = Assert.Single(receipts, x => x.TransportKey == "missing-id");
+        Assert.Equal(InboundReceiptOutcome.Ignored, missing.Outcome);
+        Assert.Equal("SourceMessageMissing", missing.Reason);
+        Assert.True(missing.Acknowledged);
+        Assert.Equal(InboundReceiptOutcome.Succeeded, Assert.Single(receipts, x => x.TransportKey == "valid-id").Outcome);
+        Assert.Equal(1, transport.ValidMimeFetches);
+        Assert.Equal("https://graph.microsoft.com/v1.0/delta?cursor=complete",
+            (await verify.Set<MailboxIngestionState>().SingleAsync(x => x.MailboxId == fixture.Global.Id)).Cursor);
     }
 
     [Theory]
@@ -142,7 +373,7 @@ public sealed class MixedMailboxCoordinatorTests
     }
 
     [Fact]
-    public async Task Transaction_retry_preserves_distinct_incident_ids_and_one_attachment_file()
+    public async Task Transaction_retry_preserves_distinct_incident_ids_and_one_eml_attachment_file()
     {
         await using var fixture = await MixedHarness.CreateAsync(InboundMailboxProvider.Imap);
         var receiptId = Guid.NewGuid();
@@ -172,11 +403,14 @@ public sealed class MixedMailboxCoordinatorTests
                     ids.Add(incident.Id);
                 }
                 Assert.NotEqual(ids[0], ids[1]);
+                var eml = Encoding.UTF8.GetBytes("From: nested@example.test\r\nSubject: Nested retained\r\n\r\nNested body and attachment content");
                 await new TicketAttachmentService(db, fileStore, effects).SaveAsync(ids[0],
-                    [new AttachmentUpload("evidence.txt", "text/plain", [1, 2, 3])], null, default);
+                    [new AttachmentUpload("request.eml", "message/rfc822", eml)], null, default);
                 var attachment = await db.Attachments.SingleAsync();
                 var filePath = fileStore.GetReadPath(attachment.FilePath)!;
-                Assert.Equal(new byte[] { 1, 2, 3 }, await File.ReadAllBytesAsync(filePath));
+                Assert.Equal(eml, await File.ReadAllBytesAsync(filePath));
+                Assert.Equal("request.eml", attachment.FileName);
+                Assert.Equal("message/rfc822", attachment.ContentType);
                 Assert.Single(Directory.GetFiles(Path.Combine(root, "attachments")));
                 if (attempt == 0)
                 {
@@ -280,7 +514,9 @@ public sealed class MixedMailboxCoordinatorTests
         public Dictionary<InboundMailboxProvider, ControlledAdapter> Adapters { get; } = [];
         public MailboxIngestionCoordinator Coordinator { get; private set; } = null!;
 
-        public static async Task<MixedHarness> CreateAsync(InboundMailboxProvider globalProvider, IInboundMailboxAdapter? overrideAdapter = null)
+        public static async Task<MixedHarness> CreateAsync(InboundMailboxProvider globalProvider,
+            IInboundMailboxAdapter? overrideAdapter = null, IForwardedEmailParser? parser = null,
+            bool realRuleExecutor = false, bool seedMessages = true)
         {
             var fixture = new MixedHarness();
             var registrations = new ServiceCollection();
@@ -291,12 +527,15 @@ public sealed class MixedMailboxCoordinatorTests
             registrations.AddScoped<MailboxLeaseStore>();
             registrations.AddScoped<MailboxOutboxStore>();
             registrations.AddScoped<IIngressEffectContext, IngressEffectContext>();
-            registrations.AddSingleton(Substitute.For<IForwardedEmailParser>());
+            registrations.AddSingleton(parser ?? Substitute.For<IForwardedEmailParser>());
             registrations.AddScoped(_ => new RatelDeskIdentityDbContext(new DbContextOptionsBuilder<RatelDeskIdentityDbContext>()
                 .UseInMemoryDatabase("unused-mixed-identity").Options));
             registrations.AddScoped<InboundTenantRouter>();
             registrations.AddScoped<IInboundEmailRuleProcessor, InboundEmailRuleProcessor>();
-            registrations.AddSingleton(Substitute.For<IInboundEmailActionExecutor>());
+            if (realRuleExecutor)
+                registrations.AddScoped<IInboundEmailActionExecutor, InboundEmailActionExecutor>();
+            else
+                registrations.AddSingleton(Substitute.For<IInboundEmailActionExecutor>());
             registrations.AddLogging();
             registrations.AddScoped(typeof(IRepository<>), typeof(EfRepository<>));
             registrations.AddScoped<IRequestSender, RequestSender>();
@@ -344,10 +583,13 @@ public sealed class MixedMailboxCoordinatorTests
                 db.Set<MailboxLease>().Add(new MailboxLease { MailboxId = mailbox.Id });
                 db.Set<MailboxIngestionState>().Add(new MailboxIngestionState { MailboxId = mailbox.Id, SourceKey = mailbox.SourceKey });
             }
-            for (var i = 0; i < 10; i++)
-                fixture.AddMessage(fixture.Global, $"message-{i}", $"requester@tenant{i}.example.com");
-            for (var i = 10; i < 13; i++)
-                fixture.AddMessage(fixture.Mailboxes.Single(x => x.OrganizationId == $"tenant-{i}"), $"message-{i}", $"requester@external{i}.example.net");
+            if (seedMessages)
+            {
+                for (var i = 0; i < 10; i++)
+                    fixture.AddMessage(fixture.Global, $"message-{i}", $"requester@tenant{i}.example.com");
+                for (var i = 10; i < 13; i++)
+                    fixture.AddMessage(fixture.Mailboxes.Single(x => x.OrganizationId == $"tenant-{i}"), $"message-{i}", $"requester@external{i}.example.net");
+            }
             await db.SaveChangesAsync();
             return fixture;
         }
@@ -358,6 +600,25 @@ public sealed class MixedMailboxCoordinatorTests
                 sender, "Synthetic requester", [], [], "New service request", "<p>Help please</p>", "Help please",
                 Clock.GetUtcNow(), new Dictionary<string, string>(), []) { SourceMessageKey = key };
             Adapters[mailbox.Provider].Feeds.GetOrAdd(mailbox.Id, _ => []).Enqueue(new InboundSourceMessage(key, context));
+        }
+
+        public async Task SeedReceiptAsync(EmailInboxSettings mailbox, string key, InboundReceiptOutcome outcome,
+            string sender = "requester@tenant0.example.com", bool envelope = true)
+        {
+            var message = new InboundEmailContext(key, null, mailbox.Id, mailbox.OrganizationId, mailbox.MailboxAddress,
+                sender, "Synthetic requester", [], [], "Durable request", "<p>Help</p>", "Help",
+                Clock.GetUtcNow(), new Dictionary<string, string>(), []);
+            await using var db = Open();
+            db.Set<InboundMessageReceipt>().Add(new InboundMessageReceipt
+            {
+                MailboxId = mailbox.Id, SourceKey = mailbox.SourceKey, TransportKey = key,
+                ConfigurationVersion = mailbox.Version, InternetMessageId = key, Outcome = outcome,
+                ProtectedEnvelope = envelope ? services.GetRequiredService<MailboxCredentialProtector>()
+                    .Protect(mailbox.Id, JsonSerializer.Serialize(message)) : string.Empty,
+                CreatedUnixMilliseconds = Clock.GetUtcNow().ToUnixTimeMilliseconds(),
+                UpdatedUnixMilliseconds = Clock.GetUtcNow().ToUnixTimeMilliseconds()
+            });
+            await db.SaveChangesAsync();
         }
 
         public int FetchCount(Guid mailboxId) => Adapters.Values.Sum(x => x.Fetches.GetValueOrDefault(mailboxId));
@@ -434,11 +695,47 @@ public sealed class MixedMailboxCoordinatorTests
         }
     }
 
+    private sealed class MissingNeighborGraphTransport : HttpMessageHandler
+    {
+        public int ValidMimeFetches { get; private set; }
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var path = request.RequestUri!.ToString();
+            if (request.Method == HttpMethod.Patch) return new HttpResponseMessage(HttpStatusCode.NoContent);
+            if (path.Contains("missing-id") && path.Contains("$value"))
+                return new HttpResponseMessage(HttpStatusCode.NotFound)
+                {
+                    Content = new StringContent("{\"error\":{\"code\":\"ErrorItemNotFound\"}}", Encoding.UTF8, "application/json")
+                };
+            if (path.Contains("valid-id") && path.Contains("$value"))
+            {
+                ValidMimeFetches++;
+                var mime = (await File.ReadAllTextAsync(Path.Combine(TestEnvironment.RepositoryRoot, "tests", "Fixtures", "inbound", "multipart-request.eml"), ct))
+                    .Replace("requester@example.test", "requester@tenant0.example.com", StringComparison.Ordinal);
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                    { Content = new StringContent(mime, Encoding.UTF8, "message/rfc822") };
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """{"value":[{"id":"missing-id","isRead":false},{"id":"valid-id","isRead":false}],"@odata.deltaLink":"https://graph.microsoft.com/v1.0/delta?cursor=complete"}""",
+                    Encoding.UTF8, "application/json")
+            };
+        }
+    }
+
     private sealed class ControlledAdapter(InboundMailboxProvider provider) : IInboundMailboxAdapter
     {
         public InboundMailboxProvider Provider => provider;
         public ConcurrentDictionary<Guid, ConcurrentQueue<InboundSourceMessage>> Feeds { get; } = new();
         public ConcurrentDictionary<Guid, int> Fetches { get; } = new();
+        public ConcurrentDictionary<Guid, int> Acknowledgements { get; } = new();
+        public Guid? FetchFailureMailbox { get; set; }
+        public Guid? BlockedAcknowledgmentMailbox { get; set; }
+        public HashSet<string> FailingAcknowledgmentKeys { get; } = [];
+        public HashSet<string> MissingAcknowledgmentKeys { get; } = [];
+        public TaskCompletionSource AcknowledgmentEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource acknowledgmentRelease = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Guid? BlockedMailbox { get; set; }
         public TaskCompletionSource BlockedEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource BlockedCancelled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -451,6 +748,7 @@ public sealed class MixedMailboxCoordinatorTests
             IReadOnlySet<string> knownKeys, CancellationToken ct)
         {
             Fetches.AddOrUpdate(settings.Id, 1, (_, count) => count + 1);
+            if (settings.Id == FetchFailureMailbox) throw new IOException("Synthetic enumeration failure");
             if (settings.Id == BlockedMailbox)
             {
                 BlockedEntered.TrySetResult();
@@ -465,7 +763,20 @@ public sealed class MixedMailboxCoordinatorTests
             return new InboundSourceBatch(messages, null, true);
         }
 
-        public Task AcknowledgeAsync(EmailInboxSettings settings, string key, CancellationToken ct) => Task.CompletedTask;
+        public async Task AcknowledgeAsync(EmailInboxSettings settings, string key, CancellationToken ct)
+        {
+            Acknowledgements.AddOrUpdate(settings.Id, 1, (_, count) => count + 1);
+            if (settings.Id == BlockedAcknowledgmentMailbox)
+            {
+                AcknowledgmentEntered.TrySetResult();
+                await acknowledgmentRelease.Task.WaitAsync(ct);
+            }
+            if (MissingAcknowledgmentKeys.Contains(key))
+                throw new InboundSourceMissingException("Synthetic source already absent");
+            if (FailingAcknowledgmentKeys.Contains(key)) throw new IOException("Synthetic acknowledgment failure");
+        }
+
+        public void ReleaseAcknowledgment() => acknowledgmentRelease.TrySetResult();
     }
 
     private sealed class AdminTenantContext : ITenantContext

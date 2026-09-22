@@ -58,6 +58,57 @@ public sealed class ProtocolMailboxAdapterTests
         await server.Completion.WaitAsync(TimeSpan.FromSeconds(10));
     }
 
+    [Theory]
+    [InlineData(InboundMailboxProvider.Imap)]
+    [InlineData(InboundMailboxProvider.Pop3)]
+    public async Task Protocol_ingestion_preserves_attached_message_as_eml(InboundMailboxProvider provider)
+    {
+        await using var server = new PopFixture(imap: provider == InboundMailboxProvider.Imap, mime: AttachedMessageMime);
+        var secrets = new MailboxCredentialProtector(new EphemeralDataProtectionProvider());
+        var settings = new EmailInboxSettings
+        {
+            Id = Guid.NewGuid(), Provider = provider, Authentication = MailboxAuthentication.Password,
+            MailHost = "localhost", Port = server.Port, Username = "fixture", MailboxAddress = "support@example.test",
+            MailboxFolder = "Support", InitialImport = InitialMailImport.All, CredentialVersion = 1
+        };
+        settings.Password = secrets.Protect(settings.Id, "synthetic password");
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            { ["EmailIngestion:AllowedPrivateHosts:0"] = "localhost" }).Build();
+        var adapter = new ProtocolMailboxAdapter(provider, new MailboxDestinationPolicy(config), secrets);
+
+        var batch = await adapter.FetchAsync(settings, new MailboxIngestionState(), new HashSet<string>(), default);
+
+        var attachment = Assert.Single(Assert.Single(batch.Messages).Message!.Attachments);
+        Assert.Equal("nested.eml", attachment.Name);
+        Assert.Equal("message/rfc822", attachment.ContentType);
+        Assert.Contains("Nested protocol body", Encoding.UTF8.GetString(attachment.ContentBytes!));
+    }
+
+    [Fact]
+    public async Task Imap_expunge_between_search_and_fetch_records_tombstone_and_continues()
+    {
+        await using var server = new PopFixture(imap: true, expungeFirst: true);
+        var secrets = new MailboxCredentialProtector(new EphemeralDataProtectionProvider());
+        var settings = new EmailInboxSettings
+        {
+            Id = Guid.NewGuid(), Provider = InboundMailboxProvider.Imap, Authentication = MailboxAuthentication.Password,
+            MailHost = "localhost", Port = server.Port, Username = "fixture", MailboxAddress = "support@example.test",
+            MailboxFolder = "Support", InitialImport = InitialMailImport.All, CredentialVersion = 1, BatchSize = 10
+        };
+        settings.Password = secrets.Protect(settings.Id, "synthetic password");
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            { ["EmailIngestion:AllowedPrivateHosts:0"] = "localhost" }).Build();
+        var adapter = new ProtocolMailboxAdapter(InboundMailboxProvider.Imap, new MailboxDestinationPolicy(config), secrets);
+
+        var batch = await adapter.FetchAsync(settings, new MailboxIngestionState(), new HashSet<string>(), default);
+
+        Assert.Equal(2, batch.Messages.Count);
+        var missing = Assert.Single(batch.Messages, message => message.Key == "7:42");
+        Assert.True(missing.Ignore);
+        Assert.Equal("SourceMessageMissing", missing.HoldReason);
+        Assert.NotNull(Assert.Single(batch.Messages, message => message.Key == "7:43").Message);
+    }
+
     [Fact]
     public async Task Untrusted_TLS_certificate_is_rejected_without_password_fallback()
     {
@@ -119,11 +170,16 @@ public sealed class ProtocolMailboxAdapterTests
         private readonly bool imap;
         private readonly bool trusted;
         private readonly bool supportsUidl;
-        public PopFixture(bool imap = false, bool trusted = true, bool supportsUidl = true)
+        private readonly string mime;
+        private readonly bool expungeFirst;
+        public PopFixture(bool imap = false, bool trusted = true, bool supportsUidl = true, string? mime = null,
+            bool expungeFirst = false)
         {
             this.imap = imap;
             this.trusted = trusted;
             this.supportsUidl = supportsUidl;
+            this.mime = mime ?? "From: requester@example.test\r\nTo: support@example.test\r\nSubject: Protocol fixture\r\nContent-Type: text/plain\r\n\r\nhello\r\n";
+            this.expungeFirst = expungeFirst;
             using var key = RSA.Create(2048);
             var request = new CertificateRequest("CN=localhost", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
             var san = new SubjectAlternativeNameBuilder(); san.AddDnsName("localhost"); request.CertificateExtensions.Add(san.Build());
@@ -158,7 +214,7 @@ public sealed class ProtocolMailboxAdapterTests
                     "STAT" => "+OK 1 200",
                     "UIDL" => !supportsUidl ? "-ERR UIDL unavailable" : line.Contains(' ') ? "+OK 1 stable-UIDL" : "+OK\r\n1 stable-UIDL\r\n.",
                     "LIST" => "+OK 1 200",
-                    "RETR" => "+OK\r\nFrom: requester@example.test\r\nTo: support@example.test\r\nSubject: Protocol fixture\r\nContent-Type: text/plain\r\n\r\nhello\r\n.",
+                    "RETR" => $"+OK\r\n{mime}.",
                     "QUIT" => "+OK goodbye",
                     _ => "-ERR unsupported"
                 };
@@ -168,7 +224,6 @@ public sealed class ProtocolMailboxAdapterTests
         }
         private async Task ServeImapAsync(StreamReader reader, StreamWriter writer)
         {
-            const string mime = "From: requester@example.test\r\nTo: support@example.test\r\nSubject: IMAP fixture\r\nContent-Type: text/plain\r\n\r\nhello\r\n";
             await writer.WriteLineAsync("* OK fixture");
             while (await reader.ReadLineAsync() is { } line)
             {
@@ -177,11 +232,14 @@ public sealed class ProtocolMailboxAdapterTests
                 Commands.Add(command.StartsWith("LOGIN", StringComparison.Ordinal) ? "LOGIN" : command);
                 if (command.StartsWith("CAPABILITY")) await writer.WriteLineAsync("* CAPABILITY IMAP4rev1");
                 else if (command.StartsWith("LIST")) await writer.WriteLineAsync("* LIST (\\HasNoChildren) \"/\" \"Support\"");
-                else if (command.StartsWith("EXAMINE")) await writer.WriteLineAsync("* FLAGS (\\Seen)\r\n* 1 EXISTS\r\n* 0 RECENT\r\n* OK [UIDVALIDITY 7] stable\r\n* OK [UIDNEXT 43] next");
-                else if (command.StartsWith("UID SEARCH")) await writer.WriteLineAsync("* SEARCH 42");
+                else if (command.StartsWith("EXAMINE")) await writer.WriteLineAsync(expungeFirst
+                    ? "* FLAGS (\\Seen)\r\n* 2 EXISTS\r\n* 0 RECENT\r\n* OK [UIDVALIDITY 7] stable\r\n* OK [UIDNEXT 44] next"
+                    : "* FLAGS (\\Seen)\r\n* 1 EXISTS\r\n* 0 RECENT\r\n* OK [UIDVALIDITY 7] stable\r\n* OK [UIDNEXT 43] next");
+                else if (command.StartsWith("UID SEARCH")) await writer.WriteLineAsync(expungeFirst ? "* SEARCH 42 43" : "* SEARCH 42");
+                else if (expungeFirst && command.StartsWith("UID FETCH 42")) { }
                 else if (command.StartsWith("UID FETCH") && command.Contains("BODY.PEEK"))
-                    await writer.WriteLineAsync($"* 1 FETCH (UID 42 BODY[] {{{Encoding.ASCII.GetByteCount(mime)}}}\r\n{mime})");
-                else if (command.StartsWith("UID FETCH")) await writer.WriteLineAsync($"* 1 FETCH (UID 42 FLAGS () RFC822.SIZE {Encoding.ASCII.GetByteCount(mime)})");
+                    await writer.WriteLineAsync($"* 1 FETCH (UID {(expungeFirst ? 43 : 42)} BODY[] {{{Encoding.ASCII.GetByteCount(mime)}}}\r\n{mime})");
+                else if (command.StartsWith("UID FETCH")) await writer.WriteLineAsync($"* 1 FETCH (UID {(expungeFirst ? 43 : 42)} FLAGS () RFC822.SIZE {Encoding.ASCII.GetByteCount(mime)})");
                 else if (command.StartsWith("LOGOUT")) await writer.WriteLineAsync("* BYE logout");
                 else if (!command.StartsWith("LOGIN")) throw new InvalidOperationException("Unexpected IMAP fixture command: " + command);
                 await writer.WriteLineAsync(tag + (command.StartsWith("EXAMINE") ? " OK [READ-ONLY] completed" : " OK completed"));
@@ -195,4 +253,6 @@ public sealed class ProtocolMailboxAdapterTests
             if (Completion.IsCompletedSuccessfully) await Completion;
         }
     }
+
+    private const string AttachedMessageMime = "From: outer@example.test\r\nTo: support@example.test\r\nSubject: Outer protocol request\r\nContent-Type: multipart/mixed; boundary=outer\r\n\r\n--outer\r\nContent-Type: text/plain\r\n\r\nOuter protocol body\r\n--outer\r\nContent-Type: message/rfc822; name=nested.eml\r\nContent-Disposition: attachment; filename=nested.eml\r\n\r\nFrom: nested@example.test\r\nTo: support@example.test\r\nSubject: Nested protocol request\r\nX-Nested: retained\r\nContent-Type: text/plain\r\n\r\nNested protocol body\r\n--outer--\r\n";
 }

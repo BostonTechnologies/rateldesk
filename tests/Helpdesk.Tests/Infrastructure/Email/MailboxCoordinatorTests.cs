@@ -21,6 +21,104 @@ namespace Helpdesk.Tests.Infrastructure.Email;
 
 public sealed class MailboxCoordinatorTests
 {
+    [Fact]
+    public async Task Proven_delivery_status_notification_is_ignored_before_requester_authorization()
+    {
+        await using var fixture = await Harness.CreateAsync((_, _, _) =>
+            throw new InvalidOperationException("A DSN must not execute business rules."));
+        await using (var setup = fixture.Open())
+        {
+            setup.Incidents.Add(new Incident
+            {
+                Id = "referenced-ticket", TrackingId = "INC-DSN-1", OrganizationId = "tenant-a",
+                RequesterEmail = "requester@example.com"
+            });
+            var capturedReceipt = await setup.Set<InboundMessageReceipt>().SingleAsync();
+            var message = new InboundEmailContext("dsn-message", null, fixture.Mailbox.Id, null,
+                fixture.Mailbox.MailboxAddress, "postmaster@mailer.example", "Mail system", [], [],
+                "Delivery Status Notification INC-DSN-1", "Delivery failed", "Delivery failed",
+                DateTimeOffset.UtcNow,
+                new Dictionary<string, string> { ["Content-Type"] = "multipart/report; report-type=delivery-status" }, []);
+            capturedReceipt.ProtectedEnvelope = fixture.Services.GetRequiredService<MailboxCredentialProtector>()
+                .Protect(fixture.Mailbox.Id, JsonSerializer.Serialize(message));
+            await setup.SaveChangesAsync();
+        }
+
+        await fixture.Coordinator.ProcessAsync(fixture.Mailbox, fixture.Lease, fixture.ReceiptId, default);
+
+        await using var verify = fixture.Open();
+        var receipt = await verify.Set<InboundMessageReceipt>().SingleAsync();
+        Assert.Equal(InboundReceiptOutcome.Ignored, receipt.Outcome);
+        Assert.Null(receipt.Reason);
+        Assert.Empty(await verify.Customers.ToListAsync());
+        Assert.Single(await verify.Incidents.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Proven_delivery_status_notification_cannot_cross_dedicated_tenant_boundary()
+    {
+        await using var fixture = await Harness.CreateAsync((_, _, _) => throw new InvalidOperationException());
+        fixture.Mailbox.Scope = MailboxScope.Organization;
+        fixture.Mailbox.OrganizationId = "tenant-a";
+        await using (var setup = fixture.Open())
+        {
+            setup.Organizations.Add(new Organization { Id = "tenant-b", Name = "Tenant B" });
+            setup.Incidents.Add(new Incident
+            {
+                Id = "foreign-ticket", TrackingId = "INC-FOREIGN-DSN", OrganizationId = "tenant-b",
+                RequesterEmail = "foreign@example.com"
+            });
+            await setup.EmailInboxSettings.ExecuteUpdateAsync(update => update
+                .SetProperty(x => x.Scope, MailboxScope.Organization).SetProperty(x => x.OrganizationId, "tenant-a"));
+            var capturedReceipt = await setup.Set<InboundMessageReceipt>().SingleAsync();
+            var message = new InboundEmailContext("dsn-cross", null, fixture.Mailbox.Id, "tenant-a",
+                fixture.Mailbox.MailboxAddress, "mailer-daemon@example.net", null, [], [],
+                "Delivery failure INC-FOREIGN-DSN", "Failed", "Failed", DateTimeOffset.UtcNow,
+                new Dictionary<string, string> { ["Content-Type"] = "multipart/report; report-type=delivery-status" }, []);
+            capturedReceipt.ProtectedEnvelope = fixture.Services.GetRequiredService<MailboxCredentialProtector>()
+                .Protect(fixture.Mailbox.Id, JsonSerializer.Serialize(message));
+            await setup.SaveChangesAsync();
+        }
+
+        await fixture.Coordinator.ProcessAsync(fixture.Mailbox, fixture.Lease, fixture.ReceiptId, default);
+
+        await using var verify = fixture.Open();
+        var receipt = await verify.Set<InboundMessageReceipt>().SingleAsync();
+        Assert.Equal(InboundReceiptOutcome.NeedsReview, receipt.Outcome);
+        Assert.Equal("CrossTenantReference", receipt.Reason);
+        Assert.Single(await verify.Incidents.ToListAsync());
+        Assert.Empty(await verify.Customers.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Ordinary_customer_undeliverable_subject_is_not_discarded_without_dsn_proof()
+    {
+        await using var fixture = await Harness.CreateAsync(async (services, _, ct) =>
+        {
+            var incident = new Incident { Id = "ordinary-ticket", TrackingId = "INC-ORDINARY", OrganizationId = "tenant-a" };
+            services.GetRequiredService<HelpdeskDbContext>().Incidents.Add(incident);
+            await services.GetRequiredService<HelpdeskDbContext>().SaveChangesAsync(ct);
+            return new InboundEmailRuleProcessingResult(true, true, incident);
+        });
+        await using (var setup = fixture.Open())
+        {
+            var capturedReceipt = await setup.Set<InboundMessageReceipt>().SingleAsync();
+            var message = new InboundEmailContext("ordinary", null, fixture.Mailbox.Id, null,
+                fixture.Mailbox.MailboxAddress, "requester@example.com", "Requester", [], [],
+                "Undeliverable printer request", "Please help", "Please help", DateTimeOffset.UtcNow,
+                new Dictionary<string, string>(), []);
+            capturedReceipt.ProtectedEnvelope = fixture.Services.GetRequiredService<MailboxCredentialProtector>()
+                .Protect(fixture.Mailbox.Id, JsonSerializer.Serialize(message));
+            await setup.SaveChangesAsync();
+        }
+
+        await fixture.Coordinator.ProcessAsync(fixture.Mailbox, fixture.Lease, fixture.ReceiptId, default);
+
+        await using var verify = fixture.Open();
+        Assert.Equal(InboundReceiptOutcome.Succeeded, (await verify.Set<InboundMessageReceipt>().SingleAsync()).Outcome);
+        Assert.Single(await verify.Incidents.ToListAsync());
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

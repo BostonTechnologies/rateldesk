@@ -38,7 +38,11 @@ Both draft tests and workers apply `EmailIngestion:AllowedPrivateHosts`, an oper
 
 Both mailbox switches must be enabled, and the deployment-wide `EmailIngestion:Enabled` switch must permit processing. Healthy reconciliation runs every five seconds. Up to four independent mailbox operations run concurrently. Database leases, fencing and source-version checks prevent obsolete workers from committing after ownership changes. Replicas need synchronized UTC clocks.
 
-Source capture and checkpoint advancement share a database transaction. Ticket/rule changes and durable notification work share a separate fenced transaction. Provider acknowledgment happens after business commit and can be retried independently. A receipt distinguishes pending, succeeded, ignored, held and failed outcomes. Inbound diagnostics show state and safe retries without exposing message bodies. `/admin/pending-emails` remains the existing outbound delivery view.
+Source capture and checkpoint advancement share a database transaction. A definitive Graph 404 or IMAP expunge is captured as a source-missing tombstone so other items in the batch can progress; transient provider or MIME failures do not advance the checkpoint. Already captured receipts and pending acknowledgments continue during a fresh enumeration outage.
+
+Ticket/rule changes and durable notification work share a separate fenced transaction. Provider acknowledgment happens after business commit. Each acknowledgment uses a short durable claim, performs provider I/O without a database write transaction, then conditionally completes that claim. A target fingerprint prevents a changed disposition from redirecting old work. Unknown failures retry without replaying ticket changes, and a provider-confirmed missing source is recorded explicitly. A receipt distinguishes pending, succeeded, ignored, held and failed outcomes. Inbound diagnostics show state and safe retries without exposing message bodies. `/admin/pending-emails` remains the existing outbound delivery view.
+
+MIME normalization preserves attached `message/rfc822` entities as safe `.eml` downloads. Nested headers, bodies and attachments remain inside that file and count toward the same attachment-count, MIME-depth and byte limits as other inbound content.
 
 Notification dispatch uses a bounded durable outbox. External mail is at-least-once when the provider accepts a send but its response is lost; local ticket changes are not rerun for that uncertainty. Persisted notifications are shared, while the existing live notification buses remain per replica.
 
@@ -46,7 +50,7 @@ Notification dispatch uses a bounded durable outbox. External mail is at-least-o
 
 Tenant rules run before global fallback rules, with priority and stable tie-breaking within each tier. **All eligible mailboxes** preserves reusable rules. A source binding restricts eligibility; it does not change priority or grant tenant authority. Global rules may target a dedicated source; a tenant cannot target another tenant's dedicated source. Reordering operates within one scope/organization/source bucket. Explicit priorities determine how different buckets interleave.
 
-The forwarded-support template remains disabled until explicitly enabled. Authorized forwarded incidents preserve their original requester and New/Unassigned behavior. Ownership conflicts, ambiguous routing and unconfident requester parsing require review. Existing customers are never moved between organizations by ingress.
+The forwarded-support template remains disabled until explicitly enabled. Parsing a forwarded body records only a candidate requester; it never changes the ordinary fallback requester. An applicable rule must resolve the candidate organization and authorize the outer support sender for that organization before substitution. A denied operation is held and cannot fall through to equivalent ticket creation. Authorized forwarded incidents preserve their original requester and New/Unassigned behavior without the ordinary new-requester confirmation. Ownership conflicts, ambiguous routing and unconfident requester parsing require review. Existing customers are never moved between organizations by ingress.
 
 ## Upgrade and recovery
 
