@@ -51,6 +51,7 @@ test('long rule name and description wrap with reachable actions at desktop and 
     for (const width of [1440, 1280, 1024, 768, 390]) {
       await page.setViewportSize({ width, height: 950 });
       await assertNoHorizontalOverflow(page);
+      if (width === 1440) await expect(page.getByRole('columnheader', { name: 'Name', exact: true })).toBeVisible();
       const row = page.locator('tr').filter({ hasText: ruleName });
       await expect(row).toBeVisible();
       const bounds = await row.evaluate(element => {
@@ -61,6 +62,8 @@ test('long rule name and description wrap with reachable actions at desktop and 
       const action = row.getByRole('button').last();
       await action.scrollIntoViewIfNeeded();
       await expect(action).toBeInViewport();
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
       await page.screenshot({ path: testInfo.outputPath(`rules-${theme.toLowerCase()}-${width}.png`), fullPage: true });
     }
   }
@@ -79,8 +82,10 @@ test('mailbox controls remain usable when component JavaScript arrives after Bla
     await requested;
     await page.waitForFunction(() => typeof (window as any).Blazor?.start === 'function');
     expect(negotiations).toBe(0);
+    await expect(page.getByTestId('navigation-toggle')).toBeDisabled();
     release();
     await expect(page.getByTestId('mailbox-settings')).toHaveAttribute('data-interactive', 'true');
+    await expect(page.getByTestId('navigation-toggle')).toBeEnabled();
     await page.getByRole('button', { name: 'Add tenant override' }).click();
     await expect(page.getByRole('combobox', { name: /^RatelDesk organization/ })).toBeVisible();
     await expect(page.locator('#blazor-error-ui')).not.toBeVisible();

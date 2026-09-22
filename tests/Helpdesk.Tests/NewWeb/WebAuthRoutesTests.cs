@@ -416,7 +416,10 @@ public class WebAuthRoutesTests
             "HelpDesk.NewWeb",
             "HelpDesk.NewWeb.csproj"));
 
-        Assert.Contains("<script src=@Assets[\"_framework/blazor.web.js\"]></script>", component, StringComparison.Ordinal);
+        Assert.Contains("<script src=@Assets[\"_framework/blazor.web.js\"] autostart=\"false\"></script>", component, StringComparison.Ordinal);
+        var componentInterop = component.IndexOf("_content/MudBlazor/MudBlazor.min.js", StringComparison.Ordinal);
+        var circuitStart = component.IndexOf("Blazor.start();", StringComparison.Ordinal);
+        Assert.True(componentInterop >= 0 && circuitStart > componentInterop);
         Assert.Contains("<RequiresAspNetWebAssets>true</RequiresAspNetWebAssets>", project, StringComparison.Ordinal);
     }
 

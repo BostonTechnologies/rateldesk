@@ -21,14 +21,14 @@
                                Edge="Edge.Start"
                                OnClick="ToggleDrawer"
                                aria-label="Toggle navigation"
-                               data-testid="navigation-toggle" />
+                               data-testid="navigation-toggle" Disabled="@(!interactive)" />
             </AuthorizeView>
             <MudText Typo="Typo.h6" Class="helpdesk-appbar-title">@_branding.ApplicationName</MudText>
         </div>
         <AuthorizeView>
             <Authorized>
                 <div class="helpdesk-appbar-search-wrap">
-                    <button type="button" class="helpdesk-appbar-search" @onclick="OpenSearch">
+                    <button type="button" class="helpdesk-appbar-search" @onclick="OpenSearch" disabled="@(!interactive)">
                         <MudIcon Icon="@Icons.Material.Filled.Search" Size="Size.Small" />
                         <span>Search</span>
                         <kbd>Shift + S</kbd>
@@ -118,7 +118,7 @@
         </MudDrawer>
     </AuthorizeView>
 
-    <MudMainContent Class="helpdesk-main-content pa-4" data-testid="app-main-content">
+    <MudMainContent Class="helpdesk-main-content pa-4" data-testid="app-main-content" data-interactive="@interactive.ToString().ToLowerInvariant()">
         @Body
     </MudMainContent>
     <GlobalSearchOverlay Open="searchOpen" OpenChanged="OnSearchOpenChanged" />
@@ -141,6 +141,7 @@
 
     private bool _drawerOpen = true;
     private bool searchOpen;
+    private bool interactive;
     private Helpdesk.Shared.Build.BuildInfo _appBarVersion = new("dev", "unknown", "unknown", "HelpDesk.NewWeb", "unknown");
     private DotNetObjectReference<MainLayout>? dotNetRef;
     private int? hotkeyRegistrationId;
@@ -173,6 +174,8 @@
 
         dotNetRef = DotNetObjectReference.Create(this);
         hotkeyRegistrationId = await JS.InvokeAsync<int>("helpdeskGlobalSearchHotkeys.register", dotNetRef);
+        interactive = true;
+        StateHasChanged();
     }
 
     private void OpenSearch()
