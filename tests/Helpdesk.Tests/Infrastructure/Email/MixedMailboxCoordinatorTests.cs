@@ -1,4 +1,8 @@
 using System.Collections.Concurrent;
+using System.Net;
+using System.Text;
+using Microsoft.Graph;
+using Microsoft.Kiota.Abstractions.Authentication;
 using Helpdesk.API.DependencyInjection;
 using Helpdesk.Application.Events;
 using Helpdesk.Application.Incidents;
@@ -32,6 +36,111 @@ namespace Helpdesk.Tests.Infrastructure.Email;
 
 public sealed class MixedMailboxCoordinatorTests
 {
+    [Fact]
+    public async Task Real_Graph_MIME_creates_ticket_before_ack_and_failed_ack_recovers_without_duplicate()
+    {
+        using var transport = new CommitCheckingGraphTransport();
+        var secrets = new MailboxCredentialProtector(new EphemeralDataProtectionProvider());
+        var adapter = new GraphMailboxAdapter(secrets,
+            _ => new GraphServiceClient(new HttpClient(transport, disposeHandler: false), new AnonymousAuthenticationProvider()));
+        await using var fixture = await MixedHarness.CreateAsync(InboundMailboxProvider.Graph, adapter);
+        fixture.Global.InitialImport = InitialMailImport.All;
+        await using (var setup = fixture.Open())
+            await setup.EmailInboxSettings.Where(x => x.Id == fixture.Global.Id)
+                .ExecuteUpdateAsync(update => update.SetProperty(x => x.InitialImport, InitialMailImport.All));
+        transport.CheckCommitted = async () =>
+        {
+            await using var db = fixture.Open();
+            Assert.Single(await db.Incidents.ToListAsync());
+            Assert.Single(await db.Customers.ToListAsync());
+            var receipt = await db.Set<InboundMessageReceipt>().SingleAsync();
+            Assert.Equal(InboundReceiptOutcome.Succeeded, receipt.Outcome);
+            Assert.False(receipt.Acknowledged);
+        };
+        await fixture.Coordinator.PollAsync(fixture.Global, default);
+        string ticketId;
+        await using (var verify = fixture.Open())
+        {
+            var incident = Assert.Single(await verify.Incidents.ToListAsync());
+            ticketId = incident.Id;
+            Assert.Equal("tenant-0", incident.OrganizationId);
+            Assert.Equal("Fixture", incident.Title);
+            Assert.Contains("Hello", incident.OriginalEmailText);
+            Assert.Equal("requester@tenant0.example.com", Assert.Single(await verify.Customers.ToListAsync()).Email);
+            var receipt = await verify.Set<InboundMessageReceipt>().SingleAsync();
+            Assert.Equal("AbC-Case", receipt.TransportKey);
+            Assert.Equal(ticketId, receipt.TicketId);
+            Assert.False(receipt.Acknowledged);
+            Assert.Equal(InboundReceiptOutcome.Succeeded, receipt.Outcome);
+        }
+        Assert.Equal(1, transport.Acknowledgements);
+        Assert.Equal(1, transport.CommittedChecks);
+        fixture.Clock.Advance(TimeSpan.FromSeconds(31));
+        await fixture.Coordinator.PollAsync(fixture.Global, default);
+        await using var final = fixture.Open();
+        Assert.Equal(ticketId, Assert.Single(await final.Incidents.ToListAsync()).Id);
+        Assert.Single(await final.Customers.ToListAsync());
+        var recovered = await final.Set<InboundMessageReceipt>().SingleAsync();
+        Assert.True(recovered.Acknowledged);
+        Assert.Equal(1, recovered.Attempts);
+        Assert.Equal(1, transport.MimeFetches);
+        Assert.Equal(2, transport.DeltaFetches);
+        Assert.Equal(2, transport.Acknowledgements);
+        Assert.Equal(2, transport.CommittedChecks);
+    }
+
+    [Theory]
+    [InlineData(InboundMailboxProvider.Imap)]
+    [InlineData(InboundMailboxProvider.Pop3)]
+    public async Task Real_TLS_protocol_MIME_persists_tenant_ticket_before_disposition(InboundMailboxProvider provider)
+    {
+        var server = new ProtocolMailboxAdapterTests.PopFixture(imap: provider == InboundMailboxProvider.Imap);
+        var disposed = false;
+        try
+        {
+            var secrets = new MailboxCredentialProtector(new EphemeralDataProtectionProvider());
+            var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+                { ["EmailIngestion:AllowedPrivateHosts:0"] = "localhost" }).Build();
+            var real = new ProtocolMailboxAdapter(provider, new MailboxDestinationPolicy(config), secrets);
+            IInboundMailboxAdapter adapter = provider == InboundMailboxProvider.Imap
+                ? new BeforeAcknowledgementAdapter(real, async () =>
+                {
+                    // The IMAP test server accepts one connection. Shut it down after
+                    // fetch so the real disposition connection fails after business commit.
+                    await server.Completion;
+                    await server.DisposeAsync();
+                    disposed = true;
+                }) : real;
+            await using var fixture = await MixedHarness.CreateAsync(provider, adapter);
+            var mailbox = fixture.Global;
+            mailbox.Authentication = MailboxAuthentication.Password;
+            mailbox.MailHost = "localhost"; mailbox.Port = server.Port; mailbox.Username = "fixture";
+            mailbox.MailboxFolder = "Support"; mailbox.InitialImport = InitialMailImport.All;
+            mailbox.MarkReadAfterSuccess = false;
+            mailbox.Password = secrets.Protect(mailbox.Id, "synthetic password");
+            await using (var setup = fixture.Open())
+            {
+                setup.Entry(await setup.EmailInboxSettings.SingleAsync(x => x.Id == mailbox.Id)).CurrentValues.SetValues(mailbox);
+                (await setup.Organizations.SingleAsync(x => x.Id == "tenant-0")).DnsName = "example.test";
+                await setup.SaveChangesAsync();
+            }
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            await fixture.Coordinator.PollAsync(mailbox, deadline.Token);
+            await using var verify = fixture.Open();
+            var incident = Assert.Single(await verify.Incidents.ToListAsync());
+            Assert.Equal("tenant-0", incident.OrganizationId);
+            Assert.Contains("hello", incident.OriginalEmailText);
+            Assert.Equal("requester@example.test", Assert.Single(await verify.Customers.ToListAsync()).Email);
+            var receipt = await verify.Set<InboundMessageReceipt>().SingleAsync();
+            Assert.Equal(InboundReceiptOutcome.Succeeded, receipt.Outcome);
+            Assert.Equal(incident.Id, receipt.TicketId);
+            Assert.Equal(provider == InboundMailboxProvider.Imap ? "7:42" : "stable-UIDL", receipt.TransportKey);
+            Assert.Equal(provider == InboundMailboxProvider.Pop3, receipt.Acknowledged);
+            Assert.DoesNotContain(server.Commands, command => command.StartsWith("DELE", StringComparison.Ordinal));
+        }
+        finally { if (!disposed) await server.DisposeAsync(); }
+    }
+
     [Fact]
     public async Task Transaction_retry_preserves_distinct_incident_ids_and_one_attachment_file()
     {
@@ -171,7 +280,7 @@ public sealed class MixedMailboxCoordinatorTests
         public Dictionary<InboundMailboxProvider, ControlledAdapter> Adapters { get; } = [];
         public MailboxIngestionCoordinator Coordinator { get; private set; } = null!;
 
-        public static async Task<MixedHarness> CreateAsync(InboundMailboxProvider globalProvider)
+        public static async Task<MixedHarness> CreateAsync(InboundMailboxProvider globalProvider, IInboundMailboxAdapter? overrideAdapter = null)
         {
             var fixture = new MixedHarness();
             var registrations = new ServiceCollection();
@@ -215,7 +324,7 @@ public sealed class MixedMailboxCoordinatorTests
             {
                 var adapter = new ControlledAdapter(provider);
                 fixture.Adapters.Add(provider, adapter);
-                registrations.AddSingleton<IInboundMailboxAdapter>(adapter);
+                registrations.AddSingleton<IInboundMailboxAdapter>(overrideAdapter?.Provider == provider ? overrideAdapter : adapter);
             }
             fixture.services = registrations.BuildServiceProvider();
             fixture.Coordinator = new MailboxIngestionCoordinator(fixture.services.GetRequiredService<IServiceScopeFactory>(),
@@ -276,6 +385,52 @@ public sealed class MixedMailboxCoordinatorTests
             File.Delete(path);
             File.Delete(path + "-wal");
             File.Delete(path + "-shm");
+        }
+    }
+
+    private sealed class BeforeAcknowledgementAdapter(IInboundMailboxAdapter inner, Func<Task> beforeAck) : IInboundMailboxAdapter
+    {
+        public InboundMailboxProvider Provider => inner.Provider;
+        public Task<MailboxConnectionTest> TestAsync(EmailInboxSettings mailbox, CancellationToken ct) => inner.TestAsync(mailbox, ct);
+        public Task<InboundSourceBatch> FetchAsync(EmailInboxSettings mailbox, MailboxIngestionState state,
+            IReadOnlySet<string> knownKeys, CancellationToken ct) => inner.FetchAsync(mailbox, state, knownKeys, ct);
+        public async Task AcknowledgeAsync(EmailInboxSettings mailbox, string key, CancellationToken ct)
+        {
+            await beforeAck();
+            await inner.AcknowledgeAsync(mailbox, key, ct);
+        }
+    }
+
+    private sealed class CommitCheckingGraphTransport : HttpMessageHandler
+    {
+        public Func<Task> CheckCommitted { get; set; } = null!;
+        public int MimeFetches { get; private set; }
+        public int DeltaFetches { get; private set; }
+        public int Acknowledgements { get; private set; }
+        public int CommittedChecks { get; private set; }
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            Assert.Contains("IdType=\"ImmutableId\"", string.Join(",", request.Headers.GetValues("Prefer")));
+            if (request.Method == HttpMethod.Patch)
+            {
+                await CheckCommitted();
+                CommittedChecks++;
+                Acknowledgements++;
+                return Acknowledgements == 1
+                    ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { Content = new StringContent("{\"error\":{\"code\":\"SyntheticAckFailure\"}}", Encoding.UTF8, "application/json") }
+                    : new HttpResponseMessage(HttpStatusCode.NoContent);
+            }
+            if (request.RequestUri!.ToString().Contains("$value"))
+            {
+                MimeFetches++;
+                var mime = (await File.ReadAllTextAsync(Path.Combine(TestEnvironment.RepositoryRoot, "tests", "Fixtures", "inbound", "multipart-request.eml"), ct))
+                    .Replace("requester@example.test", "requester@tenant0.example.com", StringComparison.Ordinal);
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(mime, Encoding.UTF8, "message/rfc822") };
+            }
+            DeltaFetches++;
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(
+                """{"value":[{"id":"AbC-Case","isRead":false}],"@odata.deltaLink":"https://graph.microsoft.com/v1.0/delta?cursor=stable"}""",
+                Encoding.UTF8, "application/json") };
         }
     }
 

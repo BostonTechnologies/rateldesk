@@ -10,7 +10,7 @@
 <PageTitle>Email Settings / Mailbox Configuration</PageTitle>
 <NavigationLock ConfirmExternalNavigation="@isDirty" OnBeforeInternalNavigation="ConfirmInternalNavigationAsync" />
 
-<MudContainer MaxWidth="MaxWidth.Large" Class="helpdesk-page">
+<MudContainer MaxWidth="MaxWidth.Large" Class="helpdesk-page" data-testid="mailbox-settings" data-interactive="@interactive.ToString().ToLowerInvariant()">
     <div class="helpdesk-page-header">
         <div>
             <MudText Typo="Typo.h4" HtmlTag="h1" Class="helpdesk-page-title">Email Settings / Mailbox Configuration</MudText>
@@ -229,6 +229,12 @@
 </MudContainer>
 
 @code {
+    private bool interactive;
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender) { interactive = true; StateHasChanged(); }
+    }
+
     private readonly CancellationTokenSource disposeCts = new();
     private List<EmailInboxSettingsDto> mailboxes = [];
     private List<EffectiveOrganization> organizations = [];

@@ -98,7 +98,7 @@
             </LayoutView>
         </NotFound>
     </Router>
-    <script src=@Assets["_framework/blazor.web.js"]></script>
+    <script src=@Assets["_framework/blazor.web.js"] autostart="false"></script>
     <script src=@Assets["_content/MudBlazor/MudBlazor.min.js"]></script>
     <script src=@Assets["_content/Extensions.MudBlazor.StaticInput/NavigationObserver.js"]></script>
     <script src="js/global-search-hotkeys.js"></script>
@@ -130,6 +130,8 @@
             }, 80);
         };
     </script>
+    @* Start the circuit only after its component interop and application helpers exist. *@
+    <script>Blazor.start();</script>
     <link href="_content/Gotho.BlazorPdf/blazorpdf.min.css" rel="stylesheet" />
 </body>
 

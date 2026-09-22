@@ -12,9 +12,6 @@ test('first-run setup initializes, survives restart, and supports isolated scope
     throw new Error('HELPDESK_E2E_SETUP_CODE is required for first-run setup validation.');
   }
 
-  const interactiveConnection = page.waitForResponse(response =>
-    response.url().includes('/_blazor/negotiate') && response.ok());
-
   // Fresh visitors must discover setup from normal entry points, without knowing /setup.
   const directLogin = await page.request.get('/login', { maxRedirects: 0 });
   expect(directLogin.status()).toBe(302);
@@ -24,6 +21,8 @@ test('first-run setup initializes, survives restart, and supports isolated scope
   });
   expect(prematureLogin.status()).toBe(303);
   expect(prematureLogin.headers().location).toBe('/setup');
+  const interactiveConnection = page.waitForResponse(response =>
+    response.url().includes('/_blazor/negotiate') && response.ok());
   await page.goto('/');
   await interactiveConnection;
   await expect(page).toHaveURL(/\/setup$/);
@@ -164,7 +163,7 @@ test('first-run setup initializes, survives restart, and supports isolated scope
   // Account security is available to the signed-in application identity, not only
   // through a local-account-only administration page.
   await page.goto('/account/integration-credentials');
-  await expect(page.getByTestId('integration-credentials-page')).toBeVisible();
+  await expect(page.getByTestId('integration-credentials-page')).toHaveAttribute('data-interactive', 'true');
   await expect(page.getByRole('heading', { name: 'Integration credentials', exact: true })).toBeVisible();
   await expect(page.getByTestId('integration-credential-create')).toBeEnabled();
   await page.getByTestId('integration-credential-create').click();

@@ -108,7 +108,7 @@ public sealed class ProtocolMailboxAdapterTests
     public void Egress_blocks_unapproved_or_metadata_destinations(string address, bool allowPrivate) =>
         Assert.False(MailboxDestinationPolicy.IsAllowed(IPAddress.Parse(address), allowPrivate));
 
-    private sealed class PopFixture : IAsyncDisposable
+    internal sealed class PopFixture : IAsyncDisposable
     {
         private readonly TcpListener listener;
         private readonly X509Certificate2 certificate;

@@ -456,10 +456,6 @@ builder.Services.AddOptions<NotificationFeatureOptions>()
 
 // Email Imap ingestion.
 builder.Services.AddSingleton<AppServices.Email.IImapEmailService, AppServices.Email.ImapEmailService>();
-if (!skipDatabaseStartup)
-{
-    // Canonical mailbox coordinator owns every inbound connection.
-}
 
 
 //builder.Services.AddSingleton<IEmailService, PostalEmailService>();

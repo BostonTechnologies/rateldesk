@@ -10,7 +10,7 @@
 
 <PageTitle>Email Rules</PageTitle>
 
-<MudPaper Class="pa-4">
+<MudPaper Class="pa-4" data-testid="mailbox-rules" data-interactive="@interactive.ToString().ToLowerInvariant()">
     <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
         <div>
             <MudText Typo="Typo.h5">Email Rules</MudText>
@@ -73,16 +73,13 @@
             else
             {
                 <div class="email-rules-table-wrap">
-                    <MudTable Items="OrderedRules" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Class="email-rules-table">
+                    <MudTable Items="OrderedRules" Dense="true" Hover="true" Breakpoint="Breakpoint.Lg" Class="email-rules-table">
                         <HeaderContent>
-                            <MudTh>Name</MudTh>
+                            <MudTh Class="email-rule-name">Name</MudTh>
                             <MudTh>Scope</MudTh>
-                            <MudTh>Tenant</MudTh>
-                            <MudTh>Mailbox</MudTh>
+                            <MudTh Class="email-rule-mailbox">Mailbox</MudTh>
                             <MudTh>Status</MudTh>
-                            <MudTh>Priority</MudTh>
-                            <MudTh>Stop</MudTh>
-                            <MudTh>Updated</MudTh>
+                            <MudTh>Processing</MudTh>
                             <MudTh Class="email-rules-actions"></MudTh>
                         </HeaderContent>
                         <RowTemplate>
@@ -95,9 +92,8 @@
                                     }
                                 </MudStack>
                             </MudTd>
-                            <MudTd DataLabel="Scope">@InboundEmailRuleLabels.Scope(context.ScopeType)</MudTd>
-                            <MudTd DataLabel="Tenant">@TenantDisplay(context.TenantId)</MudTd>
-                            <MudTd DataLabel="Mailbox"><MudSelect T="Guid?" Label="Source mailbox" Value="context.MailboxId" ValueChanged="id => BindMailboxAsync(context, id)" Disabled="@loading">
+                            <MudTd DataLabel="Scope"><MudStack Spacing="0"><MudText Typo="Typo.body2">@InboundEmailRuleLabels.Scope(context.ScopeType)</MudText><MudText Typo="Typo.caption">@TenantDisplay(context.TenantId)</MudText></MudStack></MudTd>
+                            <MudTd DataLabel="Mailbox" Class="email-rule-mailbox"><MudSelect T="Guid?" Label="Source mailbox" Value="context.MailboxId" ValueChanged="id => BindMailboxAsync(context, id)" Disabled="@loading">
                                 <MudSelectItem T="Guid?" Value="@((Guid?)null)">All eligible mailboxes</MudSelectItem>
                                 @foreach (var mailbox in mailboxes.Where(x => !x.Archived && (context.ScopeType == InboundEmailRuleScopeType.Global || x.OrganizationId == null || x.OrganizationId == context.TenantId)))
                                 {
@@ -108,10 +104,9 @@
                                 <MudChip T="string" Size="Size.Small" Color="@(context.Enabled ? Color.Success : Color.Default)" Variant="Variant.Filled">
                                     @(context.Enabled ? "Enabled" : "Disabled")
                                 </MudChip>
+                                <MudText Typo="Typo.caption">Updated @context.UpdatedAtUtc.ToLocalTime().ToString("g")</MudText>
                             </MudTd>
-                            <MudTd DataLabel="Priority">@context.Priority</MudTd>
-                            <MudTd DataLabel="Stop">@(context.StopProcessing ? "Yes" : "No")</MudTd>
-                            <MudTd DataLabel="Updated">@context.UpdatedAtUtc.ToLocalTime().ToString("g")</MudTd>
+                            <MudTd DataLabel="Processing"><MudStack Spacing="0"><MudText Typo="Typo.body2">Priority @context.Priority</MudText><MudText Typo="Typo.caption">@(context.StopProcessing ? "Stop after match" : "Continue after match")</MudText></MudStack></MudTd>
                             <MudTd Class="email-rules-actions">
                                 <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" aria-label="Clone rule" Size="Size.Small" OnClick="() => BeginClone(context)" />
                                 <MudTooltip Text="Move up">
@@ -220,14 +215,13 @@
             else
             {
                 <div class="email-rules-table-wrap">
-                    <MudTable Items="FilteredAudit" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Class="email-rules-table">
+                    <MudTable Items="FilteredAudit" Dense="true" Hover="true" Breakpoint="Breakpoint.Lg" Class="email-rules-table">
                         <HeaderContent>
                             <MudTh>Timestamp</MudTh>
                             <MudTh>Rule</MudTh>
                             <MudTh>Message ID</MudTh>
                             <MudTh>Action</MudTh>
                             <MudTh>Status</MudTh>
-                            <MudTh>Tenant</MudTh>
                             <MudTh>Ticket</MudTh>
                             <MudTh>Error</MudTh>
                         </HeaderContent>
@@ -264,6 +258,12 @@
 
 
 @code {
+    private bool interactive;
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender) { interactive = true; StateHasChanged(); }
+    }
+
     [SupplyParameterFromQuery(Name = "mailboxId")] public Guid? MailboxId { get; set; }
     private InboundEmailRuleDto? cloneSource;
     private string cloneName = string.Empty;

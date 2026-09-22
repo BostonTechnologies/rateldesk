@@ -55,14 +55,13 @@ test('Automation navigation preserves the Orchestrator destination and collapsib
   await expect(page.getByText('Connectivity and validation', { exact: true })).toBeVisible();
 });
 
-test('Email Settings is usable from the phone drawer without horizontal overflow', async ({ browser }, testInfo) => {
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
-  const page = await context.newPage();
-  await authenticate(page);
+test('Email Settings is usable from the phone drawer without horizontal overflow', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expectDrawerFullyClosed(page);
 
   await page.getByTestId('navigation-toggle').click();
   const drawer = page.locator('[data-testid="app-navigation-drawer"]:visible');
-  await expect(drawer.getByRole('link', { name: 'Home' })).toBeVisible();
+  await expect(drawer.getByRole('link', { name: 'Home' })).toBeInViewport();
   await drawer.getByRole('button', { name: 'Toggle Administration' }).click();
   await drawer.getByText('Email Settings', { exact: true }).click();
   await drawer.getByRole('link', { name: 'Mailbox Configuration' }).click();
@@ -72,5 +71,4 @@ test('Email Settings is usable from the phone drawer without horizontal overflow
   await expectDrawerFullyClosed(page);
   await assertNoHorizontalOverflow(page);
   await page.screenshot({ path: testInfo.outputPath('email-settings-mobile.png'), fullPage: true });
-  await context.close();
 });
