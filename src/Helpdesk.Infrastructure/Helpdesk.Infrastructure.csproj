@@ -29,7 +29,7 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.12" />
     <PackageReference Include="Microsoft.Kiota.Abstractions" Version="1.22.0" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
-    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="4.1.2" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Helpdesk.Application\Helpdesk.Application.csproj" />
