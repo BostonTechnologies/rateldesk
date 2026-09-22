@@ -155,7 +155,9 @@ test('first-run setup initializes, survives restart, and supports isolated scope
   await expect(page.getByRole('link', { name: 'Introduction', exact: true })).toBeVisible();
   await expect(page.getByText('RatelDesk API', { exact: true }).first()).toBeVisible();
   await testInfo.attach('scalar-reference', {
-    body: await page.screenshot({ path: testInfo.outputPath('scalar-reference.png'), fullPage: true }),
+    // Scalar expands hundreds of operations into one very tall document. Capture
+    // the rendered reference viewport without rasterizing the entire API catalogue.
+    body: await page.screenshot({ path: testInfo.outputPath('scalar-reference.png') }),
     contentType: 'image/png'
   });
   await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
