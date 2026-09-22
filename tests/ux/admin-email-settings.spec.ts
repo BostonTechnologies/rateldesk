@@ -44,8 +44,9 @@ test('Email Settings opens as a standalone page from the expanded administration
 test('Automation navigation preserves the Orchestrator destination and collapsible groups', async ({ page }) => {
   const drawer = page.getByTestId('app-navigation-drawer');
   await page.goto('/admin/email-settings');
+  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
 
-  await drawer.getByText('Automation', { exact: true }).click();
+  await drawer.getByRole('button', { name: 'Toggle Automation' }).click();
   const orchestrator = drawer.getByRole('link', { name: 'Orchestrator' });
   await expect(orchestrator).toBeVisible();
   await orchestrator.click();
