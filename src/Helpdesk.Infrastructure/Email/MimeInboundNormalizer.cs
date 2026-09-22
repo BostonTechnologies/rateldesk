@@ -27,15 +27,39 @@ public static class MimeInboundNormalizer
     {
         var attachments = new List<InboundEmailAttachmentContext>();
         long total = 0;
-        foreach (var part in message.BodyParts.OfType<MimePart>().Where(p => p.IsAttachment || p.ContentId is not null))
+        foreach (var part in EnumerateAttachments(message.Body))
         {
             if (attachments.Count >= MaxAttachments) throw new InvalidDataException("AttachmentCountExceeded");
             using var stream = new MemoryStream();
-            await part.Content.DecodeToAsync(stream, ct);
+            string name;
+            string contentType;
+            string? contentId;
+            bool isInline;
+            switch (part)
+            {
+                case MimePart mimePart:
+                    await mimePart.Content.DecodeToAsync(stream, ct);
+                    name = SafeFileName(mimePart.FileName, "attachment");
+                    contentType = mimePart.ContentType.MimeType;
+                    contentId = mimePart.ContentId;
+                    isInline = !mimePart.IsAttachment;
+                    break;
+                case MessagePart messagePart when messagePart.Message is not null:
+                    await messagePart.Message.WriteToAsync(stream, ct);
+                    name = SafeFileName(messagePart.ContentDisposition?.FileName ?? messagePart.ContentType.Name,
+                        "attached-message.eml");
+                    if (!name.EndsWith(".eml", StringComparison.OrdinalIgnoreCase)) name += ".eml";
+                    contentType = "message/rfc822";
+                    contentId = messagePart.ContentId;
+                    isInline = false;
+                    break;
+                default:
+                    throw new InvalidDataException($"Unsupported MIME attachment type: {part.GetType().Name}");
+            }
             total += stream.Length;
             if (total > MaxMessageBytes) throw new InvalidDataException("MessageSizeExceeded");
-            attachments.Add(new(Path.GetFileName(part.FileName ?? "attachment"), part.ContentType.MimeType,
-                part.ContentId, stream.ToArray(), attachments.Count.ToString(System.Globalization.CultureInfo.InvariantCulture), !part.IsAttachment));
+            attachments.Add(new(name, contentType, contentId, stream.ToArray(),
+                attachments.Count.ToString(System.Globalization.CultureInfo.InvariantCulture), isInline));
         }
         var senders = message.From.Mailboxes.Take(2).ToArray();
         if (senders.Length != 1) throw new InvalidDataException("AmbiguousSender");
@@ -51,5 +75,38 @@ public static class MimeInboundNormalizer
         {
             RepeatedHeaders = repeated, InReplyTo = message.InReplyTo, References = message.References.ToArray(), SourceMessageKey = key
         };
+    }
+
+    private static IEnumerable<MimeEntity> EnumerateAttachments(MimeEntity? entity)
+    {
+        switch (entity)
+        {
+            case null:
+                yield break;
+            case MessagePart messagePart:
+                // Preserve an attached message as one opaque .eml. Its nested parts belong
+                // to that file and must not also appear as attachments of the outer message.
+                yield return messagePart;
+                yield break;
+            case Multipart multipart:
+                foreach (var child in multipart)
+                foreach (var attachment in EnumerateAttachments(child))
+                    yield return attachment;
+                yield break;
+            case MimePart mimePart when mimePart.IsAttachment || mimePart.ContentId is not null:
+                yield return mimePart;
+                yield break;
+            case MimePart:
+                yield break;
+            default:
+                throw new InvalidDataException($"Unsupported MIME entity type: {entity.GetType().Name}");
+        }
+    }
+
+    private static string SafeFileName(string? supplied, string fallback)
+    {
+        var normalized = supplied?.Replace('\\', '/');
+        var name = Path.GetFileName(normalized);
+        return string.IsNullOrWhiteSpace(name) || name is "." or ".." ? fallback : name;
     }
 }

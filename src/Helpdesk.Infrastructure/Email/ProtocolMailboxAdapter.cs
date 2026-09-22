@@ -103,7 +103,14 @@ public sealed class ProtocolMailboxAdapter(
         foreach (var uid in selected)
         {
             var key = $"{epoch}:{uid.Id}";
-            var summary = (await folder.FetchAsync([uid], MessageSummaryItems.Size | MessageSummaryItems.Flags, ct)).Single();
+            var summary = (await folder.FetchAsync([uid], MessageSummaryItems.Size | MessageSummaryItems.Flags, ct)).SingleOrDefault();
+            if (summary is null)
+            {
+                // SEARCH and FETCH are separate IMAP operations. An expunge between them is
+                // definitive for this UID and must not poison later messages in the batch.
+                result.Add(new(key, null, Ignore: true, HoldReason: "SourceMessageMissing"));
+                continue;
+            }
             if ((!state.Initialized && settings.InitialImport == InitialMailImport.NewOnly && uid.Id <= boundary) ||
                 (!state.Initialized && settings.InitialImport == InitialMailImport.ExistingUnread && summary.Flags.GetValueOrDefault().HasFlag(MessageFlags.Seen)))
             {
@@ -115,9 +122,16 @@ public sealed class ProtocolMailboxAdapter(
                 result.Add(new(key, null, HoldReason: "MessageSizeExceeded"));
                 continue;
             }
-            await using var raw = await folder.GetStreamAsync(uid, string.Empty, ct, new BoundedTransfer());
-            var normalized = await MimeInboundNormalizer.ReadAsync(raw, settings, key, ct);
-            result.Add(uid.Id <= reviewBoundary ? normalized with { HoldReason = "UidValidityChangedReviewRequired" } : normalized);
+            try
+            {
+                await using var raw = await folder.GetStreamAsync(uid, string.Empty, ct, new BoundedTransfer());
+                var normalized = await MimeInboundNormalizer.ReadAsync(raw, settings, key, ct);
+                result.Add(uid.Id <= reviewBoundary ? normalized with { HoldReason = "UidValidityChangedReviewRequired" } : normalized);
+            }
+            catch (MessageNotFoundException)
+            {
+                result.Add(new(key, null, Ignore: true, HoldReason: "SourceMessageMissing"));
+            }
         }
         await client.DisconnectAsync(true, ct);
         return new(result, nextCursor, selected.Count < settings.BatchSize);
@@ -156,22 +170,29 @@ public sealed class ProtocolMailboxAdapter(
     {
         // POP3 retention is deliberately non-destructive. UIDL receipts are its acknowledgment.
         if (Provider == InboundMailboxProvider.Pop3) return;
-        using var client = await OpenImapAsync(settings, ct);
-        var folder = await client.GetFolderAsync(settings.MailboxFolder, ct);
-        await folder.OpenAsync(FolderAccess.ReadWrite, ct);
-        var identity = key.Split(':');
-        if (identity.Length != 2 || folder.UidValidity.ToString(System.Globalization.CultureInfo.InvariantCulture) != identity[0])
-            throw new InvalidOperationException("UidValidityChanged");
-        var uid = new UniqueId(uint.Parse(identity[1], System.Globalization.CultureInfo.InvariantCulture));
-        if (settings.MarkReadAfterSuccess) await folder.AddFlagsAsync(uid, MessageFlags.Seen, true, ct);
-        if (!string.IsNullOrWhiteSpace(settings.ProcessedFolder))
+        try
         {
-            if (!client.Capabilities.HasFlag(ImapCapabilities.Move))
-                throw new NotSupportedException("Server does not support safe MOVE; configure mark-read disposition instead.");
-            var destination = await client.GetFolderAsync(settings.ProcessedFolder, ct);
-            await folder.MoveToAsync(uid, destination, ct);
+            using var client = await OpenImapAsync(settings, ct);
+            var folder = await client.GetFolderAsync(settings.MailboxFolder, ct);
+            await folder.OpenAsync(FolderAccess.ReadWrite, ct);
+            var identity = key.Split(':');
+            if (identity.Length != 2 || folder.UidValidity.ToString(System.Globalization.CultureInfo.InvariantCulture) != identity[0])
+                throw new InvalidOperationException("UidValidityChanged");
+            var uid = new UniqueId(uint.Parse(identity[1], System.Globalization.CultureInfo.InvariantCulture));
+            if (settings.MarkReadAfterSuccess) await folder.AddFlagsAsync(uid, MessageFlags.Seen, true, ct);
+            if (!string.IsNullOrWhiteSpace(settings.ProcessedFolder))
+            {
+                if (!client.Capabilities.HasFlag(ImapCapabilities.Move))
+                    throw new NotSupportedException("Server does not support safe MOVE; configure mark-read disposition instead.");
+                var destination = await client.GetFolderAsync(settings.ProcessedFolder, ct);
+                await folder.MoveToAsync(uid, destination, ct);
+            }
+            await client.DisconnectAsync(true, ct);
         }
-        await client.DisconnectAsync(true, ct);
+        catch (MessageNotFoundException)
+        {
+            throw new InboundSourceMissingException("IMAP source message is already absent.");
+        }
     }
     private sealed class BoundedTransfer : ITransferProgress
     {

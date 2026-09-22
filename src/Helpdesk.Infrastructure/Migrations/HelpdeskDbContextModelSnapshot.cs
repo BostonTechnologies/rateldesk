@@ -1231,6 +1231,10 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("MailboxAddress")
+                        .IsUnique()
+                        .HasFilter("\"Archived\" = false AND \"Enabled\" = true");
+
                     b.HasIndex("OrganizationId")
                         .IsUnique()
                         .HasFilter("\"Archived\" = false AND \"Scope\" = 1");
@@ -1238,10 +1242,6 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.HasIndex("Scope")
                         .IsUnique()
                         .HasFilter("\"Archived\" = false AND \"Scope\" = 0");
-
-                    b.HasIndex("MailboxAddress")
-                        .IsUnique()
-                        .HasFilter("\"Archived\" = false AND \"Enabled\" = true");
 
                     b.HasIndex("SourceKey")
                         .IsUnique()
@@ -1550,6 +1550,28 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
 
                     b.Property<bool>("Acknowledged")
                         .HasColumnType("boolean");
+
+                    b.Property<int>("AcknowledgmentAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<long?>("AcknowledgmentClaimExpiresUnixMilliseconds")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("AcknowledgmentClaimId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AcknowledgmentErrorCode")
+                        .HasColumnType("text");
+
+                    b.Property<long?>("AcknowledgmentNextRetryUnixMilliseconds")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("AcknowledgmentStatus")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("AcknowledgmentTargetFingerprint")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.Property<int>("Attempts")
                         .HasColumnType("integer");

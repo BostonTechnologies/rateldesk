@@ -13,6 +13,13 @@ public sealed class InboundMessageReceipt
     public InboundReceiptOutcome Outcome { get; set; }
     public string? Reason { get; set; }
     public bool Acknowledged { get; set; }
+    public InboundAcknowledgmentStatus AcknowledgmentStatus { get; set; }
+    public Guid? AcknowledgmentClaimId { get; set; }
+    public long? AcknowledgmentClaimExpiresUnixMilliseconds { get; set; }
+    public int AcknowledgmentAttempts { get; set; }
+    public long? AcknowledgmentNextRetryUnixMilliseconds { get; set; }
+    public string? AcknowledgmentErrorCode { get; set; }
+    public string AcknowledgmentTargetFingerprint { get; set; } = string.Empty;
     public int Attempts { get; set; }
     public long CreatedUnixMilliseconds { get; set; }
     public long UpdatedUnixMilliseconds { get; set; }

@@ -47,7 +47,7 @@ public sealed class InboundEmailActionExecutor(
         if (!InboundForwarderAuthorization.CanForward(forwarderAccess))
         {
             await TryLogAsync(context, rule, actionKey, true, InboundEmailProcessingStatus.UnauthorizedSender, null, "Forwarding sender is not an authorized support user.", ct);
-            return new InboundEmailRuleProcessingResult(false, false, null);
+            return new InboundEmailRuleProcessingResult(true, true, null, "ForwarderUnauthorized");
         }
 
         if (forwarded?.HasConfidentRequester != true)
@@ -72,7 +72,7 @@ public sealed class InboundEmailActionExecutor(
         if (!forwarderAccess!.CanManageIncident(tenantResult.Organization.Id))
         {
             await TryLogAsync(context, rule, actionKey, true, InboundEmailProcessingStatus.UnauthorizedSender, null, "Forwarding sender cannot create incidents in the selected organization.", ct);
-            return new InboundEmailRuleProcessingResult(false, false, null);
+            return new InboundEmailRuleProcessingResult(true, true, null, "ForwarderUnauthorizedForTenant");
         }
 
         // A global rule can resolve an organization when the router could not. It must
@@ -176,6 +176,14 @@ public sealed class InboundEmailActionExecutor(
         CancellationToken ct)
     {
         var candidates = new List<Organization>();
+        if (!string.IsNullOrWhiteSpace(context.ForwardedRequesterTenantId))
+        {
+            await AddOrganizationAsync(candidates, context.ForwardedRequesterTenantId, ct);
+            if (rule.ScopeType == InboundEmailRuleScopeType.Tenant &&
+                !string.Equals(rule.TenantId, context.ForwardedRequesterTenantId, StringComparison.OrdinalIgnoreCase))
+                return new TenantResolutionResult(null, true);
+            return new TenantResolutionResult(candidates.SingleOrDefault(), false);
+        }
         if (!string.IsNullOrWhiteSpace(context.MailboxTenantId))
         {
             await AddOrganizationAsync(candidates, context.MailboxTenantId, ct);

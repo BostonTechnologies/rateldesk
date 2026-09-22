@@ -65,25 +65,40 @@ public sealed class GraphMailboxAdapter(MailboxCredentialProtector secrets, Func
                 continue;
             }
             // MIME includes the complete attachment collection without assuming one Graph attachment page.
-            await using var raw = await client.Users[settings.MailboxAddress].Messages[item.Id].Content.GetAsync(
-                request => request.Headers.Add("Prefer", "IdType=\"ImmutableId\""), ct)
-                ?? throw new InvalidDataException("Graph returned no MIME content.");
-            using var buffer = new MemoryStream();
-            var bytes = new byte[81920];
-            int read;
-            while ((read = await raw.ReadAsync(bytes, ct)) != 0)
+            Stream raw;
+            try
             {
-                if (buffer.Length + read > MimeInboundNormalizer.MaxMessageBytes) break;
-                await buffer.WriteAsync(bytes.AsMemory(0, read), ct);
+                raw = await client.Users[settings.MailboxAddress].Messages[item.Id].Content.GetAsync(
+                    request => request.Headers.Add("Prefer", "IdType=\"ImmutableId\""), ct)
+                    ?? throw new InvalidDataException("Graph returned no MIME content.");
             }
-            if (read != 0)
+            catch (Microsoft.Kiota.Abstractions.ApiException error) when (error.ResponseStatusCode == 404)
             {
-                result.Add(new(item.Id, null, HoldReason: "MessageSizeExceeded"));
+                // Delta can race with deletion or a move. A definitive 404 is a durable
+                // tombstone, so neighboring messages and this page's checkpoint can progress.
+                result.Add(new(item.Id, null, Ignore: true, HoldReason: "SourceMessageMissing"));
                 continue;
             }
-            buffer.Position = 0;
-            var normalized = await MimeInboundNormalizer.ReadAsync(buffer, settings, item.Id, ct);
-            result.Add(normalized.Message is null ? normalized : normalized with { Message = normalized.Message with { GraphMessageId = item.Id } });
+            await using (raw)
+            {
+                using var buffer = new MemoryStream();
+                var bytes = new byte[81920];
+                int read;
+                while ((read = await raw.ReadAsync(bytes, ct)) != 0)
+                {
+                    if (buffer.Length + read > MimeInboundNormalizer.MaxMessageBytes) break;
+                    await buffer.WriteAsync(bytes.AsMemory(0, read), ct);
+                }
+                if (read != 0)
+                {
+                    result.Add(new(item.Id, null, HoldReason: "MessageSizeExceeded"));
+                    continue;
+                }
+                buffer.Position = 0;
+                var normalized = await MimeInboundNormalizer.ReadAsync(buffer, settings, item.Id, ct);
+                result.Add(normalized.Message is null ? normalized : normalized with
+                    { Message = normalized.Message with { GraphMessageId = item.Id } });
+            }
         }
         var next = page.OdataNextLink ?? page.OdataDeltaLink ?? throw new InvalidDataException("Graph returned no checkpoint.");
         ValidateCursor(next);
@@ -99,13 +114,20 @@ public sealed class GraphMailboxAdapter(MailboxCredentialProtector secrets, Func
 
     public async Task AcknowledgeAsync(EmailInboxSettings settings, string key, CancellationToken ct)
     {
-        using var client = Create(settings);
-        if (settings.MarkReadAfterSuccess)
-            await client.Users[settings.MailboxAddress].Messages[key].PatchAsync(new Message { IsRead = true },
-                request => request.Headers.Add("Prefer", "IdType=\"ImmutableId\""), ct);
-        if (!string.IsNullOrWhiteSpace(settings.ProcessedFolder))
-            await client.Users[settings.MailboxAddress].Messages[key].Move.PostAsync(
-                new Microsoft.Graph.Users.Item.Messages.Item.Move.MovePostRequestBody { DestinationId = settings.ProcessedFolder },
-                request => request.Headers.Add("Prefer", "IdType=\"ImmutableId\""), ct);
+        try
+        {
+            using var client = Create(settings);
+            if (settings.MarkReadAfterSuccess)
+                await client.Users[settings.MailboxAddress].Messages[key].PatchAsync(new Message { IsRead = true },
+                    request => request.Headers.Add("Prefer", "IdType=\"ImmutableId\""), ct);
+            if (!string.IsNullOrWhiteSpace(settings.ProcessedFolder))
+                await client.Users[settings.MailboxAddress].Messages[key].Move.PostAsync(
+                    new Microsoft.Graph.Users.Item.Messages.Item.Move.MovePostRequestBody { DestinationId = settings.ProcessedFolder },
+                    request => request.Headers.Add("Prefer", "IdType=\"ImmutableId\""), ct);
+        }
+        catch (Microsoft.Kiota.Abstractions.ApiException error) when (error.ResponseStatusCode == 404)
+        {
+            throw new InboundSourceMissingException("Graph source message is already absent.");
+        }
     }
 }

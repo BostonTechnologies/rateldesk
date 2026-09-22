@@ -8,28 +8,29 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Helpdesk.Infrastructure.Email;
 
+public sealed record ForwardedRequesterCandidate(string Email, string Name, string Domain, string? OrganizationId);
 public sealed record InboundRoute(string? OrganizationId, string? Reason, string RequesterEmail, string RequesterName, string Domain,
-    string? ReferencedTicketId = null);
+    string? ReferencedTicketId = null, ForwardedRequesterCandidate? ForwardedCandidate = null);
 
 public sealed class InboundTenantRouter(HelpdeskDbContext db, IForwardedEmailParser parser, RatelDeskIdentityDbContext identityDb)
 {
     private static readonly Regex Reference = new(@"\b(?:INC|REQ)-[A-Z0-9-]+\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
     private static readonly Regex MessageReference = new(@"<([^<>\s]+)>|([^<>\s]+)", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
 
-    public async Task<InboundRoute> ResolveAsync(EmailInboxSettings mailbox, InboundEmailContext message, CancellationToken ct)
+    public async Task<InboundRoute> ResolveAsync(EmailInboxSettings mailbox, InboundEmailContext message, CancellationToken ct,
+        bool systemDeliveryNotification = false)
     {
         var sender = message.FromEmail.Trim().ToLowerInvariant();
         var name = message.FromDisplayName ?? sender;
         var forwarder = await db.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Email.ToLower() == sender, ct);
         var access = forwarder is null ? null : await InboundForwarderAuthorization.ResolveAsync(db, identityDb, forwarder, ct);
-        var forwarded = parser.Parse(message.HtmlBody, message.TextBody);
-        if (InboundForwarderAuthorization.CanForward(access) && forwarded.HasConfidentRequester)
-        {
-            sender = forwarded.OriginalFromEmail!.Trim().ToLowerInvariant();
-            name = forwarded.OriginalFromDisplayName ?? sender;
-        }
         var domain = sender.Contains('@') ? sender.Split('@')[^1] : string.Empty;
-        InboundRoute Hold(string reason, string? organizationId = null) => new(organizationId, reason, sender, name, domain);
+        var forwarded = parser.Parse(message.HtmlBody, message.TextBody);
+        var forwardedCandidate = InboundForwarderAuthorization.CanForward(access) && forwarded.HasConfidentRequester
+            ? await ResolveForwardedCandidateAsync(forwarded, ct)
+            : null;
+        InboundRoute Hold(string reason, string? organizationId = null) =>
+            new(organizationId, reason, sender, name, domain, ForwardedCandidate: forwardedCandidate);
         if (domain.Length == 0) return Hold("InvalidSender");
         var customer = await db.Customers.AsNoTracking().SingleOrDefaultAsync(x => x.Email.ToLower() == sender, ct);
         if (customer?.State == Helpdesk.Shared.Models.EntityState.Blocked) return Hold("BlockedRequester", customer.OrganizationId);
@@ -72,7 +73,8 @@ public sealed class InboundTenantRouter(HelpdeskDbContext db, IForwardedEmailPar
             if (mailbox.OrganizationId is not null && mailbox.OrganizationId != ticket.OrganizationId)
                 return Hold("CrossTenantReference", mailbox.OrganizationId);
             candidates.Add(ticket.OrganizationId);
-            if (!string.Equals(ticket.RequesterEmail, message.FromEmail, StringComparison.OrdinalIgnoreCase) &&
+            if (!systemDeliveryNotification &&
+                !string.Equals(ticket.RequesterEmail, message.FromEmail, StringComparison.OrdinalIgnoreCase) &&
                 !ticket.CcRecipients.Contains(message.FromEmail, StringComparer.OrdinalIgnoreCase) &&
                 access?.CanManageIncident(ticket.OrganizationId) != true)
                 return Hold("UnauthorizedTicketReference", ticket.OrganizationId);
@@ -85,7 +87,22 @@ public sealed class InboundTenantRouter(HelpdeskDbContext db, IForwardedEmailPar
             var ingressReason = await ValidateOrganizationIngressAsync(db, mailbox.Id, target, ct);
             if (ingressReason is not null) return Hold(ingressReason, target);
         }
-        return new(target, null, sender, name, domain, tickets.SingleOrDefault()?.Id);
+        return new(target, null, sender, name, domain, tickets.SingleOrDefault()?.Id, forwardedCandidate);
+    }
+
+    private async Task<ForwardedRequesterCandidate> ResolveForwardedCandidateAsync(
+        ForwardedEmailParseResult forwarded, CancellationToken ct)
+    {
+        var email = forwarded.OriginalFromEmail!.Trim().ToLowerInvariant();
+        var name = forwarded.OriginalFromDisplayName ?? email;
+        var domain = email.Contains('@') ? email.Split('@')[^1] : string.Empty;
+        var customerTenant = await db.Customers.AsNoTracking().Where(x => x.Email.ToLower() == email)
+            .Select(x => x.OrganizationId).SingleOrDefaultAsync(ct);
+        if (customerTenant is not null) return new(email, name, domain, customerTenant);
+        var domainTenants = await db.Organizations.AsNoTracking()
+            .Where(x => x.DnsName != null && x.DnsName.ToLower() == domain || x.Name.ToLower() == domain)
+            .Select(x => x.Id).Take(2).ToListAsync(ct);
+        return new(email, name, domain, domainTenants.Count == 1 ? domainTenants[0] : null);
     }
 
     internal static string[] MessageIdCandidates(string? value)

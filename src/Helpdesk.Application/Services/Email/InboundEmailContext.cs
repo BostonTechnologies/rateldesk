@@ -24,6 +24,9 @@ public sealed record InboundEmailContext(
     public string? SourceMessageKey { get; init; }
     public string? InReplyTo { get; init; }
     public IReadOnlyList<string> References { get; init; } = [];
+    public string? ForwardedRequesterEmail { get; init; }
+    public string? ForwardedRequesterName { get; init; }
+    public string? ForwardedRequesterTenantId { get; init; }
 }
 
 public sealed record InboundEmailAttachmentContext(
@@ -37,7 +40,8 @@ public sealed record InboundEmailAttachmentContext(
 public sealed record InboundEmailRuleProcessingResult(
     bool Handled,
     bool StopDefaultProcessing,
-    Ticket? Ticket);
+    Ticket? Ticket,
+    string? HoldReason = null);
 
 public sealed record ForwardedEmailParseResult(
     Helpdesk.Shared.Enums.ForwardedEmailParseStatus Status,

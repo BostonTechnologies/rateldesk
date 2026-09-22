@@ -32,6 +32,7 @@ public sealed class InboundEmailRuleProcessor(
         ForwardedEmailParseResult? forwarded = null;
         var handledAny = false;
         Ticket? handledTicket = null;
+        string? holdReason = null;
         foreach (var rule in rules)
         {
             var conditions = Deserialize<List<InboundEmailRuleConditionConfig>>(rule.ConditionsJson) ?? [];
@@ -53,25 +54,27 @@ public sealed class InboundEmailRuleProcessor(
                 {
                     handledAny = true;
                     handledTicket ??= result.Ticket;
+                    holdReason ??= result.HoldReason;
                 }
                 if (result.Handled && (rule.StopProcessing || result.StopDefaultProcessing))
                 {
-                    return new InboundEmailRuleProcessingResult(true, true, result.Ticket);
+                    return result with { StopDefaultProcessing = true };
                 }
             }
         }
 
-        return new InboundEmailRuleProcessingResult(handledAny, false, handledTicket);
+        return new InboundEmailRuleProcessingResult(handledAny, false, handledTicket, holdReason);
     }
 
     private async Task<List<InboundEmailRule>> LoadRulesAsync(InboundEmailContext context, CancellationToken ct)
     {
+        var ruleTenantId = context.ForwardedRequesterTenantId ?? context.MailboxTenantId;
         var query = db.InboundEmailRules.AsNoTracking()
             .Where(x => x.Enabled)
             .Where(x => x.MailboxId == null || x.MailboxId == context.MailboxId);
 
         query = query.Where(x => x.ScopeType == InboundEmailRuleScopeType.Global ||
-            (context.MailboxTenantId != null && x.ScopeType == InboundEmailRuleScopeType.Tenant && x.TenantId == context.MailboxTenantId));
+            ruleTenantId != null && x.ScopeType == InboundEmailRuleScopeType.Tenant && x.TenantId == ruleTenantId);
 
         return (await query.ToListAsync(ct))
             .OrderByDescending(x => x.ScopeType == InboundEmailRuleScopeType.Tenant)
