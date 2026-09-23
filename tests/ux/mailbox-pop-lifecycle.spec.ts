@@ -4,7 +4,8 @@ import { expect, test, type Page } from '@playwright/test';
 type Mailbox = { id: string; organizationId: string | null; mailboxAddress: string };
 type Incident = { id: string; subject: string; trackingId: string; organizationId: string };
 type Diagnostics = { state: { initialized: boolean; syncCompletedVersion: number } | null;
-  receipts: { id: string; ticketId: string | null; acknowledged: boolean }[] };
+  receipts: { id: string; ticketId: string | null; acknowledged: boolean }[];
+  effectiveStatus: { state: string } | null };
 type MailMessage = { subject: string; from: string; to: string; replyTo: string };
 
 function fixture(command: 'send' | 'messages', args: string[]): unknown {
@@ -149,4 +150,67 @@ test('mailbox POP3 lifecycle: dedicated IMAP and POP3 work without any global ma
   expect((await diagnostics(pop.id)).receipts.filter(receipt => receipt.ticketId === popIncident.id)).toHaveLength(1);
   expect((fixture('messages', ['--account', 'pop']) as MailMessage[])
     .filter(message => message.subject === 'Fixture no-global POP3')).toHaveLength(1);
+
+  await page.getByRole('tab', { name: /Processing/ }).click();
+  await page.getByLabel('Background ingestion enabled').click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('Mailbox settings saved.', { exact: true })).toBeVisible();
+  await expect.poll(async () => (await diagnostics(pop.id)).effectiveStatus?.state).toBe('Incoming paused');
+  const sample = await page.request.post(`/api/v1/email-settings/${pop.id}/outgoing/send-test`, {
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    data: { recipient: 'requester@tenant-c.example.test', confirmed: true }
+  });
+  expect(sample.ok(), await sample.text()).toBe(true);
+  expect((fixture('messages', ['--account', 'requester-c']) as MailMessage[]).some(message =>
+    message.subject.startsWith('RatelDesk mailbox send test') &&
+    message.from.includes('pop@tenant-c.example.test'))).toBe(true);
+
+  const heartbeat = async (): Promise<number> => {
+    const worker = await (await page.request.get('/api/v1/email-settings/worker')).json() as
+      { lastHeartbeatUnixMilliseconds: number | null };
+    return worker.lastHeartbeatUnixMilliseconds ?? 0;
+  };
+  const beforePauseCycle = await heartbeat();
+  fixture('send', ['--sender', 'requester-c', '--recipient', 'pop', '--subject', 'Fixture paused POP3',
+    '--body', 'This message waits while only incoming is paused']);
+  await expect.poll(heartbeat, { timeout: 30_000, intervals: [1_000, 2_000] })
+    .toBeGreaterThan(beforePauseCycle);
+  expect((await incidents(organizationC.id)).filter(item => item.subject === 'Fixture paused POP3')).toHaveLength(0);
+  await page.getByLabel('Background ingestion enabled').click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('Mailbox settings saved.', { exact: true })).toBeVisible();
+  await expect.poll(async () => (await incidents(organizationC.id)).filter(item =>
+    item.subject === 'Fixture paused POP3').length,
+  { timeout: 90_000, intervals: [1_000, 2_000, 3_000] }).toBe(1);
+  expect((await incidents(organizationC.id)).filter(item => item.subject === 'Fixture no-global POP3')).toHaveLength(1);
+
+  const beforeRotation = ((await (await page.request.get(`/api/v1/email-settings/${pop.id}`)).json()) as
+    { version: number }).version;
+  await page.getByRole('tab', { name: /Incoming/ }).click();
+  await page.getByLabel('Protocol password').fill('synthetic-pop-password');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('Mailbox settings saved.', { exact: true })).toBeVisible();
+  const afterRotation = ((await (await page.request.get(`/api/v1/email-settings/${pop.id}`)).json()) as
+    { version: number }).version;
+  expect(afterRotation).toBeGreaterThan(beforeRotation);
+  expect((await diagnostics(pop.id)).state?.initialized).toBe(true);
+  fixture('send', ['--sender', 'requester-c', '--recipient', 'pop', '--subject', 'Fixture rotated POP3',
+    '--body', 'A credential update retains the existing UIDL boundary']);
+  await expect.poll(async () => (await incidents(organizationC.id)).filter(item =>
+    item.subject === 'Fixture rotated POP3').length,
+  { timeout: 90_000, intervals: [1_000, 2_000, 3_000] }).toBe(1);
+
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button', { name: 'Pause worker' }).click();
+  await expect(page.getByText('Instance paused', { exact: true })).toBeVisible();
+  expect((await diagnostics(pop.id)).effectiveStatus?.state).toBe('Instance paused');
+  fixture('send', ['--sender', 'requester-c', '--recipient', 'pop', '--subject', 'Fixture instance-paused POP3',
+    '--body', 'The instance is paused without clearing its source boundary']);
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button', { name: 'Start worker' }).click();
+  await expect(page.getByText('Instance enabled', { exact: true })).toBeVisible();
+  await expect.poll(async () => (await incidents(organizationC.id)).filter(item =>
+    item.subject === 'Fixture instance-paused POP3').length,
+  { timeout: 90_000, intervals: [1_000, 2_000, 3_000] }).toBe(1);
+  expect((await incidents(organizationC.id)).filter(item => item.subject === 'Fixture no-global POP3')).toHaveLength(1);
 });

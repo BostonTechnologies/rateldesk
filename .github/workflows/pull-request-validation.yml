@@ -189,12 +189,14 @@ jobs:
 
       - name: Run published POP3 lifecycle without a global mailbox
         env:
+          HELPDESK_MAILBOX_PUBLISH_NO_BUILD: 'true'
           HELPDESK_MAILBOX_SPEC: tests/ux/mailbox-pop-lifecycle.spec.ts
         run: bash tools/ci/run-mailbox-lifecycle.sh
 
       - name: Verify explicit deployment hard-stop in published application
         env:
           EmailIngestion__Enabled: 'false'
+          HELPDESK_MAILBOX_PUBLISH_NO_BUILD: 'true'
           HELPDESK_MAILBOX_SPEC: tests/ux/mailbox-policy-lifecycle.spec.ts
           HELPDESK_MAILBOX_POLICY_EXPECT: blocked
         run: bash tools/ci/run-mailbox-lifecycle.sh
@@ -202,6 +204,7 @@ jobs:
       - name: Verify explicit legacy enabled policy in published application
         env:
           EmailIngestion__Enabled: 'true'
+          HELPDESK_MAILBOX_PUBLISH_NO_BUILD: 'true'
           HELPDESK_MAILBOX_SPEC: tests/ux/mailbox-policy-lifecycle.spec.ts
           HELPDESK_MAILBOX_POLICY_EXPECT: running
         run: bash tools/ci/run-mailbox-lifecycle.sh
