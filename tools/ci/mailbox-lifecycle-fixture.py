@@ -2,7 +2,9 @@
 """Talk only to the loopback GreenMail fixture used by mailbox lifecycle acceptance."""
 
 import argparse
+import base64
 import email
+import html
 import imaplib
 import json
 import os
@@ -49,6 +51,24 @@ def send(args: argparse.Namespace) -> None:
     if args.auto_submitted:
         message["Auto-Submitted"] = args.auto_submitted
     message.set_content(args.body)
+    if args.rich_mime:
+        message.add_alternative(
+            f'<p>{html.escape(args.body)}</p><img src="cid:fixture-inline">', subtype="html"
+        )
+        message.get_payload()[1].add_related(
+            base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lXcAAAAASUVORK5CYII="),
+            maintype="image", subtype="png", cid="<fixture-inline>", filename="fixture-inline.png"
+        )
+        message.add_attachment(
+            f"Attachment for {args.subject}\n".encode("utf-8"),
+            maintype="text", subtype="plain", filename="fixture-note.txt"
+        )
+        nested = EmailMessage()
+        nested["From"] = "nested@tenant-a.example.test"
+        nested["To"] = recipient
+        nested["Subject"] = "Nested fixture evidence"
+        nested.set_content("Nested fixture body")
+        message.add_attachment(nested, filename="nested-evidence.eml")
     port = "MAILBOX_FIXTURE_GLOBAL_SMTPS_PORT" if endpoint == "global" else "MAILBOX_FIXTURE_SMTPS_PORT"
     with smtplib.SMTP_SSL("localhost", int(os.environ[port]),
                           context=connection_context(), timeout=20) as smtp:
@@ -99,6 +119,7 @@ def main() -> None:
     send_command.add_argument("--body", required=True)
     send_command.add_argument("--in-reply-to", default="")
     send_command.add_argument("--auto-submitted", choices=("auto-replied", "auto-generated"))
+    send_command.add_argument("--rich-mime", action="store_true")
     list_command = commands.add_parser("messages")
     list_command.add_argument("--account", required=True)
     args = parser.parse_args()

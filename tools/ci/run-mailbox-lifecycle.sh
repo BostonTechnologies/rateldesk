@@ -120,6 +120,7 @@ Bootstrap__StateDirectory="$fixture_dir/state" \
 DataProtection__KeyRingPath="$fixture_dir/keys" \
 StorageOptions__RootPath="$fixture_dir/storage" \
 StorageOptions__ImageSigningSecret="$system_secret" \
+StorageOptions__PublicApiBaseUrl="$web_url" \
 SYSTEM_TOKEN_SECRET="$system_secret" \
 SSL_CERT_FILE="$fixture_dir/ca.pem" \
 EmailIngestion__AllowedPrivateHosts__0=localhost \

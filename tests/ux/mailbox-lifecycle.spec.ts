@@ -4,6 +4,8 @@ import { expect, test, type Page } from '@playwright/test';
 type MailMessage = { subject: string; from: string; to: string; replyTo: string; messageId: string; body: string };
 type Mailbox = { id: string; organizationId: string | null; mailboxAddress: string };
 type Incident = { id: string; trackingId: string; subject: string; requesterEmail: string; organizationId: string; customerId: string };
+type TicketAttachment = { id: string; fileName: string; contentType: string; sizeBytes: number };
+type IncidentPeek = { html: string; snippetText: string | null };
 type Diagnostics = { state: { initialized: boolean; syncCompletedVersion: number } | null;
   receipts: { id: string; outcome: number | string; reason: string | null; ticketId: string | null }[] };
 
@@ -136,7 +138,8 @@ test('mailbox lifecycle acceptance: published Web/API receives, sends and thread
 
   const subjects = ['Fixture printer issue', 'Fixture access issue', 'Fixture network issue'];
   for (const subject of subjects)
-    fixture('send', ['--sender', 'requester', '--recipient', 'support', '--subject', subject, '--body', `Body for ${subject}`]);
+    fixture('send', ['--sender', 'requester', '--recipient', 'support', '--subject', subject,
+      '--body', `Body for ${subject}`, ...(subject === subjects[0] ? ['--rich-mime'] : [])]);
 
   const listIncidents = async (): Promise<Incident[]> => {
     const response = await page.request.get(`/api/v1/incidents?pageSize=50&organizationId=${encodeURIComponent(selected!.organizationId!)}`);
@@ -149,6 +152,34 @@ test('mailbox lifecycle acceptance: published Web/API receives, sends and thread
   expect(new Set(created.map(incident => incident.id)).size).toBe(3);
   expect(created.every(incident => incident.requesterEmail === 'requester@tenant-a.example.test' &&
     incident.organizationId === selected!.organizationId)).toBe(true);
+  const richIncident = created.find(incident => incident.subject === subjects[0])!;
+  const peekResponse = await page.request.get(`/api/v1/incidents/${richIncident.id}/peek`);
+  expect(peekResponse.ok()).toBe(true);
+  const peek = await peekResponse.json() as IncidentPeek;
+  expect(peek.snippetText).toContain(`Body for ${subjects[0]}`);
+  expect(peek.html).not.toContain('cid:fixture-inline');
+  const imageSource = await page.evaluate(html =>
+    new DOMParser().parseFromString(html, 'text/html').querySelector('img')?.getAttribute('src'), peek.html);
+  expect(imageSource).toContain(`/api/incidents/${richIncident.id}/images/`);
+  const imageResponse = await page.request.get(imageSource!);
+  expect(imageResponse.ok()).toBe(true);
+  expect(imageResponse.headers()['content-type']).toContain('image/png');
+  expect((await imageResponse.body()).length).toBeGreaterThan(0);
+  const attachments = async (): Promise<TicketAttachment[]> => {
+    const response = await page.request.get(`/api/v1/tickets/${richIncident.id}/attachments/`);
+    expect(response.ok()).toBe(true);
+    return await response.json() as TicketAttachment[];
+  };
+  const initialFiles = await attachments();
+  expect(initialFiles.map(file => file.fileName).sort()).toEqual(['fixture-note.txt', 'nested-evidence.eml']);
+  for (const file of initialFiles) {
+    const response = await page.request.get(`/api/v1/attachments/${file.id}`);
+    expect(response.ok()).toBe(true);
+    const bytes = await response.body();
+    expect(bytes.length).toBe(file.sizeBytes);
+    expect(bytes.toString('utf8')).toContain(file.fileName.endsWith('.eml')
+      ? 'Nested fixture body' : `Attachment for ${subjects[0]}`);
+  }
   await page.goto('/incidents');
   await expect(page.getByText(subjects[0], { exact: true })).toBeVisible();
 
@@ -169,20 +200,51 @@ test('mailbox lifecycle acceptance: published Web/API receives, sends and thread
   expect(confirmations.every(message => message.from.includes('support@tenant-a.example.test') &&
     message.replyTo.includes('support@tenant-a.example.test'))).toBe(true);
 
-  const replyTarget = confirmations[0];
+  const replyTarget = confirmations.find(message => message.subject.includes(richIncident.trackingId))!;
+  const ticketReceiptsBeforeReply = ((await (await page.request.get(
+    `/api/v1/email-settings/${mailboxId}/diagnostics`)).json()) as Diagnostics).receipts
+    .filter(receipt => receipt.ticketId !== null).length;
   fixture('send', ['--sender', 'requester', '--recipient', 'support',
     '--subject', `Re: ${replyTarget.subject}`, '--body', 'Fixture reply text',
-    '--in-reply-to', replyTarget.messageId]);
+    '--in-reply-to', replyTarget.messageId, '--rich-mime']);
+  const replySync = await page.request.post(`/api/v1/email-settings/${mailboxId}/sync`, {
+    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+  });
+  expect(replySync.ok(), await replySync.text()).toBe(true);
+  const replyCommand = await replySync.json() as { requestVersion: number };
+  await expect.poll(async () => ((await (await page.request.get(
+    `/api/v1/email-settings/${mailboxId}/diagnostics`)).json()) as Diagnostics).state?.syncCompletedVersion,
+  { timeout: 60_000, intervals: [1_000, 2_000, 3_000] }).toBeGreaterThanOrEqual(replyCommand.requestVersion);
   await expect.poll(async () => {
     const response = await page.request.get(`/api/v1/email-settings/${mailboxId}/diagnostics`);
     return ((await response.json()) as Diagnostics).receipts.filter(receipt => receipt.ticketId !== null).length;
-  }, { timeout: 90_000, intervals: [1_000, 2_000, 3_000] }).toBeGreaterThanOrEqual(4);
+  }, { timeout: 30_000, intervals: [1_000, 2_000, 3_000] }).toBeGreaterThan(ticketReceiptsBeforeReply);
   expect((await listIncidents()).filter(incident => subjects.includes(incident.subject))).toHaveLength(3);
   const replyIncident = created.find(incident => replyTarget.subject.includes(incident.trackingId))!;
   await expect.poll(async () => {
     const response = await page.request.get(`/api/v1/incidents/${replyIncident.id}/timeline`);
     return JSON.stringify(await response.json()).includes('Fixture reply text');
   }, { timeout: 30_000, intervals: [1_000, 2_000] }).toBe(true);
+  await expect.poll(async () => (await attachments()).length,
+    { timeout: 30_000, intervals: [1_000, 2_000] }).toBe(4);
+  const replyFiles = await attachments();
+  expect(replyFiles.filter(file => file.fileName === 'nested-evidence.eml')).toHaveLength(2);
+  expect(replyFiles.filter(file => file.fileName === 'fixture-note.txt')).toHaveLength(2);
+  const replyNote = replyFiles.find(file => !initialFiles.some(original => original.id === file.id) &&
+    file.fileName === 'fixture-note.txt')!;
+  expect((await (await page.request.get(`/api/v1/attachments/${replyNote.id}`)).body()).toString('utf8'))
+    .toContain(`Attachment for Re: ${replyTarget.subject}`);
+  const attachmentIds = replyFiles.map(file => file.id).sort();
+  const repeatSync = await page.request.post(`/api/v1/email-settings/${mailboxId}/sync`, {
+    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+  });
+  expect(repeatSync.ok(), await repeatSync.text()).toBe(true);
+  const repeatCommand = await repeatSync.json() as { requestVersion: number };
+  await expect.poll(async () => ((await (await page.request.get(
+    `/api/v1/email-settings/${mailboxId}/diagnostics`)).json()) as Diagnostics).state?.syncCompletedVersion,
+  { timeout: 60_000, intervals: [1_000, 2_000, 3_000] }).toBeGreaterThanOrEqual(repeatCommand.requestVersion);
+  expect((await attachments()).map(file => file.id).sort()).toEqual(attachmentIds);
+  expect((await listIncidents()).filter(incident => subjects.includes(incident.subject))).toHaveLength(3);
 
   const manualResponse = await page.request.post('/api/v1/incidents', { headers: { 'X-Requested-With': 'XMLHttpRequest' }, data: {
     title: 'Fixture manual incident', description: '<p>Created by an administrator</p>', priority: 0,
