@@ -101,7 +101,9 @@ test('mailbox workspace remains readable across themes and responsive widths', a
   await page.setViewportSize({ width: 1440, height: 900 });
   await selectTheme(page, 'Light');
   for (const name of ['Outgoing', 'Processing', 'Activity']) {
-    await page.getByRole('tab', { name: new RegExp(name) }).click();
+    const tab = page.getByRole('tab', { name: new RegExp(name) });
+    await tab.click();
+    await expect(tab).toHaveAttribute('aria-selected', 'true');
     if (name === 'Processing') {
       await expect(page.getByRole('combobox', { name: 'Initial import' })).toHaveCount(0);
       await expect(page.getByText(/Initial import:/)).toBeVisible();
@@ -110,6 +112,7 @@ test('mailbox workspace remains readable across themes and responsive widths', a
       await expect(page.getByRole('heading', { name: 'Incoming activity' })).toBeVisible();
       await expect(page.getByRole('heading', { name: 'Outgoing activity' })).toBeVisible();
     }
-    await page.screenshot({ path: testInfo.outputPath(`mailbox-${name.toLowerCase()}-full.png`), fullPage: true });
+    await page.screenshot({ path: testInfo.outputPath(`mailbox-${name.toLowerCase()}-full.png`),
+      fullPage: true, animations: 'disabled' });
   }
 });
