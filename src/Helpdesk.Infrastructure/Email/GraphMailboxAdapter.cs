@@ -116,6 +116,11 @@ public sealed class GraphMailboxAdapter(MailboxCredentialProtector secrets, Func
         foreach (var item in page.Value ?? [])
         {
             if (string.IsNullOrEmpty(item.Id) || item.AdditionalData.ContainsKey("@removed") || knownKeys.Contains(item.Id)) continue;
+            if (settings.InitialImport == InitialMailImport.NewOnly && item.ReceivedDateTime is null)
+            {
+                result.Add(new(item.Id, null, HoldReason: "GraphReceiveTimeMissingReviewRequired"));
+                continue;
+            }
             if ((!state.Initialized && settings.InitialImport == InitialMailImport.ExistingUnread && item.IsRead == true) ||
                 (settings.InitialImport == InitialMailImport.NewOnly && item.ReceivedDateTime <= settings.CreatedAt))
             {

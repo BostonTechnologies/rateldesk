@@ -71,6 +71,77 @@ public sealed class ProtocolMailboxAdapterTests
         await server.Completion.WaitAsync(TimeSpan.FromSeconds(10));
     }
 
+    [Fact]
+    public async Task Imap_message_arriving_after_initial_uid_snapshot_is_not_baseline_skipped()
+    {
+        await using var server = new PopFixture(imap: true, holdFirstSearch: true, connections: 2);
+        var secrets = new MailboxCredentialProtector(new EphemeralDataProtectionProvider());
+        var settings = new EmailInboxSettings { Id = Guid.NewGuid(), Provider = InboundMailboxProvider.Imap,
+            Authentication = MailboxAuthentication.Password, MailHost = "localhost", Port = server.Port,
+            Username = "fixture", MailboxAddress = "support@example.test", MailboxFolder = "Support",
+            InitialImport = InitialMailImport.NewOnly, CredentialVersion = 1, BatchSize = 10 };
+        settings.Password = secrets.Protect(settings.Id, "synthetic password");
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            { ["EmailIngestion:AllowedPrivateHosts:0"] = "localhost" }).Build();
+        var adapter = new ProtocolMailboxAdapter(InboundMailboxProvider.Imap,
+            new MailboxDestinationPolicy(config), secrets);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+
+        var initial = adapter.FetchAsync(settings, new MailboxIngestionState(), new HashSet<string>(), deadline.Token);
+        await server.FirstSearchSnapshotTaken.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        server.AddMessageAfterSearchSnapshot();
+        var baseline = await initial;
+        var skipped = Assert.Single(baseline.Messages);
+        Assert.Equal("7:42", skipped.Key);
+        Assert.True(skipped.Ignore);
+        Assert.Equal("InitialBaselineSkipped", skipped.HoldReason);
+        Assert.True(baseline.InitializationComplete);
+
+        var next = await adapter.FetchAsync(settings, new MailboxIngestionState
+            { Initialized = true, Cursor = baseline.NextCursor }, new HashSet<string> { skipped.Key }, deadline.Token);
+        var arrivedDuringActivation = Assert.Single(next.Messages);
+        Assert.Equal("7:43", arrivedDuringActivation.Key);
+        Assert.NotNull(arrivedDuringActivation.Message);
+        Assert.False(arrivedDuringActivation.Ignore);
+        await server.Completion.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public async Task Pop3_message_arriving_after_initial_uidl_snapshot_is_not_baseline_skipped()
+    {
+        await using var server = new PopFixture(holdFirstUidl: true, connections: 2);
+        var secrets = new MailboxCredentialProtector(new EphemeralDataProtectionProvider());
+        var settings = new EmailInboxSettings { Id = Guid.NewGuid(), Provider = InboundMailboxProvider.Pop3,
+            Authentication = MailboxAuthentication.Password, MailHost = "localhost", Port = server.Port,
+            Username = "fixture", MailboxAddress = "support@example.test",
+            InitialImport = InitialMailImport.NewOnly, CredentialVersion = 1, BatchSize = 10 };
+        settings.Password = secrets.Protect(settings.Id, "synthetic password");
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            { ["EmailIngestion:AllowedPrivateHosts:0"] = "localhost" }).Build();
+        var adapter = new ProtocolMailboxAdapter(InboundMailboxProvider.Pop3,
+            new MailboxDestinationPolicy(config), secrets);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+
+        var initial = adapter.FetchAsync(settings, new MailboxIngestionState(), new HashSet<string>(), deadline.Token);
+        await server.FirstUidlSnapshotTaken.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        server.AddMessageAfterSearchSnapshot();
+        var baseline = await initial;
+        var skipped = Assert.Single(baseline.Messages);
+        Assert.Equal("stable-UIDL", skipped.Key);
+        Assert.True(skipped.Ignore);
+        Assert.Equal("InitialBaselineSkipped", skipped.HoldReason);
+        Assert.True(baseline.InitializationComplete);
+
+        var next = await adapter.FetchAsync(settings, new MailboxIngestionState { Initialized = true },
+            new HashSet<string> { skipped.Key }, deadline.Token);
+        var arrivedDuringActivation = Assert.Single(next.Messages);
+        Assert.Equal("later-UIDL", arrivedDuringActivation.Key);
+        Assert.NotNull(arrivedDuringActivation.Message);
+        Assert.False(arrivedDuringActivation.Ignore);
+        Assert.DoesNotContain(server.Commands, command => command.StartsWith("DELE", StringComparison.Ordinal));
+        await server.Completion.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
     [Theory]
     [InlineData(InboundMailboxProvider.Imap)]
     [InlineData(InboundMailboxProvider.Pop3)]
@@ -185,14 +256,26 @@ public sealed class ProtocolMailboxAdapterTests
         private readonly bool supportsUidl;
         private readonly string mime;
         private readonly bool expungeFirst;
+        private readonly bool holdFirstSearch;
+        private readonly bool holdFirstUidl;
+        private readonly int connections;
+        private readonly TaskCompletionSource continueSearch = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private bool secondMessageAvailable;
+        private int searches;
+        private int uidlSnapshots;
+        public TaskCompletionSource FirstSearchSnapshotTaken { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource FirstUidlSnapshotTaken { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public PopFixture(bool imap = false, bool trusted = true, bool supportsUidl = true, string? mime = null,
-            bool expungeFirst = false)
+            bool expungeFirst = false, bool holdFirstSearch = false, bool holdFirstUidl = false, int connections = 1)
         {
             this.imap = imap;
             this.trusted = trusted;
             this.supportsUidl = supportsUidl;
             this.mime = mime ?? "From: requester@example.test\r\nTo: support@example.test\r\nSubject: Protocol fixture\r\nContent-Type: text/plain\r\n\r\nhello\r\n";
             this.expungeFirst = expungeFirst;
+            this.holdFirstSearch = holdFirstSearch;
+            this.holdFirstUidl = holdFirstUidl;
+            this.connections = connections;
             using var key = RSA.Create(2048);
             var request = new CertificateRequest("CN=localhost", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
             var san = new SubjectAlternativeNameBuilder(); san.AddDnsName("localhost"); request.CertificateExtensions.Add(san.Build());
@@ -203,30 +286,52 @@ public sealed class ProtocolMailboxAdapterTests
             Port = ((IPEndPoint)listener.LocalEndpoint).Port;
             Completion = ServeAsync();
         }
+        public void AddMessageAfterSearchSnapshot()
+        {
+            secondMessageAvailable = true;
+            continueSearch.TrySetResult();
+        }
+
         private async Task ServeAsync()
         {
-            using var client = await listener.AcceptTcpClientAsync();
-            await using var tls = new SslStream(client.GetStream());
-            await tls.AuthenticateAsServerAsync(certificate);
-            using var reader = new StreamReader(tls, Encoding.ASCII, leaveOpen: true);
-            await using var writer = new StreamWriter(tls, Encoding.ASCII, leaveOpen: true) { NewLine = "\r\n", AutoFlush = true };
-            if (imap)
+            for (var connection = 0; connection < connections; connection++)
             {
-                await ServeImapAsync(reader, writer);
-                return;
+                using var client = await listener.AcceptTcpClientAsync();
+                await using var tls = new SslStream(client.GetStream());
+                await tls.AuthenticateAsServerAsync(certificate);
+                using var reader = new StreamReader(tls, Encoding.ASCII, leaveOpen: true);
+                await using var writer = new StreamWriter(tls, Encoding.ASCII, leaveOpen: true) { NewLine = "\r\n", AutoFlush = true };
+                if (imap) await ServeImapAsync(reader, writer);
+                else await ServePopAsync(reader, writer);
             }
+        }
+
+        private async Task ServePopAsync(StreamReader reader, StreamWriter writer)
+        {
             await writer.WriteLineAsync("+OK fixture");
             while (await reader.ReadLineAsync() is { } line)
             {
                 Commands.Add(line.Split(' ')[0]);
                 var verb = line.Split(' ')[0].ToUpperInvariant();
+                if (verb == "UIDL" && supportsUidl && !line.Contains(' ') && holdFirstUidl &&
+                    Interlocked.Increment(ref uidlSnapshots) == 1)
+                {
+                    const string snapshot = "+OK\r\n1 stable-UIDL\r\n.";
+                    FirstUidlSnapshotTaken.TrySetResult();
+                    await continueSearch.Task;
+                    await writer.WriteLineAsync(snapshot);
+                    continue;
+                }
                 var response = verb switch
                 {
                     "CAPA" => supportsUidl ? "+OK\r\nUSER\r\nUIDL\r\n." : "+OK\r\nUSER\r\n.",
                     "USER" or "PASS" => "+OK",
-                    "STAT" => "+OK 1 200",
-                    "UIDL" => !supportsUidl ? "-ERR UIDL unavailable" : line.Contains(' ') ? "+OK 1 stable-UIDL" : "+OK\r\n1 stable-UIDL\r\n.",
-                    "LIST" => "+OK 1 200",
+                    "STAT" => secondMessageAvailable ? "+OK 2 400" : "+OK 1 200",
+                    "UIDL" => !supportsUidl ? "-ERR UIDL unavailable" : line.Contains(" 2", StringComparison.Ordinal)
+                        ? "+OK 2 later-UIDL" : line.Contains(' ') ? "+OK 1 stable-UIDL"
+                        : secondMessageAvailable ? "+OK\r\n1 stable-UIDL\r\n2 later-UIDL\r\n."
+                        : "+OK\r\n1 stable-UIDL\r\n.",
+                    "LIST" => line.Contains(" 2", StringComparison.Ordinal) ? "+OK 2 200" : "+OK 1 200",
                     "RETR" => $"+OK\r\n{mime}.",
                     "QUIT" => "+OK goodbye",
                     _ => "-ERR unsupported"
@@ -245,14 +350,22 @@ public sealed class ProtocolMailboxAdapterTests
                 Commands.Add(command.StartsWith("LOGIN", StringComparison.Ordinal) ? "LOGIN" : command);
                 if (command.StartsWith("CAPABILITY")) await writer.WriteLineAsync("* CAPABILITY IMAP4rev1");
                 else if (command.StartsWith("LIST")) await writer.WriteLineAsync("* LIST (\\HasNoChildren) \"/\" \"Support\"");
-                else if (command.StartsWith("EXAMINE")) await writer.WriteLineAsync(expungeFirst
-                    ? "* FLAGS (\\Seen)\r\n* 2 EXISTS\r\n* 0 RECENT\r\n* OK [UIDVALIDITY 7] stable\r\n* OK [UIDNEXT 44] next"
-                    : "* FLAGS (\\Seen)\r\n* 1 EXISTS\r\n* 0 RECENT\r\n* OK [UIDVALIDITY 7] stable\r\n* OK [UIDNEXT 43] next");
-                else if (command.StartsWith("UID SEARCH")) await writer.WriteLineAsync(expungeFirst ? "* SEARCH 42 43" : "* SEARCH 42");
+                else if (command.StartsWith("EXAMINE")) await writer.WriteLineAsync(
+                    $"* FLAGS (\\Seen)\r\n* {(expungeFirst || secondMessageAvailable ? 2 : 1)} EXISTS\r\n* 0 RECENT\r\n* OK [UIDVALIDITY 7] stable\r\n* OK [UIDNEXT {(expungeFirst || secondMessageAvailable ? 44 : 43)}] next");
+                else if (command.StartsWith("UID SEARCH"))
+                {
+                    var snapshot = expungeFirst || secondMessageAvailable ? "* SEARCH 42 43" : "* SEARCH 42";
+                    if (holdFirstSearch && Interlocked.Increment(ref searches) == 1)
+                    {
+                        FirstSearchSnapshotTaken.TrySetResult();
+                        await continueSearch.Task;
+                    }
+                    await writer.WriteLineAsync(snapshot);
+                }
                 else if (expungeFirst && command.StartsWith("UID FETCH 42")) { }
                 else if (command.StartsWith("UID FETCH") && command.Contains("BODY.PEEK"))
-                    await writer.WriteLineAsync($"* 1 FETCH (UID {(expungeFirst ? 43 : 42)} BODY[] {{{Encoding.ASCII.GetByteCount(mime)}}}\r\n{mime})");
-                else if (command.StartsWith("UID FETCH")) await writer.WriteLineAsync($"* 1 FETCH (UID {(expungeFirst ? 43 : 42)} FLAGS () RFC822.SIZE {Encoding.ASCII.GetByteCount(mime)})");
+                    await writer.WriteLineAsync($"* {(command.StartsWith("UID FETCH 43") ? 2 : 1)} FETCH (UID {(expungeFirst || command.StartsWith("UID FETCH 43") ? 43 : 42)} BODY[] {{{Encoding.ASCII.GetByteCount(mime)}}}\r\n{mime})");
+                else if (command.StartsWith("UID FETCH")) await writer.WriteLineAsync($"* {(command.StartsWith("UID FETCH 43") ? 2 : 1)} FETCH (UID {(expungeFirst || command.StartsWith("UID FETCH 43") ? 43 : 42)} FLAGS () RFC822.SIZE {Encoding.ASCII.GetByteCount(mime)})");
                 else if (command.StartsWith("LOGOUT")) await writer.WriteLineAsync("* BYE logout");
                 else if (!command.StartsWith("LOGIN")) throw new InvalidOperationException("Unexpected IMAP fixture command: " + command);
                 await writer.WriteLineAsync(tag + (command.StartsWith("EXAMINE") ? " OK [READ-ONLY] completed" : " OK completed"));

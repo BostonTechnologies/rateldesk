@@ -39,6 +39,35 @@ public sealed class GraphMailboxAdapterTests
     }
 
     [Fact]
+    public async Task Graph_new_only_uses_server_received_time_across_initial_delta_enumeration()
+    {
+        var transport = new GraphActivationTransport();
+        var adapter = CreateAdapter(transport);
+        var mailbox = new EmailInboxSettings
+        {
+            Id = Guid.NewGuid(), MailboxAddress = "support@example.test", MailboxFolder = "inbox",
+            InitialImport = InitialMailImport.NewOnly,
+            CreatedAt = DateTimeOffset.Parse("2026-09-23T12:00:00Z", System.Globalization.CultureInfo.InvariantCulture)
+        };
+
+        var batch = await adapter.FetchAsync(mailbox, new MailboxIngestionState(), new HashSet<string>(), default);
+
+        Assert.True(batch.InitializationComplete);
+        Assert.Equal(3, batch.Messages.Count);
+        var skipped = Assert.Single(batch.Messages, message => message.Key == "before-activation");
+        Assert.True(skipped.Ignore);
+        Assert.Equal("InitialBaselineSkipped", skipped.HoldReason);
+        var during = Assert.Single(batch.Messages, message => message.Key == "during-activation");
+        Assert.False(during.Ignore);
+        Assert.NotNull(during.Message);
+        var missingTime = Assert.Single(batch.Messages, message => message.Key == "without-received-time");
+        Assert.Null(missingTime.Message);
+        Assert.False(missingTime.Ignore);
+        Assert.Equal("GraphReceiveTimeMissingReviewRequired", missingTime.HoldReason);
+        Assert.Equal(["during-activation"], transport.MimeFetchedIds);
+    }
+
+    [Fact]
     public async Task Expired_delta_cursor_rescans_without_reprocessing_durable_message_keys()
     {
         var transport = new GraphTransport();
@@ -161,6 +190,33 @@ public sealed class GraphMailboxAdapterTests
     private static GraphMailboxAdapter CreateAdapter(HttpMessageHandler transport) => new(
         new MailboxCredentialProtector(new EphemeralDataProtectionProvider()),
         _ => new GraphServiceClient(new HttpClient(transport, disposeHandler: false), new AnonymousAuthenticationProvider()));
+
+    private sealed class GraphActivationTransport : HttpMessageHandler
+    {
+        public List<string> MimeFetchedIds { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (path.EndsWith("/$value", StringComparison.Ordinal))
+            {
+                MimeFetchedIds.Add(path.Contains("during-activation", StringComparison.Ordinal)
+                    ? "during-activation" : "before-activation");
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        "From: requester@example.test\r\nTo: support@example.test\r\nSubject: Arrived during activation\r\n\r\nhello\r\n",
+                        Encoding.UTF8, "message/rfc822")
+                });
+            }
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """{"value":[{"id":"before-activation","receivedDateTime":"2026-09-23T11:59:59Z","isRead":false},{"id":"during-activation","receivedDateTime":"2026-09-23T12:00:01Z","isRead":false},{"id":"without-received-time","isRead":false}],"@odata.deltaLink":"https://graph.microsoft.com/v1.0/delta?cursor=activation"}""",
+                    Encoding.UTF8, "application/json")
+            });
+        }
+    }
 
     private sealed class PartialPageTransport(HttpStatusCode missingStatus) : HttpMessageHandler
     {
