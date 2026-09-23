@@ -29,6 +29,8 @@ test('Email Settings opens as a standalone page from the expanded administration
 
   await expect(page.getByRole('heading', { name: 'Email Settings / Mailbox Configuration' })).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'Inbound provider' })).toBeVisible();
+  await expect(page.getByTestId('mailbox-command-bar')).toBeVisible();
+  await expect(page.getByRole('tab', { name: /Outgoing/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save' })).toBeVisible();
   await expect(page.locator('.mud-dialog')).toHaveCount(0);
 

@@ -8,7 +8,8 @@ test.beforeEach(async ({ page }) => { await authenticate(page); });
 test('provider selection, failed draft test, discard, save and explicit tenant revert', async ({ page }, testInfo) => {
   await page.goto('/admin/email-settings');
   await expect(page.getByTestId('mailbox-settings')).toHaveAttribute('data-interactive', 'true');
-  await page.getByRole('button', { name: 'Add tenant override' }).click();
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Tenant override' }).click();
   await page.getByRole('combobox', { name: /^RatelDesk organization/ }).click();
   await page.getByRole('option').first().click();
   await page.getByRole('combobox', { name: 'Inbound provider', exact: true }).click();
@@ -31,9 +32,11 @@ test('provider selection, failed draft test, discard, save and explicit tenant r
   await page.getByRole('button', { name: 'Discard changes' }).click();
   await expect(page.getByLabel('Mailbox display name', { exact: true })).toHaveValue('Fixture dedicated POP3');
   await page.screenshot({ path: testInfo.outputPath('dedicated-pop3-paused.png'), fullPage: true });
+  await page.getByRole('button', { name: 'More mailbox actions' }).click();
   page.once('dialog', dialog => dialog.accept());
-  await page.getByRole('button', { name: 'Revert to global mailbox' }).click();
-  await expect(page.getByRole('button', { name: 'Archive global mailbox' })).toBeVisible();
+  await page.getByRole('menuitem', { name: 'Revert to global' }).click();
+  await page.getByRole('button', { name: 'More mailbox actions' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Archive global mailbox' })).toBeVisible();
 });
 
 test('long rule name and description wrap with reachable actions at desktop and mobile widths', async ({ page }, testInfo) => {
@@ -86,7 +89,8 @@ test('mailbox controls remain usable when component JavaScript arrives after Bla
     release();
     await expect(page.getByTestId('mailbox-settings')).toHaveAttribute('data-interactive', 'true');
     await expect(page.getByTestId('navigation-toggle')).toBeEnabled();
-    await page.getByRole('button', { name: 'Add tenant override' }).click();
+    await page.getByRole('button', { name: 'Add', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Tenant override' }).click();
     await expect(page.getByRole('combobox', { name: /^RatelDesk organization/ })).toBeVisible();
     await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
   } finally { release(); }
