@@ -40,6 +40,15 @@ public sealed class MailboxEmailService(MailboxSenderResolver resolver, SmtpMail
             attachments, replyTo, deliveryId, ct);
     }
 
+    public async Task<MailboxSubmissionResult> SendTestAsync(Guid mailboxId, string recipient, CancellationToken ct)
+    {
+        var selected = await resolver.ResolveExplicitAsync(mailboxId, ct);
+        var deliveryId = Guid.NewGuid();
+        var subject = $"RatelDesk mailbox send test {deliveryId:N}";
+        return await SubmitAsync(selected, [recipient], [], subject,
+            "<p>This is a confirmed RatelDesk mailbox send test.</p>", [], null, deliveryId, ct);
+    }
+
     private async Task<MailboxSubmissionResult> SubmitAsync(MailboxSenderSelection selected,
         IEnumerable<string> recipients, IEnumerable<string>? cc, string subject, string htmlMessage,
         IEnumerable<EmailAttachmentData>? attachments, string? replyTo, Guid deliveryId, CancellationToken ct)

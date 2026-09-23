@@ -41,6 +41,20 @@ public sealed class MailboxSenderResolver(HelpdeskDbContext db)
         var mailbox = organizationId is null ? assignments.SingleOrDefault(x => x.Scope == MailboxScope.Global)
             : assignments.SingleOrDefault(x => x.Scope == MailboxScope.Organization) ??
               assignments.SingleOrDefault(x => x.Scope == MailboxScope.Global);
+        return await CheckMailboxAsync(mailbox, organizationId, ct);
+    }
+
+    public async Task<MailboxSenderSelection> ResolveExplicitAsync(Guid mailboxId, CancellationToken ct)
+    {
+        var mailbox = await db.EmailInboxSettings.AsNoTracking().SingleOrDefaultAsync(x => x.Id == mailboxId, ct);
+        if (mailbox is null) return new("Blocked", "MailboxNotFound", null, null, null);
+        if (mailbox.Archived) return new("Blocked", "MailboxArchived", mailbox.OrganizationId, mailbox, null);
+        return await CheckMailboxAsync(mailbox, mailbox.OrganizationId, ct);
+    }
+
+    private async Task<MailboxSenderSelection> CheckMailboxAsync(EmailInboxSettings? mailbox,
+        string? organizationId, CancellationToken ct)
+    {
         if (mailbox is null)
             return new("Blocked", "NoEffectiveMailbox", organizationId, null, null);
         if (!mailbox.Enabled)

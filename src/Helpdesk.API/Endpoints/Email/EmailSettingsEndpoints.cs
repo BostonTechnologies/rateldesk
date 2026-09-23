@@ -64,6 +64,17 @@ public static class EmailSettingsEndpoints
                 result.Status == "Authenticated" ? "SMTP TLS and authentication succeeded; no message was sent."
                     : $"SMTP connection or authentication failed ({result.ErrorCode})."));
         });
+        group.MapPost("/{id:guid}/outgoing/send-test", async (Guid id, [FromBody] MailboxSendTestRequest request,
+            MailboxEmailService sender, CancellationToken ct) =>
+        {
+            if (!request.Confirmed) return Results.BadRequest(new { message = "Confirm the sample send." });
+            var recipient = request.Recipient?.Trim();
+            if (recipient is null || recipient.Length > 320 || !global::System.Net.Mail.MailAddress.TryCreate(recipient, out var parsed) ||
+                !string.Equals(parsed.Address, recipient, StringComparison.OrdinalIgnoreCase))
+                return Results.BadRequest(new { message = "Enter one valid recipient address." });
+            var result = await sender.SendTestAsync(id, recipient, ct);
+            return result.Status == "Accepted by provider" ? Results.Ok(result) : Results.Conflict(result);
+        });
         group.MapPost("/", async ([FromBody] MailboxSettingsRequest request, HelpdeskDbContext db, MailboxSettingsService service, ClaimsPrincipal user, CancellationToken ct) =>
         {
             if (request.Id != Guid.Empty) return Results.BadRequest(new { message = "Create requires an empty ID; use PUT to edit." });

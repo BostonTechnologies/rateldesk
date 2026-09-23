@@ -2,6 +2,14 @@ namespace Helpdesk.Infrastructure.Email;
 
 internal static class EmailAddressGuard
 {
+    internal static bool IsSingleAddress(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Length > 320) return false;
+        var address = value.Trim();
+        return System.Net.Mail.MailAddress.TryCreate(address, out var parsed) &&
+            string.Equals(parsed.Address, address, StringComparison.OrdinalIgnoreCase);
+    }
+
     internal static bool IsSameAddress(string? address, string? mailboxAddress)
     {
         if (string.IsNullOrWhiteSpace(address) || string.IsNullOrWhiteSpace(mailboxAddress))

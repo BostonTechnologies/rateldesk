@@ -29,6 +29,9 @@ public sealed class GraphMailboxSender
             return new("Needs configuration", "GraphCredentialMissing");
         var to = EmailAddressGuard.NormalizeRecipients(recipients, mailbox.MailboxAddress);
         var copy = EmailAddressGuard.NormalizeRecipients(cc, mailbox.MailboxAddress);
+        if (!EmailAddressGuard.IsSingleAddress(mailbox.MailboxAddress) ||
+            to.Concat(copy).Any(address => !EmailAddressGuard.IsSingleAddress(address)))
+            return new("Failed", "InvalidMailboxAddress");
         if (to.Count == 0 && copy.Count == 0)
             return new("Suppressed", "SelfRecipientOrEmpty");
         var files = attachments?.ToArray() ?? [];

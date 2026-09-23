@@ -1,0 +1,253 @@
+@using System.Net.Http.Json
+@implements IDisposable
+@inject IHttpClientFactory Clients
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+
+<MudPaper Class="pa-4 mt-3" Outlined="true" data-testid="mailbox-outgoing-editor">
+    <div class="d-flex flex-wrap align-center gap-2 mb-2">
+        <MudText Typo="Typo.h6" HtmlTag="h2">Outgoing mail</MudText>
+        <MudChip T="string" Size="Size.Small" Color="@(draft?.Enabled == true ? Color.Success : Color.Warning)">
+            @(draft?.Enabled == true ? "Enabled" : "Needs setup or paused")
+        </MudChip>
+    </div>
+    <MudText Typo="Typo.body2" Class="mb-3">Send from @MailboxAddress. Sending has its own settings and remains available when incoming polling is paused.</MudText>
+    @if (loading)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (draft is null)
+    {
+        <MudAlert Severity="Severity.Error">Outgoing settings could not be loaded.</MudAlert>
+        <MudButton OnClick="LoadAsync" Variant="Variant.Outlined">Retry</MudButton>
+    }
+    else
+    {
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6">
+                <MudSelect T="MailboxOutgoingTransport" Label="Send transport" @bind-Value="draft.Transport" @bind-Value:after="Changed" Disabled="@busy">
+                    <MudSelectItem Value="MailboxOutgoingTransport.Smtp">SMTP submission</MudSelectItem>
+                    @if (Authentication == MailboxAuthentication.MicrosoftApplication)
+                    {
+                        <MudSelectItem Value="MailboxOutgoingTransport.Graph">Microsoft Graph</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6"><MudTextField Label="Sender display name" @bind-Value="draft.DisplayName" @bind-Value:after="Changed" Disabled="@busy" /></MudItem>
+            @if (draft.Transport == MailboxOutgoingTransport.Smtp)
+            {
+                <MudItem xs="12" sm="8"><MudTextField Label="SMTP submission host" @bind-Value="draft.SmtpHost" @bind-Value:after="Changed" Required="true" Disabled="@busy" /></MudItem>
+                <MudItem xs="12" sm="4"><MudNumericField T="int" Label="SMTP port" @bind-Value="draft.SmtpPort" @bind-Value:after="Changed" Min="1" Max="65535" Disabled="@busy" /></MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudSelect T="MailboxTlsMode" Label="Required SMTP TLS" @bind-Value="draft.SmtpTlsMode" @bind-Value:after="Changed" Disabled="@busy">
+                        <MudSelectItem Value="MailboxTlsMode.StartTls">Mandatory STARTTLS</MudSelectItem>
+                        <MudSelectItem Value="MailboxTlsMode.TlsOnConnect">TLS on connect</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="6"><MudTextField Label="SMTP username" @bind-Value="draft.SmtpUsername" @bind-Value:after="Changed" Disabled="@busy" /></MudItem>
+                <MudItem xs="12" sm="6"><MudTextField Label="SMTP password" @bind-Value="draft.SmtpPassword" @bind-Value:after="Changed" InputType="InputType.Password" autocomplete="new-password" Disabled="@busy" HelperText="Leave blank to retain the saved password for this endpoint." /></MudItem>
+                @if (draft.HasSmtpPassword)
+                {
+                    <MudItem xs="12" sm="6"><MudCheckBox T="bool" Label="Clear saved SMTP password" @bind-Value="draft.ClearSmtpPassword" @bind-Value:after="Changed" Disabled="@busy" /></MudItem>
+                }
+                <MudItem xs="12"><MudText Typo="Typo.caption">SMTP needs an explicit submission host, TLS and separate credential. Changing its host, port or username requires a new password.</MudText></MudItem>
+            }
+            else
+            {
+                <MudItem xs="12"><MudText Typo="Typo.body2">Graph sends from this mailbox using its Microsoft application credentials. A connection check alone cannot prove Mail.Send permission; use a confirmed sample send when available.</MudText></MudItem>
+            }
+            <MudItem xs="12"><MudSwitch T="bool" Label="Enable outgoing mail" @bind-Value="draft.Enabled" @bind-Value:after="Changed" Disabled="@busy" /></MudItem>
+        </MudGrid>
+        @if (message is not null)
+        {
+            <MudAlert Severity="@(messageIsError ? Severity.Error : Severity.Info)" Variant="Variant.Outlined" Class="mt-3">@message</MudAlert>
+        }
+        @if (draft.LastTestUnixMilliseconds is not null)
+        {
+            <MudText Typo="Typo.caption">Last connection check: @DateTimeOffset.FromUnixTimeMilliseconds(draft.LastTestUnixMilliseconds.Value).ToLocalTime().ToString("g") (@draft.LastTestCode)</MudText>
+        }
+        <div class="d-flex flex-wrap gap-2 mt-3">
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Save" Disabled="@(busy || !dirty)" OnClick="SaveAsync">Save outgoing</MudButton>
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Bolt" Disabled="@(busy || dirty || draft.Version == 0 || draft.Transport != MailboxOutgoingTransport.Smtp)" OnClick="TestAsync">Test outgoing connection</MudButton>
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Send" Disabled="@(busy || dirty || draft.Version == 0 || !draft.Enabled)" OnClick="SendTestAsync">Send sample email</MudButton>
+            <MudButton Variant="Variant.Text" Disabled="@(busy || !dirty)" OnClick="DiscardAsync">Discard outgoing changes</MudButton>
+        </div>
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public Guid MailboxId { get; set; }
+    [Parameter] public string MailboxAddress { get; set; } = string.Empty;
+    [Parameter] public InboundMailboxProvider Provider { get; set; }
+    [Parameter] public MailboxAuthentication Authentication { get; set; }
+    [Parameter] public EventCallback<bool> DirtyChanged { get; set; }
+    private readonly CancellationTokenSource cancellation = new();
+    private Guid loadedMailboxId;
+    private OutgoingDraft? draft;
+    private OutgoingDraft? baseline;
+    private bool loading = true;
+    private bool busy;
+    private bool dirty;
+    private bool messageIsError;
+    private string? message;
+    private HttpClient Api => Clients.CreateClient("HelpdeskApi");
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (MailboxId != Guid.Empty && loadedMailboxId != MailboxId)
+        {
+            loadedMailboxId = MailboxId;
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        message = null;
+        try
+        {
+            var saved = await Api.GetFromJsonAsync<MailboxOutgoingSettingsDto>($"/api/v1/email-settings/{MailboxId}/outgoing", cancellation.Token);
+            draft = saved is null ? null : OutgoingDraft.FromDto(saved);
+            baseline = draft?.Copy();
+            dirty = false;
+            await DirtyChanged.InvokeAsync(false);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (HttpRequestException) { draft = null; }
+        finally { loading = false; }
+    }
+
+    private async Task Changed()
+    {
+        dirty = draft is not null && baseline is not null && !draft.SameAs(baseline);
+        message = null;
+        await DirtyChanged.InvokeAsync(dirty);
+    }
+
+    private async Task SaveAsync()
+    {
+        if (draft is null || busy) return;
+        if (draft.Transport == MailboxOutgoingTransport.Graph && Authentication != MailboxAuthentication.MicrosoftApplication)
+        {
+            message = "Graph sending requires a Microsoft application mailbox connection.";
+            messageIsError = true;
+            return;
+        }
+        busy = true;
+        try
+        {
+            using var response = await Api.PutAsJsonAsync($"/api/v1/email-settings/{MailboxId}/outgoing", draft.ToRequest(), cancellation.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                message = response.StatusCode == System.Net.HttpStatusCode.Conflict
+                    ? "Outgoing configuration changed or the mailbox was archived. Reload before saving."
+                    : "Outgoing settings were rejected. Check the SMTP endpoint, password and required fields.";
+                messageIsError = true;
+                return;
+            }
+            var saved = await response.Content.ReadFromJsonAsync<MailboxOutgoingSettingsDto>(cancellation.Token);
+            if (saved is null) { message = "Outgoing save was not confirmed by the server."; messageIsError = true; return; }
+            draft = OutgoingDraft.FromDto(saved);
+            baseline = draft.Copy();
+            dirty = false;
+            await DirtyChanged.InvokeAsync(false);
+            message = "Outgoing settings saved.";
+            messageIsError = false;
+            Snackbar.Add(message, Severity.Success);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (HttpRequestException) { message = "Outgoing settings could not be saved. Your changes are still available."; messageIsError = true; }
+        finally { busy = false; }
+    }
+
+    private async Task TestAsync()
+    {
+        if (draft is null || dirty || busy) return;
+        busy = true;
+        try
+        {
+            using var response = await Api.PostAsync($"/api/v1/email-settings/{MailboxId}/outgoing/test", null, cancellation.Token);
+            var result = response.IsSuccessStatusCode
+                ? await response.Content.ReadFromJsonAsync<ConnectionResult>(cancellation.Token) : null;
+            if (result is not null) await LoadAsync();
+            message = result?.Message ?? "Outgoing connection could not be checked.";
+            messageIsError = result?.Success != true;
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (HttpRequestException) { message = "Outgoing connection could not be checked."; messageIsError = true; }
+        finally { busy = false; }
+    }
+
+    private async Task SendTestAsync()
+    {
+        if (draft is null || dirty || busy || !draft.Enabled) return;
+        var dialog = await Dialogs.ShowAsync<MailboxSendTestDialog>("Send sample email",
+            new DialogParameters { ["MailboxAddress"] = MailboxAddress },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var confirmation = await dialog.Result;
+        if (confirmation?.Canceled != false || confirmation.Data is not string recipient) return;
+        busy = true;
+        try
+        {
+            using var response = await Api.PostAsJsonAsync($"/api/v1/email-settings/{MailboxId}/outgoing/send-test",
+                new MailboxSendTestRequest(recipient, true), cancellation.Token);
+            var result = await response.Content.ReadFromJsonAsync<SendResult>(cancellation.Token);
+            messageIsError = !response.IsSuccessStatusCode;
+            message = result is null ? "Sample send did not return a result. Check the delivery status before retrying."
+                : result.Status == "Accepted by provider" ? "Sample email was accepted by the provider. Check the recipient inbox."
+                : $"Sample send: {result.Status} ({result.ErrorCode ?? "No detail"}). Check configuration before retrying.";
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (HttpRequestException)
+        {
+            message = "The sample send result is unknown. Check the recipient inbox before trying again.";
+            messageIsError = true;
+        }
+        finally { busy = false; }
+    }
+
+    private async Task DiscardAsync()
+    {
+        draft = baseline?.Copy();
+        dirty = false;
+        message = null;
+        await DirtyChanged.InvokeAsync(false);
+    }
+
+    public void Dispose() { cancellation.Cancel(); cancellation.Dispose(); }
+
+    private sealed record ConnectionResult(bool Success, string Message);
+    private sealed record SendResult(string Status, string? ErrorCode);
+    private sealed class OutgoingDraft
+    {
+        public long Version { get; set; }
+        public bool Enabled { get; set; }
+        public MailboxOutgoingTransport Transport { get; set; }
+        public string DisplayName { get; set; } = string.Empty;
+        public string SmtpHost { get; set; } = string.Empty;
+        public int SmtpPort { get; set; } = 587;
+        public MailboxTlsMode SmtpTlsMode { get; set; } = MailboxTlsMode.StartTls;
+        public string SmtpUsername { get; set; } = string.Empty;
+        public string SmtpPassword { get; set; } = string.Empty;
+        public bool ClearSmtpPassword { get; set; }
+        public bool HasSmtpPassword { get; set; }
+        public long? LastTestUnixMilliseconds { get; set; }
+        public string? LastTestCode { get; set; }
+        public static OutgoingDraft FromDto(MailboxOutgoingSettingsDto value) => new()
+        {
+            Version = value.Version, Enabled = value.Enabled, Transport = value.Transport,
+            DisplayName = value.DisplayName, SmtpHost = value.SmtpHost, SmtpPort = value.SmtpPort,
+            SmtpTlsMode = value.SmtpTlsMode, SmtpUsername = value.SmtpUsername,
+            HasSmtpPassword = value.HasSmtpPassword, LastTestUnixMilliseconds = value.LastTestUnixMilliseconds,
+            LastTestCode = value.LastTestCode
+        };
+        public OutgoingDraft Copy() => (OutgoingDraft)MemberwiseClone();
+        public bool SameAs(OutgoingDraft other) => Version == other.Version && Enabled == other.Enabled &&
+            Transport == other.Transport && DisplayName == other.DisplayName && SmtpHost == other.SmtpHost &&
+            SmtpPort == other.SmtpPort && SmtpTlsMode == other.SmtpTlsMode && SmtpUsername == other.SmtpUsername &&
+            SmtpPassword == other.SmtpPassword && ClearSmtpPassword == other.ClearSmtpPassword;
+        public MailboxOutgoingSettingsRequest ToRequest() => new(Version, Enabled, Transport, DisplayName,
+            SmtpHost, SmtpPort, SmtpTlsMode, SmtpUsername, SmtpPassword, ClearSmtpPassword);
+    }
+}

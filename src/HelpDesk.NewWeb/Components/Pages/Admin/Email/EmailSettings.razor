@@ -8,7 +8,7 @@
 @inject ISnackbar Snackbar
 
 <PageTitle>Email Settings / Mailbox Configuration</PageTitle>
-<NavigationLock ConfirmExternalNavigation="@isDirty" OnBeforeInternalNavigation="ConfirmInternalNavigationAsync" />
+<NavigationLock ConfirmExternalNavigation="@(isDirty || outgoingDirty)" OnBeforeInternalNavigation="ConfirmInternalNavigationAsync" />
 
 <MudContainer MaxWidth="MaxWidth.Large" Class="helpdesk-page" data-testid="mailbox-settings" data-interactive="@interactive.ToString().ToLowerInvariant()">
     <div class="helpdesk-page-header">
@@ -67,6 +67,8 @@
             }
             <MudText Typo="Typo.caption">Pausing a dedicated mailbox keeps its assignment. Revert explicitly to inherit the global connection.</MudText>
         </MudPaper>
+        <MudTabs @bind-ActivePanelIndex="activeTab" KeepPanelsAlive="true" PanelClass="pa-0" Class="mailbox-workspace-tabs">
+        <MudTabPanel Text="Incoming and processing" Icon="@Icons.Material.Filled.Inbox">
         <MudForm @ref="form" Model="model">
             <MudTextField Label="Mailbox display name" @bind-Value="model.DisplayName" @bind-Value:after="MarkDirty" Immediate="true" Disabled="@mutationsDisabled" />
             <MudSelect T="MailboxScope" Label="Assignment" @bind-Value="model.Scope" @bind-Value:after="MarkDirty" Disabled="@(mutationsDisabled || model.Id != Guid.Empty)">
@@ -238,6 +240,33 @@
                 </MudButton>
             </div>
         </MudForm>
+        </MudTabPanel>
+        <MudTabPanel Text="Outgoing" Icon="@Icons.Material.Filled.Send">
+        @if (model.Id != Guid.Empty)
+        {
+            <MailboxOutgoingEditor @key="model.Id" MailboxId="model.Id" MailboxAddress="model.MailboxAddress"
+                                   Provider="model.Provider" Authentication="model.Authentication"
+                                   DirtyChanged="value => outgoingDirty = value" />
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mt-3">Save the mailbox connection before configuring its outgoing sender.</MudAlert>
+        }
+        </MudTabPanel>
+        <MudTabPanel Text="Activity" Icon="@Icons.Material.Filled.History">
+            <MudPaper Class="pa-4 mt-3" Outlined="true">
+                <MudText Typo="Typo.h6">Mailbox activity</MudText>
+                <MudText Typo="Typo.body2">Inspect recent incoming receipts and delivery work for the selected mailbox.</MudText>
+                @if (model.Id != Guid.Empty)
+                {
+                    <div class="d-flex flex-wrap gap-2 mt-3">
+                        <MudButton Href="@($"/admin/email-settings/{model.Id}/ingestion")" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Inbox">Incoming receipts</MudButton>
+                        <MudButton Href="/admin/pending-emails" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Outbox">Pending outgoing</MudButton>
+                    </div>
+                }
+            </MudPaper>
+        </MudTabPanel>
+        </MudTabs>
     }
 </MudContainer>
 
@@ -263,6 +292,8 @@
     private bool saving;
     private bool testing;
     private bool isDirty;
+    private bool outgoingDirty;
+    private int activeTab;
     private bool disposed;
     private string loadError = "Mailbox settings could not be loaded.";
 
@@ -430,7 +461,7 @@
 
     private async Task ConfirmInternalNavigationAsync(LocationChangingContext context)
     {
-        if (!isDirty)
+        if (!isDirty && !outgoingDirty)
         {
             return;
         }
@@ -468,7 +499,8 @@
 
     private async Task SelectMailboxAsync(Guid id)
     {
-        if (isDirty && !await JS.InvokeAsync<bool>("confirm", "Discard unsaved mailbox changes?")) return;
+        if ((isDirty || outgoingDirty) && !await JS.InvokeAsync<bool>("confirm", "Discard unsaved mailbox changes?")) return;
+        outgoingDirty = false;
         model = id == Guid.Empty ? new() : EmailInboxSettingsForm.FromDto(mailboxes.Single(x => x.Id == id));
         savedBaseline = model.Clone(); isDirty = false; testResult = null;
     }

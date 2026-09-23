@@ -1,0 +1,27 @@
+<MudDialog>
+    <TitleContent><MudText Typo="Typo.h6">Send a sample email</MudText></TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2">One message will be submitted from @MailboxAddress through its saved outgoing sender. Enter an address you control.</MudText>
+        <MudTextField Label="Recipient email" @bind-Value="recipient" InputType="InputType.Email" Required="true" Immediate="true" Class="mt-3" />
+        @if (invalid) { <MudText Color="Color.Error" Typo="Typo.caption">Enter one valid email address.</MudText> }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Confirm">Send sample</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter] public string MailboxAddress { get; set; } = string.Empty;
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+    private string recipient = string.Empty;
+    private bool invalid;
+    private void Cancel() => Dialog.Cancel();
+    private void Confirm()
+    {
+        var address = recipient.Trim();
+        invalid = address.Length > 320 || !System.Net.Mail.MailAddress.TryCreate(address, out var parsed) ||
+            !string.Equals(parsed.Address, address, StringComparison.OrdinalIgnoreCase);
+        if (!invalid) Dialog.Close(DialogResult.Ok(address));
+    }
+}

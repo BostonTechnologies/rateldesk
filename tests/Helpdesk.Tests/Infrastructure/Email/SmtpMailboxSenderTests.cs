@@ -22,8 +22,10 @@ namespace Helpdesk.Tests.Infrastructure.Email;
 
 public sealed class SmtpMailboxSenderTests
 {
-    [Fact]
-    public async Task Ticket_email_service_uses_dedicated_smtp_without_constructing_legacy_Graph_sender()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Dedicated_email_and_confirmed_sample_use_selected_smtp_without_constructing_legacy_Graph_sender(bool sample)
     {
         await using var server = new SmtpFixture();
         await using var connection = new SqliteConnection("Data Source=:memory:");
@@ -54,10 +56,15 @@ public sealed class SmtpMailboxSenderTests
             new GraphMailboxSender(_ => throw new InvalidOperationException("Graph must not be constructed.")),
             NullLogger<MailboxEmailService>.Instance);
 
-        Assert.True(await service.SendEmailAsync(["requester@example.test"], "Ticket update", "<p>Update</p>",
-            ticketId: "ticket-a"));
+        if (sample)
+            Assert.Equal("Accepted by provider", (await service.SendTestAsync(mailbox.Id,
+                "requester@example.test", default)).Status);
+        else
+            Assert.True(await service.SendEmailAsync(["requester@example.test"], "Ticket update", "<p>Update</p>",
+                ticketId: "ticket-a"));
         await server.Completion.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Contains(server.Commands, command => command.StartsWith("MAIL FROM:<support@tenant-a.example.test>", StringComparison.OrdinalIgnoreCase));
+        if (sample) Assert.Contains("RatelDesk mailbox send test", server.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -110,6 +117,19 @@ public sealed class SmtpMailboxSenderTests
         var result = await sender.SendAsync(mailbox, outgoing, ["requester@example.test"], null,
             "Update", "<p>Hello</p>", [], Guid.NewGuid(), default);
         Assert.Equal("Failed", result.Status);
+    }
+
+    [Fact]
+    public async Task Invalid_recipient_fails_as_a_delivery_result_before_connecting()
+    {
+        var mailbox = new EmailInboxSettings { Id = Guid.NewGuid(), MailboxAddress = "support@tenant-a.example.test", Enabled = true };
+        var outgoing = new MailboxOutgoingSettings { MailboxId = mailbox.Id, Enabled = true,
+            SmtpHost = "localhost", SmtpPort = 465, SmtpUsername = mailbox.MailboxAddress };
+        var sender = new SmtpMailboxSender(new MailboxDestinationPolicy(new ConfigurationBuilder().Build()),
+            new MailboxOutgoingCredentialProtector(new EphemeralDataProtectionProvider()), new HtmlToPlainTextConverter());
+        var result = await sender.SendAsync(mailbox, outgoing, ["not an address"], null,
+            "Update", "<p>Hello</p>", [], Guid.NewGuid(), default);
+        Assert.Equal("InvalidMailboxAddress", result.ErrorCode);
     }
 
     private sealed class SmtpFixture : IAsyncDisposable

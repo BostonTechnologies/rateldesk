@@ -29,3 +29,5 @@ public sealed record MailboxOutgoingSettingsRequest(long Version, bool Enabled,
     MailboxOutgoingTransport Transport, string DisplayName, string SmtpHost, int SmtpPort,
     MailboxTlsMode SmtpTlsMode, string SmtpUsername, string SmtpPassword,
     bool ClearSmtpPassword);
+
+public sealed record MailboxSendTestRequest(string Recipient, bool Confirmed);
