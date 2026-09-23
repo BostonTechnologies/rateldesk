@@ -7,4 +7,5 @@ public sealed class MailboxWorkerControl
     public bool Running { get; set; }
     public long Version { get; set; } = 1;
     public long UpdatedUnixMilliseconds { get; set; }
+    public long? LastHeartbeatUnixMilliseconds { get; set; }
 }

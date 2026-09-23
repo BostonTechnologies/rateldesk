@@ -1,14 +1,14 @@
 namespace Helpdesk.Shared.Models;
 
 public sealed record MailboxWorkerStatus(bool DeploymentPermitsIngestion, bool InstanceRunning,
-    string State, string? BlockedBy, long? ControlVersion);
+    string State, string? BlockedBy, long? ControlVersion, long? LastHeartbeatUnixMilliseconds);
 
 public sealed record MailboxIngestionDiagnosticsDto(Guid MailboxId, bool Initialized,
     long? LastTestUnixMilliseconds, long? TestedVersion, long? LastSyncUnixMilliseconds,
     long? NextRetryUnixMilliseconds, string? ErrorCode, bool HasCheckpoint,
     long SyncRequestedVersion, long SyncCompletedVersion,
     long? LastSyncCommandUnixMilliseconds, string? LastSyncCommandErrorCode,
-    long? BaselineCompletedUnixMilliseconds);
+    long? BaselineCompletedUnixMilliseconds, long? LastAttemptUnixMilliseconds, string CurrentStage);
 
 public sealed record MailboxSyncRequestResult(Guid MailboxId, long RequestVersion, string Status);
 

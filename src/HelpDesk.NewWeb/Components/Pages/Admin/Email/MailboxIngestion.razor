@@ -27,6 +27,8 @@
             </MudAlert>
             <MudText>Baseline: @(effective.BaselineComplete ? Format(diagnostics.State?.BaselineCompletedUnixMilliseconds) : "Not complete") · Captured: @effective.CapturedCount · Initial baseline skipped: @effective.SkippedInitialCount · Held: @effective.HeldCount</MudText>
         }
+        <MudText>Worker heartbeat: @Format(workerHeartbeat?.LastHeartbeatUnixMilliseconds)</MudText>
+        <MudText>Last attempt: @Format(diagnostics.State?.LastAttemptUnixMilliseconds) · Stage: @(string.IsNullOrWhiteSpace(diagnostics.State?.CurrentStage) ? "Never" : diagnostics.State.CurrentStage)</MudText>
         <MudText>Last successful sync: @Format(diagnostics.State?.LastSyncUnixMilliseconds)</MudText>
         <MudText>Last successful saved-configuration test: @Format(diagnostics.State?.LastTestUnixMilliseconds) (version @diagnostics.State?.TestedVersion)</MudText>
         <MudText>Operational error: @(diagnostics.State?.ErrorCode ?? "None")</MudText>
@@ -99,6 +101,7 @@
     private string? syncFeedback;
     private string? error;
     private MailboxDiagnosticsResponse? diagnostics;
+    private MailboxWorkerStatus? workerHeartbeat;
     private bool interactive;
     protected override void OnAfterRender(bool firstRender)
     {
@@ -120,7 +123,12 @@
     private async Task LoadAsync()
     {
         loading = true; error = null;
-        try { diagnostics = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<MailboxDiagnosticsResponse>($"/api/v1/email-settings/{MailboxId}/diagnostics", cancellation.Token); }
+        try
+        {
+            var client = Clients.CreateClient("HelpdeskApi");
+            diagnostics = await client.GetFromJsonAsync<MailboxDiagnosticsResponse>($"/api/v1/email-settings/{MailboxId}/diagnostics", cancellation.Token);
+            workerHeartbeat = await client.GetFromJsonAsync<MailboxWorkerStatus>("/api/v1/email-settings/worker", cancellation.Token);
+        }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
         catch (HttpRequestException) { error = "Inbound diagnostics could not be loaded."; }
         finally { loading = false; }

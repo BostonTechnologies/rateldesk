@@ -1757,6 +1757,10 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.Property<long?>("BaselineCompletedUnixMilliseconds")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("CurrentStage")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Cursor")
                         .HasColumnType("TEXT");
 
@@ -1764,6 +1768,9 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .HasColumnType("TEXT");
 
                     b.Property<bool>("Initialized")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("LastAttemptUnixMilliseconds")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("LastSyncCommandErrorCode")
@@ -1955,6 +1962,9 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("LastHeartbeatUnixMilliseconds")
                         .HasColumnType("INTEGER");
 
                     b.Property<bool>("Running")

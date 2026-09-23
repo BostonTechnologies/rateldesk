@@ -170,7 +170,8 @@ public static class EmailSettingsEndpoints
                     x.NextRetryUnixMilliseconds, x.ErrorCode, x.Cursor != null,
                     x.SyncRequestedVersion, x.SyncCompletedVersion,
                     x.LastSyncCommandUnixMilliseconds, x.LastSyncCommandErrorCode,
-                    x.BaselineCompletedUnixMilliseconds)).SingleOrDefaultAsync(ct);
+                    x.BaselineCompletedUnixMilliseconds, x.LastAttemptUnixMilliseconds,
+                    x.CurrentStage)).SingleOrDefaultAsync(ct);
             var receipts = await db.Set<InboundMessageReceipt>().AsNoTracking().Where(x => x.MailboxId == id)
                 .OrderByDescending(x => x.CreatedUnixMilliseconds).Take(100)
                 .Select(x => new MailboxReceiptDiagnosticsDto(x.Id, x.Outcome, x.Reason,

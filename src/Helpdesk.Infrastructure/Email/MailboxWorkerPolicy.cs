@@ -8,6 +8,8 @@ namespace Helpdesk.Infrastructure.Email;
 /// <summary>One deployment and persisted operator policy for every ingestion entry point.</summary>
 public sealed class MailboxWorkerPolicy(HelpdeskDbContext db, IConfiguration configuration, TimeProvider clock)
 {
+    private static readonly long ProcessStartedUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+    private const long HeartbeatGraceMilliseconds = 30000;
     public bool DeploymentPermitsIngestion =>
         !bool.TryParse(configuration["EmailIngestion:Enabled"], out var enabled) || enabled;
 
@@ -19,10 +21,36 @@ public sealed class MailboxWorkerPolicy(HelpdeskDbContext db, IConfiguration con
         var running = control?.Running ??
             bool.TryParse(configuration["EmailIngestion:Enabled"], out var legacyEnabled) && legacyEnabled;
         if (!DeploymentPermitsIngestion)
-            return new(false, false, "Disabled by deployment", "EmailIngestion:Enabled=false", control?.Version);
+            return new(false, false, "Disabled by deployment", "EmailIngestion:Enabled=false", control?.Version,
+                control?.LastHeartbeatUnixMilliseconds);
+        var now = clock.GetUtcNow().ToUnixTimeMilliseconds();
+        var lastSeen = control?.LastHeartbeatUnixMilliseconds;
+        var unavailable = running && now - (lastSeen ?? control?.UpdatedUnixMilliseconds ?? ProcessStartedUnixMilliseconds)
+            > HeartbeatGraceMilliseconds;
         return running
-            ? new(true, true, "Instance enabled", null, control?.Version)
-            : new(true, false, "Instance paused", null, control?.Version);
+            ? new(true, true, unavailable ? "Worker unavailable" : "Instance enabled", null, control?.Version, lastSeen)
+            : new(true, false, "Instance paused", null, control?.Version, lastSeen);
+    }
+
+    public async Task RecordHeartbeatAsync(CancellationToken ct)
+    {
+        if (!DeploymentPermitsIngestion) return;
+        var now = clock.GetUtcNow().ToUnixTimeMilliseconds();
+        var updated = await db.Set<MailboxWorkerControl>().Where(x => x.Id == 1 && x.Running)
+            .ExecuteUpdateAsync(update => update.SetProperty(x => x.LastHeartbeatUnixMilliseconds, now), ct);
+        if (updated != 0 || !bool.TryParse(configuration["EmailIngestion:Enabled"], out var legacyEnabled) || !legacyEnabled)
+            return;
+        // Legacy explicit activation may predate the persisted run-control row.
+        var control = new MailboxWorkerControl { Running = true, UpdatedUnixMilliseconds = now,
+            LastHeartbeatUnixMilliseconds = now };
+        db.Set<MailboxWorkerControl>().Add(control);
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateException)
+        {
+            db.Entry(control).State = Microsoft.EntityFrameworkCore.EntityState.Detached;
+            await db.Set<MailboxWorkerControl>().Where(x => x.Id == 1 && x.Running)
+                .ExecuteUpdateAsync(update => update.SetProperty(x => x.LastHeartbeatUnixMilliseconds, now), ct);
+        }
     }
 
     public async Task<MailboxWorkerStatus> SetRunningAsync(bool running, CancellationToken ct)
@@ -33,7 +61,8 @@ public sealed class MailboxWorkerPolicy(HelpdeskDbContext db, IConfiguration con
         if (control is null)
         {
             control = new MailboxWorkerControl { Running = running,
-                UpdatedUnixMilliseconds = clock.GetUtcNow().ToUnixTimeMilliseconds() };
+                UpdatedUnixMilliseconds = clock.GetUtcNow().ToUnixTimeMilliseconds(),
+                LastHeartbeatUnixMilliseconds = null };
             db.Set<MailboxWorkerControl>().Add(control);
         }
         else
@@ -41,6 +70,7 @@ public sealed class MailboxWorkerPolicy(HelpdeskDbContext db, IConfiguration con
             control.Running = running;
             control.Version++;
             control.UpdatedUnixMilliseconds = clock.GetUtcNow().ToUnixTimeMilliseconds();
+            control.LastHeartbeatUnixMilliseconds = null;
         }
         await db.SaveChangesAsync(ct);
         return await GetStatusAsync(ct);
@@ -63,6 +93,7 @@ public sealed class MailboxWorkerPolicy(HelpdeskDbContext db, IConfiguration con
         var held = await receipts.CountAsync(x => x.Outcome == InboundReceiptOutcome.NeedsReview, ct);
         var status = !instance.DeploymentPermitsIngestion ? "Disabled by deployment"
             : !instance.InstanceRunning ? "Instance paused"
+            : instance.State == "Worker unavailable" ? "Worker unavailable"
             : mailbox.Archived || !mailbox.Enabled ? "Mailbox disabled"
             : !mailbox.BackgroundSyncEnabled ? "Incoming paused"
             : state?.ErrorCode is not null && state.NextRetryUnixMilliseconds > now ? "Retry scheduled"

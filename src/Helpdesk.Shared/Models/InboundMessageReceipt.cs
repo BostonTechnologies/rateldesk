@@ -37,6 +37,8 @@ public sealed class MailboxIngestionState
     public string? Cursor { get; set; }
     public bool Initialized { get; set; }
     public long? BaselineCompletedUnixMilliseconds { get; set; }
+    public long? LastAttemptUnixMilliseconds { get; set; }
+    public string CurrentStage { get; set; } = "Never";
     public long? LastTestUnixMilliseconds { get; set; }
     public long? TestedVersion { get; set; }
     public long? LastSyncUnixMilliseconds { get; set; }

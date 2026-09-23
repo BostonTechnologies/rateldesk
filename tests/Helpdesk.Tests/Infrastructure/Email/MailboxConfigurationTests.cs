@@ -77,6 +77,28 @@ public sealed class MailboxConfigurationTests
     }
 
     [Fact]
+    public async Task Worker_heartbeat_reports_unavailable_after_stale_process_and_recovers_on_reconcile()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync(false);
+        await using var db = fixture.Open();
+        await db.Database.MigrateAsync();
+        var policy = new MailboxWorkerPolicy(db, new ConfigurationBuilder().Build(), TimeProvider.System);
+        await policy.SetRunningAsync(true, default);
+        await db.Set<MailboxWorkerControl>().ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.LastHeartbeatUnixMilliseconds,
+                DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeMilliseconds()));
+        var stale = await policy.GetStatusAsync(default);
+        Assert.True(stale.InstanceRunning);
+        Assert.Equal("Worker unavailable", stale.State);
+
+        await policy.RecordHeartbeatAsync(default);
+
+        var active = await policy.GetStatusAsync(default);
+        Assert.Equal("Instance enabled", active.State);
+        Assert.NotNull(active.LastHeartbeatUnixMilliseconds);
+    }
+
+    [Fact]
     public async Task Smtp_configuration_is_separate_redacted_and_destination_bound()
     {
         await using var fixture = await DatabaseFixture.CreateAsync(false);

@@ -73,6 +73,8 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
         timeout.CancelAfter(TimeSpan.FromSeconds(10));
         var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
         var worker = await scope.ServiceProvider.GetRequiredService<MailboxWorkerPolicy>().GetStatusAsync(timeout.Token);
+        if (worker.InstanceRunning)
+            await scope.ServiceProvider.GetRequiredService<MailboxWorkerPolicy>().RecordHeartbeatAsync(timeout.Token);
         var mailboxes = worker.InstanceRunning
             ? await db.EmailInboxSettings.AsNoTracking()
                 .Where(x => !x.Archived && x.Enabled && x.BackgroundSyncEnabled).ToListAsync(timeout.Token)
@@ -141,11 +143,16 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
         {
             var adapter = services.GetServices<IInboundMailboxAdapter>().Single(x => x.Provider == mailbox.Provider);
             var state = await db.Set<MailboxIngestionState>().SingleAsync(x => x.MailboxId == mailbox.Id, workToken);
+            state.LastAttemptUnixMilliseconds = clock.GetUtcNow().ToUnixTimeMilliseconds();
+            state.CurrentStage = "Recovering receipts";
+            await db.SaveChangesAsync(workToken);
             syncCommandVersion = state.SyncRequestedVersion > state.SyncCompletedVersion ? state.SyncRequestedVersion : 0;
             var known = (await db.Set<InboundMessageReceipt>().Where(x => x.MailboxId == mailbox.Id && x.SourceKey == mailbox.SourceKey)
                 .Select(x => x.TransportKey).Take(100001).ToListAsync(workToken)).ToHashSet(StringComparer.Ordinal);
             if (known.Count > 100000) throw new InvalidOperationException("ReceiptCapacityExceeded");
             await ProcessPendingAsync(db, mailbox, lease, workToken);
+            state.CurrentStage = "Historical import";
+            await db.SaveChangesAsync(workToken);
             await RecoverHistoricalImportsAsync(mailbox, lease, adapter, workToken);
 
             string? fetchError = null;
@@ -156,6 +163,8 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
             if (fetchAttempted && pendingCount >= 100) fetchError = "PendingReceiptCapacity";
             if (fetchAttempted && pendingCount < 100)
             {
+                state.CurrentStage = "Fetching source";
+                await db.SaveChangesAsync(workToken);
                 try
                 {
                     var batch = await adapter.FetchAsync(mailbox, state, known, workToken);
@@ -194,8 +203,15 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
                 }
             }
             await ProcessPendingAsync(db, mailbox, lease, workToken);
+            state.CurrentStage = "Acknowledging";
+            await db.SaveChangesAsync(workToken);
             await RecoverAcknowledgmentsAsync(mailbox, lease, adapter, workToken);
             if (fetchAttempted) await UpdateDiagnosticsAsync(mailbox, lease, fetchError, syncCommandVersion, workToken);
+            else
+            {
+                state.CurrentStage = "Retry scheduled";
+                await db.SaveChangesAsync(workToken);
+            }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (MailboxFenceLostException)
@@ -644,6 +660,7 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
         if (!await TryFenceAsync(db, scope.ServiceProvider.GetRequiredService<MailboxLeaseStore>(), lease, mailbox, ct)) return;
         var state = await db.Set<MailboxIngestionState>().SingleAsync(x => x.MailboxId == mailbox.Id, ct);
         state.ErrorCode = error;
+        state.CurrentStage = error is null ? "Waiting for next poll" : "Retry scheduled";
         state.NextRetryUnixMilliseconds = error is null ? null : clock.GetUtcNow().AddSeconds(30).ToUnixTimeMilliseconds();
         if (error is null) state.LastSyncUnixMilliseconds = clock.GetUtcNow().ToUnixTimeMilliseconds();
         if (syncCommandVersion > 0 && state.SyncRequestedVersion == syncCommandVersion)
