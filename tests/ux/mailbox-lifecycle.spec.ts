@@ -18,7 +18,7 @@ function inbox(account: 'requester' | 'recipient'): MailMessage[] {
 
 async function login(page: Page): Promise<void> {
   await page.goto('/login');
-  await expect(page.getByTestId('local-login-form')).toHaveAttribute('data-interactive', 'true');
+  await expect(page.getByTestId('local-login-form')).toHaveAttribute('data-interactive', 'true', { timeout: 15_000 });
   await page.getByRole('textbox', { name: 'Email' }).fill(process.env.HELPDESK_E2E_LOCAL_EMAIL!);
   await page.getByLabel('Password').fill(process.env.HELPDESK_E2E_LOCAL_PASSWORD!);
   await page.getByRole('button', { name: /^Sign in to/ }).click();

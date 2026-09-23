@@ -121,6 +121,66 @@ public sealed class SmtpMailboxSenderTests
     }
 
     [Fact]
+    public async Task Partial_smtp_recipient_rejection_is_held_without_resending_accepted_recipient()
+    {
+        const string rejected = "rejected@example.test";
+        await using var server = new SmtpFixture(rejected);
+        var mailbox = new EmailInboxSettings { Id = Guid.NewGuid(), MailboxAddress = "support@tenant-a.example.test", Enabled = true };
+        var protection = new MailboxOutgoingCredentialProtector(new EphemeralDataProtectionProvider());
+        var outgoing = new MailboxOutgoingSettings
+        {
+            MailboxId = mailbox.Id, Enabled = true, Transport = MailboxOutgoingTransport.Smtp,
+            SmtpHost = "localhost", SmtpPort = server.Port, SmtpTlsMode = MailboxTlsMode.TlsOnConnect,
+            SmtpUsername = mailbox.MailboxAddress
+        };
+        outgoing.ProtectedSmtpPassword = protection.Protect(outgoing, "synthetic-password");
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            { ["EmailSending:AllowedPrivateHosts:0"] = "localhost" }).Build();
+        var sender = new SmtpMailboxSender(new MailboxDestinationPolicy(configuration), protection,
+            new HtmlToPlainTextConverter());
+
+        var result = await sender.SendAsync(mailbox, outgoing,
+            ["accepted@example.test", rejected], null, "Update", "<p>Body</p>", [], Guid.NewGuid(), default);
+
+        Assert.Equal("Needs review", result.Status);
+        Assert.Equal("SmtpPartialRecipientAcceptance", result.ErrorCode);
+        Assert.Equal(new[] { "accepted@example.test" }, result.AcceptedRecipients);
+        Assert.Equal(new[] { rejected }, result.RejectedRecipients);
+        await server.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Contains("Body", server.Message);
+    }
+
+    [Fact]
+    public async Task Smtp_rejecting_every_recipient_never_submits_message_data()
+    {
+        const string rejected = "rejected@example.test";
+        await using var server = new SmtpFixture(rejected);
+        var mailbox = new EmailInboxSettings { Id = Guid.NewGuid(), MailboxAddress = "support@tenant-a.example.test", Enabled = true };
+        var protection = new MailboxOutgoingCredentialProtector(new EphemeralDataProtectionProvider());
+        var outgoing = new MailboxOutgoingSettings
+        {
+            MailboxId = mailbox.Id, Enabled = true, Transport = MailboxOutgoingTransport.Smtp,
+            SmtpHost = "localhost", SmtpPort = server.Port, SmtpTlsMode = MailboxTlsMode.TlsOnConnect,
+            SmtpUsername = mailbox.MailboxAddress
+        };
+        outgoing.ProtectedSmtpPassword = protection.Protect(outgoing, "synthetic-password");
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            { ["EmailSending:AllowedPrivateHosts:0"] = "localhost" }).Build();
+        var sender = new SmtpMailboxSender(new MailboxDestinationPolicy(configuration), protection,
+            new HtmlToPlainTextConverter());
+
+        var result = await sender.SendAsync(mailbox, outgoing,
+            [rejected], null, "Update", "<p>Body</p>", [], Guid.NewGuid(), default);
+
+        Assert.Equal("Failed", result.Status);
+        Assert.Equal("SmtpRecipientRejected", result.ErrorCode);
+        Assert.Empty(result.AcceptedRecipients ?? []);
+        Assert.Equal(new[] { rejected }, result.RejectedRecipients);
+        await server.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.DoesNotContain("DATA", server.Commands);
+    }
+
+    [Fact]
     public async Task Smtp_private_destination_is_blocked_without_explicit_fixture_policy()
     {
         var mailbox = new EmailInboxSettings { Id = Guid.NewGuid(), MailboxAddress = "support@tenant-a.example.test", Enabled = true };
@@ -152,6 +212,7 @@ public sealed class SmtpMailboxSenderTests
     private sealed class SmtpFixture : IAsyncDisposable
     {
         private readonly TcpListener listener;
+        private readonly string? rejectRecipient;
         private readonly X509Certificate2 certificate;
         private readonly X509Store roots = new(StoreName.Root, StoreLocation.CurrentUser);
         public int Port { get; }
@@ -159,8 +220,9 @@ public sealed class SmtpMailboxSenderTests
         public List<string> Commands { get; } = [];
         public string Message { get; private set; } = string.Empty;
 
-        public SmtpFixture()
+        public SmtpFixture(string? rejectRecipient = null)
         {
+            this.rejectRecipient = rejectRecipient;
             using var key = RSA.Create(2048);
             var request = new CertificateRequest("CN=localhost", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
             var san = new SubjectAlternativeNameBuilder();
@@ -204,8 +266,12 @@ public sealed class SmtpMailboxSenderTests
                     await writer.WriteLineAsync("250-localhost\r\n250-AUTH PLAIN\r\n250 SIZE 20000000");
                 else if (line.StartsWith("AUTH PLAIN", StringComparison.OrdinalIgnoreCase))
                     await writer.WriteLineAsync("235 2.7.0 authenticated");
+                else if (line.StartsWith("RCPT TO", StringComparison.OrdinalIgnoreCase) &&
+                         rejectRecipient is not null && line.Contains(rejectRecipient, StringComparison.OrdinalIgnoreCase))
+                    await writer.WriteLineAsync("550 5.1.1 recipient rejected");
                 else if (line.StartsWith("MAIL FROM", StringComparison.OrdinalIgnoreCase) ||
-                         line.StartsWith("RCPT TO", StringComparison.OrdinalIgnoreCase))
+                         line.StartsWith("RCPT TO", StringComparison.OrdinalIgnoreCase) ||
+                         line.StartsWith("RSET", StringComparison.OrdinalIgnoreCase))
                     await writer.WriteLineAsync("250 2.1.0 ok");
                 else if (line.StartsWith("QUIT", StringComparison.OrdinalIgnoreCase))
                 {

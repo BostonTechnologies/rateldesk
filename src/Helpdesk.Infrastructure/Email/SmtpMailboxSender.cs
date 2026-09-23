@@ -75,14 +75,17 @@ public sealed class SmtpMailboxSender(MailboxDestinationPolicy destinations,
             {
                 await client.SendAsync(message, timeout.Token);
                 await client.DisconnectAsync(true, timeout.Token);
-                return new("Accepted by provider", null, [.. to, .. copy]);
+                return client.RejectedRecipients.Count == 0
+                    ? new("Accepted by provider", null, [.. client.AcceptedRecipients])
+                    : new("Needs review", "SmtpPartialRecipientAcceptance",
+                        [.. client.AcceptedRecipients], [.. client.RejectedRecipients]);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (SmtpCommandException error) when (error.ErrorCode is SmtpErrorCode.RecipientNotAccepted or SmtpErrorCode.SenderNotAccepted)
             {
                 return new("Failed", error.ErrorCode == SmtpErrorCode.SenderNotAccepted
-                    ? "SmtpSenderRejected" : "SmtpRecipientRejected", null,
-                    error.Mailbox is null ? [] : [error.Mailbox.Address]);
+                    ? "SmtpSenderRejected" : "SmtpRecipientRejected",
+                    [.. client.AcceptedRecipients], [.. client.RejectedRecipients]);
             }
             catch (Exception error)
             {
@@ -95,9 +98,9 @@ public sealed class SmtpMailboxSender(MailboxDestinationPolicy destinations,
         catch (Exception error) { return new("Failed", SafeCode(error)); }
     }
 
-    private async Task<SmtpClient> ConnectAsync(MailboxOutgoingSettings outgoing, CancellationToken ct)
+    private async Task<RecipientTrackingSmtpClient> ConnectAsync(MailboxOutgoingSettings outgoing, CancellationToken ct)
     {
-        var client = new SmtpClient { Timeout = 20000 };
+        var client = new RecipientTrackingSmtpClient { Timeout = 20000 };
         Socket? socket = null;
         try
         {
@@ -129,4 +132,25 @@ public sealed class SmtpMailboxSender(MailboxDestinationPolicy destinations,
         OperationCanceledException => "SmtpTimedOut",
         _ => error.GetType().Name
     };
+
+    private sealed class RecipientTrackingSmtpClient : SmtpClient
+    {
+        public List<string> AcceptedRecipients { get; } = [];
+        public List<string> RejectedRecipients { get; } = [];
+
+        protected override void OnRecipientAccepted(MimeMessage message, MailboxAddress mailbox, SmtpResponse response)
+        {
+            AcceptedRecipients.Add(mailbox.Address);
+            base.OnRecipientAccepted(message, mailbox, response);
+        }
+
+        protected override void OnRecipientNotAccepted(MimeMessage message, MailboxAddress mailbox, SmtpResponse response)
+        {
+            RejectedRecipients.Add(mailbox.Address);
+        }
+
+        protected override void OnNoRecipientsAccepted(MimeMessage message) =>
+            throw new SmtpCommandException(SmtpErrorCode.RecipientNotAccepted,
+                SmtpStatusCode.MailboxUnavailable, "No recipients were accepted by the SMTP server.");
+    }
 }
