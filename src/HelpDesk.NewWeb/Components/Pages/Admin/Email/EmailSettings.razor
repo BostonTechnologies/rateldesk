@@ -401,7 +401,7 @@
     private string OutgoingSummary => model.Id == Guid.Empty ? "Save incoming first" : outgoingStatus switch
     {
         null => "Status unavailable",
-        { Version: 0 } => "Needs setup",
+        { Version: 0 } => "Not configured",
         { Enabled: false } => "Paused",
         { Transport: MailboxOutgoingTransport.Smtp, HasSmtpPassword: false } => "Missing SMTP credential",
         { Enabled: true } => "Enabled"

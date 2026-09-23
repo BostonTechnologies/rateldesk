@@ -14,7 +14,7 @@ function fixture(command: 'send' | 'messages', args: string[]): unknown {
 }
 
 async function addDedicated(page: Page, organization: string, provider: 'IMAP' | 'POP3',
-  address: string, password: string, incomingPort: string): Promise<Mailbox> {
+  address: string, password: string, incomingPort: string, outgoingEnabled = true): Promise<Mailbox> {
   await page.goto('/admin/email-settings');
   await expect(page.getByTestId('mailbox-settings')).toHaveAttribute('data-interactive', 'true');
   await page.getByRole('button', { name: 'Add', exact: true }).click();
@@ -37,6 +37,12 @@ async function addDedicated(page: Page, organization: string, provider: 'IMAP' |
   const mailbox = ((await (await page.request.get('/api/v1/email-settings')).json()) as Mailbox[])
     .find(item => item.mailboxAddress === address);
   expect(mailbox).toBeDefined();
+  if (outgoingEnabled)
+    await configureOutgoing(page, address, password);
+  return mailbox!;
+}
+
+async function configureOutgoing(page: Page, address: string, password: string): Promise<void> {
   await page.getByRole('tab', { name: /Outgoing/ }).click();
   await page.getByRole('textbox', { name: 'SMTP submission host' }).fill('localhost');
   await page.getByLabel('SMTP port').fill(process.env.MAILBOX_FIXTURE_SMTPS_PORT!);
@@ -47,7 +53,6 @@ async function addDedicated(page: Page, organization: string, provider: 'IMAP' |
   await page.getByLabel('Enable outgoing mail').click();
   await page.getByRole('button', { name: 'Save outgoing' }).click();
   await expect(page.getByTestId('mailbox-outgoing-editor').getByText('Outgoing settings saved.', { exact: true })).toBeVisible();
-  return mailbox!;
 }
 
 test.setTimeout(300_000);
@@ -71,7 +76,8 @@ test('mailbox POP3 lifecycle: dedicated IMAP and POP3 work without any global ma
   const imap = await addDedicated(page, 'Tenant A', 'IMAP', 'support@tenant-a.example.test',
     'synthetic-mail-password', process.env.MAILBOX_FIXTURE_IMAPS_PORT!);
   const pop = await addDedicated(page, 'Tenant C', 'POP3', 'pop@tenant-c.example.test',
-    'synthetic-pop-password', process.env.MAILBOX_FIXTURE_POP3S_PORT!);
+    'synthetic-pop-password', process.env.MAILBOX_FIXTURE_POP3S_PORT!, false);
+  await expect(page.getByText('Outgoing: Not configured', { exact: true })).toBeVisible();
   expect(pop.organizationId).toBe(organizationC.id);
   const mailboxes = await (await page.request.get('/api/v1/email-settings')).json() as Mailbox[];
   expect(mailboxes).toHaveLength(2);
@@ -108,10 +114,24 @@ test('mailbox POP3 lifecycle: dedicated IMAP and POP3 work without any global ma
     message.subject.includes(imapIncident.trackingId) && message.from.includes('support@tenant-a.example.test') &&
     message.replyTo.includes('support@tenant-a.example.test')),
   { timeout: 60_000, intervals: [1_000, 2_000] }).toBe(true);
-  await expect.poll(() => (fixture('messages', ['--account', 'requester-c']) as MailMessage[]).some(message =>
+  const failedDeliveries = async (): Promise<{ id: string; ticketId: string }[]> =>
+    await (await page.request.get('/api/v1/timeline/failed')).json() as { id: string; ticketId: string }[];
+  await expect.poll(async () => (await failedDeliveries()).filter(item => item.ticketId === popIncident.id).length,
+    { timeout: 30_000, intervals: [1_000, 2_000] }).toBe(1);
+  expect((fixture('messages', ['--account', 'requester-c']) as MailMessage[])
+    .filter(message => message.subject.includes(popIncident.trackingId))).toHaveLength(0);
+  await configureOutgoing(page, 'pop@tenant-c.example.test', 'synthetic-pop-password');
+  const failed = (await failedDeliveries()).find(item => item.ticketId === popIncident.id)!;
+  const retry = await page.request.post(`/api/v1/timeline/${failed.id}/retry`, {
+    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+  });
+  expect(retry.ok()).toBe(true);
+  await expect.poll(() => (fixture('messages', ['--account', 'requester-c']) as MailMessage[]).filter(message =>
     message.subject.includes(popIncident.trackingId) && message.from.includes('pop@tenant-c.example.test') &&
-    message.replyTo.includes('pop@tenant-c.example.test')),
-  { timeout: 60_000, intervals: [1_000, 2_000] }).toBe(true);
+    message.replyTo.includes('pop@tenant-c.example.test')).length,
+  { timeout: 60_000, intervals: [1_000, 2_000] }).toBe(1);
+  await expect.poll(async () => (await failedDeliveries()).filter(item => item.ticketId === popIncident.id).length,
+    { timeout: 30_000, intervals: [1_000, 2_000] }).toBe(0);
 
   expect((fixture('messages', ['--account', 'pop']) as MailMessage[])
     .filter(message => message.subject === 'Fixture no-global POP3')).toHaveLength(1);
