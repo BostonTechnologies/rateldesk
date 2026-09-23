@@ -144,6 +144,50 @@ public class EmailSettingsEndpointsTests
     }
 
     [Fact]
+    public async Task Historical_import_only_queues_confirmed_baseline_skips_and_never_replays_success()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var mailbox = await harness.SeedAsync();
+        var skipped = new InboundMessageReceipt { MailboxId = mailbox.Id, SourceKey = mailbox.SourceKey,
+            TransportKey = "historical-1", Outcome = InboundReceiptOutcome.Ignored,
+            Reason = "InitialBaselineSkipped", Acknowledged = true };
+        var succeeded = new InboundMessageReceipt { MailboxId = mailbox.Id, SourceKey = mailbox.SourceKey,
+            TransportKey = "handled-1", Outcome = InboundReceiptOutcome.Succeeded,
+            Acknowledged = true };
+        await harness.WithDbAsync(async db =>
+        {
+            db.Set<InboundMessageReceipt>().AddRange(skipped, succeeded);
+            await db.SaveChangesAsync();
+        });
+        harness.Historical.PreviewAsync(Arg.Any<EmailInboxSettings>(), Arg.Any<IReadOnlyList<string>>(),
+            Arg.Any<CancellationToken>()).Returns(call =>
+                Task.FromResult<IReadOnlyList<HistoricalSourcePreview>>(
+                    [new("historical-1", "sender@example.test", "Synthetic subject", DateTimeOffset.UtcNow, true, null)]));
+        var path = $"/api/v1/email-settings/{mailbox.Id}/historical";
+        var preview = await harness.Client.PostAsJsonAsync($"{path}/preview", new HistoricalMailboxPreviewRequest(null, null));
+        preview.EnsureSuccessStatusCode();
+        Assert.Equal(skipped.Id, Assert.Single((await preview.Content.ReadFromJsonAsync<HistoricalMailboxPreviewResult>())!.Items).ReceiptId);
+        Assert.Equal(HttpStatusCode.BadRequest, (await harness.Client.PostAsJsonAsync($"{path}/import",
+            new HistoricalMailboxImportRequest([skipped.Id], false))).StatusCode);
+        (await harness.Client.PostAsJsonAsync("/api/v1/email-settings/worker", new SetMailboxWorkerRequest(true, true)))
+            .EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.Conflict, (await harness.Client.PostAsJsonAsync($"{path}/import",
+            new HistoricalMailboxImportRequest([succeeded.Id], true))).StatusCode);
+        var import = await harness.Client.PostAsJsonAsync($"{path}/import",
+            new HistoricalMailboxImportRequest([skipped.Id], true));
+        Assert.Equal(HttpStatusCode.Accepted, import.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await harness.Client.PostAsJsonAsync($"{path}/import",
+            new HistoricalMailboxImportRequest([skipped.Id], true))).StatusCode);
+        await harness.WithDbAsync(async db =>
+        {
+            var receipt = await db.Set<InboundMessageReceipt>().SingleAsync(x => x.Id == skipped.Id);
+            Assert.NotNull(receipt.HistoricalImportRequestId);
+            Assert.Equal(InboundReceiptOutcome.Ignored, receipt.Outcome);
+            Assert.Null((await db.Set<InboundMessageReceipt>().SingleAsync(x => x.Id == succeeded.Id)).HistoricalImportRequestId);
+        });
+    }
+
+    [Fact]
     public async Task Configuration_audit_records_actor_and_actions_without_draft_secrets()
     {
         await using var harness = await Harness.CreateAsync();
@@ -196,6 +240,7 @@ public class EmailSettingsEndpointsTests
         public HttpClient Client { get; }
         public IImapEmailService Imap { get; }
         public IInboundMailboxAdapter Graph => _app.Services.GetRequiredService<IInboundMailboxAdapter>();
+        public IHistoricalMailboxAdapter Historical => (IHistoricalMailboxAdapter)Graph;
 
         public HttpClient CreateClient(string? role = null)
         {
@@ -229,7 +274,7 @@ public class EmailSettingsEndpointsTests
             builder.Services.AddScoped<MailboxSenderResolver>();
             builder.Services.AddScoped<MailboxDestinationPolicy>();
             builder.Services.AddScoped<IHtmlToPlainTextConverter, HtmlToPlainTextConverter>();
-            var graph = Substitute.For<IInboundMailboxAdapter>(); graph.Provider.Returns(InboundMailboxProvider.Graph);
+            var graph = Substitute.For<IInboundMailboxAdapter, IHistoricalMailboxAdapter>(); graph.Provider.Returns(InboundMailboxProvider.Graph);
             graph.TestAsync(Arg.Any<EmailInboxSettings>(), Arg.Any<CancellationToken>()).Returns(new MailboxConnectionTest(true, "Synthetic provider test."));
             builder.Services.AddSingleton(graph);
             builder.Services.AddScoped<ITenantContext>(_ => Substitute.For<ITenantContext>());

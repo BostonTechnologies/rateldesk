@@ -1582,6 +1582,18 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Property<long>("CreatedUnixMilliseconds")
                         .HasColumnType("bigint");
 
+                    b.Property<long?>("HistoricalImportCompletedUnixMilliseconds")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("HistoricalImportErrorCode")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("HistoricalImportRequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long?>("HistoricalImportRequestedUnixMilliseconds")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("InternetMessageId")
                         .HasColumnType("text");
 
@@ -1732,6 +1744,9 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                 {
                     b.Property<Guid>("MailboxId")
                         .HasColumnType("uuid");
+
+                    b.Property<long?>("BaselineCompletedUnixMilliseconds")
+                        .HasColumnType("bigint");
 
                     b.Property<string>("Cursor")
                         .HasColumnType("text");

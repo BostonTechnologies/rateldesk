@@ -15,3 +15,14 @@ public interface IInboundMailboxAdapter
         IReadOnlySet<string> knownKeys, CancellationToken ct);
     Task AcknowledgeAsync(EmailInboxSettings settings, string key, CancellationToken ct);
 }
+
+public sealed record HistoricalSourcePreview(string Key, string? Sender, string? Subject,
+    DateTimeOffset? ReceivedAt, bool Available, string? ErrorCode);
+
+public interface IHistoricalMailboxAdapter
+{
+    InboundMailboxProvider Provider { get; }
+    Task<IReadOnlyList<HistoricalSourcePreview>> PreviewAsync(EmailInboxSettings settings,
+        IReadOnlyList<string> keys, CancellationToken ct);
+    Task<InboundSourceMessage> FetchHistoricalAsync(EmailInboxSettings settings, string key, CancellationToken ct);
+}

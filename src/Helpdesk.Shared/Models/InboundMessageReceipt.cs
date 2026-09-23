@@ -24,6 +24,10 @@ public sealed class InboundMessageReceipt
     public long CreatedUnixMilliseconds { get; set; }
     public long UpdatedUnixMilliseconds { get; set; }
     public string ProtectedEnvelope { get; set; } = string.Empty;
+    public Guid? HistoricalImportRequestId { get; set; }
+    public long? HistoricalImportRequestedUnixMilliseconds { get; set; }
+    public long? HistoricalImportCompletedUnixMilliseconds { get; set; }
+    public string? HistoricalImportErrorCode { get; set; }
 }
 
 public sealed class MailboxIngestionState
@@ -32,6 +36,7 @@ public sealed class MailboxIngestionState
     public string SourceKey { get; set; } = string.Empty;
     public string? Cursor { get; set; }
     public bool Initialized { get; set; }
+    public long? BaselineCompletedUnixMilliseconds { get; set; }
     public long? LastTestUnixMilliseconds { get; set; }
     public long? TestedVersion { get; set; }
     public long? LastSyncUnixMilliseconds { get; set; }

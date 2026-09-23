@@ -4,7 +4,7 @@ import { expect, test, type Page } from '@playwright/test';
 type MailMessage = { subject: string; from: string; to: string; replyTo: string; messageId: string; body: string };
 type Mailbox = { id: string; organizationId: string | null; mailboxAddress: string };
 type Incident = { id: string; trackingId: string; subject: string; requesterEmail: string; organizationId: string; customerId: string };
-type Diagnostics = { state: { initialized: boolean } | null; receipts: { outcome: number | string; ticketId: string | null }[] };
+type Diagnostics = { state: { initialized: boolean } | null; receipts: { id: string; outcome: number | string; reason: string | null; ticketId: string | null }[] };
 
 function fixture(command: 'send' | 'messages', args: string[]): unknown {
   return JSON.parse(execFileSync('python3', ['tools/ci/mailbox-lifecycle-fixture.py', command, ...args], {
@@ -73,6 +73,10 @@ test('mailbox lifecycle acceptance: published Web/API receives, sends and thread
   await page.getByRole('button', { name: 'Test outgoing connection' }).click();
   await expect(page.getByText('SMTP TLS and authentication succeeded; no message was sent.')).toBeVisible();
 
+  const oldSubject = 'Fixture pre-activation message';
+  fixture('send', ['--sender', 'requester', '--recipient', 'support', '--subject', oldSubject,
+    '--body', 'Only the selected historical import should create this incident']);
+
   page.once('dialog', dialog => dialog.accept());
   await page.getByRole('button', { name: 'Start worker' }).click();
   await expect(page.getByText('Instance enabled', { exact: true })).toBeVisible();
@@ -81,6 +85,27 @@ test('mailbox lifecycle acceptance: published Web/API receives, sends and thread
     expect(response.ok()).toBe(true);
     return ((await response.json()) as Diagnostics).state?.initialized;
   }, { timeout: 60_000, intervals: [1_000, 2_000, 3_000] }).toBe(true);
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/v1/email-settings/${mailboxId}/diagnostics`);
+    return ((await response.json()) as Diagnostics).receipts.filter(receipt =>
+      receipt.reason === 'InitialBaselineSkipped').length;
+  }, { timeout: 30_000, intervals: [1_000, 2_000] }).toBe(1);
+  const beforeImport = await page.request.get(`/api/v1/incidents?pageSize=50&organizationId=${encodeURIComponent(selected!.organizationId!)}`);
+  expect(((await beforeImport.json()) as { items: Incident[] }).items.some(incident => incident.subject === oldSubject)).toBe(false);
+
+  await page.goto(`/admin/email-settings/${mailboxId}/ingestion`);
+  await expect(page.getByTestId('mailbox-ingestion')).toHaveAttribute('data-interactive', 'true');
+  await page.getByRole('button', { name: 'Import existing mail…' }).click();
+  await page.getByRole('button', { name: 'Preview', exact: true }).click();
+  await expect(page.getByText(oldSubject, { exact: true })).toBeVisible();
+  await page.getByRole('checkbox', { name: 'Select message for import' }).check();
+  await page.getByRole('checkbox', { name: /I confirm these messages/ }).check();
+  await page.getByRole('button', { name: 'Import selected' }).click();
+  await expect(page.getByText(/Queued 1 selected messages/)).toBeVisible();
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/v1/incidents?pageSize=50&organizationId=${encodeURIComponent(selected!.organizationId!)}`);
+    return ((await response.json()) as { items: Incident[] }).items.filter(incident => incident.subject === oldSubject).length;
+  }, { timeout: 60_000, intervals: [1_000, 2_000, 3_000] }).toBe(1);
 
   const subjects = ['Fixture printer issue', 'Fixture access issue', 'Fixture network issue'];
   for (const subject of subjects)

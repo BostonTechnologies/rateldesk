@@ -24,6 +24,8 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
         "EmailIngestion:AcknowledgmentTimeout", TimeSpan.FromSeconds(20), TimeSpan.FromMilliseconds(100), TimeSpan.FromSeconds(25));
     private readonly TimeSpan acknowledgmentPhaseBudget = ReadBoundedDuration(configuration,
         "EmailIngestion:AcknowledgmentPhaseBudget", TimeSpan.FromSeconds(20), TimeSpan.FromMilliseconds(100), TimeSpan.FromSeconds(25));
+    private readonly TimeSpan historicalPhaseBudget = ReadBoundedDuration(configuration,
+        "EmailIngestion:HistoricalPhaseBudget", TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(25));
     private readonly string owner = Guid.NewGuid().ToString("N");
     private readonly Dictionary<Guid, DateTimeOffset> due = [];
     private readonly Dictionary<Guid, Runner> running = [];
@@ -144,6 +146,7 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
                 .Select(x => x.TransportKey).Take(100001).ToListAsync(workToken)).ToHashSet(StringComparer.Ordinal);
             if (known.Count > 100000) throw new InvalidOperationException("ReceiptCapacityExceeded");
             await ProcessPendingAsync(db, mailbox, lease, workToken);
+            await RecoverHistoricalImportsAsync(mailbox, lease, adapter, workToken);
 
             string? fetchError = null;
             var fetchAttempted = syncCommandVersion > 0 || state.NextRetryUnixMilliseconds is null ||
@@ -175,6 +178,8 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
                         });
                     }
                     state.Cursor = batch.NextCursor;
+                    if (!state.Initialized && batch.InitializationComplete)
+                        state.BaselineCompletedUnixMilliseconds = clock.GetUtcNow().ToUnixTimeMilliseconds();
                     state.Initialized |= batch.InitializationComplete;
                     await db.SaveChangesAsync(workToken);
                     await capture.CommitAsync(workToken);
@@ -211,6 +216,72 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
             catch (Exception error)
             {
                 logger.LogWarning("Mailbox {MailboxId} lease release failed ({FailureType}); lease expiry provides recovery.", mailbox.Id, error.GetType().Name);
+            }
+        }
+    }
+
+    private async Task RecoverHistoricalImportsAsync(EmailInboxSettings mailbox, MailboxLeaseToken lease,
+        IInboundMailboxAdapter adapter, CancellationToken ct)
+    {
+        if (adapter is not IHistoricalMailboxAdapter historical) return;
+        using var phase = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        phase.CancelAfter(historicalPhaseBudget);
+        var token = phase.Token;
+        IReadOnlyList<Guid> ids;
+        await using (var scope = scopes.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            ids = await db.Set<InboundMessageReceipt>().AsNoTracking().Where(x => x.MailboxId == mailbox.Id &&
+                    x.SourceKey == mailbox.SourceKey && x.Outcome == InboundReceiptOutcome.Ignored &&
+                    x.Reason == "InitialBaselineSkipped" && x.HistoricalImportRequestId != null &&
+                    x.HistoricalImportCompletedUnixMilliseconds == null)
+                .OrderBy(x => x.HistoricalImportRequestedUnixMilliseconds).Take(10).Select(x => x.Id).ToListAsync(token);
+        }
+        foreach (var id in ids)
+        {
+            try
+            {
+                await using var scope = scopes.CreateAsyncScope();
+                var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+                var receipt = await db.Set<InboundMessageReceipt>().SingleAsync(x => x.Id == id, token);
+                InboundSourceMessage source;
+                try { source = await historical.FetchHistoricalAsync(mailbox, receipt.TransportKey, token); }
+                catch (InboundSourceMissingException)
+                {
+                    source = new(receipt.TransportKey, null, HoldReason: "ImportSourceMissing");
+                }
+                await using var transaction = await db.Database.BeginTransactionAsync(token);
+                var leases = scope.ServiceProvider.GetRequiredService<MailboxLeaseStore>();
+                await FenceAsync(db, leases, lease, mailbox, token);
+                if (receipt.Outcome != InboundReceiptOutcome.Ignored || receipt.Reason != "InitialBaselineSkipped" ||
+                    receipt.HistoricalImportRequestId is null || receipt.HistoricalImportCompletedUnixMilliseconds is not null)
+                {
+                    await transaction.RollbackAsync(token);
+                    continue;
+                }
+                receipt.ProtectedEnvelope = source.Message is null ? string.Empty :
+                    scope.ServiceProvider.GetRequiredService<MailboxCredentialProtector>()
+                        .Protect(mailbox.Id, JsonSerializer.Serialize(source.Message));
+                receipt.InternetMessageId = source.Message?.InternetMessageId;
+                receipt.Outcome = source.Message is not null ? InboundReceiptOutcome.Pending : InboundReceiptOutcome.NeedsReview;
+                receipt.Reason = source.Message is not null ? null : source.HoldReason ?? "ImportSourceMissing";
+                receipt.Acknowledged = false;
+                receipt.AcknowledgmentStatus = InboundAcknowledgmentStatus.Pending;
+                receipt.AcknowledgmentTargetFingerprint = AcknowledgmentTarget(mailbox);
+                receipt.ConfigurationVersion = mailbox.Version;
+                receipt.Attempts = 0;
+                receipt.HistoricalImportCompletedUnixMilliseconds = clock.GetUtcNow().ToUnixTimeMilliseconds();
+                receipt.HistoricalImportErrorCode = receipt.Reason;
+                receipt.UpdatedUnixMilliseconds = clock.GetUtcNow().ToUnixTimeMilliseconds();
+                await db.SaveChangesAsync(token);
+                await transaction.CommitAsync(token);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested && token.IsCancellationRequested) { break; }
+            catch (MailboxFenceLostException) { throw; }
+            catch (Exception error)
+            {
+                logger.LogWarning("Mailbox {MailboxId} historical receipt {ReceiptId} delayed ({FailureType}).",
+                    mailbox.Id, id, error.GetType().Name);
             }
         }
     }

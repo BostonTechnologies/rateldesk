@@ -7,7 +7,7 @@ using MimeKit;
 
 namespace Helpdesk.Infrastructure.Email;
 
-public sealed class GraphMailboxAdapter(MailboxCredentialProtector secrets, Func<EmailInboxSettings, GraphServiceClient>? clientFactory = null) : IInboundMailboxAdapter
+public sealed class GraphMailboxAdapter(MailboxCredentialProtector secrets, Func<EmailInboxSettings, GraphServiceClient>? clientFactory = null) : IInboundMailboxAdapter, IHistoricalMailboxAdapter
 {
     public InboundMailboxProvider Provider => InboundMailboxProvider.Graph;
 
@@ -21,6 +21,64 @@ public sealed class GraphMailboxAdapter(MailboxCredentialProtector secrets, Func
         var folder = await client.Users[settings.MailboxAddress].MailFolders[settings.MailboxFolder].GetAsync(
             request => request.Headers.Add("Prefer", "IdType=\"ImmutableId\""), ct);
         return new(folder?.Id is not null, "Graph authentication and folder read access succeeded. Move/write permissions were not tested.");
+    }
+
+    public async Task<IReadOnlyList<HistoricalSourcePreview>> PreviewAsync(EmailInboxSettings settings,
+        IReadOnlyList<string> keys, CancellationToken ct)
+    {
+        if (keys.Count > 50) throw new ArgumentOutOfRangeException(nameof(keys));
+        using var client = Create(settings);
+        var previews = new List<HistoricalSourcePreview>(keys.Count);
+        foreach (var key in keys)
+        {
+            try
+            {
+                var item = await client.Users[settings.MailboxAddress].Messages[key].GetAsync(request =>
+                {
+                    request.Headers.Add("Prefer", "IdType=\"ImmutableId\"");
+                    request.QueryParameters.Select = ["id", "from", "subject", "receivedDateTime"];
+                }, ct);
+                previews.Add(new(key, item?.From?.EmailAddress?.Address, item?.Subject,
+                    item?.ReceivedDateTime, item is not null, item is null ? "SourceMessageMissing" : null));
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException error) when (error.ResponseStatusCode == 404)
+            {
+                previews.Add(new(key, null, null, null, false, "SourceMessageMissing"));
+            }
+        }
+        return previews;
+    }
+
+    public async Task<InboundSourceMessage> FetchHistoricalAsync(EmailInboxSettings settings, string key, CancellationToken ct)
+    {
+        using var client = Create(settings);
+        Stream raw;
+        try
+        {
+            raw = await client.Users[settings.MailboxAddress].Messages[key].Content.GetAsync(
+                request => request.Headers.Add("Prefer", "IdType=\"ImmutableId\""), ct)
+                ?? throw new InvalidDataException("Graph returned no MIME content.");
+        }
+        catch (Microsoft.Kiota.Abstractions.ApiException error) when (error.ResponseStatusCode == 404)
+        {
+            throw new InboundSourceMissingException("Graph source message is absent.");
+        }
+        await using (raw)
+        {
+            using var buffer = new MemoryStream();
+            var bytes = new byte[81920];
+            int read;
+            while ((read = await raw.ReadAsync(bytes, ct)) != 0)
+            {
+                if (buffer.Length + read > MimeInboundNormalizer.MaxMessageBytes)
+                    return new(key, null, HoldReason: "MessageSizeExceeded");
+                await buffer.WriteAsync(bytes.AsMemory(0, read), ct);
+            }
+            buffer.Position = 0;
+            var normalized = await MimeInboundNormalizer.ReadAsync(buffer, settings, key, ct);
+            return normalized.Message is null ? normalized : normalized with
+                { Message = normalized.Message with { GraphMessageId = key } };
+        }
     }
 
     public async Task<InboundSourceBatch> FetchAsync(EmailInboxSettings settings, MailboxIngestionState state,

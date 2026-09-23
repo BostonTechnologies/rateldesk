@@ -169,7 +169,8 @@ public static class EmailSettingsEndpoints
                     x.LastTestUnixMilliseconds, x.TestedVersion, x.LastSyncUnixMilliseconds,
                     x.NextRetryUnixMilliseconds, x.ErrorCode, x.Cursor != null,
                     x.SyncRequestedVersion, x.SyncCompletedVersion,
-                    x.LastSyncCommandUnixMilliseconds, x.LastSyncCommandErrorCode)).SingleOrDefaultAsync(ct);
+                    x.LastSyncCommandUnixMilliseconds, x.LastSyncCommandErrorCode,
+                    x.BaselineCompletedUnixMilliseconds)).SingleOrDefaultAsync(ct);
             var receipts = await db.Set<InboundMessageReceipt>().AsNoTracking().Where(x => x.MailboxId == id)
                 .OrderByDescending(x => x.CreatedUnixMilliseconds).Take(100)
                 .Select(x => new MailboxReceiptDiagnosticsDto(x.Id, x.Outcome, x.Reason,
@@ -177,6 +178,88 @@ public static class EmailSettingsEndpoints
             return Results.Ok(new MailboxDiagnosticsResponse(state, receipts, await policy.GetMailboxStatusAsync(id, ct)));
         });
         group.MapPost("/{id:guid}/receipts/{receiptId:guid}/retry", RetryReceiptAsync);
+        group.MapPost("/{id:guid}/historical/preview", PreviewHistoricalAsync);
+        group.MapPost("/{id:guid}/historical/import", ImportHistoricalAsync);
+    }
+
+    private static async Task<IResult> PreviewHistoricalAsync(Guid id, [FromBody] HistoricalMailboxPreviewRequest request,
+        HelpdeskDbContext db, IEnumerable<IInboundMailboxAdapter> adapters, CancellationToken ct)
+    {
+        if (request.Count is < 1 or > 50 || request.Skip is < 0 or > 10000 ||
+            request.FromUnixMilliseconds > request.ToUnixMilliseconds)
+            return Results.BadRequest(new { message = "Choose 1–50 messages, a valid date range, and a bounded page." });
+        var mailbox = await db.EmailInboxSettings.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && !x.Archived, ct);
+        if (mailbox is null) return Results.NotFound();
+        if (mailbox.Provider == InboundMailboxProvider.Pop3 &&
+            (request.FromUnixMilliseconds is not null || request.ToUnixMilliseconds is not null))
+            return Results.BadRequest(new { message = "POP3 does not provide a trustworthy server receive date; use a count limit." });
+        var receipts = await db.Set<InboundMessageReceipt>().AsNoTracking().Where(x => x.MailboxId == id &&
+                x.SourceKey == mailbox.SourceKey && x.Outcome == InboundReceiptOutcome.Ignored &&
+                x.Reason == "InitialBaselineSkipped" && x.HistoricalImportRequestId == null)
+            .OrderBy(x => x.CreatedUnixMilliseconds).Skip(request.Skip).Take(request.Count + 1).ToListAsync(ct);
+        var hasMore = receipts.Count > request.Count;
+        if (hasMore) receipts.RemoveAt(receipts.Count - 1);
+        if (receipts.Count == 0) return Results.Ok(new HistoricalMailboxPreviewResult([], false, request.Skip));
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(45));
+        try
+        {
+            var adapter = (IHistoricalMailboxAdapter)adapters.Single(x => x.Provider == mailbox.Provider);
+            var previews = await adapter.PreviewAsync(mailbox, receipts.Select(x => x.TransportKey).ToArray(), timeout.Token);
+            var byKey = previews.ToDictionary(x => x.Key, StringComparer.Ordinal);
+            var items = receipts.Where(x => byKey.ContainsKey(x.TransportKey))
+                .Select(x => (Receipt: x, Preview: byKey[x.TransportKey]))
+                .Where(x => (request.FromUnixMilliseconds is null || x.Preview.ReceivedAt?.ToUnixTimeMilliseconds() >= request.FromUnixMilliseconds) &&
+                    (request.ToUnixMilliseconds is null || x.Preview.ReceivedAt?.ToUnixTimeMilliseconds() <= request.ToUnixMilliseconds))
+                .Select(x => new HistoricalMailboxPreviewItem(x.Receipt.Id, x.Preview.Sender, x.Preview.Subject,
+                    x.Preview.ReceivedAt?.ToUnixTimeMilliseconds(), x.Preview.Available, x.Preview.ErrorCode)).ToArray();
+            return Results.Ok(new HistoricalMailboxPreviewResult(items, hasMore, request.Skip));
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return Results.StatusCode(StatusCodes.Status504GatewayTimeout);
+        }
+        catch (Exception error)
+        {
+            return Results.Problem(title: "Historical preview failed", detail: error.GetType().Name,
+                statusCode: StatusCodes.Status502BadGateway);
+        }
+    }
+
+    private static async Task<IResult> ImportHistoricalAsync(Guid id, [FromBody] HistoricalMailboxImportRequest request,
+        HelpdeskDbContext db, MailboxWorkerPolicy policy, ClaimsPrincipal user, CancellationToken ct)
+    {
+        if (!request.Confirmed || request.ReceiptIds.Count is < 1 or > 25 ||
+            request.ReceiptIds.Distinct().Count() != request.ReceiptIds.Count)
+            return Results.BadRequest(new { message = "Confirm 1–25 distinct previewed receipts." });
+        var mailbox = await db.EmailInboxSettings.SingleOrDefaultAsync(x => x.Id == id && !x.Archived, ct);
+        if (mailbox is null) return Results.NotFound();
+        var worker = await policy.GetMailboxStatusAsync(id, ct);
+        if (worker is null || worker.State is "Disabled by deployment" or "Instance paused" or "Mailbox disabled" or "Incoming paused")
+            return Results.Conflict(new { message = "Enable this mailbox and its worker before importing.", state = worker?.State });
+        var requestId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        var changed = await db.Set<InboundMessageReceipt>().Where(x => x.MailboxId == id &&
+                x.SourceKey == mailbox.SourceKey && request.ReceiptIds.Contains(x.Id) &&
+                x.Outcome == InboundReceiptOutcome.Ignored && x.Reason == "InitialBaselineSkipped" &&
+                x.HistoricalImportRequestId == null)
+            .ExecuteUpdateAsync(update => update
+                .SetProperty(x => x.HistoricalImportRequestId, requestId)
+                .SetProperty(x => x.HistoricalImportRequestedUnixMilliseconds, now)
+                .SetProperty(x => x.UpdatedUnixMilliseconds, now), ct);
+        if (changed != request.ReceiptIds.Count)
+        {
+            await transaction.RollbackAsync(ct);
+            return Results.Conflict(new { message = "Selection changed; preview again." });
+        }
+        AddConfigurationAudit(db, user, mailbox, $"historical import requested ({changed})");
+        await db.SaveChangesAsync(ct);
+        await db.Set<MailboxIngestionState>().Where(x => x.MailboxId == id)
+            .ExecuteUpdateAsync(update => update.SetProperty(x => x.SyncRequestedVersion,
+                x => x.SyncRequestedVersion + 1), ct);
+        await transaction.CommitAsync(ct);
+        return Results.Accepted(value: new HistoricalMailboxImportResult(requestId, changed, "Queued"));
     }
 
     internal static async Task<IResult> RetryReceiptAsync(Guid id, Guid receiptId, HelpdeskDbContext db, CancellationToken ct)

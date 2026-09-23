@@ -7,7 +7,8 @@ public sealed record MailboxIngestionDiagnosticsDto(Guid MailboxId, bool Initial
     long? LastTestUnixMilliseconds, long? TestedVersion, long? LastSyncUnixMilliseconds,
     long? NextRetryUnixMilliseconds, string? ErrorCode, bool HasCheckpoint,
     long SyncRequestedVersion, long SyncCompletedVersion,
-    long? LastSyncCommandUnixMilliseconds, string? LastSyncCommandErrorCode);
+    long? LastSyncCommandUnixMilliseconds, string? LastSyncCommandErrorCode,
+    long? BaselineCompletedUnixMilliseconds);
 
 public sealed record MailboxSyncRequestResult(Guid MailboxId, long RequestVersion, string Status);
 

@@ -102,6 +102,60 @@ public sealed class MixedMailboxCoordinatorTests
     }
 
     [Fact]
+    public async Task Selected_empty_envelope_baseline_receipt_refetches_and_processes_without_replaying_other_receipts()
+    {
+        await using var fixture = await MixedHarness.CreateAsync(InboundMailboxProvider.Graph, seedMessages: false);
+        await fixture.SeedReceiptAsync(fixture.Global, "selected-old", InboundReceiptOutcome.Ignored, envelope: false);
+        await fixture.SeedReceiptAsync(fixture.Global, "other-old", InboundReceiptOutcome.Ignored, envelope: false);
+        await fixture.SeedReceiptAsync(fixture.Global, "already-handled", InboundReceiptOutcome.Succeeded, envelope: false);
+        fixture.AddMessage(fixture.Global, "selected-old", "requester@tenant0.example.com");
+        await using (var setup = fixture.Open())
+        {
+            var rows = await setup.Set<InboundMessageReceipt>().ToListAsync();
+            foreach (var receipt in rows.Where(x => x.Outcome == InboundReceiptOutcome.Ignored))
+            {
+                receipt.Reason = "InitialBaselineSkipped";
+                receipt.Acknowledged = true;
+            }
+            rows.Single(x => x.TransportKey == "selected-old").HistoricalImportRequestId = Guid.NewGuid();
+            await setup.SaveChangesAsync();
+        }
+
+        await fixture.Coordinator.PollAsync(fixture.Global, default);
+
+        await using var verify = fixture.Open();
+        Assert.Single(await verify.Incidents.ToListAsync());
+        var receipts = await verify.Set<InboundMessageReceipt>().ToListAsync();
+        Assert.Equal(InboundReceiptOutcome.Succeeded, receipts.Single(x => x.TransportKey == "selected-old").Outcome);
+        Assert.NotNull(receipts.Single(x => x.TransportKey == "selected-old").HistoricalImportCompletedUnixMilliseconds);
+        Assert.Equal(InboundReceiptOutcome.Ignored, receipts.Single(x => x.TransportKey == "other-old").Outcome);
+        Assert.Equal(InboundReceiptOutcome.Succeeded, receipts.Single(x => x.TransportKey == "already-handled").Outcome);
+    }
+
+    [Fact]
+    public async Task Missing_historical_source_is_held_for_review_without_creating_an_incident()
+    {
+        await using var fixture = await MixedHarness.CreateAsync(InboundMailboxProvider.Graph, seedMessages: false);
+        await fixture.SeedReceiptAsync(fixture.Global, "gone-old", InboundReceiptOutcome.Ignored, envelope: false);
+        await using (var setup = fixture.Open())
+        {
+            var receipt = await setup.Set<InboundMessageReceipt>().SingleAsync();
+            receipt.Reason = "InitialBaselineSkipped";
+            receipt.Acknowledged = true;
+            receipt.HistoricalImportRequestId = Guid.NewGuid();
+            await setup.SaveChangesAsync();
+        }
+
+        await fixture.Coordinator.PollAsync(fixture.Global, default);
+
+        await using var verify = fixture.Open();
+        Assert.Empty(await verify.Incidents.ToListAsync());
+        var held = await verify.Set<InboundMessageReceipt>().SingleAsync();
+        Assert.Equal(InboundReceiptOutcome.NeedsReview, held.Outcome);
+        Assert.Equal("ImportSourceMissing", held.Reason);
+    }
+
+    [Fact]
     public async Task Durable_acknowledgment_recovers_when_fresh_enumeration_fails()
     {
         await using var fixture = await MixedHarness.CreateAsync(InboundMailboxProvider.Graph, seedMessages: false);
@@ -982,7 +1036,7 @@ public sealed class MixedMailboxCoordinatorTests
         };
     }
 
-    private sealed class ControlledAdapter(InboundMailboxProvider provider) : IInboundMailboxAdapter
+    private sealed class ControlledAdapter(InboundMailboxProvider provider) : IInboundMailboxAdapter, IHistoricalMailboxAdapter
     {
         public InboundMailboxProvider Provider => provider;
         public ConcurrentDictionary<Guid, ConcurrentQueue<InboundSourceMessage>> Feeds { get; } = new();
@@ -1002,6 +1056,18 @@ public sealed class MixedMailboxCoordinatorTests
 
         public Task<MailboxConnectionTest> TestAsync(EmailInboxSettings settings, CancellationToken ct) =>
             Task.FromResult(new MailboxConnectionTest(true, "Synthetic protocol fixture"));
+
+        public Task<IReadOnlyList<HistoricalSourcePreview>> PreviewAsync(EmailInboxSettings settings,
+            IReadOnlyList<string> keys, CancellationToken ct) => Task.FromResult<IReadOnlyList<HistoricalSourcePreview>>(
+            keys.Select(key => new HistoricalSourcePreview(key, null, null, null,
+                Feeds.GetValueOrDefault(settings.Id)?.Any(x => x.Key == key) == true, null)).ToArray());
+
+        public Task<InboundSourceMessage> FetchHistoricalAsync(EmailInboxSettings settings, string key, CancellationToken ct)
+        {
+            var message = Feeds.GetValueOrDefault(settings.Id)?.FirstOrDefault(x => x.Key == key);
+            if (message is null) throw new InboundSourceMissingException("Synthetic source is absent.");
+            return Task.FromResult(message);
+        }
 
         public async Task<InboundSourceBatch> FetchAsync(EmailInboxSettings settings, MailboxIngestionState state,
             IReadOnlySet<string> knownKeys, CancellationToken ct)
