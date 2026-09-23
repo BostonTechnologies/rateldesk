@@ -10,6 +10,7 @@ public sealed record IngressEmailEffect(string[] Recipients, string Subject, str
 {
     public Guid? MailboxId { get; init; }
     public string? OrganizationId { get; init; }
+    public string? SenderBindingError { get; init; }
 }
 
 public sealed record IngressCapturedEffect(string Key, MailboxEffectKind Kind, string Payload);
@@ -18,6 +19,7 @@ public interface IIngressEffectContext
 {
     bool IsActive { get; }
     Guid ReceiptId { get; }
+    string? OrganizationId { get; set; }
     string? SupportDeliveryId { get; set; }
     Guid? TimelineDeliveryId { get; set; }
     IReadOnlyList<IngressCapturedEffect> Effects { get; }
@@ -36,6 +38,7 @@ public sealed class IngressEffectContext : IIngressEffectContext
     private int creationOrdinal;
     public bool IsActive { get; private set; }
     public Guid ReceiptId { get; private set; }
+    public string? OrganizationId { get; set; }
     public string? SupportDeliveryId { get; set; }
     public Guid? TimelineDeliveryId { get; set; }
     public IReadOnlyList<IngressCapturedEffect> Effects => effects;
@@ -95,6 +98,7 @@ public sealed class IngressEffectContext : IIngressEffectContext
             context.IsActive = false;
             context.SupportDeliveryId = null;
             context.TimelineDeliveryId = null;
+            context.OrganizationId = null;
             context.effects.Clear();
         }
     }

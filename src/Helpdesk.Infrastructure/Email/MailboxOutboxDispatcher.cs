@@ -94,7 +94,7 @@ public sealed class MailboxOutboxDispatcher(IServiceScopeFactory scopes, ILogger
             case MailboxEffectKind.Email:
                 var email = MailboxOutboxStore.Deserialize<IngressEmailEffect>(effect.Payload);
                 if (email.MailboxId is null)
-                    return new("Needs review", "LegacySenderBindingMissing");
+                    return new("Needs review", email.SenderBindingError ?? "LegacySenderBindingMissing");
                 return await services.GetRequiredService<MailboxEmailService>().SendPinnedAsync(email.MailboxId.Value,
                     email.OrganizationId, email.TicketId, email.Recipients, email.Cc,
                     email.Subject, email.Html, email.Attachments, email.ReplyTo, effect.Id, ct);

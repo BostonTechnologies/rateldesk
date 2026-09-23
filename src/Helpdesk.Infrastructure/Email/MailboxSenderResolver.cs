@@ -21,8 +21,12 @@ public sealed class MailboxSenderResolver(HelpdeskDbContext db)
     {
         if (!string.IsNullOrWhiteSpace(ticketId))
         {
-            var ticketOrganization = await db.Tickets.IgnoreQueryFilters()
-                .Where(x => x.Id == ticketId).Select(x => x.OrganizationId).SingleOrDefaultAsync(ct);
+            // A new ticket may be tracked but not flushed yet in the ingress transaction.
+            var ticketOrganization = db.ChangeTracker.Entries<Ticket>()
+                .Where(x => x.Entity.Id == ticketId && x.State != Microsoft.EntityFrameworkCore.EntityState.Deleted)
+                .Select(x => x.Entity.OrganizationId).SingleOrDefault()
+                ?? await db.Tickets.IgnoreQueryFilters()
+                    .Where(x => x.Id == ticketId).Select(x => x.OrganizationId).SingleOrDefaultAsync(ct);
             if (ticketOrganization is null)
                 return new("Blocked", "TicketNotFound", organizationId, null, null);
             if (organizationId is not null && !string.Equals(ticketOrganization, organizationId, StringComparison.Ordinal))

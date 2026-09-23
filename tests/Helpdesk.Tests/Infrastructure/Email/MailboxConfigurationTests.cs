@@ -144,6 +144,11 @@ public sealed class MailboxConfigurationTests
         Assert.Equal("TicketOrganizationMismatch",
             (await resolver.ResolveAsync("ticket-a", "tenant-b", default)).ErrorCode);
         Assert.Equal(global.Id, (await resolver.ResolveAsync(null, null, default)).Mailbox?.Id);
+        // Ingress can capture delivery before a newly created ticket is flushed.
+        db.Incidents.Add(new Incident { Id = "new-ticket", OrganizationId = "tenant-a", TrackingId = "INC-NEW" });
+        Assert.Equal(dedicated.Id, (await resolver.ResolveAsync("new-ticket", "tenant-a", default)).Mailbox?.Id);
+        Assert.Equal("TicketOrganizationMismatch",
+            (await resolver.ResolveAsync("new-ticket", "tenant-b", default)).ErrorCode);
         db.Set<MailboxOutgoingSettings>().Add(new MailboxOutgoingSettings
         {
             MailboxId = dedicated.Id, Enabled = true, Transport = MailboxOutgoingTransport.Smtp,

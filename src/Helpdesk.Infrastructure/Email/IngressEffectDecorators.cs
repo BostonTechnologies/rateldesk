@@ -29,13 +29,14 @@ public sealed class IngressEmailService(MailboxEmailService inner, MailboxSender
         ct.ThrowIfCancellationRequested();
         if (!context.IsActive)
             return await inner.SendEmailAsync(recipients, subject, htmlMessage, cc, ct, ticketId, attachments, fromName, replyTo, suppressTimeline);
-        var selection = await resolver.ResolveAsync(ticketId, null, ct);
+        var selection = await resolver.ResolveAsync(ticketId, context.OrganizationId, ct);
         context.Capture(MailboxEffectKind.Email, new IngressEmailEffect(recipients.ToArray(), subject,
             htmlMessage, cc?.ToArray() ?? [], ticketId, attachments?.ToArray() ?? [], fromName,
             replyTo, suppressTimeline, context.SupportDeliveryId, context.TimelineDeliveryId)
         {
             MailboxId = selection.Mailbox?.Id,
-            OrganizationId = selection.OrganizationId
+            OrganizationId = selection.OrganizationId,
+            SenderBindingError = selection.ErrorCode
         });
         // This means durably accepted when the enclosing transaction commits, not delivered.
         return true;
