@@ -1,7 +1,7 @@
 <Project>
   <PropertyGroup>
     <VersionPrefix Condition="'$(VersionPrefix)' == ''">0.1.1</VersionPrefix>
-    <VersionSuffix Condition="'$(VersionSuffix)' == ''">beta.2</VersionSuffix>
+    <VersionSuffix Condition="'$(VersionSuffix)' == ''">beta.3</VersionSuffix>
 
     <Version Condition="'$(Version)' == '' and '$(VersionSuffix)' == ''">$(VersionPrefix)</Version>
     <Version Condition="'$(Version)' == '' and '$(VersionSuffix)' != ''">$(VersionPrefix)-$(VersionSuffix)</Version>
