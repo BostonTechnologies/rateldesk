@@ -1,6 +1,14 @@
 # Releases
 
-RatelDesk has one repository-owned release line. The root `Directory.Build.props` is the source of truth: maintainers update `VersionPrefix` when preparing the next release. All application projects inherit that value. `VersionSuffix` creates prereleases without changing the release line. The current planned test release is `0.1.1-beta.2`; beta.1 remains an immutable published prerelease.
+RatelDesk has one repository-owned release line. The root `Directory.Build.props` is the source of truth: maintainers update `VersionPrefix` when preparing the next release. All application projects inherit that value. `VersionSuffix` creates prereleases without changing the release line. The current planned test release is `0.1.1-beta.3`; earlier prereleases remain immutable.
+
+## 0.1.1-beta.3 — planned mailbox delivery update
+
+The beta.3 candidate adds mailbox-specific incoming processing and outgoing delivery. A dedicated organization mailbox retains its assignment for both directions; a paused or missing outgoing configuration does not silently use the instance-global mailbox. Outgoing SMTP requires an explicit submission endpoint and credentials. The mailbox workspace shows worker status and links to incoming receipt diagnostics and pending outgoing delivery work.
+
+An upgrade preserves existing mailbox assignments, protected credentials, receipts, and failed delivery records. It does not automatically enable background ingestion or infer SMTP details from an IMAP or POP3 connection. Administrators should review the effective mailbox, choose the initial import policy, configure outgoing delivery, test both directions, and explicitly enable processing. Messages skipped by the initial baseline can be previewed and selected for a bounded historical import without resetting the source cursor.
+
+This section describes the candidate under validation; it is not a publication or deployment announcement.
 
 ## Channel policy
 

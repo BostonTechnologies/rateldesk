@@ -22,7 +22,8 @@ test('provider selection, failed draft test, discard, save and explicit tenant r
   await page.getByRole('textbox', { name: /^Mailbox address/ }).fill('support@fixture.example.test');
   await page.getByLabel('Protocol username', { exact: true }).fill('fixture');
   await page.getByLabel('Protocol password', { exact: true }).fill('synthetic-fixture-password');
-  await page.getByRole('button', { name: 'Test Connection' }).click();
+  await page.getByRole('button', { name: 'Test', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Incoming connection' }).click();
   await expect(page.getByText('Connection test failed. Check credentials, TLS, folder access and operator egress policy.', { exact: true }).first()).toBeVisible();
   await expect(page.getByLabel('Mailbox display name', { exact: true })).toHaveValue('Fixture dedicated POP3');
   await page.getByRole('textbox', { name: /^Mail host/ }).fill('mail.example.test');
@@ -30,7 +31,7 @@ test('provider selection, failed draft test, discard, save and explicit tenant r
   await expect(page.getByText('Mailbox settings saved.', { exact: true })).toBeVisible();
   await expect(page.getByLabel('Protocol password', { exact: true })).toHaveValue('');
   await page.getByLabel('Mailbox display name', { exact: true }).fill('Unsaved name');
-  await page.getByRole('button', { name: 'Discard changes' }).click();
+  await page.getByRole('button', { name: 'Discard', exact: true }).click();
   await expect(page.getByLabel('Mailbox display name', { exact: true })).toHaveValue('Fixture dedicated POP3');
   await page.screenshot({ path: testInfo.outputPath('dedicated-pop3-paused.png'), fullPage: true });
   await page.getByRole('button', { name: 'More mailbox actions' }).click();

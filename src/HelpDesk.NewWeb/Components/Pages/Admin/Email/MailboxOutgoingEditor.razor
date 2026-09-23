@@ -8,7 +8,7 @@
     <div class="d-flex flex-wrap align-center gap-2 mb-2">
         <MudText Typo="Typo.h6" HtmlTag="h2">Outgoing mail</MudText>
         <MudChip T="string" Size="Size.Small" Color="@(draft?.Enabled == true ? Color.Success : Color.Warning)">
-            @(draft?.Enabled == true ? "Enabled" : "Needs setup or paused")
+            @(draft is null ? "Status unavailable" : draft.Version == 0 ? "Needs setup" : draft.Enabled ? "Enabled" : "Paused")
         </MudChip>
     </div>
     <MudText Typo="Typo.body2" Class="mb-3">Send from @MailboxAddress. Sending has its own settings and remains available when incoming polling is paused.</MudText>
@@ -81,6 +81,7 @@
     [Parameter] public InboundMailboxProvider Provider { get; set; }
     [Parameter] public MailboxAuthentication Authentication { get; set; }
     [Parameter] public EventCallback<bool> DirtyChanged { get; set; }
+    [Parameter] public EventCallback Saved { get; set; }
     private readonly CancellationTokenSource cancellation = new();
     private Guid loadedMailboxId;
     private OutgoingDraft? draft;
@@ -113,7 +114,7 @@
             dirty = false;
             await DirtyChanged.InvokeAsync(false);
         }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
         catch (HttpRequestException) { draft = null; }
         finally { loading = false; }
     }
@@ -152,11 +153,12 @@
             baseline = draft.Copy();
             dirty = false;
             await DirtyChanged.InvokeAsync(false);
+            await Saved.InvokeAsync();
             message = "Outgoing settings saved.";
             messageIsError = false;
             Snackbar.Add(message, Severity.Success);
         }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
         catch (HttpRequestException) { message = "Outgoing settings could not be saved. Your changes are still available."; messageIsError = true; }
         finally { busy = false; }
     }
@@ -174,7 +176,7 @@
             message = result?.Message ?? "Outgoing connection could not be checked.";
             messageIsError = result?.Success != true;
         }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
         catch (HttpRequestException) { message = "Outgoing connection could not be checked."; messageIsError = true; }
         finally { busy = false; }
     }
@@ -198,7 +200,7 @@
                 : result.Status == "Accepted by provider" ? "Sample email was accepted by the provider. Check the recipient inbox."
                 : $"Sample send: {result.Status} ({result.ErrorCode ?? "No detail"}). Check configuration before retrying.";
         }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
         catch (HttpRequestException)
         {
             message = "The sample send result is unknown. Check the recipient inbox before trying again.";

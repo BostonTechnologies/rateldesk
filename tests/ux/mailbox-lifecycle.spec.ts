@@ -48,6 +48,7 @@ test('mailbox lifecycle acceptance: published Web/API receives, sends and thread
   await page.getByRole('textbox', { name: 'Mailbox address' }).fill('support@tenant-a.example.test');
   await page.getByLabel('Protocol username').fill('support@tenant-a.example.test');
   await page.getByLabel('Protocol password').fill('synthetic-mail-password');
+  await page.getByRole('tab', { name: /Processing/ }).click();
   await page.getByLabel('Mailbox enabled').click();
   await page.getByLabel('Background ingestion enabled').click();
   await page.getByRole('button', { name: 'Save', exact: true }).click();

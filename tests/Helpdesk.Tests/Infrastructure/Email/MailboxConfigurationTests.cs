@@ -257,6 +257,99 @@ public sealed class MailboxConfigurationTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task Beta2_upgrade_preserves_global_dedicated_receipts_and_failed_delivery_without_activation(bool postgres)
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync(postgres);
+        await using var db = fixture.Open();
+        var beta2 = db.Database.GetMigrations().Single(x => x.EndsWith("_MailboxAcknowledgmentClaims", StringComparison.Ordinal));
+        await db.GetService<IMigrator>().MigrateAsync(beta2);
+        var globalId = Guid.NewGuid();
+        var dedicatedId = Guid.NewGuid();
+        var skippedId = Guid.NewGuid();
+        var succeededId = Guid.NewGuid();
+        var heldId = Guid.NewGuid();
+        var failedId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        var protectedGlobal = fixture.Secrets.Protect(globalId, "synthetic-global-secret");
+        var protectedDedicated = fixture.Secrets.Protect(dedicatedId, "synthetic-dedicated-secret");
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "Organizations" ("Id", "Name", "State", "IsEnabled")
+            VALUES ({"tenant-a"}, {"Tenant A"}, {0}, {true});
+            """);
+        foreach (var (id, address, scope, organizationId, source, protectedSecret) in new[]
+                 {
+                     (globalId, "global@example.test", 0, (string?)null, "global-source", protectedGlobal),
+                     (dedicatedId, "support@tenant-a.example.test", 1, "tenant-a", "dedicated-source", protectedDedicated)
+                 })
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO "EmailInboxSettings" ("Id", "MailHost", "Port", "UseSsl", "MailboxAddress",
+                    "TenantId", "ClientId", "ClientSecret", "MailboxFolder", "Enabled", "BackgroundSyncEnabled",
+                    "CreatedAt", "UpdatedAt", "Archived", "Scope", "OrganizationId", "SourceKey", "CredentialVersion",
+                    "Authentication", "BatchSize", "DisplayName", "InitialImport", "LegacySource", "MarkReadAfterSuccess",
+                    "Password", "PollIntervalSeconds", "Provider", "TlsMode", "Username", "Version")
+                VALUES ({id}, {"mail.example.test"}, {993}, {true}, {address}, {"directory"}, {"application"},
+                    {protectedSecret}, {"INBOX"}, {true}, {false}, {now}, {now}, {false}, {scope}, {organizationId}, {source}, {1},
+                    {0}, {25}, {"Synthetic mailbox"}, {0}, {false}, {true}, {""}, {30}, {0}, {0}, {""}, {1L});
+                """);
+        }
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "InboundMessageReceipt" ("Id", "MailboxId", "SourceKey", "TransportKey",
+                "ConfigurationVersion", "Outcome", "Reason", "Acknowledged", "Attempts",
+                "CreatedUnixMilliseconds", "UpdatedUnixMilliseconds", "ProtectedEnvelope")
+            VALUES ({skippedId}, {globalId}, {"global-source"}, {"old-uid"}, {1L},
+                {(int)InboundReceiptOutcome.Ignored}, {"InitialBaselineSkipped"}, {true}, {0},
+                {now.ToUnixTimeMilliseconds()}, {now.ToUnixTimeMilliseconds()}, {""});
+            """);
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "InboundMessageReceipt" ("Id", "MailboxId", "SourceKey", "TransportKey",
+                "ConfigurationVersion", "Outcome", "Acknowledged", "Attempts",
+                "CreatedUnixMilliseconds", "UpdatedUnixMilliseconds", "ProtectedEnvelope")
+            VALUES ({succeededId}, {dedicatedId}, {"dedicated-source"}, {"handled-uid"}, {1L},
+                {(int)InboundReceiptOutcome.Succeeded}, {true}, {1},
+                {now.ToUnixTimeMilliseconds()}, {now.ToUnixTimeMilliseconds()}, {""});
+            """);
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "InboundMessageReceipt" ("Id", "MailboxId", "SourceKey", "TransportKey",
+                "ConfigurationVersion", "Outcome", "Reason", "Acknowledged", "Attempts",
+                "CreatedUnixMilliseconds", "UpdatedUnixMilliseconds", "ProtectedEnvelope")
+            VALUES ({heldId}, {dedicatedId}, {"dedicated-source"}, {"held-uid"}, {1L},
+                {(int)InboundReceiptOutcome.NeedsReview}, {"TenantResolutionAmbiguous"}, {false}, {2},
+                {now.ToUnixTimeMilliseconds()}, {now.ToUnixTimeMilliseconds()}, {""});
+            """);
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "MailboxOutboxEffect" ("Id", "ReceiptId", "EffectKey", "Kind", "Payload", "State",
+                "Attempts", "Fence", "AvailableUnixMilliseconds", "LeaseExpiresUnixMilliseconds")
+            VALUES ({failedId}, {succeededId}, {"email:confirmation"}, {(int)MailboxEffectKind.Email}, {"{}"},
+                {(int)MailboxEffectState.Exhausted}, {5}, {5L}, {now.ToUnixTimeMilliseconds()}, {0L});
+            """);
+
+        await db.Database.MigrateAsync();
+        await db.Database.MigrateAsync();
+        db.ChangeTracker.Clear();
+        Assert.Empty(await db.Database.GetPendingMigrationsAsync());
+        var mailboxes = await db.EmailInboxSettings.AsNoTracking().ToListAsync();
+        Assert.Equal(2, mailboxes.Count);
+        Assert.Equal("synthetic-global-secret", fixture.Secrets.Unprotect(mailboxes.Single(x => x.Id == globalId),
+            mailboxes.Single(x => x.Id == globalId).ClientSecret));
+        Assert.Equal("synthetic-dedicated-secret", fixture.Secrets.Unprotect(mailboxes.Single(x => x.Id == dedicatedId),
+            mailboxes.Single(x => x.Id == dedicatedId).ClientSecret));
+        Assert.All(mailboxes, x => Assert.False(x.BackgroundSyncEnabled));
+        var receipts = await db.Set<InboundMessageReceipt>().AsNoTracking().ToListAsync();
+        Assert.Equal("InitialBaselineSkipped", receipts.Single(x => x.Id == skippedId).Reason);
+        Assert.Equal(InboundReceiptOutcome.Succeeded, receipts.Single(x => x.Id == succeededId).Outcome);
+        Assert.Equal("TenantResolutionAmbiguous", receipts.Single(x => x.Id == heldId).Reason);
+        Assert.All(receipts, x => Assert.Null(x.HistoricalImportRequestId));
+        Assert.Equal(MailboxEffectState.Exhausted,
+            (await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleAsync(x => x.Id == failedId)).State);
+        Assert.Equal("Instance paused", (await new MailboxWorkerPolicy(db, new ConfigurationBuilder().Build(),
+            TimeProvider.System).GetStatusAsync(default)).State);
+        Assert.Empty(await db.Set<MailboxOutgoingSettings>().ToListAsync());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task Multiple_historic_sources_keep_one_effective_global_and_freeze_sender(bool postgres)
     {
         await using var fixture = await DatabaseFixture.CreateAsync(postgres);

@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { assertNoHorizontalOverflow, authenticate } from './auth';
+import { assertNoHorizontalOverflow, authenticate, selectTheme } from './auth';
+
+test.setTimeout(120_000);
 
 async function expectDrawerFullyClosed(page: Parameters<typeof authenticate>[0]): Promise<void> {
   const drawer = page.getByTestId('app-navigation-drawer');
@@ -28,7 +30,8 @@ test('Email Settings opens as a standalone page from the expanded administration
   await page.goto('/admin/email-settings');
 
   await expect(page.getByRole('heading', { name: 'Email Settings / Mailbox Configuration' })).toBeVisible();
-  await expect(page.getByRole('combobox', { name: 'Inbound provider' })).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Inbound provider' })).toHaveCount(0);
+  await expect(page.getByRole('complementary', { name: 'Selected mailbox status' })).toBeVisible();
   await expect(page.getByTestId('mailbox-command-bar')).toBeVisible();
   await expect(page.getByRole('tab', { name: /Outgoing/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save' })).toBeVisible();
@@ -74,4 +77,31 @@ test('Email Settings is usable from the phone drawer without horizontal overflow
   await expectDrawerFullyClosed(page);
   await assertNoHorizontalOverflow(page);
   await page.screenshot({ path: testInfo.outputPath('email-settings-mobile.png'), fullPage: true });
+});
+
+test('mailbox workspace remains readable across themes and responsive widths', async ({ page }, testInfo) => {
+  await page.goto('/admin/email-settings');
+  await expect(page.getByTestId('mailbox-settings')).toHaveAttribute('data-interactive', 'true');
+  for (const theme of ['Light', 'Dark', 'System'] as const) {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await selectTheme(page, theme);
+    for (const width of [1440, 1280, 1024, 768, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await assertNoHorizontalOverflow(page);
+      await expect(page.getByRole('complementary', { name: 'Selected mailbox status' })).toBeVisible();
+      const picker = page.locator('.mailbox-picker');
+      await expect(picker).toBeVisible();
+      const pickerWidth = await picker.evaluate(element => element.getBoundingClientRect().width);
+      if (width >= 1280) expect(pickerWidth).toBeLessThanOrEqual(420);
+      if (width === 390) await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeInViewport();
+      await page.screenshot({ path: testInfo.outputPath(`mailbox-${theme.toLowerCase()}-${width}-viewport.png`) });
+      await page.screenshot({ path: testInfo.outputPath(`mailbox-${theme.toLowerCase()}-${width}-full.png`), fullPage: true });
+    }
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await selectTheme(page, 'Light');
+  for (const name of ['Outgoing', 'Processing', 'Activity']) {
+    await page.getByRole('tab', { name: new RegExp(name) }).click();
+    await page.screenshot({ path: testInfo.outputPath(`mailbox-${name.toLowerCase()}-full.png`), fullPage: true });
+  }
 });
