@@ -108,6 +108,13 @@ public static class EmailSettingsEndpoints
             return mailbox is null ? Results.NotFound() : await TestAsync(mailbox, db, adapters, true, ct);
         });
         group.MapPost("/{id:guid}/enable", (Guid id, HelpdeskDbContext db, ClaimsPrincipal user, CancellationToken ct) => SetEnabledAsync(id, true, db, user, ct));
+        group.MapPost("/{id:guid}/sync", async (Guid id, MailboxSyncService service, CancellationToken ct) =>
+        {
+            var result = await service.RequestAsync(id, ct);
+            return result.Status is "Queued" or "Already queued" ? Results.Accepted(value: result)
+                : result.Status == "Not configured" ? Results.NotFound(result)
+                : Results.Conflict(result);
+        });
         group.MapPost("/{id:guid}/disable", (Guid id, HelpdeskDbContext db, ClaimsPrincipal user, CancellationToken ct) => SetEnabledAsync(id, false, db, user, ct));
         group.MapPost("/{id:guid}/archive", async (Guid id, [FromBody] ArchiveMailboxRequest request, HelpdeskDbContext db, ClaimsPrincipal user, CancellationToken ct) =>
         {
@@ -149,7 +156,9 @@ public static class EmailSettingsEndpoints
             var state = await db.Set<MailboxIngestionState>().AsNoTracking().Where(x => x.MailboxId == id)
                 .Select(x => new MailboxIngestionDiagnosticsDto(x.MailboxId, x.Initialized,
                     x.LastTestUnixMilliseconds, x.TestedVersion, x.LastSyncUnixMilliseconds,
-                    x.NextRetryUnixMilliseconds, x.ErrorCode, x.Cursor != null)).SingleOrDefaultAsync(ct);
+                    x.NextRetryUnixMilliseconds, x.ErrorCode, x.Cursor != null,
+                    x.SyncRequestedVersion, x.SyncCompletedVersion,
+                    x.LastSyncCommandUnixMilliseconds, x.LastSyncCommandErrorCode)).SingleOrDefaultAsync(ct);
             var receipts = await db.Set<InboundMessageReceipt>().AsNoTracking().Where(x => x.MailboxId == id)
                 .OrderByDescending(x => x.CreatedUnixMilliseconds).Take(100)
                 .Select(x => new MailboxReceiptDiagnosticsDto(x.Id, x.Outcome, x.Reason,

@@ -41,6 +41,37 @@ namespace Helpdesk.Tests.Infrastructure.Email;
 public sealed class MixedMailboxCoordinatorTests
 {
     [Fact]
+    public async Task Sync_now_runs_only_selected_mailbox_before_its_next_scheduled_poll()
+    {
+        await using var fixture = await MixedHarness.CreateAsync(InboundMailboxProvider.Graph, seedMessages: false);
+        var initial = await fixture.Coordinator.ReconcileAsync(default);
+        await Task.WhenAll(initial.Values).WaitAsync(TimeSpan.FromSeconds(10));
+        await fixture.Coordinator.ReconcileAsync(default);
+        var before = fixture.Mailboxes.ToDictionary(x => x.Id, x => fixture.FetchCount(x.Id));
+        var selected = fixture.Mailboxes[2];
+        using (var scope = fixture.CreateScope())
+        {
+            var service = scope.ServiceProvider.GetRequiredService<MailboxSyncService>();
+            var queued = await service.RequestAsync(selected.Id, default);
+            Assert.Equal("Queued", queued.Status);
+            Assert.Equal(queued.RequestVersion, (await service.RequestAsync(selected.Id, default)).RequestVersion);
+        }
+
+        var commanded = await fixture.Coordinator.ReconcileAsync(default);
+        Assert.Single(commanded);
+        await Task.WhenAll(commanded.Values).WaitAsync(TimeSpan.FromSeconds(10));
+        await using var verify = fixture.Open();
+        var state = await verify.Set<MailboxIngestionState>().SingleAsync(x => x.MailboxId == selected.Id);
+        Assert.Equal(1, state.SyncRequestedVersion);
+        Assert.Equal(state.SyncRequestedVersion, state.SyncCompletedVersion);
+        Assert.Null(state.LastSyncCommandErrorCode);
+        Assert.NotNull(state.LastSyncCommandUnixMilliseconds);
+        Assert.Equal(before[selected.Id] + 1, fixture.FetchCount(selected.Id));
+        Assert.All(fixture.Mailboxes.Where(x => x.Id != selected.Id), x =>
+            Assert.Equal(before[x.Id], fixture.FetchCount(x.Id)));
+    }
+
+    [Fact]
     public async Task Durable_pending_receipt_processes_when_fresh_enumeration_fails()
     {
         await using var fixture = await MixedHarness.CreateAsync(InboundMailboxProvider.Graph, seedMessages: false);
@@ -698,6 +729,7 @@ public sealed class MixedMailboxCoordinatorTests
             registrations.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
             registrations.AddSingleton<MailboxCredentialProtector>();
             registrations.AddScoped<MailboxLeaseStore>();
+            registrations.AddScoped<MailboxSyncService>();
             registrations.AddScoped<MailboxOutboxStore>();
             registrations.AddScoped<IIngressEffectContext, IngressEffectContext>();
             registrations.AddSingleton(parser ?? Substitute.For<IForwardedEmailParser>());

@@ -142,6 +142,7 @@ public static class DependencyInjection
         services.AddScoped<GraphEmailService>();
         services.AddScoped<Helpdesk.Infrastructure.Email.MailboxEmailService>();
         services.AddScoped<Helpdesk.Infrastructure.Email.MailboxWorkerPolicy>();
+        services.AddScoped<Helpdesk.Infrastructure.Email.MailboxSyncService>();
         services.AddScoped<IEmailService, Helpdesk.Infrastructure.Email.IngressEmailService>();
         services.AddScoped<IEmailSettingsProvider, EmailSettingsProvider>();
         services.AddScoped<IPasswordResetService, PasswordResetService>();

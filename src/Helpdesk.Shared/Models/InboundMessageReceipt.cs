@@ -37,4 +37,8 @@ public sealed class MailboxIngestionState
     public long? LastSyncUnixMilliseconds { get; set; }
     public long? NextRetryUnixMilliseconds { get; set; }
     public string? ErrorCode { get; set; }
+    public long SyncRequestedVersion { get; set; }
+    public long SyncCompletedVersion { get; set; }
+    public long? LastSyncCommandUnixMilliseconds { get; set; }
+    public string? LastSyncCommandErrorCode { get; set; }
 }

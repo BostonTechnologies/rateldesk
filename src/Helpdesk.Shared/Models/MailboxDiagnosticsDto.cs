@@ -5,7 +5,11 @@ public sealed record MailboxWorkerStatus(bool DeploymentPermitsIngestion, bool I
 
 public sealed record MailboxIngestionDiagnosticsDto(Guid MailboxId, bool Initialized,
     long? LastTestUnixMilliseconds, long? TestedVersion, long? LastSyncUnixMilliseconds,
-    long? NextRetryUnixMilliseconds, string? ErrorCode, bool HasCheckpoint);
+    long? NextRetryUnixMilliseconds, string? ErrorCode, bool HasCheckpoint,
+    long SyncRequestedVersion, long SyncCompletedVersion,
+    long? LastSyncCommandUnixMilliseconds, string? LastSyncCommandErrorCode);
+
+public sealed record MailboxSyncRequestResult(Guid MailboxId, long RequestVersion, string Status);
 
 public sealed record MailboxReceiptDiagnosticsDto(Guid Id, InboundReceiptOutcome Outcome,
     string? Reason, string? OrganizationId, string? TicketId, long CreatedUnixMilliseconds,

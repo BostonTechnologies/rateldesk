@@ -1742,6 +1742,12 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Property<bool>("Initialized")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("LastSyncCommandErrorCode")
+                        .HasColumnType("text");
+
+                    b.Property<long?>("LastSyncCommandUnixMilliseconds")
+                        .HasColumnType("bigint");
+
                     b.Property<long?>("LastSyncUnixMilliseconds")
                         .HasColumnType("bigint");
 
@@ -1754,6 +1760,12 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Property<string>("SourceKey")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<long>("SyncCompletedVersion")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("SyncRequestedVersion")
+                        .HasColumnType("bigint");
 
                     b.Property<long?>("TestedVersion")
                         .HasColumnType("bigint");

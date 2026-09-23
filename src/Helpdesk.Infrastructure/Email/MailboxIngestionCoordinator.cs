@@ -75,6 +75,10 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
             ? await db.EmailInboxSettings.AsNoTracking()
                 .Where(x => !x.Archived && x.Enabled && x.BackgroundSyncEnabled).ToListAsync(timeout.Token)
             : [];
+        var requested = await db.Set<MailboxIngestionState>().AsNoTracking()
+            .Where(x => x.SyncRequestedVersion > x.SyncCompletedVersion)
+            .Select(x => x.MailboxId).ToListAsync(timeout.Token);
+        foreach (var id in requested) due.Remove(id);
         var configured = mailboxes.ToDictionary(x => x.Id);
         foreach (var (id, runner) in running.ToArray())
         {
@@ -130,20 +134,23 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(pollTimeout);
         var workToken = timeout.Token;
+        long syncCommandVersion = 0;
         try
         {
             var adapter = services.GetServices<IInboundMailboxAdapter>().Single(x => x.Provider == mailbox.Provider);
             var state = await db.Set<MailboxIngestionState>().SingleAsync(x => x.MailboxId == mailbox.Id, workToken);
+            syncCommandVersion = state.SyncRequestedVersion > state.SyncCompletedVersion ? state.SyncRequestedVersion : 0;
             var known = (await db.Set<InboundMessageReceipt>().Where(x => x.MailboxId == mailbox.Id && x.SourceKey == mailbox.SourceKey)
                 .Select(x => x.TransportKey).Take(100001).ToListAsync(workToken)).ToHashSet(StringComparer.Ordinal);
             if (known.Count > 100000) throw new InvalidOperationException("ReceiptCapacityExceeded");
             await ProcessPendingAsync(db, mailbox, lease, workToken);
 
             string? fetchError = null;
-            var fetchAttempted = state.NextRetryUnixMilliseconds is null ||
+            var fetchAttempted = syncCommandVersion > 0 || state.NextRetryUnixMilliseconds is null ||
                 state.NextRetryUnixMilliseconds <= clock.GetUtcNow().ToUnixTimeMilliseconds();
             var pendingCount = await db.Set<InboundMessageReceipt>().CountAsync(x => x.MailboxId == mailbox.Id &&
                 (x.Outcome == InboundReceiptOutcome.Pending || x.Outcome == InboundReceiptOutcome.RetryableFailure), workToken);
+            if (fetchAttempted && pendingCount >= 100) fetchError = "PendingReceiptCapacity";
             if (fetchAttempted && pendingCount < 100)
             {
                 try
@@ -183,7 +190,7 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
             }
             await ProcessPendingAsync(db, mailbox, lease, workToken);
             await RecoverAcknowledgmentsAsync(mailbox, lease, adapter, workToken);
-            if (fetchAttempted) await UpdateDiagnosticsAsync(mailbox, lease, fetchError, workToken);
+            if (fetchAttempted) await UpdateDiagnosticsAsync(mailbox, lease, fetchError, syncCommandVersion, workToken);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (MailboxFenceLostException)
@@ -195,7 +202,7 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
             logger.LogWarning("Mailbox {MailboxId} ingestion paused ({FailureType}).", mailbox.Id, ex.GetType().Name);
             using var diagnosticTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             diagnosticTimeout.CancelAfter(TimeSpan.FromSeconds(10));
-            await UpdateDiagnosticsAsync(mailbox, lease, ex.GetType().Name, diagnosticTimeout.Token);
+            await UpdateDiagnosticsAsync(mailbox, lease, ex.GetType().Name, syncCommandVersion, diagnosticTimeout.Token);
         }
         finally
         {
@@ -393,7 +400,8 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
             await FenceAsync(db, services.GetRequiredService<MailboxLeaseStore>(), lease, mailbox, ct);
             var receipt = await db.Set<InboundMessageReceipt>().SingleAsync(x => x.Id == id, ct);
             if (receipt.Attempts != attempt || receipt.Outcome is not (InboundReceiptOutcome.Pending or InboundReceiptOutcome.RetryableFailure)) return;
-            using var effects = services.GetRequiredService<IIngressEffectContext>().Begin(receipt.Id);
+            var effectContext = services.GetRequiredService<IIngressEffectContext>();
+            using var effects = effectContext.Begin(receipt.Id);
             try
             {
                 var message = JsonSerializer.Deserialize<InboundEmailContext>(services.GetRequiredService<MailboxCredentialProtector>()
@@ -407,6 +415,7 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
                 organizationId = canEvaluateForwardedRoute
                     ? route.ForwardedCandidate!.OrganizationId
                     : route.OrganizationId;
+                effectContext.OrganizationId = organizationId;
                 receipt.OrganizationId = organizationId;
                 if (route.Reason is null && organizationId is not null)
                     db.RestrictIngressToOrganization(organizationId);
@@ -446,6 +455,7 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
                         db.RestrictIngressToOrganization(customer.OrganizationId);
                         message = message with { MailboxTenantId = customer.OrganizationId };
                         receipt.OrganizationId = customer.OrganizationId;
+                        effectContext.OrganizationId = customer.OrganizationId;
                         ticket = await services.GetRequiredService<InboundTicketProcessor>().ProcessTicketEmailAsync(message,
                             message.Attachments, customer, ct, message.SourceMessageKey, route.ReferencedTicketId);
                     }
@@ -550,7 +560,8 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
         await transaction.CommitAsync(ct);
     }
 
-    private async Task UpdateDiagnosticsAsync(EmailInboxSettings mailbox, MailboxLeaseToken lease, string? error, CancellationToken ct)
+    private async Task UpdateDiagnosticsAsync(EmailInboxSettings mailbox, MailboxLeaseToken lease, string? error,
+        long syncCommandVersion, CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
@@ -560,6 +571,12 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
         state.ErrorCode = error;
         state.NextRetryUnixMilliseconds = error is null ? null : clock.GetUtcNow().AddSeconds(30).ToUnixTimeMilliseconds();
         if (error is null) state.LastSyncUnixMilliseconds = clock.GetUtcNow().ToUnixTimeMilliseconds();
+        if (syncCommandVersion > 0 && state.SyncRequestedVersion == syncCommandVersion)
+        {
+            state.SyncCompletedVersion = syncCommandVersion;
+            state.LastSyncCommandUnixMilliseconds = clock.GetUtcNow().ToUnixTimeMilliseconds();
+            state.LastSyncCommandErrorCode = error;
+        }
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
     }
