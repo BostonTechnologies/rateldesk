@@ -116,6 +116,7 @@ public static class DependencyInjection
         services.AddScoped<Helpdesk.Infrastructure.Email.MailboxOutgoingCredentialProtector>();
         services.AddScoped<Helpdesk.Infrastructure.Email.MailboxOutgoingSettingsService>();
         services.AddScoped<Helpdesk.Infrastructure.Email.SmtpMailboxSender>();
+        services.AddScoped<Helpdesk.Infrastructure.Email.GraphMailboxSender>();
         services.AddScoped<Helpdesk.Infrastructure.Email.MailboxSenderResolver>();
         services.AddScoped<Helpdesk.Infrastructure.Email.MailboxDestinationPolicy>();
         services.AddScoped<Helpdesk.Infrastructure.Email.MailboxSettingsService>();
@@ -139,6 +140,7 @@ public static class DependencyInjection
         services.AddScoped<IEmailIngestionService, EmailIngestionService>();
         services.AddSingleton<IImapEmailService, ImapEmailService>();
         services.AddScoped<GraphEmailService>();
+        services.AddScoped<Helpdesk.Infrastructure.Email.MailboxEmailService>();
         services.AddScoped<Helpdesk.Infrastructure.Email.MailboxWorkerPolicy>();
         services.AddScoped<IEmailService, Helpdesk.Infrastructure.Email.IngressEmailService>();
         services.AddScoped<IEmailSettingsProvider, EmailSettingsProvider>();

@@ -10,6 +10,12 @@ public sealed record MailboxSenderSelection(string Status, string? ErrorCode, st
 /// <summary>Resolves a sender from authoritative business context, never recipient addresses.</summary>
 public sealed class MailboxSenderResolver(HelpdeskDbContext db)
 {
+    public Task<bool> AnyConfiguredSenderAsync(CancellationToken ct) =>
+        (from outgoing in db.Set<MailboxOutgoingSettings>().AsNoTracking()
+         join mailbox in db.EmailInboxSettings.AsNoTracking() on outgoing.MailboxId equals mailbox.Id
+         where outgoing.Enabled && mailbox.Enabled && !mailbox.Archived
+         select outgoing.MailboxId).AnyAsync(ct);
+
     public async Task<MailboxSenderSelection> ResolveAsync(string? ticketId, string? organizationId,
         CancellationToken ct)
     {

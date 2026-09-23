@@ -10,7 +10,7 @@ using Helpdesk.Shared.Models;
 
 namespace Helpdesk.Infrastructure.Email;
 
-public sealed class IngressEmailService(GraphEmailService inner, IIngressEffectContext context) : IEmailService
+public sealed class IngressEmailService(MailboxEmailService inner, IIngressEffectContext context) : IEmailService
 {
     public Task<bool> TestApiConnectionAsync() => inner.TestApiConnectionAsync();
 
