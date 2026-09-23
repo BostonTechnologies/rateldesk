@@ -33,6 +33,7 @@
 .mailbox-editor, .mailbox-identity { min-width: 0; }
 .mailbox-identity { overflow-wrap: anywhere; }
 .mailbox-identity-name, .mailbox-identity-address { overflow-wrap: anywhere; }
+.mailbox-activity-entry { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .25rem .75rem; border-top: 1px solid var(--mud-palette-lines-default); padding: .35rem 0; overflow-wrap: anywhere; }
 
 .mailbox-save-bar {
     position: sticky;

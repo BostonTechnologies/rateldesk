@@ -97,10 +97,10 @@ public sealed class MailboxWorkerPolicy(HelpdeskDbContext db, IConfiguration con
             : mailbox.Archived || !mailbox.Enabled ? "Mailbox disabled"
             : !mailbox.BackgroundSyncEnabled ? "Incoming paused"
             : state?.ErrorCode is not null && state.NextRetryUnixMilliseconds > now ? "Retry scheduled"
-            : held > 0 ? "Needs review"
             : active && state?.Initialized != true ? "Initializing baseline"
-            : active ? "Running"
             : state?.Initialized != true ? "Waiting for baseline"
+            : held > 0 ? "Needs review"
+            : active ? "Running"
             : "Waiting for next poll";
         return new(mailboxId, status, instance.BlockedBy, instance.DeploymentPermitsIngestion,
             instance.InstanceRunning, mailbox.Enabled && !mailbox.Archived, mailbox.BackgroundSyncEnabled,

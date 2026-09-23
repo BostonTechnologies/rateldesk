@@ -314,17 +314,51 @@
             </MudGrid>
         </MudTabPanel>
         <MudTabPanel Text="Activity" Icon="@Icons.Material.Filled.History">
-            <MudPaper Class="pa-4 mt-3" Outlined="true">
-                <MudText Typo="Typo.h6">Mailbox activity</MudText>
-                <MudText Typo="Typo.body2">Inspect recent incoming receipts and delivery work for the selected mailbox.</MudText>
-                @if (model.Id != Guid.Empty)
-                {
-                    <div class="d-flex flex-wrap gap-2 mt-3">
-                        <MudButton Href="@($"/admin/email-settings/{model.Id}/ingestion")" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Inbox">Incoming receipts</MudButton>
-                        <MudButton Href="/admin/pending-emails" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Outbox">Pending outgoing</MudButton>
-                    </div>
-                }
-            </MudPaper>
+            @if (model.Id == Guid.Empty)
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mt-3">Save a mailbox to inspect its activity.</MudAlert>
+            }
+            else
+            {
+                <MudGrid Spacing="2" Class="mt-1">
+                    <MudItem xs="12" lg="6">
+                        <MudPaper Class="pa-3 h-100" Outlined="true">
+                            <MudText Typo="Typo.h6" HtmlTag="h2">Incoming activity</MudText>
+                            <MudText Typo="Typo.caption" Class="d-block">Stage: @(mailboxDiagnostics?.State?.CurrentStage ?? "Unknown") · Last attempt: @FormatTimestamp(mailboxDiagnostics?.State?.LastAttemptUnixMilliseconds)</MudText>
+                            <MudText Typo="Typo.caption" Class="d-block">Captured: @(mailboxDiagnostics?.EffectiveStatus?.CapturedCount.ToString() ?? "—") · Baseline skipped: @(mailboxDiagnostics?.EffectiveStatus?.SkippedInitialCount.ToString() ?? "—") · Held: @(mailboxDiagnostics?.EffectiveStatus?.HeldCount.ToString() ?? "—")</MudText>
+                            @if (mailboxDiagnostics?.State?.ErrorCode is { } incomingError)
+                            {
+                                <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">@incomingError</MudAlert>
+                            }
+                            @foreach (var receipt in mailboxDiagnostics?.Receipts.Take(4) ?? [])
+                            {
+                                <div class="mailbox-activity-entry">
+                                    <MudText Typo="Typo.caption">@FormatTimestamp(receipt.CreatedUnixMilliseconds) · @receipt.Outcome · @(receipt.Reason ?? "No recorded reason")</MudText>
+                                    @if (!string.IsNullOrWhiteSpace(receipt.TicketId))
+                                    {
+                                        <MudLink Href="@($"/incidents/{receipt.TicketId}")">Open ticket</MudLink>
+                                    }
+                                </div>
+                            }
+                            <MudButton Href="@($"/admin/email-settings/{model.Id}/ingestion")" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Inbox" Class="mt-3">All incoming receipts and import</MudButton>
+                        </MudPaper>
+                    </MudItem>
+                    <MudItem xs="12" lg="6">
+                        <MudPaper Class="pa-3 h-100" Outlined="true">
+                            <MudText Typo="Typo.h6" HtmlTag="h2">Outgoing activity</MudText>
+                            <MudText Typo="Typo.body2">@OutgoingSummary · @(outgoingStatus?.Transport.ToString() ?? "Transport unavailable")</MudText>
+                            <MudText Typo="Typo.caption" Class="d-block">Last connection check: @FormatTimestamp(outgoingStatus?.LastTestUnixMilliseconds)</MudText>
+                            @if (outgoingStatus?.LastTestCode is { } outgoingError)
+                            {
+                                <MudText Typo="Typo.caption" Class="d-block">Result: @outgoingError</MudText>
+                            }
+                            <MudText Typo="Typo.caption" Class="d-block mt-2">Pending Emails shows delivery attempts, retries and failures across mailboxes.</MudText>
+                            <MudButton Href="/admin/pending-emails" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Outbox" Class="mt-3">Pending outgoing</MudButton>
+                        </MudPaper>
+                    </MudItem>
+                </MudGrid>
+                <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshSelectedStatusAsync" Class="mt-2">Refresh activity</MudButton>
+            }
         </MudTabPanel>
         </MudTabs>
         @if (activeTab is 0 or 2)
@@ -651,7 +685,13 @@
     private async Task ArchiveAsync()
     {
         if ((isDirty || outgoingDirty) && !await JS.InvokeAsync<bool>("confirm", "Discard unsaved changes before archiving this mailbox?")) return;
-        if (!await JS.InvokeAsync<bool>("confirm", "Archive this assignment? A dedicated tenant will explicitly revert to the global mailbox. Historical receipts are retained.")) return;
+        var global = mailboxes.SingleOrDefault(x => !x.Archived && x.Scope == MailboxScope.Global && x.Id != model.Id);
+        var message = model.Scope == MailboxScope.Organization
+            ? global is null
+                ? "Revert this dedicated assignment? Incoming and outgoing mail will have no effective mailbox until a global assignment is configured. Historical receipts remain attached to this source."
+                : $"Revert this dedicated assignment? Incoming and outgoing mail will use {global.MailboxAddress} for new work. Historical receipts and queued deliveries remain attached to their original source."
+            : "Archive the instance-global mailbox? Organizations without a dedicated assignment will have no incoming or outgoing route. Historical receipts and queued deliveries remain attached to their original source.";
+        if (!await JS.InvokeAsync<bool>("confirm", message)) return;
         using var response = await HelpdeskApi.PostAsJsonAsync($"/api/v1/email-settings/{model.Id}/archive", new { model.Version, Confirmed = true }, disposeCts.Token);
         if (response.IsSuccessStatusCode) await LoadAsync();
         else Snackbar.Add("Assignment changed; reload before retrying.", Severity.Error);

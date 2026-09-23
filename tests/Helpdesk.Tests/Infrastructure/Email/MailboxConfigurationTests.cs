@@ -342,9 +342,17 @@ public sealed class MailboxConfigurationTests
         Assert.All(receipts, x => Assert.Null(x.HistoricalImportRequestId));
         Assert.Equal(MailboxEffectState.Exhausted,
             (await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleAsync(x => x.Id == failedId)).State);
-        Assert.Equal("Instance paused", (await new MailboxWorkerPolicy(db, new ConfigurationBuilder().Build(),
-            TimeProvider.System).GetStatusAsync(default)).State);
+        var policy = new MailboxWorkerPolicy(db, new ConfigurationBuilder().Build(), TimeProvider.System);
+        Assert.Equal("Instance paused", (await policy.GetStatusAsync(default)).State);
         Assert.Empty(await db.Set<MailboxOutgoingSettings>().ToListAsync());
+        Assert.Equal("Instance enabled", (await policy.SetRunningAsync(true, default)).State);
+        Assert.Equal("Incoming paused", (await policy.GetMailboxStatusAsync(dedicatedId, default))!.State);
+        await db.EmailInboxSettings.Where(x => x.Id == dedicatedId)
+            .ExecuteUpdateAsync(update => update.SetProperty(x => x.BackgroundSyncEnabled, true));
+        Assert.Equal("Waiting for baseline", (await policy.GetMailboxStatusAsync(dedicatedId, default))!.State);
+        Assert.Equal(3, await db.Set<InboundMessageReceipt>().CountAsync());
+        Assert.Equal(MailboxEffectState.Exhausted,
+            (await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleAsync(x => x.Id == failedId)).State);
     }
 
     [Theory]
