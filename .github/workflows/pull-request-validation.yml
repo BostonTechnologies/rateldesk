@@ -192,6 +192,20 @@ jobs:
           HELPDESK_MAILBOX_SPEC: tests/ux/mailbox-pop-lifecycle.spec.ts
         run: bash tools/ci/run-mailbox-lifecycle.sh
 
+      - name: Verify explicit deployment hard-stop in published application
+        env:
+          EmailIngestion__Enabled: 'false'
+          HELPDESK_MAILBOX_SPEC: tests/ux/mailbox-policy-lifecycle.spec.ts
+          HELPDESK_MAILBOX_POLICY_EXPECT: blocked
+        run: bash tools/ci/run-mailbox-lifecycle.sh
+
+      - name: Verify explicit legacy enabled policy in published application
+        env:
+          EmailIngestion__Enabled: 'true'
+          HELPDESK_MAILBOX_SPEC: tests/ux/mailbox-policy-lifecycle.spec.ts
+          HELPDESK_MAILBOX_POLICY_EXPECT: running
+        run: bash tools/ci/run-mailbox-lifecycle.sh
+
       - name: Upload lifecycle evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
