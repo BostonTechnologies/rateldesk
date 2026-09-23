@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Security.Cryptography;
 using System.Text;
+using System.Diagnostics;
 using Helpdesk.Application.Services.Email;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Enums;
@@ -28,6 +29,8 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
         "EmailIngestion:HistoricalPhaseBudget", TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(25));
     private readonly TimeSpan fetchPhaseBudget = ReadBoundedDuration(configuration,
         "EmailIngestion:FetchPhaseBudget", TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(70));
+    private readonly TimeSpan receiptPhaseBudget = ReadBoundedDuration(configuration,
+        "EmailIngestion:ReceiptPhaseBudget", TimeSpan.FromSeconds(20), TimeSpan.FromMilliseconds(100), TimeSpan.FromSeconds(25));
     private readonly string owner = Guid.NewGuid().ToString("N");
     private readonly Dictionary<Guid, DateTimeOffset> due = [];
     private readonly Dictionary<Guid, Runner> running = [];
@@ -152,7 +155,9 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
             var known = (await db.Set<InboundMessageReceipt>().Where(x => x.MailboxId == mailbox.Id && x.SourceKey == mailbox.SourceKey)
                 .Select(x => x.TransportKey).Take(100001).ToListAsync(workToken)).ToHashSet(StringComparer.Ordinal);
             if (known.Count > 100000) throw new InvalidOperationException("ReceiptCapacityExceeded");
-            await ProcessPendingAsync(db, mailbox, lease, workToken);
+            var attemptedReceipts = new HashSet<Guid>();
+            var remainingReceiptBudget = await ProcessPendingAsync(db, mailbox, lease, attemptedReceipts,
+                receiptPhaseBudget, workToken);
             state.CurrentStage = "Historical import";
             await db.SaveChangesAsync(workToken);
             await RecoverHistoricalImportsAsync(mailbox, lease, adapter, workToken);
@@ -213,7 +218,7 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
                         mailbox.Id, fetchError);
                 }
             }
-            await ProcessPendingAsync(db, mailbox, lease, workToken);
+            await ProcessPendingAsync(db, mailbox, lease, attemptedReceipts, remainingReceiptBudget, workToken);
             state.CurrentStage = "Acknowledging";
             await db.SaveChangesAsync(workToken);
             await RecoverAcknowledgmentsAsync(mailbox, lease, adapter, workToken);
@@ -313,14 +318,32 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
         }
     }
 
-    private async Task ProcessPendingAsync(HelpdeskDbContext db, EmailInboxSettings mailbox,
-        MailboxLeaseToken lease, CancellationToken ct)
+    private async Task<TimeSpan> ProcessPendingAsync(HelpdeskDbContext db, EmailInboxSettings mailbox,
+        MailboxLeaseToken lease, HashSet<Guid> attempted, TimeSpan budget, CancellationToken workToken)
     {
-        var receipts = await db.Set<InboundMessageReceipt>().AsNoTracking().Where(x => x.MailboxId == mailbox.Id &&
-            x.SourceKey == mailbox.SourceKey &&
-            (x.Outcome == InboundReceiptOutcome.Pending || x.Outcome == InboundReceiptOutcome.RetryableFailure))
-            .OrderBy(x => x.UpdatedUnixMilliseconds).Take(mailbox.BatchSize).Select(x => x.Id).ToListAsync(ct);
-        foreach (var id in receipts) await ProcessAsync(mailbox, lease, id, ct);
+        if (budget <= TimeSpan.Zero) return TimeSpan.Zero;
+        var stopwatch = Stopwatch.StartNew();
+        using var phaseTimeout = CancellationTokenSource.CreateLinkedTokenSource(workToken);
+        phaseTimeout.CancelAfter(budget);
+        var phaseToken = phaseTimeout.Token;
+        try
+        {
+            var alreadyAttempted = attempted.ToArray();
+            var receipts = await db.Set<InboundMessageReceipt>().AsNoTracking().Where(x => x.MailboxId == mailbox.Id &&
+                x.SourceKey == mailbox.SourceKey && !alreadyAttempted.Contains(x.Id) &&
+                (x.Outcome == InboundReceiptOutcome.Pending || x.Outcome == InboundReceiptOutcome.RetryableFailure))
+                .OrderBy(x => x.UpdatedUnixMilliseconds).Take(mailbox.BatchSize).Select(x => x.Id).ToListAsync(phaseToken);
+            foreach (var id in receipts)
+            {
+                attempted.Add(id);
+                await ProcessAsync(mailbox, lease, id, phaseToken);
+            }
+        }
+        catch (OperationCanceledException) when (!workToken.IsCancellationRequested && phaseToken.IsCancellationRequested)
+        {
+            logger.LogWarning("Mailbox {MailboxId} receipt processing budget expired; remaining phases continued.", mailbox.Id);
+        }
+        return budget > stopwatch.Elapsed ? budget - stopwatch.Elapsed : TimeSpan.Zero;
     }
 
     private async Task RecoverAcknowledgmentsAsync(EmailInboxSettings mailbox, MailboxLeaseToken lease,

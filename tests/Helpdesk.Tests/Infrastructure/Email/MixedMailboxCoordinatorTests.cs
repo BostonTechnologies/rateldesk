@@ -45,6 +45,7 @@ public sealed class MixedMailboxCoordinatorTests
     [InlineData("EmailIngestion:AcknowledgmentTimeout", "00:00:30")]
     [InlineData("EmailIngestion:AcknowledgmentPhaseBudget", "00:00:30")]
     [InlineData("EmailIngestion:FetchPhaseBudget", "00:01:20")]
+    [InlineData("EmailIngestion:ReceiptPhaseBudget", "00:00:30")]
     public void Phase_timeout_must_fit_inside_its_distributed_claim(string key, string value)
     {
         var settings = new ConfigurationBuilder().AddInMemoryCollection(
@@ -214,6 +215,50 @@ public sealed class MixedMailboxCoordinatorTests
         Assert.Single(await recovered.Incidents.ToListAsync());
         Assert.True((await recovered.Set<MailboxIngestionState>()
             .SingleAsync(x => x.MailboxId == fixture.Global.Id)).Initialized);
+    }
+
+    [Fact]
+    public async Task Stalled_receipt_processing_does_not_starve_capture_or_acknowledgment()
+    {
+        var gate = new ReceiptRuleGate("slow-pending");
+        await using var fixture = await MixedHarness.CreateAsync(InboundMailboxProvider.Graph, seedMessages: false,
+            ingestionSettings: new Dictionary<string, string?>
+            {
+                ["EmailIngestion:PollTimeout"] = "00:00:15",
+                ["EmailIngestion:ReceiptPhaseBudget"] = "00:00:01"
+            }, ruleGate: gate);
+        await fixture.SeedReceiptAsync(fixture.Global, "slow-pending", InboundReceiptOutcome.Pending);
+        await fixture.SeedReceiptAsync(fixture.Global, "committed-before-processing", InboundReceiptOutcome.Succeeded,
+            envelope: false);
+        fixture.AddMessage(fixture.Global, "fresh-during-slow-receipt", "new@tenant0.example.com");
+
+        var poll = fixture.Coordinator.PollAsync(fixture.Global, default);
+        await gate.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await using (var unrelated = fixture.Open())
+        {
+            unrelated.Organizations.Add(new Organization { Id = "write-during-receipt", Name = "Independent write" });
+            await unrelated.SaveChangesAsync().WaitAsync(TimeSpan.FromSeconds(4));
+        }
+        await poll.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await using (var verify = fixture.Open())
+        {
+            Assert.Empty(await verify.Incidents.ToListAsync());
+            var receipts = await verify.Set<InboundMessageReceipt>().ToListAsync();
+            Assert.True(receipts.Single(x => x.TransportKey == "committed-before-processing").Acknowledged);
+            Assert.Equal(InboundReceiptOutcome.Pending,
+                receipts.Single(x => x.TransportKey == "fresh-during-slow-receipt").Outcome);
+            Assert.Equal(1, receipts.Single(x => x.TransportKey == "slow-pending").Attempts);
+            Assert.True((await verify.Set<MailboxIngestionState>()
+                .SingleAsync(x => x.MailboxId == fixture.Global.Id)).Initialized);
+        }
+
+        gate.Release();
+        await fixture.Coordinator.PollAsync(fixture.Global, default).WaitAsync(TimeSpan.FromSeconds(5));
+        await using var recovered = fixture.Open();
+        Assert.Equal(2, await recovered.Incidents.CountAsync());
+        Assert.All(await recovered.Set<InboundMessageReceipt>().Where(x => x.TicketId != null).ToListAsync(),
+            receipt => Assert.Equal(InboundReceiptOutcome.Succeeded, receipt.Outcome));
     }
 
     [Fact]
@@ -818,6 +863,32 @@ public sealed class MixedMailboxCoordinatorTests
         Assert.Empty(await verify.Set<InboundMessageReceipt>().Where(x => x.MailboxId == blocked.Id).ToListAsync());
     }
 
+    private sealed class ReceiptRuleGate(string messageId)
+    {
+        private readonly TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task WaitAsync(InboundEmailContext message, CancellationToken ct)
+        {
+            if (message.InternetMessageId != messageId) return;
+            Entered.TrySetResult();
+            await release.Task.WaitAsync(ct);
+        }
+
+        public void Release() => release.TrySetResult();
+    }
+
+    private sealed class GatedRuleProcessor(ReceiptRuleGate gate, InboundEmailRuleProcessor inner)
+        : IInboundEmailRuleProcessor
+    {
+        public async Task<InboundEmailRuleProcessingResult> ProcessAsync(InboundEmailContext message,
+            CancellationToken ct = default)
+        {
+            await gate.WaitAsync(message, ct);
+            return await inner.ProcessAsync(message, ct);
+        }
+    }
+
     private sealed class MixedHarness : IAsyncDisposable
     {
         private readonly string path = Path.Combine(Path.GetTempPath(), $"mixed-mailboxes-{Guid.NewGuid():N}.db");
@@ -831,7 +902,7 @@ public sealed class MixedMailboxCoordinatorTests
         public static async Task<MixedHarness> CreateAsync(InboundMailboxProvider globalProvider,
             IInboundMailboxAdapter? overrideAdapter = null, IForwardedEmailParser? parser = null,
             bool realRuleExecutor = false, bool seedMessages = true,
-            IReadOnlyDictionary<string, string?>? ingestionSettings = null)
+            IReadOnlyDictionary<string, string?>? ingestionSettings = null, ReceiptRuleGate? ruleGate = null)
         {
             var fixture = new MixedHarness();
             var registrations = new ServiceCollection();
@@ -847,7 +918,14 @@ public sealed class MixedMailboxCoordinatorTests
             registrations.AddScoped(_ => new RatelDeskIdentityDbContext(new DbContextOptionsBuilder<RatelDeskIdentityDbContext>()
                 .UseInMemoryDatabase("unused-mixed-identity").Options));
             registrations.AddScoped<InboundTenantRouter>();
-            registrations.AddScoped<IInboundEmailRuleProcessor, InboundEmailRuleProcessor>();
+            if (ruleGate is null)
+                registrations.AddScoped<IInboundEmailRuleProcessor, InboundEmailRuleProcessor>();
+            else
+            {
+                registrations.AddScoped<InboundEmailRuleProcessor>();
+                registrations.AddScoped<IInboundEmailRuleProcessor>(provider =>
+                    new GatedRuleProcessor(ruleGate, provider.GetRequiredService<InboundEmailRuleProcessor>()));
+            }
             if (realRuleExecutor)
                 registrations.AddScoped<IInboundEmailActionExecutor, InboundEmailActionExecutor>();
             else
