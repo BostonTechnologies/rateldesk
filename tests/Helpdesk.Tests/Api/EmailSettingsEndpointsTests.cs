@@ -1,5 +1,7 @@
 using System.Net;
 using Helpdesk.Infrastructure.Email;
+using Helpdesk.Infrastructure.Html;
+using Helpdesk.Application.WorkLogs;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Data.Sqlite;
 using System.Net.Http.Headers;
@@ -216,6 +218,17 @@ public class EmailSettingsEndpointsTests
             builder.Services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
             builder.Services.AddScoped<MailboxCredentialProtector>();
             builder.Services.AddScoped<MailboxSettingsService>();
+            builder.Services.AddSingleton(TimeProvider.System);
+            builder.Services.AddScoped<MailboxWorkerPolicy>();
+            builder.Services.AddScoped<MailboxOutgoingCredentialProtector>();
+            builder.Services.AddScoped<MailboxOutgoingSettingsService>();
+            builder.Services.AddScoped<MailboxSyncService>();
+            builder.Services.AddScoped<MailboxEmailService>();
+            builder.Services.AddScoped<SmtpMailboxSender>();
+            builder.Services.AddScoped<GraphMailboxSender>();
+            builder.Services.AddScoped<MailboxSenderResolver>();
+            builder.Services.AddScoped<MailboxDestinationPolicy>();
+            builder.Services.AddScoped<IHtmlToPlainTextConverter, HtmlToPlainTextConverter>();
             var graph = Substitute.For<IInboundMailboxAdapter>(); graph.Provider.Returns(InboundMailboxProvider.Graph);
             graph.TestAsync(Arg.Any<EmailInboxSettings>(), Arg.Any<CancellationToken>()).Returns(new MailboxConnectionTest(true, "Synthetic provider test."));
             builder.Services.AddSingleton(graph);

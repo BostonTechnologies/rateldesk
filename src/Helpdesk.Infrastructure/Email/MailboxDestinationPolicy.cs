@@ -21,17 +21,30 @@ public sealed class MailboxDestinationPolicy(IConfiguration configuration)
         if (addresses.Length == 0 || addresses.Any(ip => !IsAllowed(ip, allowPrivate)))
             throw new InvalidOperationException("Mailbox destination is not allowed by the operator egress policy.");
 
-        var socket = new Socket(addresses[0].AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-        try
+        // DNS may return IPv6 first while the submission service listens on IPv4 (or
+        // the reverse). Keep the DNS answer pinned, but try each validated address.
+        SocketException? lastFailure = null;
+        foreach (var address in addresses)
         {
-            await socket.ConnectAsync(new IPEndPoint(addresses[0], port), ct);
-            return socket;
+            ct.ThrowIfCancellationRequested();
+            var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            try
+            {
+                await socket.ConnectAsync(new IPEndPoint(address, port), ct);
+                return socket;
+            }
+            catch (SocketException error)
+            {
+                lastFailure = error;
+                socket.Dispose();
+            }
+            catch
+            {
+                socket.Dispose();
+                throw;
+            }
         }
-        catch
-        {
-            socket.Dispose();
-            throw;
-        }
+        throw lastFailure ?? new SocketException((int)SocketError.HostUnreachable);
     }
 
     internal static bool IsAllowed(IPAddress address, bool allowPrivate)

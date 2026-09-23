@@ -153,7 +153,9 @@ public sealed class SmtpMailboxSenderTests
             certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddHours(1));
             roots.Open(OpenFlags.ReadWrite);
             roots.Add(certificate);
-            listener = new TcpListener(Dns.GetHostAddresses("localhost")[0], 0);
+            // Bind one address family so destination selection also works when
+            // localhost resolves the other family first on the CI runner.
+            listener = new TcpListener(IPAddress.Loopback, 0);
             listener.Start();
             Port = ((IPEndPoint)listener.LocalEndpoint).Port;
             Completion = ServeAsync();

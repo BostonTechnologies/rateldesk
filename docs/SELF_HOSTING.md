@@ -191,7 +191,7 @@ The browser login form includes an antiforgery token. Direct cookie-based API cl
 
 ## Email
 
-Microsoft Graph delivery is disabled by default. Enable it only after configuring a tenant ID, client ID, client secret, and mailbox. SMTP and IMAP settings are likewise deployment-owned credentials. Use a mailbox dedicated to RatelDesk and configure sender-domain controls deliberately.
+Configure mailbox receiving and sending separately in **Administration → Email Settings**. A fresh instance leaves its mailbox worker paused until an administrator deliberately starts it; `EmailIngestion:Enabled=false` is an operator hard stop that the UI cannot override. IMAP and POP3 need an explicit SMTP submission host, port, verified TLS mode and separate credential to send ticket mail. Graph sending uses the selected mailbox's Microsoft application identity and requires `Mail.Send` authorization separately from mailbox read access. A dedicated assignment determines both the tenant's incoming route and outgoing sender; a broken dedicated sender never falls back to the global mailbox. Use a mailbox dedicated to RatelDesk and configure sender-domain controls deliberately. See [Mailbox administration](mailbox-ingestion.md) for activation, routing and recovery behavior.
 
 ## AI, MCP, and orchestration
 

@@ -56,7 +56,7 @@ public class EmailSettingsPageTests
     [Fact]
     public void PageProtectsUnsavedChangesAndCanDiscardThem()
     {
-        Assert.Contains("<NavigationLock ConfirmExternalNavigation=\"@isDirty\"", Source);
+        Assert.Contains("<NavigationLock ConfirmExternalNavigation=\"@(isDirty || outgoingDirty)\"", Source);
         Assert.Contains("ConfirmInternalNavigationAsync", Source);
         Assert.Contains("model = savedBaseline.Clone();", Source);
         Assert.Contains("testResult = null;", Source);

@@ -10,8 +10,9 @@ test('provider selection, failed draft test, discard, save and explicit tenant r
   await expect(page.getByTestId('mailbox-settings')).toHaveAttribute('data-interactive', 'true');
   await page.getByRole('button', { name: 'Add', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Tenant override' }).click();
-  await page.getByRole('combobox', { name: /^RatelDesk organization/ }).click();
-  await page.getByRole('option').first().click();
+  await page.getByRole('combobox', { name: /^RatelDesk organization/ }).fill('Fixture');
+  await expect(page.getByRole('option', { name: /Fixture Organization/ })).toBeVisible();
+  await page.getByRole('option', { name: /Fixture Organization/ }).click();
   await page.getByRole('combobox', { name: 'Inbound provider', exact: true }).click();
   await page.getByRole('option', { name: 'POP3', exact: true }).click();
   await expect(page.getByLabel('Mailbox folder', { exact: true })).toHaveCount(0);
@@ -35,8 +36,11 @@ test('provider selection, failed draft test, discard, save and explicit tenant r
   await page.getByRole('button', { name: 'More mailbox actions' }).click();
   page.once('dialog', dialog => dialog.accept());
   await page.getByRole('menuitem', { name: 'Revert to global' }).click();
-  await page.getByRole('button', { name: 'More mailbox actions' }).click();
-  await expect(page.getByRole('menuitem', { name: 'Archive global mailbox' })).toBeVisible();
+  const picker = page.getByRole('combobox', { name: 'Selected mailbox' });
+  await expect(picker).toContainText('Instance-global');
+  await picker.click();
+  await expect(page.getByRole('option', { name: /Instance-global/ })).toBeVisible();
+  await expect(page.getByRole('option', { name: /Fixture dedicated POP3/ })).toHaveCount(0);
 });
 
 test('long rule name and description wrap with reachable actions at desktop and mobile widths', async ({ page }, testInfo) => {

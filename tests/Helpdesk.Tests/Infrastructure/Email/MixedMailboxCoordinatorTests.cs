@@ -562,7 +562,7 @@ public sealed class MixedMailboxCoordinatorTests
             mailbox.Authentication = MailboxAuthentication.Password;
             mailbox.MailHost = "localhost"; mailbox.Port = server.Port; mailbox.Username = "fixture";
             mailbox.MailboxFolder = "Support"; mailbox.InitialImport = InitialMailImport.All;
-            mailbox.MarkReadAfterSuccess = false;
+            mailbox.MarkReadAfterSuccess = provider == InboundMailboxProvider.Imap;
             mailbox.Password = secrets.Protect(mailbox.Id, "synthetic password");
             await using (var setup = fixture.Open())
             {

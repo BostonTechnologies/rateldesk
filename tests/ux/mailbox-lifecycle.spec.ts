@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 type MailMessage = { subject: string; from: string; to: string; replyTo: string; messageId: string; body: string };
 type Mailbox = { id: string; organizationId: string | null; mailboxAddress: string };
-type Incident = { id: string; trackingId: string; subject: string; requesterEmail: string; organizationId: string };
+type Incident = { id: string; trackingId: string; subject: string; requesterEmail: string; organizationId: string; customerId: string };
 type Diagnostics = { state: { initialized: boolean } | null; receipts: { outcome: number | string; ticketId: string | null }[] };
 
 function fixture(command: 'send' | 'messages', args: string[]): unknown {
@@ -26,6 +26,9 @@ async function login(page: Page): Promise<void> {
 }
 
 test.setTimeout(240_000);
+// This scenario mutates one fresh installation; a retry would reuse its mailbox
+// assignment and cannot represent a fresh lifecycle run.
+test.describe.configure({ retries: 0 });
 
 test('mailbox lifecycle acceptance: published Web/API receives, sends and threads through isolated IMAP plus SMTP', async ({ page }) => {
   await login(page);
@@ -35,7 +38,7 @@ test('mailbox lifecycle acceptance: published Web/API receives, sends and thread
 
   await page.getByRole('button', { name: 'Add', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Tenant override' }).click();
-  await page.getByRole('combobox', { name: /^RatelDesk organization/ }).click();
+  await page.getByRole('combobox', { name: /^RatelDesk organization/ }).fill('Tenant A');
   await page.getByRole('option', { name: /Tenant A/ }).click();
   await page.getByRole('combobox', { name: 'Inbound provider' }).click();
   await page.getByRole('option', { name: 'IMAP', exact: true }).click();
@@ -119,4 +122,14 @@ test('mailbox lifecycle acceptance: published Web/API receives, sends and thread
     const response = await page.request.get(`/api/v1/incidents/${replyIncident.id}/timeline`);
     return JSON.stringify(await response.json()).includes('Fixture reply text');
   }, { timeout: 30_000, intervals: [1_000, 2_000] }).toBe(true);
+
+  const manualResponse = await page.request.post('/api/v1/incidents', { headers: { 'X-Requested-With': 'XMLHttpRequest' }, data: {
+    title: 'Fixture manual incident', description: '<p>Created by an administrator</p>', priority: 0,
+    customerId: created[0].customerId, organizationId: selected!.organizationId
+  } });
+  expect(manualResponse.status()).toBe(201);
+  const manual = await manualResponse.json() as Incident;
+  await expect.poll(() => inbox('requester').some(message => message.subject.includes(manual.trackingId) &&
+    message.from.includes('support@tenant-a.example.test') && message.replyTo.includes('support@tenant-a.example.test')),
+  { timeout: 30_000, intervals: [1_000, 2_000] }).toBe(true);
 });

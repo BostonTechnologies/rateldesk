@@ -9,6 +9,14 @@
     flex: 1 1 18rem;
     max-width: 30rem;
     min-width: min(100%, 14rem);
+    overflow: hidden;
+}
+
+.mailbox-picker ::deep .mud-select-input {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .mailbox-workspace-tabs {

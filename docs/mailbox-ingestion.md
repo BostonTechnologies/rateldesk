@@ -1,4 +1,4 @@
-# Inbound mailbox administration
+# Mailbox administration
 
 An instance administrator configures ingress at `/admin/email-settings`. Provider selection is independent for every connection. The application organization is separate from the Microsoft directory ID (`tenantId` in the compatibility request contract).
 
@@ -18,7 +18,9 @@ There is one global assignment and at most one dedicated assignment per organiza
 
 Pausing a dedicated connection keeps its assignment. Failure never switches it to global automatically. **Revert to global mailbox** explicitly archives the dedicated assignment; receipts and rule history remain. Global mail for an organization with a dedicated assignment is held as `TenantUsesDedicatedMailbox`, without provisioning a customer or creating a ticket. Correct the routing/assignment, then retry through inbound diagnostics.
 
-Configure external delivery and announce dedicated addresses before cutover. This application does not change MX records or forward messages between mail providers. Replies to older tickets may still arrive at the old global address and be held. Review existing organization branding Reply-To before switching ingress; conflicting Reply-To must be reconciled. Outbound From and Microsoft sending credentials remain separately configured through `ExchangeEmail`. Generic protocol ingestion does not configure an SMTP sender.
+Configure external delivery and announce dedicated addresses before cutover. This application does not change MX records or forward messages between mail providers. Replies to older tickets may still arrive at the old global address and be held. Review existing organization branding Reply-To before switching ingress; conflicting Reply-To must be reconciled.
+
+Each logical mailbox has separate incoming and outgoing settings. An IMAP or POP3 mailbox sends through its explicitly configured SMTP submission endpoint, TLS mode and credential. A Graph mailbox can send using the selected mailbox's Microsoft application credential and needs `Mail.Send` authorization in addition to its read grant. The configured mailbox address is the From and Reply-To identity. Ticket mail resolves the sender from its recorded organization: a dedicated assignment wins, otherwise the global assignment applies. A disabled or unconfigured dedicated sender blocks that delivery for review; it never falls back to the global sender. Pausing incoming polling does not disable a separately enabled outgoing sender. A message with no ticket or organization context uses the configured global mailbox or reports no effective sender. The legacy `ExchangeEmail` configuration does not authorize a dedicated mailbox's sender.
 
 ## Import, retention and source changes
 
@@ -36,7 +38,7 @@ Both draft tests and workers apply `EmailIngestion:AllowedPrivateHosts`, an oper
 
 ## Processing and diagnostics
 
-Both mailbox switches must be enabled, and the deployment-wide `EmailIngestion:Enabled` switch must permit processing. Healthy reconciliation runs every five seconds. Up to four independent mailbox operations run concurrently. Database leases, fencing and source-version checks prevent obsolete workers from committing after ownership changes. Replicas need synchronized UTC clocks.
+The deployment gate, persisted instance worker state, mailbox enablement and incoming switch must all permit polling. `EmailIngestion:Enabled=false` remains an operator hard stop and appears as a deployment block; the UI cannot override it. With no explicit deployment gate, a fresh installation starts with its persisted instance worker paused. An administrator starts it deliberately from Email Settings after reviewing the configured sources. An explicit legacy `EmailIngestion:Enabled=true` retains run intent until an operator saves a paused state. The UI's Sync now command queues one saved source through the same leased coordinator; it cannot bypass a deployment stop or instance pause. Healthy reconciliation runs every five seconds. Up to four independent mailbox operations run concurrently. Database leases, fencing and source-version checks prevent obsolete workers from committing after ownership changes. Replicas need synchronized UTC clocks.
 
 Source capture and checkpoint advancement share a database transaction. A definitive Graph MIME-content 404 or IMAP expunge is captured as a source-missing tombstone so other items in the batch can progress; transient provider or MIME failures do not advance the checkpoint. Already captured receipts continue during a fresh enumeration outage. Each poll gives fresh capture and durable business processing an opportunity before entering a separately bounded acknowledgment-recovery phase, so slow disposition calls cannot indefinitely postpone new input.
 

@@ -50,13 +50,15 @@
         </MudPaper>
         <MudPaper Class="pa-3 mb-3" Outlined="true" data-testid="mailbox-command-bar">
             <div class="mailbox-command-row">
-            <MudSelect T="Guid" Label="Selected mailbox" Value="model.Id" ValueChanged="SelectMailboxAsync" Disabled="@mutationsDisabled" Class="mailbox-picker" Margin="Margin.Dense" Variant="Variant.Outlined">
-                <MudSelectItem T="Guid" Value="Guid.Empty">New mailbox</MudSelectItem>
-                @foreach (var mailbox in mailboxes.Where(x => !x.Archived))
-                {
-                    <MudSelectItem T="Guid" Value="mailbox.Id">@mailbox.DisplayName — @mailbox.MailboxAddress (@(mailbox.Scope == MailboxScope.Global ? "Instance-global" : "Dedicated"), @mailbox.Provider)</MudSelectItem>
-                }
-            </MudSelect>
+                <div class="mailbox-picker">
+                    <MudSelect T="Guid" Label="Selected mailbox" Value="model.Id" ValueChanged="SelectMailboxAsync" Disabled="@mutationsDisabled" Margin="Margin.Dense" Variant="Variant.Outlined">
+                        <MudSelectItem T="Guid" Value="Guid.Empty">New mailbox</MudSelectItem>
+                        @foreach (var mailbox in mailboxes.Where(x => !x.Archived))
+                        {
+                            <MudSelectItem T="Guid" Value="mailbox.Id">@mailbox.DisplayName — @mailbox.MailboxAddress (@(mailbox.Scope == MailboxScope.Global ? "Instance-global" : "Dedicated"), @mailbox.Provider)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </div>
             <MudChip T="string" Size="Size.Small" Color="Color.Default">@model.Provider</MudChip>
             <MudChip T="string" Size="Size.Small" Color="Color.Default">@(model.Scope == MailboxScope.Global ? "Global" : "Dedicated")</MudChip>
             <MudMenu Label="Add" Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Add" Disabled="@mutationsDisabled">
@@ -70,7 +72,7 @@
             @if (model.Id != Guid.Empty)
             {
                 <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Sync" Disabled="@(mutationsDisabled || isDirty || outgoingDirty || worker?.InstanceRunning != true || !model.Enabled || !model.BackgroundSyncEnabled)" OnClick="SyncNowFromSettingsAsync">Sync now</MudButton>
-                <MudMenu Icon="@Icons.Material.Filled.MoreVert" aria-label="More mailbox actions" Disabled="@mutationsDisabled">
+                <MudMenu Icon="@Icons.Material.Filled.MoreVert" AriaLabel="More mailbox actions" Disabled="@mutationsDisabled">
                     <MudMenuItem Href="@($"/admin/email-settings/{model.Id}/ingestion")" Icon="@Icons.Material.Filled.Inbox">Incoming receipts</MudMenuItem>
                     <MudMenuItem Href="@($"/admin/email-rules?mailboxId={model.Id}")" Icon="@Icons.Material.Filled.Rule">Mailbox rules</MudMenuItem>
                     <MudMenuItem OnClick="ArchiveAsync" Icon="@Icons.Material.Filled.Archive">@(model.Scope == MailboxScope.Organization ? "Revert to global" : "Archive global mailbox")</MudMenuItem>
@@ -89,13 +91,23 @@
             </MudSelect>
             @if (model.Scope == MailboxScope.Organization)
             {
-                <MudTextField Label="Search organizations" @bind-Value="organizationSearch" Immediate="true" />
-                <MudSelect T="string" Label="RatelDesk organization" @bind-Value="model.OrganizationId" @bind-Value:after="MarkDirty" Required="true" Disabled="@(mutationsDisabled || model.Id != Guid.Empty)">
-                    @foreach (var org in organizations.Where(x => x.Name.Contains(organizationSearch, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        <MudSelectItem Value="org.Id">@org.Name — @org.Status</MudSelectItem>
-                    }
-                </MudSelect>
+                @if (model.Id == Guid.Empty)
+                {
+                    <MudAutocomplete T="EffectiveOrganization" Label="RatelDesk organization"
+                                     Value="SelectedOrganization" ValueChanged="SelectOrganization"
+                                     SearchFunc="SearchOrganizationsAsync" ToStringFunc="OrganizationLabel"
+                                     Required="true" Clearable="true" ResetValueOnEmptyText="true"
+                                     CoerceValue="false" DebounceInterval="200" ShowProgressIndicator="true"
+                                     MaxItems="20" Margin="Margin.Dense" Variant="Variant.Outlined"
+                                     Disabled="@mutationsDisabled">
+                        <ItemTemplate Context="org">@org.Name — @org.Status</ItemTemplate>
+                        <NoItemsTemplate>No available organizations match this search.</NoItemsTemplate>
+                    </MudAutocomplete>
+                }
+                else
+                {
+                    <MudText Typo="Typo.body2" Class="mt-2">Organization: @(SelectedOrganization?.Name ?? "Unknown organization")</MudText>
+                }
             }
             <MudSelect T="InboundMailboxProvider" Label="Inbound provider" @bind-Value="model.Provider" @bind-Value:after="ProviderChanged" Disabled="@(mutationsDisabled || model.Id != Guid.Empty)">
                 <MudSelectItem Value="InboundMailboxProvider.Graph">Microsoft 365 — Microsoft Graph</MudSelectItem>
@@ -256,7 +268,7 @@
         <MudTabPanel Text="Outgoing" Icon="@Icons.Material.Filled.Send">
         @if (model.Id != Guid.Empty)
         {
-            <MailboxOutgoingEditor @key="model.Id" MailboxId="model.Id" MailboxAddress="model.MailboxAddress"
+            <MailboxOutgoingEditor @key="model.Id" MailboxId="model.Id" MailboxAddress="@model.MailboxAddress"
                                    Provider="model.Provider" Authentication="model.Authentication"
                                    DirtyChanged="value => outgoingDirty = value" />
         }
@@ -293,8 +305,23 @@
     private List<EmailInboxSettingsDto> mailboxes = [];
     private List<EffectiveOrganization> organizations = [];
     private MailboxWorkerStatus? worker;
-    private string organizationSearch = string.Empty;
     private sealed record EffectiveOrganization(string Id, string Name, Guid? MailboxId, string Status);
+    private EffectiveOrganization? SelectedOrganization => organizations.SingleOrDefault(x => x.Id == model.OrganizationId);
+    private static string OrganizationLabel(EffectiveOrganization? organization) => organization?.Name ?? string.Empty;
+    private Task<IEnumerable<EffectiveOrganization>> SearchOrganizationsAsync(string? text, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var available = organizations.Where(org =>
+            !mailboxes.Any(mailbox => !mailbox.Archived && mailbox.Scope == MailboxScope.Organization && mailbox.OrganizationId == org.Id) &&
+            (string.IsNullOrWhiteSpace(text) || org.Name.Contains(text, StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(org => org.Name, StringComparer.OrdinalIgnoreCase).Take(20).ToArray();
+        return Task.FromResult<IEnumerable<EffectiveOrganization>>(available);
+    }
+    private void SelectOrganization(EffectiveOrganization? organization)
+    {
+        model.OrganizationId = organization?.Id;
+        MarkDirty();
+    }
     private MudForm form = default!;
     private EmailInboxSettingsForm model = new();
     private EmailInboxSettingsForm? savedBaseline;
