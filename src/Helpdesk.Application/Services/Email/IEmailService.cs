@@ -28,3 +28,9 @@ public interface IEmailService
 
     Task<bool> TestApiConnectionAsync();
 }
+
+/// <summary>Indicates that a successful send call means durable queue acceptance.</summary>
+public interface IDurableEmailService
+{
+    bool QueuesDelivery { get; }
+}

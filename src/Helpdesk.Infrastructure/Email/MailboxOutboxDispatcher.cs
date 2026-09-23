@@ -97,7 +97,8 @@ public sealed class MailboxOutboxDispatcher(IServiceScopeFactory scopes, ILogger
                     return new("Needs review", email.SenderBindingError ?? "LegacySenderBindingMissing");
                 return await services.GetRequiredService<MailboxEmailService>().SendPinnedAsync(email.MailboxId.Value,
                     email.OrganizationId, email.TicketId, email.Recipients, email.Cc,
-                    email.Subject, email.Html, email.Attachments, email.ReplyTo, effect.Id, ct);
+                    email.Subject, email.Html, email.Attachments, email.ReplyTo, effect.Id, ct,
+                    email.MailboxConfigurationVersion, email.OutgoingConfigurationVersion);
             case MailboxEffectKind.Notification:
                 services.GetRequiredService<INotificationEventBus>().Publish(
                     MailboxOutboxStore.Deserialize<NotificationDto>(effect.Payload));

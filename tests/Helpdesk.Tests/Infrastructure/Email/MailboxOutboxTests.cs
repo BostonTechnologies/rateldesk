@@ -20,6 +20,38 @@ namespace Helpdesk.Tests.Infrastructure.Email;
 public sealed class MailboxOutboxTests
 {
     [Fact]
+    public async Task Direct_ticket_mail_has_one_durable_owner_and_timeline_retry_keeps_its_mailbox_binding()
+    {
+        await using var fixture = await OutboxDatabase.CreateAsync();
+        await using var db = fixture.Open();
+        var store = fixture.Store(db);
+        var mailboxId = Guid.NewGuid();
+        var email = new IngressEmailEffect(["requester@tenant-a.example.test"], "Ticket update", "<p>Body</p>",
+            [], "ticket-a", [], null, null, false, null, null)
+        {
+            MailboxId = mailboxId, OrganizationId = "tenant-a",
+            MailboxConfigurationVersion = 3, OutgoingConfigurationVersion = 4
+        };
+        var queued = await store.QueueDirectAsync(email, default);
+        Assert.Null(queued.ReceiptId);
+        Assert.NotNull(queued.DeliveryEventId);
+        var claim = Assert.IsType<MailboxOutboxEffect>(await store.TryClaimAsync(queued.Id, "worker", default));
+        Assert.True(await store.CompleteAsync(claim, false, "SenderConfigurationChanged", default,
+            requiresReview: true));
+        Assert.Equal(EmailDeliveryStatus.Failed,
+            (await db.TicketTimelineEvents.SingleAsync(x => x.Id == queued.DeliveryEventId)).EmailStatus);
+
+        Assert.True(await store.RetryForTimelineAsync(queued.DeliveryEventId!.Value, default));
+        var retry = Assert.IsType<MailboxOutboxEffect>(await store.TryClaimAsync(queued.Id, "worker", default));
+        var replay = MailboxOutboxStore.Deserialize<IngressEmailEffect>(retry.Payload);
+        Assert.Equal(mailboxId, replay.MailboxId);
+        Assert.Equal("tenant-a", replay.OrganizationId);
+        Assert.Equal(3, replay.MailboxConfigurationVersion);
+        Assert.Equal(4, replay.OutgoingConfigurationVersion);
+        Assert.Equal(1, await db.Set<MailboxOutboxEffect>().CountAsync(x => x.Kind == MailboxEffectKind.Email));
+    }
+
+    [Fact]
     public async Task Concurrent_dispatchers_claim_one_effect_only_once()
     {
         await using var fixture = await OutboxDatabase.CreateAsync();

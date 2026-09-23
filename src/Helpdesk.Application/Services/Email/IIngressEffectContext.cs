@@ -11,6 +11,8 @@ public sealed record IngressEmailEffect(string[] Recipients, string Subject, str
     public Guid? MailboxId { get; init; }
     public string? OrganizationId { get; init; }
     public string? SenderBindingError { get; init; }
+    public long? MailboxConfigurationVersion { get; init; }
+    public long? OutgoingConfigurationVersion { get; init; }
 }
 
 public sealed record IngressCapturedEffect(string Key, MailboxEffectKind Kind, string Payload);

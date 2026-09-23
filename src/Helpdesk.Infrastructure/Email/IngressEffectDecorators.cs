@@ -11,8 +11,9 @@ using Helpdesk.Shared.Models;
 namespace Helpdesk.Infrastructure.Email;
 
 public sealed class IngressEmailService(MailboxEmailService inner, MailboxSenderResolver resolver,
-    IIngressEffectContext context) : IEmailService
+    IIngressEffectContext context) : IEmailService, IDurableEmailService
 {
+    public bool QueuesDelivery => true;
     public Task<bool> TestApiConnectionAsync() => inner.TestApiConnectionAsync();
 
     public Task<bool> SendEmailAsync(string recipient, string subject, string htmlMessage,
@@ -36,7 +37,9 @@ public sealed class IngressEmailService(MailboxEmailService inner, MailboxSender
         {
             MailboxId = selection.Mailbox?.Id,
             OrganizationId = selection.OrganizationId,
-            SenderBindingError = selection.ErrorCode
+            SenderBindingError = selection.ErrorCode,
+            MailboxConfigurationVersion = selection.Mailbox?.Version,
+            OutgoingConfigurationVersion = selection.Outgoing?.Version
         });
         // This means durably accepted when the enclosing transaction commits, not delivered.
         return true;

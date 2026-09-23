@@ -409,7 +409,7 @@ public class TicketNotificationService(
         if (sent)
         {
             logger.LogInformation(
-                "Sent {TemplateName} notification for {TrackingId} to {Recipient}.",
+                "Accepted {TemplateName} notification for {TrackingId} to {Recipient}; queued when durable delivery is enabled.",
                 templateName,
                 ticket.TrackingId,
                 safeRecipientEmail);

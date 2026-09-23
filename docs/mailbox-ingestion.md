@@ -46,7 +46,7 @@ Ticket/rule changes and durable notification work share a separate fenced transa
 
 MIME normalization preserves attached `message/rfc822` entities as safe `.eml` downloads. Nested headers, bodies and attachments remain inside that file and count toward the same attachment-count, MIME-depth and byte limits as other inbound content.
 
-Notification dispatch uses a bounded durable outbox. External mail is at-least-once when the provider accepts a send but its response is lost; local ticket changes are not rerun for that uncertainty. Persisted notifications are shared, while the existing live notification buses remain per replica.
+Ticket mail from both inbound processing and ordinary application calls enters the bounded durable outbox with the selected mailbox identity and configuration revisions before transport submission. Its email-delivery timeline remains pending until the dispatcher records provider acceptance, a retry, or a review-required result. Manual incident confirmations use this same queue. Sender assignment or configuration changes hold queued work for explicit review rather than silently redirecting it. External mail is at-least-once when the provider accepts a send but its response is lost; local ticket changes are not rerun for that uncertainty. Persisted notifications are shared, while the existing live notification buses remain per replica.
 
 ## Rule scope and source binding
 

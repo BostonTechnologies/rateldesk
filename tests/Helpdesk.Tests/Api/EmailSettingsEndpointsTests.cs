@@ -268,6 +268,8 @@ public class EmailSettingsEndpointsTests
             builder.Services.AddScoped<MailboxOutgoingCredentialProtector>();
             builder.Services.AddScoped<MailboxOutgoingSettingsService>();
             builder.Services.AddScoped<MailboxSyncService>();
+            builder.Services.AddScoped<IIngressEffectContext, IngressEffectContext>();
+            builder.Services.AddScoped<MailboxOutboxStore>();
             builder.Services.AddScoped<MailboxEmailService>();
             builder.Services.AddScoped<SmtpMailboxSender>();
             builder.Services.AddScoped<GraphMailboxSender>();

@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using Helpdesk.Infrastructure.Email;
+using Helpdesk.Application.Services.Email;
 using Helpdesk.Infrastructure.Html;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Models;
@@ -51,17 +52,33 @@ public sealed class SmtpMailboxSenderTests
         await db.SaveChangesAsync();
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
             { ["EmailSending:AllowedPrivateHosts:0"] = "localhost" }).Build();
+        var context = new IngressEffectContext();
         var service = new MailboxEmailService(new MailboxSenderResolver(db),
             new SmtpMailboxSender(new MailboxDestinationPolicy(configuration), protection, new HtmlToPlainTextConverter()),
             new GraphMailboxSender(_ => throw new InvalidOperationException("Graph must not be constructed.")),
+            new MailboxOutboxStore(db, context, TimeProvider.System), context,
             NullLogger<MailboxEmailService>.Instance);
 
         if (sample)
             Assert.Equal("Accepted by provider", (await service.SendTestAsync(mailbox.Id,
                 "requester@example.test", default)).Status);
         else
+        {
             Assert.True(await service.SendEmailAsync(["requester@example.test"], "Ticket update", "<p>Update</p>",
                 ticketId: "ticket-a"));
+            var queued = await db.Set<MailboxOutboxEffect>().SingleAsync(x => x.Kind == MailboxEffectKind.Email);
+            Assert.Equal(MailboxEffectState.Pending, queued.State);
+            Assert.Null(queued.ReceiptId);
+            Assert.NotNull(queued.DeliveryEventId);
+            var changedRoute = await service.SendPinnedAsync(mailbox.Id, "tenant-a", "ticket-a",
+                ["requester@example.test"], [], "Ticket update", "<p>Update</p>", [], null,
+                queued.Id, default, mailbox.Version, outgoing.Version + 1);
+            Assert.Equal("Needs review", changedRoute.Status);
+            Assert.Equal("SenderConfigurationChanged", changedRoute.ErrorCode);
+            Assert.Equal("Accepted by provider", (await service.SendPinnedAsync(mailbox.Id,
+                "tenant-a", "ticket-a", ["requester@example.test"], [], "Ticket update", "<p>Update</p>",
+                [], null, queued.Id, default, mailbox.Version, outgoing.Version)).Status);
+        }
         await server.Completion.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Contains(server.Commands, command => command.StartsWith("MAIL FROM:<support@tenant-a.example.test>", StringComparison.OrdinalIgnoreCase));
         if (sample) Assert.Contains("RatelDesk mailbox send test", server.Message, StringComparison.Ordinal);

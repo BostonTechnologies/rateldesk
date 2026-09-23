@@ -1,12 +1,15 @@
 using Helpdesk.Application.Services.Email;
+using Helpdesk.Shared.Models;
 using Microsoft.Extensions.Logging;
 
 namespace Helpdesk.Infrastructure.Email;
 
 /// <summary>Ticket-context sender for all IEmailService callers.</summary>
 public sealed class MailboxEmailService(MailboxSenderResolver resolver, SmtpMailboxSender smtp,
-    GraphMailboxSender graph, ILogger<MailboxEmailService> logger) : IEmailService
+    GraphMailboxSender graph, MailboxOutboxStore outbox, IIngressEffectContext context,
+    ILogger<MailboxEmailService> logger) : IEmailService, IDurableEmailService
 {
+    public bool QueuesDelivery => true;
     public Task<bool> SendEmailAsync(string recipient, string subject, string htmlMessage,
         IEnumerable<string>? cc = null, CancellationToken ct = default, string? ticketId = null,
         IEnumerable<EmailAttachmentData>? attachments = null, string? fromName = null,
@@ -20,22 +23,35 @@ public sealed class MailboxEmailService(MailboxSenderResolver resolver, SmtpMail
         string? replyTo = null, bool suppressTimeline = false)
     {
         var selected = await resolver.ResolveAsync(ticketId, null, ct);
-        var submission = await SubmitAsync(selected, recipients, cc, subject, htmlMessage,
-            attachments, replyTo, Guid.NewGuid(), ct);
-        logger.LogInformation("Email submission result. TicketId={TicketId}, OrganizationId={OrganizationId}, MailboxId={MailboxId}, Transport={Transport}, Status={Status}, ErrorCode={ErrorCode}",
+        var email = new IngressEmailEffect(recipients.ToArray(), subject, htmlMessage,
+            cc?.ToArray() ?? [], ticketId, attachments?.ToArray() ?? [], fromName, replyTo,
+            suppressTimeline, context.SupportDeliveryId, context.TimelineDeliveryId)
+        {
+            MailboxId = selected.Mailbox?.Id,
+            OrganizationId = selected.OrganizationId,
+            SenderBindingError = selected.ErrorCode,
+            MailboxConfigurationVersion = selected.Mailbox?.Version,
+            OutgoingConfigurationVersion = selected.Outgoing?.Version
+        };
+        var delivery = await outbox.QueueDirectAsync(email, ct);
+        logger.LogInformation("Email queued. DeliveryId={DeliveryId}, TicketId={TicketId}, OrganizationId={OrganizationId}, MailboxId={MailboxId}, Transport={Transport}, BindingError={BindingError}",
+            delivery.Id,
             ticketId, selected.OrganizationId, selected.Mailbox?.Id, selected.Outgoing?.Transport,
-            submission.Status, submission.ErrorCode);
-        return submission.Status is "Accepted by provider" or "Suppressed";
+            selected.ErrorCode);
+        return true;
     }
 
     public async Task<MailboxSubmissionResult> SendPinnedAsync(Guid mailboxId, string? organizationId,
         string? ticketId, IEnumerable<string> recipients, IEnumerable<string>? cc, string subject,
         string htmlMessage, IEnumerable<EmailAttachmentData>? attachments, string? replyTo,
-        Guid deliveryId, CancellationToken ct)
+        Guid deliveryId, CancellationToken ct, long? mailboxVersion = null, long? outgoingVersion = null)
     {
         var selected = await resolver.ResolveAsync(ticketId, organizationId, ct);
         if (selected.Mailbox?.Id != mailboxId)
             return new("Needs review", "SenderRouteChanged");
+        if (mailboxVersion is not null && selected.Mailbox.Version != mailboxVersion ||
+            outgoingVersion is not null && selected.Outgoing?.Version != outgoingVersion)
+            return new("Needs review", "SenderConfigurationChanged");
         return await SubmitAsync(selected, recipients, cc, subject, htmlMessage,
             attachments, replyTo, deliveryId, ct);
     }

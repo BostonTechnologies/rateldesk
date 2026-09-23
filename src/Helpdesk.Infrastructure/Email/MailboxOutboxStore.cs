@@ -13,6 +13,37 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
     public const int MaximumAttempts = 5;
     private static readonly TimeSpan ClaimDuration = TimeSpan.FromMinutes(5);
 
+    public async Task<MailboxOutboxEffect> QueueDirectAsync(IngressEmailEffect email, CancellationToken ct)
+    {
+        if (context.IsActive) throw new InvalidOperationException("Ingress mail must use its receipt transaction.");
+        var now = timeProvider.GetUtcNow();
+        var row = new MailboxOutboxEffect
+        {
+            Kind = MailboxEffectKind.Email, EffectKey = $"direct:{Guid.NewGuid():N}",
+            AvailableUnixMilliseconds = now.ToUnixTimeMilliseconds(),
+            DeliveryEventId = email.TimelineDeliveryId
+        };
+        if (!email.SuppressTimeline && !string.IsNullOrWhiteSpace(email.TicketId))
+        {
+            var delivery = new TicketTimelineEvent
+            {
+                TicketId = email.TicketId, EventType = TimelineEventType.EmailDelivery,
+                CreatedUtc = now, CreatedByUserId = "system", CreatedByUserName = "System",
+                EmailStatus = EmailDeliveryStatus.Pending, EmailRecipient = string.Join(",", email.Recipients),
+                MessageText = "Email queued for delivery."
+            };
+            db.TicketTimelineEvents.Add(delivery);
+            row.DeliveryEventId = delivery.Id;
+            email = email with { TimelineDeliveryId = delivery.Id, SuppressTimeline = true };
+        }
+        row.Payload = JsonSerializer.Serialize(email);
+        if (row.Payload.Length > 24 * 1024 * 1024)
+            throw new InvalidOperationException("Email delivery payload exceeds the durable queue limit.");
+        db.Set<MailboxOutboxEffect>().Add(row);
+        await db.SaveChangesAsync(ct);
+        return row;
+    }
+
     public async Task FlushAsync(CancellationToken ct = default)
     {
         context.Validate();
@@ -215,7 +246,7 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
         }
     }
 
-    private void AddTimelineEffect(Guid receiptId, string key, TicketTimelineEvent delivery, long now) =>
+    private void AddTimelineEffect(Guid? receiptId, string key, TicketTimelineEvent delivery, long now) =>
         db.Set<MailboxOutboxEffect>().Add(new MailboxOutboxEffect
         {
             ReceiptId = receiptId, EffectKey = key, Kind = MailboxEffectKind.Timeline,

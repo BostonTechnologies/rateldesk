@@ -1883,7 +1883,7 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<Guid>("ReceiptId")
+                    b.Property<Guid?>("ReceiptId")
                         .HasColumnType("TEXT");
 
                     b.Property<int>("State")
