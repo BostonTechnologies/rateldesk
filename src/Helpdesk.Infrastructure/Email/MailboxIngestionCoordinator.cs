@@ -18,12 +18,12 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
 {
     private const int MaximumReceiptAttempts = 5;
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
-    private readonly TimeSpan pollTimeout = ReadPositiveDuration(configuration,
-        "EmailIngestion:PollTimeout", TimeSpan.FromSeconds(80));
-    private readonly TimeSpan acknowledgmentTimeout = ReadPositiveDuration(configuration,
-        "EmailIngestion:AcknowledgmentTimeout", TimeSpan.FromSeconds(20));
-    private readonly TimeSpan acknowledgmentPhaseBudget = ReadPositiveDuration(configuration,
-        "EmailIngestion:AcknowledgmentPhaseBudget", TimeSpan.FromSeconds(20));
+    private readonly TimeSpan pollTimeout = ReadBoundedDuration(configuration,
+        "EmailIngestion:PollTimeout", TimeSpan.FromSeconds(80), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(100));
+    private readonly TimeSpan acknowledgmentTimeout = ReadBoundedDuration(configuration,
+        "EmailIngestion:AcknowledgmentTimeout", TimeSpan.FromSeconds(20), TimeSpan.FromMilliseconds(100), TimeSpan.FromSeconds(25));
+    private readonly TimeSpan acknowledgmentPhaseBudget = ReadBoundedDuration(configuration,
+        "EmailIngestion:AcknowledgmentPhaseBudget", TimeSpan.FromSeconds(20), TimeSpan.FromMilliseconds(100), TimeSpan.FromSeconds(25));
     private readonly string owner = Guid.NewGuid().ToString("N");
     private readonly Dictionary<Guid, DateTimeOffset> due = [];
     private readonly Dictionary<Guid, Runner> running = [];
@@ -287,10 +287,14 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
         }
     }
 
-    private static TimeSpan ReadPositiveDuration(IConfiguration configuration, string key, TimeSpan fallback)
+    private static TimeSpan ReadBoundedDuration(IConfiguration configuration, string key,
+        TimeSpan fallback, TimeSpan minimum, TimeSpan maximum)
     {
-        var configured = configuration.GetValue<TimeSpan?>(key);
-        return configured is { } duration && duration > TimeSpan.Zero ? duration : fallback;
+        if (configuration[key] is null) return fallback;
+        if (!TimeSpan.TryParse(configuration[key], System.Globalization.CultureInfo.InvariantCulture, out var duration) ||
+            duration < minimum || duration > maximum)
+            throw new InvalidOperationException($"{key} must be between {minimum} and {maximum}.");
+        return duration;
     }
 
     private async Task<AcknowledgmentWork?> TryClaimAcknowledgmentAsync(EmailInboxSettings mailbox,

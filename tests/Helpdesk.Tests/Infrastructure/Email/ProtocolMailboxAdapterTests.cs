@@ -14,6 +14,19 @@ namespace Helpdesk.Tests.Infrastructure.Email;
 public sealed class ProtocolMailboxAdapterTests
 {
     [Fact]
+    public async Task Imap_without_server_disposition_acknowledges_durable_receipt_without_write_access()
+    {
+        var secrets = new MailboxCredentialProtector(new EphemeralDataProtectionProvider());
+        var adapter = new ProtocolMailboxAdapter(InboundMailboxProvider.Imap,
+            new MailboxDestinationPolicy(new ConfigurationBuilder().Build()), secrets);
+        var mailbox = new EmailInboxSettings { Id = Guid.NewGuid(), Provider = InboundMailboxProvider.Imap,
+            MailHost = "unreachable.example.test", Port = 993, MailboxAddress = "support@example.test",
+            MarkReadAfterSuccess = false, ProcessedFolder = null };
+
+        await adapter.AcknowledgeAsync(mailbox, "7:42", default);
+    }
+
+    [Fact]
     public async Task Pop3_uses_verified_TLS_UIDL_and_complete_MIME_without_Microsoft_credentials()
     {
         await using var server = new PopFixture();

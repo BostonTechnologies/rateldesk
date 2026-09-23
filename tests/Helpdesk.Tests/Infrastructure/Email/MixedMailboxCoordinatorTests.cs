@@ -40,6 +40,18 @@ namespace Helpdesk.Tests.Infrastructure.Email;
 
 public sealed class MixedMailboxCoordinatorTests
 {
+    [Theory]
+    [InlineData("EmailIngestion:PollTimeout", "00:02:00")]
+    [InlineData("EmailIngestion:AcknowledgmentTimeout", "00:00:30")]
+    [InlineData("EmailIngestion:AcknowledgmentPhaseBudget", "00:00:30")]
+    public void Phase_timeout_must_fit_inside_its_distributed_claim(string key, string value)
+    {
+        var settings = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?> { [key] = value }).Build();
+        Assert.Throws<InvalidOperationException>(() => new MailboxIngestionCoordinator(
+            Substitute.For<IServiceScopeFactory>(), settings, NullLogger<MailboxIngestionCoordinator>.Instance));
+    }
+
     [Fact]
     public async Task Sync_now_runs_only_selected_mailbox_before_its_next_scheduled_poll()
     {

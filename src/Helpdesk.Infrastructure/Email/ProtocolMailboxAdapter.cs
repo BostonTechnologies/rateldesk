@@ -171,6 +171,9 @@ public sealed class ProtocolMailboxAdapter(
     {
         // POP3 retention is deliberately non-destructive. UIDL receipts are its acknowledgment.
         if (Provider == InboundMailboxProvider.Pop3) return;
+        // Receipt ownership is already durable. No server write is needed when the
+        // administrator chose to leave the source message untouched.
+        if (!settings.MarkReadAfterSuccess && string.IsNullOrWhiteSpace(settings.ProcessedFolder)) return;
         try
         {
             using var client = await OpenImapAsync(settings, ct);
