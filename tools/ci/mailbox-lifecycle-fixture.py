@@ -13,14 +13,21 @@ from email.message import EmailMessage
 from email.policy import default
 
 
-DOMAIN = "tenant-a.example.test"
-PASSWORD = "synthetic-mail-password"
+ACCOUNTS = {
+    "support": ("support@tenant-a.example.test", "synthetic-mail-password", "primary"),
+    "requester": ("requester@tenant-a.example.test", "synthetic-mail-password", "primary"),
+    "recipient": ("recipient@tenant-a.example.test", "synthetic-mail-password", "primary"),
+    "global": ("global@tenant-b.example.test", "synthetic-global-password", "global"),
+    "requester-b": ("requester@tenant-b.example.test", "synthetic-global-password", "global"),
+    "pop": ("pop@tenant-c.example.test", "synthetic-pop-password", "primary"),
+    "requester-c": ("requester@tenant-c.example.test", "synthetic-pop-password", "primary"),
+}
 
 
 def address(local_part: str) -> str:
-    if local_part not in {"support", "requester", "recipient"}:
+    if local_part not in ACCOUNTS:
         raise ValueError("Only synthetic fixture accounts are allowed")
-    return f"{local_part}@{DOMAIN}"
+    return ACCOUNTS[local_part][0]
 
 
 def connection_context() -> ssl.SSLContext:
@@ -30,27 +37,31 @@ def connection_context() -> ssl.SSLContext:
 def send(args: argparse.Namespace) -> None:
     sender = address(args.sender)
     recipient = address(args.recipient)
+    _, password, endpoint = ACCOUNTS[args.sender]
     message = EmailMessage()
     message["From"] = sender
     message["To"] = recipient
     message["Subject"] = args.subject
-    message["Message-ID"] = f"<{uuid.uuid4().hex}@{DOMAIN}>"
+    message["Message-ID"] = f"<{uuid.uuid4().hex}@{sender.split('@')[1]}>"
     if args.in_reply_to:
         message["In-Reply-To"] = args.in_reply_to
         message["References"] = args.in_reply_to
     message.set_content(args.body)
-    with smtplib.SMTP_SSL("localhost", int(os.environ["MAILBOX_FIXTURE_SMTPS_PORT"]),
+    port = "MAILBOX_FIXTURE_GLOBAL_SMTPS_PORT" if endpoint == "global" else "MAILBOX_FIXTURE_SMTPS_PORT"
+    with smtplib.SMTP_SSL("localhost", int(os.environ[port]),
                           context=connection_context(), timeout=20) as smtp:
-        smtp.login(sender, PASSWORD)
+        smtp.login(sender, password)
         smtp.send_message(message)
     print(json.dumps({"messageId": message["Message-ID"]}))
 
 
 def messages(args: argparse.Namespace) -> None:
     account = address(args.account)
-    with imaplib.IMAP4_SSL("localhost", int(os.environ["MAILBOX_FIXTURE_IMAPS_PORT"]),
+    _, password, endpoint = ACCOUNTS[args.account]
+    port = "MAILBOX_FIXTURE_GLOBAL_IMAPS_PORT" if endpoint == "global" else "MAILBOX_FIXTURE_IMAPS_PORT"
+    with imaplib.IMAP4_SSL("localhost", int(os.environ[port]),
                            ssl_context=connection_context(), timeout=20) as imap:
-        imap.login(account, PASSWORD)
+        imap.login(account, password)
         status, _ = imap.select("INBOX", readonly=True)
         if status != "OK":
             raise RuntimeError("Fixture INBOX could not be opened")

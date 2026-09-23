@@ -11,11 +11,15 @@ api_port=${HELPDESK_MAILBOX_API_PORT:-5258}
 web_port=${HELPDESK_MAILBOX_WEB_PORT:-5257}
 database_port=${RATELDESK_MAILBOX_POSTGRES_PORT:-55442}
 smtp_port=${RATELDESK_MAILBOX_SMTPS_PORT:-13465}
+global_smtp_port=${RATELDESK_MAILBOX_GLOBAL_SMTPS_PORT:-13466}
 imap_port=${RATELDESK_MAILBOX_IMAPS_PORT:-13993}
+global_imap_port=${RATELDESK_MAILBOX_GLOBAL_IMAPS_PORT:-13994}
 pop_port=${RATELDESK_MAILBOX_POP3S_PORT:-13995}
 export RATELDESK_MAILBOX_POSTGRES_PORT="$database_port"
 export RATELDESK_MAILBOX_SMTPS_PORT="$smtp_port"
+export RATELDESK_MAILBOX_GLOBAL_SMTPS_PORT="$global_smtp_port"
 export RATELDESK_MAILBOX_IMAPS_PORT="$imap_port"
+export RATELDESK_MAILBOX_GLOBAL_IMAPS_PORT="$global_imap_port"
 export RATELDESK_MAILBOX_POP3S_PORT="$pop_port"
 
 mkdir -p "$artifact_dir"
@@ -156,7 +160,9 @@ HELPDESK_E2E_IGNORE_HTTPS_ERRORS=true \
 HELPDESK_E2E_MAILBOX_LIFECYCLE=true \
 MAILBOX_FIXTURE_CA="$fixture_dir/ca.pem" \
 MAILBOX_FIXTURE_SMTPS_PORT="$smtp_port" \
+MAILBOX_FIXTURE_GLOBAL_SMTPS_PORT="$global_smtp_port" \
 MAILBOX_FIXTURE_IMAPS_PORT="$imap_port" \
+MAILBOX_FIXTURE_GLOBAL_IMAPS_PORT="$global_imap_port" \
 MAILBOX_FIXTURE_POP3S_PORT="$pop_port" \
 PLAYWRIGHT_HTML_OUTPUT_DIR="$artifact_dir/report" \
-npx playwright test tests/ux/mailbox-lifecycle.spec.ts --output="$artifact_dir/results"
+npx playwright test "${HELPDESK_MAILBOX_SPEC:-tests/ux/mailbox-lifecycle.spec.ts}" --output="$artifact_dir/results"

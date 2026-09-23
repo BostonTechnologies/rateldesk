@@ -21,14 +21,16 @@ services:
       GREENMAIL_OPTS: >-
         -Dgreenmail.setup.test.all
         -Dgreenmail.hostname=0.0.0.0
-        -Dgreenmail.users=support:synthetic-mail-password@tenant-a.example.test,requester:synthetic-mail-password@tenant-a.example.test,recipient:synthetic-mail-password@tenant-a.example.test
+        -Dgreenmail.users=support:synthetic-mail-password@tenant-a.example.test,requester:synthetic-mail-password@tenant-a.example.test,recipient:synthetic-mail-password@tenant-a.example.test,global:synthetic-global-password@tenant-b.example.test,requester:synthetic-global-password@tenant-b.example.test,pop:synthetic-pop-password@tenant-c.example.test,requester:synthetic-pop-password@tenant-c.example.test
         -Dgreenmail.users.login=email
         -Dgreenmail.tls.keystore.file=/mail/greenmail.p12
         -Dgreenmail.tls.keystore.password=changeit
         -Dgreenmail.tls.key.password=changeit
     ports:
       - "127.0.0.1:${RATELDESK_MAILBOX_SMTPS_PORT:-3465}:3465"
+      - "127.0.0.1:${RATELDESK_MAILBOX_GLOBAL_SMTPS_PORT:-3466}:3465"
       - "127.0.0.1:${RATELDESK_MAILBOX_IMAPS_PORT:-3993}:3993"
+      - "127.0.0.1:${RATELDESK_MAILBOX_GLOBAL_IMAPS_PORT:-3994}:3993"
       - "127.0.0.1:${RATELDESK_MAILBOX_POP3S_PORT:-3995}:3995"
     volumes:
       - "${MAILBOX_CERT_DIR:?Set MAILBOX_CERT_DIR}/greenmail.p12:/mail/greenmail.p12:ro"
