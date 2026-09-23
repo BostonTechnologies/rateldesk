@@ -1,9 +1,11 @@
 using System.Security.Claims;
 using Helpdesk.Application.Timeline;
+using Helpdesk.Infrastructure.Email;
 using Helpdesk.Shared.DTOs.Worklog;
 using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
+using Microsoft.AspNetCore.Mvc;
 
 namespace Helpdesk.API.Endpoints.Timeline;
 
@@ -32,12 +34,36 @@ public static class TimelineEndpoints
                 if (string.IsNullOrWhiteSpace(userId))
                     return Results.Unauthorized();
 
-                await service.RetryEmailAsync(id, userId, ct);
-                return Results.Ok();
+                try
+                {
+                    await service.RetryEmailAsync(id, userId, ct);
+                    return Results.Ok();
+                }
+                catch (InvalidOperationException error)
+                {
+                    return Results.Conflict(new { message = error.Message });
+                }
             })
             .WithName($"RetryTimelineEmail{nameSuffix}")
             .WithSummary("Retry a failed timeline email delivery")
             .WithDescription("Retries one failed email delivery timeline event.");
+
+        group.MapGet("/{id:guid}/outgoing-retry-preview", async (Guid id,
+            [FromServices] MailboxOutgoingRetryService service, CancellationToken ct) =>
+            Results.Ok(await service.PreviewAsync(id, ct)))
+            .WithName($"PreviewTimelineOutgoingRetry{nameSuffix}");
+
+        group.MapPost("/{id:guid}/retry-current-outgoing", async (Guid id,
+            ConfirmMailboxOutgoingRetryRequest request, HttpContext context,
+            [FromServices] MailboxOutgoingRetryService service, CancellationToken ct) =>
+        {
+            var userId = ResolveUserId(context);
+            if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+            if (!request.Confirmed) return Results.BadRequest(new { message = "Confirm the current outgoing revision." });
+            var result = await service.RetryAsync(id, request.ExpectedOutgoingVersion, userId, ct);
+            return result.CanRetry && result.Status == "Queued" ? Results.Accepted(value: result)
+                : Results.Conflict(result);
+        }).WithName($"RetryTimelineWithCurrentOutgoing{nameSuffix}");
 
         group.MapPost("/retry-all",
             async (

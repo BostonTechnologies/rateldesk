@@ -20,7 +20,7 @@ namespace Helpdesk.Tests.Infrastructure.Email;
 public sealed class MailboxOutboxTests
 {
     [Fact]
-    public async Task Direct_ticket_mail_has_one_durable_owner_and_timeline_retry_keeps_its_mailbox_binding()
+    public async Task Direct_ticket_mail_has_one_durable_owner_and_changed_sender_retry_stays_held()
     {
         await using var fixture = await OutboxDatabase.CreateAsync();
         await using var db = fixture.Open();
@@ -41,9 +41,11 @@ public sealed class MailboxOutboxTests
         Assert.Equal(EmailDeliveryStatus.Failed,
             (await db.TicketTimelineEvents.SingleAsync(x => x.Id == queued.DeliveryEventId)).EmailStatus);
 
-        Assert.True(await store.RetryForTimelineAsync(queued.DeliveryEventId!.Value, default));
-        var retry = Assert.IsType<MailboxOutboxEffect>(await store.TryClaimAsync(queued.Id, "worker", default));
-        var replay = MailboxOutboxStore.Deserialize<IngressEmailEffect>(retry.Payload);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            store.RetryForTimelineAsync(queued.DeliveryEventId!.Value, default));
+        Assert.Null(await store.TryClaimAsync(queued.Id, "worker", default));
+        var held = await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleAsync(x => x.Id == queued.Id);
+        var replay = MailboxOutboxStore.Deserialize<IngressEmailEffect>(held.Payload);
         Assert.Equal(mailboxId, replay.MailboxId);
         Assert.Equal("tenant-a", replay.OrganizationId);
         Assert.Equal(3, replay.MailboxConfigurationVersion);
@@ -74,6 +76,26 @@ public sealed class MailboxOutboxTests
         Assert.Single(claims.OfType<MailboxOutboxEffect>());
         await using var verify = fixture.Open();
         Assert.Equal(1, (await verify.Set<MailboxOutboxEffect>().SingleAsync(x => x.Id == id)).Attempts);
+    }
+
+    [Theory]
+    [InlineData("SmtpPartialRecipientAcceptance")]
+    [InlineData("SocketException")]
+    public async Task Bulk_and_single_retry_cannot_requeue_partial_or_uncertain_delivery(string errorCode)
+    {
+        await using var fixture = await OutboxDatabase.CreateAsync();
+        await using var db = fixture.Open();
+        var store = fixture.Store(db);
+        var queued = await store.QueueDirectAsync(new IngressEmailEffect(["requester@example.test"],
+            "Subject", "<p>Body</p>", [], "ticket-a", [], null, null, false, null, null), default);
+        var claim = Assert.IsType<MailboxOutboxEffect>(await store.TryClaimAsync(queued.Id, "worker", default));
+        Assert.True(await store.CompleteAsync(claim, false, errorCode, default, requiresReview: true));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            store.RetryForTimelineAsync(queued.DeliveryEventId!.Value, default));
+        Assert.Null(await store.TryClaimAsync(queued.Id, "worker", default));
+        Assert.Equal(MailboxEffectState.NeedsReview,
+            (await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleAsync(x => x.Id == queued.Id)).State);
     }
 
     [Fact]

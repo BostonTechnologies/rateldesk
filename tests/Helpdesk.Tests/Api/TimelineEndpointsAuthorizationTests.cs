@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Helpdesk.API.Endpoints.Timeline;
@@ -29,11 +30,16 @@ public sealed class TimelineEndpointsAuthorizationTests
         var failed = await harness.Client.GetAsync("/api/v1/timeline/failed");
         var retryAll = await harness.Client.PostAsync("/api/v1/timeline/retry-all", null);
         var retryOne = await harness.Client.PostAsync($"/api/v1/timeline/{Guid.NewGuid()}/retry", null);
+        var previewCurrent = await harness.Client.GetAsync($"/api/v1/timeline/{Guid.NewGuid()}/outgoing-retry-preview");
+        var retryCurrent = await harness.Client.PostAsJsonAsync($"/api/v1/timeline/{Guid.NewGuid()}/retry-current-outgoing",
+            new ConfirmMailboxOutgoingRetryRequest(2, true));
 
         Assert.Equal(HttpStatusCode.Forbidden, pendingCount.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, failed.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, retryAll.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, retryOne.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, previewCurrent.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, retryCurrent.StatusCode);
     }
 
     private sealed class TimelineEndpointsHarness : IAsyncDisposable

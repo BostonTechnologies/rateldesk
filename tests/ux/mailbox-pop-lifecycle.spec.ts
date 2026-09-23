@@ -151,6 +151,48 @@ test('mailbox POP3 lifecycle: dedicated IMAP and POP3 work without any global ma
   expect((fixture('messages', ['--account', 'pop']) as MailMessage[])
     .filter(message => message.subject === 'Fixture no-global POP3')).toHaveLength(1);
 
+  await page.getByRole('tab', { name: /Outgoing/ }).click();
+  await page.getByLabel('Enable outgoing mail').click();
+  await page.getByRole('button', { name: 'Save outgoing' }).click();
+  await expect(page.getByTestId('mailbox-outgoing-editor').getByText('Outgoing settings saved.', { exact: true })).toBeVisible();
+  fixture('send', ['--sender', 'requester-c', '--recipient', 'pop', '--subject', 'Fixture disabled outgoing POP3',
+    '--body', 'Incoming commits while the dedicated sender is disabled']);
+  await expect.poll(async () => (await incidents(organizationC.id)).filter(item =>
+    item.subject === 'Fixture disabled outgoing POP3').length,
+  { timeout: 90_000, intervals: [1_000, 2_000, 3_000] }).toBe(1);
+  const disabledIncident = (await incidents(organizationC.id)).find(item =>
+    item.subject === 'Fixture disabled outgoing POP3')!;
+  await expect.poll(async () => (await failedDeliveries()).filter(item => item.ticketId === disabledIncident.id).length,
+    { timeout: 30_000, intervals: [1_000, 2_000] }).toBe(1);
+  expect((fixture('messages', ['--account', 'requester-c']) as MailMessage[])
+    .filter(message => message.subject.includes(disabledIncident.trackingId))).toHaveLength(0);
+  await page.getByLabel('Enable outgoing mail').click();
+  await page.getByRole('button', { name: 'Save outgoing' }).click();
+  await expect(page.getByTestId('mailbox-outgoing-editor').getByText('Outgoing settings saved.', { exact: true })).toBeVisible();
+  const disabledDelivery = (await failedDeliveries()).find(item => item.ticketId === disabledIncident.id)!;
+  const retryPreview = await (await page.request.get(
+    `/api/v1/timeline/${disabledDelivery.id}/outgoing-retry-preview`)).json() as
+    { canRetry: boolean; mailboxAddress: string; currentOutgoingVersion: number };
+  expect(retryPreview.canRetry).toBe(true);
+  expect(retryPreview.mailboxAddress).toBe('pop@tenant-c.example.test');
+  await page.goto('/admin/pending-emails');
+  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+  await expect(page.getByText(disabledIncident.id, { exact: true })).toBeVisible();
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('row').filter({ hasText: disabledIncident.id })
+    .getByRole('button', { name: 'Review sender and retry' }).click();
+  await expect(page.getByText('Delivery queued with the confirmed outgoing revision.')).toBeVisible();
+  await expect.poll(() => (fixture('messages', ['--account', 'requester-c']) as MailMessage[]).filter(message =>
+    message.subject.includes(disabledIncident.trackingId) &&
+    message.from.includes('pop@tenant-c.example.test')).length,
+  { timeout: 60_000, intervals: [1_000, 2_000] }).toBe(1);
+  await expect.poll(async () => (await failedDeliveries()).filter(item => item.ticketId === disabledIncident.id).length,
+    { timeout: 30_000, intervals: [1_000, 2_000] }).toBe(0);
+  await page.goto('/admin/email-settings');
+  await expect(page.getByTestId('mailbox-settings')).toHaveAttribute('data-interactive', 'true');
+  await page.getByRole('combobox', { name: 'Selected mailbox' }).click();
+  await page.getByRole('option', { name: /Tenant C POP3 support/ }).click();
+
   await page.getByRole('tab', { name: /Processing/ }).click();
   await page.getByLabel('Background ingestion enabled').click();
   await page.getByRole('button', { name: 'Save', exact: true }).click();

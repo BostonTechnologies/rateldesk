@@ -3,8 +3,10 @@
 @using Helpdesk.Shared.DTOs.Worklog
 @using Helpdesk.Shared.Enums
 @using HelpDesk.NewWeb.Services
+@using Microsoft.JSInterop
 @inject ITimelineApiClient TimelineClient
 @inject ISnackbar Snackbar
+@inject IJSRuntime JS
 
 <MudPaper Class="pa-4">
     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3">
@@ -38,6 +40,7 @@
                 <MudTh>Status</MudTh>
                 <MudTh>Retries</MudTh>
                 <MudTh>Message</MudTh>
+                <MudTh>Action</MudTh>
             </HeaderContent>
             <RowTemplate>
                 <MudTd DataLabel="Created">@context.CreatedUtc.ToLocalTime().ToString("g")</MudTd>
@@ -46,6 +49,12 @@
                 <MudTd DataLabel="Status">@context.EmailStatus</MudTd>
                 <MudTd DataLabel="Retries">@context.RetryCount</MudTd>
                 <MudTd DataLabel="Message">@context.MessageText</MudTd>
+                <MudTd DataLabel="Action">
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="@loading"
+                               OnClick="() => RetryWithCurrentOutgoingAsync(context.Id)">
+                        Review sender and retry
+                    </MudButton>
+                </MudTd>
             </RowTemplate>
         </MudTable>
     }
@@ -95,5 +104,34 @@
         }
 
         await LoadAsync();
+    }
+
+    private async Task RetryWithCurrentOutgoingAsync(Guid timelineId)
+    {
+        loading = true;
+        try
+        {
+            var preview = await TimelineClient.PreviewOutgoingRetryAsync(timelineId);
+            if (preview?.CanRetry != true || preview.CurrentOutgoingVersion is null)
+            {
+                Snackbar.Add($"This delivery cannot adopt current outgoing settings: {preview?.Status ?? "Preview unavailable"}.", Severity.Warning);
+                return;
+            }
+
+            var confirmed = await JS.InvokeAsync<bool>("confirm",
+                $"Retry this delivery using {preview.MailboxAddress} ({preview.Transport}), outgoing revision {preview.CurrentOutgoingVersion}? The ticket, tenant and mailbox stay bound to the original delivery.");
+            if (!confirmed) return;
+            await TimelineClient.RetryWithCurrentOutgoingAsync(timelineId, preview.CurrentOutgoingVersion.Value);
+            Snackbar.Add("Delivery queued with the confirmed outgoing revision.", Severity.Success);
+        }
+        catch (HttpRequestException ex)
+        {
+            Snackbar.Add($"Delivery retry could not be queued: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            loading = false;
+            await LoadAsync();
+        }
     }
 }

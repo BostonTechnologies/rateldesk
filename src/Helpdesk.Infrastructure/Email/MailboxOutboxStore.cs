@@ -155,6 +155,14 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
         var row = await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleOrDefaultAsync(x => x.DeliveryEventId == timelineId, ct);
         if (row is null)
             return false;
+        if (row.State is not (MailboxEffectState.Exhausted or MailboxEffectState.NeedsReview))
+            throw new InvalidOperationException("This delivery is no longer available for retry.");
+        if (row.State == MailboxEffectState.NeedsReview &&
+            row.LastErrorCode is not ("OutgoingNotConfigured" or "OutgoingDisabled" or
+                "SmtpCredentialMissing" or "GraphCredentialMissing" or "ReplyToMismatch"))
+            throw new InvalidOperationException("This delivery requires sender or recipient review before retry.");
+        if (row.LastErrorCode == "DispatchOutcomeUnknown")
+            throw new InvalidOperationException("The previous delivery outcome is uncertain; check the recipient before retrying.");
         var now = timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var changed = await db.Set<MailboxOutboxEffect>()

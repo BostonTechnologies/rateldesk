@@ -125,6 +125,7 @@ public static class DependencyInjection
         services.AddScoped<Helpdesk.Infrastructure.Email.InboundTenantRouter>();
         services.AddScoped<IIngressEffectContext, IngressEffectContext>();
         services.AddScoped<Helpdesk.Infrastructure.Email.MailboxOutboxStore>();
+        services.AddScoped<Helpdesk.Infrastructure.Email.MailboxOutgoingRetryService>();
         services.AddHostedService<Helpdesk.Infrastructure.Email.MailboxOutboxDispatcher>();
         services.AddScoped<IInboundMailboxAdapter, Helpdesk.Infrastructure.Email.GraphMailboxAdapter>();
         services.AddScoped<IInboundMailboxAdapter>(sp => new Helpdesk.Infrastructure.Email.ProtocolMailboxAdapter(
