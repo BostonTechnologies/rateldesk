@@ -10,7 +10,8 @@ using Helpdesk.Shared.Models;
 
 namespace Helpdesk.Infrastructure.Email;
 
-public sealed class IngressEmailService(MailboxEmailService inner, IIngressEffectContext context) : IEmailService
+public sealed class IngressEmailService(MailboxEmailService inner, MailboxSenderResolver resolver,
+    IIngressEffectContext context) : IEmailService
 {
     public Task<bool> TestApiConnectionAsync() => inner.TestApiConnectionAsync();
 
@@ -20,19 +21,24 @@ public sealed class IngressEmailService(MailboxEmailService inner, IIngressEffec
         string? replyTo = null, bool suppressTimeline = false) =>
         SendEmailAsync([recipient], subject, htmlMessage, cc, ct, ticketId, attachments, fromName, replyTo, suppressTimeline);
 
-    public Task<bool> SendEmailAsync(IEnumerable<string> recipients, string subject, string htmlMessage,
+    public async Task<bool> SendEmailAsync(IEnumerable<string> recipients, string subject, string htmlMessage,
         IEnumerable<string>? cc = null, CancellationToken ct = default, string? ticketId = null,
         IEnumerable<EmailAttachmentData>? attachments = null, string? fromName = null,
         string? replyTo = null, bool suppressTimeline = false)
     {
         ct.ThrowIfCancellationRequested();
         if (!context.IsActive)
-            return inner.SendEmailAsync(recipients, subject, htmlMessage, cc, ct, ticketId, attachments, fromName, replyTo, suppressTimeline);
+            return await inner.SendEmailAsync(recipients, subject, htmlMessage, cc, ct, ticketId, attachments, fromName, replyTo, suppressTimeline);
+        var selection = await resolver.ResolveAsync(ticketId, null, ct);
         context.Capture(MailboxEffectKind.Email, new IngressEmailEffect(recipients.ToArray(), subject,
             htmlMessage, cc?.ToArray() ?? [], ticketId, attachments?.ToArray() ?? [], fromName,
-            replyTo, suppressTimeline, context.SupportDeliveryId, context.TimelineDeliveryId));
+            replyTo, suppressTimeline, context.SupportDeliveryId, context.TimelineDeliveryId)
+        {
+            MailboxId = selection.Mailbox?.Id,
+            OrganizationId = selection.OrganizationId
+        });
         // This means durably accepted when the enclosing transaction commits, not delivered.
-        return Task.FromResult(true);
+        return true;
     }
 }
 

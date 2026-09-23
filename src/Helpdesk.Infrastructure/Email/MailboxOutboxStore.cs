@@ -64,7 +64,7 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
     {
         var now = timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
         var row = await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
-        if (row is null || row.State is MailboxEffectState.Completed or MailboxEffectState.Exhausted)
+        if (row is null || row.State is MailboxEffectState.Completed or MailboxEffectState.Exhausted or MailboxEffectState.NeedsReview)
             return null;
         if (row.Attempts >= MaximumAttempts)
         {
@@ -91,11 +91,16 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
         return row;
     }
 
-    public async Task<bool> CompleteAsync(MailboxOutboxEffect claim, bool succeeded, string? errorCode, CancellationToken ct)
+    public Task<bool> CompleteAsync(MailboxOutboxEffect claim, bool succeeded, string? errorCode, CancellationToken ct) =>
+        CompleteAsync(claim, succeeded, errorCode, ct, false);
+
+    public async Task<bool> CompleteAsync(MailboxOutboxEffect claim, bool succeeded, string? errorCode, CancellationToken ct,
+        bool requiresReview)
     {
         var now = timeProvider.GetUtcNow();
         var milliseconds = now.ToUnixTimeMilliseconds();
         var state = succeeded ? MailboxEffectState.Completed
+            : requiresReview ? MailboxEffectState.NeedsReview
             : claim.Attempts >= MaximumAttempts ? MailboxEffectState.Exhausted : MailboxEffectState.Pending;
         var nextAttempt = milliseconds + (long)TimeSpan.FromSeconds(30 * Math.Pow(2, claim.Attempts - 1)).TotalMilliseconds;
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
@@ -108,7 +113,7 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
                 .SetProperty(x => x.LastErrorCode, errorCode), ct);
         if (changed != 1)
             return false;
-        await UpdateDeliveryAsync(claim, succeeded, state == MailboxEffectState.Exhausted, errorCode, now, ct);
+        await UpdateDeliveryAsync(claim, succeeded, state, errorCode, now, ct);
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
         return true;
@@ -122,7 +127,7 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
         var now = timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var changed = await db.Set<MailboxOutboxEffect>()
-            .Where(x => x.Id == row.Id && x.State == MailboxEffectState.Exhausted && x.Fence == row.Fence)
+            .Where(x => x.Id == row.Id && (x.State == MailboxEffectState.Exhausted || x.State == MailboxEffectState.NeedsReview) && x.Fence == row.Fence)
             .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.State, MailboxEffectState.Pending)
                 .SetProperty(x => x.Attempts, 0).SetProperty(x => x.Fence, x => x.Fence + 1)
                 .SetProperty(x => x.Owner, (string?)null).SetProperty(x => x.LeaseExpiresUnixMilliseconds, 0L)
@@ -149,13 +154,14 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
                 .SetProperty(x => x.Owner, (string?)null).SetProperty(x => x.LastErrorCode, "DispatchOutcomeUnknown"), ct);
         if (changed == 1)
         {
-            await UpdateDeliveryAsync(row, false, true, "DispatchOutcomeUnknown", DateTimeOffset.FromUnixTimeMilliseconds(now), ct);
+            await UpdateDeliveryAsync(row, false, MailboxEffectState.Exhausted, "DispatchOutcomeUnknown",
+                DateTimeOffset.FromUnixTimeMilliseconds(now), ct);
             await db.SaveChangesAsync(ct);
         }
         await transaction.CommitAsync(ct);
     }
 
-    private async Task UpdateDeliveryAsync(MailboxOutboxEffect row, bool succeeded, bool exhausted,
+    private async Task UpdateDeliveryAsync(MailboxOutboxEffect row, bool succeeded, MailboxEffectState state,
         string? errorCode, DateTimeOffset now, CancellationToken ct)
     {
         if (row.Kind != MailboxEffectKind.Email)
@@ -176,12 +182,14 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
             var delivery = await db.SupportNotificationDeliveries.SingleOrDefaultAsync(x => x.Id == supportId, ct);
             if (delivery is not null)
             {
-                delivery.Status = succeeded ? SupportNotificationDeliveryStatus.Sent
-                    : exhausted ? SupportNotificationDeliveryStatus.Failed : SupportNotificationDeliveryStatus.Pending;
+                delivery.Status = errorCode == "Suppressed" ? SupportNotificationDeliveryStatus.Skipped
+                    : succeeded ? SupportNotificationDeliveryStatus.Sent
+                    : state is MailboxEffectState.Exhausted or MailboxEffectState.NeedsReview
+                        ? SupportNotificationDeliveryStatus.Failed : SupportNotificationDeliveryStatus.Pending;
                 delivery.AttemptedUtc = now;
                 delivery.UpdatedUtc = now;
                 delivery.SentUtc = succeeded ? now : null;
-                delivery.FailedUtc = exhausted ? now : null;
+                delivery.FailedUtc = state is MailboxEffectState.Exhausted or MailboxEffectState.NeedsReview ? now : null;
                 delivery.FailureReason = errorCode;
             }
         }
@@ -190,12 +198,17 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
             var delivery = await db.TicketTimelineEvents.SingleOrDefaultAsync(x => x.Id == timelineId, ct);
             if (delivery is not null)
             {
-                delivery.EmailStatus = succeeded ? EmailDeliveryStatus.Delivered
-                    : exhausted ? EmailDeliveryStatus.Failed : EmailDeliveryStatus.Pending;
+                delivery.EmailStatus = errorCode == "Suppressed" ? EmailDeliveryStatus.Suppressed
+                    : succeeded ? EmailDeliveryStatus.Delivered
+                    : state is MailboxEffectState.Exhausted or MailboxEffectState.NeedsReview
+                        ? EmailDeliveryStatus.Failed : EmailDeliveryStatus.Pending;
                 delivery.RetryCount = Math.Max(0, row.Attempts - 1);
                 delivery.LastRetryUtc = now;
                 delivery.RetryError = errorCode;
-                delivery.MessageText = succeeded ? "Email successfully sent." : exhausted
+                delivery.MessageText = errorCode == "Suppressed" ? "Automatic email suppressed to prevent a mailbox loop."
+                    : succeeded ? "Email accepted by provider."
+                    : state == MailboxEffectState.NeedsReview ? "Email delivery needs sender review."
+                    : state == MailboxEffectState.Exhausted
                     ? "Email delivery requires retry." : "Email queued for another delivery attempt.";
                 AddTimelineEffect(row.ReceiptId, $"{row.EffectKey}:result:{row.Fence}", delivery, now.ToUnixTimeMilliseconds());
             }

@@ -6,15 +6,60 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using Helpdesk.Infrastructure.Email;
 using Helpdesk.Infrastructure.Html;
+using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Models;
+using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
 using MimeKit;
+using NSubstitute;
 
 namespace Helpdesk.Tests.Infrastructure.Email;
 
 public sealed class SmtpMailboxSenderTests
 {
+    [Fact]
+    public async Task Ticket_email_service_uses_dedicated_smtp_without_constructing_legacy_Graph_sender()
+    {
+        await using var server = new SmtpFixture();
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<HelpdeskDbContext>().UseSqlite(connection).Options;
+        await using var db = new HelpdeskDbContext(options, Substitute.For<ITenantContext>(), new HttpContextAccessor());
+        await db.Database.EnsureCreatedAsync();
+        db.Organizations.Add(new Organization { Id = "tenant-a", Name = "Tenant A" });
+        var mailbox = new EmailInboxSettings { Id = Guid.NewGuid(), Scope = MailboxScope.Organization,
+            OrganizationId = "tenant-a", Provider = InboundMailboxProvider.Imap,
+            Authentication = MailboxAuthentication.Password, MailboxAddress = "support@tenant-a.example.test",
+            SourceKey = "tenant-a-imap", Enabled = true, BackgroundSyncEnabled = false,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
+        var protection = new MailboxOutgoingCredentialProtector(new EphemeralDataProtectionProvider());
+        var outgoing = new MailboxOutgoingSettings { MailboxId = mailbox.Id, Enabled = true,
+            Transport = MailboxOutgoingTransport.Smtp, DisplayName = "Tenant A support",
+            SmtpHost = "localhost", SmtpPort = server.Port, SmtpTlsMode = MailboxTlsMode.TlsOnConnect,
+            SmtpUsername = mailbox.MailboxAddress };
+        outgoing.ProtectedSmtpPassword = protection.Protect(outgoing, "synthetic-password");
+        db.EmailInboxSettings.Add(mailbox);
+        db.Set<MailboxOutgoingSettings>().Add(outgoing);
+        db.Incidents.Add(new Incident { Id = "ticket-a", TrackingId = "INC-123", OrganizationId = "tenant-a" });
+        await db.SaveChangesAsync();
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            { ["EmailSending:AllowedPrivateHosts:0"] = "localhost" }).Build();
+        var service = new MailboxEmailService(new MailboxSenderResolver(db),
+            new SmtpMailboxSender(new MailboxDestinationPolicy(configuration), protection, new HtmlToPlainTextConverter()),
+            new GraphMailboxSender(_ => throw new InvalidOperationException("Graph must not be constructed.")),
+            NullLogger<MailboxEmailService>.Instance);
+
+        Assert.True(await service.SendEmailAsync(["requester@example.test"], "Ticket update", "<p>Update</p>",
+            ticketId: "ticket-a"));
+        await server.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Contains(server.Commands, command => command.StartsWith("MAIL FROM:<support@tenant-a.example.test>", StringComparison.OrdinalIgnoreCase));
+    }
+
     [Fact]
     public async Task Authenticated_sender_submits_with_selected_mailbox_identity_and_verified_TLS()
     {

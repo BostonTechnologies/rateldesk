@@ -6,7 +6,11 @@ namespace Helpdesk.Application.Services.Email;
 public sealed record IngressEmailEffect(string[] Recipients, string Subject, string Html,
     string[] Cc, string? TicketId, EmailAttachmentData[] Attachments,
     string? FromName, string? ReplyTo, bool SuppressTimeline,
-    string? SupportDeliveryId, Guid? TimelineDeliveryId);
+    string? SupportDeliveryId, Guid? TimelineDeliveryId)
+{
+    public Guid? MailboxId { get; init; }
+    public string? OrganizationId { get; init; }
+}
 
 public sealed record IngressCapturedEffect(string Key, MailboxEffectKind Kind, string Payload);
 

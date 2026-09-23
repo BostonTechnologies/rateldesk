@@ -56,14 +56,17 @@ public sealed class MailboxOutboxDispatcher(IServiceScopeFactory scopes, ILogger
             if (claim is null)
                 continue;
             bool succeeded;
+            bool requiresReview = false;
             string? errorCode = null;
             try
             {
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 timeout.CancelAfter(TimeSpan.FromMinutes(2));
-                succeeded = await DispatchAsync(claim, services, timeout.Token);
-                if (!succeeded)
-                    errorCode = "DeliveryRejected";
+                var result = await DispatchAsync(claim, services, timeout.Token);
+                succeeded = result.Status is "Accepted by provider" or "Suppressed";
+                requiresReview = result.Status is "Needs configuration" or "Needs review" or "Outcome unknown";
+                errorCode = result.Status == "Suppressed" ? "Suppressed" : result.ErrorCode;
+                if (!succeeded && errorCode is null) errorCode = "DeliveryRejected";
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -76,13 +79,13 @@ public sealed class MailboxOutboxDispatcher(IServiceScopeFactory scopes, ILogger
                 errorCode = error is OperationCanceledException ? "DispatchTimedOut" : error.GetType().Name;
             }
 
-            if (await store.CompleteAsync(claim, succeeded, errorCode, ct) && succeeded)
+            if (await store.CompleteAsync(claim, succeeded, errorCode, ct, requiresReview) && succeeded)
                 completed++;
         }
         return completed;
     }
 
-    private static async Task<bool> DispatchAsync(MailboxOutboxEffect effect, IServiceProvider services, CancellationToken ct)
+    private static async Task<MailboxSubmissionResult> DispatchAsync(MailboxOutboxEffect effect, IServiceProvider services, CancellationToken ct)
     {
         if (services.GetRequiredService<IIngressEffectContext>().IsActive)
             throw new InvalidOperationException("Outbox dispatch cannot run inside an ingress business scope.");
@@ -90,13 +93,15 @@ public sealed class MailboxOutboxDispatcher(IServiceScopeFactory scopes, ILogger
         {
             case MailboxEffectKind.Email:
                 var email = MailboxOutboxStore.Deserialize<IngressEmailEffect>(effect.Payload);
-                return await services.GetRequiredService<IEmailService>().SendEmailAsync(email.Recipients,
-                    email.Subject, email.Html, email.Cc, ct, email.TicketId, email.Attachments,
-                    email.FromName, email.ReplyTo, email.SuppressTimeline);
+                if (email.MailboxId is null)
+                    return new("Needs review", "LegacySenderBindingMissing");
+                return await services.GetRequiredService<MailboxEmailService>().SendPinnedAsync(email.MailboxId.Value,
+                    email.OrganizationId, email.TicketId, email.Recipients, email.Cc,
+                    email.Subject, email.Html, email.Attachments, email.ReplyTo, effect.Id, ct);
             case MailboxEffectKind.Notification:
                 services.GetRequiredService<INotificationEventBus>().Publish(
                     MailboxOutboxStore.Deserialize<NotificationDto>(effect.Payload));
-                return true;
+                return new("Accepted by provider");
             case MailboxEffectKind.Timeline:
                 var timeline = MailboxOutboxStore.Deserialize<TicketTimelineEventDto>(effect.Payload);
                 // Another replica may have delivered an email before its queued Pending
@@ -114,7 +119,7 @@ public sealed class MailboxOutboxDispatcher(IServiceScopeFactory scopes, ILogger
                     }
                 }
                 await services.GetRequiredService<ITimelineEventBus>().PublishAsync(timeline);
-                return true;
+                return new("Accepted by provider");
             default:
                 throw new InvalidOperationException("Unsupported durable ingress effect kind.");
         }

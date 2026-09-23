@@ -14,7 +14,6 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
-using NSubstitute;
 
 namespace Helpdesk.Tests.Infrastructure.Email;
 
@@ -70,21 +69,15 @@ public sealed class MailboxOutboxTests
     }
 
     [Fact]
-    public async Task Committed_email_dispatches_once_and_updates_original_pending_delivery()
+    public async Task Legacy_email_without_authoritative_sender_binding_is_held_for_review()
     {
         await using var fixture = await OutboxDatabase.CreateAsync();
         await fixture.CaptureEmailAsync();
-        var mail = Substitute.For<IEmailService>();
-        mail.SendEmailAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Any<IEnumerable<string>?>(), Arg.Any<CancellationToken>(), Arg.Any<string?>(),
-            Arg.Any<IEnumerable<EmailAttachmentData>?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<bool>())
-            .Returns(Task.FromResult(true));
         var services = new ServiceCollection();
         services.AddScoped<HelpdeskDbContext>(_ => fixture.Open());
         services.AddSingleton<TimeProvider>(fixture.Clock);
         services.AddScoped<IIngressEffectContext, IngressEffectContext>();
         services.AddScoped<MailboxOutboxStore>();
-        services.AddSingleton(mail);
         services.AddSingleton<ITimelineEventBus, TimelineEventBus>();
         services.AddSingleton<INotificationEventBus, NotificationEventBus>();
         await using var provider = services.BuildServiceProvider();
@@ -92,13 +85,12 @@ public sealed class MailboxOutboxTests
             NullLogger<MailboxOutboxDispatcher>.Instance);
         await dispatcher.DispatchBatchAsync();
         await dispatcher.DispatchBatchAsync();
-        await mail.Received(1).SendEmailAsync(Arg.Any<IEnumerable<string>>(), "A subject", "<p>Body</p>",
-            Arg.Any<IEnumerable<string>?>(), Arg.Any<CancellationToken>(), "ticket-a",
-            Arg.Any<IEnumerable<EmailAttachmentData>?>(), null, null, true);
         await using var verify = fixture.Open();
-        Assert.Equal(EmailDeliveryStatus.Delivered, (await verify.TicketTimelineEvents.SingleAsync()).EmailStatus);
-        Assert.Equal(MailboxEffectState.Completed,
+        Assert.Equal(EmailDeliveryStatus.Failed, (await verify.TicketTimelineEvents.SingleAsync()).EmailStatus);
+        Assert.Equal(MailboxEffectState.NeedsReview,
             (await verify.Set<MailboxOutboxEffect>().SingleAsync(x => x.Kind == MailboxEffectKind.Email)).State);
+        Assert.Equal("LegacySenderBindingMissing",
+            (await verify.Set<MailboxOutboxEffect>().SingleAsync(x => x.Kind == MailboxEffectKind.Email)).LastErrorCode);
     }
 
     [Fact]
