@@ -148,7 +148,33 @@ public sealed class MailboxOutboxTests
     }
 
     [Fact]
-    public async Task Expired_claim_cannot_complete_or_change_successor_delivery()
+    public async Task Unexpected_email_dispatch_failure_is_held_instead_of_automatically_retried()
+    {
+        await using var fixture = await OutboxDatabase.CreateAsync();
+        var id = await fixture.CaptureEmailAsync();
+        await using (var setup = fixture.Open())
+            await setup.Set<MailboxOutboxEffect>().Where(x => x.Id == id)
+                .ExecuteUpdateAsync(update => update.SetProperty(x => x.Payload, "invalid-json"));
+        var services = new ServiceCollection();
+        services.AddScoped<HelpdeskDbContext>(_ => fixture.Open());
+        services.AddSingleton<TimeProvider>(fixture.Clock);
+        services.AddScoped<IIngressEffectContext, IngressEffectContext>();
+        services.AddScoped<MailboxOutboxStore>();
+        await using var provider = services.BuildServiceProvider();
+        var dispatcher = new MailboxOutboxDispatcher(provider.GetRequiredService<IServiceScopeFactory>(),
+            NullLogger<MailboxOutboxDispatcher>.Instance);
+
+        await dispatcher.DispatchBatchAsync();
+
+        await using var verify = fixture.Open();
+        var held = await verify.Set<MailboxOutboxEffect>().SingleAsync(x => x.Id == id);
+        Assert.Equal(MailboxEffectState.NeedsReview, held.State);
+        Assert.Equal("DispatchOutcomeUnknown", held.LastErrorCode);
+        Assert.DoesNotContain(id, await fixture.Store(verify).GetCandidatesAsync(16, default));
+    }
+
+    [Fact]
+    public async Task Expired_email_claim_requires_review_without_a_second_submission()
     {
         await using var fixture = await OutboxDatabase.CreateAsync();
         var id = await fixture.CaptureEmailAsync();
@@ -159,13 +185,19 @@ public sealed class MailboxOutboxTests
         var stale = Assert.IsType<MailboxOutboxEffect>(await first.TryClaimAsync(id, "first", default));
         Assert.Null(await second.TryClaimAsync(id, "second", default));
         fixture.Clock.Advance(TimeSpan.FromMinutes(5));
-        var current = Assert.IsType<MailboxOutboxEffect>(await second.TryClaimAsync(id, "second", default));
-        Assert.Equal(stale.Fence + 1, current.Fence);
+        Assert.Null(await second.TryClaimAsync(id, "second", default));
         Assert.False(await first.CompleteAsync(stale, true, null, default));
-        Assert.True(await second.CompleteAsync(current, true, null, default));
         Assert.False(await first.CompleteAsync(stale, false, "OldFailure", default));
         await using var verify = fixture.Open();
-        Assert.Equal(EmailDeliveryStatus.Delivered, (await verify.TicketTimelineEvents.SingleAsync()).EmailStatus);
+        var held = await verify.Set<MailboxOutboxEffect>().SingleAsync(x => x.Id == id);
+        Assert.Equal(MailboxEffectState.NeedsReview, held.State);
+        Assert.Equal("DispatchOutcomeUnknown", held.LastErrorCode);
+        Assert.Equal(stale.Attempts, held.Attempts);
+        var timeline = await verify.TicketTimelineEvents.SingleAsync();
+        Assert.Equal(EmailDeliveryStatus.Failed, timeline.EmailStatus);
+        Assert.False(timeline.IsRetryable);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Store(verify).RetryForTimelineAsync(timeline.Id, default));
     }
 
     [Fact]
@@ -196,21 +228,46 @@ public sealed class MailboxOutboxTests
     }
 
     [Fact]
-    public async Task Worker_crash_on_final_attempt_becomes_visible_exhausted_delivery()
+    public async Task Worker_crash_on_first_email_attempt_becomes_visible_unknown_outcome()
     {
         await using var fixture = await OutboxDatabase.CreateAsync();
         var id = await fixture.CaptureEmailAsync();
-        for (var attempt = 0; attempt < MailboxOutboxStore.MaximumAttempts; attempt++)
-        {
-            await using var db = fixture.Open();
-            Assert.NotNull(await fixture.Store(db).TryClaimAsync(id, "worker", default));
-            fixture.Clock.Advance(TimeSpan.FromMinutes(5));
-        }
+        await using (var worker = fixture.Open())
+            Assert.NotNull(await fixture.Store(worker).TryClaimAsync(id, "worker", default));
+        fixture.Clock.Advance(TimeSpan.FromMinutes(5));
         await using var verify = fixture.Open();
         Assert.Null(await fixture.Store(verify).TryClaimAsync(id, "worker", default));
-        Assert.Equal(MailboxEffectState.Exhausted,
-            (await verify.Set<MailboxOutboxEffect>().SingleAsync(x => x.Id == id)).State);
+        var held = await verify.Set<MailboxOutboxEffect>().SingleAsync(x => x.Id == id);
+        Assert.Equal(MailboxEffectState.NeedsReview, held.State);
+        Assert.Equal("DispatchOutcomeUnknown", held.LastErrorCode);
+        Assert.Equal(1, held.Attempts);
         Assert.Equal(EmailDeliveryStatus.Failed, (await verify.TicketTimelineEvents.SingleAsync()).EmailStatus);
+    }
+
+    [Fact]
+    public async Task Expired_non_email_claim_can_be_reclaimed()
+    {
+        await using var fixture = await OutboxDatabase.CreateAsync();
+        Guid id;
+        await using (var setup = fixture.Open())
+        {
+            var row = new MailboxOutboxEffect
+            {
+                Kind = MailboxEffectKind.Notification, EffectKey = "notification:reclaim",
+                Payload = "{}", AvailableUnixMilliseconds = fixture.Clock.GetUtcNow().ToUnixTimeMilliseconds()
+            };
+            setup.Set<MailboxOutboxEffect>().Add(row);
+            await setup.SaveChangesAsync();
+            id = row.Id;
+        }
+        await using var firstDb = fixture.Open();
+        await using var secondDb = fixture.Open();
+        var first = Assert.IsType<MailboxOutboxEffect>(await fixture.Store(firstDb).TryClaimAsync(id, "first", default));
+        fixture.Clock.Advance(TimeSpan.FromMinutes(5));
+        var second = Assert.IsType<MailboxOutboxEffect>(await fixture.Store(secondDb).TryClaimAsync(id, "second", default));
+        Assert.Equal(first.Fence + 1, second.Fence);
+        Assert.Equal(2, second.Attempts);
+        Assert.False(await fixture.Store(firstDb).CompleteAsync(first, true, null, default));
     }
 
     private sealed class OutboxDatabase : IAsyncDisposable

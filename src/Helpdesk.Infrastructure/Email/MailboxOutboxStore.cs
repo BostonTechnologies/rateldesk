@@ -97,6 +97,12 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
         var row = await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
         if (row is null || row.State is MailboxEffectState.Completed or MailboxEffectState.Exhausted or MailboxEffectState.NeedsReview)
             return null;
+        if (row.Kind == MailboxEffectKind.Email && row.State == MailboxEffectState.InFlight &&
+            row.LeaseExpiresUnixMilliseconds <= now)
+        {
+            await HoldExpiredEmailAsync(row, now, ct);
+            return null;
+        }
         if (row.Attempts >= MaximumAttempts)
         {
             await ExhaustExpiredAsync(row, now, ct);
@@ -200,6 +206,26 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
         await transaction.CommitAsync(ct);
     }
 
+    private async Task HoldExpiredEmailAsync(MailboxOutboxEffect row, long now, CancellationToken ct)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        var changed = await db.Set<MailboxOutboxEffect>()
+            .Where(x => x.Id == row.Id && x.Kind == MailboxEffectKind.Email &&
+                x.State == MailboxEffectState.InFlight && x.Fence == row.Fence && x.Owner == row.Owner &&
+                x.LeaseExpiresUnixMilliseconds <= now)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.State, MailboxEffectState.NeedsReview)
+                .SetProperty(x => x.Owner, (string?)null)
+                .SetProperty(x => x.LeaseExpiresUnixMilliseconds, 0L)
+                .SetProperty(x => x.LastErrorCode, "DispatchOutcomeUnknown"), ct);
+        if (changed == 1)
+        {
+            await UpdateDeliveryAsync(row, false, MailboxEffectState.NeedsReview, "DispatchOutcomeUnknown",
+                DateTimeOffset.FromUnixTimeMilliseconds(now), ct);
+            await db.SaveChangesAsync(ct);
+        }
+        await transaction.CommitAsync(ct);
+    }
+
     private async Task UpdateDeliveryAsync(MailboxOutboxEffect row, bool succeeded, MailboxEffectState state,
         string? errorCode, DateTimeOffset now, CancellationToken ct)
     {
@@ -246,6 +272,7 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
                 delivery.RetryError = errorCode;
                 delivery.MessageText = errorCode == "Suppressed" ? "Automatic email suppressed to prevent a mailbox loop."
                     : succeeded ? "Email accepted by provider."
+                    : errorCode == "DispatchOutcomeUnknown" ? "Email submission outcome is unknown; verify with recipients before taking action."
                     : state == MailboxEffectState.NeedsReview ? "Email delivery needs sender review."
                     : state == MailboxEffectState.Exhausted
                     ? "Email delivery requires retry." : "Email queued for another delivery attempt.";

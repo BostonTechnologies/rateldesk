@@ -76,7 +76,9 @@ public sealed class MailboxOutboxDispatcher(IServiceScopeFactory scopes, ILogger
             catch (Exception error)
             {
                 succeeded = false;
-                errorCode = error is OperationCanceledException ? "DispatchTimedOut" : error.GetType().Name;
+                requiresReview = claim.Kind == MailboxEffectKind.Email;
+                errorCode = requiresReview ? "DispatchOutcomeUnknown"
+                    : error is OperationCanceledException ? "DispatchTimedOut" : error.GetType().Name;
             }
 
             if (await store.CompleteAsync(claim, succeeded, errorCode, ct, requiresReview) && succeeded)
