@@ -47,6 +47,23 @@ public static class EmailSettingsEndpoints
             catch (InvalidOperationException ex) { return Results.Conflict(new { message = ex.Message }); }
             catch (DbUpdateConcurrencyException) { return Results.Conflict(new { message = "Outgoing configuration changed; reload before saving." }); }
         });
+        group.MapPost("/{id:guid}/outgoing/test", async (Guid id, HelpdeskDbContext db,
+            SmtpMailboxSender smtp, CancellationToken ct) =>
+        {
+            var outgoing = await db.Set<MailboxOutgoingSettings>().SingleOrDefaultAsync(x => x.MailboxId == id, ct);
+            if (outgoing is null) return Results.Conflict(new { message = "Save outgoing settings before testing." });
+            if (outgoing.Transport == MailboxOutgoingTransport.Graph)
+                return Results.Ok(new MailboxConnectionTest(false,
+                    "Graph send authorization cannot be verified by a connection-only check. Use Send test email after setup."));
+            var result = await smtp.TestAsync(outgoing, ct);
+            outgoing.LastTestUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            outgoing.TestedVersion = outgoing.Version;
+            outgoing.LastTestCode = result.ErrorCode ?? result.Status;
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new MailboxConnectionTest(result.Status == "Authenticated",
+                result.Status == "Authenticated" ? "SMTP TLS and authentication succeeded; no message was sent."
+                    : $"SMTP connection or authentication failed ({result.ErrorCode})."));
+        });
         group.MapPost("/", async ([FromBody] MailboxSettingsRequest request, HelpdeskDbContext db, MailboxSettingsService service, ClaimsPrincipal user, CancellationToken ct) =>
         {
             if (request.Id != Guid.Empty) return Results.BadRequest(new { message = "Create requires an empty ID; use PUT to edit." });

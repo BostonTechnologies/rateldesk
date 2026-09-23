@@ -1,0 +1,144 @@
+using System.Net;
+using System.Net.Security;
+using System.Net.Sockets;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
+using Helpdesk.Infrastructure.Email;
+using Helpdesk.Infrastructure.Html;
+using Helpdesk.Shared.Models;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.Extensions.Configuration;
+using MimeKit;
+
+namespace Helpdesk.Tests.Infrastructure.Email;
+
+public sealed class SmtpMailboxSenderTests
+{
+    [Fact]
+    public async Task Authenticated_sender_submits_with_selected_mailbox_identity_and_verified_TLS()
+    {
+        await using var server = new SmtpFixture();
+        var mailbox = new EmailInboxSettings { Id = Guid.NewGuid(), MailboxAddress = "support@tenant-a.example.test", Enabled = true };
+        var protection = new MailboxOutgoingCredentialProtector(new EphemeralDataProtectionProvider());
+        var outgoing = new MailboxOutgoingSettings { MailboxId = mailbox.Id, Enabled = true,
+            Transport = MailboxOutgoingTransport.Smtp, DisplayName = "Tenant A support",
+            SmtpHost = "localhost", SmtpPort = server.Port, SmtpTlsMode = MailboxTlsMode.TlsOnConnect,
+            SmtpUsername = mailbox.MailboxAddress };
+        outgoing.ProtectedSmtpPassword = protection.Protect(outgoing, "synthetic-password");
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            { ["EmailSending:AllowedPrivateHosts:0"] = "localhost" }).Build();
+        var sender = new SmtpMailboxSender(new MailboxDestinationPolicy(configuration),
+            protection, new HtmlToPlainTextConverter());
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+
+        var result = await sender.SendAsync(mailbox, outgoing,
+            ["requester@example.test", mailbox.MailboxAddress], ["tech@example.test"],
+            "INC-123 update", "<p>Hello requester</p>", [], Guid.Parse("11111111-1111-4111-8111-111111111111"), deadline.Token);
+
+        Assert.Equal("Accepted by provider", result.Status);
+        await server.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Contains("AUTH PLAIN", server.Commands);
+        Assert.Contains(server.Commands, command => command.StartsWith("MAIL FROM:<support@tenant-a.example.test>", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(server.Commands, command => command.Contains("RCPT TO:<support@tenant-a.example.test>", StringComparison.Ordinal));
+        Assert.Contains("RCPT TO:<requester@example.test>", server.Commands);
+        Assert.Contains("RCPT TO:<tech@example.test>", server.Commands);
+        using var parsed = MimeMessage.Load(new MemoryStream(Encoding.UTF8.GetBytes(server.Message)));
+        Assert.Equal(mailbox.MailboxAddress, Assert.Single(parsed.From.Mailboxes).Address);
+        Assert.Equal("Tenant A support", Assert.Single(parsed.From.Mailboxes).Name);
+        Assert.Equal(mailbox.MailboxAddress, Assert.Single(parsed.ReplyTo.Mailboxes).Address);
+        Assert.Equal("11111111111141118111111111111111@tenant-a.example.test", parsed.MessageId);
+        Assert.Contains("Hello requester", parsed.TextBody);
+    }
+
+    [Fact]
+    public async Task Smtp_private_destination_is_blocked_without_explicit_fixture_policy()
+    {
+        var mailbox = new EmailInboxSettings { Id = Guid.NewGuid(), MailboxAddress = "support@tenant-a.example.test", Enabled = true };
+        var protection = new MailboxOutgoingCredentialProtector(new EphemeralDataProtectionProvider());
+        var outgoing = new MailboxOutgoingSettings { MailboxId = mailbox.Id, Enabled = true,
+            Transport = MailboxOutgoingTransport.Smtp, SmtpHost = "localhost", SmtpPort = 465,
+            SmtpUsername = mailbox.MailboxAddress };
+        outgoing.ProtectedSmtpPassword = protection.Protect(outgoing, "synthetic-password");
+        var sender = new SmtpMailboxSender(new MailboxDestinationPolicy(new ConfigurationBuilder().Build()),
+            protection, new HtmlToPlainTextConverter());
+        var result = await sender.SendAsync(mailbox, outgoing, ["requester@example.test"], null,
+            "Update", "<p>Hello</p>", [], Guid.NewGuid(), default);
+        Assert.Equal("Failed", result.Status);
+    }
+
+    private sealed class SmtpFixture : IAsyncDisposable
+    {
+        private readonly TcpListener listener;
+        private readonly X509Certificate2 certificate;
+        private readonly X509Store roots = new(StoreName.Root, StoreLocation.CurrentUser);
+        public int Port { get; }
+        public Task Completion { get; }
+        public List<string> Commands { get; } = [];
+        public string Message { get; private set; } = string.Empty;
+
+        public SmtpFixture()
+        {
+            using var key = RSA.Create(2048);
+            var request = new CertificateRequest("CN=localhost", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            var san = new SubjectAlternativeNameBuilder();
+            san.AddDnsName("localhost");
+            request.CertificateExtensions.Add(san.Build());
+            request.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
+            certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddHours(1));
+            roots.Open(OpenFlags.ReadWrite);
+            roots.Add(certificate);
+            listener = new TcpListener(Dns.GetHostAddresses("localhost")[0], 0);
+            listener.Start();
+            Port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            Completion = ServeAsync();
+        }
+
+        private async Task ServeAsync()
+        {
+            using var client = await listener.AcceptTcpClientAsync();
+            await using var tls = new SslStream(client.GetStream());
+            await tls.AuthenticateAsServerAsync(certificate);
+            using var reader = new StreamReader(tls, Encoding.ASCII, leaveOpen: true);
+            await using var writer = new StreamWriter(tls, Encoding.ASCII, leaveOpen: true) { NewLine = "\r\n", AutoFlush = true };
+            await writer.WriteLineAsync("220 localhost ESMTP fixture");
+            while (await reader.ReadLineAsync() is { } line)
+            {
+                if (line.StartsWith("DATA", StringComparison.OrdinalIgnoreCase))
+                {
+                    Commands.Add("DATA");
+                    await writer.WriteLineAsync("354 End data with <CRLF>.<CRLF>");
+                    var body = new StringBuilder();
+                    while (await reader.ReadLineAsync() is { } data && data != ".")
+                        body.AppendLine(data);
+                    Message = body.ToString();
+                    await writer.WriteLineAsync("250 2.0.0 queued");
+                    continue;
+                }
+                Commands.Add(line.StartsWith("AUTH PLAIN", StringComparison.OrdinalIgnoreCase) ? "AUTH PLAIN" : line);
+                if (line.StartsWith("EHLO", StringComparison.OrdinalIgnoreCase))
+                    await writer.WriteLineAsync("250-localhost\r\n250-AUTH PLAIN\r\n250 SIZE 20000000");
+                else if (line.StartsWith("AUTH PLAIN", StringComparison.OrdinalIgnoreCase))
+                    await writer.WriteLineAsync("235 2.7.0 authenticated");
+                else if (line.StartsWith("MAIL FROM", StringComparison.OrdinalIgnoreCase) ||
+                         line.StartsWith("RCPT TO", StringComparison.OrdinalIgnoreCase))
+                    await writer.WriteLineAsync("250 2.1.0 ok");
+                else if (line.StartsWith("QUIT", StringComparison.OrdinalIgnoreCase))
+                {
+                    await writer.WriteLineAsync("221 goodbye");
+                    break;
+                }
+                else throw new InvalidOperationException("Unexpected SMTP fixture command: " + line.Split(' ')[0]);
+            }
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            listener.Stop();
+            roots.Remove(certificate);
+            roots.Dispose();
+            certificate.Dispose();
+            if (Completion.IsCompletedSuccessfully) await Completion;
+        }
+    }
+}

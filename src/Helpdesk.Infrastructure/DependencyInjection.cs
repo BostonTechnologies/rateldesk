@@ -115,6 +115,8 @@ public static class DependencyInjection
         services.AddScoped<Helpdesk.Infrastructure.Email.MailboxCredentialProtector>();
         services.AddScoped<Helpdesk.Infrastructure.Email.MailboxOutgoingCredentialProtector>();
         services.AddScoped<Helpdesk.Infrastructure.Email.MailboxOutgoingSettingsService>();
+        services.AddScoped<Helpdesk.Infrastructure.Email.SmtpMailboxSender>();
+        services.AddScoped<Helpdesk.Infrastructure.Email.MailboxSenderResolver>();
         services.AddScoped<Helpdesk.Infrastructure.Email.MailboxDestinationPolicy>();
         services.AddScoped<Helpdesk.Infrastructure.Email.MailboxSettingsService>();
         services.AddScoped<Helpdesk.Infrastructure.Email.MailboxConfigurationMigration>();

@@ -112,6 +112,53 @@ public sealed class MailboxConfigurationTests
         await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => outgoing.SaveAsync(mailbox.Id, request, default));
     }
 
+    [Fact]
+    public async Task Sender_resolver_keeps_dedicated_identity_and_never_falls_back_when_its_sender_is_missing()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync(false);
+        await using var db = fixture.Open();
+        await db.Database.MigrateAsync();
+        db.Organizations.AddRange(new Organization { Id = "tenant-a", Name = "Tenant A" },
+            new Organization { Id = "tenant-b", Name = "Tenant B" });
+        var global = new EmailInboxSettings { Id = Guid.NewGuid(), Scope = MailboxScope.Global,
+            MailboxAddress = "global@example.test", SourceKey = "global-source", Enabled = true,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
+        var dedicated = new EmailInboxSettings { Id = Guid.NewGuid(), Scope = MailboxScope.Organization,
+            OrganizationId = "tenant-a", MailboxAddress = "support@tenant-a.example.test",
+            SourceKey = "tenant-a-source", Enabled = true, BackgroundSyncEnabled = false,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
+        db.EmailInboxSettings.AddRange(global, dedicated);
+        db.Set<MailboxOutgoingSettings>().Add(new MailboxOutgoingSettings
+        {
+            MailboxId = global.Id, Enabled = true, Transport = MailboxOutgoingTransport.Smtp,
+            SmtpHost = "smtp.example.test", SmtpUsername = global.MailboxAddress,
+            ProtectedSmtpPassword = "synthetic-protected"
+        });
+        db.Incidents.AddRange(new Incident { Id = "ticket-a", OrganizationId = "tenant-a", TrackingId = "INC-A" },
+            new Incident { Id = "ticket-b", OrganizationId = "tenant-b", TrackingId = "INC-B" });
+        await db.SaveChangesAsync();
+        var resolver = new MailboxSenderResolver(db);
+        Assert.Equal("OutgoingNotConfigured", (await resolver.ResolveAsync("ticket-a", null, default)).ErrorCode);
+        Assert.Equal(dedicated.Id, (await resolver.ResolveAsync("ticket-a", null, default)).Mailbox?.Id);
+        Assert.Equal(global.Id, (await resolver.ResolveAsync("ticket-b", null, default)).Mailbox?.Id);
+        Assert.Equal("TicketOrganizationMismatch",
+            (await resolver.ResolveAsync("ticket-a", "tenant-b", default)).ErrorCode);
+        Assert.Equal(global.Id, (await resolver.ResolveAsync(null, null, default)).Mailbox?.Id);
+        db.Set<MailboxOutgoingSettings>().Add(new MailboxOutgoingSettings
+        {
+            MailboxId = dedicated.Id, Enabled = true, Transport = MailboxOutgoingTransport.Smtp,
+            SmtpHost = "smtp.tenant-a.example.test", SmtpUsername = dedicated.MailboxAddress,
+            ProtectedSmtpPassword = "synthetic-protected"
+        });
+        await db.SaveChangesAsync();
+        Assert.Equal("Ready", (await resolver.ResolveAsync("ticket-a", null, default)).Status);
+        // A dedicated source must remain usable when no global assignment exists.
+        global.Archived = true;
+        await db.SaveChangesAsync();
+        Assert.Equal(dedicated.Id, (await resolver.ResolveAsync("ticket-a", null, default)).Mailbox?.Id);
+        Assert.Equal("NoEffectiveMailbox", (await resolver.ResolveAsync("ticket-b", null, default)).ErrorCode);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

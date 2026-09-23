@@ -8,9 +8,15 @@ namespace Helpdesk.Infrastructure.Email;
 public sealed class MailboxDestinationPolicy(IConfiguration configuration)
 {
     public async Task<Socket> ConnectAsync(string host, int port, CancellationToken ct)
+        => await ConnectAsync(host, port, "EmailIngestion:AllowedPrivateHosts", ct);
+
+    public async Task<Socket> ConnectSmtpAsync(string host, int port, CancellationToken ct)
+        => await ConnectAsync(host, port, "EmailSending:AllowedPrivateHosts", ct);
+
+    private async Task<Socket> ConnectAsync(string host, int port, string allowlistKey, CancellationToken ct)
     {
         var addresses = await Dns.GetHostAddressesAsync(host, ct);
-        var allowed = configuration.GetSection("EmailIngestion:AllowedPrivateHosts").Get<string[]>() ?? [];
+        var allowed = configuration.GetSection(allowlistKey).Get<string[]>() ?? [];
         var allowPrivate = allowed.Contains(host, StringComparer.OrdinalIgnoreCase);
         if (addresses.Length == 0 || addresses.Any(ip => !IsAllowed(ip, allowPrivate)))
             throw new InvalidOperationException("Mailbox destination is not allowed by the operator egress policy.");
