@@ -6,6 +6,7 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject IJSRuntime JS
 @inject ISnackbar Snackbar
+@inject NavigationManager Navigation
 
 <PageTitle>Email Settings / Mailbox Configuration</PageTitle>
 <NavigationLock ConfirmExternalNavigation="@(isDirty || outgoingDirty)" OnBeforeInternalNavigation="ConfirmInternalNavigationAsync" />
@@ -47,25 +48,36 @@
             <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="@(mutationsDisabled || worker is null || !worker.DeploymentPermitsIngestion)"
                        OnClick="ToggleWorkerAsync">@(worker?.InstanceRunning == true ? "Pause worker" : "Start worker")</MudButton>
         </MudPaper>
-        <MudPaper Class="pa-4 mb-4" Outlined="true">
-            <MudText Typo="Typo.h6">Global mailbox and tenant overrides</MudText>
-            <MudText>@(organizations.Count(x => x.Status == "Inherited global")) organizations inherit the global connection.</MudText>
-            <MudSelect T="Guid" Label="Selected mailbox" Value="model.Id" ValueChanged="SelectMailboxAsync" Disabled="@mutationsDisabled">
+        <MudPaper Class="pa-3 mb-3" Outlined="true" data-testid="mailbox-command-bar">
+            <div class="mailbox-command-row">
+            <MudSelect T="Guid" Label="Selected mailbox" Value="model.Id" ValueChanged="SelectMailboxAsync" Disabled="@mutationsDisabled" Class="mailbox-picker" Margin="Margin.Dense" Variant="Variant.Outlined">
                 <MudSelectItem T="Guid" Value="Guid.Empty">New mailbox</MudSelectItem>
                 @foreach (var mailbox in mailboxes.Where(x => !x.Archived))
                 {
                     <MudSelectItem T="Guid" Value="mailbox.Id">@mailbox.DisplayName — @mailbox.MailboxAddress (@(mailbox.Scope == MailboxScope.Global ? "Instance-global" : "Dedicated"), @mailbox.Provider)</MudSelectItem>
                 }
             </MudSelect>
-            <MudButton OnClick="() => NewMailboxAsync(MailboxScope.Global)" Disabled="@(mutationsDisabled || mailboxes.Any(x => !x.Archived && x.Scope == MailboxScope.Global))">Add global mailbox</MudButton>
-            <MudButton OnClick="() => NewMailboxAsync(MailboxScope.Organization)" Disabled="@mutationsDisabled">Add tenant override</MudButton>
+            <MudChip T="string" Size="Size.Small" Color="Color.Default">@model.Provider</MudChip>
+            <MudChip T="string" Size="Size.Small" Color="Color.Default">@(model.Scope == MailboxScope.Global ? "Global" : "Dedicated")</MudChip>
+            <MudMenu Label="Add" Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Add" Disabled="@mutationsDisabled">
+                <MudMenuItem OnClick="() => NewMailboxAsync(MailboxScope.Global)" Disabled="@(mailboxes.Any(x => !x.Archived && x.Scope == MailboxScope.Global))">Global mailbox</MudMenuItem>
+                <MudMenuItem OnClick="() => NewMailboxAsync(MailboxScope.Organization)">Tenant override</MudMenuItem>
+            </MudMenu>
+            <MudMenu Label="Test" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Bolt" Disabled="@mutationsDisabled">
+                <MudMenuItem OnClick="TestAsync">Incoming connection</MudMenuItem>
+                <MudMenuItem OnClick="() => activeTab = 1" Disabled="@(model.Id == Guid.Empty)">Outgoing connection and sample</MudMenuItem>
+            </MudMenu>
             @if (model.Id != Guid.Empty)
             {
-                <MudButton OnClick="ArchiveAsync" Disabled="@mutationsDisabled">@(model.Scope == MailboxScope.Organization ? "Revert to global mailbox" : "Archive global mailbox")</MudButton>
-                <MudButton Href="@($"/admin/email-settings/{model.Id}/ingestion")">Inbound diagnostics</MudButton>
-                <MudButton Href="@($"/admin/email-rules?mailboxId={model.Id}")">Mailbox rules</MudButton>
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Sync" Disabled="@(mutationsDisabled || isDirty || outgoingDirty || worker?.InstanceRunning != true || !model.Enabled || !model.BackgroundSyncEnabled)" OnClick="SyncNowFromSettingsAsync">Sync now</MudButton>
+                <MudMenu Icon="@Icons.Material.Filled.MoreVert" aria-label="More mailbox actions" Disabled="@mutationsDisabled">
+                    <MudMenuItem Href="@($"/admin/email-settings/{model.Id}/ingestion")" Icon="@Icons.Material.Filled.Inbox">Incoming receipts</MudMenuItem>
+                    <MudMenuItem Href="@($"/admin/email-rules?mailboxId={model.Id}")" Icon="@Icons.Material.Filled.Rule">Mailbox rules</MudMenuItem>
+                    <MudMenuItem OnClick="ArchiveAsync" Icon="@Icons.Material.Filled.Archive">@(model.Scope == MailboxScope.Organization ? "Revert to global" : "Archive global mailbox")</MudMenuItem>
+                </MudMenu>
             }
-            <MudText Typo="Typo.caption">Pausing a dedicated mailbox keeps its assignment. Revert explicitly to inherit the global connection.</MudText>
+            </div>
+            <MudText Typo="Typo.caption">@(organizations.Count(x => x.Status == "Inherited global")) organizations inherit the global mailbox. Pausing a dedicated mailbox keeps its assignment in both directions.</MudText>
         </MudPaper>
         <MudTabs @bind-ActivePanelIndex="activeTab" KeepPanelsAlive="true" PanelClass="pa-0" Class="mailbox-workspace-tabs">
         <MudTabPanel Text="Incoming and processing" Icon="@Icons.Material.Filled.Inbox">
@@ -522,10 +534,21 @@
     }
     private async Task ArchiveAsync()
     {
+        if ((isDirty || outgoingDirty) && !await JS.InvokeAsync<bool>("confirm", "Discard unsaved changes before archiving this mailbox?")) return;
         if (!await JS.InvokeAsync<bool>("confirm", "Archive this assignment? A dedicated tenant will explicitly revert to the global mailbox. Historical receipts are retained.")) return;
         using var response = await HelpdeskApi.PostAsJsonAsync($"/api/v1/email-settings/{model.Id}/archive", new { model.Version, Confirmed = true }, disposeCts.Token);
         if (response.IsSuccessStatusCode) await LoadAsync();
         else Snackbar.Add("Assignment changed; reload before retrying.", Severity.Error);
+    }
+
+    private async Task SyncNowFromSettingsAsync()
+    {
+        if (model.Id == Guid.Empty || mutationsDisabled || isDirty || outgoingDirty) return;
+        using var response = await HelpdeskApi.PostAsync($"/api/v1/email-settings/{model.Id}/sync", null, disposeCts.Token);
+        if (response.IsSuccessStatusCode)
+            Navigation.NavigateTo($"/admin/email-settings/{model.Id}/ingestion");
+        else
+            Snackbar.Add("Sync is unavailable. Check instance and mailbox status before retrying.", Severity.Warning);
     }
 
     private async Task ToggleWorkerAsync()

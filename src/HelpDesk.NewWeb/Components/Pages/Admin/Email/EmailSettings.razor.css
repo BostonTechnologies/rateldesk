@@ -1,0 +1,20 @@
+.mailbox-command-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .5rem;
+}
+
+.mailbox-picker {
+    flex: 1 1 18rem;
+    max-width: 30rem;
+    min-width: min(100%, 14rem);
+}
+
+.mailbox-workspace-tabs {
+    min-width: 0;
+}
+
+@media (max-width: 600px) {
+    .mailbox-picker { flex-basis: 100%; max-width: 100%; }
+}
