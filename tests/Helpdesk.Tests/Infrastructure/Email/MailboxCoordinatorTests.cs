@@ -49,9 +49,66 @@ public sealed class MailboxCoordinatorTests
         await using var verify = fixture.Open();
         var receipt = await verify.Set<InboundMessageReceipt>().SingleAsync();
         Assert.Equal(InboundReceiptOutcome.Ignored, receipt.Outcome);
-        Assert.Null(receipt.Reason);
+        Assert.Equal("DeliveryStatusNotification", receipt.Reason);
         Assert.Empty(await verify.Customers.ToListAsync());
         Assert.Single(await verify.Incidents.ToListAsync());
+    }
+
+    [Theory]
+    [InlineData("auto-replied")]
+    [InlineData("auto-generated")]
+    [InlineData("auto-replied; reason=vacation")]
+    public async Task Automatic_message_is_suppressed_before_business_rules(string header)
+    {
+        await using var fixture = await Harness.CreateAsync((_, _, _) =>
+            throw new InvalidOperationException("Automatic mail must not execute business rules."));
+        await using (var setup = fixture.Open())
+        {
+            var receipt = await setup.Set<InboundMessageReceipt>().SingleAsync();
+            var message = new InboundEmailContext("auto-reply", null, fixture.Mailbox.Id, null,
+                fixture.Mailbox.MailboxAddress, "requester@example.com", "Requester", [], [],
+                "Out of office", "Automatic reply", "Automatic reply", DateTimeOffset.UtcNow,
+                new Dictionary<string, string> { ["Auto-Submitted"] = header }, []);
+            receipt.ProtectedEnvelope = fixture.Services.GetRequiredService<MailboxCredentialProtector>()
+                .Protect(fixture.Mailbox.Id, JsonSerializer.Serialize(message));
+            await setup.SaveChangesAsync();
+        }
+
+        await fixture.Coordinator.ProcessAsync(fixture.Mailbox, fixture.Lease, fixture.ReceiptId, default);
+
+        await using var verify = fixture.Open();
+        var processed = await verify.Set<InboundMessageReceipt>().SingleAsync();
+        Assert.Equal(InboundReceiptOutcome.Ignored, processed.Outcome);
+        Assert.Equal("AutomaticMessage", processed.Reason);
+        Assert.Empty(await verify.Customers.ToListAsync());
+        Assert.Empty(await verify.Incidents.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Mailbox_self_sender_is_suppressed_before_business_rules()
+    {
+        await using var fixture = await Harness.CreateAsync((_, _, _) =>
+            throw new InvalidOperationException("Self mail must not execute business rules."));
+        await using (var setup = fixture.Open())
+        {
+            var receipt = await setup.Set<InboundMessageReceipt>().SingleAsync();
+            var message = new InboundEmailContext("self-mail", null, fixture.Mailbox.Id, null,
+                fixture.Mailbox.MailboxAddress, fixture.Mailbox.MailboxAddress, null, [], [],
+                "Notification", "Notification", "Notification", DateTimeOffset.UtcNow,
+                new Dictionary<string, string>(), []);
+            receipt.ProtectedEnvelope = fixture.Services.GetRequiredService<MailboxCredentialProtector>()
+                .Protect(fixture.Mailbox.Id, JsonSerializer.Serialize(message));
+            await setup.SaveChangesAsync();
+        }
+
+        await fixture.Coordinator.ProcessAsync(fixture.Mailbox, fixture.Lease, fixture.ReceiptId, default);
+
+        await using var verify = fixture.Open();
+        var processed = await verify.Set<InboundMessageReceipt>().SingleAsync();
+        Assert.Equal(InboundReceiptOutcome.Ignored, processed.Outcome);
+        Assert.Equal("SelfSender", processed.Reason);
+        Assert.Empty(await verify.Customers.ToListAsync());
+        Assert.Empty(await verify.Incidents.ToListAsync());
     }
 
     [Fact]
@@ -106,7 +163,7 @@ public sealed class MailboxCoordinatorTests
             var message = new InboundEmailContext("ordinary", null, fixture.Mailbox.Id, null,
                 fixture.Mailbox.MailboxAddress, "requester@example.com", "Requester", [], [],
                 "Undeliverable printer request", "Please help", "Please help", DateTimeOffset.UtcNow,
-                new Dictionary<string, string>(), []);
+                new Dictionary<string, string> { ["Auto-Submitted"] = "no" }, []);
             capturedReceipt.ProtectedEnvelope = fixture.Services.GetRequiredService<MailboxCredentialProtector>()
                 .Protect(fixture.Mailbox.Id, JsonSerializer.Serialize(message));
             await setup.SaveChangesAsync();

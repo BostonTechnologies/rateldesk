@@ -46,6 +46,8 @@ def send(args: argparse.Namespace) -> None:
     if args.in_reply_to:
         message["In-Reply-To"] = args.in_reply_to
         message["References"] = args.in_reply_to
+    if args.auto_submitted:
+        message["Auto-Submitted"] = args.auto_submitted
     message.set_content(args.body)
     port = "MAILBOX_FIXTURE_GLOBAL_SMTPS_PORT" if endpoint == "global" else "MAILBOX_FIXTURE_SMTPS_PORT"
     with smtplib.SMTP_SSL("localhost", int(os.environ[port]),
@@ -96,6 +98,7 @@ def main() -> None:
     send_command.add_argument("--subject", required=True)
     send_command.add_argument("--body", required=True)
     send_command.add_argument("--in-reply-to", default="")
+    send_command.add_argument("--auto-submitted", choices=("auto-replied", "auto-generated"))
     list_command = commands.add_parser("messages")
     list_command.add_argument("--account", required=True)
     args = parser.parse_args()

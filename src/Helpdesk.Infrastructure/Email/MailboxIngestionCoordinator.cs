@@ -534,6 +534,8 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
                 message = message with { MailboxId = mailbox.Id, SourceMessageKey = $"ingress:{receipt.Id:D}" };
                 var router = services.GetRequiredService<InboundTenantRouter>();
                 var isDeliveryFailure = InboundTicketProcessor.IsDeliveryFailureMessage(message);
+                var isSelfSender = EmailAddressGuard.IsSameAddress(message.FromEmail, mailbox.MailboxAddress);
+                var isAutomaticMessage = InboundTicketProcessor.IsAutomaticMessage(message);
                 var route = await router.ResolveAsync(mailbox, message, ct, isDeliveryFailure);
                 var canEvaluateForwardedRoute = route.ForwardedCandidate?.OrganizationId is not null &&
                     route.Reason is "RequesterOwnershipConflict" or "TenantUsesDedicatedMailbox";
@@ -545,11 +547,14 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
                 if (route.Reason is null && organizationId is not null)
                     db.RestrictIngressToOrganization(organizationId);
                 receipt.Reason = null;
-                if (route.Reason is not null && !canEvaluateForwardedRoute)
+                if (route.Reason is not null && !canEvaluateForwardedRoute && !isSelfSender &&
+                    !(isAutomaticMessage && !isDeliveryFailure))
                     throw new InboundReceiptHoldException(route.Reason);
-                if (EmailAddressGuard.IsSameAddress(message.FromEmail, mailbox.MailboxAddress) || isDeliveryFailure)
+                if (isSelfSender || isAutomaticMessage || isDeliveryFailure)
                 {
                     receipt.Outcome = InboundReceiptOutcome.Ignored;
+                    receipt.Reason = isDeliveryFailure ? "DeliveryStatusNotification" :
+                        isSelfSender ? "SelfSender" : "AutomaticMessage";
                 }
                 else if (await FindLegacyReplayAsync(db, mailbox, message, route, ct) is { } historicalTicketId)
                 {

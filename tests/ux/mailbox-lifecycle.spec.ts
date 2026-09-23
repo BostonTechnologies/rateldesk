@@ -152,6 +152,15 @@ test('mailbox lifecycle acceptance: published Web/API receives, sends and thread
   await page.goto('/incidents');
   await expect(page.getByText(subjects[0], { exact: true })).toBeVisible();
 
+  const automaticSubject = 'Fixture automatic reply';
+  fixture('send', ['--sender', 'requester', '--recipient', 'support', '--subject', automaticSubject,
+    '--body', 'Automatic vacation response', '--auto-submitted', 'auto-replied']);
+  await expect.poll(async () => ((await (await page.request.get(
+    `/api/v1/email-settings/${mailboxId}/diagnostics`)).json()) as Diagnostics).receipts
+    .filter(receipt => receipt.reason === 'AutomaticMessage').length,
+  { timeout: 60_000, intervals: [1_000, 2_000, 3_000] }).toBe(1);
+  expect((await listIncidents()).some(incident => incident.subject === automaticSubject)).toBe(false);
+
   await expect.poll(() => inbox('requester').filter(message => created.some(incident =>
     message.subject.includes(incident.trackingId))).length,
   { timeout: 60_000, intervals: [1_000, 2_000, 3_000] }).toBeGreaterThanOrEqual(3);
