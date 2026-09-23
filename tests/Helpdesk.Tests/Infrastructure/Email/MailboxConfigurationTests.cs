@@ -76,6 +76,42 @@ public sealed class MailboxConfigurationTests
         Assert.Equal("Running", (await policy.GetMailboxStatusAsync(mailbox.Id, default))?.State);
     }
 
+    [Fact]
+    public async Task Smtp_configuration_is_separate_redacted_and_destination_bound()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync(false);
+        await using var db = fixture.Open();
+        await db.Database.MigrateAsync();
+        var mailbox = new EmailInboxSettings
+        {
+            Id = Guid.NewGuid(), Provider = InboundMailboxProvider.Imap,
+            Authentication = MailboxAuthentication.Password,
+            MailboxAddress = "support@tenant-a.example.test", SourceKey = "immutable-inbound-source",
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.EmailInboxSettings.Add(mailbox);
+        await db.SaveChangesAsync();
+        var outgoing = new MailboxOutgoingSettingsService(db,
+            new MailboxOutgoingCredentialProtector(new EphemeralDataProtectionProvider()));
+        var request = new MailboxOutgoingSettingsRequest(0, true, MailboxOutgoingTransport.Smtp,
+            "Tenant A support", "smtp.tenant-a.example.test", 587, MailboxTlsMode.StartTls,
+            "support@tenant-a.example.test", "synthetic-secret", false);
+        var saved = await outgoing.SaveAsync(mailbox.Id, request, default);
+        Assert.True(saved.HasSmtpPassword);
+        Assert.Equal(mailbox.MailboxAddress, saved.MailboxAddress);
+        Assert.DoesNotContain("synthetic-secret", System.Text.Json.JsonSerializer.Serialize(saved));
+        Assert.DoesNotContain("synthetic-secret", (await db.Set<MailboxOutgoingSettings>().SingleAsync()).ProtectedSmtpPassword);
+        Assert.Equal("immutable-inbound-source", (await db.EmailInboxSettings.SingleAsync()).SourceKey);
+
+        var changedHost = request with { Version = saved.Version,
+            SmtpHost = "different.tenant-a.example.test", SmtpPassword = string.Empty };
+        await Assert.ThrowsAsync<ArgumentException>(() => outgoing.SaveAsync(mailbox.Id, changedHost, default));
+        var retained = await outgoing.SaveAsync(mailbox.Id,
+            request with { Version = saved.Version, SmtpPassword = string.Empty }, default);
+        Assert.True(retained.HasSmtpPassword);
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => outgoing.SaveAsync(mailbox.Id, request, default));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

@@ -113,6 +113,8 @@ public static class DependencyInjection
         services.AddScoped<IGraphEmailProcessor, GraphEmailProcessor>();
         services.AddSingleton(TimeProvider.System);
         services.AddScoped<Helpdesk.Infrastructure.Email.MailboxCredentialProtector>();
+        services.AddScoped<Helpdesk.Infrastructure.Email.MailboxOutgoingCredentialProtector>();
+        services.AddScoped<Helpdesk.Infrastructure.Email.MailboxOutgoingSettingsService>();
         services.AddScoped<Helpdesk.Infrastructure.Email.MailboxDestinationPolicy>();
         services.AddScoped<Helpdesk.Infrastructure.Email.MailboxSettingsService>();
         services.AddScoped<Helpdesk.Infrastructure.Email.MailboxConfigurationMigration>();

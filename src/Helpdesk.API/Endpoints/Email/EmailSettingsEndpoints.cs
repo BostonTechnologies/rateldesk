@@ -36,6 +36,17 @@ public static class EmailSettingsEndpoints
         group.MapGet("/{id:guid}", async (Guid id, HelpdeskDbContext db, CancellationToken ct) =>
             await db.EmailInboxSettings.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct) is { } mailbox
                 ? Results.Ok(MailboxSettingsService.ToDto(mailbox)) : Results.NotFound());
+        group.MapGet("/{id:guid}/outgoing", async (Guid id, MailboxOutgoingSettingsService service, CancellationToken ct) =>
+            await service.GetAsync(id, ct) is { } outgoing ? Results.Ok(outgoing) : Results.NotFound());
+        group.MapPut("/{id:guid}/outgoing", async (Guid id, [FromBody] MailboxOutgoingSettingsRequest request,
+            MailboxOutgoingSettingsService service, CancellationToken ct) =>
+        {
+            try { return Results.Ok(await service.SaveAsync(id, request, ct)); }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+            catch (ArgumentException ex) { return Results.BadRequest(new { message = ex.Message }); }
+            catch (InvalidOperationException ex) { return Results.Conflict(new { message = ex.Message }); }
+            catch (DbUpdateConcurrencyException) { return Results.Conflict(new { message = "Outgoing configuration changed; reload before saving." }); }
+        });
         group.MapPost("/", async ([FromBody] MailboxSettingsRequest request, HelpdeskDbContext db, MailboxSettingsService service, ClaimsPrincipal user, CancellationToken ct) =>
         {
             if (request.Id != Guid.Empty) return Results.BadRequest(new { message = "Create requires an empty ID; use PUT to edit." });

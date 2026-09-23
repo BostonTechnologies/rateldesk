@@ -1870,6 +1870,60 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.ToTable("MailboxOutboxEffect");
                 });
 
+            modelBuilder.Entity("Helpdesk.Shared.Models.MailboxOutgoingSettings", b =>
+                {
+                    b.Property<Guid>("MailboxId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("LastTestCode")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("LastTestUnixMilliseconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ProtectedSmtpPassword")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SmtpHost")
+                        .IsRequired()
+                        .HasMaxLength(253)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SmtpPort")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("SmtpTlsMode")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SmtpUsername")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("TestedVersion")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Transport")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("MailboxId");
+
+                    b.ToTable("MailboxOutgoingSettings");
+                });
+
             modelBuilder.Entity("Helpdesk.Shared.Models.MailboxWorkerControl", b =>
                 {
                     b.Property<int>("Id")
@@ -3651,6 +3705,15 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.HasOne("Helpdesk.Shared.Models.EmailInboxSettings", null)
                         .WithMany()
                         .HasForeignKey("MailboxId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Helpdesk.Shared.Models.MailboxOutgoingSettings", b =>
+                {
+                    b.HasOne("Helpdesk.Shared.Models.EmailInboxSettings", null)
+                        .WithOne()
+                        .HasForeignKey("Helpdesk.Shared.Models.MailboxOutgoingSettings", "MailboxId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

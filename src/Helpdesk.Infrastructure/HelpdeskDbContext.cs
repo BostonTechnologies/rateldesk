@@ -535,6 +535,16 @@ public class HelpdeskDbContext(
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Version).IsConcurrencyToken();
         });
+        modelBuilder.Entity<MailboxOutgoingSettings>(entity =>
+        {
+            entity.HasKey(x => x.MailboxId);
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne<EmailInboxSettings>().WithOne().HasForeignKey<MailboxOutgoingSettings>(x => x.MailboxId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.Property(x => x.SmtpHost).HasMaxLength(253);
+            entity.Property(x => x.SmtpUsername).HasMaxLength(320);
+            entity.Property(x => x.DisplayName).HasMaxLength(200);
+        });
         modelBuilder.Entity<MailboxOutboxEffect>(entity =>
         {
             entity.HasKey(x => x.Id);
