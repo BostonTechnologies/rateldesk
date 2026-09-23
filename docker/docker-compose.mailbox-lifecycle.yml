@@ -1,0 +1,34 @@
+services:
+  postgres:
+    image: postgres:16@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6
+    environment:
+      POSTGRES_DB: rateldesk
+      POSTGRES_USER: rateldesk
+      POSTGRES_PASSWORD: synthetic-postgres-password
+    ports:
+      - "127.0.0.1:${RATELDESK_MAILBOX_POSTGRES_PORT:-55442}:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rateldesk -d rateldesk"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  greenmail:
+    image: greenmail/standalone:2.1.14@sha256:1ef95a966418cd09b7ea91d504d8c0826bbe7a2f6e679a75c601a831587c1626
+    environment:
+      GREENMAIL_OPTS: >-
+        -Dgreenmail.setup.test.all
+        -Dgreenmail.hostname=0.0.0.0
+        -Dgreenmail.users=support:synthetic-mail-password@tenant-a.example.test,requester:synthetic-mail-password@tenant-a.example.test,recipient:synthetic-mail-password@tenant-a.example.test
+        -Dgreenmail.users.login=email
+        -Dgreenmail.tls.keystore.file=/mail/greenmail.p12
+        -Dgreenmail.tls.keystore.password=changeit
+        -Dgreenmail.tls.key.password=changeit
+    ports:
+      - "127.0.0.1:${RATELDESK_MAILBOX_SMTPS_PORT:-3465}:3465"
+      - "127.0.0.1:${RATELDESK_MAILBOX_IMAPS_PORT:-3993}:3993"
+      - "127.0.0.1:${RATELDESK_MAILBOX_POP3S_PORT:-3995}:3995"
+    volumes:
+      - "${MAILBOX_CERT_DIR:?Set MAILBOX_CERT_DIR}/greenmail.p12:/mail/greenmail.p12:ro"

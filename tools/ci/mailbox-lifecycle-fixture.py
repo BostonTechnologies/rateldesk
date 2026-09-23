@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+"""Talk only to the loopback GreenMail fixture used by mailbox lifecycle acceptance."""
+
+import argparse
+import email
+import imaplib
+import json
+import os
+import smtplib
+import ssl
+import uuid
+from email.message import EmailMessage
+from email.policy import default
+
+
+DOMAIN = "tenant-a.example.test"
+PASSWORD = "synthetic-mail-password"
+
+
+def address(local_part: str) -> str:
+    if local_part not in {"support", "requester", "recipient"}:
+        raise ValueError("Only synthetic fixture accounts are allowed")
+    return f"{local_part}@{DOMAIN}"
+
+
+def connection_context() -> ssl.SSLContext:
+    return ssl.create_default_context(cafile=os.environ["MAILBOX_FIXTURE_CA"])
+
+
+def send(args: argparse.Namespace) -> None:
+    sender = address(args.sender)
+    recipient = address(args.recipient)
+    message = EmailMessage()
+    message["From"] = sender
+    message["To"] = recipient
+    message["Subject"] = args.subject
+    message["Message-ID"] = f"<{uuid.uuid4().hex}@{DOMAIN}>"
+    if args.in_reply_to:
+        message["In-Reply-To"] = args.in_reply_to
+        message["References"] = args.in_reply_to
+    message.set_content(args.body)
+    with smtplib.SMTP_SSL("localhost", int(os.environ["MAILBOX_FIXTURE_SMTPS_PORT"]),
+                          context=connection_context(), timeout=20) as smtp:
+        smtp.login(sender, PASSWORD)
+        smtp.send_message(message)
+    print(json.dumps({"messageId": message["Message-ID"]}))
+
+
+def messages(args: argparse.Namespace) -> None:
+    account = address(args.account)
+    with imaplib.IMAP4_SSL("localhost", int(os.environ["MAILBOX_FIXTURE_IMAPS_PORT"]),
+                           ssl_context=connection_context(), timeout=20) as imap:
+        imap.login(account, PASSWORD)
+        status, _ = imap.select("INBOX", readonly=True)
+        if status != "OK":
+            raise RuntimeError("Fixture INBOX could not be opened")
+        status, ids = imap.search(None, "ALL")
+        if status != "OK":
+            raise RuntimeError("Fixture INBOX could not be searched")
+        result = []
+        for message_id in ids[0].split():
+            status, parts = imap.fetch(message_id, "(RFC822)")
+            if status != "OK":
+                raise RuntimeError("Fixture message could not be fetched")
+            raw = next(part[1] for part in parts if isinstance(part, tuple))
+            parsed = email.message_from_bytes(raw, policy=default)
+            result.append({
+                "subject": str(parsed["Subject"] or ""),
+                "from": str(parsed["From"] or ""),
+                "to": str(parsed["To"] or ""),
+                "replyTo": str(parsed["Reply-To"] or ""),
+                "messageId": str(parsed["Message-ID"] or ""),
+                "body": parsed.get_body(preferencelist=("plain", "html")).get_content()
+                if parsed.get_body(preferencelist=("plain", "html")) else "",
+            })
+    print(json.dumps(result))
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    commands = parser.add_subparsers(dest="command", required=True)
+    send_command = commands.add_parser("send")
+    send_command.add_argument("--sender", required=True)
+    send_command.add_argument("--recipient", required=True)
+    send_command.add_argument("--subject", required=True)
+    send_command.add_argument("--body", required=True)
+    send_command.add_argument("--in-reply-to", default="")
+    list_command = commands.add_parser("messages")
+    list_command.add_argument("--account", required=True)
+    args = parser.parse_args()
+    if args.command == "send":
+        send(args)
+    else:
+        messages(args)
+
+
+if __name__ == "__main__":
+    main()
