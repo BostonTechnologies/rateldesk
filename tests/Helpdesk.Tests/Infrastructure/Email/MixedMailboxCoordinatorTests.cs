@@ -44,6 +44,7 @@ public sealed class MixedMailboxCoordinatorTests
     [InlineData("EmailIngestion:PollTimeout", "00:02:00")]
     [InlineData("EmailIngestion:AcknowledgmentTimeout", "00:00:30")]
     [InlineData("EmailIngestion:AcknowledgmentPhaseBudget", "00:00:30")]
+    [InlineData("EmailIngestion:FetchPhaseBudget", "00:01:20")]
     public void Phase_timeout_must_fit_inside_its_distributed_claim(string key, string value)
     {
         var settings = new ConfigurationBuilder().AddInMemoryCollection(
@@ -169,6 +170,50 @@ public sealed class MixedMailboxCoordinatorTests
         Assert.True((await verify.Set<InboundMessageReceipt>().SingleAsync()).Acknowledged);
         Assert.Equal(1, adapter.Acknowledgements.GetValueOrDefault(fixture.Global.Id));
         Assert.Equal(nameof(IOException), (await verify.Set<MailboxIngestionState>().SingleAsync(x => x.MailboxId == fixture.Global.Id)).ErrorCode);
+    }
+
+    [Fact]
+    public async Task Stalled_fetch_times_out_without_starving_durable_acknowledgment_or_other_writes()
+    {
+        await using var fixture = await MixedHarness.CreateAsync(InboundMailboxProvider.Graph, seedMessages: false,
+            ingestionSettings: new Dictionary<string, string?>
+            {
+                ["EmailIngestion:PollTimeout"] = "00:00:15",
+                ["EmailIngestion:FetchPhaseBudget"] = "00:00:01"
+            });
+        await fixture.SeedReceiptAsync(fixture.Global, "already-committed", InboundReceiptOutcome.Succeeded,
+            envelope: false);
+        var adapter = fixture.Adapters[InboundMailboxProvider.Graph];
+        adapter.BlockedMailbox = fixture.Global.Id;
+
+        var poll = fixture.Coordinator.PollAsync(fixture.Global, default);
+        await adapter.BlockedEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await using (var unrelated = fixture.Open())
+        {
+            unrelated.Organizations.Add(new Organization { Id = "write-during-fetch", Name = "Independent write" });
+            await unrelated.SaveChangesAsync().WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        await poll.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await using (var verify = fixture.Open())
+        {
+            Assert.True(adapter.BlockedCancelled.Task.IsCompletedSuccessfully);
+            Assert.True((await verify.Set<InboundMessageReceipt>().SingleAsync()).Acknowledged);
+            var state = await verify.Set<MailboxIngestionState>()
+                .SingleAsync(x => x.MailboxId == fixture.Global.Id);
+            Assert.Equal("FetchTimeout", state.ErrorCode);
+            Assert.False(state.Initialized);
+            Assert.Null(state.Cursor);
+        }
+
+        adapter.BlockedMailbox = null;
+        fixture.Clock.Advance(TimeSpan.FromSeconds(31));
+        fixture.AddMessage(fixture.Global, "arrived-after-fetch-timeout", "requester@tenant0.example.com");
+        await fixture.Coordinator.PollAsync(fixture.Global, default).WaitAsync(TimeSpan.FromSeconds(5));
+        await using var recovered = fixture.Open();
+        Assert.Single(await recovered.Incidents.ToListAsync());
+        Assert.True((await recovered.Set<MailboxIngestionState>()
+            .SingleAsync(x => x.MailboxId == fixture.Global.Id)).Initialized);
     }
 
     [Fact]

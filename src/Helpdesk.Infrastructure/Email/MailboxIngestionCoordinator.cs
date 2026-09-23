@@ -26,6 +26,8 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
         "EmailIngestion:AcknowledgmentPhaseBudget", TimeSpan.FromSeconds(20), TimeSpan.FromMilliseconds(100), TimeSpan.FromSeconds(25));
     private readonly TimeSpan historicalPhaseBudget = ReadBoundedDuration(configuration,
         "EmailIngestion:HistoricalPhaseBudget", TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(25));
+    private readonly TimeSpan fetchPhaseBudget = ReadBoundedDuration(configuration,
+        "EmailIngestion:FetchPhaseBudget", TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(70));
     private readonly string owner = Guid.NewGuid().ToString("N");
     private readonly Dictionary<Guid, DateTimeOffset> due = [];
     private readonly Dictionary<Guid, Runner> running = [];
@@ -165,9 +167,13 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
             {
                 state.CurrentStage = "Fetching source";
                 await db.SaveChangesAsync(workToken);
+                using var fetchTimeout = CancellationTokenSource.CreateLinkedTokenSource(workToken);
+                fetchTimeout.CancelAfter(fetchPhaseBudget);
                 try
                 {
-                    var batch = await adapter.FetchAsync(mailbox, state, known, workToken);
+                    var batch = await adapter.FetchAsync(mailbox, state, known, fetchTimeout.Token);
+                    fetchTimeout.Token.ThrowIfCancellationRequested();
+                    fetchTimeout.CancelAfter(Timeout.InfiniteTimeSpan);
                     await using var capture = await db.Database.BeginTransactionAsync(workToken);
                     await FenceAsync(db, leases, lease, mailbox, workToken);
                     var protector = services.GetRequiredService<MailboxCredentialProtector>();
@@ -194,6 +200,11 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
                     await capture.CommitAsync(workToken);
                 }
                 catch (OperationCanceledException) when (workToken.IsCancellationRequested) { throw; }
+                catch (OperationCanceledException) when (fetchTimeout.IsCancellationRequested)
+                {
+                    fetchError = "FetchTimeout";
+                    logger.LogWarning("Mailbox {MailboxId} enumeration timed out; durable recovery continued.", mailbox.Id);
+                }
                 catch (MailboxFenceLostException) { throw; }
                 catch (Exception error)
                 {
