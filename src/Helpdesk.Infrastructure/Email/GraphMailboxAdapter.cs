@@ -61,7 +61,7 @@ public sealed class GraphMailboxAdapter(MailboxCredentialProtector secrets, Func
             if ((!state.Initialized && settings.InitialImport == InitialMailImport.ExistingUnread && item.IsRead == true) ||
                 (settings.InitialImport == InitialMailImport.NewOnly && item.ReceivedDateTime <= settings.CreatedAt))
             {
-                result.Add(new(item.Id, null, Ignore: true));
+                result.Add(new(item.Id, null, Ignore: true, HoldReason: "InitialBaselineSkipped"));
                 continue;
             }
             // MIME includes the complete attachment collection without assuming one Graph attachment page.

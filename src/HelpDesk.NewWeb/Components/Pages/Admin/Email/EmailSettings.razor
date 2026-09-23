@@ -34,6 +34,19 @@
     }
     else
     {
+        <MudPaper Class="pa-3 mb-3 d-flex flex-wrap align-center gap-2" Outlined="true">
+            <MudText Typo="Typo.subtitle2">Instance mailbox worker</MudText>
+            <MudChip T="string" Size="Size.Small" Color="@(worker?.InstanceRunning == true ? Color.Info : Color.Warning)">
+                @(worker?.State ?? "Status unavailable")
+            </MudChip>
+            @if (worker?.BlockedBy is not null)
+            {
+                <MudText Typo="Typo.caption">Blocked by @worker.BlockedBy</MudText>
+            }
+            <MudSpacer />
+            <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="@(mutationsDisabled || worker is null || !worker.DeploymentPermitsIngestion)"
+                       OnClick="ToggleWorkerAsync">@(worker?.InstanceRunning == true ? "Pause worker" : "Start worker")</MudButton>
+        </MudPaper>
         <MudPaper Class="pa-4 mb-4" Outlined="true">
             <MudText Typo="Typo.h6">Global mailbox and tenant overrides</MudText>
             <MudText>@(organizations.Count(x => x.Status == "Inherited global")) organizations inherit the global connection.</MudText>
@@ -238,6 +251,7 @@
     private readonly CancellationTokenSource disposeCts = new();
     private List<EmailInboxSettingsDto> mailboxes = [];
     private List<EffectiveOrganization> organizations = [];
+    private MailboxWorkerStatus? worker;
     private string organizationSearch = string.Empty;
     private sealed record EffectiveOrganization(string Id, string Name, Guid? MailboxId, string Status);
     private MudForm form = default!;
@@ -272,6 +286,7 @@
             var settings = await HelpdeskApi.GetFromJsonAsync<List<EmailInboxSettingsDto>>("/api/v1/email-settings", disposeCts.Token);
             mailboxes = settings ?? [];
             organizations = await HelpdeskApi.GetFromJsonAsync<List<EffectiveOrganization>>("/api/v1/email-settings/effective", disposeCts.Token) ?? [];
+            worker = await HelpdeskApi.GetFromJsonAsync<MailboxWorkerStatus>("/api/v1/email-settings/worker", disposeCts.Token);
             var global = mailboxes.SingleOrDefault(x => !x.Archived && x.Scope == MailboxScope.Global);
             model = global is null ? new EmailInboxSettingsForm() : EmailInboxSettingsForm.FromDto(global);
             savedBaseline = model.Clone();
@@ -479,6 +494,24 @@
         using var response = await HelpdeskApi.PostAsJsonAsync($"/api/v1/email-settings/{model.Id}/archive", new { model.Version, Confirmed = true }, disposeCts.Token);
         if (response.IsSuccessStatusCode) await LoadAsync();
         else Snackbar.Add("Assignment changed; reload before retrying.", Severity.Error);
+    }
+
+    private async Task ToggleWorkerAsync()
+    {
+        if (worker is null || !worker.DeploymentPermitsIngestion || mutationsDisabled) return;
+        var running = !worker.InstanceRunning;
+        var message = running
+            ? "Start the instance mailbox worker? Enabled mailboxes will establish their initial boundaries and then process new mail."
+            : "Pause incoming processing for every mailbox on this instance? Outgoing mail is independent.";
+        if (!await JS.InvokeAsync<bool>("confirm", message)) return;
+        using var response = await HelpdeskApi.PostAsJsonAsync("/api/v1/email-settings/worker",
+            new { Running = running, Confirmed = true }, disposeCts.Token);
+        if (response.IsSuccessStatusCode)
+        {
+            worker = await response.Content.ReadFromJsonAsync<MailboxWorkerStatus>(disposeCts.Token);
+            Snackbar.Add(running ? "Mailbox worker activation saved." : "Mailbox worker paused.", Severity.Info);
+        }
+        else Snackbar.Add("Worker state could not be changed. Refresh its status before retrying.", Severity.Error);
     }
 
     private static IEnumerable<string> ValidatePort(int port)

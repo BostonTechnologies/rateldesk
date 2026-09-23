@@ -114,7 +114,7 @@ public sealed class ProtocolMailboxAdapter(
             if ((!state.Initialized && settings.InitialImport == InitialMailImport.NewOnly && uid.Id <= boundary) ||
                 (!state.Initialized && settings.InitialImport == InitialMailImport.ExistingUnread && summary.Flags.GetValueOrDefault().HasFlag(MessageFlags.Seen)))
             {
-                result.Add(new(key, null, Ignore: true));
+                result.Add(new(key, null, Ignore: true, HoldReason: "InitialBaselineSkipped"));
                 continue;
             }
             if (summary.Size > MimeInboundNormalizer.MaxMessageBytes)
@@ -146,7 +146,8 @@ public sealed class ProtocolMailboxAdapter(
         if (!state.Initialized && settings.InitialImport == InitialMailImport.NewOnly)
         {
             // Capture the baseline in one bounded durable batch; a later connection sees newly arriving UIDLs.
-            return new(uids.Select(key => new InboundSourceMessage(key, null, Ignore: true)).ToArray(), null, true);
+            return new(uids.Select(key => new InboundSourceMessage(key, null, Ignore: true,
+                HoldReason: "InitialBaselineSkipped")).ToArray(), null, true);
         }
         var result = new List<InboundSourceMessage>();
         for (var index = 0; index < uids.Count && result.Count < settings.BatchSize; index++)

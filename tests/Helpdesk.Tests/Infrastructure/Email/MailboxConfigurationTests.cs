@@ -45,6 +45,37 @@ public sealed class MailboxConfigurationTests
         Assert.True((await legacyTrue.GetStatusAsync(default)).InstanceRunning);
     }
 
+    [Fact]
+    public async Task Effective_status_never_calls_an_enabled_source_running_without_a_live_lease()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync(false);
+        await using var db = fixture.Open();
+        await db.Database.MigrateAsync();
+        var mailbox = new EmailInboxSettings
+        {
+            Id = Guid.NewGuid(), MailboxAddress = "support@tenant-a.example.test",
+            SourceKey = "synthetic-source", Enabled = true, BackgroundSyncEnabled = true,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.EmailInboxSettings.Add(mailbox);
+        db.Set<MailboxIngestionState>().Add(new() { MailboxId = mailbox.Id, SourceKey = mailbox.SourceKey });
+        db.Set<MailboxLease>().Add(new() { MailboxId = mailbox.Id });
+        await db.SaveChangesAsync();
+        var policy = new MailboxWorkerPolicy(db, new ConfigurationBuilder().Build(), TimeProvider.System);
+        Assert.Equal("Instance paused", (await policy.GetMailboxStatusAsync(mailbox.Id, default))?.State);
+        await policy.SetRunningAsync(true, default);
+        Assert.Equal("Waiting for baseline", (await policy.GetMailboxStatusAsync(mailbox.Id, default))?.State);
+        var lease = await db.Set<MailboxLease>().SingleAsync();
+        lease.Owner = "synthetic-worker";
+        lease.ExpiresUnixMilliseconds = DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds();
+        await db.SaveChangesAsync();
+        Assert.Equal("Initializing baseline", (await policy.GetMailboxStatusAsync(mailbox.Id, default))?.State);
+        var ingestion = await db.Set<MailboxIngestionState>().SingleAsync();
+        ingestion.Initialized = true;
+        await db.SaveChangesAsync();
+        Assert.Equal("Running", (await policy.GetMailboxStatusAsync(mailbox.Id, default))?.State);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

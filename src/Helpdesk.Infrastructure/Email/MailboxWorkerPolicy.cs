@@ -5,9 +5,6 @@ using Microsoft.Extensions.Configuration;
 
 namespace Helpdesk.Infrastructure.Email;
 
-public sealed record MailboxWorkerStatus(bool DeploymentPermitsIngestion, bool InstanceRunning,
-    string State, string? BlockedBy, long? ControlVersion);
-
 /// <summary>One deployment and persisted operator policy for every ingestion entry point.</summary>
 public sealed class MailboxWorkerPolicy(HelpdeskDbContext db, IConfiguration configuration, TimeProvider clock)
 {
@@ -47,5 +44,36 @@ public sealed class MailboxWorkerPolicy(HelpdeskDbContext db, IConfiguration con
         }
         await db.SaveChangesAsync(ct);
         return await GetStatusAsync(ct);
+    }
+
+    public async Task<MailboxEffectiveStatusDto?> GetMailboxStatusAsync(Guid mailboxId, CancellationToken ct)
+    {
+        var mailbox = await db.EmailInboxSettings.AsNoTracking().SingleOrDefaultAsync(x => x.Id == mailboxId, ct);
+        if (mailbox is null) return null;
+        var instance = await GetStatusAsync(ct);
+        var state = await db.Set<MailboxIngestionState>().AsNoTracking()
+            .SingleOrDefaultAsync(x => x.MailboxId == mailboxId, ct);
+        var lease = await db.Set<MailboxLease>().AsNoTracking()
+            .SingleOrDefaultAsync(x => x.MailboxId == mailboxId, ct);
+        var now = clock.GetUtcNow().ToUnixTimeMilliseconds();
+        var active = lease?.Owner is not null && lease.ExpiresUnixMilliseconds > now;
+        var receipts = db.Set<InboundMessageReceipt>().AsNoTracking().Where(x => x.MailboxId == mailboxId);
+        var captured = await receipts.CountAsync(ct);
+        var skipped = await receipts.CountAsync(x => x.Reason == "InitialBaselineSkipped", ct);
+        var held = await receipts.CountAsync(x => x.Outcome == InboundReceiptOutcome.NeedsReview, ct);
+        var status = !instance.DeploymentPermitsIngestion ? "Disabled by deployment"
+            : !instance.InstanceRunning ? "Instance paused"
+            : mailbox.Archived || !mailbox.Enabled ? "Mailbox disabled"
+            : !mailbox.BackgroundSyncEnabled ? "Incoming paused"
+            : state?.ErrorCode is not null && state.NextRetryUnixMilliseconds > now ? "Retry scheduled"
+            : held > 0 ? "Needs review"
+            : active && state?.Initialized != true ? "Initializing baseline"
+            : active ? "Running"
+            : state?.Initialized != true ? "Waiting for baseline"
+            : "Waiting for next poll";
+        return new(mailboxId, status, instance.BlockedBy, instance.DeploymentPermitsIngestion,
+            instance.InstanceRunning, mailbox.Enabled && !mailbox.Archived, mailbox.BackgroundSyncEnabled,
+            state?.Initialized == true, active, state?.LastSyncUnixMilliseconds,
+            state?.NextRetryUnixMilliseconds, captured, skipped, held);
     }
 }

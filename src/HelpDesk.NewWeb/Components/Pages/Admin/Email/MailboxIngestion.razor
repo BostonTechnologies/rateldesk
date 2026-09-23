@@ -16,6 +16,13 @@
     @if (loading) { <MudProgressLinear Indeterminate="true" /> }
     @if (diagnostics is not null)
     {
+        @if (diagnostics.EffectiveStatus is { } effective)
+        {
+            <MudAlert Severity="@(effective.State == "Running" || effective.State == "Waiting for next poll" ? Severity.Info : Severity.Warning)" Variant="Variant.Outlined">
+                @effective.State@if (effective.BlockedBy is not null) { <span> — @effective.BlockedBy</span> }
+            </MudAlert>
+            <MudText>Baseline: @(effective.BaselineComplete ? "Complete" : "Not complete") · Captured: @effective.CapturedCount · Initial baseline skipped: @effective.SkippedInitialCount · Held: @effective.HeldCount</MudText>
+        }
         <MudText>Last successful sync: @Format(diagnostics.State?.LastSyncUnixMilliseconds)</MudText>
         <MudText>Last successful saved-configuration test: @Format(diagnostics.State?.LastTestUnixMilliseconds) (version @diagnostics.State?.TestedVersion)</MudText>
         <MudText>Operational error: @(diagnostics.State?.ErrorCode ?? "None")</MudText>
@@ -40,12 +47,12 @@
     private readonly CancellationTokenSource cancellation = new();
     private bool loading;
     private string? error;
-    private Diagnostics? diagnostics;
+    private MailboxDiagnosticsResponse? diagnostics;
     protected override Task OnParametersSetAsync() => LoadAsync();
     private async Task LoadAsync()
     {
         loading = true; error = null;
-        try { diagnostics = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<Diagnostics>($"/api/v1/email-settings/{MailboxId}/diagnostics", cancellation.Token); }
+        try { diagnostics = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<MailboxDiagnosticsResponse>($"/api/v1/email-settings/{MailboxId}/diagnostics", cancellation.Token); }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
         catch (HttpRequestException) { error = "Inbound diagnostics could not be loaded."; }
         finally { loading = false; }
@@ -57,7 +64,5 @@
         await LoadAsync();
     }
     private static string Format(long? timestamp) => timestamp.HasValue ? DateTimeOffset.FromUnixTimeMilliseconds(timestamp.Value).ToLocalTime().ToString("g") : "Never";
-    private sealed record Receipt(Guid Id, InboundReceiptOutcome Outcome, string? Reason, string? OrganizationId, string? TicketId, long CreatedUnixMilliseconds);
-    private sealed record Diagnostics(MailboxIngestionState? State, List<Receipt> Receipts);
     public void Dispose() { cancellation.Cancel(); cancellation.Dispose(); }
 }

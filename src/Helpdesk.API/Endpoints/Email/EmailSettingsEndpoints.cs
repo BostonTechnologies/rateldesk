@@ -116,16 +116,18 @@ public static class EmailSettingsEndpoints
                         : global is not null ? "Inherited global" : "No ingress configured" };
             }));
         });
-        group.MapGet("/{id:guid}/diagnostics", async (Guid id, HelpdeskDbContext db, CancellationToken ct) => Results.Ok(new
+        group.MapGet("/{id:guid}/diagnostics", async (Guid id, HelpdeskDbContext db, MailboxWorkerPolicy policy, CancellationToken ct) =>
         {
-            State = await db.Set<MailboxIngestionState>().AsNoTracking().Where(x => x.MailboxId == id)
+            var state = await db.Set<MailboxIngestionState>().AsNoTracking().Where(x => x.MailboxId == id)
                 .Select(x => new MailboxIngestionDiagnosticsDto(x.MailboxId, x.Initialized,
                     x.LastTestUnixMilliseconds, x.TestedVersion, x.LastSyncUnixMilliseconds,
-                    x.NextRetryUnixMilliseconds, x.ErrorCode, x.Cursor != null)).SingleOrDefaultAsync(ct),
-            Receipts = await db.Set<InboundMessageReceipt>().AsNoTracking().Where(x => x.MailboxId == id)
+                    x.NextRetryUnixMilliseconds, x.ErrorCode, x.Cursor != null)).SingleOrDefaultAsync(ct);
+            var receipts = await db.Set<InboundMessageReceipt>().AsNoTracking().Where(x => x.MailboxId == id)
                 .OrderByDescending(x => x.CreatedUnixMilliseconds).Take(100)
-                .Select(x => new { x.Id, x.Outcome, x.Reason, x.OrganizationId, x.TicketId, x.CreatedUnixMilliseconds, x.Attempts, x.Acknowledged }).ToListAsync(ct)
-        }));
+                .Select(x => new MailboxReceiptDiagnosticsDto(x.Id, x.Outcome, x.Reason,
+                    x.OrganizationId, x.TicketId, x.CreatedUnixMilliseconds, x.Attempts, x.Acknowledged)).ToListAsync(ct);
+            return Results.Ok(new MailboxDiagnosticsResponse(state, receipts, await policy.GetMailboxStatusAsync(id, ct)));
+        });
         group.MapPost("/{id:guid}/receipts/{receiptId:guid}/retry", RetryReceiptAsync);
     }
 
@@ -211,6 +213,3 @@ public static class EmailSettingsEndpoints
 }
 public sealed record ArchiveMailboxRequest(long Version, bool Confirmed);
 public sealed record SetMailboxWorkerRequest(bool Running, bool Confirmed);
-public sealed record MailboxIngestionDiagnosticsDto(Guid MailboxId, bool Initialized,
-    long? LastTestUnixMilliseconds, long? TestedVersion, long? LastSyncUnixMilliseconds,
-    long? NextRetryUnixMilliseconds, string? ErrorCode, bool HasCheckpoint);
