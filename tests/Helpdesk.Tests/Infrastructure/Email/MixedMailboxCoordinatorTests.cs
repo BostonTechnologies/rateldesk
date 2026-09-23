@@ -738,12 +738,15 @@ public sealed class MixedMailboxCoordinatorTests
                 fixture.Adapters.Add(provider, adapter);
                 registrations.AddSingleton<IInboundMailboxAdapter>(overrideAdapter?.Provider == provider ? overrideAdapter : adapter);
             }
-            fixture.services = registrations.BuildServiceProvider();
             var settings = new Dictionary<string, string?> { ["EmailIngestion:Enabled"] = "true" };
             if (ingestionSettings is not null)
                 foreach (var (key, value) in ingestionSettings) settings[key] = value;
+            var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
+            registrations.AddSingleton<IConfiguration>(configuration);
+            registrations.AddScoped<MailboxWorkerPolicy>();
+            fixture.services = registrations.BuildServiceProvider();
             fixture.Coordinator = new MailboxIngestionCoordinator(fixture.services.GetRequiredService<IServiceScopeFactory>(),
-                new ConfigurationBuilder().AddInMemoryCollection(settings).Build(),
+                configuration,
                 NullLogger<MailboxIngestionCoordinator>.Instance, fixture.Clock);
             await using var db = fixture.Open();
             await db.Database.EnsureCreatedAsync();

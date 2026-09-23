@@ -70,7 +70,8 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromSeconds(10));
         var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
-        var mailboxes = configuration.GetValue("EmailIngestion:Enabled", false)
+        var worker = await scope.ServiceProvider.GetRequiredService<MailboxWorkerPolicy>().GetStatusAsync(timeout.Token);
+        var mailboxes = worker.InstanceRunning
             ? await db.EmailInboxSettings.AsNoTracking()
                 .Where(x => !x.Archived && x.Enabled && x.BackgroundSyncEnabled).ToListAsync(timeout.Token)
             : [];

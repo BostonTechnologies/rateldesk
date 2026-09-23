@@ -530,6 +530,11 @@ public class HelpdeskDbContext(
             entity.Property(x => x.SourceKey).HasMaxLength(64);
         });
         modelBuilder.Entity<MailboxMigrationState>().HasKey(x => x.Id);
+        modelBuilder.Entity<MailboxWorkerControl>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Version).IsConcurrencyToken();
+        });
         modelBuilder.Entity<MailboxOutboxEffect>(entity =>
         {
             entity.HasKey(x => x.Id);

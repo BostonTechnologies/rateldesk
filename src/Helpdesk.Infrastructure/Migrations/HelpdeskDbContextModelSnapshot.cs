@@ -1863,6 +1863,29 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.ToTable("MailboxOutboxEffect");
                 });
 
+            modelBuilder.Entity("Helpdesk.Shared.Models.MailboxWorkerControl", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Running")
+                        .HasColumnType("boolean");
+
+                    b.Property<long>("UpdatedUnixMilliseconds")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("MailboxWorkerControl");
+                });
+
             modelBuilder.Entity("Helpdesk.Shared.Models.Organization", b =>
                 {
                     b.Property<string>("Id")

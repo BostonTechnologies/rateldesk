@@ -16,6 +16,35 @@ namespace Helpdesk.Tests.Infrastructure.Email;
 
 public sealed class MailboxConfigurationTests
 {
+    [Fact]
+    public async Task Worker_policy_distinguishes_fresh_pause_operator_stop_and_persisted_activation()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync(false);
+        await using var db = fixture.Open();
+        await db.Database.MigrateAsync();
+        var fresh = new MailboxWorkerPolicy(db, new ConfigurationBuilder().Build(), TimeProvider.System);
+        Assert.Equal("Instance paused", (await fresh.GetStatusAsync(default)).State);
+        Assert.False((await fresh.GetStatusAsync(default)).InstanceRunning);
+
+        var stoppedConfiguration = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?> { ["EmailIngestion:Enabled"] = "false" }).Build();
+        var stopped = new MailboxWorkerPolicy(db, stoppedConfiguration, TimeProvider.System);
+        Assert.Equal("Disabled by deployment", (await stopped.SetRunningAsync(true, default)).State);
+        Assert.Empty(await db.Set<MailboxWorkerControl>().ToListAsync());
+
+        var permitted = await fresh.SetRunningAsync(true, default);
+        Assert.True(permitted.InstanceRunning);
+        Assert.Single(await db.Set<MailboxWorkerControl>().ToListAsync());
+        Assert.Equal("Disabled by deployment", (await stopped.GetStatusAsync(default)).State);
+        await fresh.SetRunningAsync(false, default);
+        var legacyTrue = new MailboxWorkerPolicy(db, new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?> { ["EmailIngestion:Enabled"] = "true" }).Build(), TimeProvider.System);
+        Assert.False((await legacyTrue.GetStatusAsync(default)).InstanceRunning);
+        db.Set<MailboxWorkerControl>().Remove(await db.Set<MailboxWorkerControl>().SingleAsync());
+        await db.SaveChangesAsync();
+        Assert.True((await legacyTrue.GetStatusAsync(default)).InstanceRunning);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

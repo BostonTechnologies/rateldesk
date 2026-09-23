@@ -19,6 +19,18 @@ public static class EmailSettingsEndpoints
     private static void MapGroup(RouteGroupBuilder group)
     {
         group.RequireAuthorization("HelpdeskAdmin").WithTags("Email Settings");
+        group.MapGet("/worker", async (MailboxWorkerPolicy policy, CancellationToken ct) =>
+            Results.Ok(await policy.GetStatusAsync(ct)));
+        group.MapPost("/worker", async ([FromBody] SetMailboxWorkerRequest request,
+            MailboxWorkerPolicy policy, CancellationToken ct) =>
+        {
+            if (!request.Confirmed)
+                return Results.BadRequest(new { message = "Confirm the instance mailbox worker change." });
+            var status = await policy.SetRunningAsync(request.Running, ct);
+            return request.Running && !status.DeploymentPermitsIngestion
+                ? Results.Conflict(new { message = "EmailIngestion:Enabled=false blocks ingestion at deployment level.", status })
+                : Results.Ok(status);
+        });
         group.MapGet("/", async (HelpdeskDbContext db, CancellationToken ct) => Results.Ok(
             (await db.EmailInboxSettings.AsNoTracking().ToListAsync(ct)).Select(MailboxSettingsService.ToDto)));
         group.MapGet("/{id:guid}", async (Guid id, HelpdeskDbContext db, CancellationToken ct) =>
@@ -198,6 +210,7 @@ public static class EmailSettingsEndpoints
     }
 }
 public sealed record ArchiveMailboxRequest(long Version, bool Confirmed);
+public sealed record SetMailboxWorkerRequest(bool Running, bool Confirmed);
 public sealed record MailboxIngestionDiagnosticsDto(Guid MailboxId, bool Initialized,
     long? LastTestUnixMilliseconds, long? TestedVersion, long? LastSyncUnixMilliseconds,
     long? NextRetryUnixMilliseconds, string? ErrorCode, bool HasCheckpoint);
