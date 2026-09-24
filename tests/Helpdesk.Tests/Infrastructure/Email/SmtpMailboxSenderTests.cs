@@ -246,6 +246,37 @@ public sealed class SmtpMailboxSenderTests
         Assert.DoesNotContain(server.Commands, command => command.StartsWith("MAIL FROM", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public async Task Untrusted_smtp_certificate_is_held_before_any_mail_transaction()
+    {
+        await using var server = new SmtpFixture(trustCertificate: false);
+        var (sender, mailbox, outgoing) = CreateSender(server.Port);
+
+        var result = await sender.SendAsync(mailbox, outgoing, ["requester@example.test"], null,
+            "Update", "<p>Body</p>", [], Guid.NewGuid(), default);
+
+        Assert.Equal("Needs review", result.Status);
+        Assert.Equal("SmtpTlsFailed", result.ErrorCode);
+        Assert.DoesNotContain(server.Commands, command => command.StartsWith("MAIL FROM", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task Wrong_smtp_port_fails_before_submission_with_retryable_connection_code()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var unusedPort = ((IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        var (sender, mailbox, outgoing) = CreateSender(unusedPort);
+
+        var result = await sender.SendAsync(mailbox, outgoing, ["requester@example.test"], null,
+            "Update", "<p>Body</p>", [], Guid.NewGuid(), default);
+
+        Assert.Equal("Failed", result.Status);
+        Assert.Equal("SocketException", result.ErrorCode);
+        Assert.Null(result.AcceptedRecipients);
+    }
+
     [Theory]
     [InlineData(451, "Failed", "SmtpTemporaryMessageRejected")]
     [InlineData(550, "Needs review", "SmtpMessageRejected")]
@@ -262,6 +293,21 @@ public sealed class SmtpMailboxSenderTests
         Assert.Equal(expectedCode, result.ErrorCode);
         Assert.Empty(result.AcceptedRecipients ?? []);
         Assert.Equal(["requester@example.test"], result.RejectedRecipients);
+        await server.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Contains("DATA", server.Commands);
+    }
+
+    [Fact]
+    public async Task Lost_reply_after_data_is_held_as_unknown_instead_of_resubmitted()
+    {
+        await using var server = new SmtpFixture(disconnectAfterData: true);
+        var (sender, mailbox, outgoing) = CreateSender(server.Port);
+
+        var result = await sender.SendAsync(mailbox, outgoing, ["requester@example.test"], null,
+            "Update", "<p>Body</p>", [], Guid.NewGuid(), default);
+
+        Assert.Equal("Outcome unknown", result.Status);
+        Assert.NotNull(result.ErrorCode);
         await server.Completion.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Contains("DATA", server.Commands);
     }
@@ -319,6 +365,8 @@ public sealed class SmtpMailboxSenderTests
         private readonly int? senderStatus;
         private readonly int? dataStatus;
         private readonly int? authStatus;
+        private readonly bool trustCertificate;
+        private readonly bool disconnectAfterData;
         private readonly X509Certificate2 certificate;
         private readonly X509Store roots = new(StoreName.Root, StoreLocation.CurrentUser);
         public int Port { get; }
@@ -327,13 +375,16 @@ public sealed class SmtpMailboxSenderTests
         public string Message { get; private set; } = string.Empty;
 
         public SmtpFixture(string? rejectRecipient = null, int recipientStatus = 550,
-            int? senderStatus = null, int? dataStatus = null, int? authStatus = null)
+            int? senderStatus = null, int? dataStatus = null, int? authStatus = null,
+            bool trustCertificate = true, bool disconnectAfterData = false)
         {
             this.rejectRecipient = rejectRecipient;
             this.recipientStatus = recipientStatus;
             this.senderStatus = senderStatus;
             this.dataStatus = dataStatus;
             this.authStatus = authStatus;
+            this.trustCertificate = trustCertificate;
+            this.disconnectAfterData = disconnectAfterData;
             using var key = RSA.Create(2048);
             var request = new CertificateRequest("CN=localhost", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
             var san = new SubjectAlternativeNameBuilder();
@@ -342,7 +393,7 @@ public sealed class SmtpMailboxSenderTests
             request.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
             certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddHours(1));
             roots.Open(OpenFlags.ReadWrite);
-            roots.Add(certificate);
+            if (trustCertificate) roots.Add(certificate);
             // Bind one address family so destination selection also works when
             // localhost resolves the other family first on the CI runner.
             listener = new TcpListener(IPAddress.Loopback, 0);
@@ -369,6 +420,7 @@ public sealed class SmtpMailboxSenderTests
                     while (await reader.ReadLineAsync() is { } data && data != ".")
                         body.AppendLine(data);
                     Message = body.ToString();
+                    if (disconnectAfterData) return;
                     await writer.WriteLineAsync(dataStatus is { } rejection
                         ? $"{rejection} fixture message rejected" : "250 2.0.0 queued");
                     continue;
@@ -401,7 +453,7 @@ public sealed class SmtpMailboxSenderTests
         public async ValueTask DisposeAsync()
         {
             listener.Stop();
-            roots.Remove(certificate);
+            if (trustCertificate) roots.Remove(certificate);
             roots.Dispose();
             certificate.Dispose();
             if (Completion.IsCompletedSuccessfully) await Completion;
