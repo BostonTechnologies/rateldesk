@@ -1,11 +1,14 @@
 using System.Security.Claims;
+using System.Text.Json;
 using Helpdesk.Application.Timeline;
 using Helpdesk.Infrastructure.Email;
+using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.DTOs.Worklog;
 using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace Helpdesk.API.Endpoints.Timeline;
 
@@ -101,16 +104,13 @@ public static class TimelineEndpoints
 
         group.MapGet("/failed",
             async (
-                IRepository<TicketTimelineEvent> timelineRepo,
+                [FromServices] HelpdeskDbContext db,
                 CancellationToken ct) =>
             {
-                ct.ThrowIfCancellationRequested();
-
-                var failed = (await timelineRepo.GetAllAsync())
+                var failed = await db.TicketTimelineEvents.AsNoTracking()
                     .Where(x =>
                         x.EventType == TimelineEventType.EmailDelivery &&
                         x.EmailStatus == EmailDeliveryStatus.Failed)
-                    .OrderByDescending(x => x.CreatedUtc)
                     .Select(x => new TicketTimelineEventDto
                     {
                         Id = x.Id,
@@ -124,9 +124,29 @@ public static class TimelineEndpoints
                         EmailStatus = x.EmailStatus,
                         EmailRecipient = x.EmailRecipient,
                         RetryCount = x.RetryCount,
-                        IsRetryable = x.IsRetryable
-                    })
-                    .ToList();
+                        IsRetryable = x.RetryError != "DispatchOutcomeUnknown"
+                    }).ToListAsync(ct);
+                failed = failed.OrderByDescending(x => x.CreatedUtc).ToList();
+
+                var deliveryIds = failed.Select(x => x.Id).ToArray();
+                var results = await db.Set<MailboxOutboxEffect>().AsNoTracking()
+                    .Where(x => x.DeliveryEventId.HasValue && deliveryIds.Contains(x.DeliveryEventId.Value))
+                    .Select(x => new { x.DeliveryEventId, x.LastErrorCode, x.RecipientOutcomeJson })
+                    .ToListAsync(ct);
+                var byDeliveryId = results.ToDictionary(x => x.DeliveryEventId!.Value);
+                foreach (var delivery in failed)
+                {
+                    if (!byDeliveryId.TryGetValue(delivery.Id, out var result)) continue;
+                    delivery.DeliveryErrorCode = result.LastErrorCode;
+                    if (result.RecipientOutcomeJson is null) continue;
+                    try
+                    {
+                        var recipients = JsonSerializer.Deserialize<MailboxRecipientOutcome>(result.RecipientOutcomeJson);
+                        delivery.AcceptedRecipients = recipients?.AcceptedRecipients;
+                        delivery.RejectedRecipients = recipients?.RejectedRecipients;
+                    }
+                    catch (JsonException) { delivery.RecipientOutcomeUnavailable = true; }
+                }
 
                 return Results.Ok(failed);
             })

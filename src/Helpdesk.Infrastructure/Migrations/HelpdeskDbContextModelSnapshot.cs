@@ -1879,6 +1879,9 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("ReceiptId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("RecipientOutcomeJson")
+                        .HasColumnType("text");
+
                     b.Property<int>("State")
                         .HasColumnType("integer");
 

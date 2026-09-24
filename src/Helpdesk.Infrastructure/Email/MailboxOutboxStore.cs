@@ -132,7 +132,7 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
         CompleteAsync(claim, succeeded, errorCode, ct, false);
 
     public async Task<bool> CompleteAsync(MailboxOutboxEffect claim, bool succeeded, string? errorCode, CancellationToken ct,
-        bool requiresReview)
+        bool requiresReview, MailboxSubmissionResult? submission = null)
     {
         var now = timeProvider.GetUtcNow();
         var milliseconds = now.ToUnixTimeMilliseconds();
@@ -140,6 +140,10 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
             : requiresReview ? MailboxEffectState.NeedsReview
             : claim.Attempts >= MaximumAttempts ? MailboxEffectState.Exhausted : MailboxEffectState.Pending;
         var nextAttempt = milliseconds + (long)TimeSpan.FromSeconds(30 * Math.Pow(2, claim.Attempts - 1)).TotalMilliseconds;
+        var recipientOutcomeJson = submission is { AcceptedRecipients: not null } or { RejectedRecipients: not null }
+            ? JsonSerializer.Serialize(new MailboxRecipientOutcome(
+                submission.AcceptedRecipients?.ToArray() ?? [], submission.RejectedRecipients?.ToArray() ?? []))
+            : null;
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var changed = await db.Set<MailboxOutboxEffect>()
             .Where(x => x.Id == claim.Id && x.Owner == claim.Owner && x.Fence == claim.Fence
@@ -147,7 +151,8 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
             .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.State, state)
                 .SetProperty(x => x.Owner, (string?)null).SetProperty(x => x.LeaseExpiresUnixMilliseconds, 0L)
                 .SetProperty(x => x.AvailableUnixMilliseconds, nextAttempt)
-                .SetProperty(x => x.LastErrorCode, errorCode), ct);
+                .SetProperty(x => x.LastErrorCode, errorCode)
+                .SetProperty(x => x.RecipientOutcomeJson, recipientOutcomeJson), ct);
         if (changed != 1)
             return false;
         await UpdateDeliveryAsync(claim, succeeded, state, errorCode, now, ct);
@@ -176,7 +181,8 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
             .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.State, MailboxEffectState.Pending)
                 .SetProperty(x => x.Attempts, 0).SetProperty(x => x.Fence, x => x.Fence + 1)
                 .SetProperty(x => x.Owner, (string?)null).SetProperty(x => x.LeaseExpiresUnixMilliseconds, 0L)
-                .SetProperty(x => x.AvailableUnixMilliseconds, now).SetProperty(x => x.LastErrorCode, (string?)null), ct);
+                .SetProperty(x => x.AvailableUnixMilliseconds, now).SetProperty(x => x.LastErrorCode, (string?)null)
+                .SetProperty(x => x.RecipientOutcomeJson, (string?)null), ct);
         if (changed == 1)
         {
             await db.TicketTimelineEvents.Where(x => x.Id == timelineId)

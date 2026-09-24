@@ -17,5 +17,8 @@ public sealed class MailboxOutboxEffect
     public long AvailableUnixMilliseconds { get; set; }
     public long LeaseExpiresUnixMilliseconds { get; set; }
     public string? LastErrorCode { get; set; }
+    public string? RecipientOutcomeJson { get; set; }
     public Guid? DeliveryEventId { get; set; }
 }
+
+public sealed record MailboxRecipientOutcome(string[] AcceptedRecipients, string[] RejectedRecipients);

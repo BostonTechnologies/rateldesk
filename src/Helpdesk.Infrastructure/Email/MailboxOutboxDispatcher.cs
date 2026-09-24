@@ -58,11 +58,13 @@ public sealed class MailboxOutboxDispatcher(IServiceScopeFactory scopes, ILogger
             bool succeeded;
             bool requiresReview = false;
             string? errorCode = null;
+            MailboxSubmissionResult? submission = null;
             try
             {
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 timeout.CancelAfter(TimeSpan.FromMinutes(2));
                 var result = await DispatchAsync(claim, services, timeout.Token);
+                submission = result;
                 succeeded = result.Status is "Accepted by provider" or "Suppressed";
                 requiresReview = result.Status is "Needs configuration" or "Needs review" or "Outcome unknown";
                 errorCode = result.Status == "Suppressed" ? "Suppressed" : result.ErrorCode;
@@ -81,7 +83,7 @@ public sealed class MailboxOutboxDispatcher(IServiceScopeFactory scopes, ILogger
                     : error is OperationCanceledException ? "DispatchTimedOut" : error.GetType().Name;
             }
 
-            if (await store.CompleteAsync(claim, succeeded, errorCode, ct, requiresReview) && succeeded)
+            if (await store.CompleteAsync(claim, succeeded, errorCode, ct, requiresReview, submission) && succeeded)
                 completed++;
         }
         return completed;

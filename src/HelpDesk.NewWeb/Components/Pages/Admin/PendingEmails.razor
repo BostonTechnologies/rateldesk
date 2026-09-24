@@ -48,7 +48,25 @@
                 <MudTd DataLabel="Recipient">@context.EmailRecipient</MudTd>
                 <MudTd DataLabel="Status">@context.EmailStatus</MudTd>
                 <MudTd DataLabel="Retries">@context.RetryCount</MudTd>
-                <MudTd DataLabel="Message">@context.MessageText</MudTd>
+                <MudTd DataLabel="Message">
+                    <div>@context.MessageText</div>
+                    @if (!string.IsNullOrWhiteSpace(context.DeliveryErrorCode))
+                    {
+                        <div>Reason: @context.DeliveryErrorCode</div>
+                    }
+                    @if (context.AcceptedRecipients?.Length > 0)
+                    {
+                        <div>Accepted: @string.Join(", ", context.AcceptedRecipients)</div>
+                    }
+                    @if (context.RejectedRecipients?.Length > 0)
+                    {
+                        <div>Rejected: @string.Join(", ", context.RejectedRecipients)</div>
+                    }
+                    @if (context.RecipientOutcomeUnavailable)
+                    {
+                        <div>Recipient details unavailable; check the provider before retrying.</div>
+                    }
+                </MudTd>
                 <MudTd DataLabel="Action">
                     <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="@loading"
                                OnClick="() => RetryWithCurrentOutgoingAsync(context.Id)">

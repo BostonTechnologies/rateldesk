@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using System.Text.Json;
 using Helpdesk.Application.Notifications;
 using Helpdesk.Application.Services.Email;
 using Helpdesk.Application.Timeline;
@@ -57,6 +58,32 @@ public sealed class MailboxOutboxTests
         Assert.Equal(3, replay.MailboxConfigurationVersion);
         Assert.Equal(4, replay.OutgoingConfigurationVersion);
         Assert.Equal(1, await db.Set<MailboxOutboxEffect>().CountAsync(x => x.Kind == MailboxEffectKind.Email));
+    }
+
+    [Fact]
+    public async Task Partial_smtp_outcome_persists_each_recipient_and_blocks_blind_retry()
+    {
+        await using var fixture = await OutboxDatabase.CreateAsync();
+        await using var db = fixture.Open();
+        var store = fixture.Store(db);
+        var queued = await store.QueueDirectAsync(new IngressEmailEffect(["accepted@example.test"],
+            "Subject", "<p>Body</p>", ["rejected@example.test"], "ticket-a", [],
+            null, null, false, null, null), default);
+        var claim = Assert.IsType<MailboxOutboxEffect>(await store.TryClaimAsync(queued.Id, "worker", default));
+
+        Assert.True(await store.CompleteAsync(claim, false, "SmtpPartialRecipientAcceptance", default,
+            requiresReview: true, submission: new MailboxSubmissionResult("Needs review", "SmtpPartialRecipientAcceptance",
+                ["accepted@example.test"], ["rejected@example.test"])));
+
+        var held = await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleAsync(x => x.Id == queued.Id);
+        var outcome = JsonSerializer.Deserialize<MailboxRecipientOutcome>(held.RecipientOutcomeJson!);
+        Assert.Equal(["accepted@example.test"], outcome?.AcceptedRecipients);
+        Assert.Equal(["rejected@example.test"], outcome?.RejectedRecipients);
+        Assert.Equal(MailboxEffectState.NeedsReview, held.State);
+        Assert.Equal(EmailDeliveryStatus.Failed,
+            (await db.TicketTimelineEvents.SingleAsync(x => x.Id == queued.DeliveryEventId)).EmailStatus);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            store.RetryForTimelineAsync(queued.DeliveryEventId!.Value, default));
     }
 
     [Fact]

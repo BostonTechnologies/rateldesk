@@ -26,4 +26,8 @@ public class TicketTimelineEventDto
     public string[]? CcRecipients { get; set; }
     public int RetryCount { get; set; }
     public bool IsRetryable { get; set; }
+    public string? DeliveryErrorCode { get; set; }
+    public string[]? AcceptedRecipients { get; set; }
+    public string[]? RejectedRecipients { get; set; }
+    public bool RecipientOutcomeUnavailable { get; set; }
 }

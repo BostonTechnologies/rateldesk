@@ -47,7 +47,8 @@ public sealed class MailboxOutgoingRetryService(HelpdeskDbContext db, MailboxSen
                 .SetProperty(x => x.Owner, (string?)null)
                 .SetProperty(x => x.LeaseExpiresUnixMilliseconds, 0L)
                 .SetProperty(x => x.AvailableUnixMilliseconds, now)
-                .SetProperty(x => x.LastErrorCode, (string?)null), ct);
+                .SetProperty(x => x.LastErrorCode, (string?)null)
+                .SetProperty(x => x.RecipientOutcomeJson, (string?)null), ct);
         if (changed != 1)
             return preview with { CanRetry = false, Status = "DeliveryChanged" };
 
