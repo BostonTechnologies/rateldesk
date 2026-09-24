@@ -234,9 +234,28 @@ public class EmailSettingsEndpointsTests
         Assert.DoesNotContain(request.SmtpPassword, await read.Content.ReadAsStringAsync());
         Assert.True((await read.Content.ReadFromJsonAsync<MailboxOutgoingSettingsDto>())!.HasSmtpPassword);
 
+        var retained = await harness.Client.PutAsJsonAsync(path, request with
+        {
+            Version = saved.Version, DisplayName = "Updated fixture support", SmtpPassword = string.Empty
+        });
+        retained.EnsureSuccessStatusCode();
+        var retainedSettings = (await retained.Content.ReadFromJsonAsync<MailboxOutgoingSettingsDto>())!;
+        Assert.True(retainedSettings.HasSmtpPassword);
+        Assert.DoesNotContain(request.SmtpPassword, await retained.Content.ReadAsStringAsync());
+
+        var changedDestination = await harness.Client.PutAsJsonAsync(path, request with
+        {
+            Version = retainedSettings.Version, SmtpHost = "other-smtp.example.test", SmtpPassword = string.Empty
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, changedDestination.StatusCode);
+        Assert.DoesNotContain(request.SmtpPassword, await changedDestination.Content.ReadAsStringAsync());
+        var unchanged = (await harness.Client.GetFromJsonAsync<MailboxOutgoingSettingsDto>(path))!;
+        Assert.Equal("smtp.example.test", unchanged.SmtpHost);
+        Assert.Equal(retainedSettings.Version, unchanged.Version);
+
         var clear = await harness.Client.PutAsJsonAsync(path, request with
         {
-            Version = saved.Version, Enabled = false, SmtpPassword = string.Empty,
+            Version = retainedSettings.Version, Enabled = false, SmtpPassword = string.Empty,
             ClearSmtpPassword = true
         });
         clear.EnsureSuccessStatusCode();
