@@ -46,47 +46,54 @@ public sealed class MailboxOutboxDispatcher(IServiceScopeFactory scopes, ILogger
         await using (var discovery = scopes.CreateAsyncScope())
             candidates = await discovery.ServiceProvider.GetRequiredService<MailboxOutboxStore>().GetCandidatesAsync(16, ct);
         var completed = 0;
-        foreach (var id in candidates)
+        await Parallel.ForEachAsync(candidates, new ParallelOptions
         {
-            ct.ThrowIfCancellationRequested();
-            await using var scope = scopes.CreateAsyncScope();
-            var services = scope.ServiceProvider;
-            var store = services.GetRequiredService<MailboxOutboxStore>();
-            var claim = await store.TryClaimAsync(id, owner, ct);
-            if (claim is null)
-                continue;
-            bool succeeded;
-            bool requiresReview = false;
-            string? errorCode = null;
-            MailboxSubmissionResult? submission = null;
-            try
-            {
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                timeout.CancelAfter(TimeSpan.FromMinutes(2));
-                var result = await DispatchAsync(claim, services, timeout.Token);
-                submission = result;
-                succeeded = result.Status is "Accepted by provider" or "Suppressed";
-                requiresReview = result.Status is "Needs configuration" or "Needs review" or "Outcome unknown";
-                errorCode = result.Status == "Suppressed" ? "Suppressed" : result.ErrorCode;
-                if (!succeeded && errorCode is null) errorCode = "DeliveryRejected";
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                // Leave the claim to expire. Remote delivery may already have succeeded.
-                throw;
-            }
-            catch (Exception error)
-            {
-                succeeded = false;
-                requiresReview = claim.Kind == MailboxEffectKind.Email;
-                errorCode = requiresReview ? "DispatchOutcomeUnknown"
-                    : error is OperationCanceledException ? "DispatchTimedOut" : error.GetType().Name;
-            }
-
-            if (await store.CompleteAsync(claim, succeeded, errorCode, ct, requiresReview, submission) && succeeded)
-                completed++;
-        }
+            MaxDegreeOfParallelism = 4, CancellationToken = ct
+        }, async (id, token) =>
+        {
+            if (await DispatchOneAsync(id, token))
+                Interlocked.Increment(ref completed);
+        });
         return completed;
+    }
+
+    private async Task<bool> DispatchOneAsync(Guid id, CancellationToken ct)
+    {
+        await using var scope = scopes.CreateAsyncScope();
+        var services = scope.ServiceProvider;
+        var store = services.GetRequiredService<MailboxOutboxStore>();
+        var claim = await store.TryClaimAsync(id, owner, ct);
+        if (claim is null)
+            return false;
+        bool succeeded;
+        bool requiresReview = false;
+        string? errorCode = null;
+        MailboxSubmissionResult? submission = null;
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromMinutes(2));
+            var result = await DispatchAsync(claim, services, timeout.Token);
+            submission = result;
+            succeeded = result.Status is "Accepted by provider" or "Suppressed";
+            requiresReview = result.Status is "Needs configuration" or "Needs review" or "Outcome unknown";
+            errorCode = result.Status == "Suppressed" ? "Suppressed" : result.ErrorCode;
+            if (!succeeded && errorCode is null) errorCode = "DeliveryRejected";
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Leave the claim to expire. Remote delivery may already have succeeded.
+            throw;
+        }
+        catch (Exception error)
+        {
+            succeeded = false;
+            requiresReview = claim.Kind == MailboxEffectKind.Email;
+            errorCode = requiresReview ? "DispatchOutcomeUnknown"
+                : error is OperationCanceledException ? "DispatchTimedOut" : error.GetType().Name;
+        }
+
+        return await store.CompleteAsync(claim, succeeded, errorCode, ct, requiresReview, submission) && succeeded;
     }
 
     private static async Task<MailboxSubmissionResult> DispatchAsync(MailboxOutboxEffect effect, IServiceProvider services, CancellationToken ct)

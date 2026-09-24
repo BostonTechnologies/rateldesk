@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using System.Text.Json;
+using System.Threading.Channels;
 using Helpdesk.Application.Notifications;
 using Helpdesk.Application.Services.Email;
 using Helpdesk.Application.Timeline;
@@ -8,6 +9,7 @@ using Helpdesk.Infrastructure.Events;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.Services;
 using Helpdesk.Shared.DTOs.Notification;
+using Helpdesk.Shared.DTOs.Worklog;
 using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
@@ -109,6 +111,53 @@ public sealed class MailboxOutboxTests
         Assert.Single(claims.OfType<MailboxOutboxEffect>());
         await using var verify = fixture.Open();
         Assert.Equal(1, (await verify.Set<MailboxOutboxEffect>().SingleAsync(x => x.Id == id)).Attempts);
+    }
+
+    [Fact]
+    public async Task Slow_outbox_publication_does_not_delay_another_effect_or_sqlite_write()
+    {
+        await using var fixture = await OutboxDatabase.CreateAsync();
+        await using (var setup = fixture.Open())
+        {
+            var now = fixture.Clock.GetUtcNow().ToUnixTimeMilliseconds();
+            setup.Set<MailboxOutboxEffect>().AddRange(
+                new MailboxOutboxEffect { Kind = MailboxEffectKind.Timeline, EffectKey = "a:blocked",
+                    AvailableUnixMilliseconds = now, Payload = JsonSerializer.Serialize(new TicketTimelineEventDto
+                    { Id = Guid.NewGuid(), TicketId = "blocked" }) },
+                new MailboxOutboxEffect { Kind = MailboxEffectKind.Timeline, EffectKey = "b:fast",
+                    AvailableUnixMilliseconds = now, Payload = JsonSerializer.Serialize(new TicketTimelineEventDto
+                    { Id = Guid.NewGuid(), TicketId = "fast" }) });
+            await setup.SaveChangesAsync();
+        }
+        var bus = new BlockingTimelineBus();
+        var services = new ServiceCollection();
+        services.AddScoped<HelpdeskDbContext>(_ => fixture.Open());
+        services.AddSingleton<TimeProvider>(fixture.Clock);
+        services.AddScoped<IIngressEffectContext, IngressEffectContext>();
+        services.AddScoped<MailboxOutboxStore>();
+        services.AddSingleton<ITimelineEventBus>(bus);
+        await using var provider = services.BuildServiceProvider();
+        var dispatcher = new MailboxOutboxDispatcher(provider.GetRequiredService<IServiceScopeFactory>(),
+            NullLogger<MailboxOutboxDispatcher>.Instance);
+
+        var dispatch = dispatcher.DispatchBatchAsync();
+        try
+        {
+            await bus.BlockedStarted.WaitAsync(TimeSpan.FromSeconds(5));
+            await bus.FastPublished.WaitAsync(TimeSpan.FromSeconds(5));
+            await using var independent = fixture.Open();
+            independent.Set<MailboxOutboxEffect>().Add(new MailboxOutboxEffect
+            {
+                Kind = MailboxEffectKind.Notification, EffectKey = "independent-write",
+                Payload = "{}", AvailableUnixMilliseconds = fixture.Clock.GetUtcNow().ToUnixTimeMilliseconds()
+            });
+            await independent.SaveChangesAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            bus.ReleaseBlocked();
+        }
+        Assert.Equal(2, await dispatch.WaitAsync(TimeSpan.FromSeconds(5)));
     }
 
     [Theory]
@@ -361,6 +410,28 @@ public sealed class MailboxOutboxTests
         public string? TenantId => null;
         public string? UserId => null;
         public bool IsHelpdeskAdmin => true;
+    }
+
+    private sealed class BlockingTimelineBus : ITimelineEventBus
+    {
+        private readonly TaskCompletionSource blockedStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource fastPublished = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource releaseBlocked = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task BlockedStarted => blockedStarted.Task;
+        public Task FastPublished => fastPublished.Task;
+        public void ReleaseBlocked() => releaseBlocked.TrySetResult();
+        public ChannelReader<TicketTimelineEventDto> Subscribe(string ticketId) => throw new NotSupportedException();
+        public void Unsubscribe(string ticketId, ChannelReader<TicketTimelineEventDto> reader) => throw new NotSupportedException();
+        public ValueTask PublishAsync(TicketTimelineEventDto evt)
+        {
+            if (evt.TicketId == "blocked")
+            {
+                blockedStarted.TrySetResult();
+                return new ValueTask(releaseBlocked.Task);
+            }
+            fastPublished.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
     }
 
     private sealed class ManualClock : TimeProvider
