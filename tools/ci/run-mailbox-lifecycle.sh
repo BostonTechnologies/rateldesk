@@ -219,5 +219,6 @@ MAILBOX_FIXTURE_POP3S_PORT="$pop_port" \
 MAILBOX_FIXTURE_REPLICA_WEB_URL="$replica_web_url" \
 MAILBOX_FIXTURE_PRIMARY_API_URL="$api_url" \
 MAILBOX_FIXTURE_PRIMARY_API_PID="$api_pid" \
+MAILBOX_FIXTURE_COMPOSE_PROJECT="$compose_project" \
 PLAYWRIGHT_HTML_OUTPUT_DIR="$artifact_dir/report" \
 npx playwright test "${HELPDESK_MAILBOX_SPEC:-tests/ux/mailbox-lifecycle.spec.ts}" --output="$artifact_dir/results"

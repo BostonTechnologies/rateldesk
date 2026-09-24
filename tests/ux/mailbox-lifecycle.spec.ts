@@ -44,6 +44,8 @@ test('mailbox lifecycle acceptance: published Web/API receives, sends and thread
   await page.getByRole('menuitem', { name: 'Tenant override' }).click();
   await page.getByRole('combobox', { name: /^RatelDesk organization/ }).fill('Tenant A');
   await page.getByRole('option', { name: /Tenant A/ }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('option', { name: /Tenant A/ })).toBeHidden();
   await page.getByRole('combobox', { name: 'Inbound provider' }).click();
   await page.getByRole('option', { name: 'IMAP', exact: true }).click();
   await page.getByLabel('Mailbox display name').fill('Tenant A support');
@@ -98,6 +100,25 @@ test('mailbox lifecycle acceptance: published Web/API receives, sends and thread
     return ((await response.json()) as Diagnostics).receipts.filter(receipt =>
       receipt.reason === 'InitialBaselineSkipped').length;
   }, { timeout: 30_000, intervals: [1_000, 2_000] }).toBe(2);
+  const baselinePreviewResponse = await page.request.post(
+    `/api/v1/email-settings/${mailboxId}/historical/preview`,
+    { headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      data: { fromUnixMilliseconds: null, toUnixMilliseconds: null, count: 50, skip: 0 } });
+  expect(baselinePreviewResponse.ok(), await baselinePreviewResponse.text()).toBe(true);
+  const baselineItems = (await baselinePreviewResponse.json() as
+    { items: { receiptId: string; subject: string }[] }).items;
+  const beta2ReceiptId = baselineItems.find(item => item.subject === oldSubject)?.receiptId;
+  expect(beta2ReceiptId).toMatch(/^[a-f0-9-]{36}$/i);
+  // Reproduce the persisted beta.2 producer shape after the real protocol capture.
+  // The separate database upgrade test applies the beta.2 schema migration itself.
+  execFileSync('docker', ['compose', '-p', process.env.MAILBOX_FIXTURE_COMPOSE_PROJECT!,
+    '-f', 'docker/docker-compose.mailbox-lifecycle.yml', 'exec', '-T', 'postgres',
+    'psql', '-U', 'rateldesk', '-d', 'rateldesk', '-v', 'ON_ERROR_STOP=1',
+    '-c', `UPDATE "InboundMessageReceipt" SET "Reason" = NULL WHERE "Id" = '${beta2ReceiptId}';`],
+  { encoding: 'utf8', timeout: 30_000 });
+  const legacyDiagnostics = await (await page.request.get(
+    `/api/v1/email-settings/${mailboxId}/diagnostics`)).json() as Diagnostics;
+  expect(legacyDiagnostics.receipts.find(receipt => receipt.id === beta2ReceiptId)?.reason).toBeNull();
   const beforeImport = await page.request.get(`/api/v1/incidents?pageSize=50&organizationId=${encodeURIComponent(selected!.organizationId!)}`);
   expect(((await beforeImport.json()) as { items: Incident[] }).items.some(incident =>
     incident.subject === oldSubject || incident.subject === unselectedOldSubject)).toBe(false);

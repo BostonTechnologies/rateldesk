@@ -343,6 +343,60 @@ public class EmailSettingsEndpointsTests
     }
 
     [Fact]
+    public async Task Authenticated_historical_import_accepts_the_beta2_null_reason_capture_shape_only()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var mailbox = await harness.SeedAsync();
+        var skipped = new InboundMessageReceipt
+        {
+            MailboxId = mailbox.Id, SourceKey = mailbox.SourceKey, TransportKey = "graph-native-baseline-id",
+            Outcome = InboundReceiptOutcome.Ignored, Acknowledged = true,
+            AcknowledgmentStatus = InboundAcknowledgmentStatus.NotRequired
+        };
+        var processedIgnored = new InboundMessageReceipt
+        {
+            MailboxId = mailbox.Id, SourceKey = mailbox.SourceKey, TransportKey = "graph-processed-id",
+            Outcome = InboundReceiptOutcome.Ignored, Acknowledged = true,
+            AcknowledgmentStatus = InboundAcknowledgmentStatus.NotRequired, Attempts = 1
+        };
+        var missing = new InboundMessageReceipt
+        {
+            MailboxId = mailbox.Id, SourceKey = mailbox.SourceKey, TransportKey = "graph-missing-id",
+            Outcome = InboundReceiptOutcome.Ignored, Reason = "SourceMessageMissing", Acknowledged = true,
+            AcknowledgmentStatus = InboundAcknowledgmentStatus.NotRequired
+        };
+        var ambiguous = new InboundMessageReceipt
+        {
+            MailboxId = mailbox.Id, SourceKey = mailbox.SourceKey, TransportKey = "graph-ambiguous-id",
+            Outcome = InboundReceiptOutcome.Ignored, Acknowledged = true,
+            AcknowledgmentStatus = InboundAcknowledgmentStatus.Pending
+        };
+        await harness.WithDbAsync(async db =>
+        {
+            (await db.Set<MailboxIngestionState>().SingleAsync(x => x.MailboxId == mailbox.Id)).Initialized = true;
+            db.Set<InboundMessageReceipt>().AddRange(skipped, processedIgnored, missing, ambiguous);
+            await db.SaveChangesAsync();
+        });
+        harness.Historical.PreviewAsync(Arg.Any<EmailInboxSettings>(), Arg.Any<IReadOnlyList<string>>(),
+            Arg.Any<CancellationToken>()).Returns(call => Task.FromResult<IReadOnlyList<HistoricalSourcePreview>>(
+                [new("graph-native-baseline-id", "old@example.test", "Retained beta.2 mail", DateTimeOffset.UtcNow, true, null)]));
+        var path = $"/api/v1/email-settings/{mailbox.Id}/historical";
+        var preview = await harness.Client.PostAsJsonAsync($"{path}/preview",
+            new HistoricalMailboxPreviewRequest(null, null));
+        preview.EnsureSuccessStatusCode();
+        Assert.Equal(skipped.Id, Assert.Single((await preview.Content.ReadFromJsonAsync<HistoricalMailboxPreviewResult>())!.Items).ReceiptId);
+        (await harness.Client.PostAsJsonAsync("/api/v1/email-settings/worker",
+            new SetMailboxWorkerRequest(true, true))).EnsureSuccessStatusCode();
+        foreach (var negative in new[] { processedIgnored, missing, ambiguous })
+            Assert.Equal(HttpStatusCode.Conflict, (await harness.Client.PostAsJsonAsync($"{path}/import",
+                new HistoricalMailboxImportRequest([negative.Id], true))).StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, (await harness.Client.PostAsJsonAsync($"{path}/import",
+            new HistoricalMailboxImportRequest([skipped.Id], true))).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await harness.Client.PostAsJsonAsync($"{path}/import",
+            new HistoricalMailboxImportRequest([skipped.Id], true))).StatusCode);
+    }
+
+    [Fact]
     public async Task Configuration_audit_records_actor_and_actions_without_draft_secrets()
     {
         await using var harness = await Harness.CreateAsync();

@@ -41,6 +41,7 @@ public sealed class MailboxEmailService(MailboxSenderResolver resolver, SmtpMail
             OrganizationId = selected.OrganizationId,
             SenderBindingError = selected.ErrorCode,
             MailboxConfigurationVersion = selected.Mailbox?.Version,
+            MailboxSourceKey = selected.Mailbox?.SourceKey,
             OutgoingConfigurationVersion = selected.Outgoing?.Version
         };
         var delivery = await outbox.QueueDirectAsync(email, ct);

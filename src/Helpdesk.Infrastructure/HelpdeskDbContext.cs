@@ -21,6 +21,8 @@ public class HelpdeskDbContext(
     private bool _ingressScope;
     private string? _ingressOrganizationId;
 
+    internal string? IngressOrganizationId => _ingressOrganizationId;
+
     public void BeginIngressRoutingScope()
     {
         if (_httpContextAccessor.HttpContext is not null)
@@ -33,6 +35,13 @@ public class HelpdeskDbContext(
     {
         if (!_ingressScope || string.IsNullOrWhiteSpace(organizationId))
             throw new InvalidOperationException("An explicit ingress scope and organization are required.");
+        _ingressOrganizationId = organizationId;
+    }
+
+    internal void RestoreIngressOrganization(string? organizationId)
+    {
+        if (!_ingressScope)
+            throw new InvalidOperationException("An explicit ingress scope is required.");
         _ingressOrganizationId = organizationId;
     }
 

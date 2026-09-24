@@ -49,6 +49,7 @@ public sealed class IngressEmailService(MailboxEmailService inner, MailboxSender
             OrganizationId = selection.OrganizationId,
             SenderBindingError = selection.ErrorCode,
             MailboxConfigurationVersion = selection.Mailbox?.Version,
+            MailboxSourceKey = selection.Mailbox?.SourceKey,
             OutgoingConfigurationVersion = selection.Outgoing?.Version
         });
         // This means durably accepted when the enclosing transaction commits, not delivered.

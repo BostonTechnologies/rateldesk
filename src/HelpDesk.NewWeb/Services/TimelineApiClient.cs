@@ -11,7 +11,7 @@ public interface ITimelineApiClient
     Task RetryAsync(Guid id);
     Task RetryAllAsync();
     Task<MailboxOutgoingRetryPreview?> PreviewOutgoingRetryAsync(Guid id);
-    Task RetryWithCurrentOutgoingAsync(Guid id, long expectedOutgoingVersion);
+    Task RetryWithCurrentOutgoingAsync(Guid id, ConfirmMailboxOutgoingRetryRequest confirmation);
     Task<MailboxUncertainRetryPreview?> PreviewUncertainRetryAsync(Guid id);
     Task RetryConfirmedUndeliveredAsync(Guid id, ConfirmMailboxUndeliveredRetryRequest request);
     Task<MailboxRouteRetryPreview?> PreviewChangedRouteAsync(Guid id);
@@ -60,10 +60,10 @@ public class TimelineApiClient(
         return await response.Content.ReadFromJsonAsync<MailboxOutgoingRetryPreview>();
     }
 
-    public async Task RetryWithCurrentOutgoingAsync(Guid id, long expectedOutgoingVersion)
+    public async Task RetryWithCurrentOutgoingAsync(Guid id, ConfirmMailboxOutgoingRetryRequest confirmation)
     {
         using var request = CreateUserScopedRequest(HttpMethod.Post, $"/api/v1/timeline/{id}/retry-current-outgoing");
-        request.Content = JsonContent.Create(new ConfirmMailboxOutgoingRetryRequest(expectedOutgoingVersion, true));
+        request.Content = JsonContent.Create(confirmation);
         using var response = await _client.SendAsync(request);
         response.EnsureSuccessStatusCode();
     }

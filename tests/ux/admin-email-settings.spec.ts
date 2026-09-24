@@ -94,6 +94,33 @@ test('mailbox workspace remains readable across themes and responsive widths', a
       const pickerWidth = await picker.evaluate(element => element.getBoundingClientRect().width);
       if (width >= 1280) expect(pickerWidth).toBeLessThanOrEqual(420);
       if (width === 390) await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeInViewport();
+      if (width === 1280 && theme !== 'System') {
+        await expect(page.getByTestId('app-navigation-drawer')
+          .getByRole('link', { name: 'Mailbox Configuration' })).toBeVisible();
+        const sections = page.getByRole('group', { name: 'Mailbox sections' });
+        for (const name of ['Incoming', 'Outgoing', 'Processing', 'Activity']) {
+          const tab = sections.getByRole('button', { name, exact: true });
+          await expect(tab).toBeInViewport({ ratio: 1 });
+          const withinEditor = await tab.evaluate(element => {
+            const tabRect = element.getBoundingClientRect();
+            const editorRect = element.closest('.mailbox-editor')!.getBoundingClientRect();
+            return tabRect.left >= editorRect.left && tabRect.right <= editorRect.right;
+          });
+          expect(withinEditor).toBe(true);
+          await tab.click();
+          await expect(tab).toHaveAttribute('aria-pressed', 'true');
+          if (name === 'Outgoing')
+            await expect(page.getByRole('button', { name: 'Save outgoing' })).toBeVisible();
+          else if (name === 'Processing')
+            await expect(page.getByText(/Initial import:/)).toBeVisible();
+          else if (name === 'Activity')
+            await expect(page.getByRole('heading', { name: 'Incoming activity' })).toBeVisible();
+          if (name !== 'Incoming')
+            await page.screenshot({ path: testInfo.outputPath(`mailbox-${theme.toLowerCase()}-1280-${name.toLowerCase()}-full.png`),
+              fullPage: true, animations: 'disabled' });
+        }
+        await sections.getByRole('button', { name: 'Incoming' }).click();
+      }
       await page.screenshot({ path: testInfo.outputPath(`mailbox-${theme.toLowerCase()}-${width}-viewport.png`) });
       await page.screenshot({ path: testInfo.outputPath(`mailbox-${theme.toLowerCase()}-${width}-full.png`), fullPage: true });
     }

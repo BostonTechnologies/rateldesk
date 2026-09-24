@@ -3,15 +3,100 @@ using System.Text;
 using System.Text.Json;
 using Helpdesk.Application.Services.Email;
 using Helpdesk.Infrastructure.Email;
+using Helpdesk.Infrastructure.Html;
+using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Models;
+using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Graph;
 using Microsoft.Kiota.Abstractions.Authentication;
+using NSubstitute;
 
 namespace Helpdesk.Tests.Infrastructure.Email;
 
 public sealed class GraphMailboxSenderTests
 {
+    [Fact]
+    public async Task Same_source_Graph_credential_rotation_can_be_confirmed_for_one_queued_delivery()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<HelpdeskDbContext>().UseSqlite(connection).Options;
+        await using var db = new HelpdeskDbContext(options, Substitute.For<ITenantContext>(), new HttpContextAccessor());
+        await db.Database.EnsureCreatedAsync();
+        db.Organizations.Add(new Organization { Id = "tenant-a", Name = "Tenant A" });
+        var mailbox = new EmailInboxSettings
+        {
+            Id = Guid.NewGuid(), Scope = MailboxScope.Organization, OrganizationId = "tenant-a",
+            Provider = InboundMailboxProvider.Graph, Authentication = MailboxAuthentication.MicrosoftApplication,
+            MailboxAddress = "support@tenant-a.example.test", SourceKey = "stable-graph-source",
+            ClientSecret = "old-synthetic-protected-secret", Enabled = true,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
+        };
+        var outgoing = new MailboxOutgoingSettings
+        {
+            MailboxId = mailbox.Id, Enabled = true, Transport = MailboxOutgoingTransport.Graph
+        };
+        db.EmailInboxSettings.Add(mailbox);
+        db.Set<MailboxOutgoingSettings>().Add(outgoing);
+        db.Incidents.Add(new Incident { Id = "graph-ticket", TrackingId = "INC-GRAPH", OrganizationId = "tenant-a" });
+        await db.SaveChangesAsync();
+        var transport = new GraphSendFixture(HttpStatusCode.Accepted);
+        var selectedSecrets = new List<string>();
+        var graph = new GraphMailboxSender(selected =>
+        {
+            selectedSecrets.Add(selected.ClientSecret);
+            return new GraphServiceClient(new HttpClient(transport, disposeHandler: false),
+                new AnonymousAuthenticationProvider());
+        });
+        var effects = new IngressEffectContext();
+        var store = new MailboxOutboxStore(db, effects, TimeProvider.System);
+        var config = new ConfigurationBuilder().Build();
+        var sender = new MailboxEmailService(new MailboxSenderResolver(db),
+            new SmtpMailboxSender(new MailboxDestinationPolicy(config),
+                new MailboxOutgoingCredentialProtector(new EphemeralDataProtectionProvider()),
+                new HtmlToPlainTextConverter()), graph, store, effects,
+            NullLogger<MailboxEmailService>.Instance);
+        Assert.True(await sender.SendEmailAsync(new EmailSendRequest(
+            ["requester@example.test"], "Graph credential repair", "<p>Original Graph content</p>")
+        { TicketId = "graph-ticket" }));
+        var row = await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleAsync(x => x.Kind == MailboxEffectKind.Email);
+        var original = MailboxOutboxStore.Deserialize<IngressEmailEffect>(row.Payload);
+        mailbox.ClientSecret = "rotated-synthetic-protected-secret";
+        mailbox.Version++;
+        await db.SaveChangesAsync();
+        var claim = Assert.IsType<MailboxOutboxEffect>(await store.TryClaimAsync(row.Id, "first", default));
+        var held = await sender.SendPinnedAsync(mailbox.Id, original.OrganizationId, original.TicketId,
+            original.Recipients, original.Cc, original.Subject, original.Html, original.Attachments,
+            original.ReplyTo, row.Id, default, original.MailboxConfigurationVersion, original.OutgoingConfigurationVersion);
+        Assert.Equal("SenderConfigurationChanged", held.ErrorCode);
+        Assert.Empty(selectedSecrets);
+        Assert.True(await store.CompleteAsync(claim, false, held.ErrorCode, default, requiresReview: true));
+        var retry = new MailboxOutgoingRetryService(db, new MailboxSenderResolver(db), TimeProvider.System);
+        var preview = await retry.PreviewAsync(row.DeliveryEventId!.Value, default);
+        Assert.True(preview.CanRetry);
+        Assert.Equal("Queued", (await retry.RetryAsync(row.DeliveryEventId.Value,
+            new ConfirmMailboxOutgoingRetryRequest(outgoing.Version, true)
+            {
+                ExpectedMailboxId = mailbox.Id, ExpectedMailboxVersion = mailbox.Version,
+                ExpectedFence = preview.Fence
+            }, "admin", default)).Status);
+        var adopted = MailboxOutboxStore.Deserialize<IngressEmailEffect>((await db.Set<MailboxOutboxEffect>()
+            .AsNoTracking().SingleAsync(x => x.Id == row.Id)).Payload);
+        var accepted = await sender.SendPinnedAsync(mailbox.Id, adopted.OrganizationId, adopted.TicketId,
+            adopted.Recipients, adopted.Cc, adopted.Subject, adopted.Html, adopted.Attachments,
+            adopted.ReplyTo, row.Id, default, adopted.MailboxConfigurationVersion, adopted.OutgoingConfigurationVersion);
+        Assert.Equal("Accepted by provider", accepted.Status);
+        Assert.Equal(new[] { "rotated-synthetic-protected-secret" }, selectedSecrets);
+        Assert.Equal("/v1.0/users/support%40tenant-a.example.test/sendMail", transport.Path);
+        Assert.Contains("Graph credential repair", transport.Body, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Denied_send_grant_does_not_disable_receiving_for_the_selected_Graph_mailbox()
     {

@@ -91,6 +91,16 @@ test('published incoming and outgoing outages isolate mailboxes and repair faile
     expect(response.ok(), await response.text()).toBe(true);
     return await response.json() as { version: number };
   };
+  const updateIncoming = async (mailbox: Mailbox, changes: Record<string, unknown>): Promise<number> => {
+    const current = await (await page.request.get(`/api/v1/email-settings/${mailbox.id}`)).json() as
+      Record<string, unknown> & { version: number };
+    const response = await page.request.put(`/api/v1/email-settings/${mailbox.id}`, {
+      headers, data: { ...current, ...changes, password: '', clientSecret: '',
+        clearPassword: false, clearClientSecret: false }
+    });
+    expect(response.ok(), await response.text()).toBe(true);
+    return (await response.json() as { version: number }).version;
+  };
   const globalImapPort = await globalImapProxy();
   const global = await create('Fixture global sender', 'global@tenant-b.example.test',
     'synthetic-global-password', String(globalImapPort), 0, null, true);
@@ -212,28 +222,47 @@ test('published incoming and outgoing outages isolate mailboxes and repair faile
   expect((await diagnostics()).receipts.filter(receipt => receipt.ticketId === afterOutageIncident.id)).toHaveLength(1);
   expect(requesterMail().filter(message => message.subject.includes(afterOutageIncident.trackingId))).toHaveLength(0);
 
+  const pausedRevision = await updateIncoming(dedicated,
+    { displayName: 'Fixture revised dedicated sender', pollIntervalSeconds: 60, backgroundSyncEnabled: false });
+  const resumedRevision = await updateIncoming(dedicated, { backgroundSyncEnabled: true });
+  expect(resumedRevision).toBeGreaterThan(pausedRevision);
   const repaired = await saveOutgoing(dedicated, 'support@tenant-a.example.test',
     'synthetic-mail-password', process.env.MAILBOX_FIXTURE_SMTPS_PORT!, outgoing.version);
   const previewResponse = await page.request.get(`/api/v1/timeline/${failure.id}/outgoing-retry-preview`);
   expect(previewResponse.ok()).toBe(true);
   const preview = await previewResponse.json() as
-    { canRetry: boolean; mailboxAddress: string; currentOutgoingVersion: number };
+    { canRetry: boolean; mailboxId: string; mailboxAddress: string; currentOutgoingVersion: number;
+      originalMailboxVersion: number; currentMailboxVersion: number; fence: number; recipients: string[] };
   expect(preview.canRetry).toBe(true);
   expect(preview.mailboxAddress).toBe('support@tenant-a.example.test');
   expect(preview.currentOutgoingVersion).toBe(repaired.version);
+  expect(preview.currentMailboxVersion).toBe(resumedRevision);
+  expect(preview.originalMailboxVersion).toBeLessThan(resumedRevision);
+  expect(preview.recipients).toContain('requester@tenant-a.example.test');
+  const staleRetry = await page.request.post(`/api/v1/timeline/${failure.id}/retry-current-outgoing`, {
+    headers, data: { confirmed: true, expectedMailboxId: dedicated.id,
+      expectedMailboxVersion: pausedRevision, expectedOutgoingVersion: repaired.version,
+      expectedFence: preview.fence }
+  });
+  expect(staleRetry.status(), await staleRetry.text()).toBe(409);
   const retry = await page.request.post(`/api/v1/timeline/${failure.id}/retry-current-outgoing`, {
-    headers, data: { confirmed: true, expectedOutgoingVersion: repaired.version }
+    headers, data: { confirmed: true, expectedMailboxId: dedicated.id,
+      expectedMailboxVersion: resumedRevision, expectedOutgoingVersion: repaired.version,
+      expectedFence: preview.fence }
   });
   expect(retry.status(), await retry.text()).toBe(202);
   const manualPreviewResponse = await page.request.get(
     `/api/v1/timeline/${manualFailure.id}/outgoing-retry-preview`);
   expect(manualPreviewResponse.ok(), await manualPreviewResponse.text()).toBe(true);
-  expect(await manualPreviewResponse.json() as { canRetry: boolean; mailboxAddress: string;
-    currentOutgoingVersion: number }).toMatchObject({ canRetry: true,
+  const manualPreview = await manualPreviewResponse.json() as { canRetry: boolean; mailboxAddress: string;
+    currentOutgoingVersion: number; currentMailboxVersion: number; fence: number };
+  expect(manualPreview).toMatchObject({ canRetry: true,
       mailboxAddress: 'support@tenant-a.example.test', currentOutgoingVersion: repaired.version });
   const manualRetry = await page.request.post(
     `/api/v1/timeline/${manualFailure.id}/retry-current-outgoing`, {
-      headers, data: { confirmed: true, expectedOutgoingVersion: repaired.version }
+      headers, data: { confirmed: true, expectedMailboxId: dedicated.id,
+        expectedMailboxVersion: manualPreview.currentMailboxVersion,
+        expectedOutgoingVersion: repaired.version, expectedFence: manualPreview.fence }
     });
   expect(manualRetry.status(), await manualRetry.text()).toBe(202);
   await expect.poll(() => requesterMail().filter(message => message.subject.includes(incident.trackingId) &&

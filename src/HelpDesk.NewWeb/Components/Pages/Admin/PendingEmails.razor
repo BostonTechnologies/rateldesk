@@ -167,7 +167,8 @@
                 return;
             }
             var preview = await TimelineClient.PreviewOutgoingRetryAsync(timelineId);
-            if (preview?.CanRetry != true || preview.CurrentOutgoingVersion is null)
+            if (preview?.CanRetry != true || preview.CurrentOutgoingVersion is null ||
+                preview.CurrentMailboxVersion is null || preview.Fence is null || preview.MailboxId is null)
             {
                 Snackbar.Add($"This delivery cannot adopt current outgoing settings: {preview?.Status ?? "Preview unavailable"}.", Severity.Warning);
                 return;
@@ -177,10 +178,19 @@
                 ? " Confirm that Microsoft Mail.Send access is repaired and a sample send from this mailbox succeeded."
                 : string.Empty;
             var confirmed = await JS.InvokeAsync<bool>("confirm",
-                $"Retry this delivery using {preview.MailboxAddress} ({preview.Transport}), outgoing revision {preview.CurrentOutgoingVersion}? The ticket, tenant and mailbox stay bound to the original delivery.{grantCheck}");
+                $"Retry this delivery to {string.Join(", ", preview.Recipients)} using {preview.MailboxAddress} ({preview.Transport})? " +
+                $"Adopt incoming revision {preview.OriginalMailboxVersion} → {preview.CurrentMailboxVersion} and " +
+                $"outgoing revision {preview.OriginalOutgoingVersion} → {preview.CurrentOutgoingVersion}. " +
+                $"The ticket, tenant and mailbox stay bound to the original delivery.{grantCheck}");
             if (!confirmed) return;
-            await TimelineClient.RetryWithCurrentOutgoingAsync(timelineId, preview.CurrentOutgoingVersion.Value);
-            Snackbar.Add("Delivery queued with the confirmed outgoing revision.", Severity.Success);
+            await TimelineClient.RetryWithCurrentOutgoingAsync(timelineId,
+                new ConfirmMailboxOutgoingRetryRequest(preview.CurrentOutgoingVersion.Value, true)
+                {
+                    ExpectedMailboxId = preview.MailboxId,
+                    ExpectedMailboxVersion = preview.CurrentMailboxVersion,
+                    ExpectedFence = preview.Fence
+                });
+            Snackbar.Add("Delivery queued with the confirmed sender revisions.", Severity.Success);
         }
         catch (HttpRequestException ex)
         {

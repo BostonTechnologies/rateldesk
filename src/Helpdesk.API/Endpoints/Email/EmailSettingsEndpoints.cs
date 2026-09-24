@@ -194,10 +194,11 @@ public static class EmailSettingsEndpoints
         if (mailbox.Provider == InboundMailboxProvider.Pop3 &&
             (request.FromUnixMilliseconds is not null || request.ToUnixMilliseconds is not null))
             return Results.BadRequest(new { message = "POP3 does not provide a trustworthy server receive date; use a count limit." });
-        var receipts = await db.Set<InboundMessageReceipt>().AsNoTracking().Where(x => x.MailboxId == id &&
-                x.SourceKey == mailbox.SourceKey && x.Outcome == InboundReceiptOutcome.Ignored &&
-                x.Reason == "InitialBaselineSkipped" && x.HistoricalImportRequestId == null)
+        var eligible = await HistoricalBaselineReceipts.EligibleAsync(db, mailbox, ct);
+        var receipts = await eligible.AsNoTracking().Where(x => x.HistoricalImportRequestId == null)
             .OrderBy(x => x.CreatedUnixMilliseconds).Skip(request.Skip).Take(request.Count + 1).ToListAsync(ct);
+        receipts.RemoveAll(x => x.Reason is null &&
+            !HistoricalBaselineReceipts.IsLegacySourceIdentity(mailbox, x.TransportKey));
         var hasMore = receipts.Count > request.Count;
         if (hasMore) receipts.RemoveAt(receipts.Count - 1);
         if (receipts.Count == 0) return Results.Ok(new HistoricalMailboxPreviewResult([], false, request.Skip));
@@ -241,9 +242,13 @@ public static class EmailSettingsEndpoints
         var requestId = Guid.NewGuid();
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        var changed = await db.Set<InboundMessageReceipt>().Where(x => x.MailboxId == id &&
-                x.SourceKey == mailbox.SourceKey && request.ReceiptIds.Contains(x.Id) &&
-                x.Outcome == InboundReceiptOutcome.Ignored && x.Reason == "InitialBaselineSkipped" &&
+        var eligible = await HistoricalBaselineReceipts.EligibleAsync(db, mailbox, ct);
+        var selected = await eligible.AsNoTracking().Where(x => request.ReceiptIds.Contains(x.Id) &&
+            x.HistoricalImportRequestId == null).ToListAsync(ct);
+        if (selected.Count != request.ReceiptIds.Count || selected.Any(x => x.Reason is null &&
+                !HistoricalBaselineReceipts.IsLegacySourceIdentity(mailbox, x.TransportKey)))
+            return Results.Conflict(new { message = "Selection changed; preview again." });
+        var changed = await eligible.Where(x => request.ReceiptIds.Contains(x.Id) &&
                 x.HistoricalImportRequestId == null)
             .ExecuteUpdateAsync(update => update
                 .SetProperty(x => x.HistoricalImportRequestId, requestId)

@@ -263,9 +263,8 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
         await using (var scope = scopes.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
-            ids = await db.Set<InboundMessageReceipt>().AsNoTracking().Where(x => x.MailboxId == mailbox.Id &&
-                    x.SourceKey == mailbox.SourceKey && x.Outcome == InboundReceiptOutcome.Ignored &&
-                    x.Reason == "InitialBaselineSkipped" && x.HistoricalImportRequestId != null &&
+            var eligible = await HistoricalBaselineReceipts.EligibleAsync(db, mailbox, token);
+            ids = await eligible.AsNoTracking().Where(x => x.HistoricalImportRequestId != null &&
                     x.HistoricalImportCompletedUnixMilliseconds == null)
                 .OrderBy(x => x.HistoricalImportRequestedUnixMilliseconds).Take(10).Select(x => x.Id).ToListAsync(token);
         }
@@ -276,6 +275,9 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
                 await using var scope = scopes.CreateAsyncScope();
                 var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
                 var receipt = await db.Set<InboundMessageReceipt>().SingleAsync(x => x.Id == id, token);
+                if (receipt.Reason is null &&
+                    !HistoricalBaselineReceipts.IsLegacySourceIdentity(mailbox, receipt.TransportKey))
+                    continue;
                 InboundSourceMessage source;
                 try { source = await historical.FetchHistoricalAsync(mailbox, receipt.TransportKey, token); }
                 catch (InboundSourceMissingException)
@@ -285,12 +287,15 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
                 await using var transaction = await db.Database.BeginTransactionAsync(token);
                 var leases = scope.ServiceProvider.GetRequiredService<MailboxLeaseStore>();
                 await FenceAsync(db, leases, lease, mailbox, token);
-                if (receipt.Outcome != InboundReceiptOutcome.Ignored || receipt.Reason != "InitialBaselineSkipped" ||
-                    receipt.HistoricalImportRequestId is null || receipt.HistoricalImportCompletedUnixMilliseconds is not null)
+                var stillEligible = await HistoricalBaselineReceipts.EligibleAsync(db, mailbox, token);
+                if (!await stillEligible.AnyAsync(x => x.Id == id && x.HistoricalImportRequestId != null &&
+                        x.HistoricalImportCompletedUnixMilliseconds == null, token))
                 {
                     await transaction.RollbackAsync(token);
                     continue;
                 }
+                if (source.Key != receipt.TransportKey)
+                    source = new(receipt.TransportKey, null, HoldReason: "ImportSourceIdentityChanged");
                 receipt.ProtectedEnvelope = source.Message is null ? string.Empty :
                     scope.ServiceProvider.GetRequiredService<MailboxCredentialProtector>()
                         .Protect(mailbox.Id, JsonSerializer.Serialize(source.Message));
@@ -539,13 +544,11 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
                 var route = await router.ResolveAsync(mailbox, message, ct, isDeliveryFailure);
                 var canEvaluateForwardedRoute = route.ForwardedCandidate?.OrganizationId is not null &&
                     route.Reason is "RequesterOwnershipConflict" or "TenantUsesDedicatedMailbox";
-                organizationId = canEvaluateForwardedRoute
-                    ? route.ForwardedCandidate!.OrganizationId
-                    : route.OrganizationId;
+                organizationId = route.OrganizationId;
                 effectContext.OrganizationId = organizationId;
                 receipt.OrganizationId = organizationId;
                 if (route.Reason is null && organizationId is not null)
-                    db.RestrictIngressToOrganization(organizationId);
+                    IngressTenantScope.Bind(db, effectContext, organizationId);
                 receipt.Reason = null;
                 if (route.Reason is not null && !canEvaluateForwardedRoute && !isSelfSender &&
                     !(isAutomaticMessage && !isDeliveryFailure))
@@ -582,10 +585,9 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
                         if (route.Reason is not null)
                             throw new InboundReceiptHoldException(route.Reason);
                         var customer = await router.GetRequesterAsync(route, ct);
-                        db.RestrictIngressToOrganization(customer.OrganizationId);
+                        IngressTenantScope.Bind(db, effectContext, customer.OrganizationId);
                         message = message with { MailboxTenantId = customer.OrganizationId };
                         receipt.OrganizationId = customer.OrganizationId;
-                        effectContext.OrganizationId = customer.OrganizationId;
                         ticket = await services.GetRequiredService<InboundTicketProcessor>().ProcessTicketEmailAsync(message,
                             message.Attachments, customer, ct, message.SourceMessageKey, route.ReferencedTicketId);
                     }

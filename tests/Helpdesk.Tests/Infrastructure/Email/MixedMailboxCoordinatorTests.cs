@@ -116,9 +116,12 @@ public sealed class MixedMailboxCoordinatorTests
             var rows = await setup.Set<InboundMessageReceipt>().ToListAsync();
             foreach (var receipt in rows.Where(x => x.Outcome == InboundReceiptOutcome.Ignored))
             {
-                receipt.Reason = "InitialBaselineSkipped";
+                receipt.Reason = null;
                 receipt.Acknowledged = true;
+                receipt.AcknowledgmentStatus = InboundAcknowledgmentStatus.NotRequired;
+                receipt.InternetMessageId = null;
             }
+            (await setup.Set<MailboxIngestionState>().SingleAsync(x => x.MailboxId == fixture.Global.Id)).Initialized = true;
             rows.Single(x => x.TransportKey == "selected-old").HistoricalImportRequestId = Guid.NewGuid();
             await setup.SaveChangesAsync();
         }
@@ -142,8 +145,11 @@ public sealed class MixedMailboxCoordinatorTests
         await using (var setup = fixture.Open())
         {
             var receipt = await setup.Set<InboundMessageReceipt>().SingleAsync();
-            receipt.Reason = "InitialBaselineSkipped";
+            receipt.Reason = null;
             receipt.Acknowledged = true;
+            receipt.AcknowledgmentStatus = InboundAcknowledgmentStatus.NotRequired;
+            receipt.InternetMessageId = null;
+            (await setup.Set<MailboxIngestionState>().SingleAsync(x => x.MailboxId == fixture.Global.Id)).Initialized = true;
             receipt.HistoricalImportRequestId = Guid.NewGuid();
             await setup.SaveChangesAsync();
         }

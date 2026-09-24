@@ -23,19 +23,33 @@ public sealed class MailboxOutgoingRetryService(HelpdeskDbContext db, MailboxSen
     }
 
     public async Task<MailboxOutgoingRetryPreview> RetryAsync(Guid timelineId,
-        long expectedOutgoingVersion, string userId, CancellationToken ct)
+        ConfirmMailboxOutgoingRetryRequest request, string userId, CancellationToken ct)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var row = await db.Set<MailboxOutboxEffect>().AsNoTracking()
             .SingleOrDefaultAsync(x => x.DeliveryEventId == timelineId, ct);
         var preview = await PreviewAsync(timelineId, row, ct);
-        if (!preview.CanRetry || row is null || preview.CurrentOutgoingVersion != expectedOutgoingVersion)
-            return preview with { CanRetry = false, Status = preview.CanRetry ? "OutgoingRevisionChanged" : preview.Status };
+        if (!preview.CanRetry || row is null)
+            return preview;
+        if (!request.Confirmed || preview.MailboxId != request.ExpectedMailboxId ||
+            preview.CurrentMailboxVersion != request.ExpectedMailboxVersion ||
+            preview.CurrentOutgoingVersion != request.ExpectedOutgoingVersion ||
+            preview.Fence != request.ExpectedFence)
+            return preview with { CanRetry = false, Status = "SenderRevisionChanged" };
+        var mailboxFenced = await db.EmailInboxSettings.Where(x => x.Id == request.ExpectedMailboxId &&
+                x.Version == request.ExpectedMailboxVersion && !x.Archived && x.Enabled)
+            .ExecuteUpdateAsync(update => update.SetProperty(x => x.Version, x => x.Version), ct);
+        var outgoingFenced = await db.Set<MailboxOutgoingSettings>().Where(x =>
+                x.MailboxId == request.ExpectedMailboxId && x.Version == request.ExpectedOutgoingVersion && x.Enabled)
+            .ExecuteUpdateAsync(update => update.SetProperty(x => x.Version, x => x.Version), ct);
+        if (mailboxFenced != 1 || outgoingFenced != 1)
+            return preview with { CanRetry = false, Status = "SenderRevisionChanged" };
 
         var email = MailboxOutboxStore.Deserialize<IngressEmailEffect>(row.Payload);
         var rebound = email with
         {
-            OutgoingConfigurationVersion = expectedOutgoingVersion,
+            MailboxConfigurationVersion = request.ExpectedMailboxVersion,
+            OutgoingConfigurationVersion = request.ExpectedOutgoingVersion,
             SenderBindingError = null
         };
         var payload = JsonSerializer.Serialize(rebound);
@@ -71,7 +85,7 @@ public sealed class MailboxOutgoingRetryService(HelpdeskDbContext db, MailboxSen
         {
             UserId = userId,
             RelatedEntityId = preview.MailboxId?.ToString("D"),
-            Message = $"Mailbox outgoing retry confirmed. TimelineId={timelineId:D}; OriginalOutgoingVersion={preview.OriginalOutgoingVersion?.ToString() ?? "none"}; CurrentOutgoingVersion={expectedOutgoingVersion}."
+            Message = $"Mailbox sender revision adopted. TimelineId={timelineId:D}; OriginalMailboxVersion={preview.OriginalMailboxVersion}; CurrentMailboxVersion={request.ExpectedMailboxVersion}; OriginalOutgoingVersion={preview.OriginalOutgoingVersion}; CurrentOutgoingVersion={request.ExpectedOutgoingVersion}; Fence={request.ExpectedFence}."
         });
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
@@ -357,7 +371,8 @@ public sealed class MailboxOutgoingRetryService(HelpdeskDbContext db, MailboxSen
         try { email = MailboxOutboxStore.Deserialize<IngressEmailEffect>(row.Payload); }
         catch (JsonException) { return Blocked(timelineId, "InvalidDeliveryPayload"); }
         if (email.MailboxId is null || email.MailboxConfigurationVersion is null ||
-            string.IsNullOrWhiteSpace(email.TicketId) || string.IsNullOrWhiteSpace(email.OrganizationId))
+            string.IsNullOrWhiteSpace(email.TicketId) || string.IsNullOrWhiteSpace(email.OrganizationId) ||
+            email.Recipients is null || email.Cc is null || email.Bcc is null || email.Attachments is null)
             return Blocked(timelineId, "SenderBindingMissing");
         if (!await SupportDeliveryCanRetryAsync(email.SupportDeliveryId, ct))
             return Blocked(timelineId, "SupportDeliveryNotFailed");
@@ -365,18 +380,32 @@ public sealed class MailboxOutgoingRetryService(HelpdeskDbContext db, MailboxSen
         var selected = await resolver.ResolveAsync(email.TicketId, email.OrganizationId, ct);
         if (selected.Mailbox?.Id != email.MailboxId)
             return Blocked(timelineId, "SenderRouteChanged");
-        if (selected.Mailbox.Version != email.MailboxConfigurationVersion)
-            return Blocked(timelineId, "MailboxConfigurationChanged");
+        if (selected.Mailbox.Version != email.MailboxConfigurationVersion &&
+            email.MailboxSourceKey is null)
+            return Blocked(timelineId, "MailboxSourceIdentityUnavailable");
+        if (email.MailboxSourceKey is not null && email.MailboxSourceKey != selected.Mailbox.SourceKey)
+            return Blocked(timelineId, "MailboxSourceChanged");
+        if (!string.IsNullOrWhiteSpace(email.ReplyTo) &&
+            !EmailAddressGuard.IsSameAddress(email.ReplyTo, selected.Mailbox.MailboxAddress))
+            return Blocked(timelineId, "ReplyToMismatch");
         if (selected.Status != "Ready" || selected.Outgoing is null)
             return Blocked(timelineId, selected.ErrorCode ?? "SenderUnavailable");
         var graphGrantFailure = row.LastErrorCode is "GraphAuthenticationFailed" or "GraphSendPermissionDenied" &&
             selected.Outgoing.Transport == MailboxOutgoingTransport.Graph;
-        if (selected.Outgoing.Version == email.OutgoingConfigurationVersion && !graphGrantFailure)
-            return Blocked(timelineId, "OutgoingRevisionUnchanged");
+        if (selected.Outgoing.Version == email.OutgoingConfigurationVersion &&
+            selected.Mailbox.Version == email.MailboxConfigurationVersion && !graphGrantFailure)
+            return Blocked(timelineId, "SenderRevisionUnchanged");
 
         return new(timelineId, true, graphGrantFailure ? "GraphGrantNeedsConfirmation" : "Ready",
             selected.Mailbox.Id, selected.Mailbox.MailboxAddress,
-            selected.Outgoing.Transport, email.OutgoingConfigurationVersion, selected.Outgoing.Version);
+            selected.Outgoing.Transport, email.OutgoingConfigurationVersion, selected.Outgoing.Version)
+        {
+            OriginalMailboxVersion = email.MailboxConfigurationVersion,
+            CurrentMailboxVersion = selected.Mailbox.Version,
+            Fence = row.Fence,
+            Recipients = email.Recipients.Concat(email.Cc).Concat(email.Bcc)
+                .Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+        };
     }
 
     private static MailboxOutgoingRetryPreview Blocked(Guid timelineId, string status) =>

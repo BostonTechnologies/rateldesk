@@ -181,7 +181,7 @@ test('mailbox POP3 lifecycle: dedicated IMAP and POP3 work without any global ma
   page.once('dialog', dialog => dialog.accept());
   await page.getByRole('row').filter({ hasText: disabledIncident.id })
     .getByRole('button', { name: 'Review sender and retry' }).click();
-  await expect(page.getByText('Delivery queued with the confirmed outgoing revision.')).toBeVisible();
+  await expect(page.getByText('Delivery queued with the confirmed sender revisions.')).toBeVisible();
   await expect.poll(() => (fixture('messages', ['--account', 'requester-c']) as MailMessage[]).filter(message =>
     message.subject.includes(disabledIncident.trackingId) &&
     message.from.includes('pop@tenant-c.example.test')).length,

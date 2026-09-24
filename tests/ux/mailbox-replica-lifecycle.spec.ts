@@ -154,12 +154,15 @@ test('published replicas preserve one mailbox owner and send after primary API s
   const previewResponse = await page.request.get(
     `${replicaWeb}/api/v1/timeline/${heldDelivery.id}/outgoing-retry-preview`);
   expect(previewResponse.ok(), await previewResponse.text()).toBe(true);
-  expect(await previewResponse.json() as { canRetry: boolean; mailboxAddress: string;
-    currentOutgoingVersion: number }).toMatchObject({ canRetry: true,
+  const preview = await previewResponse.json() as { canRetry: boolean; mailboxAddress: string;
+    mailboxId: string; currentMailboxVersion: number; currentOutgoingVersion: number; fence: number };
+  expect(preview).toMatchObject({ canRetry: true,
       mailboxAddress: 'support@tenant-a.example.test', currentOutgoingVersion: repairedVersion });
   const retry = await page.request.post(
     `${replicaWeb}/api/v1/timeline/${heldDelivery.id}/retry-current-outgoing`, {
-      headers, data: { confirmed: true, expectedOutgoingVersion: repairedVersion }
+      headers, data: { confirmed: true, expectedMailboxId: preview.mailboxId,
+        expectedMailboxVersion: preview.currentMailboxVersion,
+        expectedOutgoingVersion: repairedVersion, expectedFence: preview.fence }
     });
   expect(retry.status(), await retry.text()).toBe(202);
   await expect.poll(() => (fixture('messages', ['--account', 'requester']) as Message[])

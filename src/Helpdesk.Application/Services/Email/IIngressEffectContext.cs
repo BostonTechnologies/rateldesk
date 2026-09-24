@@ -13,6 +13,7 @@ public sealed record IngressEmailEffect(string[] Recipients, string Subject, str
     public string? OrganizationId { get; init; }
     public string? SenderBindingError { get; init; }
     public long? MailboxConfigurationVersion { get; init; }
+    public string? MailboxSourceKey { get; init; }
     public long? OutgoingConfigurationVersion { get; init; }
 }
 

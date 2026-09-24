@@ -44,6 +44,12 @@ test('published forwarding enforces route, rule, permission and foreign referenc
   });
   expect(account.status(), await account.text()).toBe(201);
   const forwarder = await account.json() as { userId: string };
+  const supportAccount = await page.request.post('/api/v1/local-auth/users', {
+    headers, data: { displayName: 'Fixture Tenant B support recipient', email: 'dedicated-b@tenant-b.example.test',
+      role: 'Technician', organizationId: organizationB.id }
+  });
+  expect(supportAccount.status(), await supportAccount.text()).toBe(201);
+  const supportUser = await supportAccount.json() as { userId: string };
   const access = await page.request.put(`/api/v1/local-auth/users/${forwarder.userId}/assignments`, {
     headers, data: { assignments: [
       { roleKey: 'SelfServiceUser', organizationId: organizationA!.id },
@@ -125,8 +131,6 @@ test('published forwarding enforces route, rule, permission and foreign referenc
     expect((await incidents()).some(incident => incident.subject === subject)).toBe(false);
   };
 
-  const dedicatedA = await createMailbox('support@tenant-a.example.test', 'support@tenant-a.example.test',
-    'synthetic-mail-password', process.env.MAILBOX_FIXTURE_IMAPS_PORT!, 1, organizationA!.id);
   const globalMailbox = await createMailbox('global@tenant-b.example.test', 'global@tenant-b.example.test',
     'synthetic-global-password', process.env.MAILBOX_FIXTURE_GLOBAL_IMAPS_PORT!, 0, null);
   await saveOutgoing(globalMailbox, 'global@tenant-b.example.test', 'synthetic-global-password',
@@ -135,10 +139,59 @@ test('published forwarding enforces route, rule, permission and foreign referenc
     headers, data: { running: true, confirmed: true }
   });
   expect(start.ok(), await start.text()).toBe(true);
-  for (const mailbox of [dedicatedA, globalMailbox])
+  for (const mailbox of [globalMailbox])
     await expect.poll(async () => (await diagnostics(mailbox)).state?.initialized,
       { timeout: 60_000, intervals: [1_000, 2_000, 3_000] }).toBe(true);
   await rule(globalMailbox);
+  const groupResponse = await page.request.post('/api/v1/support/groups/', {
+    headers, data: { owningOrganizationId: organizationB.id, name: 'Fixture Tenant B support', isEnabled: true }
+  });
+  expect(groupResponse.status(), await groupResponse.text()).toBe(201);
+  const supportGroup = await groupResponse.json() as { id: string };
+  const memberResponse = await page.request.post(`/api/v1/support/groups/${supportGroup.id}/members/`, {
+    headers, data: { userId: supportUser.userId, role: 0, source: 0, isEnabled: true }
+  });
+  expect(memberResponse.status(), await memberResponse.text()).toBe(201);
+  const coverageResponse = await page.request.post('/api/v1/support/coverage/', {
+    headers, data: { customerOrganizationId: organizationB.id, providerOrganizationId: organizationB.id,
+      supportGroupId: supportGroup.id, role: 0, isEnabled: true }
+  });
+  expect(coverageResponse.status(), await coverageResponse.text()).toBe(201);
+  const subscriptionResponse = await page.request.post('/api/v1/support/notification-subscriptions/', {
+    headers, data: { customerOrganizationId: organizationB.id, eventType: 0, recipientType: 0,
+      recipientId: supportGroup.id, channel: 0, isEnabled: true }
+  });
+  expect(subscriptionResponse.status(), await subscriptionResponse.text()).toBe(201);
+  const recipientPreview = await page.request.get(
+    `/api/v1/support/organizations/${organizationB.id}/recipient-preview?eventType=0`);
+  expect(recipientPreview.ok(), await recipientPreview.text()).toBe(true);
+  expect((await recipientPreview.json() as { recipients: { email: string }[] }).recipients
+    .map(recipient => recipient.email)).toContain('dedicated-b@tenant-b.example.test');
+  const inheritedSubject = 'Fixture inherited global forward and support notification';
+  sendForward('global', inheritedSubject);
+  const inheritedIncident = await expectForwardedIncident(globalMailbox, inheritedSubject);
+  await expect.poll(() => (fixture('messages', ['--account', 'dedicated-b']) as MailMessage[])
+    .filter(message => message.subject.includes(inheritedIncident.trackingId)).length,
+  { timeout: 60_000, intervals: [1_000, 2_000] }).toBe(1);
+  expect(inheritedIncident.id).toMatch(/^[a-f0-9-]{36}$/i);
+  const payloadSql = `SELECT "Payload" FROM "MailboxOutboxEffect" WHERE "Payload"::jsonb ->> 'TicketId' = '${inheritedIncident.id}' AND "Payload"::jsonb ->> 'SupportDeliveryId' IS NOT NULL LIMIT 1;`;
+  const payloadText = execFileSync('docker', ['compose', '-p', process.env.MAILBOX_FIXTURE_COMPOSE_PROJECT!,
+    '-f', 'docker/docker-compose.mailbox-lifecycle.yml', 'exec', '-T', 'postgres',
+    'psql', '-U', 'rateldesk', '-d', 'rateldesk', '-tAc', payloadSql],
+  { encoding: 'utf8', timeout: 30_000 }).trim();
+  const notification = JSON.parse(payloadText) as { OrganizationId: string; MailboxId: string;
+    MailboxConfigurationVersion: number; OutgoingConfigurationVersion: number;
+    SenderBindingError: string | null; SupportDeliveryId: string | null };
+  expect(notification).toMatchObject({ OrganizationId: organizationB.id, MailboxId: globalMailbox.id,
+    MailboxConfigurationVersion: 1, OutgoingConfigurationVersion: 1, SenderBindingError: null });
+  expect(notification.SupportDeliveryId).toBeTruthy();
+  const inheritedRequesterMail = fixture('messages', ['--account', 'requester-b']) as MailMessage[];
+  expect(inheritedRequesterMail.some(message => message.subject.includes(inheritedIncident.trackingId))).toBe(false);
+
+  const dedicatedA = await createMailbox('support@tenant-a.example.test', 'support@tenant-a.example.test',
+    'synthetic-mail-password', process.env.MAILBOX_FIXTURE_IMAPS_PORT!, 1, organizationA!.id);
+  await expect.poll(async () => (await diagnostics(dedicatedA)).state?.initialized,
+    { timeout: 60_000, intervals: [1_000, 2_000, 3_000] }).toBe(true);
   const globalSubject = 'Fixture authorized global forward';
   sendForward('global', globalSubject);
   const globalIncident = await expectForwardedIncident(globalMailbox, globalSubject);

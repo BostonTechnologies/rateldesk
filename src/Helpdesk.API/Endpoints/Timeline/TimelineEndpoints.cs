@@ -64,7 +64,7 @@ public static class TimelineEndpoints
             var userId = ResolveUserId(context);
             if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
             if (!request.Confirmed) return Results.BadRequest(new { message = "Confirm the current outgoing revision." });
-            var result = await service.RetryAsync(id, request.ExpectedOutgoingVersion, userId, ct);
+            var result = await service.RetryAsync(id, request, userId, ct);
             return result.CanRetry && result.Status == "Queued" ? Results.Accepted(value: result)
                 : Results.Conflict(result);
         }).WithName($"RetryTimelineWithCurrentOutgoing{nameSuffix}");

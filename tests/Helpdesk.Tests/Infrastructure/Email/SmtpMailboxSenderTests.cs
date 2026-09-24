@@ -9,6 +9,7 @@ using Helpdesk.Application.Services.Email;
 using Helpdesk.Infrastructure.Html;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Models;
+using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
@@ -23,6 +24,83 @@ namespace Helpdesk.Tests.Infrastructure.Email;
 
 public sealed class SmtpMailboxSenderTests
 {
+    [Fact]
+    public async Task Queued_ticket_mail_can_adopt_a_same_source_incoming_revision_before_one_smtp_submission()
+    {
+        await using var server = new SmtpFixture();
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<HelpdeskDbContext>().UseSqlite(connection).Options;
+        await using var db = new HelpdeskDbContext(options, Substitute.For<ITenantContext>(), new HttpContextAccessor());
+        await db.Database.EnsureCreatedAsync();
+        db.Organizations.Add(new Organization { Id = "tenant-a", Name = "Tenant A" });
+        var mailbox = new EmailInboxSettings
+        {
+            Id = Guid.NewGuid(), Scope = MailboxScope.Organization, OrganizationId = "tenant-a", Provider = InboundMailboxProvider.Imap,
+            Authentication = MailboxAuthentication.Password, MailboxAddress = "support@tenant-a.example.test",
+            SourceKey = "stable-imap-source", Enabled = true,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
+        };
+        var protection = new MailboxOutgoingCredentialProtector(new EphemeralDataProtectionProvider());
+        var outgoing = new MailboxOutgoingSettings
+        {
+            MailboxId = mailbox.Id, Enabled = true, Transport = MailboxOutgoingTransport.Smtp,
+            SmtpHost = "localhost", SmtpPort = server.Port, SmtpTlsMode = MailboxTlsMode.TlsOnConnect,
+            SmtpUsername = mailbox.MailboxAddress
+        };
+        outgoing.ProtectedSmtpPassword = protection.Protect(outgoing, "synthetic-password");
+        db.EmailInboxSettings.Add(mailbox);
+        db.Set<MailboxOutgoingSettings>().Add(outgoing);
+        db.Incidents.Add(new Incident { Id = "revision-ticket", TrackingId = "INC-REV", OrganizationId = "tenant-a" });
+        await db.SaveChangesAsync();
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            { ["EmailSending:AllowedPrivateHosts:0"] = "localhost" }).Build();
+        var effects = new IngressEffectContext();
+        var store = new MailboxOutboxStore(db, effects, TimeProvider.System);
+        var sender = new MailboxEmailService(new MailboxSenderResolver(db),
+            new SmtpMailboxSender(new MailboxDestinationPolicy(config), protection, new HtmlToPlainTextConverter()),
+            new GraphMailboxSender(_ => throw new InvalidOperationException("Graph is not selected.")),
+            store, effects, NullLogger<MailboxEmailService>.Instance);
+        Assert.True(await sender.SendEmailAsync(new EmailSendRequest(
+            ["requester@example.test"], "Pinned original", "<p>Original content</p>")
+        { TicketId = "revision-ticket" }));
+        var row = await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleAsync(x => x.Kind == MailboxEffectKind.Email);
+        var original = MailboxOutboxStore.Deserialize<IngressEmailEffect>(row.Payload);
+        Assert.Equal(mailbox.SourceKey, original.MailboxSourceKey);
+        mailbox.DisplayName = "Revised label";
+        mailbox.PollIntervalSeconds = 60;
+        mailbox.Version++;
+        await db.SaveChangesAsync();
+        var firstClaim = Assert.IsType<MailboxOutboxEffect>(await store.TryClaimAsync(row.Id, "first", default));
+        var first = await sender.SendPinnedAsync(mailbox.Id, original.OrganizationId, original.TicketId,
+            original.Recipients, original.Cc, original.Subject, original.Html, original.Attachments,
+            original.ReplyTo, row.Id, default, original.MailboxConfigurationVersion, original.OutgoingConfigurationVersion);
+        Assert.Equal("SenderConfigurationChanged", first.ErrorCode);
+        Assert.True(await store.CompleteAsync(firstClaim, false, first.ErrorCode, default, requiresReview: true));
+        Assert.Empty(server.Commands);
+        var retry = new MailboxOutgoingRetryService(db, new MailboxSenderResolver(db), TimeProvider.System);
+        var preview = await retry.PreviewAsync(row.DeliveryEventId!.Value, default);
+        Assert.True(preview.CanRetry);
+        Assert.Equal("Queued", (await retry.RetryAsync(row.DeliveryEventId.Value,
+            new ConfirmMailboxOutgoingRetryRequest(outgoing.Version, true)
+            {
+                ExpectedMailboxId = mailbox.Id, ExpectedMailboxVersion = mailbox.Version,
+                ExpectedFence = preview.Fence
+            }, "admin", default)).Status);
+        var secondClaim = Assert.IsType<MailboxOutboxEffect>(await store.TryClaimAsync(row.Id, "second", default));
+        var adopted = MailboxOutboxStore.Deserialize<IngressEmailEffect>(secondClaim.Payload);
+        var sent = await sender.SendPinnedAsync(mailbox.Id, adopted.OrganizationId, adopted.TicketId,
+            adopted.Recipients, adopted.Cc, adopted.Subject, adopted.Html, adopted.Attachments,
+            adopted.ReplyTo, row.Id, default, adopted.MailboxConfigurationVersion, adopted.OutgoingConfigurationVersion);
+        Assert.Equal("Accepted by provider", sent.Status);
+        Assert.True(await store.CompleteAsync(secondClaim, true, null, default, requiresReview: false, submission: sent));
+        await server.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, server.Commands.Count(x => x == "DATA"));
+        Assert.Contains("Pinned original", server.Message, StringComparison.Ordinal);
+        Assert.Equal(EmailDeliveryStatus.Delivered, (await db.TicketTimelineEvents.AsNoTracking()
+            .SingleAsync(x => x.Id == row.DeliveryEventId)).EmailStatus);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
