@@ -26,7 +26,7 @@ async function login(page: Page): Promise<void> {
 test.setTimeout(300_000);
 test.describe.configure({ retries: 0 });
 
-test('published forwarding respects dedicated route, disabled rules, and specialized notification semantics', async ({ page }) => {
+test('published forwarding enforces route, rule, permission and foreign reference boundaries', async ({ page }) => {
   await login(page);
   const headers = { 'X-Requested-With': 'XMLHttpRequest' };
   const organizationA = ((await (await page.request.get('/api/v1/email-settings/effective')).json()) as
@@ -83,8 +83,8 @@ test('published forwarding respects dedicated route, disabled rules, and special
     await expect.poll(async () => (await diagnostics(mailbox)).state?.syncCompletedVersion,
       { timeout: 60_000, intervals: [1_000, 2_000, 3_000] }).toBeGreaterThanOrEqual(command.requestVersion);
   };
-  const incidents = async (): Promise<Incident[]> => {
-    const response = await page.request.get(`/api/v1/incidents?pageSize=50&organizationId=${organizationB.id}`);
+  const incidents = async (organizationId = organizationB.id): Promise<Incident[]> => {
+    const response = await page.request.get(`/api/v1/incidents?pageSize=50&organizationId=${organizationId}`);
     expect(response.ok()).toBe(true);
     return ((await response.json()) as { items: Incident[] }).items;
   };
@@ -156,9 +156,28 @@ test('published forwarding respects dedicated route, disabled rules, and special
   const dedicatedIncident = await expectForwardedIncident(dedicatedB, dedicatedSubject);
 
   await expectHeldWithoutIncident(globalMailbox, 'Fixture wrong source forward', 'TenantUsesDedicatedMailbox');
+  const tenantASubject = 'Fixture Tenant A foreign reference seed';
+  fixture('send', ['--sender', 'requester', '--recipient', 'support', '--subject', tenantASubject,
+    '--body', 'Create a Tenant A incident for the foreign reference check.']);
+  await sync(dedicatedA);
+  await expect.poll(async () => (await incidents(organizationA!.id)).filter(incident =>
+    incident.subject === tenantASubject).length,
+  { timeout: 30_000, intervals: [1_000, 2_000] }).toBe(1);
+  const tenantAIncident = (await incidents(organizationA!.id)).find(incident =>
+    incident.subject === tenantASubject)!;
+  await expectHeldWithoutIncident(dedicatedB,
+    `Fixture foreign reference ${tenantAIncident.trackingId}`, 'CrossTenantReference');
+
   const disable = await page.request.post(`/api/v1/inbound-email-rules/${dedicatedRule.id}/disable`, { headers });
   expect(disable.ok(), await disable.text()).toBe(true);
   await expectHeldWithoutIncident(dedicatedB, 'Fixture disabled rule forward', 'RequesterOwnershipConflict');
+  const enable = await page.request.post(`/api/v1/inbound-email-rules/${dedicatedRule.id}/enable`, { headers });
+  expect(enable.ok(), await enable.text()).toBe(true);
+  const revoke = await page.request.put(`/api/v1/local-auth/users/${forwarder.userId}/assignments`, {
+    headers, data: { assignments: [{ roleKey: 'SelfServiceUser', organizationId: organizationA!.id }] }
+  });
+  expect(revoke.status(), await revoke.text()).toBe(204);
+  await expectHeldWithoutIncident(dedicatedB, 'Fixture denied forwarder', 'RequesterOwnershipConflict');
 
   // Both sending configurations were enabled. Forwarding must still suppress
   // the ordinary requester confirmation for either created incident.
