@@ -144,4 +144,9 @@ test('mailbox workspace remains readable across themes and responsive widths', a
     await page.screenshot({ path: testInfo.outputPath(`mailbox-${name.toLowerCase()}-390-full.png`),
       fullPage: true, animations: 'disabled' });
   }
+  const incoming = mobileTabs.getByRole('button', { name: 'Incoming' });
+  await incoming.focus();
+  await expect(incoming).toBeFocused();
+  await incoming.press('Space');
+  await expect(incoming).toHaveAttribute('aria-pressed', 'true');
 });

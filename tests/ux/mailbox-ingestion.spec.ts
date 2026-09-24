@@ -10,7 +10,10 @@ test('provider selection, failed draft test, discard, save and explicit tenant r
   await expect(page.getByTestId('mailbox-settings')).toHaveAttribute('data-interactive', 'true');
   await page.getByRole('button', { name: 'Add', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Tenant override' }).click();
-  await page.getByRole('combobox', { name: /^RatelDesk organization/ }).fill('Fixture');
+  const organization = page.getByRole('combobox', { name: /^RatelDesk organization/ });
+  await organization.fill('NoSuchSyntheticOrganization');
+  await expect(page.getByText('No available organizations match this search.')).toBeVisible();
+  await organization.fill('Fixture');
   await expect(page.getByRole('option', { name: /Fixture Organization/ })).toBeVisible();
   await page.getByRole('option', { name: /Fixture Organization/ }).click();
   await page.getByRole('combobox', { name: 'Inbound provider', exact: true }).click();
