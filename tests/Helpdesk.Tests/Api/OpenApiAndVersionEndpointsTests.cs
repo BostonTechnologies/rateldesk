@@ -108,9 +108,15 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         }
 
         Assert.True(violations.Count == 0, string.Join(Environment.NewLine, violations));
-        // The Release-mode inventory includes beta.3 worker, sender, sync, historical import and confirmed outgoing retry operations. Keep this explicit so
-        // additions or omissions require a reviewed taxonomy update.
+        // Release includes the beta.3 operations; Debug also exposes the authorized
+        // /__debug/me endpoint. Keep both inventories explicit so additions or omissions
+        // require a reviewed taxonomy update.
+#if DEBUG
+        Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
+        Assert.Equal(358, operationCount);
+#else
         Assert.Equal(357, operationCount);
+#endif
 
         var pathOrder = document.RootElement.GetProperty("paths").EnumerateObject().Select(path => path.Name).ToArray();
         Assert.Equal(pathOrder.Order(StringComparer.Ordinal), pathOrder);
