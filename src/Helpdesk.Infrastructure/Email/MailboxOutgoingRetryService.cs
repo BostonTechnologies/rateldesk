@@ -226,7 +226,7 @@ public sealed class MailboxOutgoingRetryService(HelpdeskDbContext db, MailboxSen
             MailboxId = request.ExpectedCurrentMailboxId,
             MailboxConfigurationVersion = request.ExpectedMailboxVersion,
             OutgoingConfigurationVersion = request.ExpectedOutgoingVersion,
-            ReplyTo = original.ReplyTo is null ? null : preview.CurrentMailboxAddress,
+            ReplyTo = string.IsNullOrWhiteSpace(original.ReplyTo) ? null : preview.CurrentMailboxAddress,
             SenderBindingError = null
         };
         var payload = JsonSerializer.Serialize(rebound);
@@ -272,7 +272,8 @@ public sealed class MailboxOutgoingRetryService(HelpdeskDbContext db, MailboxSen
         MailboxOutboxEffect? row, CancellationToken ct)
     {
         if (row is null || row.Kind != MailboxEffectKind.Email || row.State != MailboxEffectState.NeedsReview ||
-            row.LastErrorCode != "SenderRouteChanged" ||
+            row.LastErrorCode is not ("SenderRouteChanged" or "OutgoingNotConfigured" or "OutgoingDisabled" or
+                "SmtpCredentialMissing" or "SmtpAuthenticationFailed" or "SmtpTlsFailed" or "GraphCredentialMissing") ||
             !await db.TicketTimelineEvents.AsNoTracking().AnyAsync(x => x.Id == timelineId &&
                 x.EventType == TimelineEventType.EmailDelivery && x.EmailStatus == EmailDeliveryStatus.Failed, ct))
             return BlockedRoute(timelineId, "DeliveryNotRouteChanged");
@@ -300,7 +301,8 @@ public sealed class MailboxOutgoingRetryService(HelpdeskDbContext db, MailboxSen
             .SingleOrDefaultAsync(x => x.Id == email.MailboxId, ct);
         if (originalMailbox is null)
             return BlockedRoute(timelineId, "OriginalMailboxMissing");
-        if (email.ReplyTo is not null && !EmailAddressGuard.IsSameAddress(email.ReplyTo, originalMailbox.MailboxAddress))
+        if (!string.IsNullOrWhiteSpace(email.ReplyTo) &&
+            !EmailAddressGuard.IsSameAddress(email.ReplyTo, originalMailbox.MailboxAddress))
             return BlockedRoute(timelineId, "ReplyToMismatch");
         var recipients = email.Recipients.Concat(email.Cc).Concat(email.Bcc)
             .Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();

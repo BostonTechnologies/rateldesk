@@ -279,6 +279,14 @@ public sealed class MailboxConfigurationTests
         Assert.Equal(dedicated.Id, preview.OriginalMailboxId);
         Assert.Equal(global.Id, preview.CurrentMailboxId);
         Assert.Equal(["requester@tenant-a.example.test"], preview.Recipients);
+        await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.LastErrorCode, "SmtpTimedOut"));
+        Assert.False((await retry.PreviewChangedRouteAsync(queued.DeliveryEventId.Value, default)).CanRetry);
+        await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.LastErrorCode, "SmtpAuthenticationFailed"));
+        Assert.True((await retry.PreviewChangedRouteAsync(queued.DeliveryEventId.Value, default)).CanRetry);
+        await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.LastErrorCode, "SenderRouteChanged"));
         var request = new ConfirmMailboxRouteRetryRequest(preview.Fence!.Value, dedicated.Id, global.Id,
             preview.CurrentMailboxVersion!.Value, preview.CurrentOutgoingVersion!.Value, true);
         Assert.Equal("SenderRouteChanged", (await retry.RetryWithCurrentRouteAsync(queued.DeliveryEventId.Value,

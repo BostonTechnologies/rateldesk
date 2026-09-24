@@ -160,6 +160,12 @@
         loading = true;
         try
         {
+            var route = await TimelineClient.PreviewChangedRouteAsync(timelineId);
+            if (route?.CanRetry == true)
+            {
+                await ConfirmCurrentRouteAsync(timelineId, route);
+                return;
+            }
             var preview = await TimelineClient.PreviewOutgoingRetryAsync(timelineId);
             if (preview?.CanRetry != true || preview.CurrentOutgoingVersion is null)
             {
@@ -234,13 +240,7 @@
                 return;
             }
 
-            var confirmed = await JS.InvokeAsync<bool>("confirm",
-                $"The original sender was {preview.OriginalMailboxAddress}. The current ticket route is {preview.CurrentMailboxAddress} ({preview.CurrentTransport}). Send the original delivery to {string.Join(", ", preview.Recipients)} using the current mailbox? Verify the tenant assignment and recipients before confirming.");
-            if (!confirmed) return;
-            await TimelineClient.RetryWithCurrentRouteAsync(timelineId,
-                new(preview.Fence.Value, preview.OriginalMailboxId.Value, preview.CurrentMailboxId.Value,
-                    preview.CurrentMailboxVersion.Value, preview.CurrentOutgoingVersion.Value, true));
-            Snackbar.Add("Delivery queued with the confirmed current sender.", Severity.Success);
+            await ConfirmCurrentRouteAsync(timelineId, preview);
         }
         catch (HttpRequestException ex)
         {
@@ -251,5 +251,19 @@
             loading = false;
             await LoadAsync();
         }
+    }
+
+    private async Task ConfirmCurrentRouteAsync(Guid timelineId, MailboxRouteRetryPreview preview)
+    {
+        if (preview.Fence is null || preview.OriginalMailboxId is null || preview.CurrentMailboxId is null ||
+            preview.CurrentMailboxVersion is null || preview.CurrentOutgoingVersion is null)
+            return;
+        var confirmed = await JS.InvokeAsync<bool>("confirm",
+            $"The original sender was {preview.OriginalMailboxAddress}. The current ticket route is {preview.CurrentMailboxAddress} ({preview.CurrentTransport}). Send the original delivery to {string.Join(", ", preview.Recipients)} using the current mailbox? Verify the tenant assignment and recipients before confirming.");
+        if (!confirmed) return;
+        await TimelineClient.RetryWithCurrentRouteAsync(timelineId,
+            new(preview.Fence.Value, preview.OriginalMailboxId.Value, preview.CurrentMailboxId.Value,
+                preview.CurrentMailboxVersion.Value, preview.CurrentOutgoingVersion.Value, true));
+        Snackbar.Add("Delivery queued with the confirmed current sender.", Severity.Success);
     }
 }

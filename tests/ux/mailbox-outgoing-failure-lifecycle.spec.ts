@@ -252,6 +252,29 @@ test('published incoming and outgoing outages isolate mailboxes and repair one d
   expect(blockedRetry.status(), await blockedRetry.text()).toBe(409);
   expect(requesterMail().filter(message => message.subject.includes(beforeRevertIncident.trackingId))).toHaveLength(0);
 
+  const routeResponse = await page.request.get(`/api/v1/timeline/${heldDelivery.id}/changed-route-preview`);
+  expect(routeResponse.ok(), await routeResponse.text()).toBe(true);
+  const route = await routeResponse.json() as {
+    canRetry: boolean; originalMailboxId: string; currentMailboxId: string;
+    originalMailboxAddress: string; currentMailboxAddress: string;
+    fence: number; currentMailboxVersion: number; currentOutgoingVersion: number;
+  };
+  expect(route.canRetry, JSON.stringify(route)).toBe(true);
+  expect(route.originalMailboxId).toBe(dedicated.id);
+  expect(route.currentMailboxId).toBe(global.id);
+  expect(route.originalMailboxAddress).toBe('support@tenant-a.example.test');
+  expect(route.currentMailboxAddress).toBe('global@tenant-b.example.test');
+  await page.goto('/admin/pending-emails');
+  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('row').filter({ hasText: beforeRevertIncident.id })
+    .getByRole('button', { name: 'Review sender and retry' }).click();
+  await expect(page.getByText('Delivery queued with the confirmed current sender.')).toBeVisible();
+  await expect.poll(() => requesterMail().filter(message => message.subject.includes(beforeRevertIncident.trackingId) &&
+    message.from.includes('global@tenant-b.example.test')).length,
+  { timeout: 60_000, intervals: [1_000, 2_000] }).toBe(1);
+  expect((await failed()).filter(item => item.ticketId === beforeRevertIncident.id)).toHaveLength(0);
+
   const manual = await page.request.post('/api/v1/incidents', { headers, data: {
     title: 'Fixture new incident after explicit revert', description: '<p>Global route after revert</p>',
     priority: 0, customerId: incident.customerId, organizationId: tenant!.id
@@ -261,6 +284,6 @@ test('published incoming and outgoing outages isolate mailboxes and repair one d
   await expect.poll(() => requesterMail().filter(message => message.subject.includes(afterRevertIncident.trackingId) &&
     message.from.includes('global@tenant-b.example.test')).length,
   { timeout: 60_000, intervals: [1_000, 2_000] }).toBe(1);
-  expect(requesterMail().filter(message => message.subject.includes(beforeRevertIncident.trackingId))).toHaveLength(0);
-  expect((await failed()).filter(item => item.ticketId === beforeRevertIncident.id)).toHaveLength(1);
+  expect(requesterMail().filter(message => message.subject.includes(beforeRevertIncident.trackingId) &&
+    message.from.includes('global@tenant-b.example.test'))).toHaveLength(1);
 });
