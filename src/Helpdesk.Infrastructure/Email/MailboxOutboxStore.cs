@@ -187,31 +187,54 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
         var row = await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleOrDefaultAsync(x => x.DeliveryEventId == timelineId, ct);
         if (row is null)
             return false;
+        if (row.Kind != MailboxEffectKind.Email)
+            throw new InvalidOperationException("This delivery has no email outbox owner.");
         if (row.State is not (MailboxEffectState.Exhausted or MailboxEffectState.NeedsReview))
             throw new InvalidOperationException("This delivery is no longer available for retry.");
+        if (row.RecipientOutcomeJson is not null)
+        {
+            MailboxRecipientOutcome recipients;
+            try
+            {
+                recipients = JsonSerializer.Deserialize<MailboxRecipientOutcome>(row.RecipientOutcomeJson)
+                    ?? throw new JsonException("Missing recipient outcome.");
+            }
+            catch (JsonException)
+            {
+                throw new InvalidOperationException("Recipient outcomes require review before retry.");
+            }
+            if (recipients.AcceptedRecipients is null || recipients.RejectedRecipients is null)
+                throw new InvalidOperationException("Recipient outcomes require review before retry.");
+            if (recipients.AcceptedRecipients.Length > 0)
+                throw new InvalidOperationException("Accepted recipients require individual review before retry.");
+        }
         if (row.State == MailboxEffectState.NeedsReview &&
             row.LastErrorCode is not ("OutgoingNotConfigured" or "OutgoingDisabled" or
                 "SmtpCredentialMissing" or "GraphCredentialMissing" or "ReplyToMismatch"))
             throw new InvalidOperationException("This delivery requires sender or recipient review before retry.");
-        if (row.LastErrorCode == "DispatchOutcomeUnknown")
+        if (row.LastErrorCode is "DispatchOutcomeUnknown" or "SubmissionOutcomeUnknown" or
+            "SmtpPartialRecipientAcceptance")
             throw new InvalidOperationException("The previous delivery outcome is uncertain; check the recipient before retrying.");
         var now = timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var changed = await db.Set<MailboxOutboxEffect>()
-            .Where(x => x.Id == row.Id && (x.State == MailboxEffectState.Exhausted || x.State == MailboxEffectState.NeedsReview) && x.Fence == row.Fence)
+            .Where(x => x.Id == row.Id && x.DeliveryEventId == timelineId && x.Kind == MailboxEffectKind.Email &&
+                x.State == row.State && x.Fence == row.Fence && x.Payload == row.Payload &&
+                x.LastErrorCode == row.LastErrorCode && x.RecipientOutcomeJson == row.RecipientOutcomeJson)
             .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.State, MailboxEffectState.Pending)
                 .SetProperty(x => x.Attempts, 0).SetProperty(x => x.Fence, x => x.Fence + 1)
                 .SetProperty(x => x.Owner, (string?)null).SetProperty(x => x.LeaseExpiresUnixMilliseconds, 0L)
                 .SetProperty(x => x.AvailableUnixMilliseconds, now).SetProperty(x => x.LastErrorCode, (string?)null)
                 .SetProperty(x => x.RecipientOutcomeJson, (string?)null), ct);
-        if (changed == 1)
-        {
-            await db.TicketTimelineEvents.Where(x => x.Id == timelineId)
-                .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.EmailStatus, EmailDeliveryStatus.Pending)
-                    .SetProperty(x => x.RetryError, (string?)null), ct);
-        }
+        if (changed != 1)
+            throw new InvalidOperationException("Delivery changed during retry; refresh before trying again.");
+        var timelineChanged = await db.TicketTimelineEvents.Where(x => x.Id == timelineId &&
+                x.EventType == TimelineEventType.EmailDelivery && x.EmailStatus == EmailDeliveryStatus.Failed)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.EmailStatus, EmailDeliveryStatus.Pending)
+                .SetProperty(x => x.RetryError, (string?)null), ct);
+        if (timelineChanged != 1)
+            throw new InvalidOperationException("Delivery timeline changed during retry; refresh before trying again.");
         await transaction.CommitAsync(ct);
-        // A matching outbox always owns delivery, including when another retry already claimed it.
         return true;
     }
 
@@ -299,7 +322,8 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
                 delivery.RetryError = errorCode;
                 delivery.MessageText = errorCode == "Suppressed" ? "Automatic email suppressed to prevent a mailbox loop."
                     : succeeded ? "Email accepted by provider."
-                    : errorCode == "DispatchOutcomeUnknown" ? "Email submission outcome is unknown; verify with recipients before taking action."
+                    : errorCode is "DispatchOutcomeUnknown" or "SubmissionOutcomeUnknown"
+                        ? "Email submission outcome is unknown; verify with recipients before taking action."
                     : state == MailboxEffectState.NeedsReview ? "Email delivery needs sender review."
                     : state == MailboxEffectState.Exhausted
                     ? "Email delivery requires retry." : "Email queued for another delivery attempt.";

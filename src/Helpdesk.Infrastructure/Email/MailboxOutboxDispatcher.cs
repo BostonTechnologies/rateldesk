@@ -77,7 +77,12 @@ public sealed class MailboxOutboxDispatcher(IServiceScopeFactory scopes, ILogger
             submission = result;
             succeeded = result.Status is "Accepted by provider" or "Suppressed";
             requiresReview = result.Status is "Needs configuration" or "Needs review" or "Outcome unknown";
-            errorCode = result.Status == "Suppressed" ? "Suppressed" : result.ErrorCode;
+            errorCode = result.Status switch
+            {
+                "Suppressed" => "Suppressed",
+                "Outcome unknown" => "SubmissionOutcomeUnknown",
+                _ => result.ErrorCode
+            };
             if (!succeeded && errorCode is null) errorCode = "DeliveryRejected";
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)

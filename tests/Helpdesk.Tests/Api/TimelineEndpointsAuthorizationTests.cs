@@ -40,6 +40,9 @@ public sealed class TimelineEndpointsAuthorizationTests
         var previewCurrent = await harness.Client.GetAsync($"/api/v1/timeline/{Guid.NewGuid()}/outgoing-retry-preview");
         var retryCurrent = await harness.Client.PostAsJsonAsync($"/api/v1/timeline/{Guid.NewGuid()}/retry-current-outgoing",
             new ConfirmMailboxOutgoingRetryRequest(2, true));
+        var previewUncertain = await harness.Client.GetAsync($"/api/v1/timeline/{Guid.NewGuid()}/uncertain-retry-preview");
+        var retryUncertain = await harness.Client.PostAsJsonAsync($"/api/v1/timeline/{Guid.NewGuid()}/retry-confirmed-undelivered",
+            new ConfirmMailboxUndeliveredRetryRequest(1, 2, "provider-case-123", true));
 
         Assert.Equal(HttpStatusCode.Forbidden, pendingCount.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, failed.StatusCode);
@@ -47,6 +50,8 @@ public sealed class TimelineEndpointsAuthorizationTests
         Assert.Equal(HttpStatusCode.Forbidden, retryOne.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, previewCurrent.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, retryCurrent.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, previewUncertain.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, retryUncertain.StatusCode);
     }
 
     [Fact]
@@ -74,6 +79,7 @@ public sealed class TimelineEndpointsAuthorizationTests
         Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
         var result = Assert.Single((await response.Content.ReadFromJsonAsync<TicketTimelineEventDto[]>())!);
         Assert.Equal("SmtpPartialRecipientAcceptance", result.DeliveryErrorCode);
+        Assert.False(result.IsRetryable);
         Assert.Equal(["accepted@example.test"], result.AcceptedRecipients);
         Assert.Equal(["rejected@example.test"], result.RejectedRecipients);
     }

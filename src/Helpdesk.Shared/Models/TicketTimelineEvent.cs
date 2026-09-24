@@ -41,5 +41,6 @@ public class TicketTimelineEvent
     public bool IsRetryable =>
         EventType == TimelineEventType.EmailDelivery &&
         EmailStatus == EmailDeliveryStatus.Failed &&
-        RetryError != "DispatchOutcomeUnknown";
+        RetryError is not ("DispatchOutcomeUnknown" or "SubmissionOutcomeUnknown" or
+            "SmtpPartialRecipientAcceptance");
 }

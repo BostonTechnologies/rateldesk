@@ -126,6 +126,67 @@ public sealed class MailboxConfigurationTests
         await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
             .SetProperty(x => x.LastErrorCode, "SmtpAuthenticationFailed"));
         Assert.True((await retry.PreviewAsync(queued.DeliveryEventId.Value, default)).CanRetry);
+        await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.RecipientOutcomeJson, System.Text.Json.JsonSerializer.Serialize(
+                new MailboxRecipientOutcome(["requester@tenant-a.example.test"], []))));
+        Assert.Equal("AcceptedRecipientsRequireReview", (await retry.PreviewAsync(
+            queued.DeliveryEventId.Value, default)).Status);
+    }
+
+    [Fact]
+    public async Task Uncertain_delivery_requires_evidence_and_only_one_administrator_can_requeue_it()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync(false);
+        await using var db = fixture.Open();
+        await db.Database.MigrateAsync();
+        db.Organizations.Add(new Organization { Id = "tenant-a", Name = "Tenant A" });
+        var mailbox = new EmailInboxSettings
+        {
+            Id = Guid.NewGuid(), Scope = MailboxScope.Organization, OrganizationId = "tenant-a",
+            MailboxAddress = "support@tenant-a.example.test", SourceKey = "uncertain-source",
+            Enabled = true, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.EmailInboxSettings.Add(mailbox);
+        var outgoing = new MailboxOutgoingSettings
+        {
+            MailboxId = mailbox.Id, Version = 1, Enabled = true, Transport = MailboxOutgoingTransport.Smtp,
+            SmtpHost = "smtp.tenant-a.example.test", SmtpUsername = mailbox.MailboxAddress,
+            ProtectedSmtpPassword = "synthetic-protected"
+        };
+        db.Set<MailboxOutgoingSettings>().Add(outgoing);
+        db.Incidents.Add(new Incident { Id = "uncertain-ticket", OrganizationId = "tenant-a", TrackingId = "INC-UNCERTAIN" });
+        await db.SaveChangesAsync();
+
+        var store = new MailboxOutboxStore(db, new IngressEffectContext(), TimeProvider.System);
+        var queued = await store.QueueDirectAsync(new IngressEmailEffect(
+            ["requester@tenant-a.example.test"], "Confirmation", "<p>Body</p>", [],
+            "uncertain-ticket", [], null, null, false, null, null)
+        {
+            MailboxId = mailbox.Id, OrganizationId = "tenant-a",
+            MailboxConfigurationVersion = mailbox.Version, OutgoingConfigurationVersion = outgoing.Version
+        }, default);
+        var claim = Assert.IsType<MailboxOutboxEffect>(await store.TryClaimAsync(queued.Id, "worker", default));
+        Assert.True(await store.CompleteAsync(claim, false, "SubmissionOutcomeUnknown", default, requiresReview: true));
+        var retry = new MailboxOutgoingRetryService(db, new MailboxSenderResolver(db), TimeProvider.System);
+        var preview = await retry.PreviewUncertainAsync(queued.DeliveryEventId!.Value, default);
+        Assert.True(preview.CanRetry);
+        Assert.Equal(["requester@tenant-a.example.test"], preview.Recipients);
+        Assert.Equal("EvidenceReferenceRequired", (await retry.RetryConfirmedUndeliveredAsync(
+            queued.DeliveryEventId.Value, new(preview.Fence!.Value, 1, "", true), "admin-a", default)).Status);
+        var request = new ConfirmMailboxUndeliveredRetryRequest(preview.Fence.Value, 1, "provider-case-123", true);
+        Assert.Equal("Queued", (await retry.RetryConfirmedUndeliveredAsync(
+            queued.DeliveryEventId.Value, request, "admin-a", default)).Status);
+        Assert.Equal("DeliveryNotUncertain", (await retry.RetryConfirmedUndeliveredAsync(
+            queued.DeliveryEventId.Value, request, "admin-b", default)).Status);
+        var rebound = await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleAsync(x => x.Id == queued.Id);
+        Assert.Equal(MailboxEffectState.Pending, rebound.State);
+        Assert.Equal(preview.Fence + 1, rebound.Fence);
+        Assert.Equal(mailbox.Id, MailboxOutboxStore.Deserialize<IngressEmailEffect>(rebound.Payload).MailboxId);
+        Assert.Equal(EmailDeliveryStatus.Pending, (await db.TicketTimelineEvents.AsNoTracking()
+            .SingleAsync(x => x.Id == queued.DeliveryEventId)).EmailStatus);
+        var log = Assert.Single(await db.ActivityLogs.AsNoTracking().ToListAsync());
+        Assert.Contains("provider-case-123", log.Message);
+        Assert.Equal("admin-a", log.UserId);
     }
 
     [Fact]

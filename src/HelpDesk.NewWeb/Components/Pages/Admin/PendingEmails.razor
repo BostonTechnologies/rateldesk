@@ -2,6 +2,7 @@
 @attribute [Authorize(Roles = "HelpdeskAdmin")]
 @using Helpdesk.Shared.DTOs.Worklog
 @using Helpdesk.Shared.Enums
+@using Helpdesk.Shared.Models
 @using HelpDesk.NewWeb.Services
 @using Microsoft.JSInterop
 @inject ITimelineApiClient TimelineClient
@@ -68,10 +69,25 @@
                     }
                 </MudTd>
                 <MudTd DataLabel="Action">
-                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="@loading"
-                               OnClick="() => RetryWithCurrentOutgoingAsync(context.Id)">
-                        Review sender and retry
-                    </MudButton>
+                    @if (context.DeliveryErrorCode is "DispatchOutcomeUnknown" or "SubmissionOutcomeUnknown")
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="@loading"
+                                   OnClick="() => RetryConfirmedUndeliveredAsync(context.Id)">
+                            Verify non-delivery
+                        </MudButton>
+                    }
+                    else if (context.DeliveryErrorCode == "SmtpPartialRecipientAcceptance" ||
+                             context.AcceptedRecipients?.Length > 0 || context.RecipientOutcomeUnavailable)
+                    {
+                        <MudText Typo="Typo.caption">Recipient review required</MudText>
+                    }
+                    else
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="@loading"
+                                   OnClick="() => RetryWithCurrentOutgoingAsync(context.Id)">
+                            Review sender and retry
+                        </MudButton>
+                    }
                 </MudTd>
             </RowTemplate>
         </MudTable>
@@ -141,6 +157,39 @@
             if (!confirmed) return;
             await TimelineClient.RetryWithCurrentOutgoingAsync(timelineId, preview.CurrentOutgoingVersion.Value);
             Snackbar.Add("Delivery queued with the confirmed outgoing revision.", Severity.Success);
+        }
+        catch (HttpRequestException ex)
+        {
+            Snackbar.Add($"Delivery retry could not be queued: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            loading = false;
+            await LoadAsync();
+        }
+    }
+
+    private async Task RetryConfirmedUndeliveredAsync(Guid timelineId)
+    {
+        loading = true;
+        try
+        {
+            var preview = await TimelineClient.PreviewUncertainRetryAsync(timelineId);
+            if (preview?.CanRetry != true || preview.Fence is null || preview.CurrentOutgoingVersion is null)
+            {
+                Snackbar.Add($"This delivery cannot be retried: {preview?.Status ?? "Preview unavailable"}.", Severity.Warning);
+                return;
+            }
+
+            var evidence = await JS.InvokeAsync<string?>("prompt",
+                $"Confirm with the provider and recipients that no delivery occurred to: {string.Join(", ", preview.Recipients)}. Enter a non-sensitive evidence reference (8–128 characters, letters, digits, . _ : / -).", "");
+            if (string.IsNullOrWhiteSpace(evidence)) return;
+            var confirmed = await JS.InvokeAsync<bool>("confirm",
+                $"I verified non-delivery for every listed recipient. Retry through {preview.MailboxAddress} ({preview.Transport}), outgoing revision {preview.CurrentOutgoingVersion}? Evidence: {evidence}");
+            if (!confirmed) return;
+            await TimelineClient.RetryConfirmedUndeliveredAsync(timelineId,
+                new(preview.Fence.Value, preview.CurrentOutgoingVersion.Value, evidence, true));
+            Snackbar.Add("Delivery queued after confirmed non-delivery.", Severity.Success);
         }
         catch (HttpRequestException ex)
         {
