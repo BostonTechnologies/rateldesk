@@ -21,6 +21,14 @@ public sealed class MailboxOutgoingSettingsService(HelpdeskDbContext db, Mailbox
         var mailbox = await db.EmailInboxSettings.SingleOrDefaultAsync(x => x.Id == mailboxId, ct)
             ?? throw new KeyNotFoundException("Mailbox was not found.");
         if (mailbox.Archived) throw new InvalidOperationException("Archived mailboxes cannot be configured for sending.");
+        if (request.DisplayName is null)
+            throw new ArgumentException("Enter a sender display name.", nameof(request.DisplayName));
+        if (request.SmtpHost is null)
+            throw new ArgumentException("Enter an SMTP host.", nameof(request.SmtpHost));
+        if (request.SmtpUsername is null)
+            throw new ArgumentException("Enter an SMTP username.", nameof(request.SmtpUsername));
+        if (request.SmtpPassword is null)
+            throw new ArgumentException("Enter an SMTP password or leave it blank to retain the saved secret.", nameof(request.SmtpPassword));
         if (!Enum.IsDefined(request.Transport) || !Enum.IsDefined(request.SmtpTlsMode))
             throw new ArgumentException("Choose a supported outgoing transport and TLS mode.");
         if (request.DisplayName.Length > 200 || request.SmtpHost.Length > 253 || request.SmtpUsername.Length > 320 ||

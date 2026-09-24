@@ -264,6 +264,40 @@ public class EmailSettingsEndpointsTests
         Assert.Equal(HttpStatusCode.Conflict, (await harness.Client.PutAsJsonAsync(path, request)).StatusCode);
     }
 
+    [Theory]
+    [InlineData("DisplayName")]
+    [InlineData("SmtpHost")]
+    [InlineData("SmtpUsername")]
+    [InlineData("SmtpPassword")]
+    public async Task Outgoing_null_text_field_returns_validation_without_saving_settings(string field)
+    {
+        await using var harness = await Harness.CreateAsync();
+        var mailbox = await harness.SeedAsync();
+        var path = $"/api/v1/email-settings/{mailbox.Id}/outgoing";
+        var request = new MailboxOutgoingSettingsRequest(0, true, MailboxOutgoingTransport.Smtp,
+            "Fixture support", "smtp.example.test", 587, MailboxTlsMode.StartTls,
+            mailbox.MailboxAddress, "synthetic-outgoing-secret", false);
+        request = field switch
+        {
+            "DisplayName" => request with { DisplayName = null! },
+            "SmtpHost" => request with { SmtpHost = null! },
+            "SmtpUsername" => request with { SmtpUsername = null! },
+            "SmtpPassword" => request with { SmtpPassword = null! },
+            _ => throw new ArgumentOutOfRangeException(nameof(field))
+        };
+
+        var response = await harness.Client.PutAsJsonAsync(path, request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.True(body.RootElement.GetProperty("errors").TryGetProperty(field, out _));
+        var unchanged = await harness.Client.GetFromJsonAsync<MailboxOutgoingSettingsDto>(path);
+        Assert.NotNull(unchanged);
+        Assert.Equal(0, unchanged.Version);
+        Assert.False(unchanged.Enabled);
+        Assert.False(unchanged.HasSmtpPassword);
+    }
+
     [Fact]
     public async Task Historical_import_only_queues_confirmed_baseline_skips_and_never_replays_success()
     {
