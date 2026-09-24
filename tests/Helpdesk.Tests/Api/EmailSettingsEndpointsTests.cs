@@ -41,6 +41,57 @@ public class EmailSettingsEndpointsTests
         Assert.Equal(HttpStatusCode.Forbidden, (await ordinary.GetAsync("/api/v1/email-settings")).StatusCode);
     }
 
+    [Theory]
+    [MemberData(nameof(SensitiveMailboxRoutes))]
+    public async Task MailboxAdministrationRoutes_RequireHelpdeskAdmin(string method, string route)
+    {
+        await using var harness = await Harness.CreateAsync();
+        using var anonymous = harness.CreateClient();
+        using var ordinary = harness.CreateClient("Technician");
+
+        foreach (var (client, expected) in new[]
+                 {
+                     (anonymous, HttpStatusCode.Unauthorized),
+                     (ordinary, HttpStatusCode.Forbidden)
+                 })
+        {
+            using var request = new HttpRequestMessage(new HttpMethod(method), route);
+            if (method is "POST" or "PUT") request.Content = JsonContent.Create(new { });
+            using var response = await client.SendAsync(request);
+            Assert.Equal(expected, response.StatusCode);
+        }
+    }
+
+    public static TheoryData<string, string> SensitiveMailboxRoutes => new()
+    {
+        { "GET", "/api/v1/email-settings/worker" },
+        { "POST", "/api/v1/email-settings/worker" },
+        { "GET", "/api/v1/email-settings/" },
+        { "POST", "/api/v1/email-settings/" },
+        { "POST", "/api/v1/email-settings/test" },
+        { "GET", $"/api/v1/email-settings/{TestMailboxId}" },
+        { "PUT", $"/api/v1/email-settings/{TestMailboxId}" },
+        { "POST", $"/api/v1/email-settings/{TestMailboxId}/test" },
+        { "POST", $"/api/v1/email-settings/{TestMailboxId}/enable" },
+        { "POST", $"/api/v1/email-settings/{TestMailboxId}/disable" },
+        { "POST", $"/api/v1/email-settings/{TestMailboxId}/archive" },
+        { "POST", $"/api/v1/email-settings/{TestMailboxId}/sync" },
+        { "GET", "/api/v1/email-settings/effective" },
+        { "GET", $"/api/v1/email-settings/{TestMailboxId}/diagnostics" },
+        { "POST", $"/api/v1/email-settings/{TestMailboxId}/receipts/{TestReceiptId}/retry" },
+        { "POST", $"/api/v1/email-settings/{TestMailboxId}/historical/preview" },
+        { "POST", $"/api/v1/email-settings/{TestMailboxId}/historical/import" },
+        { "GET", $"/api/v1/email-settings/{TestMailboxId}/outgoing" },
+        { "PUT", $"/api/v1/email-settings/{TestMailboxId}/outgoing" },
+        { "POST", $"/api/v1/email-settings/{TestMailboxId}/outgoing/test" },
+        { "POST", $"/api/v1/email-settings/{TestMailboxId}/outgoing/send-test" },
+        { "GET", "/api/email-settings/" },
+        { "POST", "/api/email-settings/worker" }
+    };
+
+    private const string TestMailboxId = "11111111-1111-4111-8111-111111111111";
+    private const string TestReceiptId = "33333333-3333-4333-8333-333333333333";
+
     [Fact]
     public async Task Get_ReturnsDisabledSettingsWithExplicitScopeAndRedactedCredentials()
     {
