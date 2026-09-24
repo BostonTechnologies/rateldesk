@@ -232,7 +232,8 @@ public sealed class MailboxConfigurationTests
         await using var fixture = await DatabaseFixture.CreateAsync(false);
         await using var db = fixture.Open();
         await db.Database.MigrateAsync();
-        db.Organizations.Add(new Organization { Id = "tenant-a", Name = "Tenant A" });
+        db.Organizations.AddRange(new Organization { Id = "tenant-a", Name = "Tenant A" },
+            new Organization { Id = "tenant-b", Name = "Tenant B" });
         var dedicated = new EmailInboxSettings
         {
             Id = Guid.NewGuid(), Scope = MailboxScope.Organization, OrganizationId = "tenant-a",
@@ -285,6 +286,14 @@ public sealed class MailboxConfigurationTests
         await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
             .SetProperty(x => x.LastErrorCode, "SmtpAuthenticationFailed"));
         Assert.True((await retry.PreviewChangedRouteAsync(queued.DeliveryEventId.Value, default)).CanRetry);
+        await db.Incidents.Where(x => x.Id == "route-ticket").ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.OrganizationId, "tenant-b"));
+        db.ChangeTracker.Clear();
+        Assert.Equal("TicketOrganizationMismatch", (await retry.PreviewChangedRouteAsync(
+            queued.DeliveryEventId.Value, default)).Status);
+        await db.Incidents.Where(x => x.Id == "route-ticket").ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.OrganizationId, "tenant-a"));
+        db.ChangeTracker.Clear();
         await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
             .SetProperty(x => x.LastErrorCode, "SenderRouteChanged"));
         var request = new ConfirmMailboxRouteRetryRequest(preview.Fence!.Value, dedicated.Id, global.Id,
