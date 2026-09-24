@@ -152,7 +152,7 @@
                 .GetFromJsonAsync<EmailInboxSettingsDto>($"/api/v1/email-settings/{MailboxId}", cancellation.Token);
             historicalDateSupported = mailbox?.Provider != InboundMailboxProvider.Pop3;
         }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
         catch (HttpRequestException) { historicalFeedback = "Mailbox details could not be loaded."; }
     }
     private void SelectHistorical(Guid id, bool selected)
@@ -187,7 +187,7 @@
             historicalHasMore = result?.HasMore == true;
             historicalFeedback = historicalPreview.Length == 0 ? "No eligible baseline-skipped messages in this preview page." : null;
         }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
         catch (HttpRequestException) { historicalFeedback = "Preview could not reach the mailbox server."; }
         finally { historicalBusy = false; }
     }
@@ -210,7 +210,7 @@
                 await LoadAsync();
             }
         }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
         catch (HttpRequestException) { historicalFeedback = "Import request could not reach the server. Refresh before retrying."; }
         finally { historicalBusy = false; }
     }
@@ -250,7 +250,7 @@
             }
             syncFeedback = "Sync is still queued or running. Refresh to check its result.";
         }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
         catch (HttpRequestException)
         {
             syncFeedback = "The sync status could not be checked. Refresh to see whether it completed.";
