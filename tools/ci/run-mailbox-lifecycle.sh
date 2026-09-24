@@ -9,6 +9,8 @@ compose_file=docker/docker-compose.mailbox-lifecycle.yml
 compose_project="rateldesk-mailbox-${RANDOM}${RANDOM}"
 api_port=${HELPDESK_MAILBOX_API_PORT:-5258}
 web_port=${HELPDESK_MAILBOX_WEB_PORT:-5257}
+replica_api_port=${HELPDESK_MAILBOX_REPLICA_API_PORT:-5259}
+replica_web_port=${HELPDESK_MAILBOX_REPLICA_WEB_PORT:-5260}
 database_port=${RATELDESK_MAILBOX_POSTGRES_PORT:-55442}
 smtp_port=${RATELDESK_MAILBOX_SMTPS_PORT:-13465}
 global_smtp_port=${RATELDESK_MAILBOX_GLOBAL_SMTPS_PORT:-13466}
@@ -28,6 +30,8 @@ chmod 0755 "$fixture_dir"
 export MAILBOX_CERT_DIR="$fixture_dir"
 api_pid=''
 web_pid=''
+replica_api_pid=''
+replica_web_pid=''
 compose_started=false
 api_publish=src/Helpdesk.API/bin/Release/net10.0/publish
 web_publish=src/HelpDesk.NewWeb/bin/Release/net10.0/publish
@@ -42,7 +46,7 @@ docker image inspect "$greenmail_image" >/dev/null 2>&1 && greenmail_preexisting
 cleanup() {
   local status=$?
   trap - EXIT INT TERM
-  for pid in "$web_pid" "$api_pid"; do
+  for pid in "$replica_web_pid" "$replica_api_pid" "$web_pid" "$api_pid"; do
     if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
       kill "$pid" 2>/dev/null || true
       wait "$pid" 2>/dev/null || true
@@ -153,6 +157,53 @@ done
 curl --fail --silent "$api_url/health/ready" >/dev/null
 curl --insecure --fail --silent "$web_url/" >/dev/null
 
+replica_web_url=''
+if [[ "${HELPDESK_MAILBOX_REPLICAS:-1}" == 2 ]]; then
+  replica_api_url="http://127.0.0.1:${replica_api_port}"
+  replica_web_url="https://127.0.0.1:${replica_web_port}"
+  ASPNETCORE_ENVIRONMENT=Development \
+  ASPNETCORE_CONTENTROOT="$repo_root/$api_publish" \
+  ASPNETCORE_URLS="$replica_api_url" \
+  Authentication__Mode=Local \
+  ConnectionStrings__HelpdeskDb="$connection" \
+  Bootstrap__StateDirectory="$fixture_dir/state" \
+  DataProtection__KeyRingPath="$fixture_dir/keys" \
+  StorageOptions__RootPath="$fixture_dir/storage" \
+  StorageOptions__ImageSigningSecret="$system_secret" \
+  StorageOptions__PublicApiBaseUrl="$web_url" \
+  SYSTEM_TOKEN_SECRET="$system_secret" \
+  SSL_CERT_FILE="$fixture_dir/ca.pem" \
+  EmailIngestion__AllowedPrivateHosts__0=localhost \
+  EmailSending__AllowedPrivateHosts__0=localhost \
+  dotnet "$api_publish/Helpdesk.API.dll" >"$artifact_dir/replica-api.log" 2>&1 &
+  replica_api_pid=$!
+
+  ASPNETCORE_ENVIRONMENT=Development \
+  ASPNETCORE_CONTENTROOT="$repo_root/$web_publish" \
+  ASPNETCORE_URLS="$replica_web_url" \
+  Authentication__Mode=Local \
+  DataProtection__KeyRingPath="$fixture_dir/keys" \
+  ApiBaseUrl="${replica_api_url}/" \
+  ReverseProxy__Clusters__apiCluster__Destinations__api1__Address="${replica_api_url}/" \
+  SYSTEM_TOKEN_SECRET="$system_secret" \
+  dotnet "$web_publish/HelpDesk.NewWeb.dll" >"$artifact_dir/replica-web.log" 2>&1 &
+  replica_web_pid=$!
+
+  for _ in $(seq 1 90); do
+    if curl --fail --silent --max-time 2 "$replica_api_url/health/ready" >/dev/null 2>&1 && \
+      curl --insecure --fail --silent --max-time 2 "$replica_web_url/" >/dev/null 2>&1; then
+      break
+    fi
+    if ! kill -0 "$replica_api_pid" 2>/dev/null || ! kill -0 "$replica_web_pid" 2>/dev/null; then
+      echo 'Published replica API or Web exited before readiness; see mailbox lifecycle logs.' >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  curl --fail --silent "$replica_api_url/health/ready" >/dev/null
+  curl --insecure --fail --silent "$replica_web_url/" >/dev/null
+fi
+
 HELPDESK_E2E_AUTH_MODE=local \
 HELPDESK_E2E_LOCAL_EMAIL=admin@tenant-a.example.test \
 HELPDESK_E2E_LOCAL_PASSWORD="$system_secret" \
@@ -165,5 +216,8 @@ MAILBOX_FIXTURE_GLOBAL_SMTPS_PORT="$global_smtp_port" \
 MAILBOX_FIXTURE_IMAPS_PORT="$imap_port" \
 MAILBOX_FIXTURE_GLOBAL_IMAPS_PORT="$global_imap_port" \
 MAILBOX_FIXTURE_POP3S_PORT="$pop_port" \
+MAILBOX_FIXTURE_REPLICA_WEB_URL="$replica_web_url" \
+MAILBOX_FIXTURE_PRIMARY_API_URL="$api_url" \
+MAILBOX_FIXTURE_PRIMARY_API_PID="$api_pid" \
 PLAYWRIGHT_HTML_OUTPUT_DIR="$artifact_dir/report" \
 npx playwright test "${HELPDESK_MAILBOX_SPEC:-tests/ux/mailbox-lifecycle.spec.ts}" --output="$artifact_dir/results"

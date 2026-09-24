@@ -193,6 +193,13 @@ jobs:
           HELPDESK_MAILBOX_SPEC: tests/ux/mailbox-forwarding-lifecycle.spec.ts
         run: bash tools/ci/run-mailbox-lifecycle.sh
 
+      - name: Verify published mailbox ownership across two API replicas
+        env:
+          HELPDESK_MAILBOX_PUBLISH_NO_BUILD: 'true'
+          HELPDESK_MAILBOX_REPLICAS: '2'
+          HELPDESK_MAILBOX_SPEC: tests/ux/mailbox-replica-lifecycle.spec.ts
+        run: bash tools/ci/run-mailbox-lifecycle.sh
+
       - name: Verify first-baseline arrival boundary in published application
         env:
           HELPDESK_MAILBOX_PUBLISH_NO_BUILD: 'true'

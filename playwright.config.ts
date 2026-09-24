@@ -6,6 +6,7 @@ const testIgnore = process.env.HELPDESK_E2E_RUN_SETUP_WIZARD === 'true'
     ...(process.env.HELPDESK_E2E_MAILBOX_LIFECYCLE === 'true' ? [] : [
       '**/mailbox-lifecycle.spec.ts', '**/mailbox-activation-lifecycle.spec.ts',
       '**/mailbox-pop-lifecycle.spec.ts', '**/mailbox-forwarding-lifecycle.spec.ts',
+      '**/mailbox-replica-lifecycle.spec.ts',
       '**/mailbox-policy-lifecycle.spec.ts'])];
 
 export default defineConfig({
