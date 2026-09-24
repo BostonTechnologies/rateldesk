@@ -13,7 +13,8 @@ public sealed class GraphMailboxSenderTests
 {
     [Theory]
     [InlineData(HttpStatusCode.Accepted, "Accepted by provider", null)]
-    [InlineData(HttpStatusCode.Forbidden, "Failed", "GraphSendPermissionDenied")]
+    [InlineData(HttpStatusCode.Forbidden, "Needs review", "GraphSendPermissionDenied")]
+    [InlineData(HttpStatusCode.Unauthorized, "Needs review", "GraphAuthenticationFailed")]
     public async Task Sdk_uses_selected_mailbox_and_reports_send_grant_separately_from_read(
         HttpStatusCode response, string expectedStatus, string? expectedCode)
     {

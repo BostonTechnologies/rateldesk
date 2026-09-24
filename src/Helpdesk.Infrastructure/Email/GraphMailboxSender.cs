@@ -79,7 +79,7 @@ public sealed class GraphMailboxSender
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Microsoft.Kiota.Abstractions.ApiException error) when (error.ResponseStatusCode is 401 or 403)
         {
-            return new("Failed", error.ResponseStatusCode == 403
+            return new("Needs review", error.ResponseStatusCode == 403
                 ? "GraphSendPermissionDenied" : "GraphAuthenticationFailed");
         }
         catch (Exception error) { return new("Outcome unknown", error.GetType().Name); }

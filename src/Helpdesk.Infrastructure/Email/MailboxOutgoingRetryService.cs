@@ -334,9 +334,11 @@ public sealed class MailboxOutgoingRetryService(HelpdeskDbContext db, MailboxSen
         var safeFailure = row.State == MailboxEffectState.NeedsReview
             ? row.LastErrorCode is "OutgoingNotConfigured" or "OutgoingDisabled" or
                 "SmtpCredentialMissing" or "GraphCredentialMissing" or "SenderConfigurationChanged" or
-                "SmtpAuthenticationFailed" or "SmtpTlsFailed" or "SmtpSenderRejected" or "SmtpCommandRejected"
+                "SmtpAuthenticationFailed" or "SmtpTlsFailed" or "SmtpSenderRejected" or "SmtpCommandRejected" or
+                "GraphAuthenticationFailed" or "GraphSendPermissionDenied"
             : row.LastErrorCode is "SmtpAuthenticationFailed" or "SmtpTlsFailed" or
-                "SmtpTimedOut" or "SocketException" or "SmtpCommandRejected";
+                "SmtpTimedOut" or "SocketException" or "SmtpCommandRejected" or
+                "GraphAuthenticationFailed" or "GraphSendPermissionDenied";
         if (!safeFailure) return Blocked(timelineId, "DeliveryOutcomeRequiresReview");
         if (row.RecipientOutcomeJson is not null)
         {
@@ -365,10 +367,13 @@ public sealed class MailboxOutgoingRetryService(HelpdeskDbContext db, MailboxSen
             return Blocked(timelineId, "MailboxConfigurationChanged");
         if (selected.Status != "Ready" || selected.Outgoing is null)
             return Blocked(timelineId, selected.ErrorCode ?? "SenderUnavailable");
-        if (selected.Outgoing.Version == email.OutgoingConfigurationVersion)
+        var graphGrantFailure = row.LastErrorCode is "GraphAuthenticationFailed" or "GraphSendPermissionDenied" &&
+            selected.Outgoing.Transport == MailboxOutgoingTransport.Graph;
+        if (selected.Outgoing.Version == email.OutgoingConfigurationVersion && !graphGrantFailure)
             return Blocked(timelineId, "OutgoingRevisionUnchanged");
 
-        return new(timelineId, true, "Ready", selected.Mailbox.Id, selected.Mailbox.MailboxAddress,
+        return new(timelineId, true, graphGrantFailure ? "GraphGrantNeedsConfirmation" : "Ready",
+            selected.Mailbox.Id, selected.Mailbox.MailboxAddress,
             selected.Outgoing.Transport, email.OutgoingConfigurationVersion, selected.Outgoing.Version);
     }
 

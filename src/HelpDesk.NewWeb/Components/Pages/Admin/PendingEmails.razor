@@ -167,8 +167,11 @@
                 return;
             }
 
+            var grantCheck = preview.Status == "GraphGrantNeedsConfirmation"
+                ? " Confirm that Microsoft Mail.Send access is repaired and a sample send from this mailbox succeeded."
+                : string.Empty;
             var confirmed = await JS.InvokeAsync<bool>("confirm",
-                $"Retry this delivery using {preview.MailboxAddress} ({preview.Transport}), outgoing revision {preview.CurrentOutgoingVersion}? The ticket, tenant and mailbox stay bound to the original delivery.");
+                $"Retry this delivery using {preview.MailboxAddress} ({preview.Transport}), outgoing revision {preview.CurrentOutgoingVersion}? The ticket, tenant and mailbox stay bound to the original delivery.{grantCheck}");
             if (!confirmed) return;
             await TimelineClient.RetryWithCurrentOutgoingAsync(timelineId, preview.CurrentOutgoingVersion.Value);
             Snackbar.Add("Delivery queued with the confirmed outgoing revision.", Severity.Success);

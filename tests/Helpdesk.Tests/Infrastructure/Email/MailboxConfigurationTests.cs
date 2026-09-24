@@ -145,6 +145,25 @@ public sealed class MailboxConfigurationTests
             queued.DeliveryEventId.Value, default)).Status);
         await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
             .SetProperty(x => x.RecipientOutcomeJson, (string?)null));
+        mailbox.Authentication = MailboxAuthentication.MicrosoftApplication;
+        mailbox.ClientSecret = "synthetic-protected";
+        outgoing.Transport = MailboxOutgoingTransport.Graph;
+        await db.SaveChangesAsync();
+        foreach (var code in new[] { "GraphAuthenticationFailed", "GraphSendPermissionDenied" })
+        {
+            await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
+                .SetProperty(x => x.LastErrorCode, code));
+            Assert.True((await retry.PreviewAsync(queued.DeliveryEventId.Value, default)).CanRetry);
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                store.RetryForTimelineAsync(queued.DeliveryEventId.Value, default));
+        }
+        var graphFailure = await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleAsync(x => x.Id == queued.Id);
+        var graphPayload = MailboxOutboxStore.Deserialize<IngressEmailEffect>(graphFailure.Payload) with
+            { OutgoingConfigurationVersion = outgoing.Version };
+        await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.Payload, System.Text.Json.JsonSerializer.Serialize(graphPayload)));
+        Assert.Equal("GraphGrantNeedsConfirmation", (await retry.PreviewAsync(
+            queued.DeliveryEventId.Value, default)).Status);
         await db.SupportNotificationDeliveries.Where(x => x.Id == supportDelivery.Id).ExecuteUpdateAsync(update => update
             .SetProperty(x => x.Status, SupportNotificationDeliveryStatus.Sent));
         Assert.Equal("SupportDeliveryNotFailed", (await retry.PreviewAsync(
