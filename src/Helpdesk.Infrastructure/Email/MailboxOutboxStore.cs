@@ -215,6 +215,13 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
         if (row.LastErrorCode is "DispatchOutcomeUnknown" or "SubmissionOutcomeUnknown" or
             "SmtpPartialRecipientAcceptance")
             throw new InvalidOperationException("The previous delivery outcome is uncertain; check the recipient before retrying.");
+        IngressEmailEffect email;
+        try { email = Deserialize<IngressEmailEffect>(row.Payload); }
+        catch (JsonException) { throw new InvalidOperationException("The delivery payload requires review before retry."); }
+        if (email.SupportDeliveryId is { } supportId &&
+            !await db.SupportNotificationDeliveries.AsNoTracking().AnyAsync(x => x.Id == supportId &&
+                x.Status == SupportNotificationDeliveryStatus.Failed, ct))
+            throw new InvalidOperationException("The support notification is no longer failed.");
         var now = timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var changed = await db.Set<MailboxOutboxEffect>()
@@ -234,6 +241,18 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
                 .SetProperty(x => x.RetryError, (string?)null), ct);
         if (timelineChanged != 1)
             throw new InvalidOperationException("Delivery timeline changed during retry; refresh before trying again.");
+        if (email.SupportDeliveryId is { } deliveryId)
+        {
+            var supportChanged = await db.SupportNotificationDeliveries
+                .Where(x => x.Id == deliveryId && x.Status == SupportNotificationDeliveryStatus.Failed)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(x => x.Status, SupportNotificationDeliveryStatus.Pending)
+                    .SetProperty(x => x.FailureReason, (string?)null)
+                    .SetProperty(x => x.FailedUtc, (DateTimeOffset?)null)
+                    .SetProperty(x => x.UpdatedUtc, timeProvider.GetUtcNow()), ct);
+            if (supportChanged != 1)
+                throw new InvalidOperationException("Support notification changed during retry; refresh before trying again.");
+        }
         await transaction.CommitAsync(ct);
         return true;
     }

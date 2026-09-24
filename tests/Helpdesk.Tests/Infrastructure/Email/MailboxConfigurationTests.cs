@@ -76,18 +76,26 @@ public sealed class MailboxConfigurationTests
         };
         db.Set<MailboxOutgoingSettings>().Add(outgoing);
         db.Incidents.Add(new Incident { Id = "retry-ticket", OrganizationId = "tenant-a", TrackingId = "INC-RETRY" });
+        var supportDelivery = new SupportNotificationDelivery
+        {
+            TicketId = "retry-ticket", RecipientEmail = "requester@tenant-a.example.test",
+            DeduplicationKey = "retry-support", Status = SupportNotificationDeliveryStatus.Pending
+        };
+        db.SupportNotificationDeliveries.Add(supportDelivery);
         await db.SaveChangesAsync();
 
         var store = new MailboxOutboxStore(db, new IngressEffectContext(), TimeProvider.System);
         var queued = await store.QueueDirectAsync(new IngressEmailEffect(
             ["requester@tenant-a.example.test"], "Confirmation", "<p>Body</p>", [],
-            "retry-ticket", [], null, null, false, null, null)
+            "retry-ticket", [], null, null, false, supportDelivery.Id, null)
         {
             MailboxId = mailbox.Id, OrganizationId = "tenant-a",
             MailboxConfigurationVersion = mailbox.Version, OutgoingConfigurationVersion = outgoing.Version
         }, default);
         var claim = Assert.IsType<MailboxOutboxEffect>(await store.TryClaimAsync(queued.Id, "worker", default));
         Assert.True(await store.CompleteAsync(claim, false, "OutgoingDisabled", default, requiresReview: true));
+        Assert.Equal(SupportNotificationDeliveryStatus.Failed,
+            (await db.SupportNotificationDeliveries.AsNoTracking().SingleAsync(x => x.Id == supportDelivery.Id)).Status);
         var retry = new MailboxOutgoingRetryService(db, new MailboxSenderResolver(db), TimeProvider.System);
         Assert.Equal("OutgoingDisabled", (await retry.PreviewAsync(queued.DeliveryEventId!.Value, default)).Status);
 
@@ -111,6 +119,8 @@ public sealed class MailboxConfigurationTests
         Assert.Equal(2, email.OutgoingConfigurationVersion);
         Assert.Equal(EmailDeliveryStatus.Pending, (await db.TicketTimelineEvents.AsNoTracking()
             .SingleAsync(x => x.Id == queued.DeliveryEventId)).EmailStatus);
+        Assert.Equal(SupportNotificationDeliveryStatus.Pending,
+            (await db.SupportNotificationDeliveries.AsNoTracking().SingleAsync(x => x.Id == supportDelivery.Id)).Status);
         Assert.Single(await db.ActivityLogs.Where(x => x.RelatedEntityId == mailbox.Id.ToString("D")).ToListAsync());
 
         await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
@@ -118,6 +128,8 @@ public sealed class MailboxConfigurationTests
             .SetProperty(x => x.LastErrorCode, "SmtpPartialRecipientAcceptance"));
         await db.TicketTimelineEvents.Where(x => x.Id == queued.DeliveryEventId).ExecuteUpdateAsync(update => update
             .SetProperty(x => x.EmailStatus, EmailDeliveryStatus.Failed));
+        await db.SupportNotificationDeliveries.Where(x => x.Id == supportDelivery.Id).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.Status, SupportNotificationDeliveryStatus.Failed));
         outgoing.Version++;
         await db.SaveChangesAsync();
         Assert.Equal("DeliveryOutcomeRequiresReview", (await retry.PreviewAsync(
@@ -130,6 +142,12 @@ public sealed class MailboxConfigurationTests
             .SetProperty(x => x.RecipientOutcomeJson, System.Text.Json.JsonSerializer.Serialize(
                 new MailboxRecipientOutcome(["requester@tenant-a.example.test"], []))));
         Assert.Equal("AcceptedRecipientsRequireReview", (await retry.PreviewAsync(
+            queued.DeliveryEventId.Value, default)).Status);
+        await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.RecipientOutcomeJson, (string?)null));
+        await db.SupportNotificationDeliveries.Where(x => x.Id == supportDelivery.Id).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.Status, SupportNotificationDeliveryStatus.Sent));
+        Assert.Equal("SupportDeliveryNotFailed", (await retry.PreviewAsync(
             queued.DeliveryEventId.Value, default)).Status);
     }
 

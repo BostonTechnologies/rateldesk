@@ -30,4 +30,5 @@ public class TicketTimelineEventDto
     public string[]? AcceptedRecipients { get; set; }
     public string[]? RejectedRecipients { get; set; }
     public bool RecipientOutcomeUnavailable { get; set; }
+    public string? DeliveryReviewReason { get; set; }
 }

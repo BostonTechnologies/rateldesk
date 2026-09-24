@@ -135,6 +135,48 @@ public sealed class MailboxOutboxTests
     }
 
     [Fact]
+    public async Task Retry_updates_support_notification_with_the_same_delivery_and_never_retries_a_sent_record()
+    {
+        await using var fixture = await OutboxDatabase.CreateAsync();
+        await using var db = fixture.Open();
+        var support = new SupportNotificationDelivery
+        {
+            TicketId = "ticket-a", RecipientEmail = "requester@example.test",
+            DeduplicationKey = "support-retry", Status = SupportNotificationDeliveryStatus.Pending
+        };
+        db.SupportNotificationDeliveries.Add(support);
+        await db.SaveChangesAsync();
+        var store = fixture.Store(db);
+        var queued = await store.QueueDirectAsync(new IngressEmailEffect(["requester@example.test"],
+            "Subject", "<p>Body</p>", [], "ticket-a", [], null, null, false, support.Id, null), default);
+        var claim = Assert.IsType<MailboxOutboxEffect>(await store.TryClaimAsync(queued.Id, "worker", default));
+        Assert.True(await store.CompleteAsync(claim, false, "OutgoingDisabled", default, requiresReview: true));
+        Assert.Equal(SupportNotificationDeliveryStatus.Failed,
+            (await db.SupportNotificationDeliveries.AsNoTracking().SingleAsync()).Status);
+
+        Assert.True(await store.RetryForTimelineAsync(queued.DeliveryEventId!.Value, default));
+        var pendingSupport = await db.SupportNotificationDeliveries.AsNoTracking().SingleAsync();
+        Assert.Equal(SupportNotificationDeliveryStatus.Pending, pendingSupport.Status);
+        Assert.Null(pendingSupport.FailureReason);
+        Assert.Null(pendingSupport.FailedUtc);
+        Assert.Equal(MailboxEffectState.Pending,
+            (await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleAsync(x => x.Id == queued.Id)).State);
+
+        await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.State, MailboxEffectState.NeedsReview)
+            .SetProperty(x => x.LastErrorCode, "OutgoingDisabled"));
+        await db.TicketTimelineEvents.Where(x => x.Id == queued.DeliveryEventId).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.EmailStatus, EmailDeliveryStatus.Failed));
+        await db.SupportNotificationDeliveries.Where(x => x.Id == support.Id).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.Status, SupportNotificationDeliveryStatus.Sent));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            store.RetryForTimelineAsync(queued.DeliveryEventId.Value, default));
+        Assert.Equal(MailboxEffectState.NeedsReview,
+            (await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleAsync(x => x.Id == queued.Id)).State);
+    }
+
+    [Fact]
     public async Task Concurrent_dispatchers_claim_one_effect_only_once()
     {
         await using var fixture = await OutboxDatabase.CreateAsync();

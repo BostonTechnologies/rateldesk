@@ -67,6 +67,10 @@
                     {
                         <div>Recipient details unavailable; check the provider before retrying.</div>
                     }
+                    @if (!string.IsNullOrWhiteSpace(context.DeliveryReviewReason))
+                    {
+                        <div>@context.DeliveryReviewReason</div>
+                    }
                 </MudTd>
                 <MudTd DataLabel="Action">
                     @if (context.DeliveryErrorCode == "SenderRouteChanged")
@@ -87,6 +91,10 @@
                              context.AcceptedRecipients?.Length > 0 || context.RecipientOutcomeUnavailable)
                     {
                         <MudText Typo="Typo.caption">Recipient review required</MudText>
+                    }
+                    else if (!context.IsRetryable)
+                    {
+                        <MudText Typo="Typo.caption">Manual review required</MudText>
                     }
                     else
                     {

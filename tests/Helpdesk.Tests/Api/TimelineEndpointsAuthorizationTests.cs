@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Text.Encodings.Web;
 using Helpdesk.API.Endpoints.Timeline;
 using Helpdesk.Application.Timeline;
+using Helpdesk.Application.Services.Email;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.DTOs.Worklog;
 using Helpdesk.Shared.Auth;
@@ -89,6 +90,38 @@ public sealed class TimelineEndpointsAuthorizationTests
         Assert.Equal(["rejected@example.test"], result.RejectedRecipients);
     }
 
+    [Fact]
+    public async Task Failed_timeline_does_not_offer_retry_when_its_support_notification_was_sent()
+    {
+        await using var harness = await TimelineEndpointsHarness.CreateAsync();
+        var support = new SupportNotificationDelivery
+        {
+            TicketId = "ticket-a", RecipientEmail = "requester@example.test",
+            DeduplicationKey = "sent-support", Status = SupportNotificationDeliveryStatus.Sent
+        };
+        var delivery = new TicketTimelineEvent
+        {
+            TicketId = "ticket-a", EventType = TimelineEventType.EmailDelivery,
+            EmailStatus = EmailDeliveryStatus.Failed, RetryError = "OutgoingDisabled"
+        };
+        await harness.SeedAsync(delivery, new MailboxOutboxEffect
+        {
+            Kind = MailboxEffectKind.Email, EffectKey = "sent-support-effect",
+            DeliveryEventId = delivery.Id, State = MailboxEffectState.NeedsReview,
+            LastErrorCode = "OutgoingDisabled", Payload = JsonSerializer.Serialize(new IngressEmailEffect(
+                ["requester@example.test"], "Subject", "<p>Body</p>", [], "ticket-a", [],
+                null, null, false, support.Id, delivery.Id))
+        }, support);
+        harness.Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "admin-user");
+
+        var response = await harness.Client.GetAsync("/api/v1/timeline/failed");
+
+        Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+        var result = Assert.Single((await response.Content.ReadFromJsonAsync<TicketTimelineEventDto[]>())!);
+        Assert.False(result.IsRetryable);
+        Assert.Equal("Support notification already sent", result.DeliveryReviewReason);
+    }
+
     private sealed class TimelineEndpointsHarness : IAsyncDisposable
     {
         private readonly WebApplication _app;
@@ -144,12 +177,14 @@ public sealed class TimelineEndpointsAuthorizationTests
             return new TimelineEndpointsHarness(app, client, connection);
         }
 
-        public async Task SeedAsync(TicketTimelineEvent delivery, MailboxOutboxEffect effect)
+        public async Task SeedAsync(TicketTimelineEvent delivery, MailboxOutboxEffect effect,
+            SupportNotificationDelivery? support = null)
         {
             await using var scope = _app.Services.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
             db.TicketTimelineEvents.Add(delivery);
             db.Set<MailboxOutboxEffect>().Add(effect);
+            if (support is not null) db.SupportNotificationDeliveries.Add(support);
             await db.SaveChangesAsync();
         }
 

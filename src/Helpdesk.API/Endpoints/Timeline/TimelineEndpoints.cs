@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json;
 using Helpdesk.Application.Timeline;
+using Helpdesk.Application.Services.Email;
 using Helpdesk.Infrastructure.Email;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.DTOs.Worklog;
@@ -166,9 +167,10 @@ public static class TimelineEndpoints
                 var deliveryIds = failed.Select(x => x.Id).ToArray();
                 var results = await db.Set<MailboxOutboxEffect>().AsNoTracking()
                     .Where(x => x.DeliveryEventId.HasValue && deliveryIds.Contains(x.DeliveryEventId.Value))
-                    .Select(x => new { x.DeliveryEventId, x.LastErrorCode, x.RecipientOutcomeJson })
+                    .Select(x => new { x.DeliveryEventId, x.Kind, x.Payload, x.LastErrorCode, x.RecipientOutcomeJson })
                     .ToListAsync(ct);
                 var byDeliveryId = results.ToDictionary(x => x.DeliveryEventId!.Value);
+                var supportDeliveryIds = new Dictionary<Guid, string>();
                 foreach (var delivery in failed)
                 {
                     if (!byDeliveryId.TryGetValue(delivery.Id, out var result)) continue;
@@ -176,14 +178,51 @@ public static class TimelineEndpoints
                     if (result.LastErrorCode is "SenderRouteChanged" or "DispatchOutcomeUnknown" or "SubmissionOutcomeUnknown" or
                         "SmtpPartialRecipientAcceptance")
                         delivery.IsRetryable = false;
+                    if (result.Kind == MailboxEffectKind.Email)
+                    {
+                        try
+                        {
+                            var email = JsonSerializer.Deserialize<IngressEmailEffect>(result.Payload)
+                                ?? throw new JsonException("Missing email payload.");
+                            if (email.SupportDeliveryId is { } supportId)
+                                supportDeliveryIds[delivery.Id] = supportId;
+                        }
+                        catch (JsonException)
+                        {
+                            delivery.IsRetryable = false;
+                            delivery.DeliveryReviewReason = "Delivery payload requires review";
+                        }
+                    }
                     if (result.RecipientOutcomeJson is null) continue;
                     try
                     {
                         var recipients = JsonSerializer.Deserialize<MailboxRecipientOutcome>(result.RecipientOutcomeJson);
                         delivery.AcceptedRecipients = recipients?.AcceptedRecipients;
                         delivery.RejectedRecipients = recipients?.RejectedRecipients;
+                        if (recipients?.AcceptedRecipients?.Length > 0)
+                            delivery.IsRetryable = false;
                     }
-                    catch (JsonException) { delivery.RecipientOutcomeUnavailable = true; }
+                    catch (JsonException)
+                    {
+                        delivery.RecipientOutcomeUnavailable = true;
+                        delivery.IsRetryable = false;
+                    }
+                }
+
+                var supportIds = supportDeliveryIds.Values.Distinct().ToArray();
+                var supportStates = await db.SupportNotificationDeliveries.AsNoTracking()
+                    .Where(x => supportIds.Contains(x.Id))
+                    .Select(x => new { x.Id, x.Status })
+                    .ToDictionaryAsync(x => x.Id, x => x.Status, ct);
+                foreach (var delivery in failed)
+                {
+                    if (!supportDeliveryIds.TryGetValue(delivery.Id, out var supportId)) continue;
+                    if (supportStates.TryGetValue(supportId, out var state) &&
+                        state == SupportNotificationDeliveryStatus.Failed) continue;
+                    delivery.IsRetryable = false;
+                    delivery.DeliveryReviewReason = state == SupportNotificationDeliveryStatus.Sent
+                        ? "Support notification already sent"
+                        : "Support notification is no longer failed";
                 }
 
                 return Results.Ok(failed);

@@ -65,6 +65,8 @@ public sealed class MailboxOutgoingRetryService(HelpdeskDbContext db, MailboxSen
                 .SetProperty(x => x.MessageText, "Email queued with the confirmed outgoing revision."), ct);
         if (timelineChanged != 1)
             return preview with { CanRetry = false, Status = "DeliveryChanged" };
+        if (!await ResetSupportDeliveryAsync(email.SupportDeliveryId, ct))
+            return preview with { CanRetry = false, Status = "SupportDeliveryChanged" };
         db.ActivityLogs.Add(new ActivityLog
         {
             UserId = userId,
@@ -131,6 +133,8 @@ public sealed class MailboxOutgoingRetryService(HelpdeskDbContext db, MailboxSen
                 .SetProperty(x => x.MessageText, "Email queued after administrator confirmed non-delivery."), ct);
         if (timelineChanged != 1)
             return preview with { CanRetry = false, Status = "DeliveryChanged" };
+        if (!await ResetSupportDeliveryAsync(original.SupportDeliveryId, ct))
+            return preview with { CanRetry = false, Status = "SupportDeliveryChanged" };
         db.ActivityLogs.Add(new ActivityLog
         {
             UserId = userId,
@@ -169,6 +173,8 @@ public sealed class MailboxOutgoingRetryService(HelpdeskDbContext db, MailboxSen
             string.IsNullOrWhiteSpace(email.TicketId) || string.IsNullOrWhiteSpace(email.OrganizationId) ||
             email.Recipients is null || email.Cc is null || email.Bcc is null || email.Attachments is null)
             return BlockedUncertain(timelineId, "SenderBindingMissing");
+        if (!await SupportDeliveryCanRetryAsync(email.SupportDeliveryId, ct))
+            return BlockedUncertain(timelineId, "SupportDeliveryNotFailed");
         var recipients = email.Recipients.Concat(email.Cc).Concat(email.Bcc)
             .Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         if (recipients.Length == 0)
@@ -249,6 +255,8 @@ public sealed class MailboxOutgoingRetryService(HelpdeskDbContext db, MailboxSen
                 .SetProperty(x => x.MessageText, "Email queued with the confirmed current mailbox route."), ct);
         if (timelineChanged != 1)
             return preview with { CanRetry = false, Status = "DeliveryChanged" };
+        if (!await ResetSupportDeliveryAsync(original.SupportDeliveryId, ct))
+            return preview with { CanRetry = false, Status = "SupportDeliveryChanged" };
         db.ActivityLogs.Add(new ActivityLog
         {
             UserId = userId,
@@ -286,6 +294,8 @@ public sealed class MailboxOutgoingRetryService(HelpdeskDbContext db, MailboxSen
             string.IsNullOrWhiteSpace(email.TicketId) || string.IsNullOrWhiteSpace(email.OrganizationId) ||
             email.Recipients is null || email.Cc is null || email.Bcc is null || email.Attachments is null)
             return BlockedRoute(timelineId, "SenderBindingMissing");
+        if (!await SupportDeliveryCanRetryAsync(email.SupportDeliveryId, ct))
+            return BlockedRoute(timelineId, "SupportDeliveryNotFailed");
         var originalMailbox = await db.EmailInboxSettings.AsNoTracking()
             .SingleOrDefaultAsync(x => x.Id == email.MailboxId, ct);
         if (originalMailbox is null)
@@ -345,6 +355,8 @@ public sealed class MailboxOutgoingRetryService(HelpdeskDbContext db, MailboxSen
         if (email.MailboxId is null || email.MailboxConfigurationVersion is null ||
             string.IsNullOrWhiteSpace(email.TicketId) || string.IsNullOrWhiteSpace(email.OrganizationId))
             return Blocked(timelineId, "SenderBindingMissing");
+        if (!await SupportDeliveryCanRetryAsync(email.SupportDeliveryId, ct))
+            return Blocked(timelineId, "SupportDeliveryNotFailed");
 
         var selected = await resolver.ResolveAsync(email.TicketId, email.OrganizationId, ct);
         if (selected.Mailbox?.Id != email.MailboxId)
@@ -362,4 +374,22 @@ public sealed class MailboxOutgoingRetryService(HelpdeskDbContext db, MailboxSen
 
     private static MailboxOutgoingRetryPreview Blocked(Guid timelineId, string status) =>
         new(timelineId, false, status, null, null, null, null, null);
+
+    private Task<bool> SupportDeliveryCanRetryAsync(string? supportDeliveryId, CancellationToken ct) =>
+        supportDeliveryId is null ? Task.FromResult(true) :
+            db.SupportNotificationDeliveries.AsNoTracking().AnyAsync(x => x.Id == supportDeliveryId &&
+                x.Status == SupportNotificationDeliveryStatus.Failed, ct);
+
+    private async Task<bool> ResetSupportDeliveryAsync(string? supportDeliveryId, CancellationToken ct)
+    {
+        if (supportDeliveryId is null) return true;
+        var now = clock.GetUtcNow();
+        return await db.SupportNotificationDeliveries
+            .Where(x => x.Id == supportDeliveryId && x.Status == SupportNotificationDeliveryStatus.Failed)
+            .ExecuteUpdateAsync(update => update
+                .SetProperty(x => x.Status, SupportNotificationDeliveryStatus.Pending)
+                .SetProperty(x => x.FailureReason, (string?)null)
+                .SetProperty(x => x.FailedUtc, (DateTimeOffset?)null)
+                .SetProperty(x => x.UpdatedUtc, now), ct) == 1;
+    }
 }
