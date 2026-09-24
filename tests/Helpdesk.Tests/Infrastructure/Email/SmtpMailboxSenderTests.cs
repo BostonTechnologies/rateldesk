@@ -64,9 +64,12 @@ public sealed class SmtpMailboxSenderTests
                 "requester@example.test", default)).Status);
         else
         {
-            Assert.True(await service.SendEmailAsync(["requester@example.test"], "Ticket update", "<p>Update</p>",
-                ticketId: "ticket-a"));
+            Assert.True(await service.SendEmailAsync(new EmailSendRequest(
+                ["requester@example.test"], "Ticket update", "<p>Update</p>")
+            { TicketId = "ticket-a", Bcc = ["hidden@example.test"] }));
             var queued = await db.Set<MailboxOutboxEffect>().SingleAsync(x => x.Kind == MailboxEffectKind.Email);
+            Assert.Equal(["hidden@example.test"],
+                MailboxOutboxStore.Deserialize<IngressEmailEffect>(queued.Payload).Bcc);
             Assert.Equal(MailboxEffectState.Pending, queued.State);
             Assert.Null(queued.ReceiptId);
             Assert.NotNull(queued.DeliveryEventId);
@@ -77,10 +80,16 @@ public sealed class SmtpMailboxSenderTests
             Assert.Equal("SenderConfigurationChanged", changedRoute.ErrorCode);
             Assert.Equal("Accepted by provider", (await service.SendPinnedAsync(mailbox.Id,
                 "tenant-a", "ticket-a", ["requester@example.test"], [], "Ticket update", "<p>Update</p>",
-                [], null, queued.Id, default, mailbox.Version, outgoing.Version)).Status);
+                [], null, queued.Id, default, mailbox.Version, outgoing.Version,
+                ["hidden@example.test"])).Status);
         }
         await server.Completion.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Contains(server.Commands, command => command.StartsWith("MAIL FROM:<support@tenant-a.example.test>", StringComparison.OrdinalIgnoreCase));
+        if (!sample)
+        {
+            Assert.Contains("RCPT TO:<hidden@example.test>", server.Commands);
+            Assert.DoesNotContain("hidden@example.test", server.Message, StringComparison.OrdinalIgnoreCase);
+        }
         if (sample) Assert.Contains("RatelDesk mailbox send test", server.Message, StringComparison.Ordinal);
     }
 
@@ -108,7 +117,8 @@ public sealed class SmtpMailboxSenderTests
                 ContentBytes = [1, 2, 3], ContentId = "logo@tenant-a.example.test", IsInline = true },
              new EmailAttachmentData { FileName = "forwarded.eml", ContentType = "message/rfc822",
                 ContentBytes = Encoding.UTF8.GetBytes("From: sender@example.test\r\nSubject: Forwarded\r\n\r\nMessage") }],
-            Guid.Parse("11111111-1111-4111-8111-111111111111"), deadline.Token);
+            Guid.Parse("11111111-1111-4111-8111-111111111111"), deadline.Token,
+            ["hidden@example.test", "tech@example.test", mailbox.MailboxAddress]);
 
         Assert.Equal("Accepted by provider", result.Status);
         await server.Completion.WaitAsync(TimeSpan.FromSeconds(5));
@@ -117,7 +127,11 @@ public sealed class SmtpMailboxSenderTests
         Assert.DoesNotContain(server.Commands, command => command.Contains("RCPT TO:<support@tenant-a.example.test>", StringComparison.Ordinal));
         Assert.Contains("RCPT TO:<requester@example.test>", server.Commands);
         Assert.Contains("RCPT TO:<tech@example.test>", server.Commands);
+        Assert.Equal(1, server.Commands.Count(command => command == "RCPT TO:<tech@example.test>"));
+        Assert.Contains("RCPT TO:<hidden@example.test>", server.Commands);
+        Assert.DoesNotContain("hidden@example.test", server.Message, StringComparison.OrdinalIgnoreCase);
         using var parsed = MimeMessage.Load(new MemoryStream(Encoding.UTF8.GetBytes(server.Message)));
+        Assert.Empty(parsed.Bcc);
         Assert.Equal(mailbox.MailboxAddress, Assert.Single(parsed.From.Mailboxes).Address);
         Assert.Equal("Tenant A support", Assert.Single(parsed.From.Mailboxes).Name);
         Assert.Equal(mailbox.MailboxAddress, Assert.Single(parsed.ReplyTo.Mailboxes).Address);

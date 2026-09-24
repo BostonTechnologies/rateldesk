@@ -21,21 +21,24 @@ public sealed class GraphMailboxSender
     public async Task<MailboxSubmissionResult> SendAsync(EmailInboxSettings mailbox,
         MailboxOutgoingSettings outgoing, IEnumerable<string> recipients, IEnumerable<string>? cc,
         string subject, string html, IEnumerable<EmailAttachmentData>? attachments,
-        CancellationToken ct)
+        CancellationToken ct, IEnumerable<string>? bcc = null)
     {
         if (!outgoing.Enabled || mailbox.Archived)
             return new("Needs configuration", "OutgoingDisabled");
         if (mailbox.Authentication != MailboxAuthentication.MicrosoftApplication || mailbox.ClientSecret.Length == 0)
             return new("Needs configuration", "GraphCredentialMissing");
         var to = EmailAddressGuard.NormalizeRecipients(recipients, mailbox.MailboxAddress);
-        var copy = EmailAddressGuard.NormalizeRecipients(cc, mailbox.MailboxAddress);
+        var copy = EmailAddressGuard.NormalizeRecipients(cc, mailbox.MailboxAddress)
+            .Except(to, StringComparer.OrdinalIgnoreCase).ToList();
+        var blind = EmailAddressGuard.NormalizeRecipients(bcc, mailbox.MailboxAddress)
+            .Except(to.Concat(copy), StringComparer.OrdinalIgnoreCase).ToList();
         if (!EmailAddressGuard.IsSingleAddress(mailbox.MailboxAddress) ||
-            to.Concat(copy).Any(address => !EmailAddressGuard.IsSingleAddress(address)))
+            to.Concat(copy).Concat(blind).Any(address => !EmailAddressGuard.IsSingleAddress(address)))
             return new("Failed", "InvalidMailboxAddress");
-        if (to.Count == 0 && copy.Count == 0)
+        if (to.Count == 0 && copy.Count == 0 && blind.Count == 0)
             return new("Suppressed", "SelfRecipientOrEmpty");
         var files = attachments?.ToArray() ?? [];
-        if (to.Count + copy.Count > 100 || subject.Length > 998 || html.Length > 10 * 1024 * 1024 ||
+        if (to.Count + copy.Count + blind.Count > 100 || subject.Length > 998 || html.Length > 10 * 1024 * 1024 ||
             files.Length > 25 || files.Sum(file => (long)file.ContentBytes.Length) > 16 * 1024 * 1024)
             return new("Failed", "MessageLimitExceeded");
         if (files.Any(file => file.IsInline && !MailboxAttachmentGuard.IsValidContentId(file.ContentId)))
@@ -51,6 +54,8 @@ public sealed class GraphMailboxSender
             ToRecipients = to.Select(address => new Recipient
                 { EmailAddress = new EmailAddress { Address = address } }).ToList(),
             CcRecipients = copy.Select(address => new Recipient
+                { EmailAddress = new EmailAddress { Address = address } }).ToList(),
+            BccRecipients = blind.Select(address => new Recipient
                 { EmailAddress = new EmailAddress { Address = address } }).ToList(),
             Attachments = files.Where(file => file.ContentBytes.Length > 0 && !string.IsNullOrWhiteSpace(file.FileName))
                 .Select(file => (Microsoft.Graph.Models.Attachment)new FileAttachment
@@ -69,7 +74,7 @@ public sealed class GraphMailboxSender
             await graph.Users[mailbox.MailboxAddress].SendMail.PostAsync(
                 new Microsoft.Graph.Users.Item.SendMail.SendMailPostRequestBody
                     { Message = message, SaveToSentItems = true }, cancellationToken: timeout.Token);
-            return new("Accepted by provider", null, [.. to, .. copy]);
+            return new("Accepted by provider", null, [.. to, .. copy, .. blind]);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Microsoft.Kiota.Abstractions.ApiException error) when (error.ResponseStatusCode is 401 or 403)

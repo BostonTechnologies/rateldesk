@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Helpdesk.Application.Notifications;
 using Helpdesk.Application.Services.Email;
 using Helpdesk.Application.Timeline;
@@ -29,6 +30,7 @@ public sealed class MailboxOutboxTests
         var email = new IngressEmailEffect(["requester@tenant-a.example.test"], "Ticket update", "<p>Body</p>",
             [], "ticket-a", [], null, null, false, null, null)
         {
+            Bcc = ["hidden@example.test"],
             MailboxId = mailboxId, OrganizationId = "tenant-a",
             MailboxConfigurationVersion = 3, OutgoingConfigurationVersion = 4
         };
@@ -48,6 +50,10 @@ public sealed class MailboxOutboxTests
         var replay = MailboxOutboxStore.Deserialize<IngressEmailEffect>(held.Payload);
         Assert.Equal(mailboxId, replay.MailboxId);
         Assert.Equal("tenant-a", replay.OrganizationId);
+        Assert.Equal(["hidden@example.test"], replay.Bcc);
+        var legacyPayload = JsonNode.Parse(held.Payload)!.AsObject();
+        legacyPayload.Remove("Bcc");
+        Assert.Empty(MailboxOutboxStore.Deserialize<IngressEmailEffect>(legacyPayload.ToJsonString()).Bcc);
         Assert.Equal(3, replay.MailboxConfigurationVersion);
         Assert.Equal(4, replay.OutgoingConfigurationVersion);
         Assert.Equal(1, await db.Set<MailboxOutboxEffect>().CountAsync(x => x.Kind == MailboxEffectKind.Email));

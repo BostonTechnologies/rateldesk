@@ -27,14 +27,24 @@ public sealed class IngressEmailService(MailboxEmailService inner, MailboxSender
         IEnumerable<EmailAttachmentData>? attachments = null, string? fromName = null,
         string? replyTo = null, bool suppressTimeline = false)
     {
+        return await SendEmailAsync(new EmailSendRequest(recipients.ToArray(), subject, htmlMessage)
+        {
+            Cc = cc?.ToArray() ?? [], TicketId = ticketId, Attachments = attachments?.ToArray() ?? [],
+            FromName = fromName, ReplyTo = replyTo, SuppressTimeline = suppressTimeline
+        }, ct);
+    }
+
+    public async Task<bool> SendEmailAsync(EmailSendRequest request, CancellationToken ct = default)
+    {
         ct.ThrowIfCancellationRequested();
         if (!context.IsActive)
-            return await inner.SendEmailAsync(recipients, subject, htmlMessage, cc, ct, ticketId, attachments, fromName, replyTo, suppressTimeline);
-        var selection = await resolver.ResolveAsync(ticketId, context.OrganizationId, ct);
-        context.Capture(MailboxEffectKind.Email, new IngressEmailEffect(recipients.ToArray(), subject,
-            htmlMessage, cc?.ToArray() ?? [], ticketId, attachments?.ToArray() ?? [], fromName,
-            replyTo, suppressTimeline, context.SupportDeliveryId, context.TimelineDeliveryId)
+            return await inner.SendEmailAsync(request, ct);
+        var selection = await resolver.ResolveAsync(request.TicketId, context.OrganizationId, ct);
+        context.Capture(MailboxEffectKind.Email, new IngressEmailEffect(request.Recipients, request.Subject,
+            request.HtmlMessage, request.Cc, request.TicketId, request.Attachments, request.FromName,
+            request.ReplyTo, request.SuppressTimeline, context.SupportDeliveryId, context.TimelineDeliveryId)
         {
+            Bcc = request.Bcc,
             MailboxId = selection.Mailbox?.Id,
             OrganizationId = selection.OrganizationId,
             SenderBindingError = selection.ErrorCode,

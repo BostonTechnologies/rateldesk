@@ -32,7 +32,8 @@ public sealed class GraphMailboxSenderTests
             [new EmailAttachmentData { FileName = "logo.png", ContentType = "image/png",
                 ContentBytes = [1, 2, 3], ContentId = "logo@tenant-a.example.test", IsInline = true },
              new EmailAttachmentData { FileName = "forwarded.eml", ContentType = "message/rfc822",
-                ContentBytes = Encoding.UTF8.GetBytes("From: sender@example.test\r\nSubject: Forwarded\r\n\r\nMessage") }], default);
+                ContentBytes = Encoding.UTF8.GetBytes("From: sender@example.test\r\nSubject: Forwarded\r\n\r\nMessage") }],
+            default, ["hidden@example.test", "tech@example.test", mailbox.MailboxAddress]);
 
         Assert.True(expectedStatus == result.Status, $"Expected {expectedStatus}; got {result.Status}/{result.ErrorCode}.");
         Assert.Equal(expectedCode, result.ErrorCode);
@@ -42,6 +43,9 @@ public sealed class GraphMailboxSenderTests
         Assert.Contains("tech@example.test", transport.Body);
         using var request = JsonDocument.Parse(transport.Body);
         Assert.True(request.RootElement.TryGetProperty("Message", out var message), transport.Body);
+        var blind = message.GetProperty("bccRecipients").EnumerateArray().ToArray();
+        Assert.Equal("hidden@example.test", Assert.Single(blind).GetProperty("emailAddress")
+            .GetProperty("address").GetString());
         Assert.True(message.TryGetProperty("attachments", out var attachmentList), transport.Body);
         var attachments = attachmentList
             .EnumerateArray().ToArray();

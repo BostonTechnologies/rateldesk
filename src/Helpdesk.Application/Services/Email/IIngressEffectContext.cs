@@ -8,6 +8,7 @@ public sealed record IngressEmailEffect(string[] Recipients, string Subject, str
     string? FromName, string? ReplyTo, bool SuppressTimeline,
     string? SupportDeliveryId, Guid? TimelineDeliveryId)
 {
+    public string[] Bcc { get; init; } = [];
     public Guid? MailboxId { get; init; }
     public string? OrganizationId { get; init; }
     public string? SenderBindingError { get; init; }

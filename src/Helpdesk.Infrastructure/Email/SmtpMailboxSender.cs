@@ -31,18 +31,21 @@ public sealed class SmtpMailboxSender(MailboxDestinationPolicy destinations,
     public async Task<MailboxSubmissionResult> SendAsync(EmailInboxSettings mailbox,
         MailboxOutgoingSettings outgoing, IEnumerable<string> recipients, IEnumerable<string>? cc,
         string subject, string html, IEnumerable<EmailAttachmentData>? attachments,
-        Guid deliveryId, CancellationToken ct)
+        Guid deliveryId, CancellationToken ct, IEnumerable<string>? bcc = null)
     {
         if (!outgoing.Enabled || mailbox.Archived)
             return new("Needs configuration", "OutgoingDisabled");
         var to = EmailAddressGuard.NormalizeRecipients(recipients, mailbox.MailboxAddress);
-        var copy = EmailAddressGuard.NormalizeRecipients(cc, mailbox.MailboxAddress);
+        var copy = EmailAddressGuard.NormalizeRecipients(cc, mailbox.MailboxAddress)
+            .Except(to, StringComparer.OrdinalIgnoreCase).ToList();
+        var blind = EmailAddressGuard.NormalizeRecipients(bcc, mailbox.MailboxAddress)
+            .Except(to.Concat(copy), StringComparer.OrdinalIgnoreCase).ToList();
         if (!EmailAddressGuard.IsSingleAddress(mailbox.MailboxAddress) ||
-            to.Concat(copy).Any(address => !EmailAddressGuard.IsSingleAddress(address)))
+            to.Concat(copy).Concat(blind).Any(address => !EmailAddressGuard.IsSingleAddress(address)))
             return new("Failed", "InvalidMailboxAddress");
-        if (to.Count == 0 && copy.Count == 0)
+        if (to.Count == 0 && copy.Count == 0 && blind.Count == 0)
             return new("Suppressed", "SelfRecipientOrEmpty");
-        if (to.Count + copy.Count > 100 || subject.Length > 998 || html.Length > 10 * 1024 * 1024)
+        if (to.Count + copy.Count + blind.Count > 100 || subject.Length > 998 || html.Length > 10 * 1024 * 1024)
             return new("Failed", "MessageLimitExceeded");
         var files = attachments?.ToArray() ?? [];
         if (files.Length > 25 || files.Sum(file => (long)file.ContentBytes.Length) > 16 * 1024 * 1024)
@@ -84,7 +87,8 @@ public sealed class SmtpMailboxSender(MailboxDestinationPolicy destinations,
             using var client = await ConnectAsync(outgoing, timeout.Token);
             try
             {
-                await client.SendAsync(message, timeout.Token);
+                var envelope = to.Concat(copy).Concat(blind).Select(MailboxAddress.Parse).ToArray();
+                await client.SendAsync(message, message.From.Mailboxes.Single(), envelope, timeout.Token);
                 await client.DisconnectAsync(true, timeout.Token);
                 return client.RejectedRecipients.Count == 0
                     ? new("Accepted by provider", null, [.. client.AcceptedRecipients])
@@ -108,6 +112,7 @@ public sealed class SmtpMailboxSender(MailboxDestinationPolicy destinations,
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception error) { return new("Failed", SafeCode(error)); }
     }
+
 
     private async Task<RecipientTrackingSmtpClient> ConnectAsync(MailboxOutgoingSettings outgoing, CancellationToken ct)
     {
