@@ -21,7 +21,7 @@ services:
       GREENMAIL_OPTS: >-
         -Dgreenmail.setup.test.all
         -Dgreenmail.hostname=0.0.0.0
-        -Dgreenmail.users=support:synthetic-mail-password@tenant-a.example.test,requester:synthetic-mail-password@tenant-a.example.test,recipient:synthetic-mail-password@tenant-a.example.test,global:synthetic-global-password@tenant-b.example.test,requester:synthetic-global-password@tenant-b.example.test,pop:synthetic-pop-password@tenant-c.example.test,requester:synthetic-pop-password@tenant-c.example.test
+        -Dgreenmail.users=support:synthetic-mail-password@tenant-a.example.test,requester:synthetic-mail-password@tenant-a.example.test,recipient:synthetic-mail-password@tenant-a.example.test,global:synthetic-global-password@tenant-b.example.test,requester:synthetic-global-password@tenant-b.example.test,dedicated-b:synthetic-dedicated-b-password@tenant-b.example.test,pop:synthetic-pop-password@tenant-c.example.test,requester:synthetic-pop-password@tenant-c.example.test
         -Dgreenmail.users.login=email
         -Dgreenmail.tls.keystore.file=/mail/greenmail.p12
         -Dgreenmail.tls.keystore.password=changeit

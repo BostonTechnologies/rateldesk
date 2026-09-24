@@ -21,6 +21,7 @@ ACCOUNTS = {
     "recipient": ("recipient@tenant-a.example.test", "synthetic-mail-password", "primary"),
     "global": ("global@tenant-b.example.test", "synthetic-global-password", "global"),
     "requester-b": ("requester@tenant-b.example.test", "synthetic-global-password", "global"),
+    "dedicated-b": ("dedicated-b@tenant-b.example.test", "synthetic-dedicated-b-password", "global"),
     "pop": ("pop@tenant-c.example.test", "synthetic-pop-password", "primary"),
     "requester-c": ("requester@tenant-c.example.test", "synthetic-pop-password", "primary"),
 }

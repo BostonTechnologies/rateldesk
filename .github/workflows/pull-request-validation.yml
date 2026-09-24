@@ -187,6 +187,12 @@ jobs:
       - name: Run published mailbox lifecycle acceptance
         run: bash tools/ci/run-mailbox-lifecycle.sh
 
+      - name: Verify published cross-tenant forwarding and dedicated source ownership
+        env:
+          HELPDESK_MAILBOX_PUBLISH_NO_BUILD: 'true'
+          HELPDESK_MAILBOX_SPEC: tests/ux/mailbox-forwarding-lifecycle.spec.ts
+        run: bash tools/ci/run-mailbox-lifecycle.sh
+
       - name: Verify first-baseline arrival boundary in published application
         env:
           HELPDESK_MAILBOX_PUBLISH_NO_BUILD: 'true'
