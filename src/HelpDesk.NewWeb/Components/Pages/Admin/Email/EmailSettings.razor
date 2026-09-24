@@ -416,6 +416,8 @@
         { Version: 0 } => "Not configured",
         { Enabled: false } => "Paused",
         { Transport: MailboxOutgoingTransport.Smtp, HasSmtpPassword: false } => "Missing SMTP credential",
+        { Transport: MailboxOutgoingTransport.Smtp, LastTestCode: { } code } status
+            when status.TestedVersion == status.Version && code != "Authenticated" => $"Connection failed ({code})",
         { Enabled: true } => "Enabled"
     };
     private static string FormatTimestamp(long? value) => value is null ? "Never" : DateTimeOffset.FromUnixTimeMilliseconds(value.Value).ToLocalTime().ToString("g");

@@ -200,6 +200,12 @@ jobs:
           HELPDESK_MAILBOX_SPEC: tests/ux/mailbox-replica-lifecycle.spec.ts
         run: bash tools/ci/run-mailbox-lifecycle.sh
 
+      - name: Verify failed dedicated SMTP delivery and confirmed repair without global fallback
+        env:
+          HELPDESK_MAILBOX_PUBLISH_NO_BUILD: 'true'
+          HELPDESK_MAILBOX_SPEC: tests/ux/mailbox-outgoing-failure-lifecycle.spec.ts
+        run: bash tools/ci/run-mailbox-lifecycle.sh
+
       - name: Verify first-baseline arrival boundary in published application
         env:
           HELPDESK_MAILBOX_PUBLISH_NO_BUILD: 'true'
