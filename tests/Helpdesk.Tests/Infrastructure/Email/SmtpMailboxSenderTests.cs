@@ -179,11 +179,14 @@ public sealed class SmtpMailboxSenderTests
         Assert.Contains("Body", server.Message);
     }
 
-    [Fact]
-    public async Task Smtp_rejecting_every_recipient_never_submits_message_data()
+    [Theory]
+    [InlineData(451, "Failed", "SmtpTemporaryRecipientRejected")]
+    [InlineData(550, "Needs review", "SmtpRecipientRejected")]
+    public async Task Smtp_rejecting_every_recipient_never_submits_message_data(
+        int statusCode, string expectedStatus, string expectedCode)
     {
         const string rejected = "rejected@example.test";
-        await using var server = new SmtpFixture(rejected);
+        await using var server = new SmtpFixture(rejected, recipientStatus: statusCode);
         var mailbox = new EmailInboxSettings { Id = Guid.NewGuid(), MailboxAddress = "support@tenant-a.example.test", Enabled = true };
         var protection = new MailboxOutgoingCredentialProtector(new EphemeralDataProtectionProvider());
         var outgoing = new MailboxOutgoingSettings
@@ -201,12 +204,82 @@ public sealed class SmtpMailboxSenderTests
         var result = await sender.SendAsync(mailbox, outgoing,
             [rejected], null, "Update", "<p>Body</p>", [], Guid.NewGuid(), default);
 
-        Assert.Equal("Failed", result.Status);
-        Assert.Equal("SmtpRecipientRejected", result.ErrorCode);
+        Assert.Equal(expectedStatus, result.Status);
+        Assert.Equal(expectedCode, result.ErrorCode);
         Assert.Empty(result.AcceptedRecipients ?? []);
         Assert.Equal(new[] { rejected }, result.RejectedRecipients);
         await server.Completion.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.DoesNotContain("DATA", server.Commands);
+    }
+
+    [Theory]
+    [InlineData(451, "Failed", "SmtpTemporarySenderRejected")]
+    [InlineData(550, "Needs review", "SmtpSenderRejected")]
+    public async Task Smtp_sender_rejection_has_no_accepted_recipients(
+        int statusCode, string expectedStatus, string expectedCode)
+    {
+        await using var server = new SmtpFixture(senderStatus: statusCode);
+        var (sender, mailbox, outgoing) = CreateSender(server.Port);
+
+        var result = await sender.SendAsync(mailbox, outgoing, ["requester@example.test"], null,
+            "Update", "<p>Body</p>", [], Guid.NewGuid(), default);
+
+        Assert.Equal(expectedStatus, result.Status);
+        Assert.Equal(expectedCode, result.ErrorCode);
+        Assert.Empty(result.AcceptedRecipients ?? []);
+        await server.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.DoesNotContain(server.Commands, command => command.StartsWith("RCPT TO", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task Authentication_rejection_is_held_before_any_mail_transaction()
+    {
+        await using var server = new SmtpFixture(authStatus: 535);
+        var (sender, mailbox, outgoing) = CreateSender(server.Port);
+
+        var result = await sender.SendAsync(mailbox, outgoing, ["requester@example.test"], null,
+            "Update", "<p>Body</p>", [], Guid.NewGuid(), default);
+
+        Assert.Equal("Needs review", result.Status);
+        Assert.Equal("SmtpAuthenticationFailed", result.ErrorCode);
+        await server.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.DoesNotContain(server.Commands, command => command.StartsWith("MAIL FROM", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Theory]
+    [InlineData(451, "Failed", "SmtpTemporaryMessageRejected")]
+    [InlineData(550, "Needs review", "SmtpMessageRejected")]
+    public async Task Explicit_data_rejection_does_not_claim_delivery_to_accepted_envelope_recipients(
+        int statusCode, string expectedStatus, string expectedCode)
+    {
+        await using var server = new SmtpFixture(dataStatus: statusCode);
+        var (sender, mailbox, outgoing) = CreateSender(server.Port);
+
+        var result = await sender.SendAsync(mailbox, outgoing, ["requester@example.test"], null,
+            "Update", "<p>Body</p>", [], Guid.NewGuid(), default);
+
+        Assert.Equal(expectedStatus, result.Status);
+        Assert.Equal(expectedCode, result.ErrorCode);
+        Assert.Empty(result.AcceptedRecipients ?? []);
+        Assert.Equal(["requester@example.test"], result.RejectedRecipients);
+        await server.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Contains("DATA", server.Commands);
+    }
+
+    private static (SmtpMailboxSender Sender, EmailInboxSettings Mailbox,
+        MailboxOutgoingSettings Outgoing) CreateSender(int port)
+    {
+        var mailbox = new EmailInboxSettings { Id = Guid.NewGuid(),
+            MailboxAddress = "support@tenant-a.example.test", Enabled = true };
+        var protection = new MailboxOutgoingCredentialProtector(new EphemeralDataProtectionProvider());
+        var outgoing = new MailboxOutgoingSettings { MailboxId = mailbox.Id, Enabled = true,
+            Transport = MailboxOutgoingTransport.Smtp, SmtpHost = "localhost", SmtpPort = port,
+            SmtpTlsMode = MailboxTlsMode.TlsOnConnect, SmtpUsername = mailbox.MailboxAddress };
+        outgoing.ProtectedSmtpPassword = protection.Protect(outgoing, "synthetic-password");
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            { ["EmailSending:AllowedPrivateHosts:0"] = "localhost" }).Build();
+        return (new SmtpMailboxSender(new MailboxDestinationPolicy(configuration), protection,
+            new HtmlToPlainTextConverter()), mailbox, outgoing);
     }
 
     [Fact]
@@ -242,6 +315,10 @@ public sealed class SmtpMailboxSenderTests
     {
         private readonly TcpListener listener;
         private readonly string? rejectRecipient;
+        private readonly int recipientStatus;
+        private readonly int? senderStatus;
+        private readonly int? dataStatus;
+        private readonly int? authStatus;
         private readonly X509Certificate2 certificate;
         private readonly X509Store roots = new(StoreName.Root, StoreLocation.CurrentUser);
         public int Port { get; }
@@ -249,9 +326,14 @@ public sealed class SmtpMailboxSenderTests
         public List<string> Commands { get; } = [];
         public string Message { get; private set; } = string.Empty;
 
-        public SmtpFixture(string? rejectRecipient = null)
+        public SmtpFixture(string? rejectRecipient = null, int recipientStatus = 550,
+            int? senderStatus = null, int? dataStatus = null, int? authStatus = null)
         {
             this.rejectRecipient = rejectRecipient;
+            this.recipientStatus = recipientStatus;
+            this.senderStatus = senderStatus;
+            this.dataStatus = dataStatus;
+            this.authStatus = authStatus;
             using var key = RSA.Create(2048);
             var request = new CertificateRequest("CN=localhost", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
             var san = new SubjectAlternativeNameBuilder();
@@ -287,17 +369,22 @@ public sealed class SmtpMailboxSenderTests
                     while (await reader.ReadLineAsync() is { } data && data != ".")
                         body.AppendLine(data);
                     Message = body.ToString();
-                    await writer.WriteLineAsync("250 2.0.0 queued");
+                    await writer.WriteLineAsync(dataStatus is { } rejection
+                        ? $"{rejection} fixture message rejected" : "250 2.0.0 queued");
                     continue;
                 }
                 Commands.Add(line.StartsWith("AUTH PLAIN", StringComparison.OrdinalIgnoreCase) ? "AUTH PLAIN" : line);
                 if (line.StartsWith("EHLO", StringComparison.OrdinalIgnoreCase))
                     await writer.WriteLineAsync("250-localhost\r\n250-AUTH PLAIN\r\n250 SIZE 20000000");
                 else if (line.StartsWith("AUTH PLAIN", StringComparison.OrdinalIgnoreCase))
-                    await writer.WriteLineAsync("235 2.7.0 authenticated");
+                    await writer.WriteLineAsync(authStatus is { } authenticationRejection
+                        ? $"{authenticationRejection} fixture authentication rejected"
+                        : "235 2.7.0 authenticated");
                 else if (line.StartsWith("RCPT TO", StringComparison.OrdinalIgnoreCase) &&
                          rejectRecipient is not null && line.Contains(rejectRecipient, StringComparison.OrdinalIgnoreCase))
-                    await writer.WriteLineAsync("550 5.1.1 recipient rejected");
+                    await writer.WriteLineAsync($"{recipientStatus} fixture recipient rejected");
+                else if (line.StartsWith("MAIL FROM", StringComparison.OrdinalIgnoreCase) && senderStatus is { } senderRejection)
+                    await writer.WriteLineAsync($"{senderRejection} fixture sender rejected");
                 else if (line.StartsWith("MAIL FROM", StringComparison.OrdinalIgnoreCase) ||
                          line.StartsWith("RCPT TO", StringComparison.OrdinalIgnoreCase) ||
                          line.StartsWith("RSET", StringComparison.OrdinalIgnoreCase))

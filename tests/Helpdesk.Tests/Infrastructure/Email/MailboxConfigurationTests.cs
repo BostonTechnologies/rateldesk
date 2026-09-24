@@ -86,6 +86,10 @@ public sealed class MailboxConfigurationTests
         await db.SaveChangesAsync();
         Assert.Equal("DeliveryOutcomeRequiresReview", (await retry.PreviewAsync(
             queued.DeliveryEventId.Value, default)).Status);
+
+        await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.LastErrorCode, "SmtpAuthenticationFailed"));
+        Assert.True((await retry.PreviewAsync(queued.DeliveryEventId.Value, default)).CanRetry);
     }
 
     [Fact]

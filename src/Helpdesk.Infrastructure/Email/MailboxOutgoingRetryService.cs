@@ -81,7 +81,8 @@ public sealed class MailboxOutgoingRetryService(HelpdeskDbContext db, MailboxSen
         // Exhausted connection/authentication errors occurred before submission.
         var safeFailure = row.State == MailboxEffectState.NeedsReview
             ? row.LastErrorCode is "OutgoingNotConfigured" or "OutgoingDisabled" or
-                "SmtpCredentialMissing" or "GraphCredentialMissing" or "SenderConfigurationChanged"
+                "SmtpCredentialMissing" or "GraphCredentialMissing" or "SenderConfigurationChanged" or
+                "SmtpAuthenticationFailed" or "SmtpTlsFailed" or "SmtpSenderRejected" or "SmtpCommandRejected"
             : row.LastErrorCode is "SmtpAuthenticationFailed" or "SmtpTlsFailed" or
                 "SmtpTimedOut" or "SocketException" or "SmtpCommandRejected";
         if (!safeFailure) return Blocked(timelineId, "DeliveryOutcomeRequiresReview");

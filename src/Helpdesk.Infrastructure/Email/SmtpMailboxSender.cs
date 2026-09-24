@@ -79,6 +79,7 @@ public sealed class SmtpMailboxSender(MailboxDestinationPolicy destinations,
             }
         }
         message.Body = body.ToMessageBody();
+        var envelope = to.Concat(copy).Concat(blind).Select(MailboxAddress.Parse).ToArray();
 
         try
         {
@@ -87,7 +88,6 @@ public sealed class SmtpMailboxSender(MailboxDestinationPolicy destinations,
             using var client = await ConnectAsync(outgoing, timeout.Token);
             try
             {
-                var envelope = to.Concat(copy).Concat(blind).Select(MailboxAddress.Parse).ToArray();
                 await client.SendAsync(message, message.From.Mailboxes.Single(), envelope, timeout.Token);
                 await client.DisconnectAsync(true, timeout.Token);
                 return client.RejectedRecipients.Count == 0
@@ -96,11 +96,20 @@ public sealed class SmtpMailboxSender(MailboxDestinationPolicy destinations,
                         [.. client.AcceptedRecipients], [.. client.RejectedRecipients]);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-            catch (SmtpCommandException error) when (error.ErrorCode is SmtpErrorCode.RecipientNotAccepted or SmtpErrorCode.SenderNotAccepted)
+            catch (SmtpCommandException error) when (error.ErrorCode is SmtpErrorCode.RecipientNotAccepted
+                or SmtpErrorCode.SenderNotAccepted or SmtpErrorCode.MessageNotAccepted)
             {
-                return new("Failed", error.ErrorCode == SmtpErrorCode.SenderNotAccepted
-                    ? "SmtpSenderRejected" : "SmtpRecipientRejected",
-                    [.. client.AcceptedRecipients], [.. client.RejectedRecipients]);
+                var temporary = IsTemporary(error.StatusCode);
+                var code = error.ErrorCode switch
+                {
+                    SmtpErrorCode.SenderNotAccepted => temporary ? "SmtpTemporarySenderRejected" : "SmtpSenderRejected",
+                    SmtpErrorCode.RecipientNotAccepted => temporary ? "SmtpTemporaryRecipientRejected" : "SmtpRecipientRejected",
+                    _ => temporary ? "SmtpTemporaryMessageRejected" : "SmtpMessageRejected"
+                };
+                return new(temporary ? "Failed" : "Needs review", code,
+                    error.ErrorCode == SmtpErrorCode.MessageNotAccepted ? [] : [.. client.AcceptedRecipients],
+                    error.ErrorCode == SmtpErrorCode.MessageNotAccepted ? envelope.Select(x => x.Address).ToArray()
+                        : [.. client.RejectedRecipients]);
             }
             catch (Exception error)
             {
@@ -110,6 +119,12 @@ public sealed class SmtpMailboxSender(MailboxDestinationPolicy destinations,
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (AuthenticationException error) { return new("Needs review", SafeCode(error)); }
+        catch (SslHandshakeException error) { return new("Needs review", SafeCode(error)); }
+        catch (SmtpCommandException error)
+        {
+            return new(IsTemporary(error.StatusCode) ? "Failed" : "Needs review", SafeCode(error));
+        }
         catch (Exception error) { return new("Failed", SafeCode(error)); }
     }
 
@@ -149,10 +164,13 @@ public sealed class SmtpMailboxSender(MailboxDestinationPolicy destinations,
         _ => error.GetType().Name
     };
 
+    private static bool IsTemporary(SmtpStatusCode status) => (int)status is >= 400 and < 500;
+
     private sealed class RecipientTrackingSmtpClient : SmtpClient
     {
         public List<string> AcceptedRecipients { get; } = [];
         public List<string> RejectedRecipients { get; } = [];
+        private readonly List<SmtpStatusCode> rejectedStatusCodes = [];
 
         protected override void OnRecipientAccepted(MimeMessage message, MailboxAddress mailbox, SmtpResponse response)
         {
@@ -163,10 +181,13 @@ public sealed class SmtpMailboxSender(MailboxDestinationPolicy destinations,
         protected override void OnRecipientNotAccepted(MimeMessage message, MailboxAddress mailbox, SmtpResponse response)
         {
             RejectedRecipients.Add(mailbox.Address);
+            rejectedStatusCodes.Add(response.StatusCode);
         }
 
         protected override void OnNoRecipientsAccepted(MimeMessage message) =>
             throw new SmtpCommandException(SmtpErrorCode.RecipientNotAccepted,
-                SmtpStatusCode.MailboxUnavailable, "No recipients were accepted by the SMTP server.");
+                rejectedStatusCodes.Count > 0 && rejectedStatusCodes.All(IsTemporary)
+                    ? SmtpStatusCode.MailboxBusy : SmtpStatusCode.MailboxUnavailable,
+                "No recipients were accepted by the SMTP server.");
     }
 }
