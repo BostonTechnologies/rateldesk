@@ -3,7 +3,7 @@ import { createConnection, createServer, type Socket } from 'node:net';
 import { expect, test, type Page } from '@playwright/test';
 
 type Mailbox = { id: string };
-type Incident = { id: string; trackingId: string; subject: string };
+type Incident = { id: string; trackingId: string; subject: string; customerId: string };
 type MailMessage = { subject: string; from: string };
 type Diagnostics = { state: { initialized: boolean; syncCompletedVersion: number; errorCode: string | null } | null;
   receipts: { ticketId: string | null }[] };
@@ -218,4 +218,49 @@ test('published incoming and outgoing outages isolate mailboxes and repair one d
     message.from.includes('global@tenant-b.example.test'))).toHaveLength(0);
   expect((await incidents()).filter(item => item.subject === subject)).toHaveLength(1);
   expect((await diagnostics()).receipts.filter(receipt => receipt.ticketId === incident.id)).toHaveLength(1);
+
+  await saveOutgoing(dedicated, 'support@tenant-a.example.test',
+    'synthetic-wrong-password', process.env.MAILBOX_FIXTURE_SMTPS_PORT!, repaired.version);
+  const beforeRevertSubject = 'Fixture dedicated delivery held across revert';
+  fixture('send', ['--sender', 'requester', '--recipient', 'support', '--subject', beforeRevertSubject,
+    '--body', 'A failed dedicated delivery must not silently move to the global sender.']);
+  const beforeRevertSync = await page.request.post(`/api/v1/email-settings/${dedicated.id}/sync`, { headers });
+  expect(beforeRevertSync.ok(), await beforeRevertSync.text()).toBe(true);
+  const beforeRevertCommand = await beforeRevertSync.json() as { requestVersion: number };
+  await expect.poll(async () => (await diagnostics()).state?.syncCompletedVersion,
+    { timeout: 60_000, intervals: [1_000, 2_000, 3_000] }).toBeGreaterThanOrEqual(beforeRevertCommand.requestVersion);
+  const beforeRevertIncident = (await incidents()).find(item => item.subject === beforeRevertSubject)!;
+  expect(beforeRevertIncident).toBeDefined();
+  await expect.poll(async () => (await failed()).filter(item => item.ticketId === beforeRevertIncident.id).length,
+    { timeout: 30_000, intervals: [1_000, 2_000] }).toBe(1);
+  const heldDelivery = (await failed()).find(item => item.ticketId === beforeRevertIncident.id)!;
+  expect(heldDelivery.deliveryErrorCode).toBe('SmtpAuthenticationFailed');
+
+  const savedMailbox = await (await page.request.get(`/api/v1/email-settings/${dedicated.id}`)).json() as
+    { version: number };
+  const archive = await page.request.post(`/api/v1/email-settings/${dedicated.id}/archive`, {
+    headers, data: { version: savedMailbox.version, confirmed: true }
+  });
+  expect(archive.ok(), await archive.text()).toBe(true);
+  const heldPreview = await page.request.get(`/api/v1/timeline/${heldDelivery.id}/outgoing-retry-preview`);
+  expect(heldPreview.ok()).toBe(true);
+  expect(await heldPreview.json() as { canRetry: boolean; status: string })
+    .toMatchObject({ canRetry: false, status: 'SenderRouteChanged' });
+  const blockedRetry = await page.request.post(`/api/v1/timeline/${heldDelivery.id}/retry-current-outgoing`, {
+    headers, data: { confirmed: true, expectedOutgoingVersion: repaired.version }
+  });
+  expect(blockedRetry.status(), await blockedRetry.text()).toBe(409);
+  expect(requesterMail().filter(message => message.subject.includes(beforeRevertIncident.trackingId))).toHaveLength(0);
+
+  const manual = await page.request.post('/api/v1/incidents', { headers, data: {
+    title: 'Fixture new incident after explicit revert', description: '<p>Global route after revert</p>',
+    priority: 0, customerId: incident.customerId, organizationId: tenant!.id
+  } });
+  expect(manual.status(), await manual.text()).toBe(201);
+  const afterRevertIncident = await manual.json() as Incident;
+  await expect.poll(() => requesterMail().filter(message => message.subject.includes(afterRevertIncident.trackingId) &&
+    message.from.includes('global@tenant-b.example.test')).length,
+  { timeout: 60_000, intervals: [1_000, 2_000] }).toBe(1);
+  expect(requesterMail().filter(message => message.subject.includes(beforeRevertIncident.trackingId))).toHaveLength(0);
+  expect((await failed()).filter(item => item.ticketId === beforeRevertIncident.id)).toHaveLength(1);
 });
