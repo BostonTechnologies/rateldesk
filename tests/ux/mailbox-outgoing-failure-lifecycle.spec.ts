@@ -31,6 +31,11 @@ test('published dedicated SMTP authentication failure never falls back and repai
   const tenant = ((await (await page.request.get('/api/v1/email-settings/effective')).json()) as
     { id: string; name: string }[]).find(organization => organization.name === 'Tenant A');
   expect(tenant).toBeDefined();
+  const tenantBResponse = await page.request.post('/api/v1/organizations/', {
+    headers, data: { name: 'Tenant B', dnsName: 'tenant-b.example.test' }
+  });
+  expect(tenantBResponse.status(), await tenantBResponse.text()).toBe(201);
+  const tenantB = await tenantBResponse.json() as { id: string };
   const create = async (displayName: string, address: string, password: string, port: string,
     scope: number, organizationId: string | null, poll: boolean): Promise<Mailbox> => {
     const response = await page.request.post('/api/v1/email-settings/', { headers, data: {
@@ -53,7 +58,7 @@ test('published dedicated SMTP authentication failure never falls back and repai
     return await response.json() as { version: number };
   };
   const global = await create('Fixture global sender', 'global@tenant-b.example.test',
-    'synthetic-global-password', process.env.MAILBOX_FIXTURE_GLOBAL_IMAPS_PORT!, 0, null, false);
+    'synthetic-global-password', process.env.MAILBOX_FIXTURE_GLOBAL_IMAPS_PORT!, 0, null, true);
   await saveOutgoing(global, 'global@tenant-b.example.test', 'synthetic-global-password',
     process.env.MAILBOX_FIXTURE_GLOBAL_SMTPS_PORT!, 0);
   const dedicated = await create('Fixture dedicated failed sender', 'support@tenant-a.example.test',
@@ -66,7 +71,11 @@ test('published dedicated SMTP authentication failure never falls back and repai
   expect(start.ok(), await start.text()).toBe(true);
   const diagnostics = async (): Promise<Diagnostics> =>
     await (await page.request.get(`/api/v1/email-settings/${dedicated.id}/diagnostics`)).json() as Diagnostics;
+  const globalDiagnostics = async (): Promise<Diagnostics> =>
+    await (await page.request.get(`/api/v1/email-settings/${global.id}/diagnostics`)).json() as Diagnostics;
   await expect.poll(async () => (await diagnostics()).state?.initialized,
+    { timeout: 60_000, intervals: [1_000, 2_000, 3_000] }).toBe(true);
+  await expect.poll(async () => (await globalDiagnostics()).state?.initialized,
     { timeout: 60_000, intervals: [1_000, 2_000, 3_000] }).toBe(true);
 
   const connection = await page.request.post(`/api/v1/email-settings/${dedicated.id}/outgoing/test`, { headers });
@@ -108,6 +117,29 @@ test('published dedicated SMTP authentication failure never falls back and repai
   expect((await diagnostics()).receipts.filter(receipt => receipt.ticketId === incident.id)).toHaveLength(1);
   const requesterMail = (): MailMessage[] => fixture('messages', ['--account', 'requester']) as MailMessage[];
   expect(requesterMail().filter(message => message.subject.includes(incident.trackingId))).toHaveLength(0);
+
+  const globalSubject = 'Fixture healthy global sender during dedicated failure';
+  fixture('send', ['--sender', 'requester-b', '--recipient', 'global', '--subject', globalSubject,
+    '--body', 'The global mailbox must keep receiving and sending while dedicated SMTP authentication fails.']);
+  const globalSync = await page.request.post(`/api/v1/email-settings/${global.id}/sync`, { headers });
+  expect(globalSync.ok(), await globalSync.text()).toBe(true);
+  const globalCommand = await globalSync.json() as { requestVersion: number };
+  await expect.poll(async () => (await globalDiagnostics()).state?.syncCompletedVersion,
+    { timeout: 60_000, intervals: [1_000, 2_000, 3_000] }).toBeGreaterThanOrEqual(globalCommand.requestVersion);
+  const globalIncidents = async (): Promise<Incident[]> => {
+    const response = await page.request.get(`/api/v1/incidents?pageSize=50&organizationId=${tenantB.id}`);
+    expect(response.ok(), await response.text()).toBe(true);
+    return ((await response.json()) as { items: Incident[] }).items;
+  };
+  await expect.poll(async () => (await globalIncidents()).filter(item => item.subject === globalSubject).length,
+    { timeout: 30_000, intervals: [1_000, 2_000] }).toBe(1);
+  const globalIncident = (await globalIncidents()).find(item => item.subject === globalSubject)!;
+  await expect.poll(() => (fixture('messages', ['--account', 'requester-b']) as MailMessage[])
+    .filter(message => message.subject.includes(globalIncident.trackingId) &&
+      message.from.includes('global@tenant-b.example.test')).length,
+  { timeout: 60_000, intervals: [1_000, 2_000] }).toBe(1);
+  expect((await globalDiagnostics()).receipts.filter(receipt => receipt.ticketId === globalIncident.id)).toHaveLength(1);
+  expect((await failed()).filter(item => item.ticketId === incident.id)).toHaveLength(1);
 
   const repaired = await saveOutgoing(dedicated, 'support@tenant-a.example.test',
     'synthetic-mail-password', process.env.MAILBOX_FIXTURE_SMTPS_PORT!, outgoing.version);
