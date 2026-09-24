@@ -59,7 +59,7 @@ async function globalImapProxy(): Promise<number> {
   return address.port;
 }
 
-test('published incoming and outgoing outages isolate mailboxes and repair one delivery', async ({ page }) => {
+test('published incoming and outgoing outages isolate mailboxes and repair failed deliveries', async ({ page }) => {
   await login(page);
   const headers = { 'X-Requested-With': 'XMLHttpRequest' };
   const tenant = ((await (await page.request.get('/api/v1/email-settings/effective')).json()) as
@@ -153,6 +153,20 @@ test('published incoming and outgoing outages isolate mailboxes and repair one d
   const requesterMail = (): MailMessage[] => fixture('messages', ['--account', 'requester']) as MailMessage[];
   expect(requesterMail().filter(message => message.subject.includes(incident.trackingId))).toHaveLength(0);
 
+  const manualResponse = await page.request.post('/api/v1/incidents', { headers, data: {
+    title: 'Fixture manual incident during dedicated SMTP failure',
+    description: '<p>Manual creation must commit while outgoing authentication fails.</p>',
+    priority: 0, customerId: incident.customerId, organizationId: tenant!.id
+  } });
+  expect(manualResponse.status(), await manualResponse.text()).toBe(201);
+  const manualIncident = await manualResponse.json() as Incident;
+  await expect.poll(async () => (await failed()).filter(item => item.ticketId === manualIncident.id &&
+    item.deliveryErrorCode === 'SmtpAuthenticationFailed').length,
+  { timeout: 30_000, intervals: [1_000, 2_000] }).toBe(1);
+  const manualFailure = (await failed()).find(item => item.ticketId === manualIncident.id)!;
+  expect(requesterMail().filter(message => message.subject.includes(manualIncident.trackingId))).toHaveLength(0);
+  expect((await incidents()).filter(item => item.id === manualIncident.id)).toHaveLength(1);
+
   const globalSubject = 'Fixture healthy global sender during dedicated failure';
   fixture('send', ['--sender', 'requester-b', '--recipient', 'global', '--subject', globalSubject,
     '--body', 'The global mailbox must keep receiving and sending while dedicated SMTP authentication fails.']);
@@ -211,12 +225,29 @@ test('published incoming and outgoing outages isolate mailboxes and repair one d
     headers, data: { confirmed: true, expectedOutgoingVersion: repaired.version }
   });
   expect(retry.status(), await retry.text()).toBe(202);
+  const manualPreviewResponse = await page.request.get(
+    `/api/v1/timeline/${manualFailure.id}/outgoing-retry-preview`);
+  expect(manualPreviewResponse.ok(), await manualPreviewResponse.text()).toBe(true);
+  expect(await manualPreviewResponse.json() as { canRetry: boolean; mailboxAddress: string;
+    currentOutgoingVersion: number }).toMatchObject({ canRetry: true,
+      mailboxAddress: 'support@tenant-a.example.test', currentOutgoingVersion: repaired.version });
+  const manualRetry = await page.request.post(
+    `/api/v1/timeline/${manualFailure.id}/retry-current-outgoing`, {
+      headers, data: { confirmed: true, expectedOutgoingVersion: repaired.version }
+    });
+  expect(manualRetry.status(), await manualRetry.text()).toBe(202);
   await expect.poll(() => requesterMail().filter(message => message.subject.includes(incident.trackingId) &&
+    message.from.includes('support@tenant-a.example.test')).length,
+  { timeout: 60_000, intervals: [1_000, 2_000] }).toBe(1);
+  await expect.poll(() => requesterMail().filter(message => message.subject.includes(manualIncident.trackingId) &&
     message.from.includes('support@tenant-a.example.test')).length,
   { timeout: 60_000, intervals: [1_000, 2_000] }).toBe(1);
   expect(requesterMail().filter(message => message.subject.includes(incident.trackingId) &&
     message.from.includes('global@tenant-b.example.test'))).toHaveLength(0);
+  expect(requesterMail().filter(message => message.subject.includes(manualIncident.trackingId) &&
+    message.from.includes('global@tenant-b.example.test'))).toHaveLength(0);
   expect((await incidents()).filter(item => item.subject === subject)).toHaveLength(1);
+  expect((await incidents()).filter(item => item.id === manualIncident.id)).toHaveLength(1);
   expect((await diagnostics()).receipts.filter(receipt => receipt.ticketId === incident.id)).toHaveLength(1);
 
   await saveOutgoing(dedicated, 'support@tenant-a.example.test',
