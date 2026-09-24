@@ -30,9 +30,22 @@ test('provider selection, failed draft test, discard, save and explicit tenant r
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByText('Mailbox settings saved.', { exact: true })).toBeVisible();
   await expect(page.getByLabel('Protocol password', { exact: true })).toHaveValue('');
+  const rejectedName = 'X'.repeat(201);
+  await page.getByLabel('Mailbox display name', { exact: true }).fill(rejectedName);
+  await page.getByRole('tab', { name: /Processing/ }).click();
+  await page.getByRole('tab', { name: /Incoming/ }).click();
+  await expect(page.getByLabel('Mailbox display name', { exact: true })).toHaveValue(rejectedName);
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Mailbox settings were not saved.' }))
+    .toContainText('Mailbox display name: Use 200 characters or fewer.');
+  await expect(page.getByLabel('Mailbox display name', { exact: true })).toHaveValue(rejectedName);
+  await page.getByLabel('Mailbox display name', { exact: true }).fill('Fixture dedicated POP3 updated');
+  await expect(page.getByRole('alert').filter({ hasText: 'Mailbox settings were not saved.' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('Mailbox settings saved.', { exact: true })).toBeVisible();
   await page.getByLabel('Mailbox display name', { exact: true }).fill('Unsaved name');
   await page.getByRole('button', { name: 'Discard', exact: true }).click();
-  await expect(page.getByLabel('Mailbox display name', { exact: true })).toHaveValue('Fixture dedicated POP3');
+  await expect(page.getByLabel('Mailbox display name', { exact: true })).toHaveValue('Fixture dedicated POP3 updated');
   await page.screenshot({ path: testInfo.outputPath('dedicated-pop3-paused.png'), fullPage: true });
   await page.getByRole('button', { name: 'More mailbox actions' }).click();
   page.once('dialog', dialog => dialog.accept());

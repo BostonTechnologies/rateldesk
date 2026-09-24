@@ -361,6 +361,18 @@
             }
         </MudTabPanel>
         </MudTabs>
+        @if (saveErrors.Count > 0)
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3" role="alert">
+                <MudText Typo="Typo.subtitle2">Mailbox settings were not saved. Your draft is still available.</MudText>
+                <ul class="mb-0">
+                    @foreach (var error in saveErrors)
+                    {
+                        <li>@error</li>
+                    }
+                </ul>
+            </MudAlert>
+        }
         @if (activeTab is 0 or 2)
         {
         <div class="mailbox-save-bar">
@@ -434,6 +446,7 @@
     private bool testing;
     private bool isDirty;
     private bool outgoingDirty;
+    private List<string> saveErrors = [];
     private int activeTab;
     private bool disposed;
     private string loadError = "Mailbox settings could not be loaded.";
@@ -453,6 +466,7 @@
         loading = true;
         loaded = false;
         testResult = null;
+        saveErrors.Clear();
         try
         {
             var settings = await HelpdeskApi.GetFromJsonAsync<List<EmailInboxSettingsDto>>("/api/v1/email-settings", disposeCts.Token);
@@ -504,7 +518,7 @@
 
             if (!response.IsSuccessStatusCode)
             {
-                Snackbar.Add("Mailbox settings could not be saved. Your changes are still available.", Severity.Error);
+                saveErrors = await ReadSaveErrorsAsync(response, disposeCts.Token);
                 return;
             }
 
@@ -521,6 +535,7 @@
             model = EmailInboxSettingsForm.FromDto(saved);
             savedBaseline = model.Clone();
             isDirty = false;
+            saveErrors.Clear();
             testResult = null;
             await RefreshSelectedStatusAsync();
             Snackbar.Add("Mailbox settings saved.", Severity.Success);
@@ -531,7 +546,7 @@
         }
         catch (Exception)
         {
-            Snackbar.Add("Mailbox settings could not be saved. Your changes are still available.", Severity.Error);
+            saveErrors = ["The save request could not be completed. Try again after checking the connection."];
         }
         finally
         {
@@ -597,6 +612,7 @@
         model = savedBaseline.Clone();
         isDirty = false;
         testResult = null;
+        saveErrors.Clear();
         await InvokeAsync(StateHasChanged);
     }
 
@@ -634,16 +650,65 @@
 
         isDirty = !model.Matches(savedBaseline);
         testResult = null;
+        saveErrors.Clear();
     }
 
     private MailboxSettingsRequest BuildPayload() => JsonSerializer.Deserialize<MailboxSettingsRequest>(JsonSerializer.Serialize(model))!;
+
+    private static async Task<List<string>> ReadSaveErrorsAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        try
+        {
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            using var document = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+            var body = document.RootElement;
+            if (body.TryGetProperty("errors", out var errors) && errors.ValueKind == JsonValueKind.Object)
+            {
+                var details = errors.EnumerateObject()
+                    .SelectMany(field => field.Value.ValueKind == JsonValueKind.Array
+                        ? field.Value.EnumerateArray()
+                            .Where(value => value.ValueKind == JsonValueKind.String)
+                            .Select(value => $"{ValidationFieldLabel(field.Name)}: {value.GetString()}")
+                        : Enumerable.Empty<string>())
+                    .Take(8).ToList();
+                if (details.Count > 0) return details;
+            }
+            if (body.TryGetProperty("message", out var message) && message.ValueKind == JsonValueKind.String &&
+                !string.IsNullOrWhiteSpace(message.GetString()))
+                return [message.GetString()!];
+        }
+        catch (JsonException) { return FallbackSaveErrors(response); }
+        catch (HttpRequestException) { return FallbackSaveErrors(response); }
+        return FallbackSaveErrors(response);
+    }
+
+    private static List<string> FallbackSaveErrors(HttpResponseMessage response) =>
+        response.StatusCode == System.Net.HttpStatusCode.Conflict
+            ? ["Configuration changed or the assignment is already in use. Reload before retrying."]
+            : ["Check the mailbox fields and try again."];
+
+    private static string ValidationFieldLabel(string field) => field switch
+    {
+        nameof(MailboxSettingsRequest.DisplayName) => "Mailbox display name",
+        nameof(MailboxSettingsRequest.MailboxAddress) => "Mailbox address",
+        nameof(MailboxSettingsRequest.MailHost) => "Mail host",
+        nameof(MailboxSettingsRequest.MailboxFolder) => "Mailbox folder",
+        nameof(MailboxSettingsRequest.OrganizationId) => "RatelDesk organization",
+        nameof(MailboxSettingsRequest.TenantId) => "Microsoft directory ID",
+        nameof(MailboxSettingsRequest.ClientId) => "Microsoft client ID",
+        nameof(MailboxSettingsRequest.Username) => "Protocol username",
+        nameof(MailboxSettingsRequest.Password) => "Protocol password",
+        nameof(MailboxSettingsRequest.ClientSecret) => "Client secret",
+        nameof(MailboxSettingsRequest.Port) => "Port",
+        _ => field
+    };
 
     private async Task SelectMailboxAsync(Guid id)
     {
         if ((isDirty || outgoingDirty) && !await JS.InvokeAsync<bool>("confirm", "Discard unsaved mailbox changes?")) return;
         outgoingDirty = false;
         model = id == Guid.Empty ? new() : EmailInboxSettingsForm.FromDto(mailboxes.Single(x => x.Id == id));
-        savedBaseline = model.Clone(); isDirty = false; testResult = null;
+        savedBaseline = model.Clone(); isDirty = false; testResult = null; saveErrors.Clear();
         await RefreshSelectedStatusAsync();
     }
     private async Task RefreshSelectedStatusAsync()

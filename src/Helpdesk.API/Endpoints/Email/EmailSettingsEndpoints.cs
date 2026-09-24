@@ -43,7 +43,7 @@ public static class EmailSettingsEndpoints
         {
             try { return Results.Ok(await service.SaveAsync(id, request, ct)); }
             catch (KeyNotFoundException) { return Results.NotFound(); }
-            catch (ArgumentException ex) { return Results.BadRequest(new { message = ex.Message }); }
+            catch (ArgumentException ex) { return FieldValidation(ex); }
             catch (InvalidOperationException ex) { return Results.Conflict(new { message = ex.Message }); }
             catch (DbUpdateConcurrencyException) { return Results.Conflict(new { message = "Outgoing configuration changed; reload before saving." }); }
         });
@@ -92,7 +92,7 @@ public static class EmailSettingsEndpoints
                 await transaction.CommitAsync(ct);
                 return Results.Created($"/api/v1/email-settings/{mailbox.Id}", MailboxSettingsService.ToDto(mailbox));
             }
-            catch (ArgumentException ex) { return Results.BadRequest(new { message = ex.Message }); }
+            catch (ArgumentException ex) { return FieldValidation(ex); }
             catch (DbUpdateException) { return Results.Conflict(new { message = "Mailbox assignment or connection already exists." }); }
         });
         group.MapPut("/{id:guid}", async (Guid id, [FromBody] MailboxSettingsRequest request, HelpdeskDbContext db, MailboxSettingsService service, ClaimsPrincipal user, CancellationToken ct) =>
@@ -108,7 +108,7 @@ public static class EmailSettingsEndpoints
                 await db.SaveChangesAsync(ct);
                 return Results.Ok(MailboxSettingsService.ToDto(existing));
             }
-            catch (ArgumentException ex) { return Results.BadRequest(new { message = ex.Message }); }
+            catch (ArgumentException ex) { return FieldValidation(ex); }
             catch (InvalidOperationException ex) { return Results.Conflict(new { message = ex.Message }); }
             catch (DbUpdateException) { return Results.Conflict(new { message = "Configuration changed; reload before saving." }); }
         });
@@ -282,6 +282,15 @@ public static class EmailSettingsEndpoints
     private static Task<bool> AssignmentExistsAsync(HelpdeskDbContext db, EmailInboxSettings mailbox, CancellationToken ct) =>
         db.EmailInboxSettings.AnyAsync(x => !x.Archived && x.Scope == mailbox.Scope && x.OrganizationId == mailbox.OrganizationId, ct);
 
+    private static IResult FieldValidation(ArgumentException exception)
+    {
+        var field = exception.ParamName ?? "Mailbox";
+        var message = exception.ParamName is null
+            ? exception.Message
+            : exception.Message.Replace($" (Parameter '{exception.ParamName}')", string.Empty, StringComparison.Ordinal);
+        return Results.ValidationProblem(new Dictionary<string, string[]> { [field] = [message] });
+    }
+
     private static async Task<IResult> SetEnabledAsync(Guid id, bool enabled, HelpdeskDbContext db, ClaimsPrincipal user, CancellationToken ct)
     {
         var mailbox = await db.EmailInboxSettings.SingleOrDefaultAsync(x => x.Id == id, ct);
@@ -316,7 +325,7 @@ public static class EmailSettingsEndpoints
         var existing = request.Id == Guid.Empty ? null : await db.EmailInboxSettings.AsNoTracking().SingleOrDefaultAsync(x => x.Id == request.Id, ct);
         if (request.Id != Guid.Empty && existing is null) return Results.NotFound();
         try { return await TestAsync(await service.PrepareAsync(request, existing, ct), db, adapters, false, ct); }
-        catch (ArgumentException ex) { return Results.BadRequest(new { message = ex.Message }); }
+        catch (ArgumentException ex) { return FieldValidation(ex); }
         catch (InvalidOperationException) { return Results.Conflict(new { message = "Reload the saved configuration before testing." }); }
     }
 

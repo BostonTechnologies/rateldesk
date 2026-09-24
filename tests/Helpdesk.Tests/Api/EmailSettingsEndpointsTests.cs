@@ -7,6 +7,7 @@ using Microsoft.Data.Sqlite;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Claims;
+using System.Text.Json;
 using System.Text.Encodings.Web;
 using Helpdesk.API.Endpoints.Email;
 using Helpdesk.Application.Services.Email;
@@ -72,6 +73,25 @@ public class EmailSettingsEndpointsTests
         var request = Payload(saved); request.MailHost = "attacker.example.test";
         Assert.Equal(HttpStatusCode.BadRequest, (await harness.Client.PutAsJsonAsync($"/api/v1/email-settings/{saved.Id}", request)).StatusCode);
         Assert.Equal(saved.MailHost, Assert.Single(await harness.AllSettingsAsync()).MailHost);
+    }
+
+    [Fact]
+    public async Task Put_ReturnsFieldValidationWithoutChangingSavedMailbox()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var saved = await harness.SeedAsync();
+        var request = Payload(saved);
+        request.DisplayName = new string('X', 201);
+
+        var response = await harness.Client.PutAsJsonAsync($"/api/v1/email-settings/{saved.Id}", request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal("Use 200 characters or fewer.", body.RootElement.GetProperty("errors")
+            .GetProperty("DisplayName")[0].GetString());
+        var persisted = Assert.Single(await harness.AllSettingsAsync());
+        Assert.Equal(saved.DisplayName, persisted.DisplayName);
+        Assert.Equal(saved.Version, persisted.Version);
     }
 
     [Fact]

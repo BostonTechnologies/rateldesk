@@ -17,30 +17,37 @@ public sealed class MailboxSettingsService(HelpdeskDbContext db, MailboxCredenti
 
     public async Task<EmailInboxSettings> PrepareAsync(MailboxSettingsRequest request, EmailInboxSettings? existing, CancellationToken ct)
     {
-        if (!Enum.IsDefined(request.Provider) || !Enum.IsDefined(request.Authentication) || !Enum.IsDefined(request.Scope) ||
-            !Enum.IsDefined(request.TlsMode) || !Enum.IsDefined(request.InitialImport)) throw new ArgumentException("Unsupported mailbox option.");
+        if (!Enum.IsDefined(request.Provider)) throw new ArgumentException("Unsupported inbound provider.", nameof(request.Provider));
+        if (!Enum.IsDefined(request.Authentication)) throw new ArgumentException("Unsupported authentication mode.", nameof(request.Authentication));
+        if (!Enum.IsDefined(request.Scope)) throw new ArgumentException("Unsupported assignment scope.", nameof(request.Scope));
+        if (!Enum.IsDefined(request.TlsMode)) throw new ArgumentException("Unsupported TLS mode.", nameof(request.TlsMode));
+        if (!Enum.IsDefined(request.InitialImport)) throw new ArgumentException("Unsupported initial import mode.", nameof(request.InitialImport));
         if (!MailAddress.TryCreate(request.MailboxAddress, out var parsed) || parsed.Address != request.MailboxAddress.Trim())
-            throw new ArgumentException("A valid mailbox address is required.");
-        if ((request.DisplayName?.Length ?? 0) > 200 || (request.MailHost?.Length ?? 0) > 253 || (request.MailboxFolder?.Length ?? 0) > 512 ||
-            request.PollIntervalSeconds is < 10 or > 300 || request.BatchSize is < 1 or > 100 || request.Port is < 1 or > 65535)
-            throw new ArgumentException("Mailbox fields exceed supported bounds.");
+            throw new ArgumentException("Enter a valid mailbox address.", nameof(request.MailboxAddress));
+        if ((request.DisplayName?.Length ?? 0) > 200) throw new ArgumentException("Use 200 characters or fewer.", nameof(request.DisplayName));
+        if ((request.MailHost?.Length ?? 0) > 253) throw new ArgumentException("Use 253 characters or fewer.", nameof(request.MailHost));
+        if ((request.MailboxFolder?.Length ?? 0) > 512) throw new ArgumentException("Use 512 characters or fewer.", nameof(request.MailboxFolder));
+        if (request.PollIntervalSeconds is < 10 or > 300) throw new ArgumentException("Enter 10 to 300 seconds.", nameof(request.PollIntervalSeconds));
+        if (request.BatchSize is < 1 or > 100) throw new ArgumentException("Enter 1 to 100 messages.", nameof(request.BatchSize));
+        if (request.Port is < 1 or > 65535) throw new ArgumentException("Enter a port between 1 and 65535.", nameof(request.Port));
         if ((request.Scope == MailboxScope.Global && request.OrganizationId is not null) ||
             (request.Scope == MailboxScope.Organization && !await db.Organizations.AnyAsync(x => x.Id == request.OrganizationId, ct)))
-            throw new ArgumentException("Select a valid RatelDesk organization for a dedicated mailbox.");
+            throw new ArgumentException("Select a valid RatelDesk organization for a dedicated mailbox.", nameof(request.OrganizationId));
         if (request.Provider == InboundMailboxProvider.Graph && request.Authentication != MailboxAuthentication.MicrosoftApplication)
-            throw new ArgumentException("Graph requires Microsoft application authentication.");
-        if (request.Authentication == MailboxAuthentication.MicrosoftApplication &&
-            (!Guid.TryParse(request.TenantId, out _) || !Guid.TryParse(request.ClientId, out _)))
-            throw new ArgumentException("Microsoft directory and client IDs must be valid GUIDs.");
+            throw new ArgumentException("Graph requires Microsoft application authentication.", nameof(request.Authentication));
+        if (request.Authentication == MailboxAuthentication.MicrosoftApplication && !Guid.TryParse(request.TenantId, out _))
+            throw new ArgumentException("Enter a valid Microsoft directory ID.", nameof(request.TenantId));
+        if (request.Authentication == MailboxAuthentication.MicrosoftApplication && !Guid.TryParse(request.ClientId, out _))
+            throw new ArgumentException("Enter a valid Microsoft client ID.", nameof(request.ClientId));
         if (request.Provider != InboundMailboxProvider.Graph && string.IsNullOrWhiteSpace(request.MailHost))
-            throw new ArgumentException("A mail server is required.");
+            throw new ArgumentException("A mail server is required.", nameof(request.MailHost));
         if (request.Authentication == MailboxAuthentication.Password && string.IsNullOrWhiteSpace(request.Username))
-            throw new ArgumentException("A protocol username is required.");
+            throw new ArgumentException("A protocol username is required.", nameof(request.Username));
         if (request.Provider == InboundMailboxProvider.Pop3 && (request.InitialImport == InitialMailImport.ExistingUnread ||
             !string.IsNullOrEmpty(request.ProcessedFolder) || request.MarkReadAfterSuccess))
-            throw new ArgumentException("POP3 supports retention, not unread filtering or folder/read dispositions.");
+            throw new ArgumentException("POP3 supports retention, not unread filtering or folder/read dispositions.", nameof(request.ProcessedFolder));
         if (existing is null && request.InitialImport != InitialMailImport.NewOnly && !request.ConfirmExistingImport)
-            throw new ArgumentException("Existing-message import requires explicit confirmation.");
+            throw new ArgumentException("Existing-message import requires explicit confirmation.", nameof(request.ConfirmExistingImport));
         if (existing is not null && (existing.Archived || existing.Version != request.Version))
             throw new InvalidOperationException("Configuration changed; reload before saving.");
         var result = new EmailInboxSettings
@@ -67,7 +74,8 @@ public sealed class MailboxSettingsService(HelpdeskDbContext db, MailboxCredenti
         if (result.Authentication == MailboxAuthentication.Password) result.ClientSecret = string.Empty;
         else result.Password = string.Empty;
         if (result.Enabled && (result.Authentication == MailboxAuthentication.Password ? result.Password : result.ClientSecret).Length == 0)
-            throw new ArgumentException("An enabled mailbox requires credentials.");
+            throw new ArgumentException("An enabled mailbox requires credentials.",
+                result.Authentication == MailboxAuthentication.Password ? nameof(request.Password) : nameof(request.ClientSecret));
         return result;
     }
 
