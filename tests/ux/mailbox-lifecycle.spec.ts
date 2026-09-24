@@ -3,7 +3,8 @@ import { expect, test, type Page } from '@playwright/test';
 
 type MailMessage = { subject: string; from: string; to: string; replyTo: string; messageId: string; body: string };
 type Mailbox = { id: string; organizationId: string | null; mailboxAddress: string };
-type Incident = { id: string; trackingId: string; subject: string; requesterEmail: string; organizationId: string; customerId: string };
+type Incident = { id: string; trackingId: string; subject: string; requesterEmail: string; organizationId: string;
+  customerId: string; state: number | string; assignedToId: string | null };
 type TicketAttachment = { id: string; fileName: string; contentType: string; sizeBytes: number };
 type IncidentPeek = { html: string; snippetText: string | null };
 type Diagnostics = { state: { initialized: boolean; syncCompletedVersion: number } | null;
@@ -347,6 +348,47 @@ test('mailbox lifecycle acceptance: published Web/API receives, sends and thread
     message.replyTo.includes('global@tenant-b.example.test') &&
     message.to.includes('recipient@tenant-a.example.test')),
   { timeout: 60_000, intervals: [1_000, 2_000] }).toBe(true);
+
+  // The sender is both a Customer in A and a linked local User with support
+  // access in B. The forwarded requester belongs to B, whose effective source
+  // is the global mailbox. Exercise the real MIME parser and hosted rule path.
+  const forwarderResponse = await page.request.post('/api/v1/local-auth/users', {
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    data: { displayName: 'Fixture cross-tenant forwarder', email: 'requester@tenant-a.example.test',
+      role: 'User', organizationId: selected!.organizationId }
+  });
+  expect(forwarderResponse.status(), await forwarderResponse.text()).toBe(201);
+  const forwarder = await forwarderResponse.json() as { userId: string };
+  const assignments = await page.request.put(`/api/v1/local-auth/users/${forwarder.userId}/assignments`, {
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    data: { assignments: [
+      { roleKey: 'SelfServiceUser', organizationId: selected!.organizationId },
+      { roleKey: 'Technician', organizationId: organizationB.id }
+    ] }
+  });
+  expect(assignments.status(), await assignments.text()).toBe(204);
+  const forwardingRule = await page.request.post('/api/v1/inbound-email-rules/', {
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    data: { scopeType: 1, tenantId: organizationB.id, mailboxId: globalMailbox!.id,
+      name: 'Fixture authorized forwarding', enabled: true, priority: 0, stopProcessing: true,
+      conditions: [{ type: 0 }, { type: 2 }, { type: 3 }], actions: [{ type: 0 }] }
+  });
+  expect(forwardingRule.status(), await forwardingRule.text()).toBe(201);
+  const forwardedSubject = 'Fixture forwarded tenant B request';
+  fixture('send', ['--sender', 'requester', '--recipient', 'global',
+    '--subject', `Fwd: ${forwardedSubject}`,
+    '--body', `Please handle this for Tenant B.\n\n-----Original Message-----\nFrom: Requester B <requester@tenant-b.example.test>\nTo: global@tenant-b.example.test\nSubject: ${forwardedSubject}\n\nForwarded request body`]);
+  await expect.poll(async () => (await tenantBIncidents()).filter(incident =>
+    incident.subject === forwardedSubject).length,
+  { timeout: 90_000, intervals: [1_000, 2_000, 3_000] }).toBe(1);
+  const forwardedIncident = (await tenantBIncidents()).find(incident => incident.subject === forwardedSubject)!;
+  expect(forwardedIncident.requesterEmail).toBe('requester@tenant-b.example.test');
+  expect(forwardedIncident.organizationId).toBe(organizationB.id);
+  expect(forwardedIncident.state).toBe(0);
+  expect(forwardedIncident.assignedToId).toBeNull();
+  const forwardedReceipt = ((await (await page.request.get(
+    `/api/v1/email-settings/${globalMailbox!.id}/diagnostics`)).json()) as Diagnostics).receipts;
+  expect(forwardedReceipt.some(receipt => receipt.ticketId === forwardedIncident.id)).toBe(true);
 
   const dedicatedSubject = 'Fixture dedicated route after global activation';
   fixture('send', ['--sender', 'requester', '--recipient', 'support', '--subject', dedicatedSubject,

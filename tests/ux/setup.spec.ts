@@ -256,20 +256,27 @@ test('first-run setup initializes, survives restart, and supports isolated scope
   // MFA is offered only after a correct password for an explicitly enrolled account.
   for (const code of [totp(sharedKey), recoveryCode]) {
     await page.context().clearCookies();
-    await page.goto('/login');
-    await expect(page.getByTestId('local-login-form')).toHaveAttribute('data-interactive', 'true');
-    await expect(page.getByLabel('Verification code')).toHaveCount(0);
-    await page.getByLabel('Email', { exact: false }).fill('browser.wizard.admin@example.test');
-    await page.getByLabel('Password', { exact: false }).fill(passphrase);
-    await page.getByRole('button', { name: 'Sign in to Browser Wizard RatelDesk', exact: true }).click();
-    await expect(page).toHaveURL(/\/login\/two-factor$/);
-    expect((await page.request.get('/api/v1/auth/me')).status()).toBe(401);
-    await expect(page.getByTestId('local-two-factor-form')).toHaveAttribute('data-interactive', 'true');
-    await expect(page.locator('input[name="password"]')).toHaveCount(0);
-    await page.getByLabel('Verification code').fill(code);
-    await page.getByRole('button', { name: 'Verify and sign in' }).click();
-    await expect(page).toHaveURL(/\/home(?:[?#].*)?$/);
-    expect((await (await page.request.get('/api/v1/auth/me')).json()).isHelpdeskAdmin).toBe(true);
+    // The previous authenticated Blazor circuit may redirect as its cookie is
+    // cleared. Use a fresh tab so that redirect cannot abort this navigation.
+    const loginPage = await page.context().newPage();
+    try {
+      await loginPage.goto('/login');
+      await expect(loginPage.getByTestId('local-login-form')).toHaveAttribute('data-interactive', 'true');
+      await expect(loginPage.getByLabel('Verification code')).toHaveCount(0);
+      await loginPage.getByLabel('Email', { exact: false }).fill('browser.wizard.admin@example.test');
+      await loginPage.getByLabel('Password', { exact: false }).fill(passphrase);
+      await loginPage.getByRole('button', { name: 'Sign in to Browser Wizard RatelDesk', exact: true }).click();
+      await expect(loginPage).toHaveURL(/\/login\/two-factor$/);
+      expect((await loginPage.request.get('/api/v1/auth/me')).status()).toBe(401);
+      await expect(loginPage.getByTestId('local-two-factor-form')).toHaveAttribute('data-interactive', 'true');
+      await expect(loginPage.locator('input[name="password"]')).toHaveCount(0);
+      await loginPage.getByLabel('Verification code').fill(code);
+      await loginPage.getByRole('button', { name: 'Verify and sign in' }).click();
+      await expect(loginPage).toHaveURL(/\/home(?:[?#].*)?$/);
+      expect((await (await loginPage.request.get('/api/v1/auth/me')).json()).isHelpdeskAdmin).toBe(true);
+    } finally {
+      await loginPage.close();
+    }
   }
 });
 
