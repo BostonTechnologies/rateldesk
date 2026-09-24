@@ -157,6 +157,11 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
     {
         var now = timeProvider.GetUtcNow();
         var milliseconds = now.ToUnixTimeMilliseconds();
+        if (!succeeded && submission?.AcceptedRecipients?.Count > 0)
+        {
+            requiresReview = true;
+            errorCode = "SmtpPartialRecipientAcceptance";
+        }
         var state = succeeded ? MailboxEffectState.Completed
             : requiresReview ? MailboxEffectState.NeedsReview
             : claim.Attempts >= MaximumAttempts ? MailboxEffectState.Exhausted : MailboxEffectState.Pending;
@@ -343,6 +348,8 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
                     : succeeded ? "Email accepted by provider."
                     : errorCode is "DispatchOutcomeUnknown" or "SubmissionOutcomeUnknown"
                         ? "Email submission outcome is unknown; verify with recipients before taking action."
+                    : errorCode == "SmtpPartialRecipientAcceptance"
+                        ? "Some SMTP recipients were accepted; review recipient outcomes before retrying."
                     : state == MailboxEffectState.NeedsReview ? "Email delivery needs sender review."
                     : state == MailboxEffectState.Exhausted
                     ? "Email delivery requires retry." : "Email queued for another delivery attempt.";

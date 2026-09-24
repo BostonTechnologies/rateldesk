@@ -176,11 +176,13 @@ public sealed class SmtpMailboxSenderTests
         Assert.Equal("forwarded.eml", forwarded.ContentDisposition?.FileName);
     }
 
-    [Fact]
-    public async Task Partial_smtp_recipient_rejection_is_held_without_resending_accepted_recipient()
+    [Theory]
+    [InlineData(451)]
+    [InlineData(550)]
+    public async Task Partial_smtp_recipient_rejection_is_held_without_resending_accepted_recipient(int rejectionStatus)
     {
         const string rejected = "rejected@example.test";
-        await using var server = new SmtpFixture(rejected);
+        await using var server = new SmtpFixture(rejected, recipientStatus: rejectionStatus);
         var mailbox = new EmailInboxSettings { Id = Guid.NewGuid(), MailboxAddress = "support@tenant-a.example.test", Enabled = true };
         var protection = new MailboxOutgoingCredentialProtector(new EphemeralDataProtectionProvider());
         var outgoing = new MailboxOutgoingSettings
