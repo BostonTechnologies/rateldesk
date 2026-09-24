@@ -43,6 +43,9 @@ public sealed class TimelineEndpointsAuthorizationTests
         var previewUncertain = await harness.Client.GetAsync($"/api/v1/timeline/{Guid.NewGuid()}/uncertain-retry-preview");
         var retryUncertain = await harness.Client.PostAsJsonAsync($"/api/v1/timeline/{Guid.NewGuid()}/retry-confirmed-undelivered",
             new ConfirmMailboxUndeliveredRetryRequest(1, 2, "provider-case-123", true));
+        var previewRoute = await harness.Client.GetAsync($"/api/v1/timeline/{Guid.NewGuid()}/changed-route-preview");
+        var retryRoute = await harness.Client.PostAsJsonAsync($"/api/v1/timeline/{Guid.NewGuid()}/retry-current-route",
+            new ConfirmMailboxRouteRetryRequest(1, Guid.NewGuid(), Guid.NewGuid(), 2, 3, true));
 
         Assert.Equal(HttpStatusCode.Forbidden, pendingCount.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, failed.StatusCode);
@@ -52,6 +55,8 @@ public sealed class TimelineEndpointsAuthorizationTests
         Assert.Equal(HttpStatusCode.Forbidden, retryCurrent.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, previewUncertain.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, retryUncertain.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, previewRoute.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, retryRoute.StatusCode);
     }
 
     [Fact]

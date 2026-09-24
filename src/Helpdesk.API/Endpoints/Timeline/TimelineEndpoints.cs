@@ -84,6 +84,22 @@ public static class TimelineEndpoints
                 : Results.Conflict(result);
         }).WithName($"RetryTimelineConfirmedUndelivered{nameSuffix}");
 
+        group.MapGet("/{id:guid}/changed-route-preview", async (Guid id,
+            [FromServices] MailboxOutgoingRetryService service, CancellationToken ct) =>
+            Results.Ok(await service.PreviewChangedRouteAsync(id, ct)))
+            .WithName($"PreviewTimelineChangedRoute{nameSuffix}");
+
+        group.MapPost("/{id:guid}/retry-current-route", async (Guid id,
+            ConfirmMailboxRouteRetryRequest request, HttpContext context,
+            [FromServices] MailboxOutgoingRetryService service, CancellationToken ct) =>
+        {
+            var userId = ResolveUserId(context);
+            if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+            var result = await service.RetryWithCurrentRouteAsync(id, request, userId, ct);
+            return result.CanRetry && result.Status == "Queued" ? Results.Accepted(value: result)
+                : Results.Conflict(result);
+        }).WithName($"RetryTimelineWithCurrentRoute{nameSuffix}");
+
         group.MapPost("/retry-all",
             async (
                 HttpContext context,
@@ -140,7 +156,8 @@ public static class TimelineEndpoints
                         EmailStatus = x.EmailStatus,
                         EmailRecipient = x.EmailRecipient,
                         RetryCount = x.RetryCount,
-                        IsRetryable = x.RetryError != "DispatchOutcomeUnknown" &&
+                        IsRetryable = x.RetryError != "SenderRouteChanged" &&
+                            x.RetryError != "DispatchOutcomeUnknown" &&
                             x.RetryError != "SubmissionOutcomeUnknown" &&
                             x.RetryError != "SmtpPartialRecipientAcceptance"
                     }).ToListAsync(ct);
@@ -156,7 +173,7 @@ public static class TimelineEndpoints
                 {
                     if (!byDeliveryId.TryGetValue(delivery.Id, out var result)) continue;
                     delivery.DeliveryErrorCode = result.LastErrorCode;
-                    if (result.LastErrorCode is "DispatchOutcomeUnknown" or "SubmissionOutcomeUnknown" or
+                    if (result.LastErrorCode is "SenderRouteChanged" or "DispatchOutcomeUnknown" or "SubmissionOutcomeUnknown" or
                         "SmtpPartialRecipientAcceptance")
                         delivery.IsRetryable = false;
                     if (result.RecipientOutcomeJson is null) continue;

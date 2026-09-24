@@ -113,9 +113,9 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(360, operationCount);
+        Assert.Equal(362, operationCount);
 #else
-        Assert.Equal(359, operationCount);
+        Assert.Equal(361, operationCount);
 #endif
 
         var pathOrder = document.RootElement.GetProperty("paths").EnumerateObject().Select(path => path.Name).ToArray();

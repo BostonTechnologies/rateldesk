@@ -166,7 +166,8 @@ public sealed class MailboxOutgoingRetryService(HelpdeskDbContext db, MailboxSen
         try { email = MailboxOutboxStore.Deserialize<IngressEmailEffect>(row.Payload); }
         catch (JsonException) { return BlockedUncertain(timelineId, "InvalidDeliveryPayload"); }
         if (email.MailboxId is null || email.MailboxConfigurationVersion is null ||
-            string.IsNullOrWhiteSpace(email.TicketId) || string.IsNullOrWhiteSpace(email.OrganizationId))
+            string.IsNullOrWhiteSpace(email.TicketId) || string.IsNullOrWhiteSpace(email.OrganizationId) ||
+            email.Recipients is null || email.Cc is null || email.Bcc is null || email.Attachments is null)
             return BlockedUncertain(timelineId, "SenderBindingMissing");
         var recipients = email.Recipients.Concat(email.Cc).Concat(email.Bcc)
             .Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
@@ -187,6 +188,127 @@ public sealed class MailboxOutgoingRetryService(HelpdeskDbContext db, MailboxSen
 
     private static MailboxUncertainRetryPreview BlockedUncertain(Guid timelineId, string status) =>
         new(timelineId, false, status, null, null, null, [], null, null, null);
+
+    public async Task<MailboxRouteRetryPreview> PreviewChangedRouteAsync(Guid timelineId, CancellationToken ct)
+    {
+        var row = await db.Set<MailboxOutboxEffect>().AsNoTracking()
+            .SingleOrDefaultAsync(x => x.DeliveryEventId == timelineId, ct);
+        return await PreviewChangedRouteAsync(timelineId, row, ct);
+    }
+
+    public async Task<MailboxRouteRetryPreview> RetryWithCurrentRouteAsync(Guid timelineId,
+        ConfirmMailboxRouteRetryRequest request, string userId, CancellationToken ct)
+    {
+        if (!request.ConfirmedNewSender)
+            return BlockedRoute(timelineId, "SenderConfirmationRequired");
+
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        var row = await db.Set<MailboxOutboxEffect>().AsNoTracking()
+            .SingleOrDefaultAsync(x => x.DeliveryEventId == timelineId, ct);
+        var preview = await PreviewChangedRouteAsync(timelineId, row, ct);
+        if (!preview.CanRetry || row is null)
+            return preview;
+        if (preview.Fence != request.ExpectedFence || preview.OriginalMailboxId != request.ExpectedOriginalMailboxId ||
+            preview.CurrentMailboxId != request.ExpectedCurrentMailboxId ||
+            preview.CurrentMailboxVersion != request.ExpectedMailboxVersion ||
+            preview.CurrentOutgoingVersion != request.ExpectedOutgoingVersion)
+            return preview with { CanRetry = false, Status = "SenderRouteChanged" };
+
+        var original = MailboxOutboxStore.Deserialize<IngressEmailEffect>(row.Payload);
+        var rebound = original with
+        {
+            MailboxId = request.ExpectedCurrentMailboxId,
+            MailboxConfigurationVersion = request.ExpectedMailboxVersion,
+            OutgoingConfigurationVersion = request.ExpectedOutgoingVersion,
+            ReplyTo = original.ReplyTo is null ? null : preview.CurrentMailboxAddress,
+            SenderBindingError = null
+        };
+        var payload = JsonSerializer.Serialize(rebound);
+        var now = clock.GetUtcNow().ToUnixTimeMilliseconds();
+        var changed = await db.Set<MailboxOutboxEffect>()
+            .Where(x => x.Id == row.Id && x.DeliveryEventId == timelineId && x.Kind == MailboxEffectKind.Email &&
+                x.State == row.State && x.Fence == row.Fence && x.Payload == row.Payload &&
+                x.LastErrorCode == row.LastErrorCode && x.RecipientOutcomeJson == row.RecipientOutcomeJson)
+            .ExecuteUpdateAsync(update => update
+                .SetProperty(x => x.Payload, payload)
+                .SetProperty(x => x.State, MailboxEffectState.Pending)
+                .SetProperty(x => x.Attempts, 0)
+                .SetProperty(x => x.Fence, x => x.Fence + 1)
+                .SetProperty(x => x.Owner, (string?)null)
+                .SetProperty(x => x.LeaseExpiresUnixMilliseconds, 0L)
+                .SetProperty(x => x.AvailableUnixMilliseconds, now)
+                .SetProperty(x => x.LastErrorCode, (string?)null)
+                .SetProperty(x => x.RecipientOutcomeJson, (string?)null), ct);
+        if (changed != 1)
+            return preview with { CanRetry = false, Status = "DeliveryChanged" };
+        var timelineChanged = await db.TicketTimelineEvents.Where(x => x.Id == timelineId &&
+                x.EventType == TimelineEventType.EmailDelivery && x.EmailStatus == EmailDeliveryStatus.Failed)
+            .ExecuteUpdateAsync(update => update
+                .SetProperty(x => x.EmailStatus, EmailDeliveryStatus.Pending)
+                .SetProperty(x => x.RetryError, (string?)null)
+                .SetProperty(x => x.MessageText, "Email queued with the confirmed current mailbox route."), ct);
+        if (timelineChanged != 1)
+            return preview with { CanRetry = false, Status = "DeliveryChanged" };
+        db.ActivityLogs.Add(new ActivityLog
+        {
+            UserId = userId,
+            RelatedEntityId = preview.CurrentMailboxId?.ToString("D"),
+            Message = $"Mailbox route retry confirmed. TimelineId={timelineId:D}; OriginalMailboxId={preview.OriginalMailboxId:D}; CurrentMailboxId={preview.CurrentMailboxId:D}; CurrentMailboxVersion={request.ExpectedMailboxVersion}; CurrentOutgoingVersion={request.ExpectedOutgoingVersion}."
+        });
+        await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+        return preview with { Status = "Queued" };
+    }
+
+    private async Task<MailboxRouteRetryPreview> PreviewChangedRouteAsync(Guid timelineId,
+        MailboxOutboxEffect? row, CancellationToken ct)
+    {
+        if (row is null || row.Kind != MailboxEffectKind.Email || row.State != MailboxEffectState.NeedsReview ||
+            row.LastErrorCode != "SenderRouteChanged" ||
+            !await db.TicketTimelineEvents.AsNoTracking().AnyAsync(x => x.Id == timelineId &&
+                x.EventType == TimelineEventType.EmailDelivery && x.EmailStatus == EmailDeliveryStatus.Failed, ct))
+            return BlockedRoute(timelineId, "DeliveryNotRouteChanged");
+        if (row.RecipientOutcomeJson is not null)
+        {
+            MailboxRecipientOutcome? outcome;
+            try { outcome = JsonSerializer.Deserialize<MailboxRecipientOutcome>(row.RecipientOutcomeJson); }
+            catch (JsonException) { return BlockedRoute(timelineId, "RecipientOutcomeUnavailable"); }
+            if (outcome?.AcceptedRecipients is null || outcome.RejectedRecipients is null)
+                return BlockedRoute(timelineId, "RecipientOutcomeUnavailable");
+            if (outcome.AcceptedRecipients.Length > 0)
+                return BlockedRoute(timelineId, "AcceptedRecipientsRequireReview");
+        }
+
+        IngressEmailEffect email;
+        try { email = MailboxOutboxStore.Deserialize<IngressEmailEffect>(row.Payload); }
+        catch (JsonException) { return BlockedRoute(timelineId, "InvalidDeliveryPayload"); }
+        if (email.MailboxId is null || email.MailboxConfigurationVersion is null ||
+            string.IsNullOrWhiteSpace(email.TicketId) || string.IsNullOrWhiteSpace(email.OrganizationId) ||
+            email.Recipients is null || email.Cc is null || email.Bcc is null || email.Attachments is null)
+            return BlockedRoute(timelineId, "SenderBindingMissing");
+        var originalMailbox = await db.EmailInboxSettings.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == email.MailboxId, ct);
+        if (originalMailbox is null)
+            return BlockedRoute(timelineId, "OriginalMailboxMissing");
+        if (email.ReplyTo is not null && !EmailAddressGuard.IsSameAddress(email.ReplyTo, originalMailbox.MailboxAddress))
+            return BlockedRoute(timelineId, "ReplyToMismatch");
+        var recipients = email.Recipients.Concat(email.Cc).Concat(email.Bcc)
+            .Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (recipients.Length == 0)
+            return BlockedRoute(timelineId, "RecipientsMissing");
+
+        var current = await resolver.ResolveAsync(email.TicketId, email.OrganizationId, ct);
+        if (current.Status != "Ready" || current.Mailbox is null || current.Outgoing is null)
+            return BlockedRoute(timelineId, current.ErrorCode ?? "SenderUnavailable");
+        if (current.Mailbox.Id == originalMailbox.Id)
+            return BlockedRoute(timelineId, "SenderRouteUnchanged");
+        return new(timelineId, true, "RequiresSenderConfirmation", originalMailbox.Id,
+            originalMailbox.MailboxAddress, current.Mailbox.Id, current.Mailbox.MailboxAddress,
+            current.Outgoing.Transport, recipients, row.Fence, current.Mailbox.Version, current.Outgoing.Version);
+    }
+
+    private static MailboxRouteRetryPreview BlockedRoute(Guid timelineId, string status) =>
+        new(timelineId, false, status, null, null, null, null, null, [], null, null, null);
 
     private async Task<MailboxOutgoingRetryPreview> PreviewAsync(Guid timelineId,
         MailboxOutboxEffect? row, CancellationToken ct)

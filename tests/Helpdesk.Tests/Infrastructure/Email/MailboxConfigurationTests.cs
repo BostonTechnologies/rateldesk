@@ -190,6 +190,90 @@ public sealed class MailboxConfigurationTests
     }
 
     [Fact]
+    public async Task Archived_sender_can_be_rebound_to_the_current_ticket_route_only_after_confirmation()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync(false);
+        await using var db = fixture.Open();
+        await db.Database.MigrateAsync();
+        db.Organizations.Add(new Organization { Id = "tenant-a", Name = "Tenant A" });
+        var dedicated = new EmailInboxSettings
+        {
+            Id = Guid.NewGuid(), Scope = MailboxScope.Organization, OrganizationId = "tenant-a",
+            MailboxAddress = "dedicated@tenant-a.example.test", SourceKey = "dedicated-source",
+            Enabled = true, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
+        };
+        var global = new EmailInboxSettings
+        {
+            Id = Guid.NewGuid(), Scope = MailboxScope.Global,
+            MailboxAddress = "global@example.test", SourceKey = "global-source",
+            Enabled = true, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.EmailInboxSettings.AddRange(dedicated, global);
+        db.Set<MailboxOutgoingSettings>().AddRange(
+            new MailboxOutgoingSettings
+            {
+                MailboxId = dedicated.Id, Version = 1, Enabled = true, Transport = MailboxOutgoingTransport.Smtp,
+                SmtpHost = "smtp.tenant-a.example.test", SmtpUsername = dedicated.MailboxAddress,
+                ProtectedSmtpPassword = "synthetic-protected"
+            },
+            new MailboxOutgoingSettings
+            {
+                MailboxId = global.Id, Version = 3, Enabled = true, Transport = MailboxOutgoingTransport.Smtp,
+                SmtpHost = "smtp.example.test", SmtpUsername = global.MailboxAddress,
+                ProtectedSmtpPassword = "synthetic-protected"
+            });
+        db.Incidents.Add(new Incident { Id = "route-ticket", OrganizationId = "tenant-a", TrackingId = "INC-ROUTE" });
+        await db.SaveChangesAsync();
+        var store = new MailboxOutboxStore(db, new IngressEffectContext(), TimeProvider.System);
+        var queued = await store.QueueDirectAsync(new IngressEmailEffect(
+            ["requester@tenant-a.example.test"], "Confirmation", "<p>Body</p>", [],
+            "route-ticket", [], null, dedicated.MailboxAddress, false, null, null)
+        {
+            MailboxId = dedicated.Id, OrganizationId = "tenant-a",
+            MailboxConfigurationVersion = dedicated.Version, OutgoingConfigurationVersion = 1
+        }, default);
+        dedicated.Archived = true;
+        await db.SaveChangesAsync();
+        var claim = Assert.IsType<MailboxOutboxEffect>(await store.TryClaimAsync(queued.Id, "worker", default));
+        Assert.True(await store.CompleteAsync(claim, false, "SenderRouteChanged", default, requiresReview: true));
+        var retry = new MailboxOutgoingRetryService(db, new MailboxSenderResolver(db), TimeProvider.System);
+        var preview = await retry.PreviewChangedRouteAsync(queued.DeliveryEventId!.Value, default);
+        Assert.True(preview.CanRetry);
+        Assert.Equal(dedicated.Id, preview.OriginalMailboxId);
+        Assert.Equal(global.Id, preview.CurrentMailboxId);
+        Assert.Equal(["requester@tenant-a.example.test"], preview.Recipients);
+        var request = new ConfirmMailboxRouteRetryRequest(preview.Fence!.Value, dedicated.Id, global.Id,
+            preview.CurrentMailboxVersion!.Value, preview.CurrentOutgoingVersion!.Value, true);
+        Assert.Equal("SenderRouteChanged", (await retry.RetryWithCurrentRouteAsync(queued.DeliveryEventId.Value,
+            request with { ExpectedOutgoingVersion = 1 }, "admin", default)).Status);
+        Assert.Equal("Queued", (await retry.RetryWithCurrentRouteAsync(queued.DeliveryEventId.Value,
+            request, "admin", default)).Status);
+        Assert.Equal("DeliveryNotRouteChanged", (await retry.RetryWithCurrentRouteAsync(
+            queued.DeliveryEventId.Value, request, "other-admin", default)).Status);
+        var row = await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleAsync(x => x.Id == queued.Id);
+        Assert.Equal(MailboxEffectState.Pending, row.State);
+        var rebound = MailboxOutboxStore.Deserialize<IngressEmailEffect>(row.Payload);
+        Assert.Equal(global.Id, rebound.MailboxId);
+        Assert.Equal("tenant-a", rebound.OrganizationId);
+        Assert.Equal("route-ticket", rebound.TicketId);
+        Assert.Equal(global.MailboxAddress, rebound.ReplyTo);
+        Assert.Equal(3, rebound.OutgoingConfigurationVersion);
+        Assert.Equal(EmailDeliveryStatus.Pending, (await db.TicketTimelineEvents.AsNoTracking()
+            .SingleAsync(x => x.Id == queued.DeliveryEventId)).EmailStatus);
+        Assert.Equal("admin", Assert.Single(await db.ActivityLogs.AsNoTracking().ToListAsync()).UserId);
+
+        await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.State, MailboxEffectState.NeedsReview)
+            .SetProperty(x => x.LastErrorCode, "SenderRouteChanged")
+            .SetProperty(x => x.RecipientOutcomeJson, System.Text.Json.JsonSerializer.Serialize(
+                new MailboxRecipientOutcome(["requester@tenant-a.example.test"], []))));
+        await db.TicketTimelineEvents.Where(x => x.Id == queued.DeliveryEventId).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.EmailStatus, EmailDeliveryStatus.Failed));
+        Assert.Equal("AcceptedRecipientsRequireReview", (await retry.PreviewChangedRouteAsync(
+            queued.DeliveryEventId.Value, default)).Status);
+    }
+
+    [Fact]
     public async Task Worker_policy_distinguishes_fresh_pause_operator_stop_and_persisted_activation()
     {
         await using var fixture = await DatabaseFixture.CreateAsync(false);
