@@ -215,6 +215,37 @@ public class EmailSettingsEndpointsTests
     }
 
     [Fact]
+    public async Task Outgoing_write_and_read_redact_secret_and_require_explicit_clear()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var mailbox = await harness.SeedAsync();
+        var path = $"/api/v1/email-settings/{mailbox.Id}/outgoing";
+        var request = new MailboxOutgoingSettingsRequest(0, true, MailboxOutgoingTransport.Smtp,
+            "Fixture support", "smtp.example.test", 587, MailboxTlsMode.StartTls,
+            mailbox.MailboxAddress, "synthetic-outgoing-secret", false);
+
+        var save = await harness.Client.PutAsJsonAsync(path, request);
+        save.EnsureSuccessStatusCode();
+        Assert.DoesNotContain(request.SmtpPassword, await save.Content.ReadAsStringAsync());
+        var saved = (await save.Content.ReadFromJsonAsync<MailboxOutgoingSettingsDto>())!;
+        Assert.True(saved.HasSmtpPassword);
+        var read = await harness.Client.GetAsync(path);
+        read.EnsureSuccessStatusCode();
+        Assert.DoesNotContain(request.SmtpPassword, await read.Content.ReadAsStringAsync());
+        Assert.True((await read.Content.ReadFromJsonAsync<MailboxOutgoingSettingsDto>())!.HasSmtpPassword);
+
+        var clear = await harness.Client.PutAsJsonAsync(path, request with
+        {
+            Version = saved.Version, Enabled = false, SmtpPassword = string.Empty,
+            ClearSmtpPassword = true
+        });
+        clear.EnsureSuccessStatusCode();
+        Assert.False((await clear.Content.ReadFromJsonAsync<MailboxOutgoingSettingsDto>())!.HasSmtpPassword);
+        Assert.False((await harness.Client.GetFromJsonAsync<MailboxOutgoingSettingsDto>(path))!.HasSmtpPassword);
+        Assert.Equal(HttpStatusCode.Conflict, (await harness.Client.PutAsJsonAsync(path, request)).StatusCode);
+    }
+
+    [Fact]
     public async Task Historical_import_only_queues_confirmed_baseline_skips_and_never_replays_success()
     {
         await using var harness = await Harness.CreateAsync();

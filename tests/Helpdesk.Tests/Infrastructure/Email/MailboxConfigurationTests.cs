@@ -426,6 +426,16 @@ public sealed class MailboxConfigurationTests
             request with { Version = saved.Version, SmtpPassword = string.Empty }, default);
         Assert.True(retained.HasSmtpPassword);
         await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => outgoing.SaveAsync(mailbox.Id, request, default));
+
+        var cleared = await outgoing.SaveAsync(mailbox.Id, request with
+        {
+            Version = retained.Version, Enabled = false, SmtpPassword = string.Empty,
+            ClearSmtpPassword = true
+        }, default);
+        Assert.False(cleared.HasSmtpPassword);
+        Assert.False((await outgoing.GetAsync(mailbox.Id, default))!.HasSmtpPassword);
+        Assert.Equal(string.Empty,
+            (await db.Set<MailboxOutgoingSettings>().SingleAsync()).ProtectedSmtpPassword);
     }
 
     [Fact]
