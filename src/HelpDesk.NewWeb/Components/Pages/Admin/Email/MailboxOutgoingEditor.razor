@@ -1,4 +1,5 @@
 @using System.Net.Http.Json
+@using System.Text.Json
 @implements IDisposable
 @inject IHttpClientFactory Clients
 @inject ISnackbar Snackbar
@@ -33,10 +34,10 @@
                     }
                 </MudSelect>
             </MudItem>
-            <MudItem xs="12" sm="6"><MudTextField Label="Sender display name" @bind-Value="draft.DisplayName" @bind-Value:after="Changed" Disabled="@busy" /></MudItem>
+            <MudItem xs="12" sm="6"><MudTextField Label="Sender display name" @bind-Value="draft.DisplayName" @bind-Value:after="Changed" OnInternalInputChanged="MarkDirtyFromInputAsync" Immediate="true" Disabled="@busy" /></MudItem>
             @if (draft.Transport == MailboxOutgoingTransport.Smtp)
             {
-                <MudItem xs="12" sm="8"><MudTextField Label="SMTP submission host" @bind-Value="draft.SmtpHost" @bind-Value:after="Changed" Required="true" Disabled="@busy" /></MudItem>
+                <MudItem xs="12" sm="8"><MudTextField Label="SMTP submission host" @bind-Value="draft.SmtpHost" @bind-Value:after="Changed" OnInternalInputChanged="MarkDirtyFromInputAsync" Immediate="true" Required="true" Disabled="@busy" /></MudItem>
                 <MudItem xs="12" sm="4"><MudNumericField T="int" Label="SMTP port" @bind-Value="draft.SmtpPort" @bind-Value:after="Changed" Min="1" Max="65535" Disabled="@busy" /></MudItem>
                 <MudItem xs="12" sm="6">
                     <MudSelect T="MailboxTlsMode" Label="Required SMTP TLS" @bind-Value="draft.SmtpTlsMode" @bind-Value:after="Changed" Disabled="@busy">
@@ -44,8 +45,8 @@
                         <MudSelectItem Value="MailboxTlsMode.TlsOnConnect">TLS on connect</MudSelectItem>
                     </MudSelect>
                 </MudItem>
-                <MudItem xs="12" sm="6"><MudTextField Label="SMTP username" @bind-Value="draft.SmtpUsername" @bind-Value:after="Changed" Disabled="@busy" /></MudItem>
-                <MudItem xs="12" sm="6"><MudTextField Label="SMTP password" @bind-Value="draft.SmtpPassword" @bind-Value:after="Changed" InputType="InputType.Password" autocomplete="new-password" Disabled="@busy" HelperText="Leave blank to retain the saved password for this endpoint." /></MudItem>
+                <MudItem xs="12" sm="6"><MudTextField Label="SMTP username" @bind-Value="draft.SmtpUsername" @bind-Value:after="Changed" OnInternalInputChanged="MarkDirtyFromInputAsync" Immediate="true" Disabled="@busy" /></MudItem>
+                <MudItem xs="12" sm="6"><MudTextField Label="SMTP password" @bind-Value="draft.SmtpPassword" @bind-Value:after="Changed" OnInternalInputChanged="MarkDirtyFromInputAsync" Immediate="true" InputType="InputType.Password" autocomplete="new-password" Disabled="@busy" HelperText="Leave blank to retain the saved password for this endpoint." /></MudItem>
                 @if (draft.HasSmtpPassword)
                 {
                     <MudItem xs="12" sm="6"><MudCheckBox T="bool" Label="Clear saved SMTP password" @bind-Value="draft.ClearSmtpPassword" @bind-Value:after="Changed" Disabled="@busy" /></MudItem>
@@ -126,6 +127,14 @@
         await DirtyChanged.InvokeAsync(dirty);
     }
 
+    private async Task MarkDirtyFromInputAsync()
+    {
+        if (draft is null) return;
+        dirty = true;
+        message = null;
+        await DirtyChanged.InvokeAsync(true);
+    }
+
     private async Task SaveAsync()
     {
         if (draft is null || busy) return;
@@ -141,9 +150,7 @@
             using var response = await Api.PutAsJsonAsync($"/api/v1/email-settings/{MailboxId}/outgoing", draft.ToRequest(), cancellation.Token);
             if (!response.IsSuccessStatusCode)
             {
-                message = response.StatusCode == System.Net.HttpStatusCode.Conflict
-                    ? "Outgoing configuration changed or the mailbox was archived. Reload before saving."
-                    : "Outgoing settings were rejected. Check the SMTP endpoint, password and required fields.";
+                message = await ReadSaveErrorAsync(response, cancellation.Token);
                 messageIsError = true;
                 return;
             }
@@ -162,6 +169,50 @@
         catch (HttpRequestException) { message = "Outgoing settings could not be saved. Your changes are still available."; messageIsError = true; }
         finally { busy = false; }
     }
+
+    private static async Task<string> ReadSaveErrorAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        try
+        {
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            using var document = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+            var body = document.RootElement;
+            if (body.TryGetProperty("errors", out var errors) && errors.ValueKind == JsonValueKind.Object)
+            {
+                var details = errors.EnumerateObject()
+                    .SelectMany(field => field.Value.ValueKind == JsonValueKind.Array
+                        ? field.Value.EnumerateArray()
+                            .Where(value => value.ValueKind == JsonValueKind.String)
+                            .Select(value => $"{SaveFieldLabel(field.Name)}: {value.GetString()}")
+                        : Enumerable.Empty<string>())
+                    .Take(4).ToArray();
+                if (details.Length > 0) return string.Join(" ", details);
+            }
+            if (body.TryGetProperty("message", out var message) && message.ValueKind == JsonValueKind.String &&
+                !string.IsNullOrWhiteSpace(message.GetString()))
+                return message.GetString()!;
+        }
+        catch (JsonException) { return FallbackSaveError(response); }
+        catch (HttpRequestException) { return FallbackSaveError(response); }
+        return FallbackSaveError(response);
+    }
+
+    private static string FallbackSaveError(HttpResponseMessage response) =>
+        response.StatusCode == System.Net.HttpStatusCode.Conflict
+            ? "Outgoing configuration changed or the mailbox was archived. Reload before saving."
+            : "Outgoing settings were rejected. Check the SMTP endpoint, password and required fields.";
+
+    private static string SaveFieldLabel(string field) => field switch
+    {
+        nameof(MailboxOutgoingSettingsRequest.DisplayName) => "Sender display name",
+        nameof(MailboxOutgoingSettingsRequest.SmtpHost) => "SMTP submission host",
+        nameof(MailboxOutgoingSettingsRequest.SmtpPort) => "SMTP port",
+        nameof(MailboxOutgoingSettingsRequest.SmtpTlsMode) => "Required SMTP TLS",
+        nameof(MailboxOutgoingSettingsRequest.SmtpUsername) => "SMTP username",
+        nameof(MailboxOutgoingSettingsRequest.SmtpPassword) => "SMTP password",
+        nameof(MailboxOutgoingSettingsRequest.Transport) => "Send transport",
+        _ => field
+    };
 
     private async Task TestAsync()
     {

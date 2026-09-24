@@ -29,11 +29,18 @@ public sealed class MailboxOutgoingSettingsService(HelpdeskDbContext db, Mailbox
             throw new ArgumentException("Enter an SMTP username.", nameof(request.SmtpUsername));
         if (request.SmtpPassword is null)
             throw new ArgumentException("Enter an SMTP password or leave it blank to retain the saved secret.", nameof(request.SmtpPassword));
-        if (!Enum.IsDefined(request.Transport) || !Enum.IsDefined(request.SmtpTlsMode))
-            throw new ArgumentException("Choose a supported outgoing transport and TLS mode.");
-        if (request.DisplayName.Length > 200 || request.SmtpHost.Length > 253 || request.SmtpUsername.Length > 320 ||
-            request.SmtpPassword.Length > 4096)
-            throw new ArgumentException("Outgoing fields exceed supported lengths.");
+        if (!Enum.IsDefined(request.Transport))
+            throw new ArgumentException("Choose a supported outgoing transport.", nameof(request.Transport));
+        if (!Enum.IsDefined(request.SmtpTlsMode))
+            throw new ArgumentException("Choose a supported SMTP TLS mode.", nameof(request.SmtpTlsMode));
+        if (request.DisplayName.Length > 200)
+            throw new ArgumentException("Use 200 characters or fewer.", nameof(request.DisplayName));
+        if (request.SmtpHost.Length > 253)
+            throw new ArgumentException("Use 253 characters or fewer.", nameof(request.SmtpHost));
+        if (request.SmtpUsername.Length > 320)
+            throw new ArgumentException("Use 320 characters or fewer.", nameof(request.SmtpUsername));
+        if (request.SmtpPassword.Length > 4096)
+            throw new ArgumentException("Use 4096 characters or fewer.", nameof(request.SmtpPassword));
         var existing = await db.Set<MailboxOutgoingSettings>().SingleOrDefaultAsync(x => x.MailboxId == mailboxId, ct);
         if ((existing?.Version ?? 0) != request.Version)
             throw new DbUpdateConcurrencyException("Outgoing configuration changed; reload before saving.");
@@ -46,14 +53,17 @@ public sealed class MailboxOutgoingSettingsService(HelpdeskDbContext db, Mailbox
              !string.Equals(existing.SmtpUsername, username, StringComparison.OrdinalIgnoreCase));
         if (request.Transport == MailboxOutgoingTransport.Smtp)
         {
-            if (Uri.CheckHostName(host) == UriHostNameType.Unknown || request.SmtpPort is < 1 or > 65535 ||
-                username.Length == 0)
-                throw new ArgumentException("SMTP host, port and username are required.");
+            if (Uri.CheckHostName(host) == UriHostNameType.Unknown)
+                throw new ArgumentException("Enter a valid SMTP submission host.", nameof(request.SmtpHost));
+            if (request.SmtpPort is < 1 or > 65535)
+                throw new ArgumentException("Choose an SMTP port from 1 to 65535.", nameof(request.SmtpPort));
+            if (username.Length == 0)
+                throw new ArgumentException("Enter an SMTP username.", nameof(request.SmtpUsername));
             if (changedDestination && request.SmtpPassword.Length == 0 && !request.ClearSmtpPassword)
-                throw new ArgumentException("Changing the SMTP destination requires a new password.");
+                throw new ArgumentException("Changing the SMTP destination requires a new password.", nameof(request.SmtpPassword));
         }
         else if (mailbox.Authentication != MailboxAuthentication.MicrosoftApplication || mailbox.ClientSecret.Length == 0)
-            throw new ArgumentException("Graph sending requires Microsoft application credentials on this mailbox.");
+            throw new ArgumentException("Graph sending requires Microsoft application credentials on this mailbox.", nameof(request.Transport));
 
         outgoing.Enabled = request.Enabled;
         outgoing.Transport = request.Transport;
@@ -68,7 +78,7 @@ public sealed class MailboxOutgoingSettingsService(HelpdeskDbContext db, Mailbox
         if (request.Transport == MailboxOutgoingTransport.Graph)
             outgoing.ProtectedSmtpPassword = string.Empty;
         if (outgoing.Enabled && request.Transport == MailboxOutgoingTransport.Smtp && outgoing.ProtectedSmtpPassword.Length == 0)
-            throw new ArgumentException("An enabled SMTP sender requires its own password.");
+            throw new ArgumentException("An enabled SMTP sender requires its own password.", nameof(request.SmtpPassword));
         if (existing is null) db.Set<MailboxOutgoingSettings>().Add(outgoing);
         else outgoing.Version++;
         outgoing.LastTestUnixMilliseconds = null;

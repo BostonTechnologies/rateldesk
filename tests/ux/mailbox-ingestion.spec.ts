@@ -33,6 +33,18 @@ test('provider selection, failed draft test, discard, save and explicit tenant r
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByText('Mailbox settings saved.', { exact: true })).toBeVisible();
   await expect(page.getByLabel('Protocol password', { exact: true })).toHaveValue('');
+  await page.getByRole('tab', { name: /Outgoing/ }).click();
+  await page.getByRole('textbox', { name: 'SMTP submission host' }).fill('invalid hos');
+  await page.getByRole('textbox', { name: 'SMTP submission host' }).pressSequentially('t');
+  await expect(page.getByRole('button', { name: 'Save outgoing' })).toBeEnabled({ timeout: 5_000 });
+  await page.getByRole('button', { name: 'Save outgoing' }).click();
+  await expect(page.getByTestId('mailbox-outgoing-editor')
+    .getByText('SMTP submission host: Enter a valid SMTP submission host.', { exact: true }))
+    .toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'SMTP submission host' })).toHaveValue('invalid host');
+  await page.screenshot({ path: testInfo.outputPath('outgoing-invalid-host-full.png'), fullPage: true });
+  await page.getByRole('button', { name: 'Discard outgoing changes' }).click();
+  await page.getByRole('tab', { name: /Incoming/ }).click();
   const rejectedName = 'X'.repeat(201);
   await page.getByLabel('Mailbox display name', { exact: true }).fill(rejectedName);
   await page.getByRole('tab', { name: /Processing/ }).click();
