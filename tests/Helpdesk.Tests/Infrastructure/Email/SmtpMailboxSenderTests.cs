@@ -82,6 +82,33 @@ public sealed class SmtpMailboxSenderTests
                 "tenant-a", "ticket-a", ["requester@example.test"], [], "Ticket update", "<p>Update</p>",
                 [], null, queued.Id, default, mailbox.Version, outgoing.Version,
                 ["hidden@example.test"])).Status);
+
+            var global = new EmailInboxSettings { Id = Guid.NewGuid(), Scope = MailboxScope.Global,
+                Provider = InboundMailboxProvider.Imap, Authentication = MailboxAuthentication.Password,
+                MailboxAddress = "global@example.test", SourceKey = "global-imap", Enabled = true,
+                CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
+            var globalOutgoing = new MailboxOutgoingSettings { MailboxId = global.Id, Enabled = true,
+                Transport = MailboxOutgoingTransport.Smtp, SmtpHost = "localhost", SmtpPort = server.Port,
+                SmtpTlsMode = MailboxTlsMode.TlsOnConnect, SmtpUsername = global.MailboxAddress };
+            globalOutgoing.ProtectedSmtpPassword = protection.Protect(globalOutgoing, "synthetic-password");
+            db.EmailInboxSettings.Add(global);
+            db.Set<MailboxOutgoingSettings>().Add(globalOutgoing);
+            mailbox.Archived = true;
+            await db.SaveChangesAsync();
+            await using var replicaDb = new HelpdeskDbContext(options, Substitute.For<ITenantContext>(),
+                new HttpContextAccessor());
+            var replicaContext = new IngressEffectContext();
+            var replicaService = new MailboxEmailService(new MailboxSenderResolver(replicaDb),
+                new SmtpMailboxSender(new MailboxDestinationPolicy(configuration), protection,
+                    new HtmlToPlainTextConverter()),
+                new GraphMailboxSender(_ => throw new InvalidOperationException("Graph must not be constructed.")),
+                new MailboxOutboxStore(replicaDb, replicaContext, TimeProvider.System), replicaContext,
+                NullLogger<MailboxEmailService>.Instance);
+            var changedAssignment = await replicaService.SendPinnedAsync(mailbox.Id, "tenant-a", "ticket-a",
+                ["requester@example.test"], [], "Ticket update", "<p>Update</p>", [], null,
+                queued.Id, default, mailbox.Version, outgoing.Version);
+            Assert.Equal("Needs review", changedAssignment.Status);
+            Assert.Equal("SenderRouteChanged", changedAssignment.ErrorCode);
         }
         await server.Completion.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Contains(server.Commands, command => command.StartsWith("MAIL FROM:<support@tenant-a.example.test>", StringComparison.OrdinalIgnoreCase));

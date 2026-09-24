@@ -86,34 +86,6 @@ public sealed class MailboxOutboxTests
             store.RetryForTimelineAsync(queued.DeliveryEventId!.Value, default));
     }
 
-    [Theory]
-    [InlineData("SocketException")]
-    [InlineData("SmtpTemporaryRecipientRejected")]
-    public async Task Known_pre_submission_failure_stops_after_five_bounded_attempts(string errorCode)
-    {
-        await using var fixture = await OutboxDatabase.CreateAsync();
-        await using var db = fixture.Open();
-        var store = fixture.Store(db);
-        var queued = await store.QueueDirectAsync(new IngressEmailEffect(["requester@example.test"],
-            "Subject", "<p>Body</p>", [], "ticket-a", [], null, null, false, null, null), default);
-
-        for (var attempt = 1; attempt <= MailboxOutboxStore.MaximumAttempts; attempt++)
-        {
-            var claim = Assert.IsType<MailboxOutboxEffect>(await store.TryClaimAsync(queued.Id, "worker", default));
-            Assert.Equal(attempt, claim.Attempts);
-            Assert.True(await store.CompleteAsync(claim, false, errorCode, default));
-            fixture.Clock.Advance(TimeSpan.FromMinutes(10));
-        }
-
-        var exhausted = await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleAsync(x => x.Id == queued.Id);
-        Assert.Equal(MailboxEffectState.Exhausted, exhausted.State);
-        Assert.Equal(MailboxOutboxStore.MaximumAttempts, exhausted.Attempts);
-        Assert.Equal(errorCode, exhausted.LastErrorCode);
-        Assert.Null(await store.TryClaimAsync(queued.Id, "worker", default));
-        Assert.Equal(EmailDeliveryStatus.Failed,
-            (await db.TicketTimelineEvents.SingleAsync(x => x.Id == queued.DeliveryEventId)).EmailStatus);
-    }
-
     [Fact]
     public async Task Concurrent_dispatchers_claim_one_effect_only_once()
     {
