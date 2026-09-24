@@ -1,10 +1,11 @@
 import { execFileSync } from 'node:child_process';
+import { createConnection, createServer, type Socket } from 'node:net';
 import { expect, test, type Page } from '@playwright/test';
 
 type Mailbox = { id: string };
 type Incident = { id: string; trackingId: string; subject: string };
 type MailMessage = { subject: string; from: string };
-type Diagnostics = { state: { initialized: boolean; syncCompletedVersion: number } | null;
+type Diagnostics = { state: { initialized: boolean; syncCompletedVersion: number; errorCode: string | null } | null;
   receipts: { ticketId: string | null }[] };
 
 function fixture(command: 'send' | 'messages', args: string[]): unknown {
@@ -25,7 +26,40 @@ async function login(page: Page): Promise<void> {
 test.setTimeout(300_000);
 test.describe.configure({ retries: 0 });
 
-test('published dedicated SMTP authentication failure never falls back and repairs one delivery', async ({ page }) => {
+let stopGlobalImapProxy: (() => Promise<void>) | undefined;
+test.afterEach(async () => {
+  await stopGlobalImapProxy?.();
+  stopGlobalImapProxy = undefined;
+});
+
+async function globalImapProxy(): Promise<number> {
+  const sockets = new Set<Socket>();
+  const server = createServer(client => {
+    const upstream = createConnection(Number(process.env.MAILBOX_FIXTURE_GLOBAL_IMAPS_PORT), '127.0.0.1');
+    sockets.add(client);
+    sockets.add(upstream);
+    client.on('close', () => sockets.delete(client));
+    upstream.on('close', () => sockets.delete(upstream));
+    client.on('error', () => upstream.destroy());
+    upstream.on('error', () => client.destroy());
+    client.pipe(upstream);
+    upstream.pipe(client);
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  stopGlobalImapProxy = async () => {
+    if (!server.listening) return;
+    for (const socket of sockets) socket.destroy();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  };
+  const address = server.address();
+  if (address === null || typeof address === 'string') throw new Error('Global IMAP proxy did not bind a port.');
+  return address.port;
+}
+
+test('published incoming and outgoing outages isolate mailboxes and repair one delivery', async ({ page }) => {
   await login(page);
   const headers = { 'X-Requested-With': 'XMLHttpRequest' };
   const tenant = ((await (await page.request.get('/api/v1/email-settings/effective')).json()) as
@@ -57,8 +91,9 @@ test('published dedicated SMTP authentication failure never falls back and repai
     expect(response.ok(), await response.text()).toBe(true);
     return await response.json() as { version: number };
   };
+  const globalImapPort = await globalImapProxy();
   const global = await create('Fixture global sender', 'global@tenant-b.example.test',
-    'synthetic-global-password', process.env.MAILBOX_FIXTURE_GLOBAL_IMAPS_PORT!, 0, null, true);
+    'synthetic-global-password', String(globalImapPort), 0, null, true);
   await saveOutgoing(global, 'global@tenant-b.example.test', 'synthetic-global-password',
     process.env.MAILBOX_FIXTURE_GLOBAL_SMTPS_PORT!, 0);
   const dedicated = await create('Fixture dedicated failed sender', 'support@tenant-a.example.test',
@@ -140,6 +175,28 @@ test('published dedicated SMTP authentication failure never falls back and repai
   { timeout: 60_000, intervals: [1_000, 2_000] }).toBe(1);
   expect((await globalDiagnostics()).receipts.filter(receipt => receipt.ticketId === globalIncident.id)).toHaveLength(1);
   expect((await failed()).filter(item => item.ticketId === incident.id)).toHaveLength(1);
+
+  await stopGlobalImapProxy!();
+  const unavailable = await page.request.post(`/api/v1/email-settings/${global.id}/sync`, { headers });
+  expect(unavailable.ok(), await unavailable.text()).toBe(true);
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/v1/email-settings/${global.id}/diagnostics`);
+    return (await response.json() as Diagnostics).state?.errorCode;
+  }, { timeout: 60_000, intervals: [1_000, 2_000, 3_000] }).toBeTruthy();
+
+  const afterOutageSubject = 'Fixture dedicated progress during global IMAP outage';
+  fixture('send', ['--sender', 'requester', '--recipient', 'support', '--subject', afterOutageSubject,
+    '--body', 'Dedicated incoming must progress while global IMAP cannot be reached.']);
+  const dedicatedSync = await page.request.post(`/api/v1/email-settings/${dedicated.id}/sync`, { headers });
+  expect(dedicatedSync.ok(), await dedicatedSync.text()).toBe(true);
+  const dedicatedCommand = await dedicatedSync.json() as { requestVersion: number };
+  await expect.poll(async () => (await diagnostics()).state?.syncCompletedVersion,
+    { timeout: 60_000, intervals: [1_000, 2_000, 3_000] }).toBeGreaterThanOrEqual(dedicatedCommand.requestVersion);
+  await expect.poll(async () => (await incidents()).filter(item => item.subject === afterOutageSubject).length,
+    { timeout: 30_000, intervals: [1_000, 2_000] }).toBe(1);
+  const afterOutageIncident = (await incidents()).find(item => item.subject === afterOutageSubject)!;
+  expect((await diagnostics()).receipts.filter(receipt => receipt.ticketId === afterOutageIncident.id)).toHaveLength(1);
+  expect(requesterMail().filter(message => message.subject.includes(afterOutageIncident.trackingId))).toHaveLength(0);
 
   const repaired = await saveOutgoing(dedicated, 'support@tenant-a.example.test',
     'synthetic-mail-password', process.env.MAILBOX_FIXTURE_SMTPS_PORT!, outgoing.version);
