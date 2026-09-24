@@ -4,6 +4,7 @@ using System.Text.Json;
 using Helpdesk.Application.Services.Email;
 using Helpdesk.Infrastructure.Email;
 using Helpdesk.Shared.Models;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Graph;
 using Microsoft.Kiota.Abstractions.Authentication;
 
@@ -11,6 +12,56 @@ namespace Helpdesk.Tests.Infrastructure.Email;
 
 public sealed class GraphMailboxSenderTests
 {
+    [Fact]
+    public async Task Denied_send_grant_does_not_disable_receiving_for_the_selected_Graph_mailbox()
+    {
+        using var transport = new GraphReadAllowedSendDeniedFixture();
+        var selectedCredentials = new List<(Guid MailboxId, string Secret)>();
+        GraphServiceClient Client(EmailInboxSettings selected)
+        {
+            selectedCredentials.Add((selected.Id, selected.ClientSecret));
+            return new GraphServiceClient(
+                new HttpClient(transport, disposeHandler: false), new AnonymousAuthenticationProvider());
+        }
+        var secrets = new MailboxCredentialProtector(new EphemeralDataProtectionProvider());
+        var adapter = new GraphMailboxAdapter(secrets, Client);
+        var sender = new GraphMailboxSender(Client);
+        var mailbox = new EmailInboxSettings
+        {
+            Id = Guid.NewGuid(), Provider = InboundMailboxProvider.Graph,
+            Authentication = MailboxAuthentication.MicrosoftApplication,
+            MailboxAddress = "support@tenant-a.example.test", MailboxFolder = "inbox",
+            InitialImport = InitialMailImport.All, ClientSecret = "synthetic-protected"
+        };
+        var outgoing = new MailboxOutgoingSettings
+        {
+            MailboxId = mailbox.Id, Enabled = true, Transport = MailboxOutgoingTransport.Graph
+        };
+
+        var first = await adapter.FetchAsync(mailbox, new MailboxIngestionState(), new HashSet<string>(), default);
+        var received = Assert.Single(first.Messages);
+        Assert.Equal("graph-item-1", received.Key);
+        Assert.Equal("requester@tenant-a.example.test", received.Message!.FromEmail);
+
+        var delivery = await sender.SendAsync(mailbox, outgoing, ["requester@tenant-a.example.test"], [],
+            "Synthetic confirmation", "<p>Received</p>", [], default);
+        Assert.Equal("Needs review", delivery.Status);
+        Assert.Equal("GraphSendPermissionDenied", delivery.ErrorCode);
+
+        var readCheck = await adapter.TestAsync(mailbox, default);
+        Assert.True(readCheck.Success);
+        var next = await adapter.FetchAsync(mailbox,
+            new MailboxIngestionState { Cursor = first.NextCursor, Initialized = true },
+            new HashSet<string> { received.Key }, default);
+        Assert.Empty(next.Messages);
+        Assert.Equal(1, transport.MimeFetches);
+        Assert.Equal(1, transport.SendAttempts);
+        Assert.Equal(4, selectedCredentials.Count);
+        Assert.All(selectedCredentials, selected =>
+            Assert.Equal((mailbox.Id, mailbox.ClientSecret), selected));
+        Assert.All(transport.Paths, path => Assert.Contains("/users/support%40tenant-a.example.test/", path));
+    }
+
     [Theory]
     [InlineData(HttpStatusCode.Accepted, "Accepted by provider", null)]
     [InlineData(HttpStatusCode.Forbidden, "Needs review", "GraphSendPermissionDenied")]
@@ -75,6 +126,51 @@ public sealed class GraphMailboxSenderTests
                     Content = new StringContent("{\"error\":{\"code\":\"Authorization_RequestDenied\",\"message\":\"synthetic\"}}",
                         Encoding.UTF8, "application/json")
                 };
+        }
+    }
+
+    private sealed class GraphReadAllowedSendDeniedFixture : HttpMessageHandler
+    {
+        public List<string> Paths { get; } = [];
+        public int MimeFetches { get; private set; }
+        public int SendAttempts { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            Paths.Add(path);
+            if (path.EndsWith("/sendMail", StringComparison.Ordinal))
+            {
+                SendAttempts++;
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden)
+                {
+                    Content = new StringContent("{\"error\":{\"code\":\"Authorization_RequestDenied\"}}",
+                        Encoding.UTF8, "application/json")
+                });
+            }
+            if (path.EndsWith("/$value", StringComparison.Ordinal))
+            {
+                MimeFetches++;
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        "From: requester@tenant-a.example.test\r\nTo: support@tenant-a.example.test\r\nSubject: Request\r\n\r\nPlease help\r\n",
+                        Encoding.UTF8, "message/rfc822")
+                });
+            }
+            if (path.EndsWith("/mailFolders/inbox", StringComparison.Ordinal))
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"id\":\"inbox\"}", Encoding.UTF8, "application/json")
+                });
+            if (path.Contains("/messages/delta", StringComparison.Ordinal))
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """{"value":[{"id":"graph-item-1","isRead":false}],"@odata.deltaLink":"https://graph.microsoft.com/v1.0/users/support%40tenant-a.example.test/mailFolders/inbox/messages/delta?cursor=complete"}""",
+                        Encoding.UTF8, "application/json")
+                });
+            throw new InvalidOperationException($"Unexpected Graph fixture request: {request.Method} {request.RequestUri}");
         }
     }
 }
