@@ -42,13 +42,29 @@ test('provider selection, failed draft test, discard, save and explicit tenant r
   await expect(page.getByRole('alert').filter({ hasText: 'Mailbox settings were not saved.' }))
     .toContainText('Mailbox display name: Use 200 characters or fewer.');
   await expect(page.getByLabel('Mailbox display name', { exact: true })).toHaveValue(rejectedName);
-  await page.getByLabel('Mailbox display name', { exact: true }).fill('Fixture dedicated POP3 updated');
+  const longMailboxName = 'Fixture dedicated POP3 ' + 'Name'.repeat(36);
+  await page.getByLabel('Mailbox display name', { exact: true }).fill(longMailboxName);
   await expect(page.getByRole('alert').filter({ hasText: 'Mailbox settings were not saved.' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByText('Mailbox settings saved.', { exact: true })).toBeVisible();
+  await assertNoHorizontalOverflow(page);
+  await page.screenshot({ path: testInfo.outputPath('dedicated-pop3-long-name-desktop.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await assertNoHorizontalOverflow(page);
+  const identity = await page.getByRole('complementary', { name: 'Selected mailbox status' })
+    .boundingBox();
+  const saveBar = await page.locator('.mailbox-save-bar').boundingBox();
+  const displayName = await page.getByLabel('Mailbox display name', { exact: true }).boundingBox();
+  expect(identity).not.toBeNull();
+  expect(saveBar).not.toBeNull();
+  expect(displayName).not.toBeNull();
+  expect(saveBar!.y).toBeGreaterThanOrEqual(identity!.y + identity!.height);
+  expect(saveBar!.y + saveBar!.height).toBeLessThanOrEqual(displayName!.y);
+  await page.screenshot({ path: testInfo.outputPath('dedicated-pop3-long-name-phone.png'), fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByLabel('Mailbox display name', { exact: true }).fill('Unsaved name');
   await page.getByRole('button', { name: 'Discard', exact: true }).click();
-  await expect(page.getByLabel('Mailbox display name', { exact: true })).toHaveValue('Fixture dedicated POP3 updated');
+  await expect(page.getByLabel('Mailbox display name', { exact: true })).toHaveValue(longMailboxName);
   await page.screenshot({ path: testInfo.outputPath('dedicated-pop3-paused.png'), fullPage: true });
   await page.getByRole('button', { name: 'More mailbox actions' }).click();
   page.once('dialog', dialog => dialog.accept());

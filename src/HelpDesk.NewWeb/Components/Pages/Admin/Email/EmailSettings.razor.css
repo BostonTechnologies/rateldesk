@@ -51,6 +51,7 @@
 
 @media (max-width: 600px) {
     .mailbox-picker { flex-basis: 100%; max-width: 100%; }
+    .mailbox-editor { display: flex; flex-direction: column; }
     .mailbox-mobile-tabs {
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -77,10 +78,12 @@
     .mailbox-save-label-wide { display: none; }
     .mailbox-save-label-short { display: inline; }
     .mailbox-save-bar {
-        position: fixed;
-        left: .75rem;
-        right: .75rem;
-        bottom: .5rem;
+        order: -1;
+        position: sticky;
+        top: .5rem;
+        bottom: auto;
+        margin-top: 0;
+        margin-bottom: .75rem;
     }
     .mailbox-editor:has(input:focus, textarea:focus) .mailbox-save-bar { position: static; }
 }

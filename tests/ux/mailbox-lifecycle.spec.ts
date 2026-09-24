@@ -293,8 +293,9 @@ test('mailbox lifecycle acceptance: published Web/API receives, sends and thread
   expect(recipientPreview.ok()).toBe(true);
   expect(JSON.stringify(await recipientPreview.json())).toContain('recipient@tenant-a.example.test');
   await page.goto('/admin/email-settings');
+  await expect(page.getByTestId('mailbox-settings')).toHaveAttribute('data-interactive', 'true');
   await page.getByRole('button', { name: 'Add', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Global mailbox' }).click();
+  await page.getByRole('menuitem', { name: 'Global mailbox' }).click({ timeout: 10_000 });
   await page.getByRole('combobox', { name: 'Inbound provider' }).click();
   await page.getByRole('option', { name: 'IMAP', exact: true }).click();
   await page.getByLabel('Mailbox display name').fill('Instance global support');
