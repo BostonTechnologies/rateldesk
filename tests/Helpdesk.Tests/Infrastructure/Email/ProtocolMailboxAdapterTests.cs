@@ -72,6 +72,39 @@ public sealed class ProtocolMailboxAdapterTests
     }
 
     [Fact]
+    public async Task Imap_uidvalidity_reset_holds_existing_epoch_and_allows_later_arrivals()
+    {
+        await using var server = new PopFixture(imap: true, uidValidity: 8, connections: 2);
+        var secrets = new MailboxCredentialProtector(new EphemeralDataProtectionProvider());
+        var settings = new EmailInboxSettings { Id = Guid.NewGuid(), Provider = InboundMailboxProvider.Imap,
+            Authentication = MailboxAuthentication.Password, MailHost = "localhost", Port = server.Port,
+            Username = "fixture", MailboxAddress = "support@example.test", MailboxFolder = "Support",
+            InitialImport = InitialMailImport.All, CredentialVersion = 1, BatchSize = 10 };
+        settings.Password = secrets.Protect(settings.Id, "synthetic password");
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            { ["EmailIngestion:AllowedPrivateHosts:0"] = "localhost" }).Build();
+        var adapter = new ProtocolMailboxAdapter(InboundMailboxProvider.Imap,
+            new MailboxDestinationPolicy(config), secrets);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+
+        var reset = await adapter.FetchAsync(settings, new MailboxIngestionState
+            { Initialized = true, Cursor = "7:42:0" }, new HashSet<string>(), deadline.Token);
+        var held = Assert.Single(reset.Messages);
+        Assert.Equal("8:42", held.Key);
+        Assert.Equal("UidValidityChangedReviewRequired", held.HoldReason);
+        Assert.Equal("8:42:42", reset.NextCursor);
+
+        server.AddMessageAfterSearchSnapshot();
+        var next = await adapter.FetchAsync(settings, new MailboxIngestionState
+            { Initialized = true, Cursor = reset.NextCursor }, new HashSet<string> { held.Key }, deadline.Token);
+        var arrival = Assert.Single(next.Messages);
+        Assert.Equal("8:43", arrival.Key);
+        Assert.Null(arrival.HoldReason);
+        Assert.NotNull(arrival.Message);
+        await server.Completion.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
     public async Task Imap_message_arriving_after_initial_uid_snapshot_is_not_baseline_skipped()
     {
         await using var server = new PopFixture(imap: true, holdFirstSearch: true, connections: 2);
@@ -259,6 +292,7 @@ public sealed class ProtocolMailboxAdapterTests
         private readonly bool holdFirstSearch;
         private readonly bool holdFirstUidl;
         private readonly int connections;
+        private readonly int uidValidity;
         private readonly TaskCompletionSource continueSearch = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private bool secondMessageAvailable;
         private int searches;
@@ -266,7 +300,8 @@ public sealed class ProtocolMailboxAdapterTests
         public TaskCompletionSource FirstSearchSnapshotTaken { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource FirstUidlSnapshotTaken { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public PopFixture(bool imap = false, bool trusted = true, bool supportsUidl = true, string? mime = null,
-            bool expungeFirst = false, bool holdFirstSearch = false, bool holdFirstUidl = false, int connections = 1)
+            bool expungeFirst = false, bool holdFirstSearch = false, bool holdFirstUidl = false, int connections = 1,
+            int uidValidity = 7)
         {
             this.imap = imap;
             this.trusted = trusted;
@@ -276,6 +311,7 @@ public sealed class ProtocolMailboxAdapterTests
             this.holdFirstSearch = holdFirstSearch;
             this.holdFirstUidl = holdFirstUidl;
             this.connections = connections;
+            this.uidValidity = uidValidity;
             using var key = RSA.Create(2048);
             var request = new CertificateRequest("CN=localhost", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
             var san = new SubjectAlternativeNameBuilder(); san.AddDnsName("localhost"); request.CertificateExtensions.Add(san.Build());
@@ -351,7 +387,7 @@ public sealed class ProtocolMailboxAdapterTests
                 if (command.StartsWith("CAPABILITY")) await writer.WriteLineAsync("* CAPABILITY IMAP4rev1");
                 else if (command.StartsWith("LIST")) await writer.WriteLineAsync("* LIST (\\HasNoChildren) \"/\" \"Support\"");
                 else if (command.StartsWith("EXAMINE")) await writer.WriteLineAsync(
-                    $"* FLAGS (\\Seen)\r\n* {(expungeFirst || secondMessageAvailable ? 2 : 1)} EXISTS\r\n* 0 RECENT\r\n* OK [UIDVALIDITY 7] stable\r\n* OK [UIDNEXT {(expungeFirst || secondMessageAvailable ? 44 : 43)}] next");
+                    $"* FLAGS (\\Seen)\r\n* {(expungeFirst || secondMessageAvailable ? 2 : 1)} EXISTS\r\n* 0 RECENT\r\n* OK [UIDVALIDITY {uidValidity}] stable\r\n* OK [UIDNEXT {(expungeFirst || secondMessageAvailable ? 44 : 43)}] next");
                 else if (command.StartsWith("UID SEARCH"))
                 {
                     var snapshot = expungeFirst || secondMessageAvailable ? "* SEARCH 42 43" : "* SEARCH 42";
