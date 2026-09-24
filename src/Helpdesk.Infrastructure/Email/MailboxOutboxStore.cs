@@ -23,6 +23,7 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
             AvailableUnixMilliseconds = now.ToUnixTimeMilliseconds(),
             DeliveryEventId = email.TimelineDeliveryId
         };
+        row.DispatchGroup = EmailDispatchGroup(email.MailboxId, row.Id);
         if (!email.SuppressTimeline && !string.IsNullOrWhiteSpace(email.TicketId))
         {
             var delivery = new TicketTimelineEvent
@@ -60,6 +61,7 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
             if (effect.Kind == MailboxEffectKind.Email)
             {
                 var email = Deserialize<IngressEmailEffect>(effect.Payload);
+                row.DispatchGroup = EmailDispatchGroup(email.MailboxId, row.Id);
                 if (email.TimelineDeliveryId is null && !email.SuppressTimeline && !string.IsNullOrWhiteSpace(email.TicketId))
                 {
                     var delivery = new TicketTimelineEvent
@@ -84,11 +86,30 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
     public async Task<IReadOnlyList<Guid>> GetCandidatesAsync(int count, CancellationToken ct)
     {
         var now = timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
-        return await db.Set<MailboxOutboxEffect>().AsNoTracking()
+        var limit = Math.Clamp(count, 1, 64);
+        var due = db.Set<MailboxOutboxEffect>().AsNoTracking()
             .Where(x => (x.State == MailboxEffectState.Pending && x.AvailableUnixMilliseconds <= now)
-                || (x.State == MailboxEffectState.InFlight && x.LeaseExpiresUnixMilliseconds <= now))
+                || (x.State == MailboxEffectState.InFlight && x.LeaseExpiresUnixMilliseconds <= now));
+        var other = await due.Where(x => x.Kind != MailboxEffectKind.Email)
             .OrderBy(x => x.AvailableUnixMilliseconds).ThenBy(x => x.EffectKey)
-            .Take(Math.Clamp(count, 1, 64)).Select(x => x.Id).ToListAsync(ct);
+            .Take(Math.Min(4, limit)).Select(x => x.Id).ToListAsync(ct);
+        var capacity = limit - other.Count;
+        var emailDue = due.Where(x => x.Kind == MailboxEffectKind.Email);
+        var emailHeads = capacity == 0 ? [] : await emailDue
+            .Where(x => x.Id == emailDue.Where(candidate => candidate.DispatchGroup == x.DispatchGroup)
+                .OrderBy(candidate => candidate.AvailableUnixMilliseconds)
+                .ThenBy(candidate => candidate.EffectKey).Select(candidate => candidate.Id).FirstOrDefault())
+            .OrderBy(x => x.AvailableUnixMilliseconds).ThenBy(x => x.EffectKey)
+            .Take(capacity).Select(x => x.Id).ToListAsync(ct);
+        var selected = other.Concat(emailHeads).ToList();
+        if (selected.Count < limit)
+        {
+            var additional = await due.Where(x => !selected.Contains(x.Id))
+                .OrderBy(x => x.AvailableUnixMilliseconds).ThenBy(x => x.EffectKey)
+                .Take(limit - selected.Count).Select(x => x.Id).ToListAsync(ct);
+            selected.AddRange(additional);
+        }
+        return selected;
     }
 
     public async Task<MailboxOutboxEffect?> TryClaimAsync(Guid id, string owner, CancellationToken ct)
@@ -305,4 +326,7 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
 
     internal static T Deserialize<T>(string payload) => JsonSerializer.Deserialize<T>(payload)
         ?? throw new InvalidOperationException("Invalid durable ingress effect payload.");
+
+    private static string EmailDispatchGroup(Guid? mailboxId, Guid effectId) =>
+        mailboxId is { } id ? $"mailbox:{id:N}" : $"legacy:{effectId:N}";
 }

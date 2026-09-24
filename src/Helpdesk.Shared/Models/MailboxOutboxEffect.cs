@@ -8,6 +8,7 @@ public sealed class MailboxOutboxEffect
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid? ReceiptId { get; set; }
     public string EffectKey { get; set; } = string.Empty;
+    public string DispatchGroup { get; set; } = $"effect:{Guid.NewGuid():N}";
     public MailboxEffectKind Kind { get; set; }
     public string Payload { get; set; } = string.Empty;
     public MailboxEffectState State { get; set; }

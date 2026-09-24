@@ -1851,6 +1851,11 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("DeliveryEventId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("DispatchGroup")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
                     b.Property<string>("EffectKey")
                         .IsRequired()
                         .HasColumnType("text");
@@ -1896,6 +1901,8 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.HasIndex("State", "AvailableUnixMilliseconds");
 
                     b.HasIndex("State", "LeaseExpiresUnixMilliseconds");
+
+                    b.HasIndex("Kind", "State", "DispatchGroup", "AvailableUnixMilliseconds");
 
                     b.ToTable("MailboxOutboxEffect");
                 });

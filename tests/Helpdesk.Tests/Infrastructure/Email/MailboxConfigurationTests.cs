@@ -18,6 +18,42 @@ namespace Helpdesk.Tests.Infrastructure.Email;
 
 public sealed class MailboxConfigurationTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Due_mailbox_backlog_does_not_hide_another_mailbox_or_notification(bool postgres)
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync(postgres);
+        await using var db = fixture.Open();
+        await db.Database.MigrateAsync();
+        var now = TimeProvider.System.GetUtcNow().ToUnixTimeMilliseconds();
+        for (var index = 0; index < 20; index++)
+            db.Set<MailboxOutboxEffect>().Add(new MailboxOutboxEffect
+            {
+                Kind = MailboxEffectKind.Email, EffectKey = $"backlog:{index:D2}",
+                DispatchGroup = "mailbox:backlog", Payload = "{}", AvailableUnixMilliseconds = now - 2
+            });
+        var otherMailbox = new MailboxOutboxEffect
+        {
+            Kind = MailboxEffectKind.Email, EffectKey = "other:00", DispatchGroup = "mailbox:other",
+            Payload = "{}", AvailableUnixMilliseconds = now - 1
+        };
+        var notification = new MailboxOutboxEffect
+        {
+            Kind = MailboxEffectKind.Notification, EffectKey = "notification:00", Payload = "{}",
+            AvailableUnixMilliseconds = now - 1
+        };
+        db.Set<MailboxOutboxEffect>().AddRange(otherMailbox, notification);
+        await db.SaveChangesAsync();
+
+        var candidates = await new MailboxOutboxStore(db, new IngressEffectContext(), TimeProvider.System)
+            .GetCandidatesAsync(16, default);
+
+        Assert.Equal(16, candidates.Count);
+        Assert.Contains(otherMailbox.Id, candidates);
+        Assert.Contains(notification.Id, candidates);
+    }
+
     [Fact]
     public async Task Confirmed_outgoing_retry_rebinds_only_the_same_mailbox_after_a_safe_configuration_failure()
     {
@@ -416,8 +452,9 @@ public sealed class MailboxConfigurationTests
         Assert.Equal(InboundReceiptOutcome.Succeeded, receipts.Single(x => x.Id == succeededId).Outcome);
         Assert.Equal("TenantResolutionAmbiguous", receipts.Single(x => x.Id == heldId).Reason);
         Assert.All(receipts, x => Assert.Null(x.HistoricalImportRequestId));
-        Assert.Equal(MailboxEffectState.Exhausted,
-            (await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleAsync(x => x.Id == failedId)).State);
+        var failedDelivery = await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleAsync(x => x.Id == failedId);
+        Assert.Equal(MailboxEffectState.Exhausted, failedDelivery.State);
+        Assert.StartsWith("legacy:", failedDelivery.DispatchGroup);
         var policy = new MailboxWorkerPolicy(db, new ConfigurationBuilder().Build(), TimeProvider.System);
         Assert.Equal("Instance paused", (await policy.GetStatusAsync(default)).State);
         Assert.Empty(await db.Set<MailboxOutgoingSettings>().ToListAsync());

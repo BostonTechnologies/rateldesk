@@ -38,6 +38,7 @@ public sealed class MailboxOutboxTests
             MailboxConfigurationVersion = 3, OutgoingConfigurationVersion = 4
         };
         var queued = await store.QueueDirectAsync(email, default);
+        Assert.Equal($"mailbox:{mailboxId:N}", queued.DispatchGroup);
         Assert.Null(queued.ReceiptId);
         Assert.NotNull(queued.DeliveryEventId);
         var claim = Assert.IsType<MailboxOutboxEffect>(await store.TryClaimAsync(queued.Id, "worker", default));
@@ -111,6 +112,38 @@ public sealed class MailboxOutboxTests
         Assert.Single(claims.OfType<MailboxOutboxEffect>());
         await using var verify = fixture.Open();
         Assert.Equal(1, (await verify.Set<MailboxOutboxEffect>().SingleAsync(x => x.Id == id)).Attempts);
+    }
+
+    [Fact]
+    public async Task Candidate_selection_reserves_other_mailboxes_and_non_email_work_under_backlog()
+    {
+        await using var fixture = await OutboxDatabase.CreateAsync();
+        await using var db = fixture.Open();
+        var now = fixture.Clock.GetUtcNow().ToUnixTimeMilliseconds();
+        for (var index = 0; index < 20; index++)
+            db.Set<MailboxOutboxEffect>().Add(new MailboxOutboxEffect
+            {
+                Kind = MailboxEffectKind.Email, EffectKey = $"a:{index:D2}",
+                DispatchGroup = "mailbox:a", Payload = "{}", AvailableUnixMilliseconds = now - 2
+            });
+        var otherMailbox = new MailboxOutboxEffect
+        {
+            Kind = MailboxEffectKind.Email, EffectKey = "b:00", DispatchGroup = "mailbox:b",
+            Payload = "{}", AvailableUnixMilliseconds = now - 1
+        };
+        var notification = new MailboxOutboxEffect
+        {
+            Kind = MailboxEffectKind.Notification, EffectKey = "notification:00", Payload = "{}",
+            AvailableUnixMilliseconds = now - 1
+        };
+        db.Set<MailboxOutboxEffect>().AddRange(otherMailbox, notification);
+        await db.SaveChangesAsync();
+
+        var candidates = await fixture.Store(db).GetCandidatesAsync(16, default);
+
+        Assert.Equal(16, candidates.Count);
+        Assert.Contains(otherMailbox.Id, candidates);
+        Assert.Contains(notification.Id, candidates);
     }
 
     [Fact]

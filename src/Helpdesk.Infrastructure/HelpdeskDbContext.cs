@@ -552,6 +552,8 @@ public class HelpdeskDbContext(
             entity.HasIndex(x => x.DeliveryEventId).IsUnique();
             entity.HasIndex(x => new { x.State, x.AvailableUnixMilliseconds });
             entity.HasIndex(x => new { x.State, x.LeaseExpiresUnixMilliseconds });
+            entity.HasIndex(x => new { x.Kind, x.State, x.DispatchGroup, x.AvailableUnixMilliseconds });
+            entity.Property(x => x.DispatchGroup).HasMaxLength(80);
             entity.Property(x => x.Owner).HasMaxLength(128);
             entity.Property(x => x.LastErrorCode).HasMaxLength(128);
         });
