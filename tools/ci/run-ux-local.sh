@@ -36,6 +36,10 @@ compose_started=false
 cleanup() {
   local status=$?
 
+  if [[ -d "$artifact_dir" ]]; then
+    find "$artifact_dir" -type f -name '*.png' -printf '%P\n' | sort >"$artifact_dir/screenshot-index.txt" || true
+  fi
+
   for pid in "$setup_web_pid" "$setup_api_pid" "$web_pid" "$api_pid"; do
     if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
       kill "$pid" 2>/dev/null || true
@@ -211,4 +215,5 @@ wait_for_health 'Helpdesk web' "$web_pid" "$web_url" '/' "$web_log"
 HELPDESK_E2E_AUTH_MODE=development \
 HELPDESK_E2E_BASE_URL="$web_url" \
 HELPDESK_E2E_IGNORE_HTTPS_ERRORS=true \
+PLAYWRIGHT_HTML_OUTPUT_DIR="$artifact_dir/report" \
 npm run test:ux -- "$@"

@@ -116,6 +116,12 @@
             </MudPaper>
         </aside>
         <div class="mailbox-editor">
+        <div class="mailbox-mobile-tabs" role="group" aria-label="Mailbox sections">
+            <button type="button" aria-pressed="@(activeTab == 0 ? "true" : "false")" @onclick="() => activeTab = 0">Incoming</button>
+            <button type="button" aria-pressed="@(activeTab == 1 ? "true" : "false")" @onclick="() => activeTab = 1">Outgoing</button>
+            <button type="button" aria-pressed="@(activeTab == 2 ? "true" : "false")" @onclick="() => activeTab = 2">Processing</button>
+            <button type="button" aria-pressed="@(activeTab == 3 ? "true" : "false")" @onclick="() => activeTab = 3">Activity</button>
+        </div>
         <MudTabs @bind-ActivePanelIndex="activeTab" KeepPanelsAlive="true" PanelClass="pa-0" Class="mailbox-workspace-tabs">
         <MudTabPanel Text="Incoming" Icon="@Icons.Material.Filled.Inbox">
         <MudForm @ref="form" Model="model">

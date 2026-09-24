@@ -100,6 +100,14 @@ test('mailbox workspace remains readable across themes and responsive widths', a
   }
   await page.setViewportSize({ width: 1440, height: 900 });
   await selectTheme(page, 'Light');
+  await page.getByTestId('navigation-toggle').click();
+  await expectDrawerFullyClosed(page);
+  await assertNoHorizontalOverflow(page);
+  await page.screenshot({ path: testInfo.outputPath('mailbox-drawer-collapsed-1440-viewport.png') });
+  await page.screenshot({ path: testInfo.outputPath('mailbox-drawer-collapsed-1440-full.png'), fullPage: true });
+  await page.getByTestId('navigation-toggle').click();
+  await expect(page.getByTestId('app-navigation-drawer')
+    .getByRole('link', { name: 'Mailbox Configuration' })).toBeVisible();
   for (const name of ['Outgoing', 'Processing', 'Activity']) {
     const tab = page.getByRole('tab', { name: new RegExp(name) });
     await tab.click();
@@ -113,6 +121,27 @@ test('mailbox workspace remains readable across themes and responsive widths', a
       await expect(page.getByRole('heading', { name: 'Outgoing activity' })).toBeVisible();
     }
     await page.screenshot({ path: testInfo.outputPath(`mailbox-${name.toLowerCase()}-full.png`),
+      fullPage: true, animations: 'disabled' });
+  }
+  await page.setViewportSize({ width: 390, height: 900 });
+  await expectDrawerFullyClosed(page);
+  await expect(page.getByRole('tab', { name: /Outgoing/ })).toHaveCount(0);
+  const mobileTabs = page.getByRole('group', { name: 'Mailbox sections' });
+  await mobileTabs.scrollIntoViewIfNeeded();
+  for (const name of ['Incoming', 'Outgoing', 'Processing', 'Activity'])
+    await expect(mobileTabs.getByRole('button', { name })).toBeInViewport({ ratio: 0.95 });
+  for (const name of ['Outgoing', 'Processing', 'Activity']) {
+    const tab = mobileTabs.getByRole('button', { name });
+    await tab.click();
+    await expect(tab).toHaveAttribute('aria-pressed', 'true');
+    await assertNoHorizontalOverflow(page);
+    if (name === 'Outgoing')
+      await expect(page.getByRole('button', { name: 'Save outgoing' })).toBeVisible();
+    else if (name === 'Processing')
+      await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeInViewport();
+    else
+      await expect(page.getByRole('button', { name: 'Refresh activity' })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath(`mailbox-${name.toLowerCase()}-390-full.png`),
       fullPage: true, animations: 'disabled' });
   }
 });
