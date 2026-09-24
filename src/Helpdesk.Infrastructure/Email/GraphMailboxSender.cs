@@ -38,6 +38,8 @@ public sealed class GraphMailboxSender
         if (to.Count + copy.Count > 100 || subject.Length > 998 || html.Length > 10 * 1024 * 1024 ||
             files.Length > 25 || files.Sum(file => (long)file.ContentBytes.Length) > 16 * 1024 * 1024)
             return new("Failed", "MessageLimitExceeded");
+        if (files.Any(file => file.IsInline && !MailboxAttachmentGuard.IsValidContentId(file.ContentId)))
+            return new("Failed", "InvalidInlineContentId");
 
         var message = new Message
         {
@@ -54,7 +56,8 @@ public sealed class GraphMailboxSender
                 .Select(file => (Microsoft.Graph.Models.Attachment)new FileAttachment
                 {
                     Name = Path.GetFileName(file.FileName), ContentType = file.ContentType,
-                    ContentBytes = file.ContentBytes
+                    ContentBytes = file.ContentBytes, IsInline = file.IsInline,
+                    ContentId = file.IsInline ? MailboxAttachmentGuard.NormalizeContentId(file.ContentId!) : null
                 }).ToList()
         };
 

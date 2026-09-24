@@ -1,5 +1,7 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
+using Helpdesk.Application.Services.Email;
 using Helpdesk.Infrastructure.Email;
 using Helpdesk.Shared.Models;
 using Microsoft.Graph;
@@ -26,7 +28,11 @@ public sealed class GraphMailboxSenderTests
 
         var result = await sender.SendAsync(mailbox, outgoing,
             ["requester@example.test", mailbox.MailboxAddress], ["tech@example.test"],
-            "INC-123 update", "<p>Hello</p>", [], default);
+            "INC-123 update", "<p>Hello</p><img src=\"cid:logo@tenant-a.example.test\">",
+            [new EmailAttachmentData { FileName = "logo.png", ContentType = "image/png",
+                ContentBytes = [1, 2, 3], ContentId = "logo@tenant-a.example.test", IsInline = true },
+             new EmailAttachmentData { FileName = "forwarded.eml", ContentType = "message/rfc822",
+                ContentBytes = Encoding.UTF8.GetBytes("From: sender@example.test\r\nSubject: Forwarded\r\n\r\nMessage") }], default);
 
         Assert.True(expectedStatus == result.Status, $"Expected {expectedStatus}; got {result.Status}/{result.ErrorCode}.");
         Assert.Equal(expectedCode, result.ErrorCode);
@@ -34,6 +40,19 @@ public sealed class GraphMailboxSenderTests
         Assert.Contains("support@tenant-a.example.test", transport.Body);
         Assert.Contains("requester@example.test", transport.Body);
         Assert.Contains("tech@example.test", transport.Body);
+        using var request = JsonDocument.Parse(transport.Body);
+        Assert.True(request.RootElement.TryGetProperty("Message", out var message), transport.Body);
+        Assert.True(message.TryGetProperty("attachments", out var attachmentList), transport.Body);
+        var attachments = attachmentList
+            .EnumerateArray().ToArray();
+        var image = Assert.Single(attachments, attachment => attachment.GetProperty("name").GetString() == "logo.png");
+        Assert.True(image.GetProperty("isInline").GetBoolean());
+        Assert.Equal("logo@tenant-a.example.test", image.GetProperty("contentId").GetString());
+        Assert.Equal(new byte[] { 1, 2, 3 }, Convert.FromBase64String(image.GetProperty("contentBytes").GetString()!));
+        var forwarded = Assert.Single(attachments, attachment => attachment.GetProperty("name").GetString() == "forwarded.eml");
+        Assert.Equal("message/rfc822", forwarded.GetProperty("contentType").GetString());
+        Assert.Contains("Subject: Forwarded", Encoding.UTF8.GetString(
+            Convert.FromBase64String(forwarded.GetProperty("contentBytes").GetString()!)));
     }
 
     private sealed class GraphSendFixture(HttpStatusCode response) : HttpMessageHandler

@@ -103,7 +103,12 @@ public sealed class SmtpMailboxSenderTests
 
         var result = await sender.SendAsync(mailbox, outgoing,
             ["requester@example.test", mailbox.MailboxAddress], ["tech@example.test"],
-            "INC-123 update", "<p>Hello requester</p>", [], Guid.Parse("11111111-1111-4111-8111-111111111111"), deadline.Token);
+            "INC-123 update", "<p>Hello requester</p><img src=\"cid:logo@tenant-a.example.test\">",
+            [new EmailAttachmentData { FileName = "logo.png", ContentType = "image/png",
+                ContentBytes = [1, 2, 3], ContentId = "logo@tenant-a.example.test", IsInline = true },
+             new EmailAttachmentData { FileName = "forwarded.eml", ContentType = "message/rfc822",
+                ContentBytes = Encoding.UTF8.GetBytes("From: sender@example.test\r\nSubject: Forwarded\r\n\r\nMessage") }],
+            Guid.Parse("11111111-1111-4111-8111-111111111111"), deadline.Token);
 
         Assert.Equal("Accepted by provider", result.Status);
         await server.Completion.WaitAsync(TimeSpan.FromSeconds(5));
@@ -118,6 +123,16 @@ public sealed class SmtpMailboxSenderTests
         Assert.Equal(mailbox.MailboxAddress, Assert.Single(parsed.ReplyTo.Mailboxes).Address);
         Assert.Equal("11111111111141118111111111111111@tenant-a.example.test", parsed.MessageId);
         Assert.Contains("Hello requester", parsed.TextBody);
+        Assert.Contains("cid:logo@tenant-a.example.test", parsed.HtmlBody);
+        var image = Assert.Single(parsed.BodyParts.OfType<MimePart>(), part =>
+            part.ContentId == "logo@tenant-a.example.test");
+        Assert.Equal("image/png", image.ContentType.MimeType);
+        Assert.Equal("inline", image.ContentDisposition?.Disposition);
+        using var imageBytes = new MemoryStream();
+        image.Content.DecodeTo(imageBytes);
+        Assert.Equal(new byte[] { 1, 2, 3 }, imageBytes.ToArray());
+        var forwarded = Assert.Single(parsed.Attachments, part => part.ContentType.MimeType == "message/rfc822");
+        Assert.Equal("forwarded.eml", forwarded.ContentDisposition?.FileName);
     }
 
     [Fact]

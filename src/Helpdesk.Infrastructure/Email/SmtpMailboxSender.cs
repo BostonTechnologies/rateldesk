@@ -47,6 +47,8 @@ public sealed class SmtpMailboxSender(MailboxDestinationPolicy destinations,
         var files = attachments?.ToArray() ?? [];
         if (files.Length > 25 || files.Sum(file => (long)file.ContentBytes.Length) > 16 * 1024 * 1024)
             return new("Failed", "AttachmentLimitExceeded");
+        if (files.Any(file => file.IsInline && !MailboxAttachmentGuard.IsValidContentId(file.ContentId)))
+            return new("Failed", "InvalidInlineContentId");
 
         var message = new MimeMessage();
         message.From.Add(new MailboxAddress(outgoing.DisplayName, mailbox.MailboxAddress));
@@ -62,7 +64,16 @@ public sealed class SmtpMailboxSender(MailboxDestinationPolicy destinations,
             if (file.ContentBytes.Length == 0 || string.IsNullOrWhiteSpace(file.FileName)) continue;
             var contentType = ContentType.TryParse(file.ContentType, out var parsed)
                 ? parsed : new ContentType("application", "octet-stream");
-            body.Attachments.Add(Path.GetFileName(file.FileName), file.ContentBytes, contentType);
+            var name = Path.GetFileName(file.FileName);
+            if (file.IsInline)
+            {
+                var inline = body.LinkedResources.Add(name, file.ContentBytes, contentType);
+                inline.ContentId = MailboxAttachmentGuard.NormalizeContentId(file.ContentId!);
+            }
+            else
+            {
+                body.Attachments.Add(name, file.ContentBytes, contentType);
+            }
         }
         message.Body = body.ToMessageBody();
 
