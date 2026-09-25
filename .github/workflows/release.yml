@@ -47,7 +47,8 @@ jobs:
         run: |
           set -euo pipefail
           tag="$RELEASE_TAG"
-          release_metadata="$(bash tools/release/validate-release-version.sh "$tag")"
+          git fetch origin main
+          release_metadata="$(git show origin/main:tools/release/validate-release-version.sh | bash -s -- "$tag")"
           version="$(awk -F= '/^version=/{print $2}' <<<"$release_metadata")"
           prerelease="$(awk -F= '/^prerelease=/{print $2}' <<<"$release_metadata")"
           msbuild_args=()
@@ -61,7 +62,6 @@ jobs:
             exit 1
           fi
 
-          git fetch origin main
           source_revision="$(git rev-list -n 1 "$tag")"
           test -n "$source_revision"
           git merge-base --is-ancestor "$source_revision" origin/main
