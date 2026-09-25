@@ -21,6 +21,8 @@ public class HelpdeskDbContext(
     private bool _ingressScope;
     private string? _ingressOrganizationId;
 
+    internal string? IngressOrganizationId => _ingressOrganizationId;
+
     public void BeginIngressRoutingScope()
     {
         if (_httpContextAccessor.HttpContext is not null)
@@ -33,6 +35,13 @@ public class HelpdeskDbContext(
     {
         if (!_ingressScope || string.IsNullOrWhiteSpace(organizationId))
             throw new InvalidOperationException("An explicit ingress scope and organization are required.");
+        _ingressOrganizationId = organizationId;
+    }
+
+    internal void RestoreIngressOrganization(string? organizationId)
+    {
+        if (!_ingressScope)
+            throw new InvalidOperationException("An explicit ingress scope is required.");
         _ingressOrganizationId = organizationId;
     }
 
@@ -530,6 +539,21 @@ public class HelpdeskDbContext(
             entity.Property(x => x.SourceKey).HasMaxLength(64);
         });
         modelBuilder.Entity<MailboxMigrationState>().HasKey(x => x.Id);
+        modelBuilder.Entity<MailboxWorkerControl>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Version).IsConcurrencyToken();
+        });
+        modelBuilder.Entity<MailboxOutgoingSettings>(entity =>
+        {
+            entity.HasKey(x => x.MailboxId);
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne<EmailInboxSettings>().WithOne().HasForeignKey<MailboxOutgoingSettings>(x => x.MailboxId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.Property(x => x.SmtpHost).HasMaxLength(253);
+            entity.Property(x => x.SmtpUsername).HasMaxLength(320);
+            entity.Property(x => x.DisplayName).HasMaxLength(200);
+        });
         modelBuilder.Entity<MailboxOutboxEffect>(entity =>
         {
             entity.HasKey(x => x.Id);
@@ -537,6 +561,8 @@ public class HelpdeskDbContext(
             entity.HasIndex(x => x.DeliveryEventId).IsUnique();
             entity.HasIndex(x => new { x.State, x.AvailableUnixMilliseconds });
             entity.HasIndex(x => new { x.State, x.LeaseExpiresUnixMilliseconds });
+            entity.HasIndex(x => new { x.Kind, x.State, x.DispatchGroup, x.AvailableUnixMilliseconds });
+            entity.Property(x => x.DispatchGroup).HasMaxLength(80);
             entity.Property(x => x.Owner).HasMaxLength(128);
             entity.Property(x => x.LastErrorCode).HasMaxLength(128);
         });

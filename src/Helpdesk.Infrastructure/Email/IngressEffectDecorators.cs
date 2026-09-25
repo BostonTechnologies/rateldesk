@@ -10,8 +10,10 @@ using Helpdesk.Shared.Models;
 
 namespace Helpdesk.Infrastructure.Email;
 
-public sealed class IngressEmailService(GraphEmailService inner, IIngressEffectContext context) : IEmailService
+public sealed class IngressEmailService(MailboxEmailService inner, MailboxSenderResolver resolver,
+    IIngressEffectContext context) : IEmailService, IDurableEmailService
 {
+    public bool QueuesDelivery => true;
     public Task<bool> TestApiConnectionAsync() => inner.TestApiConnectionAsync();
 
     public Task<bool> SendEmailAsync(string recipient, string subject, string htmlMessage,
@@ -20,19 +22,38 @@ public sealed class IngressEmailService(GraphEmailService inner, IIngressEffectC
         string? replyTo = null, bool suppressTimeline = false) =>
         SendEmailAsync([recipient], subject, htmlMessage, cc, ct, ticketId, attachments, fromName, replyTo, suppressTimeline);
 
-    public Task<bool> SendEmailAsync(IEnumerable<string> recipients, string subject, string htmlMessage,
+    public async Task<bool> SendEmailAsync(IEnumerable<string> recipients, string subject, string htmlMessage,
         IEnumerable<string>? cc = null, CancellationToken ct = default, string? ticketId = null,
         IEnumerable<EmailAttachmentData>? attachments = null, string? fromName = null,
         string? replyTo = null, bool suppressTimeline = false)
     {
+        return await SendEmailAsync(new EmailSendRequest(recipients.ToArray(), subject, htmlMessage)
+        {
+            Cc = cc?.ToArray() ?? [], TicketId = ticketId, Attachments = attachments?.ToArray() ?? [],
+            FromName = fromName, ReplyTo = replyTo, SuppressTimeline = suppressTimeline
+        }, ct);
+    }
+
+    public async Task<bool> SendEmailAsync(EmailSendRequest request, CancellationToken ct = default)
+    {
         ct.ThrowIfCancellationRequested();
         if (!context.IsActive)
-            return inner.SendEmailAsync(recipients, subject, htmlMessage, cc, ct, ticketId, attachments, fromName, replyTo, suppressTimeline);
-        context.Capture(MailboxEffectKind.Email, new IngressEmailEffect(recipients.ToArray(), subject,
-            htmlMessage, cc?.ToArray() ?? [], ticketId, attachments?.ToArray() ?? [], fromName,
-            replyTo, suppressTimeline, context.SupportDeliveryId, context.TimelineDeliveryId));
+            return await inner.SendEmailAsync(request, ct);
+        var selection = await resolver.ResolveAsync(request.TicketId, context.OrganizationId, ct);
+        context.Capture(MailboxEffectKind.Email, new IngressEmailEffect(request.Recipients, request.Subject,
+            request.HtmlMessage, request.Cc, request.TicketId, request.Attachments, request.FromName,
+            request.ReplyTo, request.SuppressTimeline, context.SupportDeliveryId, context.TimelineDeliveryId)
+        {
+            Bcc = request.Bcc,
+            MailboxId = selection.Mailbox?.Id,
+            OrganizationId = selection.OrganizationId,
+            SenderBindingError = selection.ErrorCode,
+            MailboxConfigurationVersion = selection.Mailbox?.Version,
+            MailboxSourceKey = selection.Mailbox?.SourceKey,
+            OutgoingConfigurationVersion = selection.Outgoing?.Version
+        });
         // This means durably accepted when the enclosing transaction commits, not delivered.
-        return Task.FromResult(true);
+        return true;
     }
 }
 

@@ -19,7 +19,7 @@ public sealed class GraphEmailHealthCheck : IHealthCheck
         var ok = await _email.TestApiConnectionAsync();
 
         return ok
-            ? HealthCheckResult.Healthy("Graph email operational")
-            : HealthCheckResult.Unhealthy("Graph email not initialized");
+            ? HealthCheckResult.Healthy("A mailbox sender is configured; delivery is verified separately.")
+            : HealthCheckResult.Degraded("No enabled mailbox sender is configured.");
     }
 }

@@ -381,6 +381,13 @@ public sealed class InboundTicketProcessor
         return HasDeliveryFailureSubject(subject) && HasSupportingDsnSignal(headers, body);
     }
 
+    internal static bool IsAutomaticMessage(InboundEmailContext message) =>
+        HeaderValues(GetHeaders(message), "auto-submitted").Any(value =>
+        {
+            var kind = value.Split(';', 2)[0].Trim();
+            return kind.Length > 0 && !kind.Equals("no", StringComparison.OrdinalIgnoreCase);
+        });
+
     private static bool HasDsnMimeProof(IReadOnlyDictionary<string, List<string>> headers)
     {
         var contentType = HeaderValues(headers, "content-type");

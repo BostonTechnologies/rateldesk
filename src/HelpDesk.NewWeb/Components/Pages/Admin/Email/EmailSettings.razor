@@ -6,9 +6,10 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject IJSRuntime JS
 @inject ISnackbar Snackbar
+@inject NavigationManager Navigation
 
 <PageTitle>Email Settings / Mailbox Configuration</PageTitle>
-<NavigationLock ConfirmExternalNavigation="@isDirty" OnBeforeInternalNavigation="ConfirmInternalNavigationAsync" />
+<NavigationLock ConfirmExternalNavigation="@(isDirty || outgoingDirty)" OnBeforeInternalNavigation="ConfirmInternalNavigationAsync" />
 
 <MudContainer MaxWidth="MaxWidth.Large" Class="helpdesk-page" data-testid="mailbox-settings" data-interactive="@interactive.ToString().ToLowerInvariant()">
     <div class="helpdesk-page-header">
@@ -34,50 +35,131 @@
     }
     else
     {
-        <MudPaper Class="pa-4 mb-4" Outlined="true">
-            <MudText Typo="Typo.h6">Global mailbox and tenant overrides</MudText>
-            <MudText>@(organizations.Count(x => x.Status == "Inherited global")) organizations inherit the global connection.</MudText>
-            <MudSelect T="Guid" Label="Selected mailbox" Value="model.Id" ValueChanged="SelectMailboxAsync" Disabled="@mutationsDisabled">
-                <MudSelectItem T="Guid" Value="Guid.Empty">New mailbox</MudSelectItem>
-                @foreach (var mailbox in mailboxes.Where(x => !x.Archived))
-                {
-                    <MudSelectItem T="Guid" Value="mailbox.Id">@mailbox.DisplayName — @mailbox.MailboxAddress (@(mailbox.Scope == MailboxScope.Global ? "Instance-global" : "Dedicated"), @mailbox.Provider)</MudSelectItem>
-                }
-            </MudSelect>
-            <MudButton OnClick="() => NewMailboxAsync(MailboxScope.Global)" Disabled="@(mutationsDisabled || mailboxes.Any(x => !x.Archived && x.Scope == MailboxScope.Global))">Add global mailbox</MudButton>
-            <MudButton OnClick="() => NewMailboxAsync(MailboxScope.Organization)" Disabled="@mutationsDisabled">Add tenant override</MudButton>
+        <MudPaper Class="pa-3 mb-3 d-flex flex-wrap align-center gap-2" Outlined="true">
+            <MudText Typo="Typo.subtitle2">Instance mailbox worker</MudText>
+            <MudChip T="string" Size="Size.Small" Color="@(worker?.InstanceRunning == true ? Color.Info : Color.Warning)">
+                @(worker?.State ?? "Status unavailable")
+            </MudChip>
+            @if (worker?.BlockedBy is not null)
+            {
+                <MudText Typo="Typo.caption">Blocked by @worker.BlockedBy</MudText>
+            }
+            <MudSpacer />
+            <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="@(mutationsDisabled || worker is null || !worker.DeploymentPermitsIngestion)"
+                       OnClick="ToggleWorkerAsync">@(worker?.InstanceRunning == true ? "Pause worker" : "Start worker")</MudButton>
+        </MudPaper>
+        <MudPaper Class="pa-3 mb-3" Outlined="true" data-testid="mailbox-command-bar">
+            <div class="mailbox-command-row">
+                <div class="mailbox-picker">
+                    <MudSelect T="Guid" Label="Selected mailbox" Value="model.Id" ValueChanged="SelectMailboxAsync" Disabled="@mutationsDisabled" Margin="Margin.Dense" Variant="Variant.Outlined">
+                        <MudSelectItem T="Guid" Value="Guid.Empty">New mailbox</MudSelectItem>
+                        @foreach (var mailbox in mailboxes.Where(x => !x.Archived))
+                        {
+                            <MudSelectItem T="Guid" Value="mailbox.Id">@mailbox.DisplayName — @mailbox.MailboxAddress (@(mailbox.Scope == MailboxScope.Global ? "Instance-global" : "Dedicated"), @mailbox.Provider)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </div>
+            <MudChip T="string" Size="Size.Small" Color="Color.Default">@model.Provider</MudChip>
+            <MudChip T="string" Size="Size.Small" Color="Color.Default">@(model.Scope == MailboxScope.Global ? "Global" : "Dedicated")</MudChip>
+            @if (isDirty || outgoingDirty)
+            {
+                <MudChip T="string" Size="Size.Small" Color="Color.Warning">Unsaved changes</MudChip>
+            }
+            <MudMenu Label="Add" Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Add" Disabled="@mutationsDisabled">
+                <MudMenuItem OnClick="() => NewMailboxAsync(MailboxScope.Global)" Disabled="@(mailboxes.Any(x => !x.Archived && x.Scope == MailboxScope.Global))">Global mailbox</MudMenuItem>
+                <MudMenuItem OnClick="() => NewMailboxAsync(MailboxScope.Organization)">Tenant override</MudMenuItem>
+            </MudMenu>
+            <MudMenu Label="Test" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Bolt" Disabled="@mutationsDisabled">
+                <MudMenuItem OnClick="TestAsync">Incoming connection</MudMenuItem>
+                <MudMenuItem OnClick="() => activeTab = 1" Disabled="@(model.Id == Guid.Empty)">Outgoing connection and sample</MudMenuItem>
+            </MudMenu>
             @if (model.Id != Guid.Empty)
             {
-                <MudButton OnClick="ArchiveAsync" Disabled="@mutationsDisabled">@(model.Scope == MailboxScope.Organization ? "Revert to global mailbox" : "Archive global mailbox")</MudButton>
-                <MudButton Href="@($"/admin/email-settings/{model.Id}/ingestion")">Inbound diagnostics</MudButton>
-                <MudButton Href="@($"/admin/email-rules?mailboxId={model.Id}")">Mailbox rules</MudButton>
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Sync" Disabled="@(mutationsDisabled || isDirty || outgoingDirty || worker?.InstanceRunning != true || !model.Enabled || !model.BackgroundSyncEnabled)" OnClick="SyncNowFromSettingsAsync">Sync now</MudButton>
+                <MudMenu Icon="@Icons.Material.Filled.MoreVert" AriaLabel="More mailbox actions" Disabled="@mutationsDisabled">
+                    <MudMenuItem Href="@($"/admin/email-settings/{model.Id}/ingestion")" Icon="@Icons.Material.Filled.Inbox">Incoming receipts</MudMenuItem>
+                    <MudMenuItem Href="@($"/admin/email-rules?mailboxId={model.Id}")" Icon="@Icons.Material.Filled.Rule">Mailbox rules</MudMenuItem>
+                    <MudMenuItem OnClick="ArchiveAsync" Icon="@Icons.Material.Filled.Archive">@(model.Scope == MailboxScope.Organization ? "Revert to global" : "Archive global mailbox")</MudMenuItem>
+                </MudMenu>
             }
-            <MudText Typo="Typo.caption">Pausing a dedicated mailbox keeps its assignment. Revert explicitly to inherit the global connection.</MudText>
+            </div>
         </MudPaper>
+        <div class="mailbox-workspace">
+        <aside class="mailbox-identity" aria-label="Selected mailbox status">
+            <MudPaper Class="pa-3" Outlined="true">
+                <MudText Typo="Typo.subtitle1" HtmlTag="h2" Class="mailbox-identity-name">@(string.IsNullOrWhiteSpace(model.DisplayName) ? (model.Id == Guid.Empty ? "New mailbox" : model.MailboxAddress) : model.DisplayName)</MudText>
+                @if (!string.Equals(model.DisplayName, model.MailboxAddress, StringComparison.OrdinalIgnoreCase))
+                {
+                    <MudText Typo="Typo.body2" Class="mailbox-identity-address">@(string.IsNullOrWhiteSpace(model.MailboxAddress) ? "Address not set" : model.MailboxAddress)</MudText>
+                }
+                <MudText Typo="Typo.caption" Class="d-block mt-2">@(model.Scope == MailboxScope.Global ? "Instance-global" : $"Dedicated · {SelectedOrganization?.Name ?? "Organization not selected"}") · @model.Provider</MudText>
+                <MudDivider Class="my-3" />
+                <MudText Typo="Typo.body2">Incoming: @(model.Id == Guid.Empty ? "Draft" : mailboxDiagnostics?.EffectiveStatus?.State ?? "Status unavailable")</MudText>
+                @if (statusUnavailable)
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Warning">Status could not be refreshed.</MudText>
+                }
+                @if (mailboxDiagnostics?.EffectiveStatus?.BlockedBy is { } blocked)
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Warning">Blocked by @blocked</MudText>
+                }
+                <MudText Typo="Typo.body2" Class="mt-2">Outgoing: @OutgoingSummary</MudText>
+                @if (outgoingStatus?.LastTestCode is { } lastOutgoingTest)
+                {
+                    <MudText Typo="Typo.caption" Class="d-block">Last outgoing check: @lastOutgoingTest</MudText>
+                }
+                @if (model.Id != Guid.Empty)
+                {
+                    <MudText Typo="Typo.caption" Class="d-block mt-2">Last poll: @FormatTimestamp(mailboxDiagnostics?.EffectiveStatus?.LastSuccessfulPollUnixMilliseconds)</MudText>
+                    <MudText Typo="Typo.caption" Class="d-block">Captured: @(mailboxDiagnostics?.EffectiveStatus?.CapturedCount.ToString() ?? "—") · Held: @(mailboxDiagnostics?.EffectiveStatus?.HeldCount.ToString() ?? "—")</MudText>
+                }
+            </MudPaper>
+        </aside>
+        <div class="mailbox-editor">
+        <div class="mailbox-mobile-tabs" role="group" aria-label="Mailbox sections">
+            <button type="button" aria-pressed="@(activeTab == 0 ? "true" : "false")" @onclick="() => activeTab = 0">Incoming</button>
+            <button type="button" aria-pressed="@(activeTab == 1 ? "true" : "false")" @onclick="() => activeTab = 1">Outgoing</button>
+            <button type="button" aria-pressed="@(activeTab == 2 ? "true" : "false")" @onclick="() => activeTab = 2">Processing</button>
+            <button type="button" aria-pressed="@(activeTab == 3 ? "true" : "false")" @onclick="() => activeTab = 3">Activity</button>
+        </div>
+        <MudTabs @bind-ActivePanelIndex="activeTab" KeepPanelsAlive="true" PanelClass="pa-0" Class="mailbox-workspace-tabs">
+        <MudTabPanel Text="Incoming" Icon="@Icons.Material.Filled.Inbox">
         <MudForm @ref="form" Model="model">
             <MudTextField Label="Mailbox display name" @bind-Value="model.DisplayName" @bind-Value:after="MarkDirty" Immediate="true" Disabled="@mutationsDisabled" />
+            @if (model.Id == Guid.Empty)
+            {
             <MudSelect T="MailboxScope" Label="Assignment" @bind-Value="model.Scope" @bind-Value:after="MarkDirty" Disabled="@(mutationsDisabled || model.Id != Guid.Empty)">
                 <MudSelectItem Value="MailboxScope.Global">Instance-global mailbox</MudSelectItem>
                 <MudSelectItem Value="MailboxScope.Organization">Dedicated tenant mailbox</MudSelectItem>
             </MudSelect>
+            }
             @if (model.Scope == MailboxScope.Organization)
             {
-                <MudTextField Label="Search organizations" @bind-Value="organizationSearch" Immediate="true" />
-                <MudSelect T="string" Label="RatelDesk organization" @bind-Value="model.OrganizationId" @bind-Value:after="MarkDirty" Required="true" Disabled="@(mutationsDisabled || model.Id != Guid.Empty)">
-                    @foreach (var org in organizations.Where(x => x.Name.Contains(organizationSearch, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        <MudSelectItem Value="org.Id">@org.Name — @org.Status</MudSelectItem>
-                    }
-                </MudSelect>
+                @if (model.Id == Guid.Empty)
+                {
+                    <MudAutocomplete T="EffectiveOrganization" Label="RatelDesk organization"
+                                     Value="SelectedOrganization" ValueChanged="SelectOrganization"
+                                     SearchFunc="SearchOrganizationsAsync" ToStringFunc="OrganizationLabel"
+                                     Required="true" Clearable="true" ResetValueOnEmptyText="true"
+                                     CoerceValue="false" DebounceInterval="200" ShowProgressIndicator="true"
+                                     MaxItems="20" Margin="Margin.Dense" Variant="Variant.Outlined"
+                                     Disabled="@mutationsDisabled">
+                        <ItemTemplate Context="org">@org.Name — @org.Status</ItemTemplate>
+                        <NoItemsTemplate>No available organizations match this search.</NoItemsTemplate>
+                    </MudAutocomplete>
+                }
+                else
+                {
+                    <MudText Typo="Typo.caption" Class="mt-2">Organization: @(SelectedOrganization?.Name ?? "Unknown organization")</MudText>
+                }
             }
+            @if (model.Id == Guid.Empty)
+            {
             <MudSelect T="InboundMailboxProvider" Label="Inbound provider" @bind-Value="model.Provider" @bind-Value:after="ProviderChanged" Disabled="@(mutationsDisabled || model.Id != Guid.Empty)">
                 <MudSelectItem Value="InboundMailboxProvider.Graph">Microsoft 365 — Microsoft Graph</MudSelectItem>
                 <MudSelectItem Value="InboundMailboxProvider.Imap">IMAP</MudSelectItem>
                 <MudSelectItem Value="InboundMailboxProvider.Pop3">POP3</MudSelectItem>
             </MudSelect>
-            @if (model.Id != Guid.Empty)
-            {
-                <MudAlert Severity="Severity.Info" Dense="true">Source and organization changes require archiving this connection and creating a new one. Historical receipts are retained.</MudAlert>
             }
 
             <MudGrid Spacing="3" Class="mt-1">
@@ -157,11 +239,33 @@
                         }
                     </MudPaper>
                 </MudItem>
-
+            </MudGrid>
+        </MudForm>
+            @if (testResult is not null)
+            {
+                <MudAlert Class="mt-4" Severity="@(testResult.Success ? Severity.Success : Severity.Error)" Variant="Variant.Outlined">
+                    @testResult.Message
+                </MudAlert>
+            }
+        </MudTabPanel>
+        <MudTabPanel Text="Outgoing" Icon="@Icons.Material.Filled.Send">
+        @if (model.Id != Guid.Empty)
+        {
+            <MailboxOutgoingEditor @key="model.Id" MailboxId="model.Id" MailboxAddress="@model.MailboxAddress"
+                                   Provider="model.Provider" Authentication="model.Authentication"
+                                   DirtyChanged="value => outgoingDirty = value" Saved="RefreshSelectedStatusAsync" />
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mt-3">Save the mailbox connection before configuring its outgoing sender.</MudAlert>
+        }
+        </MudTabPanel>
+        <MudTabPanel Text="Processing" Icon="@Icons.Material.Filled.Settings">
+            <MudGrid Spacing="2" Class="mt-1">
                 <MudItem xs="12">
                     <MudPaper Class="pa-4" Outlined="true">
                         <MudText Typo="Typo.h6" HtmlTag="h2">Ingestion</MudText>
-                        <MudText Typo="Typo.caption" Class="d-block mb-3">Mailbox availability and background processing are saved independently.</MudText>
+                        <MudText Typo="Typo.caption" Class="d-block mb-3">Incoming polling can be paused without changing outgoing delivery.</MudText>
                         <MudGrid Spacing="2">
                             <MudItem xs="12" sm="6">
                                 <MudSwitch T="bool" Label="Mailbox enabled" @bind-Value="model.Enabled" @bind-Value:after="MarkDirty" Color="Color.Primary" Disabled="@mutationsDisabled" />
@@ -187,44 +291,114 @@
                         {
                             <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mt-3">Background ingestion is disabled. The saved mailbox will not process mail.</MudAlert>
                         }
+                        @if (model.Id == Guid.Empty)
+                        {
+                            <MudGrid Spacing="2" Class="mt-2">
+                                <MudItem xs="12" sm="6">
+                                    <MudSelect T="InitialMailImport" Label="Initial import" @bind-Value="model.InitialImport" @bind-Value:after="MarkDirty" Disabled="@mutationsDisabled">
+                                        <MudSelectItem Value="InitialMailImport.NewOnly">New messages only</MudSelectItem>
+                                        @if (model.Provider != InboundMailboxProvider.Pop3) { <MudSelectItem Value="InitialMailImport.ExistingUnread">Existing unread messages</MudSelectItem> }
+                                        <MudSelectItem Value="InitialMailImport.All">Import existing messages</MudSelectItem>
+                                    </MudSelect>
+                                </MudItem>
+                            </MudGrid>
+                            @if (model.InitialImport != InitialMailImport.NewOnly)
+                            {
+                                <MudCheckBox T="bool" Label="I confirm importing existing messages may create tickets" @bind-Value="model.ConfirmExistingImport" @bind-Value:after="MarkDirty" />
+                            }
+                        }
+                        else
+                        {
+                            <MudText Typo="Typo.caption" Class="d-block mt-3">Initial import: @model.InitialImport · Baseline: @FormatTimestamp(mailboxDiagnostics?.State?.BaselineCompletedUnixMilliseconds) · Skipped: @(mailboxDiagnostics?.EffectiveStatus?.SkippedInitialCount.ToString() ?? "—")</MudText>
+                            @if (mailboxDiagnostics?.EffectiveStatus?.SkippedInitialCount > 0)
+                            {
+                                <MudButton Href="@($"/admin/email-settings/{model.Id}/ingestion")" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.History" Class="mt-2">Preview skipped mail</MudButton>
+                            }
+                        }
                     </MudPaper>
                 </MudItem>
             </MudGrid>
-
-            <MudSelect T="InitialMailImport" Label="Initial import" @bind-Value="model.InitialImport" @bind-Value:after="MarkDirty" Disabled="@(mutationsDisabled || model.Id != Guid.Empty)">
-                <MudSelectItem Value="InitialMailImport.NewOnly">New messages only</MudSelectItem>
-                @if (model.Provider != InboundMailboxProvider.Pop3) { <MudSelectItem Value="InitialMailImport.ExistingUnread">Existing unread messages</MudSelectItem> }
-                <MudSelectItem Value="InitialMailImport.All">Import existing messages</MudSelectItem>
-            </MudSelect>
-            @if (model.Id == Guid.Empty && model.InitialImport != InitialMailImport.NewOnly)
+        </MudTabPanel>
+        <MudTabPanel Text="Activity" Icon="@Icons.Material.Filled.History">
+            @if (model.Id == Guid.Empty)
             {
-                <MudCheckBox T="bool" Label="I confirm importing existing messages may create tickets" @bind-Value="model.ConfirmExistingImport" @bind-Value:after="MarkDirty" />
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mt-3">Save a mailbox to inspect its activity.</MudAlert>
             }
-            @if (testResult is not null)
+            else
             {
-                <MudAlert Class="mt-4" Severity="@(testResult.Success ? Severity.Success : Severity.Error)" Variant="Variant.Outlined">
-                    @testResult.Message
-                </MudAlert>
+                <MudGrid Spacing="2" Class="mt-1">
+                    <MudItem xs="12" lg="6">
+                        <MudPaper Class="pa-3 h-100" Outlined="true">
+                            <MudText Typo="Typo.h6" HtmlTag="h2">Incoming activity</MudText>
+                            <MudText Typo="Typo.caption" Class="d-block">Stage: @(mailboxDiagnostics?.State?.CurrentStage ?? "Unknown") · Last attempt: @FormatTimestamp(mailboxDiagnostics?.State?.LastAttemptUnixMilliseconds)</MudText>
+                            <MudText Typo="Typo.caption" Class="d-block">Captured: @(mailboxDiagnostics?.EffectiveStatus?.CapturedCount.ToString() ?? "—") · Baseline skipped: @(mailboxDiagnostics?.EffectiveStatus?.SkippedInitialCount.ToString() ?? "—") · Held: @(mailboxDiagnostics?.EffectiveStatus?.HeldCount.ToString() ?? "—")</MudText>
+                            @if (mailboxDiagnostics?.State?.ErrorCode is { } incomingError)
+                            {
+                                <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">@incomingError</MudAlert>
+                            }
+                            @foreach (var receipt in mailboxDiagnostics?.Receipts.Take(4) ?? [])
+                            {
+                                <div class="mailbox-activity-entry">
+                                    <MudText Typo="Typo.caption">@FormatTimestamp(receipt.CreatedUnixMilliseconds) · @receipt.Outcome · @(receipt.Reason ?? "No recorded reason")</MudText>
+                                    @if (!string.IsNullOrWhiteSpace(receipt.TicketId))
+                                    {
+                                        <MudLink Href="@($"/incidents/{receipt.TicketId}")">Open ticket</MudLink>
+                                    }
+                                </div>
+                            }
+                            <MudButton Href="@($"/admin/email-settings/{model.Id}/ingestion")" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Inbox" Class="mt-3">All incoming receipts and import</MudButton>
+                        </MudPaper>
+                    </MudItem>
+                    <MudItem xs="12" lg="6">
+                        <MudPaper Class="pa-3 h-100" Outlined="true">
+                            <MudText Typo="Typo.h6" HtmlTag="h2">Outgoing activity</MudText>
+                            <MudText Typo="Typo.body2">@OutgoingSummary · @(outgoingStatus?.Transport.ToString() ?? "Transport unavailable")</MudText>
+                            <MudText Typo="Typo.caption" Class="d-block">Last connection check: @FormatTimestamp(outgoingStatus?.LastTestUnixMilliseconds)</MudText>
+                            @if (outgoingStatus?.LastTestCode is { } outgoingError)
+                            {
+                                <MudText Typo="Typo.caption" Class="d-block">Result: @outgoingError</MudText>
+                            }
+                            <MudText Typo="Typo.caption" Class="d-block mt-2">Pending Emails shows delivery attempts, retries and failures across mailboxes.</MudText>
+                            <MudButton Href="/admin/pending-emails" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Outbox" Class="mt-3">Pending outgoing</MudButton>
+                        </MudPaper>
+                    </MudItem>
+                </MudGrid>
+                <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshSelectedStatusAsync" Class="mt-2">Refresh activity</MudButton>
             }
-
-            <div class="d-flex flex-wrap gap-2 mt-4">
-                <MudButton Variant="Variant.Text" Disabled="@(!isDirty || mutationsDisabled)" OnClick="DiscardChangesAsync" StartIcon="@Icons.Material.Filled.Restore">Discard changes</MudButton>
-                <MudButton Variant="Variant.Outlined" Disabled="@mutationsDisabled" OnClick="TestAsync" StartIcon="@Icons.Material.Filled.Bolt">
-                    @if (testing)
+        </MudTabPanel>
+        </MudTabs>
+        @if (saveErrors.Count > 0)
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3" role="alert">
+                <MudText Typo="Typo.subtitle2">Mailbox settings were not saved. Your draft is still available.</MudText>
+                <ul class="mb-0">
+                    @foreach (var error in saveErrors)
                     {
-                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                        <li>@error</li>
                     }
-                    Test Connection
-                </MudButton>
-                <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@mutationsDisabled" OnClick="SaveAsync" StartIcon="@Icons.Material.Filled.Save">
-                    @if (saving)
-                    {
-                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
-                    }
-                    Save
-                </MudButton>
-            </div>
-        </MudForm>
+                </ul>
+            </MudAlert>
+        }
+        @if (activeTab is 0 or 2)
+        {
+        <div class="mailbox-save-bar">
+        <MudPaper Class="pa-2 d-flex flex-wrap align-center gap-2" Outlined="true">
+            <span class="mailbox-save-label-wide">@(isDirty ? "Unsaved incoming or processing changes" : "Incoming and processing settings saved")</span>
+            <span class="mailbox-save-label-short">@(isDirty ? "Unsaved" : "Saved")</span>
+            <MudSpacer />
+            <MudButton Variant="Variant.Text" Disabled="@(!isDirty || mutationsDisabled)" OnClick="DiscardChangesAsync" StartIcon="@Icons.Material.Filled.Restore">Discard</MudButton>
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@mutationsDisabled" OnClick="SaveAsync" StartIcon="@Icons.Material.Filled.Save">
+                @if (saving)
+                {
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                }
+                Save
+            </MudButton>
+        </MudPaper>
+        </div>
+        }
+        </div>
+        </div>
     }
 </MudContainer>
 
@@ -238,8 +412,38 @@
     private readonly CancellationTokenSource disposeCts = new();
     private List<EmailInboxSettingsDto> mailboxes = [];
     private List<EffectiveOrganization> organizations = [];
-    private string organizationSearch = string.Empty;
+    private MailboxWorkerStatus? worker;
+    private MailboxDiagnosticsResponse? mailboxDiagnostics;
+    private MailboxOutgoingSettingsDto? outgoingStatus;
+    private bool statusUnavailable;
+    private string OutgoingSummary => model.Id == Guid.Empty ? "Save incoming first" : outgoingStatus switch
+    {
+        null => "Status unavailable",
+        { Version: 0 } => "Not configured",
+        { Enabled: false } => "Paused",
+        { Transport: MailboxOutgoingTransport.Smtp, HasSmtpPassword: false } => "Missing SMTP credential",
+        { Transport: MailboxOutgoingTransport.Smtp, LastTestCode: { } code } status
+            when status.TestedVersion == status.Version && code != "Authenticated" => $"Connection failed ({code})",
+        { Enabled: true } => "Enabled"
+    };
+    private static string FormatTimestamp(long? value) => value is null ? "Never" : DateTimeOffset.FromUnixTimeMilliseconds(value.Value).ToLocalTime().ToString("g");
     private sealed record EffectiveOrganization(string Id, string Name, Guid? MailboxId, string Status);
+    private EffectiveOrganization? SelectedOrganization => organizations.SingleOrDefault(x => x.Id == model.OrganizationId);
+    private static string OrganizationLabel(EffectiveOrganization? organization) => organization?.Name ?? string.Empty;
+    private Task<IEnumerable<EffectiveOrganization>> SearchOrganizationsAsync(string? text, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var available = organizations.Where(org =>
+            !mailboxes.Any(mailbox => !mailbox.Archived && mailbox.Scope == MailboxScope.Organization && mailbox.OrganizationId == org.Id) &&
+            (string.IsNullOrWhiteSpace(text) || org.Name.Contains(text, StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(org => org.Name, StringComparer.OrdinalIgnoreCase).Take(20).ToArray();
+        return Task.FromResult<IEnumerable<EffectiveOrganization>>(available);
+    }
+    private void SelectOrganization(EffectiveOrganization? organization)
+    {
+        model.OrganizationId = organization?.Id;
+        MarkDirty();
+    }
     private MudForm form = default!;
     private EmailInboxSettingsForm model = new();
     private EmailInboxSettingsForm? savedBaseline;
@@ -249,6 +453,9 @@
     private bool saving;
     private bool testing;
     private bool isDirty;
+    private bool outgoingDirty;
+    private List<string> saveErrors = [];
+    private int activeTab;
     private bool disposed;
     private string loadError = "Mailbox settings could not be loaded.";
 
@@ -267,16 +474,19 @@
         loading = true;
         loaded = false;
         testResult = null;
+        saveErrors.Clear();
         try
         {
             var settings = await HelpdeskApi.GetFromJsonAsync<List<EmailInboxSettingsDto>>("/api/v1/email-settings", disposeCts.Token);
             mailboxes = settings ?? [];
             organizations = await HelpdeskApi.GetFromJsonAsync<List<EffectiveOrganization>>("/api/v1/email-settings/effective", disposeCts.Token) ?? [];
+            worker = await HelpdeskApi.GetFromJsonAsync<MailboxWorkerStatus>("/api/v1/email-settings/worker", disposeCts.Token);
             var global = mailboxes.SingleOrDefault(x => !x.Archived && x.Scope == MailboxScope.Global);
             model = global is null ? new EmailInboxSettingsForm() : EmailInboxSettingsForm.FromDto(global);
             savedBaseline = model.Clone();
             isDirty = false;
             loaded = true;
+            await RefreshSelectedStatusAsync();
         }
         catch (OperationCanceledException) when (disposeCts.IsCancellationRequested)
         {
@@ -316,7 +526,7 @@
 
             if (!response.IsSuccessStatusCode)
             {
-                Snackbar.Add("Mailbox settings could not be saved. Your changes are still available.", Severity.Error);
+                saveErrors = await ReadSaveErrorsAsync(response, disposeCts.Token);
                 return;
             }
 
@@ -333,7 +543,9 @@
             model = EmailInboxSettingsForm.FromDto(saved);
             savedBaseline = model.Clone();
             isDirty = false;
+            saveErrors.Clear();
             testResult = null;
+            await RefreshSelectedStatusAsync();
             Snackbar.Add("Mailbox settings saved.", Severity.Success);
         }
         catch (OperationCanceledException) when (disposeCts.IsCancellationRequested)
@@ -342,7 +554,7 @@
         }
         catch (Exception)
         {
-            Snackbar.Add("Mailbox settings could not be saved. Your changes are still available.", Severity.Error);
+            saveErrors = ["The save request could not be completed. Try again after checking the connection."];
         }
         finally
         {
@@ -360,6 +572,7 @@
             return;
         }
 
+        activeTab = 0;
         testing = true;
         testResult = null;
         try
@@ -374,12 +587,10 @@
             {
                 var result = await response.Content.ReadFromJsonAsync<ConnectionTestResponse>(disposeCts.Token);
                 testResult = new(result?.Success == true, result?.Message ?? "Connection test did not return a result.");
-                Snackbar.Add(testResult.Message, testResult.Success ? Severity.Success : Severity.Error);
             }
             else
             {
                 testResult = new(false, "Connection test failed. Check the mailbox connection details and try again.");
-                Snackbar.Add("Mailbox connection test failed.", Severity.Error);
             }
         }
         catch (OperationCanceledException) when (disposeCts.IsCancellationRequested)
@@ -389,7 +600,6 @@
         catch (Exception)
         {
             testResult = new(false, "Connection test could not be completed. Check the mailbox connection details and try again.");
-            Snackbar.Add("Mailbox connection test could not be completed.", Severity.Error);
         }
         finally
         {
@@ -410,12 +620,13 @@
         model = savedBaseline.Clone();
         isDirty = false;
         testResult = null;
+        saveErrors.Clear();
         await InvokeAsync(StateHasChanged);
     }
 
     private async Task ConfirmInternalNavigationAsync(LocationChangingContext context)
     {
-        if (!isDirty)
+        if (!isDirty && !outgoingDirty)
         {
             return;
         }
@@ -447,15 +658,86 @@
 
         isDirty = !model.Matches(savedBaseline);
         testResult = null;
+        saveErrors.Clear();
     }
 
     private MailboxSettingsRequest BuildPayload() => JsonSerializer.Deserialize<MailboxSettingsRequest>(JsonSerializer.Serialize(model))!;
 
+    private static async Task<List<string>> ReadSaveErrorsAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        try
+        {
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            using var document = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+            var body = document.RootElement;
+            if (body.TryGetProperty("errors", out var errors) && errors.ValueKind == JsonValueKind.Object)
+            {
+                var details = errors.EnumerateObject()
+                    .SelectMany(field => field.Value.ValueKind == JsonValueKind.Array
+                        ? field.Value.EnumerateArray()
+                            .Where(value => value.ValueKind == JsonValueKind.String)
+                            .Select(value => $"{ValidationFieldLabel(field.Name)}: {value.GetString()}")
+                        : Enumerable.Empty<string>())
+                    .Take(8).ToList();
+                if (details.Count > 0) return details;
+            }
+            if (body.TryGetProperty("message", out var message) && message.ValueKind == JsonValueKind.String &&
+                !string.IsNullOrWhiteSpace(message.GetString()))
+                return [message.GetString()!];
+        }
+        catch (JsonException) { return FallbackSaveErrors(response); }
+        catch (HttpRequestException) { return FallbackSaveErrors(response); }
+        return FallbackSaveErrors(response);
+    }
+
+    private static List<string> FallbackSaveErrors(HttpResponseMessage response) =>
+        response.StatusCode == System.Net.HttpStatusCode.Conflict
+            ? ["Configuration changed or the assignment is already in use. Reload before retrying."]
+            : ["Check the mailbox fields and try again."];
+
+    private static string ValidationFieldLabel(string field) => field switch
+    {
+        nameof(MailboxSettingsRequest.DisplayName) => "Mailbox display name",
+        nameof(MailboxSettingsRequest.MailboxAddress) => "Mailbox address",
+        nameof(MailboxSettingsRequest.MailHost) => "Mail host",
+        nameof(MailboxSettingsRequest.MailboxFolder) => "Mailbox folder",
+        nameof(MailboxSettingsRequest.OrganizationId) => "RatelDesk organization",
+        nameof(MailboxSettingsRequest.TenantId) => "Microsoft directory ID",
+        nameof(MailboxSettingsRequest.ClientId) => "Microsoft client ID",
+        nameof(MailboxSettingsRequest.Username) => "Protocol username",
+        nameof(MailboxSettingsRequest.Password) => "Protocol password",
+        nameof(MailboxSettingsRequest.ClientSecret) => "Client secret",
+        nameof(MailboxSettingsRequest.Port) => "Port",
+        _ => field
+    };
+
     private async Task SelectMailboxAsync(Guid id)
     {
-        if (isDirty && !await JS.InvokeAsync<bool>("confirm", "Discard unsaved mailbox changes?")) return;
+        if ((isDirty || outgoingDirty) && !await JS.InvokeAsync<bool>("confirm", "Discard unsaved mailbox changes?")) return;
+        outgoingDirty = false;
         model = id == Guid.Empty ? new() : EmailInboxSettingsForm.FromDto(mailboxes.Single(x => x.Id == id));
-        savedBaseline = model.Clone(); isDirty = false; testResult = null;
+        savedBaseline = model.Clone(); isDirty = false; testResult = null; saveErrors.Clear();
+        await RefreshSelectedStatusAsync();
+    }
+    private async Task RefreshSelectedStatusAsync()
+    {
+        mailboxDiagnostics = null;
+        outgoingStatus = null;
+        statusUnavailable = false;
+        if (model.Id == Guid.Empty) return;
+        try
+        {
+            mailboxDiagnostics = await HelpdeskApi.GetFromJsonAsync<MailboxDiagnosticsResponse>($"/api/v1/email-settings/{model.Id}/diagnostics", disposeCts.Token);
+            outgoingStatus = await HelpdeskApi.GetFromJsonAsync<MailboxOutgoingSettingsDto>($"/api/v1/email-settings/{model.Id}/outgoing", disposeCts.Token);
+        }
+        catch (HttpRequestException)
+        {
+            statusUnavailable = true;
+        }
+        catch (JsonException)
+        {
+            statusUnavailable = true;
+        }
     }
     private async Task NewMailboxAsync(MailboxScope scope)
     {
@@ -475,10 +757,46 @@
     }
     private async Task ArchiveAsync()
     {
-        if (!await JS.InvokeAsync<bool>("confirm", "Archive this assignment? A dedicated tenant will explicitly revert to the global mailbox. Historical receipts are retained.")) return;
+        if ((isDirty || outgoingDirty) && !await JS.InvokeAsync<bool>("confirm", "Discard unsaved changes before archiving this mailbox?")) return;
+        var global = mailboxes.SingleOrDefault(x => !x.Archived && x.Scope == MailboxScope.Global && x.Id != model.Id);
+        var message = model.Scope == MailboxScope.Organization
+            ? global is null
+                ? "Revert this dedicated assignment? Incoming and outgoing mail will have no effective mailbox until a global assignment is configured. Historical receipts remain attached to this source."
+                : $"Revert this dedicated assignment? Incoming and outgoing mail will use {global.MailboxAddress} for new work. Historical receipts and queued deliveries remain attached to their original source."
+            : "Archive the instance-global mailbox? Organizations without a dedicated assignment will have no incoming or outgoing route. Historical receipts and queued deliveries remain attached to their original source.";
+        if (!await JS.InvokeAsync<bool>("confirm", message)) return;
         using var response = await HelpdeskApi.PostAsJsonAsync($"/api/v1/email-settings/{model.Id}/archive", new { model.Version, Confirmed = true }, disposeCts.Token);
         if (response.IsSuccessStatusCode) await LoadAsync();
         else Snackbar.Add("Assignment changed; reload before retrying.", Severity.Error);
+    }
+
+    private async Task SyncNowFromSettingsAsync()
+    {
+        if (model.Id == Guid.Empty || mutationsDisabled || isDirty || outgoingDirty) return;
+        using var response = await HelpdeskApi.PostAsync($"/api/v1/email-settings/{model.Id}/sync", null, disposeCts.Token);
+        if (response.IsSuccessStatusCode)
+            Navigation.NavigateTo($"/admin/email-settings/{model.Id}/ingestion");
+        else
+            Snackbar.Add("Sync is unavailable. Check instance and mailbox status before retrying.", Severity.Warning);
+    }
+
+    private async Task ToggleWorkerAsync()
+    {
+        if (worker is null || !worker.DeploymentPermitsIngestion || mutationsDisabled) return;
+        var running = !worker.InstanceRunning;
+        var message = running
+            ? "Start the instance mailbox worker? Enabled mailboxes will establish their initial boundaries and then process new mail."
+            : "Pause incoming processing for every mailbox on this instance? Outgoing mail is independent.";
+        if (!await JS.InvokeAsync<bool>("confirm", message)) return;
+        using var response = await HelpdeskApi.PostAsJsonAsync("/api/v1/email-settings/worker",
+            new { Running = running, Confirmed = true }, disposeCts.Token);
+        if (response.IsSuccessStatusCode)
+        {
+            worker = await response.Content.ReadFromJsonAsync<MailboxWorkerStatus>(disposeCts.Token);
+            await RefreshSelectedStatusAsync();
+            Snackbar.Add(running ? "Mailbox worker activation saved." : "Mailbox worker paused.", Severity.Info);
+        }
+        else Snackbar.Add("Worker state could not be changed. Refresh its status before retrying.", Severity.Error);
     }
 
     private static IEnumerable<string> ValidatePort(int port)

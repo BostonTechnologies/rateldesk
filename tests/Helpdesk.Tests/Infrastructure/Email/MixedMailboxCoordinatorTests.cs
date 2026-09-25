@@ -40,6 +40,51 @@ namespace Helpdesk.Tests.Infrastructure.Email;
 
 public sealed class MixedMailboxCoordinatorTests
 {
+    [Theory]
+    [InlineData("EmailIngestion:PollTimeout", "00:02:00")]
+    [InlineData("EmailIngestion:AcknowledgmentTimeout", "00:00:30")]
+    [InlineData("EmailIngestion:AcknowledgmentPhaseBudget", "00:00:30")]
+    [InlineData("EmailIngestion:FetchPhaseBudget", "00:01:20")]
+    [InlineData("EmailIngestion:ReceiptPhaseBudget", "00:00:30")]
+    public void Phase_timeout_must_fit_inside_its_distributed_claim(string key, string value)
+    {
+        var settings = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?> { [key] = value }).Build();
+        Assert.Throws<InvalidOperationException>(() => new MailboxIngestionCoordinator(
+            Substitute.For<IServiceScopeFactory>(), settings, NullLogger<MailboxIngestionCoordinator>.Instance));
+    }
+
+    [Fact]
+    public async Task Sync_now_runs_only_selected_mailbox_before_its_next_scheduled_poll()
+    {
+        await using var fixture = await MixedHarness.CreateAsync(InboundMailboxProvider.Graph, seedMessages: false);
+        var initial = await fixture.Coordinator.ReconcileAsync(default);
+        await Task.WhenAll(initial.Values).WaitAsync(TimeSpan.FromSeconds(10));
+        await fixture.Coordinator.ReconcileAsync(default);
+        var before = fixture.Mailboxes.ToDictionary(x => x.Id, x => fixture.FetchCount(x.Id));
+        var selected = fixture.Mailboxes[2];
+        using (var scope = fixture.CreateScope())
+        {
+            var service = scope.ServiceProvider.GetRequiredService<MailboxSyncService>();
+            var queued = await service.RequestAsync(selected.Id, default);
+            Assert.Equal("Queued", queued.Status);
+            Assert.Equal(queued.RequestVersion, (await service.RequestAsync(selected.Id, default)).RequestVersion);
+        }
+
+        var commanded = await fixture.Coordinator.ReconcileAsync(default);
+        Assert.Single(commanded);
+        await Task.WhenAll(commanded.Values).WaitAsync(TimeSpan.FromSeconds(10));
+        await using var verify = fixture.Open();
+        var state = await verify.Set<MailboxIngestionState>().SingleAsync(x => x.MailboxId == selected.Id);
+        Assert.Equal(1, state.SyncRequestedVersion);
+        Assert.Equal(state.SyncRequestedVersion, state.SyncCompletedVersion);
+        Assert.Null(state.LastSyncCommandErrorCode);
+        Assert.NotNull(state.LastSyncCommandUnixMilliseconds);
+        Assert.Equal(before[selected.Id] + 1, fixture.FetchCount(selected.Id));
+        Assert.All(fixture.Mailboxes.Where(x => x.Id != selected.Id), x =>
+            Assert.Equal(before[x.Id], fixture.FetchCount(x.Id)));
+    }
+
     [Fact]
     public async Task Durable_pending_receipt_processes_when_fresh_enumeration_fails()
     {
@@ -59,6 +104,66 @@ public sealed class MixedMailboxCoordinatorTests
     }
 
     [Fact]
+    public async Task Selected_empty_envelope_baseline_receipt_refetches_and_processes_without_replaying_other_receipts()
+    {
+        await using var fixture = await MixedHarness.CreateAsync(InboundMailboxProvider.Graph, seedMessages: false);
+        await fixture.SeedReceiptAsync(fixture.Global, "selected-old", InboundReceiptOutcome.Ignored, envelope: false);
+        await fixture.SeedReceiptAsync(fixture.Global, "other-old", InboundReceiptOutcome.Ignored, envelope: false);
+        await fixture.SeedReceiptAsync(fixture.Global, "already-handled", InboundReceiptOutcome.Succeeded, envelope: false);
+        fixture.AddMessage(fixture.Global, "selected-old", "requester@tenant0.example.com");
+        await using (var setup = fixture.Open())
+        {
+            var rows = await setup.Set<InboundMessageReceipt>().ToListAsync();
+            foreach (var receipt in rows.Where(x => x.Outcome == InboundReceiptOutcome.Ignored))
+            {
+                receipt.Reason = null;
+                receipt.Acknowledged = true;
+                receipt.AcknowledgmentStatus = InboundAcknowledgmentStatus.NotRequired;
+                receipt.InternetMessageId = null;
+            }
+            (await setup.Set<MailboxIngestionState>().SingleAsync(x => x.MailboxId == fixture.Global.Id)).Initialized = true;
+            rows.Single(x => x.TransportKey == "selected-old").HistoricalImportRequestId = Guid.NewGuid();
+            await setup.SaveChangesAsync();
+        }
+
+        await fixture.Coordinator.PollAsync(fixture.Global, default);
+
+        await using var verify = fixture.Open();
+        Assert.Single(await verify.Incidents.ToListAsync());
+        var receipts = await verify.Set<InboundMessageReceipt>().ToListAsync();
+        Assert.Equal(InboundReceiptOutcome.Succeeded, receipts.Single(x => x.TransportKey == "selected-old").Outcome);
+        Assert.NotNull(receipts.Single(x => x.TransportKey == "selected-old").HistoricalImportCompletedUnixMilliseconds);
+        Assert.Equal(InboundReceiptOutcome.Ignored, receipts.Single(x => x.TransportKey == "other-old").Outcome);
+        Assert.Equal(InboundReceiptOutcome.Succeeded, receipts.Single(x => x.TransportKey == "already-handled").Outcome);
+    }
+
+    [Fact]
+    public async Task Missing_historical_source_is_held_for_review_without_creating_an_incident()
+    {
+        await using var fixture = await MixedHarness.CreateAsync(InboundMailboxProvider.Graph, seedMessages: false);
+        await fixture.SeedReceiptAsync(fixture.Global, "gone-old", InboundReceiptOutcome.Ignored, envelope: false);
+        await using (var setup = fixture.Open())
+        {
+            var receipt = await setup.Set<InboundMessageReceipt>().SingleAsync();
+            receipt.Reason = null;
+            receipt.Acknowledged = true;
+            receipt.AcknowledgmentStatus = InboundAcknowledgmentStatus.NotRequired;
+            receipt.InternetMessageId = null;
+            (await setup.Set<MailboxIngestionState>().SingleAsync(x => x.MailboxId == fixture.Global.Id)).Initialized = true;
+            receipt.HistoricalImportRequestId = Guid.NewGuid();
+            await setup.SaveChangesAsync();
+        }
+
+        await fixture.Coordinator.PollAsync(fixture.Global, default);
+
+        await using var verify = fixture.Open();
+        Assert.Empty(await verify.Incidents.ToListAsync());
+        var held = await verify.Set<InboundMessageReceipt>().SingleAsync();
+        Assert.Equal(InboundReceiptOutcome.NeedsReview, held.Outcome);
+        Assert.Equal("ImportSourceMissing", held.Reason);
+    }
+
+    [Fact]
     public async Task Durable_acknowledgment_recovers_when_fresh_enumeration_fails()
     {
         await using var fixture = await MixedHarness.CreateAsync(InboundMailboxProvider.Graph, seedMessages: false);
@@ -72,6 +177,94 @@ public sealed class MixedMailboxCoordinatorTests
         Assert.True((await verify.Set<InboundMessageReceipt>().SingleAsync()).Acknowledged);
         Assert.Equal(1, adapter.Acknowledgements.GetValueOrDefault(fixture.Global.Id));
         Assert.Equal(nameof(IOException), (await verify.Set<MailboxIngestionState>().SingleAsync(x => x.MailboxId == fixture.Global.Id)).ErrorCode);
+    }
+
+    [Fact]
+    public async Task Stalled_fetch_times_out_without_starving_durable_acknowledgment_or_other_writes()
+    {
+        await using var fixture = await MixedHarness.CreateAsync(InboundMailboxProvider.Graph, seedMessages: false,
+            ingestionSettings: new Dictionary<string, string?>
+            {
+                ["EmailIngestion:PollTimeout"] = "00:00:15",
+                ["EmailIngestion:FetchPhaseBudget"] = "00:00:01"
+            });
+        await fixture.SeedReceiptAsync(fixture.Global, "already-committed", InboundReceiptOutcome.Succeeded,
+            envelope: false);
+        var adapter = fixture.Adapters[InboundMailboxProvider.Graph];
+        adapter.BlockedMailbox = fixture.Global.Id;
+
+        var poll = fixture.Coordinator.PollAsync(fixture.Global, default);
+        await adapter.BlockedEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await using (var unrelated = fixture.Open())
+        {
+            unrelated.Organizations.Add(new Organization { Id = "write-during-fetch", Name = "Independent write" });
+            await unrelated.SaveChangesAsync().WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        await poll.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await using (var verify = fixture.Open())
+        {
+            Assert.True(adapter.BlockedCancelled.Task.IsCompletedSuccessfully);
+            Assert.True((await verify.Set<InboundMessageReceipt>().SingleAsync()).Acknowledged);
+            var state = await verify.Set<MailboxIngestionState>()
+                .SingleAsync(x => x.MailboxId == fixture.Global.Id);
+            Assert.Equal("FetchTimeout", state.ErrorCode);
+            Assert.False(state.Initialized);
+            Assert.Null(state.Cursor);
+        }
+
+        adapter.BlockedMailbox = null;
+        fixture.Clock.Advance(TimeSpan.FromSeconds(31));
+        fixture.AddMessage(fixture.Global, "arrived-after-fetch-timeout", "requester@tenant0.example.com");
+        await fixture.Coordinator.PollAsync(fixture.Global, default).WaitAsync(TimeSpan.FromSeconds(5));
+        await using var recovered = fixture.Open();
+        Assert.Single(await recovered.Incidents.ToListAsync());
+        Assert.True((await recovered.Set<MailboxIngestionState>()
+            .SingleAsync(x => x.MailboxId == fixture.Global.Id)).Initialized);
+    }
+
+    [Fact]
+    public async Task Stalled_receipt_processing_does_not_starve_capture_or_acknowledgment()
+    {
+        var gate = new ReceiptRuleGate("slow-pending");
+        await using var fixture = await MixedHarness.CreateAsync(InboundMailboxProvider.Graph, seedMessages: false,
+            ingestionSettings: new Dictionary<string, string?>
+            {
+                ["EmailIngestion:PollTimeout"] = "00:00:15",
+                ["EmailIngestion:ReceiptPhaseBudget"] = "00:00:01"
+            }, ruleGate: gate);
+        await fixture.SeedReceiptAsync(fixture.Global, "slow-pending", InboundReceiptOutcome.Pending);
+        await fixture.SeedReceiptAsync(fixture.Global, "committed-before-processing", InboundReceiptOutcome.Succeeded,
+            envelope: false);
+        fixture.AddMessage(fixture.Global, "fresh-during-slow-receipt", "new@tenant0.example.com");
+
+        var poll = fixture.Coordinator.PollAsync(fixture.Global, default);
+        await gate.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await using (var unrelated = fixture.Open())
+        {
+            unrelated.Organizations.Add(new Organization { Id = "write-during-receipt", Name = "Independent write" });
+            await unrelated.SaveChangesAsync().WaitAsync(TimeSpan.FromSeconds(4));
+        }
+        await poll.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await using (var verify = fixture.Open())
+        {
+            Assert.Empty(await verify.Incidents.ToListAsync());
+            var receipts = await verify.Set<InboundMessageReceipt>().ToListAsync();
+            Assert.True(receipts.Single(x => x.TransportKey == "committed-before-processing").Acknowledged);
+            Assert.Equal(InboundReceiptOutcome.Pending,
+                receipts.Single(x => x.TransportKey == "fresh-during-slow-receipt").Outcome);
+            Assert.Equal(1, receipts.Single(x => x.TransportKey == "slow-pending").Attempts);
+            Assert.True((await verify.Set<MailboxIngestionState>()
+                .SingleAsync(x => x.MailboxId == fixture.Global.Id)).Initialized);
+        }
+
+        gate.Release();
+        await fixture.Coordinator.PollAsync(fixture.Global, default).WaitAsync(TimeSpan.FromSeconds(5));
+        await using var recovered = fixture.Open();
+        Assert.Equal(2, await recovered.Incidents.CountAsync());
+        Assert.All(await recovered.Set<InboundMessageReceipt>().Where(x => x.TicketId != null).ToListAsync(),
+            receipt => Assert.Equal(InboundReceiptOutcome.Succeeded, receipt.Outcome));
     }
 
     [Fact]
@@ -519,7 +712,7 @@ public sealed class MixedMailboxCoordinatorTests
             mailbox.Authentication = MailboxAuthentication.Password;
             mailbox.MailHost = "localhost"; mailbox.Port = server.Port; mailbox.Username = "fixture";
             mailbox.MailboxFolder = "Support"; mailbox.InitialImport = InitialMailImport.All;
-            mailbox.MarkReadAfterSuccess = false;
+            mailbox.MarkReadAfterSuccess = provider == InboundMailboxProvider.Imap;
             mailbox.Password = secrets.Protect(mailbox.Id, "synthetic password");
             await using (var setup = fixture.Open())
             {
@@ -676,6 +869,32 @@ public sealed class MixedMailboxCoordinatorTests
         Assert.Empty(await verify.Set<InboundMessageReceipt>().Where(x => x.MailboxId == blocked.Id).ToListAsync());
     }
 
+    private sealed class ReceiptRuleGate(string messageId)
+    {
+        private readonly TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task WaitAsync(InboundEmailContext message, CancellationToken ct)
+        {
+            if (message.InternetMessageId != messageId) return;
+            Entered.TrySetResult();
+            await release.Task.WaitAsync(ct);
+        }
+
+        public void Release() => release.TrySetResult();
+    }
+
+    private sealed class GatedRuleProcessor(ReceiptRuleGate gate, InboundEmailRuleProcessor inner)
+        : IInboundEmailRuleProcessor
+    {
+        public async Task<InboundEmailRuleProcessingResult> ProcessAsync(InboundEmailContext message,
+            CancellationToken ct = default)
+        {
+            await gate.WaitAsync(message, ct);
+            return await inner.ProcessAsync(message, ct);
+        }
+    }
+
     private sealed class MixedHarness : IAsyncDisposable
     {
         private readonly string path = Path.Combine(Path.GetTempPath(), $"mixed-mailboxes-{Guid.NewGuid():N}.db");
@@ -689,7 +908,7 @@ public sealed class MixedMailboxCoordinatorTests
         public static async Task<MixedHarness> CreateAsync(InboundMailboxProvider globalProvider,
             IInboundMailboxAdapter? overrideAdapter = null, IForwardedEmailParser? parser = null,
             bool realRuleExecutor = false, bool seedMessages = true,
-            IReadOnlyDictionary<string, string?>? ingestionSettings = null)
+            IReadOnlyDictionary<string, string?>? ingestionSettings = null, ReceiptRuleGate? ruleGate = null)
         {
             var fixture = new MixedHarness();
             var registrations = new ServiceCollection();
@@ -698,13 +917,21 @@ public sealed class MixedMailboxCoordinatorTests
             registrations.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
             registrations.AddSingleton<MailboxCredentialProtector>();
             registrations.AddScoped<MailboxLeaseStore>();
+            registrations.AddScoped<MailboxSyncService>();
             registrations.AddScoped<MailboxOutboxStore>();
             registrations.AddScoped<IIngressEffectContext, IngressEffectContext>();
             registrations.AddSingleton(parser ?? Substitute.For<IForwardedEmailParser>());
             registrations.AddScoped(_ => new RatelDeskIdentityDbContext(new DbContextOptionsBuilder<RatelDeskIdentityDbContext>()
                 .UseInMemoryDatabase("unused-mixed-identity").Options));
             registrations.AddScoped<InboundTenantRouter>();
-            registrations.AddScoped<IInboundEmailRuleProcessor, InboundEmailRuleProcessor>();
+            if (ruleGate is null)
+                registrations.AddScoped<IInboundEmailRuleProcessor, InboundEmailRuleProcessor>();
+            else
+            {
+                registrations.AddScoped<InboundEmailRuleProcessor>();
+                registrations.AddScoped<IInboundEmailRuleProcessor>(provider =>
+                    new GatedRuleProcessor(ruleGate, provider.GetRequiredService<InboundEmailRuleProcessor>()));
+            }
             if (realRuleExecutor)
                 registrations.AddScoped<IInboundEmailActionExecutor, InboundEmailActionExecutor>();
             else
@@ -738,12 +965,15 @@ public sealed class MixedMailboxCoordinatorTests
                 fixture.Adapters.Add(provider, adapter);
                 registrations.AddSingleton<IInboundMailboxAdapter>(overrideAdapter?.Provider == provider ? overrideAdapter : adapter);
             }
-            fixture.services = registrations.BuildServiceProvider();
             var settings = new Dictionary<string, string?> { ["EmailIngestion:Enabled"] = "true" };
             if (ingestionSettings is not null)
                 foreach (var (key, value) in ingestionSettings) settings[key] = value;
+            var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
+            registrations.AddSingleton<IConfiguration>(configuration);
+            registrations.AddScoped<MailboxWorkerPolicy>();
+            fixture.services = registrations.BuildServiceProvider();
             fixture.Coordinator = new MailboxIngestionCoordinator(fixture.services.GetRequiredService<IServiceScopeFactory>(),
-                new ConfigurationBuilder().AddInMemoryCollection(settings).Build(),
+                configuration,
                 NullLogger<MailboxIngestionCoordinator>.Instance, fixture.Clock);
             await using var db = fixture.Open();
             await db.Database.EnsureCreatedAsync();
@@ -935,7 +1165,7 @@ public sealed class MixedMailboxCoordinatorTests
         };
     }
 
-    private sealed class ControlledAdapter(InboundMailboxProvider provider) : IInboundMailboxAdapter
+    private sealed class ControlledAdapter(InboundMailboxProvider provider) : IInboundMailboxAdapter, IHistoricalMailboxAdapter
     {
         public InboundMailboxProvider Provider => provider;
         public ConcurrentDictionary<Guid, ConcurrentQueue<InboundSourceMessage>> Feeds { get; } = new();
@@ -955,6 +1185,18 @@ public sealed class MixedMailboxCoordinatorTests
 
         public Task<MailboxConnectionTest> TestAsync(EmailInboxSettings settings, CancellationToken ct) =>
             Task.FromResult(new MailboxConnectionTest(true, "Synthetic protocol fixture"));
+
+        public Task<IReadOnlyList<HistoricalSourcePreview>> PreviewAsync(EmailInboxSettings settings,
+            IReadOnlyList<string> keys, CancellationToken ct) => Task.FromResult<IReadOnlyList<HistoricalSourcePreview>>(
+            keys.Select(key => new HistoricalSourcePreview(key, null, null, null,
+                Feeds.GetValueOrDefault(settings.Id)?.Any(x => x.Key == key) == true, null)).ToArray());
+
+        public Task<InboundSourceMessage> FetchHistoricalAsync(EmailInboxSettings settings, string key, CancellationToken ct)
+        {
+            var message = Feeds.GetValueOrDefault(settings.Id)?.FirstOrDefault(x => x.Key == key);
+            if (message is null) throw new InboundSourceMissingException("Synthetic source is absent.");
+            return Task.FromResult(message);
+        }
 
         public async Task<InboundSourceBatch> FetchAsync(EmailInboxSettings settings, MailboxIngestionState state,
             IReadOnlySet<string> knownKeys, CancellationToken ct)

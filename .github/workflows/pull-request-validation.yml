@@ -148,6 +148,101 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  mailbox-lifecycle:
+    name: Mailbox lifecycle acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out triggering commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up .NET SDK from global.json
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          global-json-file: global.json
+
+      - name: Restore NuGet packages cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('global.json', '**/*.csproj', '**/*.props', '**/*.targets') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Restore application dependencies
+        run: dotnet restore Helpdesk.sln
+
+      - name: Install browser dependencies
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run published mailbox lifecycle acceptance
+        run: bash tools/ci/run-mailbox-lifecycle.sh
+
+      - name: Verify published cross-tenant forwarding and dedicated source ownership
+        env:
+          HELPDESK_MAILBOX_PUBLISH_NO_BUILD: 'true'
+          HELPDESK_MAILBOX_SPEC: tests/ux/mailbox-forwarding-lifecycle.spec.ts
+        run: bash tools/ci/run-mailbox-lifecycle.sh
+
+      - name: Verify published mailbox ownership across two API replicas
+        env:
+          HELPDESK_MAILBOX_PUBLISH_NO_BUILD: 'true'
+          HELPDESK_MAILBOX_REPLICAS: '2'
+          HELPDESK_MAILBOX_SPEC: tests/ux/mailbox-replica-lifecycle.spec.ts
+        run: bash tools/ci/run-mailbox-lifecycle.sh
+
+      - name: Verify failed dedicated SMTP delivery and confirmed repair without global fallback
+        env:
+          HELPDESK_MAILBOX_PUBLISH_NO_BUILD: 'true'
+          HELPDESK_MAILBOX_SPEC: tests/ux/mailbox-outgoing-failure-lifecycle.spec.ts
+        run: bash tools/ci/run-mailbox-lifecycle.sh
+
+      - name: Verify first-baseline arrival boundary in published application
+        env:
+          HELPDESK_MAILBOX_PUBLISH_NO_BUILD: 'true'
+          HELPDESK_MAILBOX_SPEC: tests/ux/mailbox-activation-lifecycle.spec.ts
+        run: bash tools/ci/run-mailbox-lifecycle.sh
+
+      - name: Run published POP3 lifecycle without a global mailbox
+        env:
+          HELPDESK_MAILBOX_PUBLISH_NO_BUILD: 'true'
+          HELPDESK_MAILBOX_SPEC: tests/ux/mailbox-pop-lifecycle.spec.ts
+        run: bash tools/ci/run-mailbox-lifecycle.sh
+
+      - name: Verify explicit deployment hard-stop in published application
+        env:
+          EmailIngestion__Enabled: 'false'
+          HELPDESK_MAILBOX_PUBLISH_NO_BUILD: 'true'
+          HELPDESK_MAILBOX_SPEC: tests/ux/mailbox-policy-lifecycle.spec.ts
+          HELPDESK_MAILBOX_POLICY_EXPECT: blocked
+        run: bash tools/ci/run-mailbox-lifecycle.sh
+
+      - name: Verify explicit legacy enabled policy in published application
+        env:
+          EmailIngestion__Enabled: 'true'
+          HELPDESK_MAILBOX_PUBLISH_NO_BUILD: 'true'
+          HELPDESK_MAILBOX_SPEC: tests/ux/mailbox-policy-lifecycle.spec.ts
+          HELPDESK_MAILBOX_POLICY_EXPECT: running
+        run: bash tools/ci/run-mailbox-lifecycle.sh
+
+      - name: Upload lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mailbox-lifecycle-evidence
+          path: artifacts/e2e/mailbox-lifecycle
+          if-no-files-found: warn
+          retention-days: 14
+
   docker:
     name: Docker build (${{ matrix.name }})
     runs-on: ubuntu-latest

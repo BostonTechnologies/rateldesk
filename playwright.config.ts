@@ -2,7 +2,13 @@ import { defineConfig } from '@playwright/test';
 
 const testIgnore = process.env.HELPDESK_E2E_RUN_SETUP_WIZARD === 'true'
   ? '**/ai-assistant-chat.spec.ts'
-  : ['**/ai-assistant-chat.spec.ts', '**/setup.spec.ts'];
+  : ['**/ai-assistant-chat.spec.ts', '**/setup.spec.ts',
+    ...(process.env.HELPDESK_E2E_MAILBOX_LIFECYCLE === 'true' ? [] : [
+      '**/mailbox-lifecycle.spec.ts', '**/mailbox-activation-lifecycle.spec.ts',
+      '**/mailbox-pop-lifecycle.spec.ts', '**/mailbox-forwarding-lifecycle.spec.ts',
+      '**/mailbox-replica-lifecycle.spec.ts',
+      '**/mailbox-outgoing-failure-lifecycle.spec.ts',
+      '**/mailbox-policy-lifecycle.spec.ts'])];
 
 export default defineConfig({
   testDir: './tests/ux',

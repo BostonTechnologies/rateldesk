@@ -14,7 +14,7 @@ namespace Helpdesk.Infrastructure.Email;
 public sealed class ProtocolMailboxAdapter(
     InboundMailboxProvider provider,
     MailboxDestinationPolicy destinations,
-    MailboxCredentialProtector secrets) : IInboundMailboxAdapter
+    MailboxCredentialProtector secrets) : IInboundMailboxAdapter, IHistoricalMailboxAdapter
 {
     public InboundMailboxProvider Provider { get; } = provider is InboundMailboxProvider.Imap or InboundMailboxProvider.Pop3
         ? provider : throw new ArgumentOutOfRangeException(nameof(provider));
@@ -114,7 +114,7 @@ public sealed class ProtocolMailboxAdapter(
             if ((!state.Initialized && settings.InitialImport == InitialMailImport.NewOnly && uid.Id <= boundary) ||
                 (!state.Initialized && settings.InitialImport == InitialMailImport.ExistingUnread && summary.Flags.GetValueOrDefault().HasFlag(MessageFlags.Seen)))
             {
-                result.Add(new(key, null, Ignore: true));
+                result.Add(new(key, null, Ignore: true, HoldReason: "InitialBaselineSkipped"));
                 continue;
             }
             if (summary.Size > MimeInboundNormalizer.MaxMessageBytes)
@@ -137,6 +137,91 @@ public sealed class ProtocolMailboxAdapter(
         return new(result, nextCursor, selected.Count < settings.BatchSize);
     }
 
+    public async Task<IReadOnlyList<HistoricalSourcePreview>> PreviewAsync(EmailInboxSettings settings,
+        IReadOnlyList<string> keys, CancellationToken ct)
+    {
+        if (keys.Count > 50) throw new ArgumentOutOfRangeException(nameof(keys));
+        var results = new List<HistoricalSourcePreview>(keys.Count);
+        if (Provider == InboundMailboxProvider.Pop3)
+        {
+            using var client = await OpenPopAsync(settings, ct);
+            var uids = await client.GetMessageUidsAsync(ct);
+            foreach (var key in keys)
+            {
+                var index = uids.IndexOf(key);
+                if (index < 0) { results.Add(new(key, null, null, null, false, "SourceMessageMissing")); continue; }
+                var headers = await client.GetMessageHeadersAsync(index, ct);
+                results.Add(new(key, headers[MimeKit.HeaderId.From], headers[MimeKit.HeaderId.Subject],
+                    null, true, null)); // POP3 has no trusted server receive date.
+            }
+            await client.DisconnectAsync(true, ct);
+            return results;
+        }
+        using var imap = await OpenImapAsync(settings, ct);
+        var folder = await imap.GetFolderAsync(settings.MailboxFolder, ct);
+        await folder.OpenAsync(FolderAccess.ReadOnly, ct);
+        var epoch = folder.UidValidity.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        foreach (var key in keys)
+        {
+            if (!TryImapUid(key, epoch, out var uid))
+            {
+                results.Add(new(key, null, null, null, false, "UidValidityChanged"));
+                continue;
+            }
+            var summary = (await folder.FetchAsync([uid], MessageSummaryItems.Envelope | MessageSummaryItems.InternalDate, ct)).SingleOrDefault();
+            results.Add(summary is null
+                ? new(key, null, null, null, false, "SourceMessageMissing")
+                : new(key, summary.Envelope?.From?.ToString(), summary.Envelope?.Subject,
+                    summary.InternalDate, true, null));
+        }
+        await imap.DisconnectAsync(true, ct);
+        return results;
+    }
+
+    public async Task<InboundSourceMessage> FetchHistoricalAsync(EmailInboxSettings settings, string key, CancellationToken ct)
+    {
+        if (Provider == InboundMailboxProvider.Pop3)
+        {
+            using var client = await OpenPopAsync(settings, ct);
+            var uids = await client.GetMessageUidsAsync(ct);
+            var index = uids.IndexOf(key);
+            if (index < 0) throw new InboundSourceMissingException("POP3 source message is absent.");
+            if (await client.GetMessageSizeAsync(index, ct) > MimeInboundNormalizer.MaxMessageBytes)
+                return new(key, null, HoldReason: "MessageSizeExceeded");
+            await using var raw = await client.GetStreamAsync(index, false, ct, new BoundedTransfer());
+            var message = await MimeInboundNormalizer.ReadAsync(raw, settings, key, ct);
+            await client.DisconnectAsync(true, ct);
+            return message;
+        }
+        using var imap = await OpenImapAsync(settings, ct);
+        var folder = await imap.GetFolderAsync(settings.MailboxFolder, ct);
+        await folder.OpenAsync(FolderAccess.ReadOnly, ct);
+        var epoch = folder.UidValidity.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (!TryImapUid(key, epoch, out var uid)) throw new InboundSourceMissingException("IMAP source identity changed.");
+        var summary = (await folder.FetchAsync([uid], MessageSummaryItems.Size, ct)).SingleOrDefault();
+        if (summary is null) throw new InboundSourceMissingException("IMAP source message is absent.");
+        if (summary.Size > MimeInboundNormalizer.MaxMessageBytes)
+            return new(key, null, HoldReason: "MessageSizeExceeded");
+        try
+        {
+            await using var raw = await folder.GetStreamAsync(uid, string.Empty, ct, new BoundedTransfer());
+            var message = await MimeInboundNormalizer.ReadAsync(raw, settings, key, ct);
+            await imap.DisconnectAsync(true, ct);
+            return message;
+        }
+        catch (MessageNotFoundException) { throw new InboundSourceMissingException("IMAP source message is absent."); }
+    }
+
+    private static bool TryImapUid(string key, string epoch, out UniqueId uid)
+    {
+        uid = default;
+        var parts = key.Split(':');
+        if (parts.Length != 2 || parts[0] != epoch || !uint.TryParse(parts[1], out var value) || value == 0)
+            return false;
+        uid = new UniqueId(value);
+        return true;
+    }
+
     private async Task<InboundSourceBatch> FetchPopAsync(EmailInboxSettings settings, MailboxIngestionState state,
         IReadOnlySet<string> knownKeys, CancellationToken ct)
     {
@@ -146,7 +231,8 @@ public sealed class ProtocolMailboxAdapter(
         if (!state.Initialized && settings.InitialImport == InitialMailImport.NewOnly)
         {
             // Capture the baseline in one bounded durable batch; a later connection sees newly arriving UIDLs.
-            return new(uids.Select(key => new InboundSourceMessage(key, null, Ignore: true)).ToArray(), null, true);
+            return new(uids.Select(key => new InboundSourceMessage(key, null, Ignore: true,
+                HoldReason: "InitialBaselineSkipped")).ToArray(), null, true);
         }
         var result = new List<InboundSourceMessage>();
         for (var index = 0; index < uids.Count && result.Count < settings.BatchSize; index++)
@@ -170,6 +256,9 @@ public sealed class ProtocolMailboxAdapter(
     {
         // POP3 retention is deliberately non-destructive. UIDL receipts are its acknowledgment.
         if (Provider == InboundMailboxProvider.Pop3) return;
+        // Receipt ownership is already durable. No server write is needed when the
+        // administrator chose to leave the source message untouched.
+        if (!settings.MarkReadAfterSuccess && string.IsNullOrWhiteSpace(settings.ProcessedFolder)) return;
         try
         {
             using var client = await OpenImapAsync(settings, ct);

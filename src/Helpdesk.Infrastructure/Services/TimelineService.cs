@@ -21,7 +21,8 @@ public class TimelineService(
     IPublicTicketLinkSigner publicTicketLinkSigner,
     ITimelineEventBus timelineEventBus,
     IConfiguration config,
-    MailboxOutboxStore? mailboxOutbox = null) : ITimelineService
+    MailboxOutboxStore? mailboxOutbox = null,
+    IIngressEffectContext? effectContext = null) : ITimelineService
 {
     private readonly HelpdeskDbContext _db = db;
     private readonly IEmailService _emailService = emailService;
@@ -48,6 +49,10 @@ public class TimelineService(
         if (mailboxOutbox is not null && await mailboxOutbox.RetryForTimelineAsync(timelineEventId, ct))
             return;
 
+        var durable = _emailService is IDurableEmailService { QueuesDelivery: true };
+        if (durable && effectContext is null)
+            throw new InvalidOperationException("Durable timeline retry requires a delivery context.");
+
         var ccRecipients = await _db.Tickets
             .AsNoTracking()
             .Where(x => x.Id == evt.TicketId)
@@ -62,9 +67,11 @@ public class TimelineService(
         await _db.SaveChangesAsync(ct);
         await _timelineEventBus.PublishAsync(ToDto(evt, ccRecipients));
 
+        var previousTimelineId = effectContext?.TimelineDeliveryId;
+        if (durable) effectContext!.TimelineDeliveryId = evt.Id;
         try
         {
-            var sent = await SendWorklogEmailAsync(evt, ct);
+            var sent = await SendWorklogEmailAsync(evt, durable, ct);
             if (!sent)
             {
                 evt.EmailStatus = EmailDeliveryStatus.Failed;
@@ -73,6 +80,9 @@ public class TimelineService(
                 await _timelineEventBus.PublishAsync(ToDto(evt, ccRecipients));
                 throw new InvalidOperationException(evt.RetryError);
             }
+
+            if (durable)
+                return;
 
             evt.EmailStatus = EmailDeliveryStatus.Delivered;
             evt.RetryError = null;
@@ -86,6 +96,10 @@ public class TimelineService(
             await _db.SaveChangesAsync(ct);
             await _timelineEventBus.PublishAsync(ToDto(evt, ccRecipients));
             throw;
+        }
+        finally
+        {
+            if (durable) effectContext!.TimelineDeliveryId = previousTimelineId;
         }
     }
 
@@ -134,6 +148,7 @@ public class TimelineService(
 
     private async Task<bool> SendWorklogEmailAsync(
         TicketTimelineEvent evt,
+        bool suppressTimeline,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(evt.EmailRecipient) ||
@@ -197,7 +212,8 @@ public class TimelineService(
             ct,
             evt.TicketId,
             fromName: branding.FromName,
-            replyTo: branding.ReplyTo);
+            replyTo: branding.ReplyTo,
+            suppressTimeline: suppressTimeline);
     }
 
     private static TicketTimelineEventDto ToDto(TicketTimelineEvent evt, IReadOnlyCollection<string>? ccRecipients = null)

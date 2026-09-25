@@ -7,18 +7,75 @@
 @inject ISnackbar Snackbar
 
 <PageTitle>Inbound mailbox diagnostics</PageTitle>
-<MudContainer MaxWidth="MaxWidth.Large">
+<MudContainer MaxWidth="MaxWidth.Large" data-testid="mailbox-ingestion" data-interactive="@interactive.ToString().ToLowerInvariant()">
     <MudText Typo="Typo.h4" HtmlTag="h1">Inbound mailbox diagnostics</MudText>
     <MudButton Href="/admin/email-settings">Mailbox settings</MudButton>
     <MudButton OnClick="LoadAsync" Disabled="loading">Refresh</MudButton>
+    <MudButton OnClick="SyncNowAsync" Disabled="@(loading || syncing || diagnostics?.EffectiveStatus is not { InstanceRunning: true, MailboxEnabled: true, IncomingEnabled: true })"
+               Variant="Variant.Filled" Color="Color.Primary">@(syncing ? "Syncing…" : "Sync now")</MudButton>
+    <MudButton OnClick="ToggleHistoricalImport" Disabled="loading" Variant="Variant.Outlined">Import existing mail…</MudButton>
     <MudText>Held messages remain on their source server. Retry applies current tenant routing and rule guards.</MudText>
     @if (error is not null) { <MudAlert Severity="Severity.Error">@error</MudAlert> }
+    @if (syncFeedback is not null) { <MudAlert Severity="@(syncFailed ? Severity.Warning : Severity.Info)" Variant="Variant.Outlined">@syncFeedback</MudAlert> }
     @if (loading) { <MudProgressLinear Indeterminate="true" /> }
     @if (diagnostics is not null)
     {
+        @if (diagnostics.EffectiveStatus is { } effective)
+        {
+            <MudAlert Severity="@(effective.State == "Running" || effective.State == "Waiting for next poll" ? Severity.Info : Severity.Warning)" Variant="Variant.Outlined">
+                @effective.State@if (effective.BlockedBy is not null) { <span> — @effective.BlockedBy</span> }
+            </MudAlert>
+            <MudText>Baseline: @(effective.BaselineComplete ? Format(diagnostics.State?.BaselineCompletedUnixMilliseconds) : "Not complete") · Captured: @effective.CapturedCount · Initial baseline skipped: @effective.SkippedInitialCount · Held: @effective.HeldCount</MudText>
+        }
+        <MudText>Worker heartbeat: @Format(workerHeartbeat?.LastHeartbeatUnixMilliseconds)</MudText>
+        <MudText>Last attempt: @Format(diagnostics.State?.LastAttemptUnixMilliseconds) · Stage: @(string.IsNullOrWhiteSpace(diagnostics.State?.CurrentStage) ? "Never" : diagnostics.State.CurrentStage)</MudText>
         <MudText>Last successful sync: @Format(diagnostics.State?.LastSyncUnixMilliseconds)</MudText>
         <MudText>Last successful saved-configuration test: @Format(diagnostics.State?.LastTestUnixMilliseconds) (version @diagnostics.State?.TestedVersion)</MudText>
         <MudText>Operational error: @(diagnostics.State?.ErrorCode ?? "None")</MudText>
+        <MudText>Last Sync now: @Format(diagnostics.State?.LastSyncCommandUnixMilliseconds) · Result: @(diagnostics.State?.LastSyncCommandErrorCode ?? "No recorded error")</MudText>
+        @if (showHistoricalImport)
+        {
+            <MudPaper Class="pa-4 my-4" Elevation="1">
+                <MudText Typo="Typo.h6">Import baseline-skipped mail</MudText>
+                <MudText>Preview uses the original source identity. Only selected messages will enter normal ticket processing. Imports may create incidents and send notifications.</MudText>
+                <div class="d-flex flex-wrap align-center gap-3 my-3">
+                    <MudNumericField T="int" Label="Preview count" @bind-Value="historicalCount" Min="1" Max="50" />
+                    @if (historicalDateSupported)
+                    {
+                        <MudDatePicker Label="Server date from" @bind-Date="historicalFrom" />
+                        <MudDatePicker Label="Server date through" @bind-Date="historicalTo" />
+                    }
+                    else
+                    {
+                        <MudText>POP3 does not provide a trusted receive date. Preview by count.</MudText>
+                    }
+                    <MudButton OnClick="() => PreviewHistoricalPageAsync(0)" Disabled="@(historicalBusy || historicalCount is < 1 or > 50)"
+                               Variant="Variant.Filled">Preview</MudButton>
+                </div>
+                @if (historicalFeedback is not null) { <MudAlert Severity="Severity.Info">@historicalFeedback</MudAlert> }
+                @if (historicalPreview is not null)
+                {
+                    <MudTable Items="historicalPreview" Breakpoint="Breakpoint.Md" Dense="true">
+                        <HeaderContent><MudTh>Select</MudTh><MudTh>Server date</MudTh><MudTh>Sender</MudTh><MudTh>Subject</MudTh><MudTh>Status</MudTh></HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Select"><input type="checkbox" checked="@historicalSelected.Contains(context.ReceiptId)"
+                                disabled="@(!context.Available)" aria-label="Select message for import"
+                                @onchange="e => SelectHistorical(context.ReceiptId, e.Value is true)" /></MudTd>
+                            <MudTd DataLabel="Server date">@Format(context.ReceivedUnixMilliseconds)</MudTd>
+                            <MudTd DataLabel="Sender">@context.Sender</MudTd>
+                            <MudTd DataLabel="Subject">@context.Subject</MudTd>
+                            <MudTd DataLabel="Status">@(context.Available ? "Available" : context.ErrorCode)</MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                    <MudText>@historicalSelected.Count selected (25 maximum)</MudText>
+                    <MudButton OnClick="() => PreviewHistoricalPageAsync(-1)" Disabled="@(historicalBusy || historicalSkip == 0)">Previous</MudButton>
+                    <MudButton OnClick="() => PreviewHistoricalPageAsync(1)" Disabled="@(historicalBusy || historicalSkip >= 10000 || !historicalHasMore)">Next</MudButton>
+                    <label><input type="checkbox" @bind="historicalConfirmed" /> I confirm these messages may create incidents and notifications.</label>
+                    <MudButton OnClick="ImportHistoricalAsync" Disabled="@(historicalBusy || !historicalConfirmed || historicalSelected.Count is < 1 or > 25)"
+                               Color="Color.Primary" Variant="Variant.Filled">Import selected</MudButton>
+                }
+            </MudPaper>
+        }
         <MudTable Items="diagnostics.Receipts" Breakpoint="Breakpoint.Md" Class="ingress-receipts">
             <HeaderContent><MudTh>Received</MudTh><MudTh>Outcome</MudTh><MudTh>Reason</MudTh><MudTh>Organization</MudTh><MudTh>Ticket</MudTh><MudTh>Action</MudTh></HeaderContent>
             <RowTemplate>
@@ -39,13 +96,39 @@
     [Parameter] public Guid MailboxId { get; set; }
     private readonly CancellationTokenSource cancellation = new();
     private bool loading;
+    private bool syncing;
+    private bool syncFailed;
+    private string? syncFeedback;
     private string? error;
-    private Diagnostics? diagnostics;
+    private MailboxDiagnosticsResponse? diagnostics;
+    private MailboxWorkerStatus? workerHeartbeat;
+    private bool interactive;
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender) { interactive = true; StateHasChanged(); }
+    }
+    private bool showHistoricalImport;
+    private bool historicalBusy;
+    private bool historicalConfirmed;
+    private bool historicalDateSupported = true;
+    private int historicalCount = 25;
+    private int historicalSkip;
+    private bool historicalHasMore;
+    private DateTime? historicalFrom;
+    private DateTime? historicalTo;
+    private string? historicalFeedback;
+    private HistoricalMailboxPreviewItem[]? historicalPreview;
+    private readonly HashSet<Guid> historicalSelected = [];
     protected override Task OnParametersSetAsync() => LoadAsync();
     private async Task LoadAsync()
     {
         loading = true; error = null;
-        try { diagnostics = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<Diagnostics>($"/api/v1/email-settings/{MailboxId}/diagnostics", cancellation.Token); }
+        try
+        {
+            var client = Clients.CreateClient("HelpdeskApi");
+            diagnostics = await client.GetFromJsonAsync<MailboxDiagnosticsResponse>($"/api/v1/email-settings/{MailboxId}/diagnostics", cancellation.Token);
+            workerHeartbeat = await client.GetFromJsonAsync<MailboxWorkerStatus>("/api/v1/email-settings/worker", cancellation.Token);
+        }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
         catch (HttpRequestException) { error = "Inbound diagnostics could not be loaded."; }
         finally { loading = false; }
@@ -56,8 +139,125 @@
         Snackbar.Add(response.IsSuccessStatusCode ? "Receipt queued for guarded retry." : "Receipt is no longer eligible for retry.", response.IsSuccessStatusCode ? Severity.Success : Severity.Warning);
         await LoadAsync();
     }
+    private async Task ToggleHistoricalImport()
+    {
+        showHistoricalImport = !showHistoricalImport;
+        historicalPreview = null;
+        historicalSelected.Clear();
+        historicalConfirmed = false;
+        if (!showHistoricalImport) return;
+        try
+        {
+            var mailbox = await Clients.CreateClient("HelpdeskApi")
+                .GetFromJsonAsync<EmailInboxSettingsDto>($"/api/v1/email-settings/{MailboxId}", cancellation.Token);
+            historicalDateSupported = mailbox?.Provider != InboundMailboxProvider.Pop3;
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
+        catch (HttpRequestException) { historicalFeedback = "Mailbox details could not be loaded."; }
+    }
+    private void SelectHistorical(Guid id, bool selected)
+    {
+        if (selected && historicalSelected.Count < 25) historicalSelected.Add(id);
+        if (!selected) historicalSelected.Remove(id);
+        historicalConfirmed = false;
+    }
+    private async Task PreviewHistoricalPageAsync(int direction)
+    {
+        historicalSkip = direction switch
+        {
+            -1 => Math.Max(0, historicalSkip - historicalCount),
+            1 => Math.Min(10000, historicalSkip + historicalCount),
+            _ => 0
+        };
+        historicalBusy = true;
+        historicalFeedback = null;
+        historicalPreview = null;
+        historicalSelected.Clear();
+        historicalConfirmed = false;
+        try
+        {
+            var from = historicalFrom.HasValue ? new DateTimeOffset(historicalFrom.Value.Date, TimeSpan.Zero).ToUnixTimeMilliseconds() : (long?)null;
+            var through = historicalTo.HasValue ? new DateTimeOffset(historicalTo.Value.Date.AddDays(1).AddTicks(-1), TimeSpan.Zero).ToUnixTimeMilliseconds() : (long?)null;
+            using var response = await Clients.CreateClient("HelpdeskApi").PostAsJsonAsync(
+                $"/api/v1/email-settings/{MailboxId}/historical/preview",
+                new HistoricalMailboxPreviewRequest(historicalDateSupported ? from : null, historicalDateSupported ? through : null, historicalCount, historicalSkip), cancellation.Token);
+            if (!response.IsSuccessStatusCode) { historicalFeedback = "Preview failed. Check source access and try again."; return; }
+            var result = await response.Content.ReadFromJsonAsync<HistoricalMailboxPreviewResult>(cancellation.Token);
+            historicalPreview = result?.Items.ToArray() ?? [];
+            historicalHasMore = result?.HasMore == true;
+            historicalFeedback = historicalPreview.Length == 0 ? "No eligible baseline-skipped messages in this preview page." : null;
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
+        catch (HttpRequestException) { historicalFeedback = "Preview could not reach the mailbox server."; }
+        finally { historicalBusy = false; }
+    }
+    private async Task ImportHistoricalAsync()
+    {
+        historicalBusy = true;
+        try
+        {
+            using var response = await Clients.CreateClient("HelpdeskApi").PostAsJsonAsync(
+                $"/api/v1/email-settings/{MailboxId}/historical/import",
+                new HistoricalMailboxImportRequest(historicalSelected.ToArray(), historicalConfirmed), cancellation.Token);
+            historicalFeedback = response.IsSuccessStatusCode
+                ? $"Queued {historicalSelected.Count} selected messages. Check receipt outcomes after the next worker run."
+                : "Import could not be queued. Refresh the preview and check worker status.";
+            if (response.IsSuccessStatusCode)
+            {
+                historicalSelected.Clear();
+                historicalConfirmed = false;
+                historicalPreview = null;
+                await LoadAsync();
+            }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
+        catch (HttpRequestException) { historicalFeedback = "Import request could not reach the server. Refresh before retrying."; }
+        finally { historicalBusy = false; }
+    }
+    private async Task SyncNowAsync()
+    {
+        syncing = true;
+        syncFailed = false;
+        syncFeedback = "Submitting sync request…";
+        try
+        {
+            using var response = await Clients.CreateClient("HelpdeskApi")
+                .PostAsync($"/api/v1/email-settings/{MailboxId}/sync", null, cancellation.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                syncFeedback = response.StatusCode == System.Net.HttpStatusCode.Conflict
+                    ? "Sync is unavailable because the instance or mailbox is paused. Refresh the status before retrying."
+                    : "The sync request could not be queued.";
+                syncFailed = true;
+                await LoadAsync();
+                return;
+            }
+            var command = await response.Content.ReadFromJsonAsync<MailboxSyncRequestResult>(cancellation.Token);
+            if (command is null) { syncFeedback = "Sync response was incomplete."; syncFailed = true; return; }
+            syncFeedback = "Sync queued for this mailbox.";
+            var deadline = DateTimeOffset.UtcNow.AddSeconds(90);
+            while (DateTimeOffset.UtcNow < deadline)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2), cancellation.Token);
+                await LoadAsync();
+                if (error is not null) continue;
+                if (diagnostics?.State is not { } state || state.SyncCompletedVersion < command.RequestVersion) continue;
+                syncFailed = diagnostics?.State?.LastSyncCommandErrorCode is not null;
+                syncFeedback = syncFailed
+                    ? $"Sync finished with {diagnostics!.State!.LastSyncCommandErrorCode}. Review the mailbox status and retry after correcting it."
+                    : "Sync completed for this mailbox.";
+                return;
+            }
+            syncFeedback = "Sync is still queued or running. Refresh to check its result.";
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
+        catch (HttpRequestException)
+        {
+            syncFeedback = "The sync status could not be checked. Refresh to see whether it completed.";
+            syncFailed = true;
+        }
+        finally { syncing = false; }
+    }
     private static string Format(long? timestamp) => timestamp.HasValue ? DateTimeOffset.FromUnixTimeMilliseconds(timestamp.Value).ToLocalTime().ToString("g") : "Never";
-    private sealed record Receipt(Guid Id, InboundReceiptOutcome Outcome, string? Reason, string? OrganizationId, string? TicketId, long CreatedUnixMilliseconds);
-    private sealed record Diagnostics(MailboxIngestionState? State, List<Receipt> Receipts);
     public void Dispose() { cancellation.Cancel(); cancellation.Dispose(); }
 }

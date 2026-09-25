@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Security.Claims;
 using Helpdesk.Shared.DTOs.Worklog;
+using Helpdesk.Shared.Models;
 
 namespace HelpDesk.NewWeb.Services;
 
@@ -9,6 +10,12 @@ public interface ITimelineApiClient
     Task<List<TicketTimelineEventDto>> GetTimelineAsync(string ticketId, string order = "desc", string ticketType = "incidents");
     Task RetryAsync(Guid id);
     Task RetryAllAsync();
+    Task<MailboxOutgoingRetryPreview?> PreviewOutgoingRetryAsync(Guid id);
+    Task RetryWithCurrentOutgoingAsync(Guid id, ConfirmMailboxOutgoingRetryRequest confirmation);
+    Task<MailboxUncertainRetryPreview?> PreviewUncertainRetryAsync(Guid id);
+    Task RetryConfirmedUndeliveredAsync(Guid id, ConfirmMailboxUndeliveredRetryRequest request);
+    Task<MailboxRouteRetryPreview?> PreviewChangedRouteAsync(Guid id);
+    Task RetryWithCurrentRouteAsync(Guid id, ConfirmMailboxRouteRetryRequest request);
     Task<int> GetPendingCountAsync();
     Task<List<TicketTimelineEventDto>> GetFailedAsync();
 }
@@ -41,6 +48,54 @@ public class TimelineApiClient(
     public async Task RetryAllAsync()
     {
         using var request = CreateUserScopedRequest(HttpMethod.Post, "/api/v1/timeline/retry-all");
+        using var response = await _client.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task<MailboxOutgoingRetryPreview?> PreviewOutgoingRetryAsync(Guid id)
+    {
+        using var request = CreateUserScopedRequest(HttpMethod.Get, $"/api/v1/timeline/{id}/outgoing-retry-preview");
+        using var response = await _client.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<MailboxOutgoingRetryPreview>();
+    }
+
+    public async Task RetryWithCurrentOutgoingAsync(Guid id, ConfirmMailboxOutgoingRetryRequest confirmation)
+    {
+        using var request = CreateUserScopedRequest(HttpMethod.Post, $"/api/v1/timeline/{id}/retry-current-outgoing");
+        request.Content = JsonContent.Create(confirmation);
+        using var response = await _client.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task<MailboxUncertainRetryPreview?> PreviewUncertainRetryAsync(Guid id)
+    {
+        using var request = CreateUserScopedRequest(HttpMethod.Get, $"/api/v1/timeline/{id}/uncertain-retry-preview");
+        using var response = await _client.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<MailboxUncertainRetryPreview>();
+    }
+
+    public async Task RetryConfirmedUndeliveredAsync(Guid id, ConfirmMailboxUndeliveredRetryRequest confirmation)
+    {
+        using var request = CreateUserScopedRequest(HttpMethod.Post, $"/api/v1/timeline/{id}/retry-confirmed-undelivered");
+        request.Content = JsonContent.Create(confirmation);
+        using var response = await _client.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task<MailboxRouteRetryPreview?> PreviewChangedRouteAsync(Guid id)
+    {
+        using var request = CreateUserScopedRequest(HttpMethod.Get, $"/api/v1/timeline/{id}/changed-route-preview");
+        using var response = await _client.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<MailboxRouteRetryPreview>();
+    }
+
+    public async Task RetryWithCurrentRouteAsync(Guid id, ConfirmMailboxRouteRetryRequest confirmation)
+    {
+        using var request = CreateUserScopedRequest(HttpMethod.Post, $"/api/v1/timeline/{id}/retry-current-route");
+        request.Content = JsonContent.Create(confirmation);
         using var response = await _client.SendAsync(request);
         response.EnsureSuccessStatusCode();
     }

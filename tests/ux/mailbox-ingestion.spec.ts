@@ -8,9 +8,17 @@ test.beforeEach(async ({ page }) => { await authenticate(page); });
 test('provider selection, failed draft test, discard, save and explicit tenant revert', async ({ page }, testInfo) => {
   await page.goto('/admin/email-settings');
   await expect(page.getByTestId('mailbox-settings')).toHaveAttribute('data-interactive', 'true');
-  await page.getByRole('button', { name: 'Add tenant override' }).click();
-  await page.getByRole('combobox', { name: /^RatelDesk organization/ }).click();
-  await page.getByRole('option').first().click();
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Tenant override' }).click();
+  const organization = page.getByRole('combobox', { name: /^RatelDesk organization/ });
+  await organization.click();
+  await expect(page.getByRole('option', { name: /Fixture Organization/ })).toBeVisible();
+  await organization.fill('NoSuchSyntheticOrganization');
+  await expect(organization).toHaveValue('NoSuchSyntheticOrganization');
+  await expect(page.getByText('No available organizations match this search.')).toBeVisible();
+  await organization.fill('Fixture');
+  await expect(page.getByRole('option', { name: /Fixture Organization/ })).toBeVisible();
+  await page.getByRole('option', { name: /Fixture Organization/ }).click();
   await page.getByRole('combobox', { name: 'Inbound provider', exact: true }).click();
   await page.getByRole('option', { name: 'POP3', exact: true }).click();
   await expect(page.getByLabel('Mailbox folder', { exact: true })).toHaveCount(0);
@@ -20,20 +28,67 @@ test('provider selection, failed draft test, discard, save and explicit tenant r
   await page.getByRole('textbox', { name: /^Mailbox address/ }).fill('support@fixture.example.test');
   await page.getByLabel('Protocol username', { exact: true }).fill('fixture');
   await page.getByLabel('Protocol password', { exact: true }).fill('synthetic-fixture-password');
-  await page.getByRole('button', { name: 'Test Connection' }).click();
+  await page.getByRole('button', { name: 'Test', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Incoming connection' }).click();
   await expect(page.getByText('Connection test failed. Check credentials, TLS, folder access and operator egress policy.', { exact: true }).first()).toBeVisible();
   await expect(page.getByLabel('Mailbox display name', { exact: true })).toHaveValue('Fixture dedicated POP3');
   await page.getByRole('textbox', { name: /^Mail host/ }).fill('mail.example.test');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByText('Mailbox settings saved.', { exact: true })).toBeVisible();
   await expect(page.getByLabel('Protocol password', { exact: true })).toHaveValue('');
+  await page.getByRole('tab', { name: /Outgoing/ }).click();
+  await page.getByRole('textbox', { name: 'SMTP submission host' }).fill('invalid hos');
+  await page.getByRole('textbox', { name: 'SMTP submission host' }).pressSequentially('t');
+  await expect(page.getByRole('button', { name: 'Save outgoing' })).toBeEnabled({ timeout: 5_000 });
+  await page.getByRole('button', { name: 'Save outgoing' }).click();
+  await expect(page.getByTestId('mailbox-outgoing-editor')
+    .getByText('SMTP submission host: Enter a valid SMTP submission host.', { exact: true }))
+    .toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'SMTP submission host' })).toHaveValue('invalid host');
+  await page.screenshot({ path: testInfo.outputPath('outgoing-invalid-host-full.png'), fullPage: true });
+  await page.getByRole('button', { name: 'Discard outgoing changes' }).click();
+  await page.getByRole('tab', { name: /Incoming/ }).click();
+  const rejectedName = 'X'.repeat(201);
+  await page.getByLabel('Mailbox display name', { exact: true }).fill(rejectedName);
+  await page.getByRole('tab', { name: /Processing/ }).click();
+  await page.getByRole('tab', { name: /Incoming/ }).click();
+  await expect(page.getByLabel('Mailbox display name', { exact: true })).toHaveValue(rejectedName);
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Mailbox settings were not saved.' }))
+    .toContainText('Mailbox display name: Use 200 characters or fewer.');
+  await expect(page.getByLabel('Mailbox display name', { exact: true })).toHaveValue(rejectedName);
+  const longMailboxName = 'Fixture dedicated POP3 ' + 'Name'.repeat(36);
+  await page.getByLabel('Mailbox display name', { exact: true }).fill(longMailboxName);
+  await expect(page.getByRole('alert').filter({ hasText: 'Mailbox settings were not saved.' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('Mailbox settings saved.', { exact: true })).toBeVisible();
+  await assertNoHorizontalOverflow(page);
+  await page.screenshot({ path: testInfo.outputPath('dedicated-pop3-long-name-desktop.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await assertNoHorizontalOverflow(page);
+  const identity = await page.getByRole('complementary', { name: 'Selected mailbox status' })
+    .boundingBox();
+  const saveBar = await page.locator('.mailbox-save-bar').boundingBox();
+  const displayName = await page.getByLabel('Mailbox display name', { exact: true }).boundingBox();
+  expect(identity).not.toBeNull();
+  expect(saveBar).not.toBeNull();
+  expect(displayName).not.toBeNull();
+  expect(saveBar!.y).toBeGreaterThanOrEqual(identity!.y + identity!.height);
+  expect(saveBar!.y + saveBar!.height).toBeLessThanOrEqual(displayName!.y);
+  await page.screenshot({ path: testInfo.outputPath('dedicated-pop3-long-name-phone.png'), fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByLabel('Mailbox display name', { exact: true }).fill('Unsaved name');
-  await page.getByRole('button', { name: 'Discard changes' }).click();
-  await expect(page.getByLabel('Mailbox display name', { exact: true })).toHaveValue('Fixture dedicated POP3');
+  await page.getByRole('button', { name: 'Discard', exact: true }).click();
+  await expect(page.getByLabel('Mailbox display name', { exact: true })).toHaveValue(longMailboxName);
   await page.screenshot({ path: testInfo.outputPath('dedicated-pop3-paused.png'), fullPage: true });
+  await page.getByRole('button', { name: 'More mailbox actions' }).click();
   page.once('dialog', dialog => dialog.accept());
-  await page.getByRole('button', { name: 'Revert to global mailbox' }).click();
-  await expect(page.getByRole('button', { name: 'Archive global mailbox' })).toBeVisible();
+  await page.getByRole('menuitem', { name: 'Revert to global' }).click();
+  const picker = page.getByRole('combobox', { name: 'Selected mailbox' });
+  await expect(picker).toContainText('Instance-global');
+  await picker.click();
+  await expect(page.getByRole('option', { name: /Instance-global/ })).toBeVisible();
+  await expect(page.getByRole('option', { name: /Fixture dedicated POP3/ })).toHaveCount(0);
 });
 
 test('long rule name and description wrap with reachable actions at desktop and mobile widths', async ({ page }, testInfo) => {
@@ -86,7 +141,8 @@ test('mailbox controls remain usable when component JavaScript arrives after Bla
     release();
     await expect(page.getByTestId('mailbox-settings')).toHaveAttribute('data-interactive', 'true');
     await expect(page.getByTestId('navigation-toggle')).toBeEnabled();
-    await page.getByRole('button', { name: 'Add tenant override' }).click();
+    await page.getByRole('button', { name: 'Add', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Tenant override' }).click();
     await expect(page.getByRole('combobox', { name: /^RatelDesk organization/ })).toBeVisible();
     await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
   } finally { release(); }

@@ -1,6 +1,9 @@
+using Helpdesk.Application.Services.Email;
 using Helpdesk.Infrastructure.Email;
+using Helpdesk.Infrastructure.Html;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Models;
+using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
@@ -9,6 +12,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Testcontainers.PostgreSql;
 
@@ -16,6 +20,642 @@ namespace Helpdesk.Tests.Infrastructure.Email;
 
 public sealed class MailboxConfigurationTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Same_mailbox_incoming_revision_can_be_reviewed_without_recomposing_delivery(bool postgres)
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync(postgres);
+        await using var db = fixture.Open();
+        await db.Database.MigrateAsync();
+        db.Organizations.Add(new Organization { Id = "revision-tenant", Name = "Revision tenant" });
+        var mailbox = new EmailInboxSettings
+        {
+            Scope = MailboxScope.Organization, OrganizationId = "revision-tenant",
+            MailboxAddress = "revision@example.test", SourceKey = "immutable-source",
+            Enabled = true, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.EmailInboxSettings.Add(mailbox);
+        db.Set<MailboxOutgoingSettings>().Add(new MailboxOutgoingSettings
+        {
+            MailboxId = mailbox.Id, Enabled = true, Transport = MailboxOutgoingTransport.Smtp,
+            SmtpHost = "smtp.example.test", SmtpUsername = mailbox.MailboxAddress,
+            ProtectedSmtpPassword = "synthetic-protected"
+        });
+        db.Incidents.Add(new Incident { Id = "revision-ticket", OrganizationId = "revision-tenant", TrackingId = "INC-REV" });
+        await db.SaveChangesAsync();
+        var store = new MailboxOutboxStore(db, new IngressEffectContext(), TimeProvider.System);
+        var queued = await store.QueueDirectAsync(new IngressEmailEffect(
+            ["recipient@example.test"], "Original subject", "<p>Original body</p>", [],
+            "revision-ticket", [], null, null, false, null, null)
+        {
+            MailboxId = mailbox.Id, OrganizationId = "revision-tenant",
+            MailboxConfigurationVersion = mailbox.Version, MailboxSourceKey = mailbox.SourceKey,
+            OutgoingConfigurationVersion = 1
+        }, default);
+        mailbox.DisplayName = "Revised display name";
+        mailbox.PollIntervalSeconds = 60;
+        mailbox.Version++;
+        await db.SaveChangesAsync();
+        var claim = Assert.IsType<MailboxOutboxEffect>(await store.TryClaimAsync(queued.Id, "worker", default));
+        Assert.True(await store.CompleteAsync(claim, false, "SenderConfigurationChanged", default, requiresReview: true));
+
+        var retry = new MailboxOutgoingRetryService(db, new MailboxSenderResolver(db), TimeProvider.System);
+        var withoutSource = MailboxOutboxStore.Deserialize<IngressEmailEffect>(claim.Payload) with
+        {
+            MailboxSourceKey = null
+        };
+        await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.Payload, System.Text.Json.JsonSerializer.Serialize(withoutSource)));
+        Assert.Equal("MailboxSourceIdentityUnavailable",
+            (await retry.PreviewAsync(queued.DeliveryEventId!.Value, default)).Status);
+        await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.Payload, claim.Payload));
+        var preview = await retry.PreviewAsync(queued.DeliveryEventId!.Value, default);
+        Assert.True(preview.CanRetry);
+        Assert.Equal(mailbox.Id, preview.MailboxId);
+        Assert.Equal(1, preview.CurrentOutgoingVersion);
+        Assert.Equal(1, preview.OriginalMailboxVersion);
+        Assert.Equal(2, preview.CurrentMailboxVersion);
+        var confirmation = new ConfirmMailboxOutgoingRetryRequest(1, true)
+        {
+            ExpectedMailboxId = mailbox.Id, ExpectedMailboxVersion = 1, ExpectedFence = preview.Fence
+        };
+        Assert.Equal("SenderRevisionChanged", (await retry.RetryAsync(queued.DeliveryEventId.Value,
+            confirmation, "admin", default)).Status);
+        Assert.Equal("Queued", (await retry.RetryAsync(queued.DeliveryEventId.Value,
+            confirmation with { ExpectedMailboxVersion = 2 }, "admin", default)).Status);
+        var rebound = await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleAsync(x => x.Id == queued.Id);
+        var payload = MailboxOutboxStore.Deserialize<IngressEmailEffect>(rebound.Payload);
+        Assert.Equal(2, payload.MailboxConfigurationVersion);
+        Assert.Equal(1, payload.OutgoingConfigurationVersion);
+        Assert.Equal("Original subject", payload.Subject);
+        Assert.Equal("<p>Original body</p>", payload.Html);
+        Assert.Equal(new[] { "recipient@example.test" }, payload.Recipients);
+        Assert.Equal(MailboxEffectState.Pending, rebound.State);
+        Assert.Equal("DeliveryNotReviewable", (await retry.RetryAsync(queued.DeliveryEventId.Value,
+            confirmation with { ExpectedMailboxVersion = 2 }, "admin", default)).Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Due_mailbox_backlog_does_not_hide_another_mailbox_or_notification(bool postgres)
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync(postgres);
+        await using var db = fixture.Open();
+        await db.Database.MigrateAsync();
+        var now = TimeProvider.System.GetUtcNow().ToUnixTimeMilliseconds();
+        for (var index = 0; index < 20; index++)
+            db.Set<MailboxOutboxEffect>().Add(new MailboxOutboxEffect
+            {
+                Kind = MailboxEffectKind.Email, EffectKey = $"backlog:{index:D2}",
+                DispatchGroup = "mailbox:backlog", Payload = "{}", AvailableUnixMilliseconds = now - 2
+            });
+        var otherMailbox = new MailboxOutboxEffect
+        {
+            Kind = MailboxEffectKind.Email, EffectKey = "other:00", DispatchGroup = "mailbox:other",
+            Payload = "{}", AvailableUnixMilliseconds = now - 1
+        };
+        var notification = new MailboxOutboxEffect
+        {
+            Kind = MailboxEffectKind.Notification, EffectKey = "notification:00", Payload = "{}",
+            AvailableUnixMilliseconds = now - 1
+        };
+        db.Set<MailboxOutboxEffect>().AddRange(otherMailbox, notification);
+        await db.SaveChangesAsync();
+
+        var candidates = await new MailboxOutboxStore(db, new IngressEffectContext(), TimeProvider.System)
+            .GetCandidatesAsync(16, default);
+
+        Assert.Equal(16, candidates.Count);
+        Assert.Contains(otherMailbox.Id, candidates);
+        Assert.Contains(notification.Id, candidates);
+    }
+
+    [Fact]
+    public async Task Confirmed_outgoing_retry_rebinds_only_the_same_mailbox_after_a_safe_configuration_failure()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync(false);
+        await using var db = fixture.Open();
+        await db.Database.MigrateAsync();
+        db.Organizations.Add(new Organization { Id = "tenant-a", Name = "Tenant A" });
+        var mailbox = new EmailInboxSettings
+        {
+            Id = Guid.NewGuid(), Scope = MailboxScope.Organization, OrganizationId = "tenant-a",
+            MailboxAddress = "support@tenant-a.example.test", SourceKey = "retry-source",
+            Enabled = true, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.EmailInboxSettings.Add(mailbox);
+        var outgoing = new MailboxOutgoingSettings
+        {
+            MailboxId = mailbox.Id, Version = 1, Enabled = false, Transport = MailboxOutgoingTransport.Smtp,
+            SmtpHost = "smtp.tenant-a.example.test", SmtpUsername = mailbox.MailboxAddress,
+            ProtectedSmtpPassword = "synthetic-protected"
+        };
+        db.Set<MailboxOutgoingSettings>().Add(outgoing);
+        db.Incidents.Add(new Incident { Id = "retry-ticket", OrganizationId = "tenant-a", TrackingId = "INC-RETRY" });
+        var supportDelivery = new SupportNotificationDelivery
+        {
+            TicketId = "retry-ticket", RecipientEmail = "requester@tenant-a.example.test",
+            DeduplicationKey = "retry-support", Status = SupportNotificationDeliveryStatus.Pending
+        };
+        db.SupportNotificationDeliveries.Add(supportDelivery);
+        await db.SaveChangesAsync();
+
+        var store = new MailboxOutboxStore(db, new IngressEffectContext(), TimeProvider.System);
+        var queued = await store.QueueDirectAsync(new IngressEmailEffect(
+            ["requester@tenant-a.example.test"], "Confirmation", "<p>Body</p>", [],
+            "retry-ticket", [], null, null, false, supportDelivery.Id, null)
+        {
+            MailboxId = mailbox.Id, OrganizationId = "tenant-a",
+            MailboxConfigurationVersion = mailbox.Version, OutgoingConfigurationVersion = outgoing.Version
+        }, default);
+        var claim = Assert.IsType<MailboxOutboxEffect>(await store.TryClaimAsync(queued.Id, "worker", default));
+        Assert.True(await store.CompleteAsync(claim, false, "OutgoingDisabled", default, requiresReview: true));
+        Assert.Equal(SupportNotificationDeliveryStatus.Failed,
+            (await db.SupportNotificationDeliveries.AsNoTracking().SingleAsync(x => x.Id == supportDelivery.Id)).Status);
+        var retry = new MailboxOutgoingRetryService(db, new MailboxSenderResolver(db), TimeProvider.System);
+        Assert.Equal("OutgoingDisabled", (await retry.PreviewAsync(queued.DeliveryEventId!.Value, default)).Status);
+
+        outgoing.Enabled = true;
+        outgoing.Version++;
+        await db.SaveChangesAsync();
+        var preview = await retry.PreviewAsync(queued.DeliveryEventId.Value, default);
+        Assert.True(preview.CanRetry);
+        Assert.Equal(mailbox.Id, preview.MailboxId);
+        Assert.Equal(mailbox.MailboxAddress, preview.MailboxAddress);
+        Assert.Equal(2, preview.CurrentOutgoingVersion);
+        var confirmation = new ConfirmMailboxOutgoingRetryRequest(1, true)
+        {
+            ExpectedMailboxId = mailbox.Id, ExpectedMailboxVersion = mailbox.Version, ExpectedFence = preview.Fence
+        };
+        Assert.Equal("SenderRevisionChanged", (await retry.RetryAsync(
+            queued.DeliveryEventId.Value, confirmation, "admin", default)).Status);
+        Assert.Equal("Queued", (await retry.RetryAsync(
+            queued.DeliveryEventId.Value, confirmation with { ExpectedOutgoingVersion = 2 }, "admin", default)).Status);
+        var rebound = await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleAsync(x => x.Id == queued.Id);
+        Assert.Equal(MailboxEffectState.Pending, rebound.State);
+        var email = MailboxOutboxStore.Deserialize<IngressEmailEffect>(rebound.Payload);
+        Assert.Equal(mailbox.Id, email.MailboxId);
+        Assert.Equal("tenant-a", email.OrganizationId);
+        Assert.Equal(2, email.OutgoingConfigurationVersion);
+        Assert.Equal(EmailDeliveryStatus.Pending, (await db.TicketTimelineEvents.AsNoTracking()
+            .SingleAsync(x => x.Id == queued.DeliveryEventId)).EmailStatus);
+        Assert.Equal(SupportNotificationDeliveryStatus.Pending,
+            (await db.SupportNotificationDeliveries.AsNoTracking().SingleAsync(x => x.Id == supportDelivery.Id)).Status);
+        Assert.Single(await db.ActivityLogs.Where(x => x.RelatedEntityId == mailbox.Id.ToString("D")).ToListAsync());
+
+        await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.State, MailboxEffectState.NeedsReview)
+            .SetProperty(x => x.LastErrorCode, "SmtpPartialRecipientAcceptance"));
+        await db.TicketTimelineEvents.Where(x => x.Id == queued.DeliveryEventId).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.EmailStatus, EmailDeliveryStatus.Failed));
+        await db.SupportNotificationDeliveries.Where(x => x.Id == supportDelivery.Id).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.Status, SupportNotificationDeliveryStatus.Failed));
+        outgoing.Version++;
+        await db.SaveChangesAsync();
+        Assert.Equal("DeliveryOutcomeRequiresReview", (await retry.PreviewAsync(
+            queued.DeliveryEventId.Value, default)).Status);
+
+        await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.LastErrorCode, "SmtpAuthenticationFailed"));
+        Assert.True((await retry.PreviewAsync(queued.DeliveryEventId.Value, default)).CanRetry);
+        await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.RecipientOutcomeJson, System.Text.Json.JsonSerializer.Serialize(
+                new MailboxRecipientOutcome(["requester@tenant-a.example.test"], []))));
+        Assert.Equal("AcceptedRecipientsRequireReview", (await retry.PreviewAsync(
+            queued.DeliveryEventId.Value, default)).Status);
+        await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.RecipientOutcomeJson, (string?)null));
+        mailbox.Authentication = MailboxAuthentication.MicrosoftApplication;
+        mailbox.ClientSecret = "synthetic-protected";
+        outgoing.Transport = MailboxOutgoingTransport.Graph;
+        await db.SaveChangesAsync();
+        foreach (var code in new[] { "GraphAuthenticationFailed", "GraphSendPermissionDenied" })
+        {
+            await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
+                .SetProperty(x => x.LastErrorCode, code));
+            Assert.True((await retry.PreviewAsync(queued.DeliveryEventId.Value, default)).CanRetry);
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                store.RetryForTimelineAsync(queued.DeliveryEventId.Value, default));
+        }
+        var graphFailure = await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleAsync(x => x.Id == queued.Id);
+        var graphPayload = MailboxOutboxStore.Deserialize<IngressEmailEffect>(graphFailure.Payload) with
+            { OutgoingConfigurationVersion = outgoing.Version };
+        await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.Payload, System.Text.Json.JsonSerializer.Serialize(graphPayload)));
+        Assert.Equal("GraphGrantNeedsConfirmation", (await retry.PreviewAsync(
+            queued.DeliveryEventId.Value, default)).Status);
+        await db.SupportNotificationDeliveries.Where(x => x.Id == supportDelivery.Id).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.Status, SupportNotificationDeliveryStatus.Sent));
+        Assert.Equal("SupportDeliveryNotFailed", (await retry.PreviewAsync(
+            queued.DeliveryEventId.Value, default)).Status);
+    }
+
+    [Fact]
+    public async Task Uncertain_delivery_requires_evidence_and_only_one_administrator_can_requeue_it()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync(false);
+        await using var db = fixture.Open();
+        await db.Database.MigrateAsync();
+        db.Organizations.Add(new Organization { Id = "tenant-a", Name = "Tenant A" });
+        var mailbox = new EmailInboxSettings
+        {
+            Id = Guid.NewGuid(), Scope = MailboxScope.Organization, OrganizationId = "tenant-a",
+            MailboxAddress = "support@tenant-a.example.test", SourceKey = "uncertain-source",
+            Enabled = true, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.EmailInboxSettings.Add(mailbox);
+        var outgoing = new MailboxOutgoingSettings
+        {
+            MailboxId = mailbox.Id, Version = 1, Enabled = true, Transport = MailboxOutgoingTransport.Smtp,
+            SmtpHost = "smtp.tenant-a.example.test", SmtpUsername = mailbox.MailboxAddress,
+            ProtectedSmtpPassword = "synthetic-protected"
+        };
+        db.Set<MailboxOutgoingSettings>().Add(outgoing);
+        db.Incidents.Add(new Incident { Id = "uncertain-ticket", OrganizationId = "tenant-a", TrackingId = "INC-UNCERTAIN" });
+        await db.SaveChangesAsync();
+
+        var store = new MailboxOutboxStore(db, new IngressEffectContext(), TimeProvider.System);
+        var queued = await store.QueueDirectAsync(new IngressEmailEffect(
+            ["requester@tenant-a.example.test"], "Confirmation", "<p>Body</p>", [],
+            "uncertain-ticket", [], null, null, false, null, null)
+        {
+            MailboxId = mailbox.Id, OrganizationId = "tenant-a",
+            MailboxConfigurationVersion = mailbox.Version, OutgoingConfigurationVersion = outgoing.Version
+        }, default);
+        var claim = Assert.IsType<MailboxOutboxEffect>(await store.TryClaimAsync(queued.Id, "worker", default));
+        Assert.True(await store.CompleteAsync(claim, false, "SubmissionOutcomeUnknown", default, requiresReview: true));
+        var retry = new MailboxOutgoingRetryService(db, new MailboxSenderResolver(db), TimeProvider.System);
+        var preview = await retry.PreviewUncertainAsync(queued.DeliveryEventId!.Value, default);
+        Assert.True(preview.CanRetry);
+        Assert.Equal(["requester@tenant-a.example.test"], preview.Recipients);
+        Assert.Equal("EvidenceReferenceRequired", (await retry.RetryConfirmedUndeliveredAsync(
+            queued.DeliveryEventId.Value, new(preview.Fence!.Value, 1, "", true), "admin-a", default)).Status);
+        var request = new ConfirmMailboxUndeliveredRetryRequest(preview.Fence.Value, 1, "provider-case-123", true);
+        Assert.Equal("Queued", (await retry.RetryConfirmedUndeliveredAsync(
+            queued.DeliveryEventId.Value, request, "admin-a", default)).Status);
+        Assert.Equal("DeliveryNotUncertain", (await retry.RetryConfirmedUndeliveredAsync(
+            queued.DeliveryEventId.Value, request, "admin-b", default)).Status);
+        var rebound = await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleAsync(x => x.Id == queued.Id);
+        Assert.Equal(MailboxEffectState.Pending, rebound.State);
+        Assert.Equal(preview.Fence + 1, rebound.Fence);
+        Assert.Equal(mailbox.Id, MailboxOutboxStore.Deserialize<IngressEmailEffect>(rebound.Payload).MailboxId);
+        Assert.Equal(EmailDeliveryStatus.Pending, (await db.TicketTimelineEvents.AsNoTracking()
+            .SingleAsync(x => x.Id == queued.DeliveryEventId)).EmailStatus);
+        var log = Assert.Single(await db.ActivityLogs.AsNoTracking().ToListAsync());
+        Assert.Contains("provider-case-123", log.Message);
+        Assert.Equal("admin-a", log.UserId);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Archived_sender_can_be_rebound_to_the_current_ticket_route_only_after_confirmation(bool postgres)
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync(postgres);
+        await using var db = fixture.Open();
+        await db.Database.MigrateAsync();
+        db.Organizations.AddRange(new Organization { Id = "tenant-a", Name = "Tenant A" },
+            new Organization { Id = "tenant-b", Name = "Tenant B" });
+        var dedicated = new EmailInboxSettings
+        {
+            Id = Guid.NewGuid(), Scope = MailboxScope.Organization, OrganizationId = "tenant-a",
+            MailboxAddress = "dedicated@tenant-a.example.test", SourceKey = "dedicated-source",
+            Enabled = true, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
+        };
+        var global = new EmailInboxSettings
+        {
+            Id = Guid.NewGuid(), Scope = MailboxScope.Global,
+            MailboxAddress = "global@example.test", SourceKey = "global-source",
+            Enabled = true, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.EmailInboxSettings.AddRange(dedicated, global);
+        db.Set<MailboxOutgoingSettings>().AddRange(
+            new MailboxOutgoingSettings
+            {
+                MailboxId = dedicated.Id, Version = 1, Enabled = true, Transport = MailboxOutgoingTransport.Smtp,
+                SmtpHost = "smtp.tenant-a.example.test", SmtpUsername = dedicated.MailboxAddress,
+                ProtectedSmtpPassword = "synthetic-protected"
+            },
+            new MailboxOutgoingSettings
+            {
+                MailboxId = global.Id, Version = 3, Enabled = true, Transport = MailboxOutgoingTransport.Smtp,
+                SmtpHost = "smtp.example.test", SmtpUsername = global.MailboxAddress,
+                ProtectedSmtpPassword = "synthetic-protected"
+            });
+        db.Incidents.Add(new Incident { Id = "route-ticket", OrganizationId = "tenant-a", TrackingId = "INC-ROUTE" });
+        await db.SaveChangesAsync();
+        var effects = new IngressEffectContext();
+        var store = new MailboxOutboxStore(db, effects, TimeProvider.System);
+        IEmailService sender = new MailboxEmailService(new MailboxSenderResolver(db),
+            new SmtpMailboxSender(new MailboxDestinationPolicy(new ConfigurationBuilder().Build()),
+                new MailboxOutgoingCredentialProtector(new EphemeralDataProtectionProvider()),
+                new HtmlToPlainTextConverter()),
+            new GraphMailboxSender(_ => throw new InvalidOperationException("Graph is not selected.")),
+            store, effects, NullLogger<MailboxEmailService>.Instance);
+        Assert.True(await sender.SendEmailAsync(new EmailSendRequest(
+            ["requester@tenant-a.example.test"], "Confirmation", "<p>Body</p>")
+        { TicketId = "route-ticket", Cc = ["cc@example.test"], Bcc = ["bcc@example.test"],
+            ReplyTo = dedicated.MailboxAddress }));
+        var queued = await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleAsync(x => x.Kind == MailboxEffectKind.Email);
+        var initial = MailboxOutboxStore.Deserialize<IngressEmailEffect>(queued.Payload);
+        Assert.Equal(dedicated.SourceKey, initial.MailboxSourceKey);
+        dedicated.Archived = true;
+        await db.SaveChangesAsync();
+        var claim = Assert.IsType<MailboxOutboxEffect>(await store.TryClaimAsync(queued.Id, "worker", default));
+        Assert.True(await store.CompleteAsync(claim, false, "SenderRouteChanged", default, requiresReview: true));
+        var retry = new MailboxOutgoingRetryService(db, new MailboxSenderResolver(db), TimeProvider.System);
+        var preview = await retry.PreviewChangedRouteAsync(queued.DeliveryEventId!.Value, default);
+        Assert.True(preview.CanRetry);
+        Assert.Equal(dedicated.Id, preview.OriginalMailboxId);
+        Assert.Equal(global.Id, preview.CurrentMailboxId);
+        Assert.Equal(["requester@tenant-a.example.test", "cc@example.test", "bcc@example.test"], preview.Recipients);
+        await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.LastErrorCode, "SmtpTimedOut"));
+        Assert.False((await retry.PreviewChangedRouteAsync(queued.DeliveryEventId.Value, default)).CanRetry);
+        await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.LastErrorCode, "SmtpAuthenticationFailed"));
+        Assert.True((await retry.PreviewChangedRouteAsync(queued.DeliveryEventId.Value, default)).CanRetry);
+        await db.Incidents.Where(x => x.Id == "route-ticket").ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.OrganizationId, "tenant-b"));
+        db.ChangeTracker.Clear();
+        Assert.Equal("TicketOrganizationMismatch", (await retry.PreviewChangedRouteAsync(
+            queued.DeliveryEventId.Value, default)).Status);
+        await db.Incidents.Where(x => x.Id == "route-ticket").ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.OrganizationId, "tenant-a"));
+        db.ChangeTracker.Clear();
+        await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.LastErrorCode, "SenderRouteChanged"));
+        var request = new ConfirmMailboxRouteRetryRequest(preview.Fence!.Value, dedicated.Id, global.Id,
+            preview.CurrentMailboxVersion!.Value, preview.CurrentOutgoingVersion!.Value, true);
+        Assert.Equal("SenderConfirmationRequired", (await retry.RetryWithCurrentRouteAsync(
+            queued.DeliveryEventId.Value, request with { ConfirmedNewSender = false }, "admin", default)).Status);
+        Assert.Equal("SenderRouteChanged", (await retry.RetryWithCurrentRouteAsync(queued.DeliveryEventId.Value,
+            request with { ExpectedFence = request.ExpectedFence + 1 }, "admin", default)).Status);
+        Assert.Equal("SenderRouteChanged", (await retry.RetryWithCurrentRouteAsync(queued.DeliveryEventId.Value,
+            request with { ExpectedOutgoingVersion = 1 }, "admin", default)).Status);
+        Assert.Equal("Queued", (await retry.RetryWithCurrentRouteAsync(queued.DeliveryEventId.Value,
+            request, "admin", default)).Status);
+        Assert.Equal("DeliveryNotRouteChanged", (await retry.RetryWithCurrentRouteAsync(
+            queued.DeliveryEventId.Value, request, "other-admin", default)).Status);
+        var row = await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleAsync(x => x.Id == queued.Id);
+        Assert.Equal(MailboxEffectState.Pending, row.State);
+        var rebound = MailboxOutboxStore.Deserialize<IngressEmailEffect>(row.Payload);
+        Assert.Equal(global.Id, rebound.MailboxId);
+        Assert.Equal(global.SourceKey, rebound.MailboxSourceKey);
+        Assert.Equal("tenant-a", rebound.OrganizationId);
+        Assert.Equal("route-ticket", rebound.TicketId);
+        Assert.Equal(initial.Recipients, rebound.Recipients);
+        Assert.Equal(initial.Cc, rebound.Cc);
+        Assert.Equal(initial.Bcc, rebound.Bcc);
+        Assert.Equal(initial.Subject, rebound.Subject);
+        Assert.Equal(initial.Html, rebound.Html);
+        Assert.Equal(queued.DeliveryEventId, row.DeliveryEventId);
+        Assert.Equal(global.MailboxAddress, rebound.ReplyTo);
+        Assert.Equal(3, rebound.OutgoingConfigurationVersion);
+        Assert.Equal(EmailDeliveryStatus.Pending, (await db.TicketTimelineEvents.AsNoTracking()
+            .SingleAsync(x => x.Id == queued.DeliveryEventId)).EmailStatus);
+        var audit = Assert.Single(await db.ActivityLogs.AsNoTracking().ToListAsync());
+        Assert.Equal("admin", audit.UserId);
+        Assert.Contains($"OriginalMailboxSourceKey={dedicated.SourceKey}", audit.Message);
+        Assert.Contains($"CurrentMailboxSourceKey={global.SourceKey}", audit.Message);
+
+        var failedClaim = Assert.IsType<MailboxOutboxEffect>(await store.TryClaimAsync(queued.Id, "worker", default));
+        Assert.True(await store.CompleteAsync(failedClaim, false, "SmtpAuthenticationFailed", default,
+            requiresReview: true));
+        await db.Set<MailboxOutgoingSettings>().Where(x => x.MailboxId == global.Id)
+            .ExecuteUpdateAsync(update => update.SetProperty(x => x.Version, x => x.Version + 1));
+        var repair = await retry.PreviewAsync(queued.DeliveryEventId.Value, default);
+        Assert.True(repair.CanRetry);
+        Assert.NotEqual("MailboxSourceChanged", repair.Status);
+        var repairRequest = new ConfirmMailboxOutgoingRetryRequest(repair.CurrentOutgoingVersion!.Value, true)
+        {
+            ExpectedMailboxId = global.Id, ExpectedMailboxVersion = global.Version,
+            ExpectedFence = repair.Fence
+        };
+        Assert.Equal("SenderRevisionChanged", (await retry.RetryAsync(queued.DeliveryEventId.Value,
+            repairRequest with { ExpectedFence = repair.Fence - 1 }, "admin", default)).Status);
+        Assert.Equal("Queued", (await retry.RetryAsync(queued.DeliveryEventId.Value,
+            repairRequest, "admin", default)).Status);
+        var afterRepair = MailboxOutboxStore.Deserialize<IngressEmailEffect>((await db.Set<MailboxOutboxEffect>()
+            .AsNoTracking().SingleAsync(x => x.Id == queued.Id)).Payload);
+        Assert.Equal(global.SourceKey, afterRepair.MailboxSourceKey);
+        db.ChangeTracker.Clear();
+
+        await db.EmailInboxSettings.Where(x => x.Id == global.Id).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.DisplayName, "Revised global label")
+            .SetProperty(x => x.PollIntervalSeconds, 60)
+            .SetProperty(x => x.Version, x => x.Version + 1));
+        global.Version++;
+        var revisionClaim = Assert.IsType<MailboxOutboxEffect>(await store.TryClaimAsync(queued.Id, "worker", default));
+        Assert.True(await store.CompleteAsync(revisionClaim, false, "SenderConfigurationChanged", default,
+            requiresReview: true));
+        var revision = await retry.PreviewAsync(queued.DeliveryEventId.Value, default);
+        Assert.True(revision.CanRetry, revision.Status);
+        Assert.Equal("Queued", (await retry.RetryAsync(queued.DeliveryEventId.Value,
+            new ConfirmMailboxOutgoingRetryRequest(revision.CurrentOutgoingVersion!.Value, true)
+            {
+                ExpectedMailboxId = global.Id, ExpectedMailboxVersion = global.Version,
+                ExpectedFence = revision.Fence
+            }, "admin", default)).Status);
+        var afterRevision = MailboxOutboxStore.Deserialize<IngressEmailEffect>((await db.Set<MailboxOutboxEffect>()
+            .AsNoTracking().SingleAsync(x => x.Id == queued.Id)).Payload);
+        Assert.Equal(global.SourceKey, afterRevision.MailboxSourceKey);
+        Assert.Equal(global.Version, afterRevision.MailboxConfigurationVersion);
+
+        await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.State, MailboxEffectState.NeedsReview)
+            .SetProperty(x => x.LastErrorCode, "SenderRouteChanged")
+            .SetProperty(x => x.RecipientOutcomeJson, System.Text.Json.JsonSerializer.Serialize(
+                new MailboxRecipientOutcome(["requester@tenant-a.example.test"], []))));
+        await db.TicketTimelineEvents.Where(x => x.Id == queued.DeliveryEventId).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.EmailStatus, EmailDeliveryStatus.Failed));
+        Assert.Equal("AcceptedRecipientsRequireReview", (await retry.PreviewChangedRouteAsync(
+            queued.DeliveryEventId.Value, default)).Status);
+    }
+
+    [Fact]
+    public async Task Worker_policy_distinguishes_fresh_pause_operator_stop_and_persisted_activation()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync(false);
+        await using var db = fixture.Open();
+        await db.Database.MigrateAsync();
+        var fresh = new MailboxWorkerPolicy(db, new ConfigurationBuilder().Build(), TimeProvider.System);
+        Assert.Equal("Instance paused", (await fresh.GetStatusAsync(default)).State);
+        Assert.False((await fresh.GetStatusAsync(default)).InstanceRunning);
+
+        var stoppedConfiguration = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?> { ["EmailIngestion:Enabled"] = "false" }).Build();
+        var stopped = new MailboxWorkerPolicy(db, stoppedConfiguration, TimeProvider.System);
+        Assert.Equal("Disabled by deployment", (await stopped.SetRunningAsync(true, default)).State);
+        Assert.Empty(await db.Set<MailboxWorkerControl>().ToListAsync());
+
+        var permitted = await fresh.SetRunningAsync(true, default);
+        Assert.True(permitted.InstanceRunning);
+        Assert.Single(await db.Set<MailboxWorkerControl>().ToListAsync());
+        Assert.Equal("Disabled by deployment", (await stopped.GetStatusAsync(default)).State);
+        await fresh.SetRunningAsync(false, default);
+        var legacyTrue = new MailboxWorkerPolicy(db, new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?> { ["EmailIngestion:Enabled"] = "true" }).Build(), TimeProvider.System);
+        Assert.False((await legacyTrue.GetStatusAsync(default)).InstanceRunning);
+        db.Set<MailboxWorkerControl>().Remove(await db.Set<MailboxWorkerControl>().SingleAsync());
+        await db.SaveChangesAsync();
+        Assert.True((await legacyTrue.GetStatusAsync(default)).InstanceRunning);
+    }
+
+    [Fact]
+    public async Task Effective_status_never_calls_an_enabled_source_running_without_a_live_lease()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync(false);
+        await using var db = fixture.Open();
+        await db.Database.MigrateAsync();
+        var mailbox = new EmailInboxSettings
+        {
+            Id = Guid.NewGuid(), MailboxAddress = "support@tenant-a.example.test",
+            SourceKey = "synthetic-source", Enabled = true, BackgroundSyncEnabled = true,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.EmailInboxSettings.Add(mailbox);
+        db.Set<MailboxIngestionState>().Add(new() { MailboxId = mailbox.Id, SourceKey = mailbox.SourceKey });
+        db.Set<MailboxLease>().Add(new() { MailboxId = mailbox.Id });
+        await db.SaveChangesAsync();
+        var policy = new MailboxWorkerPolicy(db, new ConfigurationBuilder().Build(), TimeProvider.System);
+        Assert.Equal("Instance paused", (await policy.GetMailboxStatusAsync(mailbox.Id, default))?.State);
+        await policy.SetRunningAsync(true, default);
+        Assert.Equal("Waiting for baseline", (await policy.GetMailboxStatusAsync(mailbox.Id, default))?.State);
+        var lease = await db.Set<MailboxLease>().SingleAsync();
+        lease.Owner = "synthetic-worker";
+        lease.ExpiresUnixMilliseconds = DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds();
+        await db.SaveChangesAsync();
+        Assert.Equal("Initializing baseline", (await policy.GetMailboxStatusAsync(mailbox.Id, default))?.State);
+        var ingestion = await db.Set<MailboxIngestionState>().SingleAsync();
+        ingestion.Initialized = true;
+        await db.SaveChangesAsync();
+        Assert.Equal("Running", (await policy.GetMailboxStatusAsync(mailbox.Id, default))?.State);
+    }
+
+    [Fact]
+    public async Task Worker_heartbeat_reports_unavailable_after_stale_process_and_recovers_on_reconcile()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync(false);
+        await using var db = fixture.Open();
+        await db.Database.MigrateAsync();
+        var policy = new MailboxWorkerPolicy(db, new ConfigurationBuilder().Build(), TimeProvider.System);
+        await policy.SetRunningAsync(true, default);
+        await db.Set<MailboxWorkerControl>().ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.LastHeartbeatUnixMilliseconds,
+                DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeMilliseconds()));
+        var stale = await policy.GetStatusAsync(default);
+        Assert.True(stale.InstanceRunning);
+        Assert.Equal("Worker unavailable", stale.State);
+
+        await policy.RecordHeartbeatAsync(default);
+
+        var active = await policy.GetStatusAsync(default);
+        Assert.Equal("Instance enabled", active.State);
+        Assert.NotNull(active.LastHeartbeatUnixMilliseconds);
+    }
+
+    [Fact]
+    public async Task Smtp_configuration_is_separate_redacted_and_destination_bound()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync(false);
+        await using var db = fixture.Open();
+        await db.Database.MigrateAsync();
+        var mailbox = new EmailInboxSettings
+        {
+            Id = Guid.NewGuid(), Provider = InboundMailboxProvider.Imap,
+            Authentication = MailboxAuthentication.Password,
+            MailboxAddress = "support@tenant-a.example.test", SourceKey = "immutable-inbound-source",
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.EmailInboxSettings.Add(mailbox);
+        await db.SaveChangesAsync();
+        var outgoing = new MailboxOutgoingSettingsService(db,
+            new MailboxOutgoingCredentialProtector(new EphemeralDataProtectionProvider()));
+        var request = new MailboxOutgoingSettingsRequest(0, true, MailboxOutgoingTransport.Smtp,
+            "Tenant A support", "smtp.tenant-a.example.test", 587, MailboxTlsMode.StartTls,
+            "support@tenant-a.example.test", "synthetic-secret", false);
+        var saved = await outgoing.SaveAsync(mailbox.Id, request, default);
+        Assert.True(saved.HasSmtpPassword);
+        Assert.Equal(mailbox.MailboxAddress, saved.MailboxAddress);
+        Assert.DoesNotContain("synthetic-secret", System.Text.Json.JsonSerializer.Serialize(saved));
+        Assert.DoesNotContain("synthetic-secret", (await db.Set<MailboxOutgoingSettings>().SingleAsync()).ProtectedSmtpPassword);
+        Assert.Equal("immutable-inbound-source", (await db.EmailInboxSettings.SingleAsync()).SourceKey);
+
+        var changedHost = request with { Version = saved.Version,
+            SmtpHost = "different.tenant-a.example.test", SmtpPassword = string.Empty };
+        await Assert.ThrowsAsync<ArgumentException>(() => outgoing.SaveAsync(mailbox.Id, changedHost, default));
+        var retained = await outgoing.SaveAsync(mailbox.Id,
+            request with { Version = saved.Version, SmtpPassword = string.Empty }, default);
+        Assert.True(retained.HasSmtpPassword);
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => outgoing.SaveAsync(mailbox.Id, request, default));
+
+        var cleared = await outgoing.SaveAsync(mailbox.Id, request with
+        {
+            Version = retained.Version, Enabled = false, SmtpPassword = string.Empty,
+            ClearSmtpPassword = true
+        }, default);
+        Assert.False(cleared.HasSmtpPassword);
+        Assert.False((await outgoing.GetAsync(mailbox.Id, default))!.HasSmtpPassword);
+        Assert.Equal(string.Empty,
+            (await db.Set<MailboxOutgoingSettings>().SingleAsync()).ProtectedSmtpPassword);
+    }
+
+    [Fact]
+    public async Task Sender_resolver_keeps_dedicated_identity_and_never_falls_back_when_its_sender_is_missing()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync(false);
+        await using var db = fixture.Open();
+        await db.Database.MigrateAsync();
+        db.Organizations.AddRange(new Organization { Id = "tenant-a", Name = "Tenant A" },
+            new Organization { Id = "tenant-b", Name = "Tenant B" });
+        var global = new EmailInboxSettings { Id = Guid.NewGuid(), Scope = MailboxScope.Global,
+            MailboxAddress = "global@example.test", SourceKey = "global-source", Enabled = true,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
+        var dedicated = new EmailInboxSettings { Id = Guid.NewGuid(), Scope = MailboxScope.Organization,
+            OrganizationId = "tenant-a", MailboxAddress = "support@tenant-a.example.test",
+            SourceKey = "tenant-a-source", Enabled = true, BackgroundSyncEnabled = false,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
+        db.EmailInboxSettings.AddRange(global, dedicated);
+        db.Set<MailboxOutgoingSettings>().Add(new MailboxOutgoingSettings
+        {
+            MailboxId = global.Id, Enabled = true, Transport = MailboxOutgoingTransport.Smtp,
+            SmtpHost = "smtp.example.test", SmtpUsername = global.MailboxAddress,
+            ProtectedSmtpPassword = "synthetic-protected"
+        });
+        db.Incidents.AddRange(new Incident { Id = "ticket-a", OrganizationId = "tenant-a", TrackingId = "INC-A" },
+            new Incident { Id = "ticket-b", OrganizationId = "tenant-b", TrackingId = "INC-B" });
+        await db.SaveChangesAsync();
+        var resolver = new MailboxSenderResolver(db);
+        Assert.Equal("OutgoingNotConfigured", (await resolver.ResolveAsync("ticket-a", null, default)).ErrorCode);
+        Assert.Equal(dedicated.Id, (await resolver.ResolveAsync("ticket-a", null, default)).Mailbox?.Id);
+        Assert.Equal(global.Id, (await resolver.ResolveAsync("ticket-b", null, default)).Mailbox?.Id);
+        Assert.Equal("TicketOrganizationMismatch",
+            (await resolver.ResolveAsync("ticket-a", "tenant-b", default)).ErrorCode);
+        Assert.Equal(global.Id, (await resolver.ResolveAsync(null, null, default)).Mailbox?.Id);
+        // Ingress can capture delivery before a newly created ticket is flushed.
+        db.Incidents.Add(new Incident { Id = "new-ticket", OrganizationId = "tenant-a", TrackingId = "INC-NEW" });
+        Assert.Equal(dedicated.Id, (await resolver.ResolveAsync("new-ticket", "tenant-a", default)).Mailbox?.Id);
+        Assert.Equal("TicketOrganizationMismatch",
+            (await resolver.ResolveAsync("new-ticket", "tenant-b", default)).ErrorCode);
+        db.Set<MailboxOutgoingSettings>().Add(new MailboxOutgoingSettings
+        {
+            MailboxId = dedicated.Id, Enabled = true, Transport = MailboxOutgoingTransport.Smtp,
+            SmtpHost = "smtp.tenant-a.example.test", SmtpUsername = dedicated.MailboxAddress,
+            ProtectedSmtpPassword = "synthetic-protected"
+        });
+        await db.SaveChangesAsync();
+        Assert.Equal("Ready", (await resolver.ResolveAsync("ticket-a", null, default)).Status);
+        // A dedicated source must remain usable when no global assignment exists.
+        global.Archived = true;
+        await db.SaveChangesAsync();
+        Assert.Equal(dedicated.Id, (await resolver.ResolveAsync("ticket-a", null, default)).Mailbox?.Id);
+        Assert.Equal("NoEffectiveMailbox", (await resolver.ResolveAsync("ticket-b", null, default)).ErrorCode);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -82,6 +722,138 @@ public sealed class MailboxConfigurationTests
         Assert.DoesNotContain("synthetic-secret", migrated.ClientSecret);
         Assert.Single(await db.Set<MailboxMigrationState>().ToListAsync());
         Assert.Single(await db.Set<MailboxLease>().ToListAsync());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Beta2_upgrade_preserves_global_dedicated_receipts_and_failed_delivery_without_activation(bool postgres)
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync(postgres);
+        await using var db = fixture.Open();
+        var beta2 = db.Database.GetMigrations().Single(x => x.EndsWith("_MailboxAcknowledgmentClaims", StringComparison.Ordinal));
+        await db.GetService<IMigrator>().MigrateAsync(beta2);
+        var globalId = Guid.NewGuid();
+        var dedicatedId = Guid.NewGuid();
+        var skippedId = Guid.NewGuid();
+        var succeededId = Guid.NewGuid();
+        var heldId = Guid.NewGuid();
+        var processedIgnoredId = Guid.NewGuid();
+        var missingSourceId = Guid.NewGuid();
+        var ambiguousId = Guid.NewGuid();
+        var failedId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        var protectedGlobal = fixture.Secrets.Protect(globalId, "synthetic-global-secret");
+        var protectedDedicated = fixture.Secrets.Protect(dedicatedId, "synthetic-dedicated-secret");
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "Organizations" ("Id", "Name", "State", "IsEnabled")
+            VALUES ({"tenant-a"}, {"Tenant A"}, {0}, {true});
+            """);
+        foreach (var (id, address, scope, organizationId, source, protectedSecret) in new[]
+                 {
+                     (globalId, "global@example.test", 0, (string?)null, "global-source", protectedGlobal),
+                     (dedicatedId, "support@tenant-a.example.test", 1, "tenant-a", "dedicated-source", protectedDedicated)
+                 })
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO "EmailInboxSettings" ("Id", "MailHost", "Port", "UseSsl", "MailboxAddress",
+                    "TenantId", "ClientId", "ClientSecret", "MailboxFolder", "Enabled", "BackgroundSyncEnabled",
+                    "CreatedAt", "UpdatedAt", "Archived", "Scope", "OrganizationId", "SourceKey", "CredentialVersion",
+                    "Authentication", "BatchSize", "DisplayName", "InitialImport", "LegacySource", "MarkReadAfterSuccess",
+                    "Password", "PollIntervalSeconds", "Provider", "TlsMode", "Username", "Version")
+                VALUES ({id}, {"mail.example.test"}, {993}, {true}, {address}, {"directory"}, {"application"},
+                    {protectedSecret}, {"INBOX"}, {true}, {false}, {now}, {now}, {false}, {scope}, {organizationId}, {source}, {1},
+                    {0}, {25}, {"Synthetic mailbox"}, {0}, {false}, {true}, {""}, {30}, {1}, {0}, {""}, {1L});
+                """);
+        }
+        foreach (var (mailboxId, source) in new[] { (globalId, "global-source"), (dedicatedId, "dedicated-source") })
+            await db.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO "MailboxIngestionState" ("MailboxId", "SourceKey", "Initialized")
+                VALUES ({mailboxId}, {source}, {true});
+                """);
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "InboundMessageReceipt" ("Id", "MailboxId", "SourceKey", "TransportKey",
+                "ConfigurationVersion", "Outcome", "Acknowledged", "AcknowledgmentStatus", "Attempts",
+                "CreatedUnixMilliseconds", "UpdatedUnixMilliseconds", "ProtectedEnvelope")
+            VALUES ({skippedId}, {globalId}, {"global-source"}, {"123:7"}, {1L},
+                {(int)InboundReceiptOutcome.Ignored}, {true}, {(int)InboundAcknowledgmentStatus.NotRequired}, {0},
+                {now.ToUnixTimeMilliseconds()}, {now.ToUnixTimeMilliseconds()}, {""});
+            """);
+        foreach (var (id, key, reason, attempts) in new[]
+                 {
+                     (processedIgnoredId, "123:8", (string?)null, 1),
+                     (missingSourceId, "123:9", "SourceMessageMissing", 0),
+                     (ambiguousId, "invalid-key", (string?)null, 0)
+                 })
+            await db.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO "InboundMessageReceipt" ("Id", "MailboxId", "SourceKey", "TransportKey",
+                    "ConfigurationVersion", "Outcome", "Reason", "Acknowledged", "AcknowledgmentStatus",
+                    "Attempts", "CreatedUnixMilliseconds", "UpdatedUnixMilliseconds", "ProtectedEnvelope")
+                VALUES ({id}, {globalId}, {"global-source"}, {key}, {1L},
+                    {(int)InboundReceiptOutcome.Ignored}, {reason}, {true},
+                    {(int)InboundAcknowledgmentStatus.NotRequired}, {attempts},
+                    {now.ToUnixTimeMilliseconds()}, {now.ToUnixTimeMilliseconds()}, {""});
+                """);
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "InboundMessageReceipt" ("Id", "MailboxId", "SourceKey", "TransportKey",
+                "ConfigurationVersion", "Outcome", "Acknowledged", "Attempts",
+                "CreatedUnixMilliseconds", "UpdatedUnixMilliseconds", "ProtectedEnvelope")
+            VALUES ({succeededId}, {dedicatedId}, {"dedicated-source"}, {"handled-uid"}, {1L},
+                {(int)InboundReceiptOutcome.Succeeded}, {true}, {1},
+                {now.ToUnixTimeMilliseconds()}, {now.ToUnixTimeMilliseconds()}, {""});
+            """);
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "InboundMessageReceipt" ("Id", "MailboxId", "SourceKey", "TransportKey",
+                "ConfigurationVersion", "Outcome", "Reason", "Acknowledged", "Attempts",
+                "CreatedUnixMilliseconds", "UpdatedUnixMilliseconds", "ProtectedEnvelope")
+            VALUES ({heldId}, {dedicatedId}, {"dedicated-source"}, {"held-uid"}, {1L},
+                {(int)InboundReceiptOutcome.NeedsReview}, {"TenantResolutionAmbiguous"}, {false}, {2},
+                {now.ToUnixTimeMilliseconds()}, {now.ToUnixTimeMilliseconds()}, {""});
+            """);
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "MailboxOutboxEffect" ("Id", "ReceiptId", "EffectKey", "Kind", "Payload", "State",
+                "Attempts", "Fence", "AvailableUnixMilliseconds", "LeaseExpiresUnixMilliseconds")
+            VALUES ({failedId}, {succeededId}, {"email:confirmation"}, {(int)MailboxEffectKind.Email}, {"{}"},
+                {(int)MailboxEffectState.Exhausted}, {5}, {5L}, {now.ToUnixTimeMilliseconds()}, {0L});
+            """);
+
+        await db.Database.MigrateAsync();
+        await db.Database.MigrateAsync();
+        db.ChangeTracker.Clear();
+        Assert.Empty(await db.Database.GetPendingMigrationsAsync());
+        var mailboxes = await db.EmailInboxSettings.AsNoTracking().ToListAsync();
+        Assert.Equal(2, mailboxes.Count);
+        Assert.Equal("synthetic-global-secret", fixture.Secrets.Unprotect(mailboxes.Single(x => x.Id == globalId),
+            mailboxes.Single(x => x.Id == globalId).ClientSecret));
+        Assert.Equal("synthetic-dedicated-secret", fixture.Secrets.Unprotect(mailboxes.Single(x => x.Id == dedicatedId),
+            mailboxes.Single(x => x.Id == dedicatedId).ClientSecret));
+        Assert.All(mailboxes, x => Assert.False(x.BackgroundSyncEnabled));
+        var receipts = await db.Set<InboundMessageReceipt>().AsNoTracking().ToListAsync();
+        Assert.Null(receipts.Single(x => x.Id == skippedId).Reason);
+        Assert.Equal(0, receipts.Single(x => x.Id == skippedId).Attempts);
+        Assert.Equal(string.Empty, receipts.Single(x => x.Id == skippedId).ProtectedEnvelope);
+        var eligible = await HistoricalBaselineReceipts.EligibleAsync(db, mailboxes.Single(x => x.Id == globalId), default);
+        var eligibleRows = await eligible.AsNoTracking().ToListAsync();
+        Assert.Equal(new[] { skippedId }, eligibleRows.Where(x =>
+            HistoricalBaselineReceipts.IsLegacySourceIdentity(mailboxes.Single(m => m.Id == globalId), x.TransportKey))
+            .Select(x => x.Id));
+        Assert.Equal(InboundReceiptOutcome.Succeeded, receipts.Single(x => x.Id == succeededId).Outcome);
+        Assert.Equal("TenantResolutionAmbiguous", receipts.Single(x => x.Id == heldId).Reason);
+        Assert.All(receipts, x => Assert.Null(x.HistoricalImportRequestId));
+        var failedDelivery = await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleAsync(x => x.Id == failedId);
+        Assert.Equal(MailboxEffectState.Exhausted, failedDelivery.State);
+        Assert.StartsWith("legacy:", failedDelivery.DispatchGroup);
+        var policy = new MailboxWorkerPolicy(db, new ConfigurationBuilder().Build(), TimeProvider.System);
+        Assert.Equal("Instance paused", (await policy.GetStatusAsync(default)).State);
+        Assert.Empty(await db.Set<MailboxOutgoingSettings>().ToListAsync());
+        Assert.Equal("Instance enabled", (await policy.SetRunningAsync(true, default)).State);
+        Assert.Equal("Incoming paused", (await policy.GetMailboxStatusAsync(dedicatedId, default))!.State);
+        await db.EmailInboxSettings.Where(x => x.Id == dedicatedId)
+            .ExecuteUpdateAsync(update => update.SetProperty(x => x.BackgroundSyncEnabled, true));
+        Assert.Equal("Needs review", (await policy.GetMailboxStatusAsync(dedicatedId, default))!.State);
+        Assert.Equal(6, await db.Set<InboundMessageReceipt>().CountAsync());
+        Assert.Equal(MailboxEffectState.Exhausted,
+            (await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleAsync(x => x.Id == failedId)).State);
     }
 
     [Theory]

@@ -1,10 +1,13 @@
 using System.Net;
 using Helpdesk.Infrastructure.Email;
+using Helpdesk.Infrastructure.Html;
+using Helpdesk.Application.WorkLogs;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Data.Sqlite;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Claims;
+using System.Text.Json;
 using System.Text.Encodings.Web;
 using Helpdesk.API.Endpoints.Email;
 using Helpdesk.Application.Services.Email;
@@ -38,6 +41,57 @@ public class EmailSettingsEndpointsTests
         Assert.Equal(HttpStatusCode.Forbidden, (await ordinary.GetAsync("/api/v1/email-settings")).StatusCode);
     }
 
+    [Theory]
+    [MemberData(nameof(SensitiveMailboxRoutes))]
+    public async Task MailboxAdministrationRoutes_RequireHelpdeskAdmin(string method, string route)
+    {
+        await using var harness = await Harness.CreateAsync();
+        using var anonymous = harness.CreateClient();
+        using var ordinary = harness.CreateClient("Technician");
+
+        foreach (var (client, expected) in new[]
+                 {
+                     (anonymous, HttpStatusCode.Unauthorized),
+                     (ordinary, HttpStatusCode.Forbidden)
+                 })
+        {
+            using var request = new HttpRequestMessage(new HttpMethod(method), route);
+            if (method is "POST" or "PUT") request.Content = JsonContent.Create(new { });
+            using var response = await client.SendAsync(request);
+            Assert.Equal(expected, response.StatusCode);
+        }
+    }
+
+    public static TheoryData<string, string> SensitiveMailboxRoutes => new()
+    {
+        { "GET", "/api/v1/email-settings/worker" },
+        { "POST", "/api/v1/email-settings/worker" },
+        { "GET", "/api/v1/email-settings/" },
+        { "POST", "/api/v1/email-settings/" },
+        { "POST", "/api/v1/email-settings/test" },
+        { "GET", $"/api/v1/email-settings/{TestMailboxId}" },
+        { "PUT", $"/api/v1/email-settings/{TestMailboxId}" },
+        { "POST", $"/api/v1/email-settings/{TestMailboxId}/test" },
+        { "POST", $"/api/v1/email-settings/{TestMailboxId}/enable" },
+        { "POST", $"/api/v1/email-settings/{TestMailboxId}/disable" },
+        { "POST", $"/api/v1/email-settings/{TestMailboxId}/archive" },
+        { "POST", $"/api/v1/email-settings/{TestMailboxId}/sync" },
+        { "GET", "/api/v1/email-settings/effective" },
+        { "GET", $"/api/v1/email-settings/{TestMailboxId}/diagnostics" },
+        { "POST", $"/api/v1/email-settings/{TestMailboxId}/receipts/{TestReceiptId}/retry" },
+        { "POST", $"/api/v1/email-settings/{TestMailboxId}/historical/preview" },
+        { "POST", $"/api/v1/email-settings/{TestMailboxId}/historical/import" },
+        { "GET", $"/api/v1/email-settings/{TestMailboxId}/outgoing" },
+        { "PUT", $"/api/v1/email-settings/{TestMailboxId}/outgoing" },
+        { "POST", $"/api/v1/email-settings/{TestMailboxId}/outgoing/test" },
+        { "POST", $"/api/v1/email-settings/{TestMailboxId}/outgoing/send-test" },
+        { "GET", "/api/email-settings/" },
+        { "POST", "/api/email-settings/worker" }
+    };
+
+    private const string TestMailboxId = "11111111-1111-4111-8111-111111111111";
+    private const string TestReceiptId = "33333333-3333-4333-8333-333333333333";
+
     [Fact]
     public async Task Get_ReturnsDisabledSettingsWithExplicitScopeAndRedactedCredentials()
     {
@@ -70,6 +124,25 @@ public class EmailSettingsEndpointsTests
         var request = Payload(saved); request.MailHost = "attacker.example.test";
         Assert.Equal(HttpStatusCode.BadRequest, (await harness.Client.PutAsJsonAsync($"/api/v1/email-settings/{saved.Id}", request)).StatusCode);
         Assert.Equal(saved.MailHost, Assert.Single(await harness.AllSettingsAsync()).MailHost);
+    }
+
+    [Fact]
+    public async Task Put_ReturnsFieldValidationWithoutChangingSavedMailbox()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var saved = await harness.SeedAsync();
+        var request = Payload(saved);
+        request.DisplayName = new string('X', 201);
+
+        var response = await harness.Client.PutAsJsonAsync($"/api/v1/email-settings/{saved.Id}", request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal("Use 200 characters or fewer.", body.RootElement.GetProperty("errors")
+            .GetProperty("DisplayName")[0].GetString());
+        var persisted = Assert.Single(await harness.AllSettingsAsync());
+        Assert.Equal(saved.DisplayName, persisted.DisplayName);
+        Assert.Equal(saved.Version, persisted.Version);
     }
 
     [Fact]
@@ -142,6 +215,188 @@ public class EmailSettingsEndpointsTests
     }
 
     [Fact]
+    public async Task Outgoing_write_and_read_redact_secret_and_require_explicit_clear()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var mailbox = await harness.SeedAsync();
+        var path = $"/api/v1/email-settings/{mailbox.Id}/outgoing";
+        var request = new MailboxOutgoingSettingsRequest(0, true, MailboxOutgoingTransport.Smtp,
+            "Fixture support", "smtp.example.test", 587, MailboxTlsMode.StartTls,
+            mailbox.MailboxAddress, "synthetic-outgoing-secret", false);
+
+        var save = await harness.Client.PutAsJsonAsync(path, request);
+        save.EnsureSuccessStatusCode();
+        Assert.DoesNotContain(request.SmtpPassword, await save.Content.ReadAsStringAsync());
+        var saved = (await save.Content.ReadFromJsonAsync<MailboxOutgoingSettingsDto>())!;
+        Assert.True(saved.HasSmtpPassword);
+        var read = await harness.Client.GetAsync(path);
+        read.EnsureSuccessStatusCode();
+        Assert.DoesNotContain(request.SmtpPassword, await read.Content.ReadAsStringAsync());
+        Assert.True((await read.Content.ReadFromJsonAsync<MailboxOutgoingSettingsDto>())!.HasSmtpPassword);
+
+        var retained = await harness.Client.PutAsJsonAsync(path, request with
+        {
+            Version = saved.Version, DisplayName = "Updated fixture support", SmtpPassword = string.Empty
+        });
+        retained.EnsureSuccessStatusCode();
+        var retainedSettings = (await retained.Content.ReadFromJsonAsync<MailboxOutgoingSettingsDto>())!;
+        Assert.True(retainedSettings.HasSmtpPassword);
+        Assert.DoesNotContain(request.SmtpPassword, await retained.Content.ReadAsStringAsync());
+
+        var changedDestination = await harness.Client.PutAsJsonAsync(path, request with
+        {
+            Version = retainedSettings.Version, SmtpHost = "other-smtp.example.test", SmtpPassword = string.Empty
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, changedDestination.StatusCode);
+        Assert.DoesNotContain(request.SmtpPassword, await changedDestination.Content.ReadAsStringAsync());
+        var unchanged = (await harness.Client.GetFromJsonAsync<MailboxOutgoingSettingsDto>(path))!;
+        Assert.Equal("smtp.example.test", unchanged.SmtpHost);
+        Assert.Equal(retainedSettings.Version, unchanged.Version);
+
+        var clear = await harness.Client.PutAsJsonAsync(path, request with
+        {
+            Version = retainedSettings.Version, Enabled = false, SmtpPassword = string.Empty,
+            ClearSmtpPassword = true
+        });
+        clear.EnsureSuccessStatusCode();
+        Assert.False((await clear.Content.ReadFromJsonAsync<MailboxOutgoingSettingsDto>())!.HasSmtpPassword);
+        Assert.False((await harness.Client.GetFromJsonAsync<MailboxOutgoingSettingsDto>(path))!.HasSmtpPassword);
+        Assert.Equal(HttpStatusCode.Conflict, (await harness.Client.PutAsJsonAsync(path, request)).StatusCode);
+    }
+
+    [Theory]
+    [InlineData("DisplayName")]
+    [InlineData("SmtpHost")]
+    [InlineData("SmtpUsername")]
+    [InlineData("SmtpPassword")]
+    public async Task Outgoing_null_text_field_returns_validation_without_saving_settings(string field)
+    {
+        await using var harness = await Harness.CreateAsync();
+        var mailbox = await harness.SeedAsync();
+        var path = $"/api/v1/email-settings/{mailbox.Id}/outgoing";
+        var request = new MailboxOutgoingSettingsRequest(0, true, MailboxOutgoingTransport.Smtp,
+            "Fixture support", "smtp.example.test", 587, MailboxTlsMode.StartTls,
+            mailbox.MailboxAddress, "synthetic-outgoing-secret", false);
+        request = field switch
+        {
+            "DisplayName" => request with { DisplayName = null! },
+            "SmtpHost" => request with { SmtpHost = null! },
+            "SmtpUsername" => request with { SmtpUsername = null! },
+            "SmtpPassword" => request with { SmtpPassword = null! },
+            _ => throw new ArgumentOutOfRangeException(nameof(field))
+        };
+
+        var response = await harness.Client.PutAsJsonAsync(path, request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.True(body.RootElement.GetProperty("errors").TryGetProperty(field, out _));
+        var unchanged = await harness.Client.GetFromJsonAsync<MailboxOutgoingSettingsDto>(path);
+        Assert.NotNull(unchanged);
+        Assert.Equal(0, unchanged.Version);
+        Assert.False(unchanged.Enabled);
+        Assert.False(unchanged.HasSmtpPassword);
+    }
+
+    [Fact]
+    public async Task Historical_import_only_queues_confirmed_baseline_skips_and_never_replays_success()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var mailbox = await harness.SeedAsync();
+        var skipped = new InboundMessageReceipt { MailboxId = mailbox.Id, SourceKey = mailbox.SourceKey,
+            TransportKey = "historical-1", Outcome = InboundReceiptOutcome.Ignored,
+            Reason = "InitialBaselineSkipped", Acknowledged = true };
+        var succeeded = new InboundMessageReceipt { MailboxId = mailbox.Id, SourceKey = mailbox.SourceKey,
+            TransportKey = "handled-1", Outcome = InboundReceiptOutcome.Succeeded,
+            Acknowledged = true };
+        await harness.WithDbAsync(async db =>
+        {
+            db.Set<InboundMessageReceipt>().AddRange(skipped, succeeded);
+            await db.SaveChangesAsync();
+        });
+        harness.Historical.PreviewAsync(Arg.Any<EmailInboxSettings>(), Arg.Any<IReadOnlyList<string>>(),
+            Arg.Any<CancellationToken>()).Returns(call =>
+                Task.FromResult<IReadOnlyList<HistoricalSourcePreview>>(
+                    [new("historical-1", "sender@example.test", "Synthetic subject", DateTimeOffset.UtcNow, true, null)]));
+        var path = $"/api/v1/email-settings/{mailbox.Id}/historical";
+        var preview = await harness.Client.PostAsJsonAsync($"{path}/preview", new HistoricalMailboxPreviewRequest(null, null));
+        preview.EnsureSuccessStatusCode();
+        Assert.Equal(skipped.Id, Assert.Single((await preview.Content.ReadFromJsonAsync<HistoricalMailboxPreviewResult>())!.Items).ReceiptId);
+        Assert.Equal(HttpStatusCode.BadRequest, (await harness.Client.PostAsJsonAsync($"{path}/import",
+            new HistoricalMailboxImportRequest([skipped.Id], false))).StatusCode);
+        (await harness.Client.PostAsJsonAsync("/api/v1/email-settings/worker", new SetMailboxWorkerRequest(true, true)))
+            .EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.Conflict, (await harness.Client.PostAsJsonAsync($"{path}/import",
+            new HistoricalMailboxImportRequest([succeeded.Id], true))).StatusCode);
+        var import = await harness.Client.PostAsJsonAsync($"{path}/import",
+            new HistoricalMailboxImportRequest([skipped.Id], true));
+        Assert.Equal(HttpStatusCode.Accepted, import.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await harness.Client.PostAsJsonAsync($"{path}/import",
+            new HistoricalMailboxImportRequest([skipped.Id], true))).StatusCode);
+        await harness.WithDbAsync(async db =>
+        {
+            var receipt = await db.Set<InboundMessageReceipt>().SingleAsync(x => x.Id == skipped.Id);
+            Assert.NotNull(receipt.HistoricalImportRequestId);
+            Assert.Equal(InboundReceiptOutcome.Ignored, receipt.Outcome);
+            Assert.Null((await db.Set<InboundMessageReceipt>().SingleAsync(x => x.Id == succeeded.Id)).HistoricalImportRequestId);
+        });
+    }
+
+    [Fact]
+    public async Task Authenticated_historical_import_accepts_the_beta2_null_reason_capture_shape_only()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var mailbox = await harness.SeedAsync();
+        var skipped = new InboundMessageReceipt
+        {
+            MailboxId = mailbox.Id, SourceKey = mailbox.SourceKey, TransportKey = "graph-native-baseline-id",
+            Outcome = InboundReceiptOutcome.Ignored, Acknowledged = true,
+            AcknowledgmentStatus = InboundAcknowledgmentStatus.NotRequired
+        };
+        var processedIgnored = new InboundMessageReceipt
+        {
+            MailboxId = mailbox.Id, SourceKey = mailbox.SourceKey, TransportKey = "graph-processed-id",
+            Outcome = InboundReceiptOutcome.Ignored, Acknowledged = true,
+            AcknowledgmentStatus = InboundAcknowledgmentStatus.NotRequired, Attempts = 1
+        };
+        var missing = new InboundMessageReceipt
+        {
+            MailboxId = mailbox.Id, SourceKey = mailbox.SourceKey, TransportKey = "graph-missing-id",
+            Outcome = InboundReceiptOutcome.Ignored, Reason = "SourceMessageMissing", Acknowledged = true,
+            AcknowledgmentStatus = InboundAcknowledgmentStatus.NotRequired
+        };
+        var ambiguous = new InboundMessageReceipt
+        {
+            MailboxId = mailbox.Id, SourceKey = mailbox.SourceKey, TransportKey = "graph-ambiguous-id",
+            Outcome = InboundReceiptOutcome.Ignored, Acknowledged = true,
+            AcknowledgmentStatus = InboundAcknowledgmentStatus.Pending
+        };
+        await harness.WithDbAsync(async db =>
+        {
+            (await db.Set<MailboxIngestionState>().SingleAsync(x => x.MailboxId == mailbox.Id)).Initialized = true;
+            db.Set<InboundMessageReceipt>().AddRange(skipped, processedIgnored, missing, ambiguous);
+            await db.SaveChangesAsync();
+        });
+        harness.Historical.PreviewAsync(Arg.Any<EmailInboxSettings>(), Arg.Any<IReadOnlyList<string>>(),
+            Arg.Any<CancellationToken>()).Returns(call => Task.FromResult<IReadOnlyList<HistoricalSourcePreview>>(
+                [new("graph-native-baseline-id", "old@example.test", "Retained beta.2 mail", DateTimeOffset.UtcNow, true, null)]));
+        var path = $"/api/v1/email-settings/{mailbox.Id}/historical";
+        var preview = await harness.Client.PostAsJsonAsync($"{path}/preview",
+            new HistoricalMailboxPreviewRequest(null, null));
+        preview.EnsureSuccessStatusCode();
+        Assert.Equal(skipped.Id, Assert.Single((await preview.Content.ReadFromJsonAsync<HistoricalMailboxPreviewResult>())!.Items).ReceiptId);
+        (await harness.Client.PostAsJsonAsync("/api/v1/email-settings/worker",
+            new SetMailboxWorkerRequest(true, true))).EnsureSuccessStatusCode();
+        foreach (var negative in new[] { processedIgnored, missing, ambiguous })
+            Assert.Equal(HttpStatusCode.Conflict, (await harness.Client.PostAsJsonAsync($"{path}/import",
+                new HistoricalMailboxImportRequest([negative.Id], true))).StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, (await harness.Client.PostAsJsonAsync($"{path}/import",
+            new HistoricalMailboxImportRequest([skipped.Id], true))).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await harness.Client.PostAsJsonAsync($"{path}/import",
+            new HistoricalMailboxImportRequest([skipped.Id], true))).StatusCode);
+    }
+
+    [Fact]
     public async Task Configuration_audit_records_actor_and_actions_without_draft_secrets()
     {
         await using var harness = await Harness.CreateAsync();
@@ -194,6 +449,7 @@ public class EmailSettingsEndpointsTests
         public HttpClient Client { get; }
         public IImapEmailService Imap { get; }
         public IInboundMailboxAdapter Graph => _app.Services.GetRequiredService<IInboundMailboxAdapter>();
+        public IHistoricalMailboxAdapter Historical => (IHistoricalMailboxAdapter)Graph;
 
         public HttpClient CreateClient(string? role = null)
         {
@@ -216,7 +472,20 @@ public class EmailSettingsEndpointsTests
             builder.Services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
             builder.Services.AddScoped<MailboxCredentialProtector>();
             builder.Services.AddScoped<MailboxSettingsService>();
-            var graph = Substitute.For<IInboundMailboxAdapter>(); graph.Provider.Returns(InboundMailboxProvider.Graph);
+            builder.Services.AddSingleton(TimeProvider.System);
+            builder.Services.AddScoped<MailboxWorkerPolicy>();
+            builder.Services.AddScoped<MailboxOutgoingCredentialProtector>();
+            builder.Services.AddScoped<MailboxOutgoingSettingsService>();
+            builder.Services.AddScoped<MailboxSyncService>();
+            builder.Services.AddScoped<IIngressEffectContext, IngressEffectContext>();
+            builder.Services.AddScoped<MailboxOutboxStore>();
+            builder.Services.AddScoped<MailboxEmailService>();
+            builder.Services.AddScoped<SmtpMailboxSender>();
+            builder.Services.AddScoped<GraphMailboxSender>();
+            builder.Services.AddScoped<MailboxSenderResolver>();
+            builder.Services.AddScoped<MailboxDestinationPolicy>();
+            builder.Services.AddScoped<IHtmlToPlainTextConverter, HtmlToPlainTextConverter>();
+            var graph = Substitute.For<IInboundMailboxAdapter, IHistoricalMailboxAdapter>(); graph.Provider.Returns(InboundMailboxProvider.Graph);
             graph.TestAsync(Arg.Any<EmailInboxSettings>(), Arg.Any<CancellationToken>()).Returns(new MailboxConnectionTest(true, "Synthetic provider test."));
             builder.Services.AddSingleton(graph);
             builder.Services.AddScoped<ITenantContext>(_ => Substitute.For<ITenantContext>());

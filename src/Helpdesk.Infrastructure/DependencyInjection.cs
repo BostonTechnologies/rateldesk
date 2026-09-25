@@ -113,6 +113,11 @@ public static class DependencyInjection
         services.AddScoped<IGraphEmailProcessor, GraphEmailProcessor>();
         services.AddSingleton(TimeProvider.System);
         services.AddScoped<Helpdesk.Infrastructure.Email.MailboxCredentialProtector>();
+        services.AddScoped<Helpdesk.Infrastructure.Email.MailboxOutgoingCredentialProtector>();
+        services.AddScoped<Helpdesk.Infrastructure.Email.MailboxOutgoingSettingsService>();
+        services.AddScoped<Helpdesk.Infrastructure.Email.SmtpMailboxSender>();
+        services.AddScoped<Helpdesk.Infrastructure.Email.GraphMailboxSender>();
+        services.AddScoped<Helpdesk.Infrastructure.Email.MailboxSenderResolver>();
         services.AddScoped<Helpdesk.Infrastructure.Email.MailboxDestinationPolicy>();
         services.AddScoped<Helpdesk.Infrastructure.Email.MailboxSettingsService>();
         services.AddScoped<Helpdesk.Infrastructure.Email.MailboxConfigurationMigration>();
@@ -120,6 +125,7 @@ public static class DependencyInjection
         services.AddScoped<Helpdesk.Infrastructure.Email.InboundTenantRouter>();
         services.AddScoped<IIngressEffectContext, IngressEffectContext>();
         services.AddScoped<Helpdesk.Infrastructure.Email.MailboxOutboxStore>();
+        services.AddScoped<Helpdesk.Infrastructure.Email.MailboxOutgoingRetryService>();
         services.AddHostedService<Helpdesk.Infrastructure.Email.MailboxOutboxDispatcher>();
         services.AddScoped<IInboundMailboxAdapter, Helpdesk.Infrastructure.Email.GraphMailboxAdapter>();
         services.AddScoped<IInboundMailboxAdapter>(sp => new Helpdesk.Infrastructure.Email.ProtocolMailboxAdapter(
@@ -135,6 +141,9 @@ public static class DependencyInjection
         services.AddScoped<IEmailIngestionService, EmailIngestionService>();
         services.AddSingleton<IImapEmailService, ImapEmailService>();
         services.AddScoped<GraphEmailService>();
+        services.AddScoped<Helpdesk.Infrastructure.Email.MailboxEmailService>();
+        services.AddScoped<Helpdesk.Infrastructure.Email.MailboxWorkerPolicy>();
+        services.AddScoped<Helpdesk.Infrastructure.Email.MailboxSyncService>();
         services.AddScoped<IEmailService, Helpdesk.Infrastructure.Email.IngressEmailService>();
         services.AddScoped<IEmailSettingsProvider, EmailSettingsProvider>();
         services.AddScoped<IPasswordResetService, PasswordResetService>();

@@ -159,7 +159,7 @@ public sealed class SupportNotificationService(
             var previousDelivery = ingressEffects?.SupportDeliveryId;
             try
             {
-                if (ingressEffects?.IsActive == true)
+                if (ingressEffects is not null)
                     ingressEffects.SupportDeliveryId = delivery.Id;
                 sent = await emailService.SendEmailAsync(
                     [recipient.Email],
@@ -182,7 +182,7 @@ public sealed class SupportNotificationService(
                 throw new InvalidOperationException("Email service returned false.");
             }
 
-            if (ingressEffects?.IsActive == true)
+            if (ingressEffects?.IsActive == true || emailService is IDurableEmailService { QueuesDelivery: true })
                 return; // The outbox dispatcher records the actual delivery outcome after commit.
 
             delivery.Status = SupportNotificationDeliveryStatus.Sent;

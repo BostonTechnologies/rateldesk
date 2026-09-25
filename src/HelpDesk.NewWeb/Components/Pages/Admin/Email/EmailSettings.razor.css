@@ -1,0 +1,96 @@
+.mailbox-command-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .5rem;
+}
+
+.mailbox-picker {
+    flex: 1 1 18rem;
+    max-width: 26rem;
+    min-width: min(100%, 14rem);
+    overflow: hidden;
+}
+
+.mailbox-picker ::deep .mud-select-input {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mailbox-workspace-tabs {
+    min-width: 0;
+}
+
+.mailbox-mobile-tabs { display: none; }
+.mailbox-mobile-tabs button {
+    min-width: 0;
+    padding: .75rem .15rem;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--mud-palette-text-primary);
+    font-size: .75rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+.mailbox-mobile-tabs button[aria-pressed="true"] {
+    border-color: var(--mud-palette-primary);
+    color: var(--mud-palette-primary);
+}
+.mailbox-mobile-tabs button:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: -2px; }
+
+.mailbox-workspace {
+    display: grid;
+    grid-template-columns: minmax(16rem, 18rem) minmax(0, 1fr);
+    align-items: start;
+    gap: 1rem;
+}
+
+.mailbox-editor, .mailbox-identity { min-width: 0; }
+.mailbox-identity { overflow-wrap: anywhere; }
+.mailbox-identity-name, .mailbox-identity-address { overflow-wrap: anywhere; }
+.mailbox-activity-entry { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .25rem .75rem; border-top: 1px solid var(--mud-palette-lines-default); padding: .35rem 0; overflow-wrap: anywhere; }
+
+.mailbox-save-bar {
+    position: sticky;
+    bottom: .5rem;
+    z-index: 5;
+    margin-top: .75rem;
+    background: var(--mud-palette-surface);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, .12);
+}
+
+.mailbox-save-label-wide, .mailbox-save-label-short { font-size: .75rem; }
+.mailbox-save-label-short { display: none; }
+
+@media (max-width: 1320px) {
+    .mailbox-mobile-tabs {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        background: var(--mud-palette-surface);
+    }
+    .mailbox-editor ::deep .mud-tabs-tabbar { display: none; }
+}
+
+@media (max-width: 600px) {
+    .mailbox-picker { flex-basis: 100%; max-width: 100%; }
+    .mailbox-editor { display: flex; flex-direction: column; }
+    .mailbox-workspace { padding-bottom: 5rem; }
+    .mailbox-save-label-wide { display: none; }
+    .mailbox-save-label-short { display: inline; }
+    .mailbox-save-bar {
+        order: -1;
+        position: sticky;
+        top: .5rem;
+        bottom: auto;
+        margin-top: 0;
+        margin-bottom: .75rem;
+    }
+    .mailbox-editor:has(input:focus, textarea:focus) .mailbox-save-bar { position: static; }
+}
+
+@media (max-width: 900px) {
+    .mailbox-workspace { grid-template-columns: minmax(0, 1fr); }
+}

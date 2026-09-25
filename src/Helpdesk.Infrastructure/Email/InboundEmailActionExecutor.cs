@@ -23,7 +23,8 @@ public sealed class InboundEmailActionExecutor(
     ILogger<InboundEmailActionExecutor> logger,
     IInboundInlineImageResolver inlineImageResolver,
     ITicketAttachmentService attachmentService,
-    RatelDeskIdentityDbContext? identityDb = null)
+    RatelDeskIdentityDbContext? identityDb = null,
+    IIngressEffectContext? ingressEffects = null)
     : IInboundEmailActionExecutor
 {
     public async Task<InboundEmailRuleProcessingResult> ExecuteAsync(
@@ -86,10 +87,12 @@ public sealed class InboundEmailActionExecutor(
                 await TryLogAsync(context, rule, actionKey, true, InboundEmailProcessingStatus.Failed, null, ingressReason, ct);
                 return new InboundEmailRuleProcessingResult(true, true, null, ingressReason);
             }
-            if (context.SourceMessageKey?.StartsWith("ingress:", StringComparison.Ordinal) == true)
-                db.RestrictIngressToOrganization(tenantResult.Organization.Id);
         }
 
+        using var authorizedTenant = context.SourceMessageKey?.StartsWith("ingress:", StringComparison.Ordinal) == true &&
+            ingressEffects?.IsActive == true
+            ? IngressTenantScope.Adopt(db, ingressEffects, tenantResult.Organization.Id)
+            : null;
         try
         {
             var requesterEmail = forwarded.OriginalFromEmail!.Trim().ToLowerInvariant();

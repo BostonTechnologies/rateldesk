@@ -8,24 +8,43 @@ namespace Helpdesk.Infrastructure.Email;
 public sealed class MailboxDestinationPolicy(IConfiguration configuration)
 {
     public async Task<Socket> ConnectAsync(string host, int port, CancellationToken ct)
+        => await ConnectAsync(host, port, "EmailIngestion:AllowedPrivateHosts", ct);
+
+    public async Task<Socket> ConnectSmtpAsync(string host, int port, CancellationToken ct)
+        => await ConnectAsync(host, port, "EmailSending:AllowedPrivateHosts", ct);
+
+    private async Task<Socket> ConnectAsync(string host, int port, string allowlistKey, CancellationToken ct)
     {
         var addresses = await Dns.GetHostAddressesAsync(host, ct);
-        var allowed = configuration.GetSection("EmailIngestion:AllowedPrivateHosts").Get<string[]>() ?? [];
+        var allowed = configuration.GetSection(allowlistKey).Get<string[]>() ?? [];
         var allowPrivate = allowed.Contains(host, StringComparer.OrdinalIgnoreCase);
         if (addresses.Length == 0 || addresses.Any(ip => !IsAllowed(ip, allowPrivate)))
             throw new InvalidOperationException("Mailbox destination is not allowed by the operator egress policy.");
 
-        var socket = new Socket(addresses[0].AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-        try
+        // DNS may return IPv6 first while the submission service listens on IPv4 (or
+        // the reverse). Keep the DNS answer pinned, but try each validated address.
+        SocketException? lastFailure = null;
+        foreach (var address in addresses)
         {
-            await socket.ConnectAsync(new IPEndPoint(addresses[0], port), ct);
-            return socket;
+            ct.ThrowIfCancellationRequested();
+            var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            try
+            {
+                await socket.ConnectAsync(new IPEndPoint(address, port), ct);
+                return socket;
+            }
+            catch (SocketException error)
+            {
+                lastFailure = error;
+                socket.Dispose();
+            }
+            catch
+            {
+                socket.Dispose();
+                throw;
+            }
         }
-        catch
-        {
-            socket.Dispose();
-            throw;
-        }
+        throw lastFailure ?? new SocketException((int)SocketError.HostUnreachable);
     }
 
     internal static bool IsAllowed(IPAddress address, bool allowPrivate)

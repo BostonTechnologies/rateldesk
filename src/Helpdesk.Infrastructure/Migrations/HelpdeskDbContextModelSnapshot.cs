@@ -1582,6 +1582,18 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Property<long>("CreatedUnixMilliseconds")
                         .HasColumnType("bigint");
 
+                    b.Property<long?>("HistoricalImportCompletedUnixMilliseconds")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("HistoricalImportErrorCode")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("HistoricalImportRequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long?>("HistoricalImportRequestedUnixMilliseconds")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("InternetMessageId")
                         .HasColumnType("text");
 
@@ -1733,6 +1745,13 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("MailboxId")
                         .HasColumnType("uuid");
 
+                    b.Property<long?>("BaselineCompletedUnixMilliseconds")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("CurrentStage")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("Cursor")
                         .HasColumnType("text");
 
@@ -1741,6 +1760,15 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
 
                     b.Property<bool>("Initialized")
                         .HasColumnType("boolean");
+
+                    b.Property<long?>("LastAttemptUnixMilliseconds")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("LastSyncCommandErrorCode")
+                        .HasColumnType("text");
+
+                    b.Property<long?>("LastSyncCommandUnixMilliseconds")
+                        .HasColumnType("bigint");
 
                     b.Property<long?>("LastSyncUnixMilliseconds")
                         .HasColumnType("bigint");
@@ -1754,6 +1782,12 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Property<string>("SourceKey")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<long>("SyncCompletedVersion")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("SyncRequestedVersion")
+                        .HasColumnType("bigint");
 
                     b.Property<long?>("TestedVersion")
                         .HasColumnType("bigint");
@@ -1817,6 +1851,11 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("DeliveryEventId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("DispatchGroup")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
                     b.Property<string>("EffectKey")
                         .IsRequired()
                         .HasColumnType("text");
@@ -1842,8 +1881,11 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<Guid>("ReceiptId")
+                    b.Property<Guid?>("ReceiptId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("RecipientOutcomeJson")
+                        .HasColumnType("text");
 
                     b.Property<int>("State")
                         .HasColumnType("integer");
@@ -1860,7 +1902,89 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("State", "LeaseExpiresUnixMilliseconds");
 
+                    b.HasIndex("Kind", "State", "DispatchGroup", "AvailableUnixMilliseconds");
+
                     b.ToTable("MailboxOutboxEffect");
+                });
+
+            modelBuilder.Entity("Helpdesk.Shared.Models.MailboxOutgoingSettings", b =>
+                {
+                    b.Property<Guid>("MailboxId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("LastTestCode")
+                        .HasColumnType("text");
+
+                    b.Property<long?>("LastTestUnixMilliseconds")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ProtectedSmtpPassword")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SmtpHost")
+                        .IsRequired()
+                        .HasMaxLength(253)
+                        .HasColumnType("character varying(253)");
+
+                    b.Property<int>("SmtpPort")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SmtpTlsMode")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SmtpUsername")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)");
+
+                    b.Property<long?>("TestedVersion")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("Transport")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("MailboxId");
+
+                    b.ToTable("MailboxOutgoingSettings");
+                });
+
+            modelBuilder.Entity("Helpdesk.Shared.Models.MailboxWorkerControl", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<long?>("LastHeartbeatUnixMilliseconds")
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("Running")
+                        .HasColumnType("boolean");
+
+                    b.Property<long>("UpdatedUnixMilliseconds")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("MailboxWorkerControl");
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.Organization", b =>
@@ -3592,6 +3716,15 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.HasOne("Helpdesk.Shared.Models.EmailInboxSettings", null)
                         .WithMany()
                         .HasForeignKey("MailboxId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Helpdesk.Shared.Models.MailboxOutgoingSettings", b =>
+                {
+                    b.HasOne("Helpdesk.Shared.Models.EmailInboxSettings", null)
+                        .WithOne()
+                        .HasForeignKey("Helpdesk.Shared.Models.MailboxOutgoingSettings", "MailboxId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

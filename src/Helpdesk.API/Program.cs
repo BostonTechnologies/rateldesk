@@ -412,7 +412,7 @@ builder.Services.AddScoped<RequestTaskRetryHangfireJob>();
 builder.Services.AddScoped<RequestTaskApprovalTimeoutHangfireJob>();
 builder.Services.AddScoped<GraphDatasetSyncHangfireJob>();
 builder.Services.AddHealthChecks()
-    .AddCheck<GraphEmailHealthCheck>("graph-email");
+    .AddCheck<GraphEmailHealthCheck>("mailbox-email");
 builder.Services.AddSingleton<IUserPresenceService, UserPresenceService>();
 if (!skipDatabaseStartup)
 {

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Security.Cryptography;
 using System.Text;
+using System.Diagnostics;
 using Helpdesk.Application.Services.Email;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Enums;
@@ -18,12 +19,18 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
 {
     private const int MaximumReceiptAttempts = 5;
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
-    private readonly TimeSpan pollTimeout = ReadPositiveDuration(configuration,
-        "EmailIngestion:PollTimeout", TimeSpan.FromSeconds(80));
-    private readonly TimeSpan acknowledgmentTimeout = ReadPositiveDuration(configuration,
-        "EmailIngestion:AcknowledgmentTimeout", TimeSpan.FromSeconds(20));
-    private readonly TimeSpan acknowledgmentPhaseBudget = ReadPositiveDuration(configuration,
-        "EmailIngestion:AcknowledgmentPhaseBudget", TimeSpan.FromSeconds(20));
+    private readonly TimeSpan pollTimeout = ReadBoundedDuration(configuration,
+        "EmailIngestion:PollTimeout", TimeSpan.FromSeconds(80), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(100));
+    private readonly TimeSpan acknowledgmentTimeout = ReadBoundedDuration(configuration,
+        "EmailIngestion:AcknowledgmentTimeout", TimeSpan.FromSeconds(20), TimeSpan.FromMilliseconds(100), TimeSpan.FromSeconds(25));
+    private readonly TimeSpan acknowledgmentPhaseBudget = ReadBoundedDuration(configuration,
+        "EmailIngestion:AcknowledgmentPhaseBudget", TimeSpan.FromSeconds(20), TimeSpan.FromMilliseconds(100), TimeSpan.FromSeconds(25));
+    private readonly TimeSpan historicalPhaseBudget = ReadBoundedDuration(configuration,
+        "EmailIngestion:HistoricalPhaseBudget", TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(25));
+    private readonly TimeSpan fetchPhaseBudget = ReadBoundedDuration(configuration,
+        "EmailIngestion:FetchPhaseBudget", TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(70));
+    private readonly TimeSpan receiptPhaseBudget = ReadBoundedDuration(configuration,
+        "EmailIngestion:ReceiptPhaseBudget", TimeSpan.FromSeconds(20), TimeSpan.FromMilliseconds(100), TimeSpan.FromSeconds(25));
     private readonly string owner = Guid.NewGuid().ToString("N");
     private readonly Dictionary<Guid, DateTimeOffset> due = [];
     private readonly Dictionary<Guid, Runner> running = [];
@@ -70,10 +77,17 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromSeconds(10));
         var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
-        var mailboxes = configuration.GetValue("EmailIngestion:Enabled", false)
+        var worker = await scope.ServiceProvider.GetRequiredService<MailboxWorkerPolicy>().GetStatusAsync(timeout.Token);
+        if (worker.InstanceRunning)
+            await scope.ServiceProvider.GetRequiredService<MailboxWorkerPolicy>().RecordHeartbeatAsync(timeout.Token);
+        var mailboxes = worker.InstanceRunning
             ? await db.EmailInboxSettings.AsNoTracking()
                 .Where(x => !x.Archived && x.Enabled && x.BackgroundSyncEnabled).ToListAsync(timeout.Token)
             : [];
+        var requested = await db.Set<MailboxIngestionState>().AsNoTracking()
+            .Where(x => x.SyncRequestedVersion > x.SyncCompletedVersion)
+            .Select(x => x.MailboxId).ToListAsync(timeout.Token);
+        foreach (var id in requested) due.Remove(id);
         var configured = mailboxes.ToDictionary(x => x.Id);
         foreach (var (id, runner) in running.ToArray())
         {
@@ -129,25 +143,42 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(pollTimeout);
         var workToken = timeout.Token;
+        long syncCommandVersion = 0;
         try
         {
             var adapter = services.GetServices<IInboundMailboxAdapter>().Single(x => x.Provider == mailbox.Provider);
             var state = await db.Set<MailboxIngestionState>().SingleAsync(x => x.MailboxId == mailbox.Id, workToken);
+            state.LastAttemptUnixMilliseconds = clock.GetUtcNow().ToUnixTimeMilliseconds();
+            state.CurrentStage = "Recovering receipts";
+            await db.SaveChangesAsync(workToken);
+            syncCommandVersion = state.SyncRequestedVersion > state.SyncCompletedVersion ? state.SyncRequestedVersion : 0;
             var known = (await db.Set<InboundMessageReceipt>().Where(x => x.MailboxId == mailbox.Id && x.SourceKey == mailbox.SourceKey)
                 .Select(x => x.TransportKey).Take(100001).ToListAsync(workToken)).ToHashSet(StringComparer.Ordinal);
             if (known.Count > 100000) throw new InvalidOperationException("ReceiptCapacityExceeded");
-            await ProcessPendingAsync(db, mailbox, lease, workToken);
+            var attemptedReceipts = new HashSet<Guid>();
+            var remainingReceiptBudget = await ProcessPendingAsync(db, mailbox, lease, attemptedReceipts,
+                receiptPhaseBudget, workToken);
+            state.CurrentStage = "Historical import";
+            await db.SaveChangesAsync(workToken);
+            await RecoverHistoricalImportsAsync(mailbox, lease, adapter, workToken);
 
             string? fetchError = null;
-            var fetchAttempted = state.NextRetryUnixMilliseconds is null ||
+            var fetchAttempted = syncCommandVersion > 0 || state.NextRetryUnixMilliseconds is null ||
                 state.NextRetryUnixMilliseconds <= clock.GetUtcNow().ToUnixTimeMilliseconds();
             var pendingCount = await db.Set<InboundMessageReceipt>().CountAsync(x => x.MailboxId == mailbox.Id &&
                 (x.Outcome == InboundReceiptOutcome.Pending || x.Outcome == InboundReceiptOutcome.RetryableFailure), workToken);
+            if (fetchAttempted && pendingCount >= 100) fetchError = "PendingReceiptCapacity";
             if (fetchAttempted && pendingCount < 100)
             {
+                state.CurrentStage = "Fetching source";
+                await db.SaveChangesAsync(workToken);
+                using var fetchTimeout = CancellationTokenSource.CreateLinkedTokenSource(workToken);
+                fetchTimeout.CancelAfter(fetchPhaseBudget);
                 try
                 {
-                    var batch = await adapter.FetchAsync(mailbox, state, known, workToken);
+                    var batch = await adapter.FetchAsync(mailbox, state, known, fetchTimeout.Token);
+                    fetchTimeout.Token.ThrowIfCancellationRequested();
+                    fetchTimeout.CancelAfter(Timeout.InfiniteTimeSpan);
                     await using var capture = await db.Database.BeginTransactionAsync(workToken);
                     await FenceAsync(db, leases, lease, mailbox, workToken);
                     var protector = services.GetRequiredService<MailboxCredentialProtector>();
@@ -167,11 +198,18 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
                         });
                     }
                     state.Cursor = batch.NextCursor;
+                    if (!state.Initialized && batch.InitializationComplete)
+                        state.BaselineCompletedUnixMilliseconds = clock.GetUtcNow().ToUnixTimeMilliseconds();
                     state.Initialized |= batch.InitializationComplete;
                     await db.SaveChangesAsync(workToken);
                     await capture.CommitAsync(workToken);
                 }
                 catch (OperationCanceledException) when (workToken.IsCancellationRequested) { throw; }
+                catch (OperationCanceledException) when (fetchTimeout.IsCancellationRequested)
+                {
+                    fetchError = "FetchTimeout";
+                    logger.LogWarning("Mailbox {MailboxId} enumeration timed out; durable recovery continued.", mailbox.Id);
+                }
                 catch (MailboxFenceLostException) { throw; }
                 catch (Exception error)
                 {
@@ -180,9 +218,16 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
                         mailbox.Id, fetchError);
                 }
             }
-            await ProcessPendingAsync(db, mailbox, lease, workToken);
+            await ProcessPendingAsync(db, mailbox, lease, attemptedReceipts, remainingReceiptBudget, workToken);
+            state.CurrentStage = "Acknowledging";
+            await db.SaveChangesAsync(workToken);
             await RecoverAcknowledgmentsAsync(mailbox, lease, adapter, workToken);
-            if (fetchAttempted) await UpdateDiagnosticsAsync(mailbox, lease, fetchError, workToken);
+            if (fetchAttempted) await UpdateDiagnosticsAsync(mailbox, lease, fetchError, syncCommandVersion, workToken);
+            else
+            {
+                state.CurrentStage = "Retry scheduled";
+                await db.SaveChangesAsync(workToken);
+            }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (MailboxFenceLostException)
@@ -194,7 +239,7 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
             logger.LogWarning("Mailbox {MailboxId} ingestion paused ({FailureType}).", mailbox.Id, ex.GetType().Name);
             using var diagnosticTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             diagnosticTimeout.CancelAfter(TimeSpan.FromSeconds(10));
-            await UpdateDiagnosticsAsync(mailbox, lease, ex.GetType().Name, diagnosticTimeout.Token);
+            await UpdateDiagnosticsAsync(mailbox, lease, ex.GetType().Name, syncCommandVersion, diagnosticTimeout.Token);
         }
         finally
         {
@@ -207,14 +252,103 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
         }
     }
 
-    private async Task ProcessPendingAsync(HelpdeskDbContext db, EmailInboxSettings mailbox,
-        MailboxLeaseToken lease, CancellationToken ct)
+    private async Task RecoverHistoricalImportsAsync(EmailInboxSettings mailbox, MailboxLeaseToken lease,
+        IInboundMailboxAdapter adapter, CancellationToken ct)
     {
-        var receipts = await db.Set<InboundMessageReceipt>().AsNoTracking().Where(x => x.MailboxId == mailbox.Id &&
-            x.SourceKey == mailbox.SourceKey &&
-            (x.Outcome == InboundReceiptOutcome.Pending || x.Outcome == InboundReceiptOutcome.RetryableFailure))
-            .OrderBy(x => x.UpdatedUnixMilliseconds).Take(mailbox.BatchSize).Select(x => x.Id).ToListAsync(ct);
-        foreach (var id in receipts) await ProcessAsync(mailbox, lease, id, ct);
+        if (adapter is not IHistoricalMailboxAdapter historical) return;
+        using var phase = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        phase.CancelAfter(historicalPhaseBudget);
+        var token = phase.Token;
+        IReadOnlyList<Guid> ids;
+        await using (var scope = scopes.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            var eligible = await HistoricalBaselineReceipts.EligibleAsync(db, mailbox, token);
+            ids = await eligible.AsNoTracking().Where(x => x.HistoricalImportRequestId != null &&
+                    x.HistoricalImportCompletedUnixMilliseconds == null)
+                .OrderBy(x => x.HistoricalImportRequestedUnixMilliseconds).Take(10).Select(x => x.Id).ToListAsync(token);
+        }
+        foreach (var id in ids)
+        {
+            try
+            {
+                await using var scope = scopes.CreateAsyncScope();
+                var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+                var receipt = await db.Set<InboundMessageReceipt>().SingleAsync(x => x.Id == id, token);
+                if (receipt.Reason is null &&
+                    !HistoricalBaselineReceipts.IsLegacySourceIdentity(mailbox, receipt.TransportKey))
+                    continue;
+                InboundSourceMessage source;
+                try { source = await historical.FetchHistoricalAsync(mailbox, receipt.TransportKey, token); }
+                catch (InboundSourceMissingException)
+                {
+                    source = new(receipt.TransportKey, null, HoldReason: "ImportSourceMissing");
+                }
+                await using var transaction = await db.Database.BeginTransactionAsync(token);
+                var leases = scope.ServiceProvider.GetRequiredService<MailboxLeaseStore>();
+                await FenceAsync(db, leases, lease, mailbox, token);
+                var stillEligible = await HistoricalBaselineReceipts.EligibleAsync(db, mailbox, token);
+                if (!await stillEligible.AnyAsync(x => x.Id == id && x.HistoricalImportRequestId != null &&
+                        x.HistoricalImportCompletedUnixMilliseconds == null, token))
+                {
+                    await transaction.RollbackAsync(token);
+                    continue;
+                }
+                if (source.Key != receipt.TransportKey)
+                    source = new(receipt.TransportKey, null, HoldReason: "ImportSourceIdentityChanged");
+                receipt.ProtectedEnvelope = source.Message is null ? string.Empty :
+                    scope.ServiceProvider.GetRequiredService<MailboxCredentialProtector>()
+                        .Protect(mailbox.Id, JsonSerializer.Serialize(source.Message));
+                receipt.InternetMessageId = source.Message?.InternetMessageId;
+                receipt.Outcome = source.Message is not null ? InboundReceiptOutcome.Pending : InboundReceiptOutcome.NeedsReview;
+                receipt.Reason = source.Message is not null ? null : source.HoldReason ?? "ImportSourceMissing";
+                receipt.Acknowledged = false;
+                receipt.AcknowledgmentStatus = InboundAcknowledgmentStatus.Pending;
+                receipt.AcknowledgmentTargetFingerprint = AcknowledgmentTarget(mailbox);
+                receipt.ConfigurationVersion = mailbox.Version;
+                receipt.Attempts = 0;
+                receipt.HistoricalImportCompletedUnixMilliseconds = clock.GetUtcNow().ToUnixTimeMilliseconds();
+                receipt.HistoricalImportErrorCode = receipt.Reason;
+                receipt.UpdatedUnixMilliseconds = clock.GetUtcNow().ToUnixTimeMilliseconds();
+                await db.SaveChangesAsync(token);
+                await transaction.CommitAsync(token);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested && token.IsCancellationRequested) { break; }
+            catch (MailboxFenceLostException) { throw; }
+            catch (Exception error)
+            {
+                logger.LogWarning("Mailbox {MailboxId} historical receipt {ReceiptId} delayed ({FailureType}).",
+                    mailbox.Id, id, error.GetType().Name);
+            }
+        }
+    }
+
+    private async Task<TimeSpan> ProcessPendingAsync(HelpdeskDbContext db, EmailInboxSettings mailbox,
+        MailboxLeaseToken lease, HashSet<Guid> attempted, TimeSpan budget, CancellationToken workToken)
+    {
+        if (budget <= TimeSpan.Zero) return TimeSpan.Zero;
+        var stopwatch = Stopwatch.StartNew();
+        using var phaseTimeout = CancellationTokenSource.CreateLinkedTokenSource(workToken);
+        phaseTimeout.CancelAfter(budget);
+        var phaseToken = phaseTimeout.Token;
+        try
+        {
+            var alreadyAttempted = attempted.ToArray();
+            var receipts = await db.Set<InboundMessageReceipt>().AsNoTracking().Where(x => x.MailboxId == mailbox.Id &&
+                x.SourceKey == mailbox.SourceKey && !alreadyAttempted.Contains(x.Id) &&
+                (x.Outcome == InboundReceiptOutcome.Pending || x.Outcome == InboundReceiptOutcome.RetryableFailure))
+                .OrderBy(x => x.UpdatedUnixMilliseconds).Take(mailbox.BatchSize).Select(x => x.Id).ToListAsync(phaseToken);
+            foreach (var id in receipts)
+            {
+                attempted.Add(id);
+                await ProcessAsync(mailbox, lease, id, phaseToken);
+            }
+        }
+        catch (OperationCanceledException) when (!workToken.IsCancellationRequested && phaseToken.IsCancellationRequested)
+        {
+            logger.LogWarning("Mailbox {MailboxId} receipt processing budget expired; remaining phases continued.", mailbox.Id);
+        }
+        return budget > stopwatch.Elapsed ? budget - stopwatch.Elapsed : TimeSpan.Zero;
     }
 
     private async Task RecoverAcknowledgmentsAsync(EmailInboxSettings mailbox, MailboxLeaseToken lease,
@@ -279,10 +413,14 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
         }
     }
 
-    private static TimeSpan ReadPositiveDuration(IConfiguration configuration, string key, TimeSpan fallback)
+    private static TimeSpan ReadBoundedDuration(IConfiguration configuration, string key,
+        TimeSpan fallback, TimeSpan minimum, TimeSpan maximum)
     {
-        var configured = configuration.GetValue<TimeSpan?>(key);
-        return configured is { } duration && duration > TimeSpan.Zero ? duration : fallback;
+        if (configuration[key] is null) return fallback;
+        if (!TimeSpan.TryParse(configuration[key], System.Globalization.CultureInfo.InvariantCulture, out var duration) ||
+            duration < minimum || duration > maximum)
+            throw new InvalidOperationException($"{key} must be between {minimum} and {maximum}.");
+        return duration;
     }
 
     private async Task<AcknowledgmentWork?> TryClaimAcknowledgmentAsync(EmailInboxSettings mailbox,
@@ -392,7 +530,8 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
             await FenceAsync(db, services.GetRequiredService<MailboxLeaseStore>(), lease, mailbox, ct);
             var receipt = await db.Set<InboundMessageReceipt>().SingleAsync(x => x.Id == id, ct);
             if (receipt.Attempts != attempt || receipt.Outcome is not (InboundReceiptOutcome.Pending or InboundReceiptOutcome.RetryableFailure)) return;
-            using var effects = services.GetRequiredService<IIngressEffectContext>().Begin(receipt.Id);
+            var effectContext = services.GetRequiredService<IIngressEffectContext>();
+            using var effects = effectContext.Begin(receipt.Id);
             try
             {
                 var message = JsonSerializer.Deserialize<InboundEmailContext>(services.GetRequiredService<MailboxCredentialProtector>()
@@ -400,21 +539,25 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
                 message = message with { MailboxId = mailbox.Id, SourceMessageKey = $"ingress:{receipt.Id:D}" };
                 var router = services.GetRequiredService<InboundTenantRouter>();
                 var isDeliveryFailure = InboundTicketProcessor.IsDeliveryFailureMessage(message);
+                var isSelfSender = EmailAddressGuard.IsSameAddress(message.FromEmail, mailbox.MailboxAddress);
+                var isAutomaticMessage = InboundTicketProcessor.IsAutomaticMessage(message);
                 var route = await router.ResolveAsync(mailbox, message, ct, isDeliveryFailure);
                 var canEvaluateForwardedRoute = route.ForwardedCandidate?.OrganizationId is not null &&
                     route.Reason is "RequesterOwnershipConflict" or "TenantUsesDedicatedMailbox";
-                organizationId = canEvaluateForwardedRoute
-                    ? route.ForwardedCandidate!.OrganizationId
-                    : route.OrganizationId;
+                organizationId = route.OrganizationId;
+                effectContext.OrganizationId = organizationId;
                 receipt.OrganizationId = organizationId;
                 if (route.Reason is null && organizationId is not null)
-                    db.RestrictIngressToOrganization(organizationId);
+                    IngressTenantScope.Bind(db, effectContext, organizationId);
                 receipt.Reason = null;
-                if (route.Reason is not null && !canEvaluateForwardedRoute)
+                if (route.Reason is not null && !canEvaluateForwardedRoute && !isSelfSender &&
+                    !(isAutomaticMessage && !isDeliveryFailure))
                     throw new InboundReceiptHoldException(route.Reason);
-                if (EmailAddressGuard.IsSameAddress(message.FromEmail, mailbox.MailboxAddress) || isDeliveryFailure)
+                if (isSelfSender || isAutomaticMessage || isDeliveryFailure)
                 {
                     receipt.Outcome = InboundReceiptOutcome.Ignored;
+                    receipt.Reason = isDeliveryFailure ? "DeliveryStatusNotification" :
+                        isSelfSender ? "SelfSender" : "AutomaticMessage";
                 }
                 else if (await FindLegacyReplayAsync(db, mailbox, message, route, ct) is { } historicalTicketId)
                 {
@@ -442,7 +585,7 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
                         if (route.Reason is not null)
                             throw new InboundReceiptHoldException(route.Reason);
                         var customer = await router.GetRequesterAsync(route, ct);
-                        db.RestrictIngressToOrganization(customer.OrganizationId);
+                        IngressTenantScope.Bind(db, effectContext, customer.OrganizationId);
                         message = message with { MailboxTenantId = customer.OrganizationId };
                         receipt.OrganizationId = customer.OrganizationId;
                         ticket = await services.GetRequiredService<InboundTicketProcessor>().ProcessTicketEmailAsync(message,
@@ -549,7 +692,8 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
         await transaction.CommitAsync(ct);
     }
 
-    private async Task UpdateDiagnosticsAsync(EmailInboxSettings mailbox, MailboxLeaseToken lease, string? error, CancellationToken ct)
+    private async Task UpdateDiagnosticsAsync(EmailInboxSettings mailbox, MailboxLeaseToken lease, string? error,
+        long syncCommandVersion, CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
@@ -557,8 +701,15 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
         if (!await TryFenceAsync(db, scope.ServiceProvider.GetRequiredService<MailboxLeaseStore>(), lease, mailbox, ct)) return;
         var state = await db.Set<MailboxIngestionState>().SingleAsync(x => x.MailboxId == mailbox.Id, ct);
         state.ErrorCode = error;
+        state.CurrentStage = error is null ? "Waiting for next poll" : "Retry scheduled";
         state.NextRetryUnixMilliseconds = error is null ? null : clock.GetUtcNow().AddSeconds(30).ToUnixTimeMilliseconds();
         if (error is null) state.LastSyncUnixMilliseconds = clock.GetUtcNow().ToUnixTimeMilliseconds();
+        if (syncCommandVersion > 0 && state.SyncRequestedVersion == syncCommandVersion)
+        {
+            state.SyncCompletedVersion = syncCommandVersion;
+            state.LastSyncCommandUnixMilliseconds = clock.GetUtcNow().ToUnixTimeMilliseconds();
+            state.LastSyncCommandErrorCode = error;
+        }
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
     }
