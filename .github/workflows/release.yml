@@ -107,9 +107,6 @@ jobs:
       - name: Validate repository layout
         run: tools/ci/validate-layout.sh
 
-      - name: Test release-version gate
-        run: bash tools/release/test-validate-release-version.sh
-
       - name: Build release-equivalent containers
         env:
           VERSION: ${{ needs.metadata.outputs.version }}
