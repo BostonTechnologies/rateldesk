@@ -4,9 +4,16 @@ on:
   push:
     tags:
       - 'v*'
+      - 'RatelDesk-*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Exact release tag to validate and stage
+        required: true
+        type: string
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -24,6 +31,7 @@ jobs:
       - name: Check out release tag and main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
 
       - name: Set up .NET SDK from global.json
@@ -34,9 +42,11 @@ jobs:
       - id: release
         name: Check tag, evaluated version, and main ancestry
         shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
+          tag="$RELEASE_TAG"
           release_metadata="$(bash tools/release/validate-release-version.sh "$tag")"
           version="$(awk -F= '/^version=/{print $2}' <<<"$release_metadata")"
           prerelease="$(awk -F= '/^prerelease=/{print $2}' <<<"$release_metadata")"
@@ -52,12 +62,14 @@ jobs:
           fi
 
           git fetch origin main
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          source_revision="$(git rev-list -n 1 "$tag")"
+          test -n "$source_revision"
+          git merge-base --is-ancestor "$source_revision" origin/main
 
           {
             echo "version=$version"
             echo "prerelease=$prerelease"
-            echo "source_revision=$GITHUB_SHA"
+            echo "source_revision=$source_revision"
             echo "build_timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           } >> "$GITHUB_OUTPUT"
 
@@ -70,6 +82,8 @@ jobs:
     steps:
       - name: Check out release tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Set up .NET SDK from global.json
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
@@ -170,7 +184,7 @@ jobs:
       - name: Check out release scripts
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Download the validated release payload
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -196,6 +210,8 @@ jobs:
     steps:
       - name: Check out release tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
@@ -257,6 +273,8 @@ jobs:
     steps:
       - name: Check out release tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
@@ -318,6 +336,8 @@ jobs:
     steps:
       - name: Check out release tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
@@ -376,7 +396,7 @@ jobs:
       - name: Check out release tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Download the validated release payload
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -403,6 +423,7 @@ jobs:
       - name: Create draft release after images and payload are verified
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
           VERSION: ${{ needs.metadata.outputs.version }}
           PRERELEASE: ${{ needs.metadata.outputs.prerelease }}
           SOURCE_REVISION: ${{ needs.metadata.outputs.source_revision }}
@@ -440,9 +461,9 @@ jobs:
 
           tools/release/prepare-release-manifest.sh \
             "$VERSION" "$SOURCE_REVISION" release-assets \
-            "$WEB_DIGEST" "$API_DIGEST" "$MCP_HTTP_DIGEST" "$GITHUB_REF_NAME"
-          tools/release/publish-release-assets.sh "$GITHUB_REF_NAME" "$VERSION" release-assets
-          gh release edit "$GITHUB_REF_NAME" \
+            "$WEB_DIGEST" "$API_DIGEST" "$MCP_HTTP_DIGEST" "$RELEASE_TAG"
+          tools/release/publish-release-assets.sh "$RELEASE_TAG" "$VERSION" release-assets
+          gh release edit "$RELEASE_TAG" \
             --title "RatelDesk $VERSION" \
             --draft \
             "${prerelease_flag[@]}" \
