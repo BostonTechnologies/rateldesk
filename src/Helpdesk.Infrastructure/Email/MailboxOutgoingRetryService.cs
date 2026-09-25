@@ -234,13 +234,30 @@ public sealed class MailboxOutgoingRetryService(HelpdeskDbContext db, MailboxSen
             preview.CurrentOutgoingVersion != request.ExpectedOutgoingVersion)
             return preview with { CanRetry = false, Status = "SenderRouteChanged" };
 
+        var mailboxFenced = await db.EmailInboxSettings.Where(x => x.Id == request.ExpectedCurrentMailboxId &&
+                x.Version == request.ExpectedMailboxVersion && !x.Archived && x.Enabled)
+            .ExecuteUpdateAsync(update => update.SetProperty(x => x.Version, x => x.Version), ct);
+        var outgoingFenced = await db.Set<MailboxOutgoingSettings>().Where(x =>
+                x.MailboxId == request.ExpectedCurrentMailboxId && x.Version == request.ExpectedOutgoingVersion && x.Enabled)
+            .ExecuteUpdateAsync(update => update.SetProperty(x => x.Version, x => x.Version), ct);
+        if (mailboxFenced != 1 || outgoingFenced != 1)
+            return preview with { CanRetry = false, Status = "SenderRouteChanged" };
         var original = MailboxOutboxStore.Deserialize<IngressEmailEffect>(row.Payload);
+        var target = await resolver.ResolveAsync(original.TicketId, original.OrganizationId, ct);
+        if (target.Status != "Ready" || target.Mailbox?.Id != request.ExpectedCurrentMailboxId ||
+            target.Mailbox.Version != request.ExpectedMailboxVersion ||
+            target.Outgoing?.Version != request.ExpectedOutgoingVersion ||
+            string.IsNullOrWhiteSpace(target.Mailbox.SourceKey) ||
+            !EmailAddressGuard.IsSameAddress(target.Mailbox.MailboxAddress, preview.CurrentMailboxAddress))
+            return preview with { CanRetry = false, Status = "SenderRouteChanged" };
+
         var rebound = original with
         {
-            MailboxId = request.ExpectedCurrentMailboxId,
-            MailboxConfigurationVersion = request.ExpectedMailboxVersion,
-            OutgoingConfigurationVersion = request.ExpectedOutgoingVersion,
-            ReplyTo = string.IsNullOrWhiteSpace(original.ReplyTo) ? null : preview.CurrentMailboxAddress,
+            MailboxId = target.Mailbox.Id,
+            MailboxSourceKey = target.Mailbox.SourceKey,
+            MailboxConfigurationVersion = target.Mailbox.Version,
+            OutgoingConfigurationVersion = target.Outgoing.Version,
+            ReplyTo = string.IsNullOrWhiteSpace(original.ReplyTo) ? null : target.Mailbox.MailboxAddress,
             SenderBindingError = null
         };
         var payload = JsonSerializer.Serialize(rebound);
@@ -275,7 +292,7 @@ public sealed class MailboxOutgoingRetryService(HelpdeskDbContext db, MailboxSen
         {
             UserId = userId,
             RelatedEntityId = preview.CurrentMailboxId?.ToString("D"),
-            Message = $"Mailbox route retry confirmed. TimelineId={timelineId:D}; OriginalMailboxId={preview.OriginalMailboxId:D}; CurrentMailboxId={preview.CurrentMailboxId:D}; CurrentMailboxVersion={request.ExpectedMailboxVersion}; CurrentOutgoingVersion={request.ExpectedOutgoingVersion}."
+            Message = $"Mailbox route retry confirmed. TimelineId={timelineId:D}; OriginalMailboxId={preview.OriginalMailboxId:D}; OriginalMailboxSourceKey={original.MailboxSourceKey ?? "unavailable"}; CurrentMailboxId={target.Mailbox.Id:D}; CurrentMailboxSourceKey={target.Mailbox.SourceKey}; CurrentMailboxVersion={target.Mailbox.Version}; CurrentOutgoingVersion={target.Outgoing.Version}."
         });
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);

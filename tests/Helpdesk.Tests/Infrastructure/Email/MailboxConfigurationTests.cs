@@ -1,5 +1,6 @@
 using Helpdesk.Application.Services.Email;
 using Helpdesk.Infrastructure.Email;
+using Helpdesk.Infrastructure.Html;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Enums;
@@ -11,6 +12,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Testcontainers.PostgreSql;
 
@@ -307,10 +309,12 @@ public sealed class MailboxConfigurationTests
         Assert.Equal("admin-a", log.UserId);
     }
 
-    [Fact]
-    public async Task Archived_sender_can_be_rebound_to_the_current_ticket_route_only_after_confirmation()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Archived_sender_can_be_rebound_to_the_current_ticket_route_only_after_confirmation(bool postgres)
     {
-        await using var fixture = await DatabaseFixture.CreateAsync(false);
+        await using var fixture = await DatabaseFixture.CreateAsync(postgres);
         await using var db = fixture.Open();
         await db.Database.MigrateAsync();
         db.Organizations.AddRange(new Organization { Id = "tenant-a", Name = "Tenant A" },
@@ -343,14 +347,21 @@ public sealed class MailboxConfigurationTests
             });
         db.Incidents.Add(new Incident { Id = "route-ticket", OrganizationId = "tenant-a", TrackingId = "INC-ROUTE" });
         await db.SaveChangesAsync();
-        var store = new MailboxOutboxStore(db, new IngressEffectContext(), TimeProvider.System);
-        var queued = await store.QueueDirectAsync(new IngressEmailEffect(
-            ["requester@tenant-a.example.test"], "Confirmation", "<p>Body</p>", [],
-            "route-ticket", [], null, dedicated.MailboxAddress, false, null, null)
-        {
-            MailboxId = dedicated.Id, OrganizationId = "tenant-a",
-            MailboxConfigurationVersion = dedicated.Version, OutgoingConfigurationVersion = 1
-        }, default);
+        var effects = new IngressEffectContext();
+        var store = new MailboxOutboxStore(db, effects, TimeProvider.System);
+        IEmailService sender = new MailboxEmailService(new MailboxSenderResolver(db),
+            new SmtpMailboxSender(new MailboxDestinationPolicy(new ConfigurationBuilder().Build()),
+                new MailboxOutgoingCredentialProtector(new EphemeralDataProtectionProvider()),
+                new HtmlToPlainTextConverter()),
+            new GraphMailboxSender(_ => throw new InvalidOperationException("Graph is not selected.")),
+            store, effects, NullLogger<MailboxEmailService>.Instance);
+        Assert.True(await sender.SendEmailAsync(new EmailSendRequest(
+            ["requester@tenant-a.example.test"], "Confirmation", "<p>Body</p>")
+        { TicketId = "route-ticket", Cc = ["cc@example.test"], Bcc = ["bcc@example.test"],
+            ReplyTo = dedicated.MailboxAddress }));
+        var queued = await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleAsync(x => x.Kind == MailboxEffectKind.Email);
+        var initial = MailboxOutboxStore.Deserialize<IngressEmailEffect>(queued.Payload);
+        Assert.Equal(dedicated.SourceKey, initial.MailboxSourceKey);
         dedicated.Archived = true;
         await db.SaveChangesAsync();
         var claim = Assert.IsType<MailboxOutboxEffect>(await store.TryClaimAsync(queued.Id, "worker", default));
@@ -360,7 +371,7 @@ public sealed class MailboxConfigurationTests
         Assert.True(preview.CanRetry);
         Assert.Equal(dedicated.Id, preview.OriginalMailboxId);
         Assert.Equal(global.Id, preview.CurrentMailboxId);
-        Assert.Equal(["requester@tenant-a.example.test"], preview.Recipients);
+        Assert.Equal(["requester@tenant-a.example.test", "cc@example.test", "bcc@example.test"], preview.Recipients);
         await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
             .SetProperty(x => x.LastErrorCode, "SmtpTimedOut"));
         Assert.False((await retry.PreviewChangedRouteAsync(queued.DeliveryEventId.Value, default)).CanRetry);
@@ -379,6 +390,10 @@ public sealed class MailboxConfigurationTests
             .SetProperty(x => x.LastErrorCode, "SenderRouteChanged"));
         var request = new ConfirmMailboxRouteRetryRequest(preview.Fence!.Value, dedicated.Id, global.Id,
             preview.CurrentMailboxVersion!.Value, preview.CurrentOutgoingVersion!.Value, true);
+        Assert.Equal("SenderConfirmationRequired", (await retry.RetryWithCurrentRouteAsync(
+            queued.DeliveryEventId.Value, request with { ConfirmedNewSender = false }, "admin", default)).Status);
+        Assert.Equal("SenderRouteChanged", (await retry.RetryWithCurrentRouteAsync(queued.DeliveryEventId.Value,
+            request with { ExpectedFence = request.ExpectedFence + 1 }, "admin", default)).Status);
         Assert.Equal("SenderRouteChanged", (await retry.RetryWithCurrentRouteAsync(queued.DeliveryEventId.Value,
             request with { ExpectedOutgoingVersion = 1 }, "admin", default)).Status);
         Assert.Equal("Queued", (await retry.RetryWithCurrentRouteAsync(queued.DeliveryEventId.Value,
@@ -389,13 +404,66 @@ public sealed class MailboxConfigurationTests
         Assert.Equal(MailboxEffectState.Pending, row.State);
         var rebound = MailboxOutboxStore.Deserialize<IngressEmailEffect>(row.Payload);
         Assert.Equal(global.Id, rebound.MailboxId);
+        Assert.Equal(global.SourceKey, rebound.MailboxSourceKey);
         Assert.Equal("tenant-a", rebound.OrganizationId);
         Assert.Equal("route-ticket", rebound.TicketId);
+        Assert.Equal(initial.Recipients, rebound.Recipients);
+        Assert.Equal(initial.Cc, rebound.Cc);
+        Assert.Equal(initial.Bcc, rebound.Bcc);
+        Assert.Equal(initial.Subject, rebound.Subject);
+        Assert.Equal(initial.Html, rebound.Html);
+        Assert.Equal(queued.DeliveryEventId, row.DeliveryEventId);
         Assert.Equal(global.MailboxAddress, rebound.ReplyTo);
         Assert.Equal(3, rebound.OutgoingConfigurationVersion);
         Assert.Equal(EmailDeliveryStatus.Pending, (await db.TicketTimelineEvents.AsNoTracking()
             .SingleAsync(x => x.Id == queued.DeliveryEventId)).EmailStatus);
-        Assert.Equal("admin", Assert.Single(await db.ActivityLogs.AsNoTracking().ToListAsync()).UserId);
+        var audit = Assert.Single(await db.ActivityLogs.AsNoTracking().ToListAsync());
+        Assert.Equal("admin", audit.UserId);
+        Assert.Contains($"OriginalMailboxSourceKey={dedicated.SourceKey}", audit.Message);
+        Assert.Contains($"CurrentMailboxSourceKey={global.SourceKey}", audit.Message);
+
+        var failedClaim = Assert.IsType<MailboxOutboxEffect>(await store.TryClaimAsync(queued.Id, "worker", default));
+        Assert.True(await store.CompleteAsync(failedClaim, false, "SmtpAuthenticationFailed", default,
+            requiresReview: true));
+        await db.Set<MailboxOutgoingSettings>().Where(x => x.MailboxId == global.Id)
+            .ExecuteUpdateAsync(update => update.SetProperty(x => x.Version, x => x.Version + 1));
+        var repair = await retry.PreviewAsync(queued.DeliveryEventId.Value, default);
+        Assert.True(repair.CanRetry);
+        Assert.NotEqual("MailboxSourceChanged", repair.Status);
+        var repairRequest = new ConfirmMailboxOutgoingRetryRequest(repair.CurrentOutgoingVersion!.Value, true)
+        {
+            ExpectedMailboxId = global.Id, ExpectedMailboxVersion = global.Version,
+            ExpectedFence = repair.Fence
+        };
+        Assert.Equal("SenderRevisionChanged", (await retry.RetryAsync(queued.DeliveryEventId.Value,
+            repairRequest with { ExpectedFence = repair.Fence - 1 }, "admin", default)).Status);
+        Assert.Equal("Queued", (await retry.RetryAsync(queued.DeliveryEventId.Value,
+            repairRequest, "admin", default)).Status);
+        var afterRepair = MailboxOutboxStore.Deserialize<IngressEmailEffect>((await db.Set<MailboxOutboxEffect>()
+            .AsNoTracking().SingleAsync(x => x.Id == queued.Id)).Payload);
+        Assert.Equal(global.SourceKey, afterRepair.MailboxSourceKey);
+        db.ChangeTracker.Clear();
+
+        await db.EmailInboxSettings.Where(x => x.Id == global.Id).ExecuteUpdateAsync(update => update
+            .SetProperty(x => x.DisplayName, "Revised global label")
+            .SetProperty(x => x.PollIntervalSeconds, 60)
+            .SetProperty(x => x.Version, x => x.Version + 1));
+        global.Version++;
+        var revisionClaim = Assert.IsType<MailboxOutboxEffect>(await store.TryClaimAsync(queued.Id, "worker", default));
+        Assert.True(await store.CompleteAsync(revisionClaim, false, "SenderConfigurationChanged", default,
+            requiresReview: true));
+        var revision = await retry.PreviewAsync(queued.DeliveryEventId.Value, default);
+        Assert.True(revision.CanRetry, revision.Status);
+        Assert.Equal("Queued", (await retry.RetryAsync(queued.DeliveryEventId.Value,
+            new ConfirmMailboxOutgoingRetryRequest(revision.CurrentOutgoingVersion!.Value, true)
+            {
+                ExpectedMailboxId = global.Id, ExpectedMailboxVersion = global.Version,
+                ExpectedFence = revision.Fence
+            }, "admin", default)).Status);
+        var afterRevision = MailboxOutboxStore.Deserialize<IngressEmailEffect>((await db.Set<MailboxOutboxEffect>()
+            .AsNoTracking().SingleAsync(x => x.Id == queued.Id)).Payload);
+        Assert.Equal(global.SourceKey, afterRevision.MailboxSourceKey);
+        Assert.Equal(global.Version, afterRevision.MailboxConfigurationVersion);
 
         await db.Set<MailboxOutboxEffect>().Where(x => x.Id == queued.Id).ExecuteUpdateAsync(update => update
             .SetProperty(x => x.State, MailboxEffectState.NeedsReview)

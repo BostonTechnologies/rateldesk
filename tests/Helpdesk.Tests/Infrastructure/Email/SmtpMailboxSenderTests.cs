@@ -25,6 +25,117 @@ namespace Helpdesk.Tests.Infrastructure.Email;
 public sealed class SmtpMailboxSenderTests
 {
     [Fact]
+    public async Task Approved_route_then_repaired_global_sender_submits_original_delivery_once()
+    {
+        await using var rejecting = new SmtpFixture(authStatus: 535);
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<HelpdeskDbContext>().UseSqlite(connection).Options;
+        await using var db = new HelpdeskDbContext(options, Substitute.For<ITenantContext>(), new HttpContextAccessor());
+        await db.Database.EnsureCreatedAsync();
+        db.Organizations.Add(new Organization { Id = "route-tenant", Name = "Route tenant" });
+        var dedicated = new EmailInboxSettings
+        {
+            Id = Guid.NewGuid(), Scope = MailboxScope.Organization, OrganizationId = "route-tenant",
+            MailboxAddress = "dedicated@example.test", SourceKey = "dedicated-source", Enabled = true,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
+        };
+        var global = new EmailInboxSettings
+        {
+            Id = Guid.NewGuid(), Scope = MailboxScope.Global, MailboxAddress = "global@example.test",
+            SourceKey = "global-source", Enabled = true,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
+        };
+        var protection = new MailboxOutgoingCredentialProtector(new EphemeralDataProtectionProvider());
+        var outgoing = new MailboxOutgoingSettings
+        {
+            MailboxId = global.Id, Enabled = true, Transport = MailboxOutgoingTransport.Smtp,
+            SmtpHost = "localhost", SmtpPort = rejecting.Port, SmtpTlsMode = MailboxTlsMode.TlsOnConnect,
+            SmtpUsername = global.MailboxAddress
+        };
+        outgoing.ProtectedSmtpPassword = protection.Protect(outgoing, "synthetic-password");
+        db.EmailInboxSettings.AddRange(dedicated, global);
+        db.Set<MailboxOutgoingSettings>().Add(outgoing);
+        db.Incidents.Add(new Incident { Id = "route-ticket-smtp", TrackingId = "INC-ROUTE-SMTP",
+            OrganizationId = "route-tenant" });
+        await db.SaveChangesAsync();
+        var effects = new IngressEffectContext();
+        var store = new MailboxOutboxStore(db, effects, TimeProvider.System);
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            { ["EmailSending:AllowedPrivateHosts:0"] = "localhost" }).Build();
+        var sender = new MailboxEmailService(new MailboxSenderResolver(db),
+            new SmtpMailboxSender(new MailboxDestinationPolicy(configuration), protection,
+                new HtmlToPlainTextConverter()),
+            new GraphMailboxSender(_ => throw new InvalidOperationException("Graph is not selected.")),
+            store, effects, NullLogger<MailboxEmailService>.Instance);
+        IEmailService facade = sender;
+        Assert.True(await facade.SendEmailAsync(new EmailSendRequest(
+            ["requester@example.test"], "Original route subject", "<p>Original body</p>")
+        {
+            TicketId = "route-ticket-smtp", Cc = ["cc@example.test"], Bcc = ["bcc@example.test"],
+            ReplyTo = dedicated.MailboxAddress
+        }));
+        var row = await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleAsync(x => x.Kind == MailboxEffectKind.Email);
+        Assert.Equal(dedicated.SourceKey, MailboxOutboxStore.Deserialize<IngressEmailEffect>(row.Payload).MailboxSourceKey);
+        dedicated.Archived = true;
+        await db.SaveChangesAsync();
+        var oldClaim = Assert.IsType<MailboxOutboxEffect>(await store.TryClaimAsync(row.Id, "worker", default));
+        Assert.True(await store.CompleteAsync(oldClaim, false, "SenderRouteChanged", default, requiresReview: true));
+        var retry = new MailboxOutgoingRetryService(db, new MailboxSenderResolver(db), TimeProvider.System);
+        var route = await retry.PreviewChangedRouteAsync(row.DeliveryEventId!.Value, default);
+        Assert.True(route.CanRetry);
+        Assert.Equal("Queued", (await retry.RetryWithCurrentRouteAsync(row.DeliveryEventId.Value,
+            new ConfirmMailboxRouteRetryRequest(route.Fence!.Value, dedicated.Id, global.Id,
+                route.CurrentMailboxVersion!.Value, route.CurrentOutgoingVersion!.Value, true),
+            "admin", default)).Status);
+        db.ChangeTracker.Clear();
+        var failedClaim = Assert.IsType<MailboxOutboxEffect>(await store.TryClaimAsync(row.Id, "worker", default));
+        var adopted = MailboxOutboxStore.Deserialize<IngressEmailEffect>(failedClaim.Payload);
+        Assert.Equal(global.SourceKey, adopted.MailboxSourceKey);
+        var failed = await sender.SendPinnedAsync(global.Id, adopted.OrganizationId, adopted.TicketId,
+            adopted.Recipients, adopted.Cc, adopted.Subject, adopted.Html, adopted.Attachments,
+            adopted.ReplyTo, row.Id, default, adopted.MailboxConfigurationVersion,
+            adopted.OutgoingConfigurationVersion, adopted.Bcc);
+        Assert.Equal("SmtpAuthenticationFailed", failed.ErrorCode);
+        Assert.True(await store.CompleteAsync(failedClaim, false, failed.ErrorCode, default, requiresReview: true));
+        await rejecting.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.DoesNotContain(rejecting.Commands, x => x.StartsWith("MAIL FROM", StringComparison.OrdinalIgnoreCase));
+        await rejecting.DisposeAsync();
+        await using var accepting = new SmtpFixture();
+        outgoing.SmtpPort = accepting.Port;
+        var repairedPassword = protection.Protect(outgoing, "synthetic-password");
+        await db.Set<MailboxOutgoingSettings>().Where(x => x.MailboxId == global.Id)
+            .ExecuteUpdateAsync(update => update.SetProperty(x => x.SmtpPort, accepting.Port)
+                .SetProperty(x => x.ProtectedSmtpPassword, repairedPassword)
+                .SetProperty(x => x.Version, x => x.Version + 1));
+        var repair = await retry.PreviewAsync(row.DeliveryEventId.Value, default);
+        Assert.True(repair.CanRetry);
+        Assert.Equal("Queued", (await retry.RetryAsync(row.DeliveryEventId.Value,
+            new ConfirmMailboxOutgoingRetryRequest(repair.CurrentOutgoingVersion!.Value, true)
+            {
+                ExpectedMailboxId = global.Id, ExpectedMailboxVersion = global.Version,
+                ExpectedFence = repair.Fence
+            }, "admin", default)).Status);
+        var finalClaim = Assert.IsType<MailboxOutboxEffect>(await store.TryClaimAsync(row.Id, "worker", default));
+        var final = MailboxOutboxStore.Deserialize<IngressEmailEffect>(finalClaim.Payload);
+        Assert.Equal(global.SourceKey, final.MailboxSourceKey);
+        var sent = await sender.SendPinnedAsync(global.Id, final.OrganizationId, final.TicketId,
+            final.Recipients, final.Cc, final.Subject, final.Html, final.Attachments,
+            final.ReplyTo, row.Id, default, final.MailboxConfigurationVersion,
+            final.OutgoingConfigurationVersion, final.Bcc);
+        Assert.True(sent.Status == "Accepted by provider", $"{sent.Status}: {sent.ErrorCode}");
+        Assert.True(await store.CompleteAsync(finalClaim, true, null, default, requiresReview: false, submission: sent));
+        await accepting.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, accepting.Commands.Count(x => x == "DATA"));
+        Assert.Contains("RCPT TO:<requester@example.test>", accepting.Commands);
+        Assert.Contains("RCPT TO:<cc@example.test>", accepting.Commands);
+        Assert.Contains("RCPT TO:<bcc@example.test>", accepting.Commands);
+        Assert.Contains("Original route subject", accepting.Message, StringComparison.Ordinal);
+        Assert.Equal(row.DeliveryEventId, (await db.Set<MailboxOutboxEffect>().AsNoTracking()
+            .SingleAsync(x => x.Id == row.Id)).DeliveryEventId);
+    }
+
+    [Fact]
     public async Task Queued_ticket_mail_can_adopt_a_same_source_incoming_revision_before_one_smtp_submission()
     {
         await using var server = new SmtpFixture();
@@ -476,6 +587,7 @@ public sealed class SmtpMailboxSenderTests
         private readonly bool disconnectAfterData;
         private readonly X509Certificate2 certificate;
         private readonly X509Store roots = new(StoreName.Root, StoreLocation.CurrentUser);
+        private bool disposed;
         public int Port { get; }
         public Task Completion { get; }
         public List<string> Commands { get; } = [];
@@ -559,6 +671,8 @@ public sealed class SmtpMailboxSenderTests
 
         public async ValueTask DisposeAsync()
         {
+            if (disposed) return;
+            disposed = true;
             listener.Stop();
             if (trustCertificate) roots.Remove(certificate);
             roots.Dispose();
