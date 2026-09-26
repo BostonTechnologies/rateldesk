@@ -60,6 +60,11 @@ secrets, private endpoints, local workstation diagnostics, or customer data.
 | 2026-09-26 | Quality | `slopwatch analyze --directory . --stats` and `git diff --check` | 1,299 files analyzed with zero Slopwatch findings; whitespace check passed |
 | 2026-09-26 | UX | `HELPDESK_E2E_ARTIFACT_DIR=<temporary> bash tools/ci/run-ux-local.sh tests/ux/integration-hub.spec.ts` | Setup 1/1 and Integration Hub desktop/mobile 2/2 passed; screenshots verified for separate destinations, dark mobile layout, and no horizontal overflow |
 | 2026-09-26 | Release metadata | `bash tools/release/validate-release-version.sh v0.1.1-beta.4` and `bash tools/ci/validate-layout.sh` | Version/prerelease and repository layout validation passed |
+| 2026-09-26 | Release assets | `bash tools/release/package-assets.sh 0.1.1-beta.4 <candidate-revision> <temporary>` | Six self-contained CLI/stdio MCP archives, deployment archive, checksums, and release manifest generated for `f8ab43d6e150feffec1428a476dff13d9cc3a047` |
+| 2026-09-26 | Archive acceptance | `tools/release/test-executable-archives.sh <temporary> linux-x64` and `tools/ci/test-deployment-archive-compose-config.sh <deployment-archive>` | Extracted CLI/MCP binaries passed version/help checks; extracted MCP completed JSON-RPC initialize; standalone, gateway, and Authentik Compose configurations rendered successfully |
+| 2026-09-26 | Source image acceptance | Source MCP image build plus `tools/ci/test-mcp-compose-config.sh <local-image>` | Compose recipes, extracted deployment recipes, config ownership, permissions, health, and non-root runtime checks passed |
+| 2026-09-26 | Release upload semantics | `tools/release/test-publish-release-assets.sh` | Dry-run, draft creation, resumable upload, failed-upload recovery, and conflicting-asset rejection all passed without a registry or GitHub release write |
+| 2026-09-26 | Manifest finalization | `tools/release/prepare-release-manifest.sh 0.1.1-beta.4 <candidate-revision> <temporary> <web-digest> <api-digest> <mcp-digest> v0.1.1-beta.4` | Archive checksums verified and detached manifest checksum generated using rehearsal-only image digest placeholders |
 
 ## Compatibility decisions
 
@@ -84,10 +89,10 @@ secrets, private endpoints, local workstation diagnostics, or customer data.
 - [x] SQLite and PostgreSQL migrations generated and exercised by the applicable test/build paths
 - [ ] Real NetRatel compatibility evidence recorded against a pinned unchanged target
 - [ ] Real Netclaw SignalR evidence recorded against a pinned unchanged target
-- [ ] Packaged CLI/stdio/HTTP MCP acceptance evidence recorded
+- [x] Packaged CLI/stdio/HTTP MCP acceptance evidence recorded
 - [x] UI light/dark/mobile evidence captured without secrets
 - [ ] Full applicable tests and hosted checks green for the final head
-- [ ] Non-publishing beta.4 release rehearsal complete
+- [x] Non-publishing beta.4 release rehearsal complete
 - [ ] Branch clean and pushed
 - [ ] Rollup PR non-draft and reviewable
 - [ ] Human merge/release/deployment steps handed off; no merge or publication performed
