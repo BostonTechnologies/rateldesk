@@ -6,28 +6,28 @@ must remain unpublished until the human merge and release gates are satisfied.
 
 ## Baseline
 
-- Repository: `BostonTechnologies/rateldesk`
+- Repository: `BostonTechnologies/RatelDesk`
 - Starting branch: `feat/beta4-integration-hub`
 - Refreshed `origin/main`: `2027f686ac529607dcb1a6ce619c81f465a60e3d`
 - Candidate version: `0.1.1-beta.4` (`Directory.Build.props` now evaluates to this version)
 - Release tag: not created
-- Rollup PR: [#94](https://github.com/BostonTechnologies/rateldesk/pull/94), open and non-draft against `main`
+- Rollup PR: [#94](https://github.com/BostonTechnologies/RatelDesk/pull/94), open and non-draft against `main`
 - NetRatel compatibility reference: unchanged commit `cc58661bff496825d68de4db9ec53da92de45942`
 - NetRatel and Netclaw: read-only compatibility references; no upstream changes permitted
 
 ## Tracking
 
-- Epic: [#83](https://github.com/BostonTechnologies/rateldesk/issues/83)
-- B4-00: [#84](https://github.com/BostonTechnologies/rateldesk/issues/84)
-- B4-01: [#85](https://github.com/BostonTechnologies/rateldesk/issues/85)
-- B4-02: [#86](https://github.com/BostonTechnologies/rateldesk/issues/86)
-- B4-03: [#87](https://github.com/BostonTechnologies/rateldesk/issues/87)
-- B4-04: [#88](https://github.com/BostonTechnologies/rateldesk/issues/88)
-- B4-05: [#89](https://github.com/BostonTechnologies/rateldesk/issues/89)
-- B4-06: [#90](https://github.com/BostonTechnologies/rateldesk/issues/90)
-- B4-07: [#91](https://github.com/BostonTechnologies/rateldesk/issues/91)
-- B4-08: [#92](https://github.com/BostonTechnologies/rateldesk/issues/92)
-- B4-09: [#93](https://github.com/BostonTechnologies/rateldesk/issues/93)
+- Epic: [#83](https://github.com/BostonTechnologies/RatelDesk/issues/83)
+- B4-00: [#84](https://github.com/BostonTechnologies/RatelDesk/issues/84)
+- B4-01: [#85](https://github.com/BostonTechnologies/RatelDesk/issues/85)
+- B4-02: [#86](https://github.com/BostonTechnologies/RatelDesk/issues/86)
+- B4-03: [#87](https://github.com/BostonTechnologies/RatelDesk/issues/87)
+- B4-04: [#88](https://github.com/BostonTechnologies/RatelDesk/issues/88)
+- B4-05: [#89](https://github.com/BostonTechnologies/RatelDesk/issues/89)
+- B4-06: [#90](https://github.com/BostonTechnologies/RatelDesk/issues/90)
+- B4-07: [#91](https://github.com/BostonTechnologies/RatelDesk/issues/91)
+- B4-08: [#92](https://github.com/BostonTechnologies/RatelDesk/issues/92)
+- B4-09: [#93](https://github.com/BostonTechnologies/RatelDesk/issues/93)
 
 ## Work breakdown
 
@@ -66,7 +66,7 @@ secrets, private endpoints, local workstation diagnostics, or customer data.
 | 2026-09-26 | Release upload semantics | `tools/release/test-publish-release-assets.sh` | Dry-run, draft creation, resumable upload, failed-upload recovery, and conflicting-asset rejection all passed without a registry or GitHub release write |
 | 2026-09-26 | Manifest finalization | `tools/release/prepare-release-manifest.sh 0.1.1-beta.4 <candidate-revision> <temporary> <web-digest> <api-digest> <mcp-digest> v0.1.1-beta.4` | Archive checksums verified and detached manifest checksum generated using rehearsal-only image digest placeholders |
 | 2026-09-26 | Final-head release rerun | Same package, archive, deployment, checksum, and manifest probes against `872ba66d7139600b514ce2ae50e17a3807067157` | Final branch-head asset rehearsal passed; manifest source revision matched the candidate head used for the run |
-| 2026-09-26 | Review handoff | [PR #94](https://github.com/BostonTechnologies/rateldesk/pull/94) | Non-draft PR opened against `main`; hosted checks are running against the pushed candidate head |
+| 2026-09-26 | Review handoff | [PR #94](https://github.com/BostonTechnologies/RatelDesk/pull/94) | Non-draft PR opened against `main`; hosted checks are running against the pushed candidate head |
 
 ## Compatibility decisions
 
