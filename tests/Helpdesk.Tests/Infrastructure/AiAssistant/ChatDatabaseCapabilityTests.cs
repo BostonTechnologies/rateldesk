@@ -40,7 +40,7 @@ public sealed class ChatDatabaseCapabilityTests
             {
                 var error = Assert.Throws<OptionsValidationException>(() => options.Value);
                 Assert.Contains("requires PostgreSQL", error.Message, StringComparison.Ordinal);
-                Assert.Contains("AiAssistantChat:Enabled=false", error.Message, StringComparison.Ordinal);
+                Assert.Contains("Netclaw:Enabled=false", error.Message, StringComparison.Ordinal);
             }
         }
         finally

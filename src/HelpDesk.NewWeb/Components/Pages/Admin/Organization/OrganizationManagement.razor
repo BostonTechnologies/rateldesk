@@ -100,7 +100,7 @@
         try
         {
             orchestrationTenants = await HelpdeskApi.GetFromJsonAsync<List<OrchestrationCatalogTenantDto>>(
-                "api/v1/admin/orchestration/orchestration/catalog/tenants") ?? new();
+                "api/v1/admin/orchestration/catalog/tenants") ?? new();
         }
         catch
         {

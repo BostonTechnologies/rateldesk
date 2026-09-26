@@ -1,8 +1,11 @@
 using Helpdesk.Application.Events;
 using Helpdesk.Application.Orchestration;
+using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.DTOs.Orchestration;
+using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace Helpdesk.API.Endpoints.Orchestration;
 
@@ -17,14 +20,58 @@ public static class ExternalOrchestrationEndpoints
         group.MapGet("/", async (IOrchestrationConnectivityService connectivity, CancellationToken ct) =>
             Results.Ok(await connectivity.GetOrchestrationSettingsAsync(ct)));
 
+        group.MapPut("/", async (
+            UpdateOrchestrationConnectivitySettingsDto request,
+            IIntegrationProviderSettingsService settings,
+            HelpdeskDbContext db,
+            ClaimsPrincipal principal,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                var result = await settings.UpdateOrchestratorSettingsAsync(request, ct);
+                db.ActivityLogs.Add(new ActivityLog
+                {
+                    UserId = Actor(principal),
+                    RelatedEntityId = result.ProviderKey,
+                    Message = $"Integration provider settings updated. Provider={result.ProviderKey}; Revision={result.Revision}; Source={result.Source}; Enabled={result.Enabled}; SecretConfigured={result.HasClientSecret}; SecretAction={(request.ClearClientSecret ? "cleared" : !string.IsNullOrWhiteSpace(request.ClientSecret) ? "replaced" : "unchanged")}."
+                });
+                await db.SaveChangesAsync(ct);
+                return Results.Ok(result);
+            }
+            catch (IntegrationProviderConfigurationConflictException ex)
+            {
+                return Results.Conflict(new { code = "configuration_conflict", message = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { code = "invalid_configuration", message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { code = "configuration_not_editable", message = ex.Message });
+            }
+        });
+
         group.MapPost("/test", async (
             IOrchestrationConnectivityService connectivity,
+            IIntegrationProviderSettingsService settings,
             IDomainEventPublisher domainEvents,
             ICorrelationContext correlation,
             ITenantContext tenant,
+            HelpdeskDbContext db,
+            ClaimsPrincipal principal,
             CancellationToken ct) =>
         {
             var result = await connectivity.TestOrchestrationConnectivityAsync(ct);
+            await settings.RecordOrchestratorTestAsync(result.Success, ct);
+            db.ActivityLogs.Add(new ActivityLog
+            {
+                UserId = Actor(principal),
+                RelatedEntityId = "Orchestrator",
+                Message = $"Integration provider connectivity test completed. Provider=Orchestrator; Success={result.Success}; StatusCode={result.StatusCode?.ToString() ?? "none"}."
+            });
+            await db.SaveChangesAsync(ct);
 
             if (result.Success)
             {
@@ -321,6 +368,12 @@ public static class ExternalOrchestrationEndpoints
     {
         return correlationContext.GetCorrelationId() ?? $"corr-{Guid.NewGuid():N}";
     }
+
+    private static string Actor(ClaimsPrincipal principal) =>
+        principal.FindFirstValue(ClaimTypes.NameIdentifier)
+        ?? principal.FindFirstValue("sub")
+        ?? principal.Identity?.Name
+        ?? "unknown";
 
     private static string Truncate(string? value, int maxLength)
     {

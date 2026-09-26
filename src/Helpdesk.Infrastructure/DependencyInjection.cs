@@ -27,6 +27,7 @@ using Helpdesk.Infrastructure.Changes;
 using Helpdesk.Infrastructure.EmailTemplates;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Persistence.Connectivity;
 using Helpdesk.Infrastructure.RequestTasks;
 using Helpdesk.Infrastructure.Security;
 using Helpdesk.Infrastructure.Storage;
@@ -66,18 +67,21 @@ public static class DependencyInjection
 
         services.AddHttpContextAccessor();
         services.AddOptions<Helpdesk.Infrastructure.AiAssistant.Chat.AiAssistantChatOptions>()
-            .Bind(configuration.GetSection("AiAssistantChat"))
+            .Configure(options => options.Apply(IntegrationConfigurationAliases.ReadNetclaw(configuration)))
             .Validate(x => !x.Enabled || databaseProvider is DatabaseProvider.PostgreSql,
-                "Native AI Assistant chat requires PostgreSQL for durable session ownership. Set AiAssistantChat:Enabled=false to use SQLite with webhook AI assistance.")
+                "Native AI Assistant chat requires PostgreSQL for durable session ownership. Set Netclaw:Enabled=false (or the legacy AiAssistantChat:Enabled=false alias) to use SQLite with webhook AI assistance.")
             .Validate(x => x.IsValid(), "Enabled chat requires Dev instance, session hub, credential, positive limits, and an activity heartbeat shorter than the turn inactivity timeout; private HTTP requires explicit opt-in.")
             .ValidateOnStart();
         services.AddSingleton(TimeProvider.System);
         services.AddScoped<Helpdesk.Application.AiAssistant.Chat.IAiAssistantChatStore, Helpdesk.Infrastructure.AiAssistant.Chat.AiAssistantChatStore>();
         services.AddSingleton<Helpdesk.Application.AiAssistant.Chat.IChatLiveFeed, Helpdesk.Infrastructure.AiAssistant.Chat.ChatLiveFeed>();
+        services.AddScoped<IntegrationProviderSecretProtector>();
+        services.AddScoped<IIntegrationProviderSettingsService, IntegrationProviderSettingsService>();
         services.AddSingleton<Helpdesk.Infrastructure.AiAssistant.Chat.AiAssistantChatSessionManager>();
         services.AddSingleton<Helpdesk.Infrastructure.AiAssistant.Chat.IAiAssistantChatClientFactory, Helpdesk.Infrastructure.AiAssistant.Chat.AiAssistantChatClientFactory>();
         services.AddSingleton<Helpdesk.Application.AiAssistant.Chat.IAiAssistantChatTransport>(sp => sp.GetRequiredService<Helpdesk.Infrastructure.AiAssistant.Chat.AiAssistantChatSessionManager>());
         services.AddHostedService(sp => sp.GetRequiredService<Helpdesk.Infrastructure.AiAssistant.Chat.AiAssistantChatSessionManager>());
+        services.AddHostedService<IntegrationProviderRuntimeBootstrap>();
         services.AddScoped<ITenantContext, TenantContext>();
         services.Configure<StorageOptions>(configuration.GetSection("StorageOptions"));
         services.Configure<SlaReportingOptions>(configuration.GetSection("SlaReporting"));
@@ -93,6 +97,10 @@ public static class DependencyInjection
         AddRepositoryRegistrations(services);
 
         services.AddHttpClient("OrchestrationInternalApi")
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false })
+            .SetHandlerLifetime(TimeSpan.FromMinutes(10));
+        services.AddHttpClient("OrchestrationToken")
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false })
             .SetHandlerLifetime(TimeSpan.FromMinutes(10));
         services.AddHttpClient("AiAssistantWebhook")
             .SetHandlerLifetime(TimeSpan.FromMinutes(10));
@@ -193,6 +201,7 @@ public static class DependencyInjection
         services.AddScoped<IAutomationBindingImportService, AutomationBindingImportService>();
         services.AddSingleton<IOrchestrationTokenService, OrchestrationTokenService>();
         services.AddScoped<IOrchestrationInternalClient, OrchestrationInternalClient>();
+        services.AddScoped<IOrchestrationProtectedDiagnosticsClient, OrchestrationInternalClient>();
         services.AddScoped<IOrchestrationCatalogService, OrchestrationCatalogService>();
         services.AddScoped<IRequestTaskPayloadBuilder, RequestTaskPayloadBuilder>();
         services.AddScoped<IDataManagementService, DataManagementService>();

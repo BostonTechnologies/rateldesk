@@ -61,23 +61,33 @@ If NetClaw CLI pairing is used, its local secret file is also sensitive; move
 the token into the approved RatelDesk secret store without pasting it into a
 tracked file.
 
-Configure the **API service only**. A typical HTTPS deployment has these
-settings; replace the example endpoint and inject the token through your secret
-mechanism:
+Configure the **API service only**. The canonical beta.4 namespace is
+`Netclaw__...`; replace the example endpoint and inject the token through your
+secret mechanism:
 
 ```text
-AiAssistantChat__Enabled=true
-AiAssistantChat__Instance=dev
-AiAssistantChat__Endpoint=https://netclaw.example.com/hub/session
-AiAssistantChat__DeviceToken=<secret injected at runtime>
-AiAssistantChat__AllowPrivateHttp=false
-AiAssistantChat__IdleMinutes=15
-AiAssistantChat__ConnectionCapacity=25
+Netclaw__Enabled=true
+Netclaw__Instance=dev
+Netclaw__Endpoint=https://netclaw.example.com/hub/session
+Netclaw__DeviceToken=<secret injected at runtime>
+Netclaw__AllowPrivateHttp=false
+Netclaw__IdleMinutes=15
+Netclaw__ConnectionCapacity=25
+Netclaw__TurnInactivityTimeout=00:05:00
+Netclaw__ActivityHeartbeatInterval=00:00:15
 ```
+
+The former `AiAssistantChat__...` names remain readable as a migration alias.
+At the same configuration-provider priority, `Netclaw__...` wins. A higher
+priority legacy source can override a lower-priority canonical source, as with
+normal .NET configuration precedence. Deployment-managed configuration is
+read-only in the Integration hub; otherwise the administrator can persist a
+protected profile in the database. The profile records revision, applied, and
+last-test metadata without returning the paired-device token.
 
 The endpoint must be an absolute URL with exactly the `/hub/session` path. Use
 HTTPS in normal deployments. RatelDesk accepts HTTP only when
-`AiAssistantChat__AllowPrivateHttp=true` and the endpoint is a private literal
+`Netclaw__AllowPrivateHttp=true` and the endpoint is a private literal
 IPv4 address; that exception is for a trusted private network, not a DNS name
 or public service.
 
@@ -200,7 +210,7 @@ or NetClaw deployment into another organization.
 
 | Symptom | Check first |
 | --- | --- |
-| AI Assistant cannot connect or reconnect | Confirm PostgreSQL and `AiAssistantChat__Enabled`; validate the exact `/hub/session` URL, TLS chain, paired-device token, proxy WebSocket forwarding, and NetClaw exposure mode. Run `netclaw doctor` on the daemon host. |
+| AI Assistant cannot connect or reconnect | Confirm PostgreSQL and `Netclaw__Enabled`; validate the exact `/hub/session` URL, TLS chain, paired-device token, proxy WebSocket forwarding, and NetClaw exposure mode. Run `netclaw doctor` on the daemon host. |
 | AI Assistant is unavailable after a restart | Confirm the API has the current injected token and that the token was not placed on the Web service. Use the ticket UI recovery path; do not blindly resend an uncertain turn. |
 | HTTP MCP returns `401` | Treat this as a credential, expiry, owner, purpose, resource-URI, permission, or organization-scope problem. Compare the exact configured and credential-bound public `/mcp` URI, then rotate or recreate the credential if necessary. |
 | Proxy rejects or cannot reach `/mcp` | Check DNS, TLS, proxy route, forwarded `Authorization` and MCP headers, streaming behavior, and the MCP host health. This is distinct from a RatelDesk authorization failure. |

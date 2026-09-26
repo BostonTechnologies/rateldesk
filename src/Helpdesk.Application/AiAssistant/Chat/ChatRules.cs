@@ -41,6 +41,7 @@ public interface IAiAssistantChatStore
 
 public interface IAiAssistantChatTransport
 {
+    Task ReconfigureAsync(CancellationToken ct);
     Task ReconcileAsync(Guid conversation, CancellationToken ct);
     Task RetireAsync(Guid conversation, CancellationToken ct);
     Task SendAsync(Guid conversation, Guid messageId, string text, CancellationToken ct);

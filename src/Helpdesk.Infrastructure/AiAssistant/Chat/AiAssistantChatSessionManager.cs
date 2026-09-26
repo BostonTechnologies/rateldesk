@@ -22,6 +22,7 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
 {
     private readonly ConcurrentDictionary<Guid, Owner> owners = new();
     private readonly SemaphoreSlim acquisition = new(1);
+    private readonly SemaphoreSlim ownership = new(1);
     private CancellationToken stopping;
     private NpgsqlConnection? singleOwner;
     private volatile bool ready;
@@ -190,14 +191,19 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
 
     private async Task<Owner> GetAsync(Guid id, CancellationToken ct, bool forceReconnect = false)
     {
-        if (!ready) throw new InvalidOperationException("Chat transport ownership has not been established.");
+        if (!ready)
+        {
+            if (!settings.Value.Enabled)
+                throw new InvalidOperationException("Netclaw chat is disabled.");
+            await EnsureOwnershipAsync(ct);
+        }
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, stopping);
         ct = linked.Token;
         await acquisition.WaitAsync(ct);
         try
         {
             stopping.ThrowIfCancellationRequested();
-            if (!ready) throw new InvalidOperationException("Chat transport ownership is no longer available.");
+            if (!ready || !settings.Value.Enabled) throw new InvalidOperationException("Netclaw chat is disabled or transport ownership is unavailable.");
             await using var scope = scopes.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
             var conversation = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == id, ct);
@@ -284,6 +290,49 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
     {
         if (owners.TryRemove(conversation, out var owner)) await RetireAsync(owner);
         feed.Publish(new(conversation, null));
+    }
+
+    public async Task ReconfigureAsync(CancellationToken ct)
+    {
+        await ownership.WaitAsync(ct);
+        try
+        {
+            await acquisition.WaitAsync(ct);
+            try
+            {
+                foreach (var (id, owner) in owners.ToArray())
+                {
+                    try
+                    {
+                        await UnknownAsync(
+                            id,
+                            reason: "The Netclaw transport was reconfigured while this turn was active. Delivery could not be confirmed; the message will not be resent automatically.");
+                    }
+                    catch (Exception exception) when (!ct.IsCancellationRequested)
+                    {
+                        logger.LogWarning(exception, "Chat reconfiguration outcome could not be saved for {ConversationId}.", id);
+                    }
+
+                    if (owners.TryRemove(id, out var current))
+                        await RetireAsync(current);
+                }
+
+                if (!settings.Value.Enabled)
+                {
+                    ready = false;
+                    if (singleOwner is not null)
+                    {
+                        await singleOwner.DisposeAsync();
+                        singleOwner = null;
+                    }
+                }
+            }
+            finally { acquisition.Release(); }
+        }
+        finally { ownership.Release(); }
+
+        if (settings.Value.Enabled && !ready)
+            await EnsureOwnershipAsync(ct);
     }
 
     private static string? Value(JsonElement output, string name) => output.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
@@ -472,42 +521,56 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
         stopping = cancellationToken;
-        if (!settings.Value.Enabled)
-        {
-            await base.StartAsync(cancellationToken);
-            return;
-        }
+        if (settings.Value.Enabled) await EnsureOwnershipAsync(cancellationToken);
+        await base.StartAsync(cancellationToken);
+    }
+
+    private async Task EnsureOwnershipAsync(CancellationToken cancellationToken)
+    {
+        if (!settings.Value.Enabled || ready) return;
+
+        await ownership.WaitAsync(cancellationToken);
         try
         {
-            await using var scope = scopes.CreateAsyncScope();
-            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
-            // Session-level advisory ownership must end when this socket is disposed,
-            // rather than survive on an idle pooled PostgreSQL connection.
-            var providerConnection = db.Database.GetDbConnection() as NpgsqlConnection
-                ?? throw new InvalidOperationException("AiAssistant chat ownership requires an Npgsql database connection.");
-            var ownershipConnection = new NpgsqlConnectionStringBuilder(providerConnection.ConnectionString) { Pooling = false };
-            singleOwner = providerConnection.CloneWith(ownershipConnection.ConnectionString);
-            await singleOwner.OpenAsync(cancellationToken);
-            await using var claim = new NpgsqlCommand("SELECT pg_try_advisory_lock(794, 1)", singleOwner);
-            if (await claim.ExecuteScalarAsync(cancellationToken) is not true)
-                throw new InvalidOperationException("Only one enabled AiAssistant chat API instance may own this database.");
-            // This process cannot own any transports left by a prior API process.
-            // Resolve those turns before accepting new transport work; the periodic
-            // sweep remains solely the silent-live-transport watchdog.
-            await RecoverInterruptedProcessingAsync(cancellationToken);
-            ready = true;
-            await base.StartAsync(cancellationToken);
-        }
-        catch
-        {
-            ready = false;
-            if (singleOwner is not null)
+            if (!settings.Value.Enabled || ready) return;
+
+            NpgsqlConnection? candidate = null;
+            try
             {
-                await singleOwner.DisposeAsync();
-                singleOwner = null;
+                await using var scope = scopes.CreateAsyncScope();
+                var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+                // Session-level advisory ownership must end when this socket is disposed,
+                // rather than survive on an idle pooled PostgreSQL connection.
+                var providerConnection = db.Database.GetDbConnection() as NpgsqlConnection
+                    ?? throw new InvalidOperationException("AiAssistant chat ownership requires an Npgsql database connection.");
+                var ownershipConnection = new NpgsqlConnectionStringBuilder(providerConnection.ConnectionString) { Pooling = false };
+                candidate = providerConnection.CloneWith(ownershipConnection.ConnectionString);
+                await candidate.OpenAsync(cancellationToken);
+                await using var claim = new NpgsqlCommand("SELECT pg_try_advisory_lock(794, 1)", candidate);
+                if (await claim.ExecuteScalarAsync(cancellationToken) is not true)
+                    throw new InvalidOperationException("Only one enabled AiAssistant chat API instance may own this database.");
+
+                singleOwner = candidate;
+                candidate = null;
+                // This process cannot own any transports left by a prior API process.
+                // Resolve those turns before accepting new transport work; the periodic
+                // sweep remains solely the silent-live-transport watchdog.
+                await RecoverInterruptedProcessingAsync(cancellationToken);
+                ready = true;
             }
-            throw;
+            catch
+            {
+                ready = false;
+                if (candidate is not null) await candidate.DisposeAsync();
+                if (singleOwner is not null)
+                {
+                    await singleOwner.DisposeAsync();
+                    singleOwner = null;
+                }
+                throw;
+            }
         }
+        finally { ownership.Release(); }
     }
 
     private async Task RecoverInterruptedProcessingAsync(CancellationToken ct)
@@ -533,9 +596,11 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         stopping = stoppingToken;
-        if (!settings.Value.Enabled) return;
         try { await RunAsync(stoppingToken); }
-        finally { ready = false; }
+        finally
+        {
+            await ReleaseOwnershipAsync(CancellationToken.None);
+        }
     }
 
     private async Task RunAsync(CancellationToken stoppingToken)
@@ -543,6 +608,22 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15));
         while (await timer.WaitForNextTickAsync(stoppingToken))
         {
+            if (!settings.Value.Enabled)
+            {
+                await ReleaseOwnershipAsync(stoppingToken);
+                continue;
+            }
+
+            if (!ready)
+            {
+                try { await EnsureOwnershipAsync(stoppingToken); }
+                catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
+                {
+                    logger.LogWarning("Netclaw chat ownership could not be established after runtime enablement: {ExceptionType}", ex.GetType().Name);
+                }
+                continue;
+            }
+
             // Loss of this connection terminates the service before another owner can be used.
             await using var heartbeat = new NpgsqlCommand("SELECT 1", singleOwner);
             await heartbeat.ExecuteScalarAsync(stoppingToken);
@@ -620,18 +701,40 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
-        ready = false;
         try { await base.StopAsync(cancellationToken); }
         finally
         {
-            await acquisition.WaitAsync(CancellationToken.None);
+            await ReleaseOwnershipAsync(CancellationToken.None);
+        }
+    }
+
+    private async Task ReleaseOwnershipAsync(CancellationToken cancellationToken)
+    {
+        await ownership.WaitAsync(cancellationToken);
+        try
+        {
+            if (!ready && singleOwner is null && owners.IsEmpty) return;
+            ready = false;
+
+            await acquisition.WaitAsync(cancellationToken);
             try
             {
-                foreach (var owner in owners.Values) await RetireAsync(owner);
+                var activeOwners = owners.Values.ToArray();
+                foreach (var owner in activeOwners)
+                {
+                    try { await RetireAsync(owner); }
+                    catch (Exception exception) { logger.LogWarning(exception, "Netclaw chat connection disposal failed during runtime disablement."); }
+                }
                 owners.Clear();
-                if (singleOwner is not null) await singleOwner.DisposeAsync();
             }
             finally { acquisition.Release(); }
+
+            if (singleOwner is not null)
+            {
+                await singleOwner.DisposeAsync();
+                singleOwner = null;
+            }
         }
+        finally { ownership.Release(); }
     }
 }

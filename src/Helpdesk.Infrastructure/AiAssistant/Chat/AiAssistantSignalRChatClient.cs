@@ -28,7 +28,16 @@ public sealed class AiAssistantSignalRChatClient(AiAssistantChatOptions options)
 {
     public bool IsConnected => connection.State == HubConnectionState.Connected;
     private readonly HubConnection connection = new HubConnectionBuilder()
-        .WithUrl(options.Endpoint, http => http.AccessTokenProvider = () => Task.FromResult<string?>(options.DeviceToken))
+        .WithUrl(options.Endpoint, http =>
+        {
+            http.AccessTokenProvider = () => Task.FromResult<string?>(options.DeviceToken);
+            http.HttpMessageHandlerFactory = handler =>
+            {
+                if (handler is HttpClientHandler clientHandler)
+                    clientHandler.AllowAutoRedirect = false;
+                return handler;
+            };
+        })
         .Build();
 
     public async Task<SessionEnsureResult> ConnectAsync(string? sessionId, Func<JsonElement, Task> output, CancellationToken ct)

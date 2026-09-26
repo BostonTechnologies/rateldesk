@@ -1,0 +1,48 @@
+@page "/admin/automation/integration"
+@page "/admin/integrations"
+@attribute [Authorize(Roles = "HelpdeskAdmin")]
+
+<PageTitle>Integration hub</PageTitle>
+
+<MudPaper Class="helpdesk-content-surface pa-4" data-testid="integration-hub-page">
+    <MudStack Spacing="3">
+        <div>
+            <MudText Typo="Typo.h4" HtmlTag="h1">Integration hub</MudText>
+            <MudText Typo="Typo.body1" Color="Color.Secondary">Manage the three separate trust boundaries used by RatelDesk integrations.</MudText>
+        </div>
+
+        <MudGrid>
+            <MudItem xs="12" md="4">
+                <MudCard Class="h-100">
+                    <MudCardHeader><CardHeaderContent><MudText Typo="Typo.h6">NetRatel orchestrator</MudText><MudText Typo="Typo.caption">Outbound automation</MudText></CardHeaderContent></MudCardHeader>
+                    <MudCardContent><MudText Typo="Typo.body2">Use a dedicated NetRatel OAuth client to browse safe catalogue metadata and submit bound automation tasks.</MudText></MudCardContent>
+                    <MudCardActions>
+                        <MudButton Href="/admin/automation/integration/orchestrator" Color="Color.Primary" Variant="Variant.Filled">Open destination</MudButton>
+                        <MudLink Href="https://github.com/BostonTechnologies/rateldesk/blob/main/docs/integrations/netratel-orchestrator.md" Target="_blank" Rel="noopener">Guide</MudLink>
+                    </MudCardActions>
+                </MudCard>
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudCard Class="h-100">
+                    <MudCardHeader><CardHeaderContent><MudText Typo="Typo.h6">Netclaw AI harness</MudText><MudText Typo="Typo.caption">Native SignalR chat</MudText></CardHeaderContent></MudCardHeader>
+                    <MudCardContent><MudText Typo="Typo.body2">Store the paired-device token in the API, apply the /hub/session contract at runtime, and run an authenticated protocol check.</MudText></MudCardContent>
+                    <MudCardActions>
+                        <MudButton Href="/admin/automation/integration/netclaw" Color="Color.Primary" Variant="Variant.Filled">Open destination</MudButton>
+                        <MudLink Href="https://netclaw.dev/architecture/overview/" Target="_blank" Rel="noopener">Netclaw docs</MudLink>
+                    </MudCardActions>
+                </MudCard>
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudCard Class="h-100">
+                    <MudCardHeader><CardHeaderContent><MudText Typo="Typo.h6">My integration credentials</MudText><MudText Typo="Typo.caption">Scoped account access</MudText></CardHeaderContent></MudCardHeader>
+                    <MudCardContent><MudText Typo="Typo.body2">Create and revoke your own purpose-bound API, CLI/stdio, or HTTP MCP credentials. Secrets are shown only once.</MudText></MudCardContent>
+                    <MudCardActions><MudButton Href="/account/integration-credentials" Color="Color.Primary" Variant="Variant.Outlined">Open account credentials</MudButton></MudCardActions>
+                </MudCard>
+            </MudItem>
+        </MudGrid>
+
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+            NetRatel M2M client credentials and Netclaw paired-device tokens are administrator-managed provider secrets. They are not interchangeable with account integration credentials or reverse HTTP MCP delegation.
+        </MudAlert>
+    </MudStack>
+</MudPaper>

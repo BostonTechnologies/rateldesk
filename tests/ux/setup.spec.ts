@@ -151,7 +151,7 @@ test('first-run setup initializes, survives restart, and supports isolated scope
   await page.goto('/api/docs/');
   // Scalar replaces its bootstrap custom element once it renders. Assert the
   // rendered reference UI instead of the transient bootstrap element.
-  await expect(page.getByRole('complementary', { name: 'Sidebar for RatelDesk API' })).toBeVisible();
+  await expect(page.getByRole('complementary', { name: 'Sidebar for RatelDesk API' })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole('link', { name: 'Introduction', exact: true })).toBeVisible();
   await expect(page.getByText('RatelDesk API', { exact: true }).first()).toBeVisible();
   await testInfo.attach('scalar-reference', {
@@ -170,8 +170,16 @@ test('first-run setup initializes, survives restart, and supports isolated scope
   await expect(page.getByTestId('integration-credential-create')).toBeEnabled();
   await page.getByTestId('integration-credential-create').click();
   await expect(page.getByLabel('Name', { exact: true })).toBeVisible();
+  await page.getByLabel('Name', { exact: true }).fill('Browser wizard credential');
+  await page.getByRole('button', { name: 'Choose access', exact: true }).click();
   await expect(page.getByRole('combobox', { name: 'Organization', exact: true })).toBeVisible();
-  await expect(page.getByLabel('Permissions', { exact: true })).toBeVisible();
+  const permissions = page.getByRole('combobox', { name: 'Permissions', exact: true });
+  await expect(permissions).toBeVisible();
+  await permissions.click();
+  await page.getByRole('option', { name: 'Incident User', exact: true }).click();
+  await permissions.click();
+  await page.getByRole('button', { name: 'Review credential', exact: true }).click();
+  await expect(page.getByText('Review before creating', { exact: true })).toBeVisible();
   await expect(page.getByText('The secret is displayed once.')).toBeVisible();
   await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
 

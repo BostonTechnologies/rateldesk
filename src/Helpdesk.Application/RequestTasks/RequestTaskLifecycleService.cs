@@ -158,9 +158,8 @@ public sealed class RequestTaskLifecycleService(
             task.OrchestrationJobDefinitionId = payloadResult.OrchestrationJobDefinitionId;
             task.OrchestrationExternalRequestId = FirstNonEmpty(ingestResult.RequestId);
             task.OrchestrationExternalRunId = FirstNonEmpty(ingestResult.RunId, ingestResult.ExecutionId);
-            task.OrchestratorExecutionId = string.IsNullOrWhiteSpace(ingestResult.ExecutionId)
-                ? Guid.NewGuid().ToString("N")
-                : ingestResult.ExecutionId;
+            task.OrchestratorExecutionId = FirstNonEmpty(ingestResult.ExecutionId)
+                ?? throw new OrchestrationAcknowledgementException("The NetRatel acknowledgement did not contain an execution identifier.");
             task.LastAutomationStatus = FirstNonEmpty(ingestResult.Status) ?? "submitted";
             task.LastAutomationUpdatedAt = DateTimeOffset.UtcNow;
             task.ResultJson = FirstNonEmpty(ingestResult.Message, ingestResult.Status);

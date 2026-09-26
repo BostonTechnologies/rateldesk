@@ -1,6 +1,21 @@
 # Releases
 
-RatelDesk has one repository-owned release line. The root `Directory.Build.props` is the source of truth: maintainers update `VersionPrefix` when preparing the next release. All application projects inherit that value. `VersionSuffix` creates prereleases without changing the release line. The current planned test release is `0.1.1-beta.3`; earlier prereleases remain immutable.
+RatelDesk has one repository-owned release line. The root `Directory.Build.props` is the source of truth: maintainers update `VersionPrefix` when preparing the next release. All application projects inherit that value. `VersionSuffix` creates prereleases without changing the release line. The current planned test release is `0.1.1-beta.4`; earlier prereleases remain immutable.
+
+## 0.1.1-beta.4 — planned integration hub update
+
+The beta.4 candidate consolidates the separate NetRatel orchestrator, Netclaw
+AI harness, and account integration credential workflows in an administrator
+Integration hub. NetRatel uses a dedicated M2M client-credentials adapter and
+catalogue/ingest contract; Netclaw supports canonical `Netclaw__...` settings,
+protected persisted configuration, PostgreSQL runtime application, and an
+authenticated SignalR diagnostic. Account API, CLI/stdio MCP, and HTTP MCP
+credentials remain purpose-bound, organization-scoped, one-time-revealed, and
+separate from provider secrets.
+
+This section describes the candidate under validation. It is not a publication,
+merge, deployment, or promotion announcement. Validate both SQLite migration
+history and PostgreSQL native-chat behavior before adopting it.
 
 ## 0.1.1-beta.3 — planned mailbox delivery update
 

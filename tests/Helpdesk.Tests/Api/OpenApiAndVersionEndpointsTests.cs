@@ -108,14 +108,14 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         }
 
         Assert.True(violations.Count == 0, string.Join(Environment.NewLine, violations));
-        // Release includes the beta.3 operations; Debug also exposes the authorized
+        // Release includes the beta.4 operations; Debug also exposes the authorized
         // /__debug/me endpoint. Keep both inventories explicit so additions or omissions
         // require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(362, operationCount);
+        Assert.Equal(366, operationCount);
 #else
-        Assert.Equal(361, operationCount);
+        Assert.Equal(365, operationCount);
 #endif
 
         var pathOrder = document.RootElement.GetProperty("paths").EnumerateObject().Select(path => path.Name).ToArray();

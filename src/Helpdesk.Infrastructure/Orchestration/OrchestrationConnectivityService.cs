@@ -10,27 +10,32 @@ public sealed class OrchestrationConnectivityService(
     IOptions<OrchestrationM2MOptions> options,
     IOptions<M2MClientOptions> m2mClientOptions,
     IOrchestrationTokenService orchestrationTokenService,
-    IOrchestrationInternalClient orchestrationClient) : IOrchestrationConnectivityService
+    IOrchestrationInternalClient orchestrationClient,
+    IIntegrationProviderSettingsService? providerSettings = null,
+    IOrchestrationProtectedDiagnosticsClient? protectedDiagnostics = null) : IOrchestrationConnectivityService
 {
-    private const string DefaultOrchestrationAudience = "external-orchestration-api";
+    private const string DefaultOrchestrationAudience = "netratel.api";
 
     private readonly OrchestrationM2MOptions _options = options.Value;
-    private readonly M2MClientOptions _m2mClientOptions = m2mClientOptions.Value;
     private readonly IOrchestrationTokenService _orchestrationTokenService = orchestrationTokenService;
     private readonly IOrchestrationInternalClient _orchestrationClient = orchestrationClient;
+    private readonly IIntegrationProviderSettingsService? _providerSettings = providerSettings;
+    private readonly IOrchestrationProtectedDiagnosticsClient? _protectedDiagnostics = protectedDiagnostics;
 
-    public Task<OrchestrationConnectivitySettingsDto> GetOrchestrationSettingsAsync(CancellationToken cancellationToken = default)
-        => Task.FromResult(ToDto(ToResolvedSettings()));
+    public async Task<OrchestrationConnectivitySettingsDto> GetOrchestrationSettingsAsync(CancellationToken cancellationToken = default)
+        => _providerSettings is not null
+            ? await _providerSettings.GetOrchestratorSettingsAsync(cancellationToken)
+            : ToDto(ToResolvedSettings());
 
     public async Task<OrchestrationConnectivityTestResultDto> TestOrchestrationConnectivityAsync(CancellationToken cancellationToken = default)
     {
-        var settings = ToResolvedSettings();
+        var settings = await GetResolvedOrchestrationSettingsAsync(cancellationToken);
         if (!settings.Enabled)
         {
             return new OrchestrationConnectivityTestResultDto
             {
                 Success = false,
-                Message = "External orchestration connectivity is disabled. Set a provider base URL to enable it.",
+                Message = "External orchestration connectivity is disabled. Enable the provider explicitly before testing it.",
                 Probes =
                 [
                     CreateProbe(
@@ -92,6 +97,10 @@ public sealed class OrchestrationConnectivityService(
                 CheckedAtUtc = DateTimeOffset.UtcNow
             });
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             probes.Add(CreateProbe(
@@ -127,6 +136,35 @@ public sealed class OrchestrationConnectivityService(
                 CheckedAtUtc = DateTimeOffset.UtcNow
             });
 
+            if (result.Success && _protectedDiagnostics is not null)
+            {
+                var identity = await _protectedDiagnostics.IdentityAsync(settings, cancellationToken);
+                probes.Add(new OrchestrationConnectivityProbeResultDto
+                {
+                    ProbeName = "ProtectedIdentity",
+                    Target = BuildIdentityEndpoint(settings),
+                    Status = identity.Success
+                        ? OrchestrationConnectivityTrafficLight.Green
+                        : identity.StatusCode is 401 or 403
+                            ? OrchestrationConnectivityTrafficLight.Amber
+                            : OrchestrationConnectivityTrafficLight.Red,
+                    HttpStatus = identity.StatusCode,
+                    Message = identity.Message,
+                    RemoteSystemName = settings.RemoteSystemName,
+                    CheckedAtUtc = DateTimeOffset.UtcNow
+                });
+                if (!identity.Success)
+                {
+                    return new OrchestrationConnectivityTestResultDto
+                    {
+                        Success = false,
+                        StatusCode = identity.StatusCode,
+                        Message = identity.Message,
+                        Probes = probes
+                    };
+                }
+            }
+
             return new OrchestrationConnectivityTestResultDto
             {
                 Success = result.Success,
@@ -134,6 +172,10 @@ public sealed class OrchestrationConnectivityService(
                 Message = result.Message,
                 Probes = probes
             };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -154,10 +196,15 @@ public sealed class OrchestrationConnectivityService(
     }
 
     public async Task<OrchestrationResolvedSettings> GetResolvedOrchestrationSettingsAsync(CancellationToken cancellationToken = default)
-        => await Task.FromResult(ToResolvedSettings());
+        => _providerSettings is not null
+            ? await _providerSettings.GetResolvedOrchestratorSettingsAsync(cancellationToken)
+            : ToResolvedSettings();
 
     private OrchestrationResolvedSettings ToResolvedSettings()
     {
+        // M2MClientOptions remains bound for inbound callback authentication;
+        // it is deliberately never reused for outbound NetRatel calls.
+        _ = m2mClientOptions.Value;
         var baseUrl = Normalize(_options.BaseUrl);
         var authority = Normalize(_options.Authority)
             ?? baseUrl;
@@ -166,7 +213,7 @@ public sealed class OrchestrationConnectivityService(
         var scope = Normalize(_options.Scope) ?? audience;
         var tokenEndpoint = Normalize(_options.TokenEndpoint)
             ?? BuildTokenEndpoint(authority);
-        var enabled = _options.Enabled || !string.IsNullOrWhiteSpace(baseUrl);
+        var enabled = _options.Enabled;
 
         return new OrchestrationResolvedSettings
         {
@@ -176,13 +223,15 @@ public sealed class OrchestrationConnectivityService(
             Authority = authority,
             TokenEndpoint = tokenEndpoint,
             Scope = scope,
-            ClientId = Normalize(_m2mClientOptions.ClientId) ?? Normalize(_options.ClientId),
-            ClientSecret = Normalize(_m2mClientOptions.ClientSecret) ?? Normalize(_options.ClientSecret),
-            RemoteSystemName = Normalize(_options.ProviderName) ?? "External orchestration provider",
-            HealthPath = NormalizePath(_options.HealthPath, "/api/v1/health"),
-            IngestPath = NormalizePath(_options.IngestPath, "/api/v1/orchestration/ingest"),
-            CatalogPath = NormalizePath(_options.CatalogPath, "/api/v1/orchestration/catalog"),
-            UpdatedAtUtc = DateTimeOffset.UtcNow
+            ClientId = Normalize(_options.ClientId),
+            ClientSecret = Normalize(_options.ClientSecret),
+            RemoteSystemName = Normalize(_options.ProviderName) ?? "NetRatel orchestrator",
+            HealthPath = NormalizePath(_options.HealthPath, "/internal/health"),
+            IngestPath = NormalizePath(_options.IngestPath, "/internal/ingest"),
+            CatalogPath = NormalizePath(_options.CatalogPath, "/internal/catalog"),
+            Source = "deployment",
+            ManagedByDeployment = true,
+            HasClientSecret = !string.IsNullOrWhiteSpace(_options.ClientSecret)
         };
     }
 
@@ -197,7 +246,16 @@ public sealed class OrchestrationConnectivityService(
             Authority = settings.Authority,
             TokenEndpoint = settings.TokenEndpoint,
             RemoteSystemName = settings.RemoteSystemName,
-            UpdatedAtUtc = settings.UpdatedAtUtc
+            UpdatedAtUtc = settings.UpdatedAtUtc,
+            ProviderKey = settings.ProviderKey,
+            Revision = settings.Revision,
+            Source = settings.Source,
+            ManagedByDeployment = settings.ManagedByDeployment,
+            HasClientSecret = settings.HasClientSecret,
+            HealthPath = settings.HealthPath,
+            IngestPath = settings.IngestPath,
+            CatalogPath = settings.CatalogPath,
+            ClientId = settings.ClientId
         };
     }
 
@@ -236,6 +294,11 @@ public sealed class OrchestrationConnectivityService(
 
         return $"{settings.BaseUrl.TrimEnd('/')}{settings.HealthPath}";
     }
+
+    private static string BuildIdentityEndpoint(OrchestrationResolvedSettings settings)
+        => string.IsNullOrWhiteSpace(settings.BaseUrl)
+            ? "(not set)"
+            : $"{settings.BaseUrl.TrimEnd('/')}/api/v1/system/m2m/ping";
 
     private static OrchestrationConnectivityProbeResultDto CreateProbe(
         string probeName,

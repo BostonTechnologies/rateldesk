@@ -29,12 +29,40 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("CatalogPath")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<string>("ClientId")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
                     b.Property<bool>("Enabled")
                         .HasColumnType("boolean");
+
+                    b.Property<string>("HealthPath")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("IngestPath")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTimeOffset?>("LastAppliedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool?>("LastTestSucceeded")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("LastTestedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ProtectedClientSecret")
+                        .HasMaxLength(8192)
+                        .HasColumnType("character varying(8192)");
 
                     b.Property<string>("RemoteAudience")
                         .HasMaxLength(256)
@@ -48,6 +76,10 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                         .HasMaxLength(1024)
                         .HasColumnType("character varying(1024)");
 
+                    b.Property<string>("RemoteScope")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<string>("RemoteSystemName")
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
@@ -56,12 +88,72 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                         .HasMaxLength(1024)
                         .HasColumnType("character varying(1024)");
 
+                    b.Property<int>("Revision")
+                        .HasColumnType("integer");
+
                     b.Property<DateTimeOffset>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
 
                     b.ToTable("M2MConnectivitySettings", (string)null);
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.Persistence.Connectivity.NetclawConnectivitySettings", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ActivityHeartbeatIntervalSeconds")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("AllowPrivateHttp")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("ConnectionCapacity")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Endpoint")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<int>("IdleMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Instance")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("LastAppliedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool?>("LastTestSucceeded")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("LastTestedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ProtectedDeviceToken")
+                        .HasMaxLength(8192)
+                        .HasColumnType("character varying(8192)");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("TurnInactivityTimeoutSeconds")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("NetclawConnectivitySettings", (string)null);
                 });
 
             modelBuilder.Entity("Helpdesk.Infrastructure.Persistence.Entities.NotificationEntity", b =>
