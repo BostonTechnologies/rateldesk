@@ -11,7 +11,7 @@ must remain unpublished until the human merge and release gates are satisfied.
 - Refreshed `origin/main`: `2027f686ac529607dcb1a6ce619c81f465a60e3d`
 - Candidate version: `0.1.1-beta.4` (`Directory.Build.props` now evaluates to this version)
 - Release tag: not created
-- Rollup PR: not created
+- Rollup PR: [#94](https://github.com/BostonTechnologies/rateldesk/pull/94), open and non-draft against `main`
 - NetRatel compatibility reference: unchanged commit `cc58661bff496825d68de4db9ec53da92de45942`
 - NetRatel and Netclaw: read-only compatibility references; no upstream changes permitted
 
@@ -66,6 +66,7 @@ secrets, private endpoints, local workstation diagnostics, or customer data.
 | 2026-09-26 | Release upload semantics | `tools/release/test-publish-release-assets.sh` | Dry-run, draft creation, resumable upload, failed-upload recovery, and conflicting-asset rejection all passed without a registry or GitHub release write |
 | 2026-09-26 | Manifest finalization | `tools/release/prepare-release-manifest.sh 0.1.1-beta.4 <candidate-revision> <temporary> <web-digest> <api-digest> <mcp-digest> v0.1.1-beta.4` | Archive checksums verified and detached manifest checksum generated using rehearsal-only image digest placeholders |
 | 2026-09-26 | Final-head release rerun | Same package, archive, deployment, checksum, and manifest probes against `872ba66d7139600b514ce2ae50e17a3807067157` | Final branch-head asset rehearsal passed; manifest source revision matched the candidate head used for the run |
+| 2026-09-26 | Review handoff | [PR #94](https://github.com/BostonTechnologies/rateldesk/pull/94) | Non-draft PR opened against `main`; hosted checks are running against the pushed candidate head |
 
 ## Compatibility decisions
 
@@ -94,6 +95,6 @@ secrets, private endpoints, local workstation diagnostics, or customer data.
 - [x] UI light/dark/mobile evidence captured without secrets
 - [ ] Full applicable tests and hosted checks green for the final head
 - [x] Non-publishing beta.4 release rehearsal complete
-- [ ] Branch clean and pushed
-- [ ] Rollup PR non-draft and reviewable
+- [x] Branch clean and pushed
+- [x] Rollup PR non-draft and reviewable
 - [ ] Human merge/release/deployment steps handed off; no merge or publication performed
