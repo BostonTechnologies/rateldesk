@@ -242,6 +242,137 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
         Assert.True(run.Client.Disposed);
     }
 
+    [Fact]
+    public async Task Trusted_legacy_session_is_adopted_without_speculative_durable_rewrite()
+    {
+        var runtime = new AiAssistantChatRuntimeState(Options.Create(new AiAssistantChatOptions
+        {
+            Enabled = true,
+            Endpoint = "https://chat.invalid/hub/session",
+            DeviceToken = "device-token"
+        }));
+        await using var run = await Run.CreateAsync(fixture, runtimeState: runtime);
+        await using (var db = fixture.Context())
+        {
+            var conversation = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == run.Conversation);
+            conversation.AiAssistantSessionId = "legacy-session";
+            conversation.ProviderProfileFingerprint = null;
+            await db.SaveChangesAsync();
+        }
+
+        await run.SendAsync();
+
+        Assert.Equal("legacy-session", run.Client.RequestedSessionId);
+        await using var check = fixture.Context();
+        var adopted = await check.Set<AiAssistantChatConversation>().AsNoTracking().SingleAsync(x => x.Id == run.Conversation);
+        Assert.Equal("legacy-session", adopted.AiAssistantSessionId);
+        Assert.Equal(runtime.Current.ProfileFingerprint, adopted.ProviderProfileFingerprint);
+    }
+
+    [Fact]
+    public async Task Legacy_session_without_trusted_runtime_authority_is_not_reused()
+    {
+        var runtime = new AiAssistantChatRuntimeState(Options.Create(new AiAssistantChatOptions { Enabled = true }));
+        await using var run = await Run.CreateAsync(fixture, runtimeState: runtime);
+        await using (var db = fixture.Context())
+        {
+            var conversation = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == run.Conversation);
+            conversation.AiAssistantSessionId = "legacy-session";
+            conversation.ProviderProfileFingerprint = null;
+            await db.SaveChangesAsync();
+        }
+
+        await run.SendAsync();
+
+        Assert.Null(run.Client.RequestedSessionId);
+        await using var check = fixture.Context();
+        Assert.Equal(ChatState.DeliveryUnknown, (await check.Set<AiAssistantChatConversation>().AsNoTracking().SingleAsync(x => x.Id == run.Conversation)).State);
+        Assert.Equal("legacy-session", (await check.Set<AiAssistantChatConversation>().AsNoTracking().SingleAsync(x => x.Id == run.Conversation)).AiAssistantSessionId);
+    }
+
+    [Fact]
+    public async Task Active_turn_from_a_different_provider_is_fenced_before_connecting()
+    {
+        var runtime = new AiAssistantChatRuntimeState(Options.Create(new AiAssistantChatOptions
+        {
+            Enabled = true,
+            Endpoint = "https://chat.invalid/hub/session",
+            DeviceToken = "device-token"
+        }));
+        runtime.Publish(runtime.Current with
+        {
+            Revision = 2,
+            ProfileFingerprint = "provider-new",
+            Source = "database",
+            SourceKey = "database"
+        });
+        await using var run = await Run.CreateAsync(fixture, runtimeState: runtime);
+        await using (var db = fixture.Context())
+        {
+            var conversation = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == run.Conversation);
+            conversation.AiAssistantSessionId = "old-session";
+            conversation.ProviderProfileFingerprint = "provider-old";
+            await db.SaveChangesAsync();
+        }
+
+        await run.SendAsync();
+
+        Assert.Null(run.Client.RequestedSessionId);
+        await using var check = fixture.Context();
+        var fenced = await check.Set<AiAssistantChatConversation>().AsNoTracking().SingleAsync(x => x.Id == run.Conversation);
+        Assert.Equal(ChatState.DeliveryUnknown, fenced.State);
+        Assert.Equal("old-session", fenced.AiAssistantSessionId);
+        Assert.Equal("provider-old", fenced.ProviderProfileFingerprint);
+    }
+
+    [Fact]
+    public async Task Same_provider_token_rotation_reuses_durable_session_and_uses_new_runtime_credential()
+    {
+        var runtime = new AiAssistantChatRuntimeState(Options.Create(new AiAssistantChatOptions()));
+        var initial = new AiAssistantChatRuntimeSnapshot(
+            Enabled: true,
+            Instance: "dev",
+            Endpoint: "https://chat.invalid/hub/session",
+            DeviceToken: "old-device-token",
+            AllowPrivateHttp: false,
+            IdleMinutes: 15,
+            ConnectionCapacity: 2,
+            TurnInactivityTimeout: TimeSpan.FromMinutes(5),
+            ActivityHeartbeatInterval: TimeSpan.FromSeconds(15),
+            ProfileFingerprint: "provider-same",
+            Revision: 1,
+            Source: "database",
+            ManagedByDeployment: false,
+            SourceKey: "database",
+            CanAdoptLegacySessions: true);
+        Assert.True(runtime.TryPublish(initial));
+
+        await using var run = await Run.CreateAsync(fixture, runtimeState: runtime);
+        await using (var db = fixture.Context())
+        {
+            var conversation = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == run.Conversation);
+            conversation.AiAssistantSessionId = "same-provider-session";
+            conversation.ProviderProfileFingerprint = initial.ProfileFingerprint;
+            await db.SaveChangesAsync();
+        }
+
+        var rotated = initial with
+        {
+            Revision = 2,
+            DeviceToken = "rotated-device-token"
+        };
+        Assert.True(await run.Manager.TryReconfigureAsync(rotated, default));
+
+        await run.SendAsync();
+
+        Assert.Equal("same-provider-session", run.Client.RequestedSessionId);
+        Assert.Equal("rotated-device-token", Assert.Single(run.Factory.Snapshots).DeviceToken);
+        await using var check = fixture.Context();
+        var persisted = await check.Set<AiAssistantChatConversation>().AsNoTracking().SingleAsync(x => x.Id == run.Conversation);
+        Assert.Equal("same-provider-session", persisted.AiAssistantSessionId);
+        Assert.Equal(initial.ProfileFingerprint, persisted.ProviderProfileFingerprint);
+    }
+
     private sealed class Run : IAsyncDisposable
     {
         private readonly ChatPostgresFixture fixture;
@@ -271,14 +402,24 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
             reader = feed.Subscribe(conversation);
         }
 
-        public static async Task<Run> CreateAsync(ChatPostgresFixture fixture, TimeProvider? timeProvider = null)
+        public static async Task<Run> CreateAsync(
+            ChatPostgresFixture fixture,
+            TimeProvider? timeProvider = null,
+            IAiAssistantChatRuntimeState? runtimeState = null)
         {
             var services = new ServiceCollection().AddScoped(_ => fixture.Context())
                 .AddSingleton(Substitute.For<IDomainEventPublisher>())
                 .AddSingleton(Substitute.For<ICorrelationContext>()).BuildServiceProvider();
             var factory = new ControlledFactory();
             var feed = new ChatLiveFeed();
-            var manager = new AiAssistantChatSessionManager(services.GetRequiredService<IServiceScopeFactory>(), Options.Create(new AiAssistantChatOptions { Enabled = true }), feed, NullLogger<AiAssistantChatSessionManager>.Instance, factory, timeProvider);
+            var manager = new AiAssistantChatSessionManager(
+                services.GetRequiredService<IServiceScopeFactory>(),
+                Options.Create(new AiAssistantChatOptions { Enabled = true }),
+                feed,
+                NullLogger<AiAssistantChatSessionManager>.Instance,
+                factory,
+                timeProvider,
+                runtimeState);
             await manager.StartAsync(default);
             var (ticket, conversation) = await fixture.CreateAsync();
             return new(fixture, services, feed, manager, factory, ticket, conversation, timeProvider);
@@ -322,10 +463,16 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
         }
     }
 
-    private sealed class ControlledFactory : IAiAssistantChatClientFactory
+    private sealed class ControlledFactory : IAiAssistantChatClientFactory, IAiAssistantChatRuntimeClientFactory
     {
         public ControlledClient Next { get; set; } = new();
+        public List<AiAssistantChatRuntimeSnapshot> Snapshots { get; } = [];
         public IAiAssistantChatClient Create() => Next;
+        public IAiAssistantChatClient Create(AiAssistantChatRuntimeSnapshot snapshot)
+        {
+            Snapshots.Add(snapshot);
+            return Next;
+        }
     }
 
     private sealed class ControlledClient : IAiAssistantChatClient

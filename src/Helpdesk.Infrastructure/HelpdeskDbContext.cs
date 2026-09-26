@@ -101,6 +101,7 @@ public class HelpdeskDbContext(
     public DbSet<UserSupportNotificationPreference> UserSupportNotificationPreferences => Set<UserSupportNotificationPreference>();
     public DbSet<SupportNotificationDelivery> SupportNotificationDeliveries => Set<SupportNotificationDelivery>();
     public DbSet<M2MConnectivitySettings> M2MConnectivitySettings => Set<M2MConnectivitySettings>();
+    public DbSet<NetclawConnectivitySettings> NetclawConnectivitySettings => Set<NetclawConnectivitySettings>();
     public DbSet<AutomationBinding> AutomationBindings => Set<AutomationBinding>();
     public DbSet<DatasetDefinition> DatasetDefinitions => Set<DatasetDefinition>();
     public DbSet<DatasetColumn> DatasetColumns => Set<DatasetColumn>();
@@ -140,6 +141,7 @@ public class HelpdeskDbContext(
         {
             entity.ToTable("AiAssistantChatConversations");
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.ProviderProfileFingerprint).HasMaxLength(64);
             entity.HasIndex(x => new { x.OrganizationId, x.TicketType, x.TicketId }).IsUnique().HasFilter("\"State\" <> 4");
             entity.HasIndex(x => new { x.State, x.LastTransportActivityAtUtc });
         });
@@ -317,12 +319,32 @@ public class HelpdeskDbContext(
         {
             entity.ToTable("M2MConnectivitySettings");
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.ProviderKey).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.HasIndex(x => x.ProviderKey).IsUnique();
             entity.Property(x => x.RemoteBaseUrl).HasMaxLength(1024);
             entity.Property(x => x.RemoteAudience).HasMaxLength(256);
             entity.Property(x => x.RemoteSystemName).HasMaxLength(128);
             entity.Property(x => x.RemoteTokenEndpoint).HasMaxLength(1024);
             entity.Property(x => x.RemoteAuthority).HasMaxLength(512);
+            entity.Property(x => x.RemoteScope).HasMaxLength(256);
             entity.Property(x => x.ClientId).HasMaxLength(256);
+            entity.Property(x => x.ProtectedClientSecret).HasMaxLength(8192);
+            entity.Property(x => x.HealthPath).HasMaxLength(256);
+            entity.Property(x => x.IngestPath).HasMaxLength(256);
+            entity.Property(x => x.CatalogPath).HasMaxLength(256);
+        });
+
+        modelBuilder.Entity<NetclawConnectivitySettings>(entity =>
+        {
+            entity.ToTable("NetclawConnectivitySettings");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.ProviderKey).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.HasIndex(x => x.ProviderKey).IsUnique();
+            entity.Property(x => x.Instance).HasMaxLength(64);
+            entity.Property(x => x.Endpoint).HasMaxLength(1024);
+            entity.Property(x => x.ProtectedDeviceToken).HasMaxLength(8192);
         });
 
         modelBuilder.Entity<AutomationBinding>(entity =>

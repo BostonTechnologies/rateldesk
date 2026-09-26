@@ -46,19 +46,19 @@ test('Email Settings opens as a standalone page from the expanded administration
   await page.screenshot({ path: testInfo.outputPath('email-settings-desktop.png'), fullPage: true });
 });
 
-test('Automation navigation preserves the Orchestrator destination and collapsible groups', async ({ page }) => {
+test('Automation navigation preserves the Integration hub destination and collapsible groups', async ({ page }) => {
   const drawer = page.getByTestId('app-navigation-drawer');
   await page.goto('/admin/email-settings');
   await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
 
   await drawer.getByRole('button', { name: 'Toggle Automation' }).click();
-  const orchestrator = drawer.getByRole('link', { name: 'Orchestrator' });
-  await expect(orchestrator).toBeVisible();
-  await orchestrator.click();
+  const integrationHub = drawer.getByRole('link', { name: 'Integration hub' });
+  await expect(integrationHub).toBeVisible();
+  await integrationHub.click();
 
-  await expect(page).toHaveURL(/\/settings\/connectivity$/);
-  await expect(page.getByRole('heading', { name: 'Orchestrator' })).toBeVisible();
-  await expect(page.getByText('Connectivity and validation', { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/automation\/integration$/);
+  await expect(page.getByRole('heading', { name: 'Integration hub' })).toBeVisible();
+  await expect(page.getByText('Manage the three separate trust boundaries used by RatelDesk integrations.', { exact: true })).toBeVisible();
 });
 
 test('Email Settings is usable from the phone drawer without horizontal overflow', async ({ page }, testInfo) => {

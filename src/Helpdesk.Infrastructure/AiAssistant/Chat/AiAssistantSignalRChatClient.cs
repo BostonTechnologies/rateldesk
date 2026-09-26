@@ -1,6 +1,9 @@
+using System.Net.WebSockets;
 using System.Text.Json;
+using Microsoft.AspNetCore.Http.Connections.Client;
 using Microsoft.AspNetCore.SignalR.Client;
-using Microsoft.Extensions.Options;
+using Helpdesk.Application.AiAssistant.Chat;
+using Helpdesk.Infrastructure.Persistence.Connectivity;
 
 namespace Helpdesk.Infrastructure.AiAssistant.Chat;
 
@@ -19,17 +22,85 @@ public interface IAiAssistantChatClientFactory
     IAiAssistantChatClient Create();
 }
 
-public sealed class AiAssistantChatClientFactory(IOptions<AiAssistantChatOptions> options) : IAiAssistantChatClientFactory
+// Additive capability for factories that can bind a client to one immutable
+// runtime snapshot. Older implementations remain valid through Create().
+public interface IAiAssistantChatRuntimeClientFactory
 {
-    public IAiAssistantChatClient Create() => new AiAssistantSignalRChatClient(options.Value);
+    IAiAssistantChatClient Create(AiAssistantChatRuntimeSnapshot snapshot);
 }
 
-public sealed class AiAssistantSignalRChatClient(AiAssistantChatOptions options) : IAiAssistantChatClient
+public sealed class AiAssistantChatClientFactory(IAiAssistantChatRuntimeState runtime) : IAiAssistantChatClientFactory, IAiAssistantChatRuntimeClientFactory
+{
+    public IAiAssistantChatClient Create() => Create(runtime.Current);
+    public IAiAssistantChatClient Create(AiAssistantChatRuntimeSnapshot snapshot) => new AiAssistantSignalRChatClient(snapshot);
+}
+
+public sealed class AiAssistantSignalRChatClient(AiAssistantChatRuntimeSnapshot options) : IAiAssistantChatClient
 {
     public bool IsConnected => connection.State == HubConnectionState.Connected;
-    private readonly HubConnection connection = new HubConnectionBuilder()
-        .WithUrl(options.Endpoint, http => http.AccessTokenProvider = () => Task.FromResult<string?>(options.DeviceToken))
-        .Build();
+    private readonly HubConnection connection = BuildConnection(options);
+
+    private static HubConnection BuildConnection(AiAssistantChatRuntimeSnapshot options)
+    {
+        if (!Uri.TryCreate(options.Endpoint, UriKind.Absolute, out var endpoint))
+            throw new ArgumentException("The Netclaw endpoint must be an absolute URI.", nameof(options));
+
+        return new HubConnectionBuilder()
+            .WithUrl(endpoint, http =>
+            {
+                http.AccessTokenProvider = () => Task.FromResult<string?>(options.DeviceToken);
+                http.HttpMessageHandlerFactory = _ => IntegrationSafeHttpMessageHandler.Create(options.AllowPrivateHttp, endpoint);
+                http.WebSocketFactory = (context, cancellationToken) => CreateWebSocketAsync(context, endpoint, options.AllowPrivateHttp, cancellationToken);
+            })
+            .Build();
+    }
+
+    private static async ValueTask<WebSocket> CreateWebSocketAsync(
+        WebSocketConnectionContext context,
+        Uri configuredEndpoint,
+        bool allowPrivateHttp,
+        CancellationToken cancellationToken)
+    {
+        await IntegrationSafeHttpMessageHandler.ValidateSignalRTargetAsync(
+            configuredEndpoint,
+            context.Uri,
+            allowPrivateHttp,
+            cancellationToken);
+
+        var socket = new ClientWebSocket();
+        try
+        {
+            socket.Options.Proxy = null;
+            if (context.Options is not null)
+            {
+                foreach (var header in context.Options.Headers)
+                    socket.Options.SetRequestHeader(header.Key, header.Value);
+                if (context.Options.Cookies is not null)
+                    socket.Options.Cookies = context.Options.Cookies;
+                if (context.Options.ClientCertificates is { Count: > 0 })
+                    socket.Options.ClientCertificates.AddRange(context.Options.ClientCertificates);
+                if (context.Options.Credentials is not null)
+                    socket.Options.Credentials = context.Options.Credentials;
+                if (context.Options.UseDefaultCredentials is not null)
+                    socket.Options.UseDefaultCredentials = context.Options.UseDefaultCredentials.Value;
+
+                var token = context.Options.AccessTokenProvider is null
+                    ? null
+                    : await context.Options.AccessTokenProvider();
+                if (!string.IsNullOrWhiteSpace(token))
+                    socket.Options.SetRequestHeader("Authorization", $"Bearer {token}");
+                context.Options.WebSocketConfiguration?.Invoke(socket.Options);
+            }
+
+            await socket.ConnectAsync(context.Uri, cancellationToken);
+            return socket;
+        }
+        catch
+        {
+            socket.Dispose();
+            throw;
+        }
+    }
 
     public async Task<SessionEnsureResult> ConnectAsync(string? sessionId, Func<JsonElement, Task> output, CancellationToken ct)
     {

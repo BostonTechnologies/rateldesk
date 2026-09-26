@@ -809,6 +809,26 @@ public sealed class HelpdeskCliTests
     }
 
     [Fact]
+    public async Task Integration_credential_mode_calls_api_directly_without_an_OIDC_token_exchange()
+    {
+        var temp = Directory.CreateTempSubdirectory("helpdesk-cli-test-");
+        var path = Path.Combine(temp.FullName, "cli.json");
+        await File.WriteAllTextAsync(path, """{"apiBaseUrl":"https://api.example","credentialMode":"integration","integrationCredential":"rdk_test"}""");
+        var requests = new List<HttpRequestMessage>();
+        var output = new StringWriter();
+        var code = await HelpdeskCli.RunAsync(["--config", path, "health", "--json"], new CliRuntime(() => new RecordingHandler(request =>
+        {
+            requests.Add(CloneForAssert(request));
+            return Task.FromResult(Json(HttpStatusCode.OK, "{}"));
+        })) { Out = output, Error = new StringWriter() });
+
+        Assert.Equal(CliExitCodes.Success, code);
+        Assert.Equal(3, requests.Count);
+        Assert.DoesNotContain(requests, request => request.RequestUri!.AbsolutePath.Contains("token", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("Bearer rdk_test", requests[2].Headers.Authorization?.ToString());
+    }
+
+    [Fact]
     public async Task Runtime_does_not_reuse_an_integration_credential_after_configuration_changes()
     {
         var runtime = new CliRuntime();
@@ -1319,6 +1339,7 @@ public sealed class HelpdeskCliTests
     private static HttpRequestMessage CloneForAssert(HttpRequestMessage request)
     {
         var clone = new HttpRequestMessage(request.Method, request.RequestUri);
+        clone.Headers.Authorization = request.Headers.Authorization;
         if (request.Content is not null)
         {
             clone.Content = new StringContent(request.Content.ReadAsStringAsync().Result, Encoding.UTF8, "application/json");

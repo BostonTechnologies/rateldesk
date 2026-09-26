@@ -413,7 +413,7 @@
             return;
         }
 
-        using (var refreshResponse = await HelpdeskApi.PostAsync("api/v1/admin/orchestration/orchestration/bindings/refresh-drift", content: null))
+        using (var refreshResponse = await HelpdeskApi.PostAsync("api/v1/admin/orchestration/bindings/refresh-drift", content: null))
         {
             if (!refreshResponse.IsSuccessStatusCode)
             {
@@ -421,7 +421,7 @@
             }
         }
 
-        var bindings = await HelpdeskApi.GetFromJsonAsync<List<AutomationBindingDto>>("api/v1/admin/orchestration/orchestration/bindings") ?? new();
+        var bindings = await HelpdeskApi.GetFromJsonAsync<List<AutomationBindingDto>>("api/v1/admin/orchestration/bindings") ?? new();
         bindingsByRequestFormId = bindings
             .Where(x => requestFormIds.Contains(x.RequestFormId, StringComparer.Ordinal))
             .GroupBy(x => x.RequestFormId, StringComparer.Ordinal)

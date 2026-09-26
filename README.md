@@ -123,7 +123,9 @@ The second gives NetClaw carefully scoped RatelDesk tools. They use different
 credentials, have different purposes, and must never be substituted for one
 another.
 
-Read the [NetClaw integration guide](docs/netclaw.md) before enabling either
+Read the [NetClaw integration guide](docs/netclaw.md) and the
+[NetRatel orchestrator guide](docs/integrations/netratel-orchestrator.md)
+before enabling either
 path. It covers pairing, SignalR recovery, the optional HTTP MCP host,
 tenant-per-NetClaw boundaries, least privilege, credential rotation, and a
 copy/paste-safe NetClaw CLI onboarding flow.
@@ -158,6 +160,7 @@ local paired credentials.
 | --- | --- |
 | Install, configure, secure, or recover an instance | [Self-hosting](docs/SELF_HOSTING.md) |
 | Connect NetClaw AI Assistant and tenant-scoped MCP | [NetClaw integration](docs/netclaw.md) |
+| Configure the NetRatel orchestrator | [NetRatel orchestrator](docs/integrations/netratel-orchestrator.md) |
 | Brand an instance without forking | [Branding](docs/branding.md) |
 | Build and publish releases | [Release engineering](docs/releases.md) |
 

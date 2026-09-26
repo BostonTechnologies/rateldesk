@@ -12,7 +12,9 @@ done
 repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
 
-blocked_text='boston|bostec|proxicon|netratel|komodo|openbao|spacetimeorchestrator|camelot|konrad|jeremi|hd-dev|@boston\.net\.za'
+# NetRatel is an intentional public integration term for beta.4; keep the
+# remaining organization, infrastructure, and operator identifiers blocked.
+blocked_text='boston|bostec|proxicon|komodo|openbao|spacetimeorchestrator|camelot|konrad|jeremi|hd-dev|@boston\.net\.za'
 blocked_files='(^|/)(\.env|appsettings\.Development\.local\.json)$|\.(pfx|pem|key)$|(^|/)(id_rsa|id_ed25519)$'
 
 failed=false
