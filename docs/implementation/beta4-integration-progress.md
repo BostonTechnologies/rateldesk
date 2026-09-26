@@ -65,6 +65,7 @@ secrets, private endpoints, local workstation diagnostics, or customer data.
 | 2026-09-26 | Source image acceptance | Source MCP image build plus `tools/ci/test-mcp-compose-config.sh <local-image>` | Compose recipes, extracted deployment recipes, config ownership, permissions, health, and non-root runtime checks passed |
 | 2026-09-26 | Release upload semantics | `tools/release/test-publish-release-assets.sh` | Dry-run, draft creation, resumable upload, failed-upload recovery, and conflicting-asset rejection all passed without a registry or GitHub release write |
 | 2026-09-26 | Manifest finalization | `tools/release/prepare-release-manifest.sh 0.1.1-beta.4 <candidate-revision> <temporary> <web-digest> <api-digest> <mcp-digest> v0.1.1-beta.4` | Archive checksums verified and detached manifest checksum generated using rehearsal-only image digest placeholders |
+| 2026-09-26 | Final-head release rerun | Same package, archive, deployment, checksum, and manifest probes against `872ba66d7139600b514ce2ae50e17a3807067157` | Final branch-head asset rehearsal passed; manifest source revision matched the candidate head used for the run |
 
 ## Compatibility decisions
 
