@@ -43,11 +43,14 @@ public sealed class AiAssistantChatOptions
 public interface IAiAssistantChatRuntimeState
 {
     AiAssistantChatRuntimeSnapshot Current { get; }
+    bool CanApply(AiAssistantChatRuntimeSnapshot snapshot);
+    bool TryPublish(AiAssistantChatRuntimeSnapshot snapshot);
     void Publish(AiAssistantChatRuntimeSnapshot snapshot);
 }
 
 public sealed class AiAssistantChatRuntimeState(IOptions<AiAssistantChatOptions> options) : IAiAssistantChatRuntimeState
 {
+    private readonly object gate = new();
     private AiAssistantChatRuntimeSnapshot current = new(
         options.Value.Enabled,
         options.Value.Instance,
@@ -58,10 +61,41 @@ public sealed class AiAssistantChatRuntimeState(IOptions<AiAssistantChatOptions>
         options.Value.ConnectionCapacity,
         options.Value.TurnInactivityTimeout,
         options.Value.ActivityHeartbeatInterval,
-        string.Empty);
+        IntegrationProviderSecretBinding.Fingerprint("Netclaw", options.Value.Instance, options.Value.Endpoint),
+        Source: "deployment",
+        ManagedByDeployment: true,
+        SourceKey: "deployment",
+        CanAdoptLegacySessions: !string.IsNullOrWhiteSpace(options.Value.Endpoint));
 
     public AiAssistantChatRuntimeSnapshot Current => Volatile.Read(ref current);
 
+    public bool CanApply(AiAssistantChatRuntimeSnapshot snapshot)
+    {
+        lock (gate) return !IsStale(snapshot, current);
+    }
+
+    public bool TryPublish(AiAssistantChatRuntimeSnapshot snapshot)
+    {
+        lock (gate)
+        {
+            if (IsStale(snapshot, current)) return false;
+            Volatile.Write(ref current, snapshot);
+            return true;
+        }
+    }
+
     public void Publish(AiAssistantChatRuntimeSnapshot snapshot)
-        => Volatile.Write(ref current, snapshot);
+        => TryPublish(snapshot);
+
+    private static bool IsStale(AiAssistantChatRuntimeSnapshot incoming, AiAssistantChatRuntimeSnapshot existing)
+    {
+        if (!string.Equals(incoming.RuntimeSourceKey, existing.RuntimeSourceKey, StringComparison.Ordinal) ||
+            !string.Equals(incoming.Source, existing.Source, StringComparison.Ordinal))
+            return false;
+
+        if (incoming.Revision < existing.Revision) return true;
+        return incoming.Revision == existing.Revision &&
+            !string.Equals(incoming.ProfileFingerprint, existing.ProfileFingerprint, StringComparison.Ordinal) &&
+            !string.IsNullOrWhiteSpace(existing.ProfileFingerprint);
+    }
 }

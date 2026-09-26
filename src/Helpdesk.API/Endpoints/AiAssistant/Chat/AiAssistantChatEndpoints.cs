@@ -8,7 +8,6 @@ using Helpdesk.Shared.AiAssistant.Chat;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 
 namespace Helpdesk.API.Endpoints.AiAssistant.Chat;
 
@@ -18,13 +17,13 @@ public static class AiAssistantChatEndpoints
     {
         app.MapGet("/api/v1/{ticketType}/{ticketId}/ai-assistant/chat-capabilities", async (
             string ticketType, string ticketId, HttpContext context, HelpdeskDbContext db,
-            ICurrentUserAccessService access, IOptions<AiAssistantChatOptions> options, CancellationToken ct) =>
+            ICurrentUserAccessService access, IAiAssistantChatRuntimeState runtime, CancellationToken ct) =>
         {
             var failure = await AuthorizeTicketManagementAsync(ticketType, ticketId, context.User, db, access, ct);
             if (failure is not null) return failure;
             return Results.Ok(db.Database.IsSqlite()
                 ? new ChatCapabilities(false, "Native chat requires PostgreSQL. Webhook AI assistance is available below.")
-                : options.Value.Enabled
+                : runtime.Current.Enabled
                     ? new ChatCapabilities(true, null)
                     : new ChatCapabilities(false, "Native chat has not been enabled for this instance. Webhook AI assistance is available below."));
         }).RequireAuthorization("HelpdeskStaff").WithTags("AiAssistant Chat");
@@ -32,7 +31,7 @@ public static class AiAssistantChatEndpoints
         var group = app.MapGroup("/api/v1/{ticketType}/{ticketId}/ai-assistant/chat").RequireAuthorization("HelpdeskStaff").WithTags("AiAssistant Chat");
         group.AddEndpointFilter(async (context, next) =>
         {
-            if (!context.HttpContext.RequestServices.GetRequiredService<IOptions<AiAssistantChatOptions>>().Value.Enabled)
+            if (!context.HttpContext.RequestServices.GetRequiredService<IAiAssistantChatRuntimeState>().Current.Enabled)
                 return Results.Problem("Chat is not enabled.", statusCode: 503);
             var routeValues = context.HttpContext.Request.RouteValues;
             var failure = await AuthorizeTicketManagementAsync(

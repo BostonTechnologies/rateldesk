@@ -89,55 +89,71 @@ public sealed class OrchestrationInternalClient(
         await AttachAuthHeaderAsync(settings, request, cancellationToken);
 
         var client = _httpClientFactory.CreateClient("OrchestrationInternalApi");
-        HttpResponseMessage response;
+        var sendStarted = false;
         try
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(RequestTimeout);
-            using (response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token))
+            cancellationToken.ThrowIfCancellationRequested();
+            sendStarted = true;
+            using (var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token))
             {
                 var content = await ReadBoundedContentAsync(response.Content, timeout.Token);
+                if (string.IsNullOrWhiteSpace(content))
+                {
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        var message = $"External NetRatel ingest failed ({(int)response.StatusCode}): {ExtractErrorMessage(content, settings)}";
+                        if ((int)response.StatusCode is 408 or 429 or >= 500)
+                            throw new OrchestrationSubmissionUncertainException(message);
+                        if ((int)response.StatusCode is >= 400 and < 500)
+                            throw new OrchestrationSubmissionRejectedException(message);
+                        throw new InvalidOperationException(message);
+                    }
+
+                    throw new OrchestrationAcknowledgementException("NetRatel accepted the HTTP request without returning an execution acknowledgement.");
+                }
+
+                var parsed = TryParseIngest(content, out var hasStatus);
+                if (parsed is not null)
+                {
+                    OrchestrationIngestClassifier.Apply(parsed, hasStatus);
+                    if (parsed.HasRemoteIdentity)
+                        return parsed;
+
+                    if (parsed.Disposition == OrchestrationSubmissionDisposition.Rejected)
+                        throw new OrchestrationSubmissionRejectedException(
+                            FirstNonEmpty(parsed.Message, "NetRatel explicitly rejected the submitted operation.")!);
+                }
+
                 if (!response.IsSuccessStatusCode)
                 {
                     var message = $"External NetRatel ingest failed ({(int)response.StatusCode}): {ExtractErrorMessage(content, settings)}";
                     if ((int)response.StatusCode is 408 or 429 or >= 500)
-                        throw new OrchestrationSubmissionUncertainException(message);
+                        throw new OrchestrationSubmissionUncertainException(message, parsed);
                     if ((int)response.StatusCode is >= 400 and < 500)
                         throw new OrchestrationSubmissionRejectedException(message);
                     throw new InvalidOperationException(message);
                 }
 
-                if (string.IsNullOrWhiteSpace(content))
-                    throw new OrchestrationAcknowledgementException("NetRatel accepted the HTTP request without returning an execution acknowledgement.");
-
-                try
-                {
-                    var parsed = JsonSerializer.Deserialize<OrchestrationIngestResult>(content, new JsonSerializerOptions
-                    {
-                        PropertyNameCaseInsensitive = true
-                    });
-
-                    if (parsed is not null &&
-                        !string.IsNullOrWhiteSpace(parsed.ExecutionId) &&
-                        IsPositiveAcknowledgementStatus(parsed.Status))
-                        return parsed;
-
-                    if (parsed is not null && IsNegativeAcknowledgementStatus(parsed.Status))
-                        throw new OrchestrationSubmissionRejectedException("NetRatel explicitly rejected the submitted operation.");
-                }
-            catch (JsonException exception)
-            {
-                _logger.LogDebug("NetRatel returned malformed ingest JSON. ExceptionType={ExceptionType}", exception.GetType().Name);
-                }
-
-                throw new OrchestrationAcknowledgementException("NetRatel returned a successful response without a valid execution identifier.");
+                throw new OrchestrationAcknowledgementException(
+                    "NetRatel returned a successful response without a valid execution identifier.",
+                    parsed);
             }
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (ResponseTooLargeException)
         {
-            throw new OrchestrationSubmissionUncertainException("The NetRatel submission timed out before its acknowledgement was received.");
+            throw new OrchestrationSubmissionUncertainException(
+                "The NetRatel acknowledgement could not be confirmed because the provider response was too large.");
         }
-        catch (HttpRequestException exception)
+        catch (OperationCanceledException) when (sendStarted)
+        {
+            var message = cancellationToken.IsCancellationRequested
+                ? "The NetRatel submission was cancelled after the provider request was sent; its outcome is unknown."
+                : "The NetRatel submission timed out before its acknowledgement was received.";
+            throw new OrchestrationSubmissionUncertainException(message);
+        }
+        catch (HttpRequestException exception) when (sendStarted)
         {
             _logger.LogDebug("The NetRatel submission connection failed before acknowledgement. ExceptionType={ExceptionType}", exception.GetType().Name);
             throw new OrchestrationSubmissionUncertainException("The NetRatel submission could not be confirmed because the provider connection failed.");
@@ -155,7 +171,7 @@ public sealed class OrchestrationInternalClient(
             var read = await stream.ReadAsync(chunk.AsMemory(), cancellationToken);
             if (read == 0) break;
             if (buffer.Length + read > MaximumResponseBytes)
-                throw new InvalidOperationException("The NetRatel response exceeded the maximum supported size.");
+                throw new ResponseTooLargeException();
             await buffer.WriteAsync(chunk.AsMemory(0, read), cancellationToken);
         }
 
@@ -217,16 +233,34 @@ public sealed class OrchestrationInternalClient(
         return false;
     }
 
-    private static bool IsPositiveAcknowledgementStatus(string? status)
-        => status?.Trim().ToLowerInvariant() is
-            "accepted" or "queued" or "submitted" or "started" or "running" or
-            "in_progress" or "in-progress" or "processing" or "success" or "succeeded" or
-            "already_exists" or "already-exists" or "duplicate";
+    private OrchestrationIngestResult? TryParseIngest(string content, out bool hasStatus)
+    {
+        hasStatus = false;
+        try
+        {
+            using var document = JsonDocument.Parse(content);
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+                return null;
 
-    private static bool IsNegativeAcknowledgementStatus(string? status)
-        => status?.Trim().ToLowerInvariant() is
-            "rejected" or "denied" or "failed" or "failure" or "error" or "invalid" or
-            "cancelled" or "canceled";
+            hasStatus = TryGetProperty(document.RootElement, "status", out var status)
+                && status.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(status.GetString());
+            return JsonSerializer.Deserialize<OrchestrationIngestResult>(content, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+        }
+        catch (JsonException exception)
+        {
+            _logger.LogDebug("NetRatel returned malformed ingest JSON. ExceptionType={ExceptionType}", exception.GetType().Name);
+            return null;
+        }
+    }
+
+    private static string? FirstNonEmpty(params string?[] values)
+        => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
+
+    private sealed class ResponseTooLargeException : InvalidOperationException;
 
     private async Task AttachAuthHeaderAsync(
         OrchestrationResolvedSettings settings,

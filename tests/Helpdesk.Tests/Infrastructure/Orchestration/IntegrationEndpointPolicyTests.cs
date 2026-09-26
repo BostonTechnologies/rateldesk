@@ -97,4 +97,45 @@ public sealed class IntegrationEndpointPolicyTests
 
         Assert.True(options.IsValid());
     }
+
+    [Theory]
+    [InlineData("https://netclaw.example.test/hub/session/negotiate?negotiateVersion=1")]
+    [InlineData("https://netclaw.example.test/hub/session?id=connection-token")]
+    [InlineData("wss://netclaw.example.test/hub/session?id=connection-token&access_token=device-token")]
+    public void SignalR_protocol_queries_are_allowed_only_on_the_configured_hub(string value)
+    {
+        var configured = new Uri("https://netclaw.example.test/hub/session");
+
+        IntegrationEndpointPolicy.ValidateSignalRRequest(configured, new Uri(value), allowPrivateHttp: false);
+    }
+
+    [Theory]
+    [InlineData("https://netclaw.example.test/admin?next=bad")]
+    [InlineData("https://other.example.test/hub/session?id=connection-token")]
+    [InlineData("https://netclaw.example.test/hub/session/negotiate?unexpected=bad")]
+    [InlineData("https://netclaw.example.test/other?id=connection-token")]
+    [InlineData("http://netclaw.example.test/hub/session?id=connection-token")]
+    public void SignalR_protocol_validation_rejects_redirects_and_unapproved_queries(string value)
+    {
+        var configured = new Uri("https://netclaw.example.test/hub/session");
+
+        Assert.Throws<ArgumentException>(() => IntegrationEndpointPolicy.ValidateSignalRRequest(configured, new Uri(value), allowPrivateHttp: false));
+    }
+
+    [Fact]
+    public void SignalR_resolved_addresses_are_checked_for_fallback_and_websocket_requests()
+    {
+        var configured = new Uri("http://10.20.30.40/hub/session");
+        var negotiate = new Uri("http://10.20.30.40/hub/session/negotiate?negotiateVersion=1");
+        var websocket = new Uri("ws://10.20.30.40/hub/session?id=connection-token");
+
+        IntegrationEndpointPolicy.ValidateSignalRResolvedAddresses(configured, negotiate, [IPAddress.Parse("10.20.30.40")], "Netclaw SignalR endpoint", true);
+        IntegrationEndpointPolicy.ValidateSignalRResolvedAddresses(configured, websocket, [IPAddress.Parse("10.20.30.40")], "Netclaw SignalR endpoint", true);
+        Assert.Throws<ArgumentException>(() => IntegrationEndpointPolicy.ValidateSignalRResolvedAddresses(
+            configured,
+            websocket,
+            [IPAddress.Parse("203.0.113.10")],
+            "Netclaw SignalR endpoint",
+            true));
+    }
 }

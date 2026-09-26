@@ -215,17 +215,20 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
                 if (owners.TryRemove(id, out var archivedOwner)) await RetireAsync(archivedOwner);
                 throw new ChatConflictException("Archived conversations cannot use the AiAssistant transport.");
             }
-            if (!string.IsNullOrWhiteSpace(conversation.ProviderProfileFingerprint) &&
-                !string.Equals(conversation.ProviderProfileFingerprint, snapshot.ProfileFingerprint, StringComparison.Ordinal) &&
-                conversation.State != ChatState.Idle)
+            var providerChanged = !string.IsNullOrWhiteSpace(conversation.ProviderProfileFingerprint) &&
+                !string.Equals(conversation.ProviderProfileFingerprint, snapshot.ProfileFingerprint, StringComparison.Ordinal);
+            var legacySession = string.IsNullOrWhiteSpace(conversation.ProviderProfileFingerprint) &&
+                !string.IsNullOrWhiteSpace(conversation.AiAssistantSessionId);
+            if ((providerChanged && conversation.State != ChatState.Idle) ||
+                (legacySession && !snapshot.CanAdoptLegacySessions))
             {
                 throw new ChatConflictException("This conversation belongs to a different Netclaw provider profile. Start a new conversation instead of reusing its remote session.");
             }
-            if (!string.Equals(conversation.ProviderProfileFingerprint, snapshot.ProfileFingerprint, StringComparison.Ordinal))
-            {
-                conversation.AiAssistantSessionId = null;
-                conversation.ProviderProfileFingerprint = snapshot.ProfileFingerprint;
-            }
+            // A legacy saved session can be resumed only when the runtime snapshot
+            // came from the trusted legacy deployment/profile context. A changed
+            // profile may replace an idle session, but that decision is kept local
+            // until the new session has been negotiated and the durable row locked.
+            var requestedSessionId = providerChanged ? null : conversation.AiAssistantSessionId;
             if (owners.TryGetValue(id, out var existing))
             {
                 if (!string.Equals(existing.ProfileFingerprint, snapshot.ProfileFingerprint, StringComparison.Ordinal))
@@ -245,7 +248,7 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
             var owner = new Owner(client, snapshot.ProfileFingerprint);
             try
             {
-                var ensured = await owner.Client.ConnectAsync(conversation.AiAssistantSessionId,
+                var ensured = await owner.Client.ConnectAsync(requestedSessionId,
                     output =>
                     {
                         if (owner.Retired) return Task.CompletedTask;
@@ -254,7 +257,7 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
                         return Task.CompletedTask;
                     }, ct);
                 if (owner.Overflowed) throw new InvalidOperationException("Session recovery exceeded the bounded output buffer.");
-                if (conversation.AiAssistantSessionId is not null && (ensured.Created || ensured.SessionId != conversation.AiAssistantSessionId))
+                if (requestedSessionId is not null && (ensured.Created || ensured.SessionId != requestedSessionId))
                     throw new InvalidOperationException("The original AiAssistant session could not be resumed.");
                 // A network round trip does not reserve the conversation. Refresh
                 // under its row lock before binding the transport so abandonment
@@ -263,10 +266,17 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
                 await using var binding = await db.Database.BeginTransactionAsync(ct);
                 conversation = await db.Set<AiAssistantChatConversation>().FromSqlInterpolated($"SELECT * FROM \"AiAssistantChatConversations\" WHERE \"Id\" = {id} FOR UPDATE").SingleAsync(ct);
                 if (conversation.State == ChatState.Archived) throw new ChatConflictException("The conversation was archived while its transport connected.");
-                if (!string.IsNullOrWhiteSpace(conversation.ProviderProfileFingerprint) &&
-                    !string.Equals(conversation.ProviderProfileFingerprint, snapshot.ProfileFingerprint, StringComparison.Ordinal))
+                var durableProviderChanged = !string.IsNullOrWhiteSpace(conversation.ProviderProfileFingerprint) &&
+                    !string.Equals(conversation.ProviderProfileFingerprint, snapshot.ProfileFingerprint, StringComparison.Ordinal);
+                if (durableProviderChanged && conversation.State != ChatState.Idle)
                     throw new ChatConflictException("The conversation's provider profile changed while its transport connected.");
-                if (conversation.AiAssistantSessionId is not null && conversation.AiAssistantSessionId != ensured.SessionId)
+                if (string.IsNullOrWhiteSpace(conversation.ProviderProfileFingerprint) &&
+                    !string.IsNullOrWhiteSpace(conversation.AiAssistantSessionId) &&
+                    !snapshot.CanAdoptLegacySessions)
+                    throw new ChatConflictException("The legacy conversation has no trusted provider binding. Start a new conversation instead of reusing its remote session.");
+                if (durableProviderChanged)
+                    conversation.AiAssistantSessionId = null;
+                if (!durableProviderChanged && conversation.AiAssistantSessionId is not null && conversation.AiAssistantSessionId != ensured.SessionId)
                     throw new ChatConflictException("The conversation's session binding changed.");
                 owner.SessionId = ensured.SessionId;
                 owner.AdvanceSequence(conversation.LastSequence);
@@ -322,13 +332,18 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
         => ReconfigureAsync(runtime.Current, ct);
 
     public async Task ReconfigureAsync(AiAssistantChatRuntimeSnapshot snapshot, CancellationToken ct)
+        => await TryReconfigureAsync(snapshot, ct);
+
+    public async Task<bool> TryReconfigureAsync(AiAssistantChatRuntimeSnapshot snapshot, CancellationToken ct)
     {
         await ownership.WaitAsync(ct);
         try
         {
+            if (!runtime.CanApply(snapshot)) return false;
             await acquisition.WaitAsync(ct);
             try
             {
+                if (!runtime.CanApply(snapshot)) return false;
                 foreach (var (id, owner) in owners.ToArray())
                 {
                     try
@@ -346,7 +361,7 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
                         await RetireAsync(current);
                 }
 
-                runtime.Publish(snapshot);
+                if (!runtime.TryPublish(snapshot)) return false;
                 if (!snapshot.Enabled)
                 {
                     ready = false;
@@ -361,8 +376,9 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
         }
         finally { ownership.Release(); }
 
-        if (snapshot.Enabled && !ready)
+        if (snapshot.Enabled && !ready && ReferenceEquals(runtime.Current, snapshot))
             await EnsureOwnershipAsync(ct);
+        return true;
     }
 
     private static string? Value(JsonElement output, string name) => output.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;

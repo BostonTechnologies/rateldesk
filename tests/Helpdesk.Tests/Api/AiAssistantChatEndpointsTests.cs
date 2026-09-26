@@ -119,6 +119,24 @@ public sealed class AiAssistantChatEndpointsTests(ChatPostgresFixture database, 
     }
 
     [Fact]
+    public async Task PublishedRuntimeSnapshotControlsCapabilitiesAndTheProtectedChatRoute()
+    {
+        var (ticket, _) = await database.CreateAsync();
+        await using var host = new ChatApi(database);
+        using var staff = host.Client();
+
+        var enabled = await staff.GetFromJsonAsync<ChatCapabilities>($"/api/v1/incidents/{ticket}/ai-assistant/chat-capabilities");
+        Assert.True(enabled!.Enabled);
+        Assert.Equal(HttpStatusCode.OK, (await staff.GetAsync(Route(ticket))).StatusCode);
+
+        host.Runtime.Publish(host.Runtime.Current with { Enabled = false, Revision = host.Runtime.Current.Revision + 1 });
+
+        var disabled = await staff.GetFromJsonAsync<ChatCapabilities>($"/api/v1/incidents/{ticket}/ai-assistant/chat-capabilities");
+        Assert.False(disabled!.Enabled);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await staff.GetAsync(Route(ticket))).StatusCode);
+    }
+
+    [Fact]
     public async Task StopWaitingRecordsUncertainDeliveryAndRetiresTheTransportOwner()
     {
         var (ticket, conversation) = await database.CreateAsync();
@@ -230,6 +248,12 @@ public sealed class AiAssistantChatEndpointsTests(ChatPostgresFixture database, 
     {
         public IAiAssistantChatTransport Transport { get; } = Substitute.For<IAiAssistantChatTransport>();
         public IDomainEventPublisher Publisher { get; } = Substitute.For<IDomainEventPublisher>();
+        public AiAssistantChatRuntimeState Runtime { get; } = new(Options.Create(new AiAssistantChatOptions
+        {
+            Enabled = enabled,
+            Endpoint = "https://chat.invalid/hub/session",
+            DeviceToken = "test-only-device-token"
+        }));
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseIsolatedTestStorage();
@@ -240,6 +264,8 @@ public sealed class AiAssistantChatEndpointsTests(ChatPostgresFixture database, 
                 services.AddScoped(sp => database.Context(sp.GetRequiredService<ITenantContext>()));
                 services.AddSingleton(Transport);
                 services.AddSingleton(Publisher);
+                services.RemoveAll<IAiAssistantChatRuntimeState>();
+                services.AddSingleton<IAiAssistantChatRuntimeState>(Runtime);
                 services.RemoveAll<ICurrentUserAccessService>();
                 services.AddSingleton<ICurrentUserAccessService, ChatTestAccessService>();
                 services.PostConfigure<AiAssistantChatOptions>(x => { x.Enabled = enabled; x.Endpoint = "https://chat.invalid/hub/session"; x.DeviceToken = "test-only-device-token"; });

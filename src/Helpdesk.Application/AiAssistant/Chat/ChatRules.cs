@@ -44,6 +44,11 @@ public interface IAiAssistantChatTransport
     Task ReconfigureAsync(CancellationToken ct);
     Task ReconfigureAsync(AiAssistantChatRuntimeSnapshot snapshot, CancellationToken ct)
         => ReconfigureAsync(ct);
+    async Task<bool> TryReconfigureAsync(AiAssistantChatRuntimeSnapshot snapshot, CancellationToken ct)
+    {
+        await ReconfigureAsync(snapshot, ct);
+        return true;
+    }
     Task ReconcileAsync(Guid conversation, CancellationToken ct);
     Task RetireAsync(Guid conversation, CancellationToken ct);
     Task SendAsync(Guid conversation, Guid messageId, string text, CancellationToken ct);

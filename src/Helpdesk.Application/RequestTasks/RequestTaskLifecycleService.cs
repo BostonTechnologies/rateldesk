@@ -1,6 +1,7 @@
 using Helpdesk.Application.Events;
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Application.Workflow;
+using Helpdesk.Shared.DTOs.Orchestration;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.Extensions.Logging;
@@ -153,13 +154,50 @@ public sealed class RequestTaskLifecycleService(
                 HardTimeoutSeconds = task.HardTimeoutSeconds
             }, ct);
 
-            task.AutomationBindingId = payloadResult.AutomationBindingId;
-            task.OrchestrationRequestDefinitionId = payloadResult.OrchestrationRequestDefinitionId;
-            task.OrchestrationJobDefinitionId = payloadResult.OrchestrationJobDefinitionId;
-            task.OrchestrationExternalRequestId = FirstNonEmpty(ingestResult.RequestId);
-            task.OrchestrationExternalRunId = FirstNonEmpty(ingestResult.RunId, ingestResult.ExecutionId);
-            task.OrchestratorExecutionId = FirstNonEmpty(ingestResult.ExecutionId)
-                ?? throw new OrchestrationAcknowledgementException("The NetRatel acknowledgement did not contain an execution identifier.");
+            if (ingestResult.Disposition == OrchestrationSubmissionDisposition.Unknown)
+            {
+                OrchestrationIngestClassifier.Apply(
+                    ingestResult,
+                    hasStatus: !string.IsNullOrWhiteSpace(ingestResult.Status));
+            }
+            ApplyRemoteAcknowledgement(task, payloadResult, ingestResult);
+
+            if (ingestResult.Disposition == OrchestrationSubmissionDisposition.Unknown)
+            {
+                return await HandleUncertainAutomationSubmissionAsync(
+                    task,
+                    Truncate(FirstNonEmpty(ingestResult.Message, "The NetRatel acknowledgement could not be classified.")!, 500),
+                    correlationId,
+                    ingestResult,
+                    payloadResult,
+                    ct);
+            }
+
+            if (ingestResult.Disposition == OrchestrationSubmissionDisposition.Rejected)
+            {
+                return await HandleRejectedAutomationSubmissionAsync(
+                    task,
+                    Truncate(FirstNonEmpty(ingestResult.Message, "NetRatel rejected the submitted operation.")!, 500),
+                    correlationId,
+                    ct);
+            }
+
+            if (ingestResult.Disposition == OrchestrationSubmissionDisposition.Existing)
+            {
+                if (ingestResult.Outcome == OrchestrationExecutionOutcome.Completed)
+                    return await CompleteKnownAutomationOutcomeAsync(task, correlationId, ct);
+
+                if (ingestResult.Outcome is OrchestrationExecutionOutcome.Failed or OrchestrationExecutionOutcome.Cancelled)
+                {
+                    var reason = FirstNonEmpty(
+                        ingestResult.Message,
+                        ingestResult.Outcome == OrchestrationExecutionOutcome.Cancelled
+                            ? "The existing NetRatel execution was cancelled."
+                            : "The existing NetRatel execution failed.")!;
+                    return await FailKnownAutomationOutcomeAsync(task, reason, correlationId, ct);
+                }
+            }
+
             task.LastAutomationStatus = FirstNonEmpty(ingestResult.Status) ?? "submitted";
             task.LastAutomationUpdatedAt = DateTimeOffset.UtcNow;
             task.ResultJson = FirstNonEmpty(ingestResult.Message, ingestResult.Status);
@@ -167,22 +205,27 @@ public sealed class RequestTaskLifecycleService(
             await _requestTasks.UpdateAsync(task);
 
             _logger.LogInformation(
-                "External orchestration automation submit succeeded. RequestId={RequestId} TaskId={TaskId} OrchestrationRequestId={OrchestrationRequestId} OrchestrationRunId={OrchestrationRunId} CorrelationId={CorrelationId}",
+                "External orchestration automation acknowledgement accepted. RequestId={RequestId} TaskId={TaskId} Disposition={Disposition} Outcome={Outcome} OrchestrationRequestId={OrchestrationRequestId} OrchestrationRunId={OrchestrationRunId} CorrelationId={CorrelationId}",
                 task.RequestId,
                 task.Id,
+                ingestResult.Disposition,
+                ingestResult.Outcome,
                 task.OrchestrationExternalRequestId,
                 task.OrchestrationExternalRunId,
                 correlationId);
 
-            await _domainEvents.PublishAsync(
-                new RequestTaskAutomationSubmittedEvent(
-                    task.Id,
-                    task.RequestId,
-                    task.OrchestratorExecutionId,
-                    task.OrganizationId,
-                    DateTimeOffset.UtcNow,
-                    correlationId),
-                ct);
+            if (ingestResult.Disposition == OrchestrationSubmissionDisposition.Admitted)
+            {
+                await _domainEvents.PublishAsync(
+                    new RequestTaskAutomationSubmittedEvent(
+                        task.Id,
+                        task.RequestId,
+                        task.OrchestratorExecutionId!,
+                        task.OrganizationId,
+                        DateTimeOffset.UtcNow,
+                        correlationId),
+                    ct);
+            }
 
             await _domainEvents.PublishAsync(
                 new RequestTaskAutomationRunningEvent(
@@ -204,7 +247,13 @@ public sealed class RequestTaskLifecycleService(
                 task.Id,
                 correlationId);
 
-            return await HandleUncertainAutomationSubmissionAsync(task, Truncate(ex.Message, 500), correlationId, ct);
+            return await HandleUncertainAutomationSubmissionAsync(
+                task,
+                Truncate(ex.Message, 500),
+                correlationId,
+                ex.Acknowledgement,
+                payloadResult,
+                DurablePersistenceToken(ct));
         }
         catch (OrchestrationSubmissionRejectedException ex)
         {
@@ -418,8 +467,13 @@ public sealed class RequestTaskLifecycleService(
         RequestTask task,
         string reason,
         string correlationId,
+        OrchestrationIngestResult? acknowledgement,
+        RequestTaskPayloadBuildResult? payload,
         CancellationToken ct)
     {
+        if (acknowledgement is not null)
+            ApplyRemoteAcknowledgement(task, payload, acknowledgement);
+
         await _domainEvents.PublishAsync(
             new RequestTaskAutomationSubmitUncertainEvent(
                 task.Id,
@@ -437,6 +491,75 @@ public sealed class RequestTaskLifecycleService(
         task.FailureReason = reason;
 
         return await FailUncertainSubmissionAsync(task, reason, ct);
+    }
+
+    private async Task<RequestTask> CompleteKnownAutomationOutcomeAsync(
+        RequestTask task,
+        string correlationId,
+        CancellationToken ct)
+    {
+        task.Status = RequestTaskStatus.Completed;
+        task.State = TicketState.Resolved;
+        task.CompletedAt = DateTimeOffset.UtcNow;
+        task.FailureReason = null;
+        task.LastAutomationUpdatedAt = DateTimeOffset.UtcNow;
+        task.UpdatedAt = DateTime.UtcNow;
+        await _requestTasks.UpdateAsync(task);
+
+        await _domainEvents.PublishAsync(
+            new RequestTaskCompletedEvent(
+                task.Id,
+                task.RequestId,
+                task.OrganizationId,
+                DateTimeOffset.UtcNow,
+                correlationId),
+            ct);
+        await _domainEvents.PublishAsync(
+            new RequestTaskAutomationCompletedEvent(
+                task.Id,
+                task.RequestId,
+                task.OrchestratorExecutionId,
+                task.OrganizationId,
+                DateTimeOffset.UtcNow,
+                correlationId),
+            ct);
+        return task;
+    }
+
+    private async Task<RequestTask> FailKnownAutomationOutcomeAsync(
+        RequestTask task,
+        string reason,
+        string correlationId,
+        CancellationToken ct)
+    {
+        task.Status = RequestTaskStatus.Failed;
+        task.State = TicketState.OnHold;
+        task.FailureReason = reason;
+        task.ResultJson = reason;
+        task.LastAutomationUpdatedAt = DateTimeOffset.UtcNow;
+        task.UpdatedAt = DateTime.UtcNow;
+        await _requestTasks.UpdateAsync(task);
+
+        await _domainEvents.PublishAsync(
+            new RequestTaskFailedEvent(
+                task.Id,
+                task.RequestId,
+                task.OrganizationId,
+                DateTimeOffset.UtcNow,
+                correlationId),
+            ct);
+        await _domainEvents.PublishAsync(
+            new RequestTaskAutomationFailedEvent(
+                task.Id,
+                task.RequestId,
+                task.OrchestratorExecutionId,
+                reason,
+                task.OrganizationId,
+                DateTimeOffset.UtcNow,
+                correlationId),
+            ct);
+        await _failurePolicyEngine.OnTaskFailedAsync(task.RequestId, task.Id, ct);
+        return task;
     }
 
     private async Task<RequestTask> HandleRejectedAutomationSubmissionAsync(
@@ -487,6 +610,30 @@ public sealed class RequestTaskLifecycleService(
 
         return task;
     }
+
+    private static void ApplyRemoteAcknowledgement(
+        RequestTask task,
+        RequestTaskPayloadBuildResult? payload,
+        Helpdesk.Shared.DTOs.Orchestration.OrchestrationIngestResult result)
+    {
+        if (payload is not null)
+        {
+            task.AutomationBindingId = payload.AutomationBindingId;
+            task.OrchestrationRequestDefinitionId = payload.OrchestrationRequestDefinitionId;
+            task.OrchestrationJobDefinitionId = payload.OrchestrationJobDefinitionId;
+        }
+
+        task.OrchestrationExternalRequestId = FirstNonEmpty(result.RequestId, task.OrchestrationExternalRequestId);
+        task.OrchestrationExternalRunId = FirstNonEmpty(result.RunId, result.ExecutionId, task.OrchestrationExternalRunId);
+        task.OrchestratorExecutionId = FirstNonEmpty(result.ExecutionId, task.OrchestratorExecutionId, result.RunId, result.RequestId);
+        task.LastAutomationStatus = FirstNonEmpty(result.Status, task.LastAutomationStatus) ?? "submitted";
+        task.LastAutomationUpdatedAt = DateTimeOffset.UtcNow;
+        task.ResultJson = FirstNonEmpty(result.Message, result.Status, task.ResultJson);
+        task.UpdatedAt = DateTime.UtcNow;
+    }
+
+    private static CancellationToken DurablePersistenceToken(CancellationToken ct)
+        => ct.IsCancellationRequested ? CancellationToken.None : ct;
 
     private async Task<RequestTask> GetRequiredTaskAsync(string taskId)
     {

@@ -1,4 +1,5 @@
 using Helpdesk.Application.Orchestration;
+using Helpdesk.Application.AiAssistant.Chat;
 using Helpdesk.Infrastructure.AiAssistant.Chat;
 using Helpdesk.Infrastructure.Configuration;
 using Helpdesk.Infrastructure.Orchestration;
@@ -168,6 +169,7 @@ public sealed class IntegrationProviderSettingsTests
 
         var saved = await service.UpdateOrchestratorSettingsAsync(new UpdateOrchestrationConnectivitySettingsDto
         {
+            ExpectedRevision = 0,
             Enabled = true,
             BaseUrl = "https://netratel.example.test",
             Authority = "https://netratel.example.test",
@@ -202,6 +204,7 @@ public sealed class IntegrationProviderSettingsTests
 
         var saved = await service.UpdateOrchestratorSettingsAsync(new UpdateOrchestrationConnectivitySettingsDto
         {
+            ExpectedRevision = 0,
             Enabled = true,
             BaseUrl = "https://provider-a.example.test",
             Authority = "https://provider-a.example.test",
@@ -231,6 +234,7 @@ public sealed class IntegrationProviderSettingsTests
 
         var saved = await service.UpdateOrchestratorSettingsAsync(new UpdateOrchestrationConnectivitySettingsDto
         {
+            ExpectedRevision = 0,
             Enabled = true,
             BaseUrl = "https://provider.example.test",
             Authority = "https://provider.example.test",
@@ -260,6 +264,7 @@ public sealed class IntegrationProviderSettingsTests
         var service = fixture.CreateService();
         var saved = await service.UpdateOrchestratorSettingsAsync(new UpdateOrchestrationConnectivitySettingsDto
         {
+            ExpectedRevision = 0,
             Enabled = true,
             BaseUrl = "https://provider.example.test",
             Authority = "https://provider.example.test",
@@ -294,6 +299,7 @@ public sealed class IntegrationProviderSettingsTests
         var service = fixture.CreateService();
         var saved = await service.UpdateOrchestratorSettingsAsync(new UpdateOrchestrationConnectivitySettingsDto
         {
+            ExpectedRevision = 0,
             Enabled = true,
             BaseUrl = "https://provider-a.example.test",
             Authority = "https://provider-a.example.test",
@@ -320,6 +326,7 @@ public sealed class IntegrationProviderSettingsTests
         var service = fixture.CreateService();
         var draft = await service.ResolveNetclawDraftAsync(new UpdateNetclawConnectivitySettingsDto
         {
+            ExpectedRevision = 0,
             Enabled = false,
             Endpoint = "https://netclaw.example.test/hub/session",
             DeviceToken = "draft-device-token",
@@ -340,6 +347,7 @@ public sealed class IntegrationProviderSettingsTests
         var service = fixture.CreateService(protectionProvider: protectingProvider);
         await service.UpdateOrchestratorSettingsAsync(new UpdateOrchestrationConnectivitySettingsDto
         {
+            ExpectedRevision = 0,
             Enabled = true,
             BaseUrl = "https://provider.example.test",
             Authority = "https://provider.example.test",
@@ -378,6 +386,7 @@ public sealed class IntegrationProviderSettingsTests
             var second = CreateService(secondDb, configuration, protection);
             var request = new UpdateOrchestrationConnectivitySettingsDto
             {
+                ExpectedRevision = 0,
                 Enabled = false,
                 BaseUrl = "https://provider.example.test"
             };
@@ -410,6 +419,7 @@ public sealed class IntegrationProviderSettingsTests
         var service = fixture.CreateService();
         var first = await service.UpdateOrchestratorSettingsAsync(new UpdateOrchestrationConnectivitySettingsDto
         {
+            ExpectedRevision = 0,
             Enabled = false,
             BaseUrl = "https://provider.example.test"
         });
@@ -437,6 +447,7 @@ public sealed class IntegrationProviderSettingsTests
 
         var saved = await service.UpdateNetclawSettingsAsync(new UpdateNetclawConnectivitySettingsDto
         {
+            ExpectedRevision = 0,
             Enabled = true,
             Endpoint = "https://netclaw.example.test/hub/session",
             DeviceToken = "synthetic-device-token"
@@ -449,10 +460,63 @@ public sealed class IntegrationProviderSettingsTests
         Assert.NotEqual("synthetic-device-token", (await fixture.Db.NetclawConnectivitySettings.SingleAsync()).ProtectedDeviceToken);
     }
 
+    [Fact]
+    public async Task Newer_netclaw_revision_wins_when_an_older_runtime_apply_resumes()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"rateldesk-runtime-{Guid.NewGuid():N}.db");
+        try
+        {
+            var options = new DbContextOptionsBuilder<HelpdeskDbContext>().UseSqlite($"Data Source={databasePath}").Options;
+            var tenant = Substitute.For<ITenantContext>();
+            tenant.TenantId.Returns("test");
+            await using (var initializer = new HelpdeskDbContext(options, tenant, new HttpContextAccessor()))
+                await initializer.Database.EnsureCreatedAsync();
+
+            var configuration = new ConfigurationBuilder().AddInMemoryCollection().Build();
+            var protection = new EphemeralDataProtectionProvider(NullLoggerFactory.Instance);
+            var runtime = new AiAssistantChatRuntimeState(Options.Create(new AiAssistantChatOptions()));
+            var transport = new BlockingRuntimeTransport(runtime);
+            await using var firstDb = new HelpdeskDbContext(options, tenant, new HttpContextAccessor());
+            await using var secondDb = new HelpdeskDbContext(options, tenant, new HttpContextAccessor());
+            var first = CreateService(firstDb, configuration, protection, transport, runtime);
+            var second = CreateService(secondDb, configuration, protection, transport, runtime);
+
+            var older = first.UpdateNetclawSettingsAsync(new UpdateNetclawConnectivitySettingsDto
+            {
+                ExpectedRevision = 0,
+                Enabled = false,
+                Endpoint = "https://provider-a.example.test/hub/session"
+            });
+            await transport.FirstApplyEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            var newer = await second.UpdateNetclawSettingsAsync(new UpdateNetclawConnectivitySettingsDto
+            {
+                ExpectedRevision = 1,
+                Enabled = false,
+                Endpoint = "https://provider-b.example.test/hub/session"
+            });
+            transport.ReleaseFirstApply.TrySetResult();
+
+            await Assert.ThrowsAsync<IntegrationProviderConfigurationConflictException>(() => older);
+            Assert.Equal(2, newer.Revision);
+            Assert.NotNull(newer.LastAppliedAtUtc);
+            Assert.Equal(2, runtime.Current.Revision);
+            Assert.Equal("https://provider-b.example.test/hub/session", runtime.Current.Endpoint);
+            await using var verification = new HelpdeskDbContext(options, tenant, new HttpContextAccessor());
+            Assert.NotNull((await verification.NetclawConnectivitySettings.SingleAsync()).LastAppliedAtUtc);
+        }
+        finally
+        {
+            if (File.Exists(databasePath)) File.Delete(databasePath);
+        }
+    }
+
     private static IntegrationProviderSettingsService CreateService(
         HelpdeskDbContext db,
         IConfiguration configuration,
-        IDataProtectionProvider protectionProvider)
+        IDataProtectionProvider protectionProvider,
+        IAiAssistantChatTransport? chatRuntime = null,
+        IAiAssistantChatRuntimeState? runtimeState = null)
         => new(
             db,
             configuration,
@@ -460,7 +524,33 @@ public sealed class IntegrationProviderSettingsTests
             Options.Create(new AiAssistantChatOptions()),
             new DatabaseOptions { Provider = "Sqlite" },
             TimeProvider.System,
-            NullLogger<IntegrationProviderSettingsService>.Instance);
+            NullLogger<IntegrationProviderSettingsService>.Instance,
+            chatRuntime,
+            runtimeState);
+
+    private sealed class BlockingRuntimeTransport(IAiAssistantChatRuntimeState runtime) : IAiAssistantChatTransport
+    {
+        public TaskCompletionSource FirstApplyEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseFirstApply { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task ReconfigureAsync(CancellationToken ct) => Task.CompletedTask;
+
+        public async Task<bool> TryReconfigureAsync(AiAssistantChatRuntimeSnapshot snapshot, CancellationToken ct)
+        {
+            if (snapshot.Revision == 1)
+            {
+                FirstApplyEntered.TrySetResult();
+                await ReleaseFirstApply.Task.WaitAsync(ct);
+            }
+
+            return runtime.TryPublish(snapshot);
+        }
+
+        public Task ReconcileAsync(Guid conversation, CancellationToken ct) => Task.CompletedTask;
+        public Task RetireAsync(Guid conversation, CancellationToken ct) => Task.CompletedTask;
+        public Task SendAsync(Guid conversation, Guid messageId, string text, CancellationToken ct) => Task.CompletedTask;
+        public Task RespondAsync(Guid conversation, string callId, string key, CancellationToken ct) => Task.CompletedTask;
+    }
 
     private sealed class Fixture : IAsyncDisposable
     {

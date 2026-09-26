@@ -93,9 +93,16 @@ public sealed class OrchestrationInternalClientTests
     }
 
     [Theory]
-    [InlineData("Rejected")]
-    [InlineData(null)]
-    public async Task Execution_id_without_a_positive_admission_status_is_not_an_acknowledgement(string? status)
+    [InlineData("Accepted", OrchestrationSubmissionDisposition.Admitted, OrchestrationExecutionOutcome.Processing)]
+    [InlineData("Processing", OrchestrationSubmissionDisposition.Admitted, OrchestrationExecutionOutcome.Processing)]
+    [InlineData("Completed", OrchestrationSubmissionDisposition.Existing, OrchestrationExecutionOutcome.Completed)]
+    [InlineData("Failed", OrchestrationSubmissionDisposition.Existing, OrchestrationExecutionOutcome.Failed)]
+    [InlineData("Cancelled", OrchestrationSubmissionDisposition.Existing, OrchestrationExecutionOutcome.Cancelled)]
+    [InlineData("already_exists", OrchestrationSubmissionDisposition.Existing, OrchestrationExecutionOutcome.Processing)]
+    public async Task Provider_status_is_classified_without_losing_a_remote_identity(
+        string status,
+        OrchestrationSubmissionDisposition disposition,
+        OrchestrationExecutionOutcome outcome)
     {
         var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
         {
@@ -111,10 +118,31 @@ public sealed class OrchestrationInternalClientTests
         tokenService.GetAccessTokenAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<CancellationToken>()).Returns("token");
         var client = new OrchestrationInternalClient(clientFactory, tokenService, NullLogger<OrchestrationInternalClient>.Instance);
 
-        if (status is null)
-            await Assert.ThrowsAsync<OrchestrationAcknowledgementException>(() => client.IngestAsync(Settings(), Request()));
-        else
-            await Assert.ThrowsAsync<OrchestrationSubmissionRejectedException>(() => client.IngestAsync(Settings(), Request()));
+        var result = await client.IngestAsync(Settings(), Request());
+
+        Assert.Equal("99", result.ExecutionId);
+        Assert.Equal(disposition, result.Disposition);
+        Assert.Equal(outcome, result.Outcome);
+    }
+
+    [Fact]
+    public async Task Unknown_status_with_a_remote_identity_is_durable_unknown_not_a_rejection()
+    {
+        var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("""{"executionId":"99","status":"provider-specific-state"}""")
+        });
+        var clientFactory = Substitute.For<IHttpClientFactory>();
+        clientFactory.CreateClient("OrchestrationInternalApi").Returns(new HttpClient(handler));
+        var tokenService = Substitute.For<IOrchestrationTokenService>();
+        tokenService.GetAccessTokenAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<CancellationToken>()).Returns("token");
+        var client = new OrchestrationInternalClient(clientFactory, tokenService, NullLogger<OrchestrationInternalClient>.Instance);
+
+        var result = await client.IngestAsync(Settings(), Request());
+
+        Assert.Equal("99", result.ExecutionId);
+        Assert.Equal(OrchestrationSubmissionDisposition.Unknown, result.Disposition);
+        Assert.Equal(OrchestrationExecutionOutcome.Unknown, result.Outcome);
     }
 
     [Fact]
@@ -131,6 +159,64 @@ public sealed class OrchestrationInternalClientTests
         var client = new OrchestrationInternalClient(clientFactory, tokenService, NullLogger<OrchestrationInternalClient>.Instance);
 
         await Assert.ThrowsAsync<OrchestrationSubmissionRejectedException>(() => client.IngestAsync(Settings(), Request()));
+    }
+
+    [Fact]
+    public async Task Oversized_success_response_is_submission_uncertain_after_send()
+    {
+        var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(new string('x', 1024 * 1024 + 1))
+        });
+        var clientFactory = Substitute.For<IHttpClientFactory>();
+        clientFactory.CreateClient("OrchestrationInternalApi").Returns(new HttpClient(handler));
+        var tokenService = Substitute.For<IOrchestrationTokenService>();
+        tokenService.GetAccessTokenAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<CancellationToken>()).Returns("token");
+        var client = new OrchestrationInternalClient(clientFactory, tokenService, NullLogger<OrchestrationInternalClient>.Instance);
+
+        var exception = await Assert.ThrowsAsync<OrchestrationSubmissionUncertainException>(() => client.IngestAsync(Settings(), Request()));
+
+        Assert.Contains("too large", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Caller_cancellation_after_send_is_submission_uncertain()
+    {
+        var sent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new BlockingHandler(sent);
+        var clientFactory = Substitute.For<IHttpClientFactory>();
+        clientFactory.CreateClient("OrchestrationInternalApi").Returns(new HttpClient(handler));
+        var tokenService = Substitute.For<IOrchestrationTokenService>();
+        tokenService.GetAccessTokenAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<CancellationToken>()).Returns("token");
+        var client = new OrchestrationInternalClient(clientFactory, tokenService, NullLogger<OrchestrationInternalClient>.Instance);
+        using var cancellation = new CancellationTokenSource();
+
+        var submission = client.IngestAsync(Settings(), Request(), cancellation.Token);
+        await sent.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await cancellation.CancelAsync();
+
+        var exception = await Assert.ThrowsAsync<OrchestrationSubmissionUncertainException>(() => submission);
+
+        Assert.Contains("cancelled", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Caller_cancellation_before_send_remains_cancellation()
+    {
+        var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("""{"executionId":"99","status":"Accepted"}""")
+        });
+        var clientFactory = Substitute.For<IHttpClientFactory>();
+        clientFactory.CreateClient("OrchestrationInternalApi").Returns(new HttpClient(handler));
+        var tokenService = Substitute.For<IOrchestrationTokenService>();
+        tokenService.GetAccessTokenAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<CancellationToken>()).Returns("token");
+        var client = new OrchestrationInternalClient(clientFactory, tokenService, NullLogger<OrchestrationInternalClient>.Instance);
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => client.IngestAsync(Settings(), Request(), cancellation.Token));
+        Assert.Empty(handler.RequestBodies);
     }
 
     private static OrchestrationResolvedSettings Settings() => new()
@@ -165,6 +251,19 @@ public sealed class OrchestrationInternalClientTests
             if (request.Content is not null)
                 RequestBodies.Add(await request.Content.ReadAsStringAsync(cancellationToken));
             return responder(request);
+        }
+    }
+
+    private sealed class BlockingHandler(TaskCompletionSource sent) : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            sent.TrySetResult();
+            var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var registration = cancellationToken.Register(static state =>
+                ((TaskCompletionSource)state!).TrySetCanceled(), cancelled);
+            await cancelled.Task;
+            return new HttpResponseMessage(HttpStatusCode.OK);
         }
     }
 }

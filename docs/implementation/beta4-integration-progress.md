@@ -34,15 +34,15 @@ must remain unpublished until the human merge and release gates are satisfied.
 | Task | Scope | Status | Evidence |
 | --- | --- | --- | --- |
 | B4-00 | Baseline inventory, compatibility matrix, architecture, evidence ledger | Implemented | This ledger; baseline and source inventory recorded |
-| B4-01 | Secure persisted provider configuration, aliases, precedence, and runtime application | Implemented and validated locally | Provider settings service, protected secrets, revision checks, runtime reconfiguration, policy tests, focused provider tests, and the final-head full local suite are green; hosted and live-provider gates remain pending |
+| B4-01 | Secure persisted provider configuration, aliases, precedence, and runtime application | Implemented and validated locally | Provider settings service, protected secrets, revision checks, runtime reconfiguration, provider/runtime barrier coverage, policy tests, and the final rework-head full local suite are green; hosted and live-provider gates remain pending |
 | B4-02 | Scoped credential lifecycle UX and discoverability | Implemented and validated | Account-owned credential API/UI, one-time reveal, scoped permissions, expiry/revocation status, audit coverage, and focused API/UI navigation tests |
-| B4-03 | Packaged CLI and stdio MCP credential verification | Implemented; final-head package rerun pending | Existing CLI/MCP credential-path and archive coverage retained; final beta.4 rework head still needs the release-asset rehearsal |
+| B4-03 | Packaged CLI and stdio MCP credential verification | Implemented and validated locally | Final-head non-publishing archive rehearsal produced Linux x64/ARM64 and Windows x64 CLI and stdio MCP archives; checksums, manifest, extracted Linux x64 `--help`/`--version`, and stdio initialize framing passed |
 | B4-04 | Local HTTP MCP purpose/resource/delegation verification | Implemented in repository tests; deployed journey pending | Existing HTTP MCP purpose/resource/delegation coverage retained; a deployed CLI/stdio/HTTP lifecycle remains an explicit acceptance gate |
-| B4-05 | NetRatel M2M adapter, setup, diagnostics, and interoperability | Implemented; real interoperability pending | Pinned source inspection, bounded clients, M2M identity probe, setup/API/UI paths, wire-contract tests, provider-side prerequisite guide, and security tests; unchanged live NetRatel acceptance still needs an authorized test environment |
-| B4-06 | Netclaw options migration, setup, and authenticated diagnostics | Implemented; real daemon interoperability pending | Canonical options/aliases, protected token storage, draft/saved SignalR diagnostics, immutable runtime reconfiguration, UI, and focused tests; unchanged Netclaw daemon acceptance still needs an authorized paired-device environment |
+| B4-05 | NetRatel M2M adapter, setup, diagnostics, and interoperability | Implemented; RatelDesk interoperability pending | Pinned source inspection, bounded clients, M2M identity probe, setup/API/UI paths, wire-contract tests, provider-side prerequisite guide, security tests, and a read-only Dev M2M token/health probe are green; full RatelDesk ingest/ticket acceptance still needs an authorized deployed target |
+| B4-06 | Netclaw options migration, setup, and authenticated diagnostics | Implemented; real daemon interoperability pending | Canonical options/aliases, protected token storage, draft/saved SignalR diagnostics, immutable runtime reconfiguration, UI, actual authenticated SignalR negotiate/WebSocket/fallback coverage, and focused tests are green; unchanged Netclaw daemon acceptance still needs an authorized paired-device environment |
 | B4-07 | Integration hub, navigation, responsive UX, and accessibility | Implemented and validated locally | Hub cards, route cleanup, responsive UI, draft-test controls, existing Playwright coverage, and the final-head desktop/mobile browser journey are green; hosted evidence remains pending |
 | B4-08 | Public guides, examples, migration notes, and release notes | Implemented and under final review | Integration guide now includes source-backed NetRatel provider prerequisites; Netclaw/self-hosting guidance and compatibility notes retained |
-| B4-09 | Integrated security, upgrade, UX, release rehearsal, and final review | In progress; not release-ready | Local regression, migration, Release build, version/layout, and final-head UX evidence is recorded below; hosted CI, real provider journeys, package rehearsal, and release publication gates remain open |
+| B4-09 | Integrated security, upgrade, UX, release rehearsal, and final review | In progress; not release-ready | Final rework-head regression, migration, Release build, version/layout, UX, and non-publishing package evidence is recorded below; final-head hosted CI, real provider journeys, merge, and release publication gates remain open |
 
 ## Evidence log
 
@@ -54,18 +54,18 @@ secrets, private endpoints, local workstation diagnostics, or customer data.
 | --- | --- | --- | --- |
 | 2026-09-26 | Baseline | `origin/main` refreshed and inspected | `2027f686ac529607dcb1a6ce619c81f465a60e3d`; no beta.4 tag found |
 | 2026-09-26 | Compatibility | NetRatel source inspected read-only at pinned commit | Internal health, catalog, ingest, and M2M identity contracts mapped without modifying the upstream checkout |
-| 2026-09-26 | Provider settings and draft diagnostics | Focused provider/runtime filters in `Helpdesk.Tests` | 18 passed, 0 failed; metadata reads remain non-decrypting, draft tests do not persist/apply, and stale test results cannot overwrite newer revisions |
-| 2026-09-26 | Orchestration, catalogue, and outbound policy | Focused catalogue, endpoint-policy, connectivity, and internal-client filters in `Helpdesk.Tests` | 36 passed, 0 failed; empty/incompatible catalogue responses, IPv6 reserved-address handling, private IPv6 Netclaw validation, and redacted provider errors are covered |
-| 2026-09-26 | Submission lifecycle | Request-task lifecycle and internal-client filters in `Helpdesk.Tests` | 13 passed, 0 failed; definite rejection remains retryable while uncertain acknowledgement remains manual reconciliation without automatic resend |
+| 2026-09-26 | Final rework focused reliability set | Runtime state, provider settings, chat migration/transport, SignalR integration, endpoint policy, internal client, request-task lifecycle, and chat API filters in `Helpdesk.Tests` | 73 passed, 0 failed; revision barriers, trusted legacy adoption, token rotation, actual negotiate/WebSocket/fallback behavior, response classification, remote-ID preservation, and protected route filtering are covered |
 | 2026-09-26 | Database upgrades | PostgreSQL upgrade/chat migration and SQLite provider regression filters | 6 passed, 0 failed; normal migration chains preserve existing business, webhook, and automation-binding data |
 | 2026-09-26 | Native chat transport | `ChatPostgresTests` filter in `Helpdesk.Tests` | 13 passed, 0 failed after retaining the legacy factory entry point for older implementations while the built-in factory binds immutable runtime snapshots |
-| 2026-09-26 | Full local suite | `dotnet test Helpdesk.sln --no-restore --logger 'console;verbosity=minimal'` | 1,445 passed, 6 skipped, 0 failed, 1,451 total; the six skips are the repository's existing environment-gated cases |
+| 2026-09-26 | Full local suite | `dotnet test Helpdesk.sln --configuration Release --no-build --no-restore --logger "console;verbosity=minimal"` | 1,474 passed, 6 skipped, 0 failed, 1,480 total; the six skips are the repository's existing environment-gated cases |
 | 2026-09-26 | Release build | `dotnet build Helpdesk.sln --configuration Release --no-restore` | Succeeded with 0 errors and 20 pre-existing warnings |
 | 2026-09-26 | Version and layout | `tools/release/validate-release-version.sh v0.1.1-beta.4` and `tools/ci/validate-layout.sh` | Candidate version and repository layout validation passed |
-| 2026-09-26 | Final-head UX | `tools/ci/run-ux-local.sh tests/ux/integration-hub.spec.ts` | Setup wizard, desktop integration hub, and mobile dark integration hub journeys passed; captured screenshots were inspected for layout and secret leakage |
-| 2026-09-26 | Quality | `slopwatch analyze --directory . --stats` and `git diff --check` | 1,309 files analyzed with zero Slopwatch findings; whitespace check passed |
-| 2026-09-26 | External acceptance | NetRatel M2M, Netclaw paired-device SignalR, and deployed CLI/stdio/HTTP MCP journeys | Not run against live/deployed services in this pass; keep these as authorized environment gates rather than inferred from mocks or source inspection |
-| 2026-09-26 | Hosted/release gates | Final-head full test matrix, browser evidence, hosted CI, package/archive rerun, merge, publication, and deployment | Pending; PR #94 remains draft and no release, registry, deployment, or upstream write has been performed |
+| 2026-09-26 | Final-head UX | `HELPDESK_E2E_ARTIFACT_DIR=artifacts/e2e/beta4-final-clean tools/ci/run-ux-local.sh` | Setup 1/1 and the full browser suite 31/31 passed; clean rerun covered the setup wizard and responsive/dark integration-hub journeys, and screenshots were inspected for layout and secret leakage |
+| 2026-09-26 | Quality | `slopwatch analyze --directory . --stats` and `git diff --check` | 1,310 files analyzed with zero Slopwatch findings; whitespace check passed |
+| 2026-09-26 | Package and archive rehearsal | `tools/release/package-assets.sh 0.1.1-beta.4 local-beta4-final-worktree artifacts/release/beta4-final`; checksum, Compose, archive, and release-helper tests | Seven final-head archives generated; `SHA256SUMS`, release manifest, deployment Compose validation, Linux x64 executable/stdio initialize probe, stable-promotion helpers, and draft-upload safety tests passed without publishing |
+| 2026-09-26 | NetRatel Dev connectivity | Read-only `netratel_health`, `netratel_system`, `netratel_capabilities`, `netratel_connectivity`, and `netratel_access whoami`; bounded `netratel_connectivity test` | M2M token acquisition Green (49 ms) and protected remote health Green (HTTP 200, 3,887 ms); no RatelDesk ingest or ticket operation was performed |
+| 2026-09-26 | External acceptance | NetRatel ingest/ticket, Netclaw paired-device SignalR, and deployed CLI/stdio/HTTP MCP journeys | Full live/deployed acceptance remains unrun because no exact deployed RatelDesk endpoint and no authorized paired Netclaw device target were identified; do not infer these gates from mocks, local fixtures, or connectivity health |
+| 2026-09-26 | Hosted/release gates | Final-head full test matrix, browser evidence, hosted CI, package/archive rehearsal, merge, publication, and deployment | Local package/archive rehearsal is green; final-head hosted checks are pending push; PR #94 remains draft and no release, registry, deployment, or upstream write has been performed |
 
 ## Compatibility decisions
 
@@ -91,10 +91,10 @@ secrets, private endpoints, local workstation diagnostics, or customer data.
 - [x] SQLite and PostgreSQL migrations generated and exercised by the applicable test/build paths
 - [ ] Real NetRatel compatibility evidence recorded against a pinned unchanged target
 - [ ] Real Netclaw SignalR evidence recorded against a pinned unchanged target
-- [ ] Final-head packaged CLI/stdio/HTTP MCP acceptance evidence recorded
+- [x] Final-head packaged CLI/stdio/HTTP MCP acceptance evidence recorded (deployed journey remains an external gate)
 - [x] UI light/dark/mobile evidence captured without secrets
 - [ ] Full applicable tests and hosted checks green for the final head
-- [ ] Non-publishing beta.4 release rehearsal rerun after this rework
-- [x] Branch clean and pushed after the final review edits
+- [x] Non-publishing beta.4 release rehearsal rerun after this rework
+- [ ] Branch clean and pushed after the final review edits
 - [x] Rollup PR draft and reviewable
 - [x] Human merge/release/deployment steps handed off; no merge or publication performed

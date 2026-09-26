@@ -100,8 +100,7 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
 
         var existing = await LoadOrchestratorAsync(cancellationToken);
         var currentRevision = existing?.Revision ?? 0;
-        if (request.ExpectedRevision is not null && request.ExpectedRevision.Value != currentRevision)
-            throw new IntegrationProviderConfigurationConflictException("The NetRatel orchestrator configuration changed; reload before testing the draft.");
+        RequireExpectedRevision(request.ExpectedRevision, currentRevision, "The NetRatel orchestrator configuration changed; reload before testing the draft.");
 
         var baseUrl = NormalizeUrl(request.BaseUrl, "BaseUrl", request.AllowPrivateHttp);
         var authority = NormalizeUrl(request.Authority, "Authority", request.AllowPrivateHttp);
@@ -180,8 +179,7 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
 
         var existing = await LoadOrchestratorAsync(cancellationToken);
         var currentRevision = existing?.Revision ?? 0;
-        if (request.ExpectedRevision is not null && request.ExpectedRevision.Value != currentRevision)
-            throw new IntegrationProviderConfigurationConflictException("The NetRatel orchestrator configuration changed; reload before saving.");
+        RequireExpectedRevision(request.ExpectedRevision, currentRevision, "The NetRatel orchestrator configuration changed; reload before saving.");
 
         var baseUrl = NormalizeUrl(request.BaseUrl, "BaseUrl", request.AllowPrivateHttp);
         var authority = NormalizeUrl(request.Authority, "Authority", request.AllowPrivateHttp);
@@ -308,8 +306,7 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
 
         var existing = await LoadNetclawAsync(cancellationToken);
         var currentRevision = existing?.Revision ?? 0;
-        if (request.ExpectedRevision is not null && request.ExpectedRevision.Value != currentRevision)
-            throw new IntegrationProviderConfigurationConflictException("The Netclaw configuration changed; reload before testing the draft.");
+        RequireExpectedRevision(request.ExpectedRevision, currentRevision, "The Netclaw configuration changed; reload before testing the draft.");
 
         var instance = Normalize(request.Instance) ?? "dev";
         var endpoint = NormalizeUrl(request.Endpoint, "Endpoint", request.AllowPrivateHttp);
@@ -367,8 +364,7 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
 
         var existing = await LoadNetclawAsync(cancellationToken);
         var currentRevision = existing?.Revision ?? 0;
-        if (request.ExpectedRevision is not null && request.ExpectedRevision.Value != currentRevision)
-            throw new IntegrationProviderConfigurationConflictException("The Netclaw configuration changed; reload before saving.");
+        RequireExpectedRevision(request.ExpectedRevision, currentRevision, "The Netclaw configuration changed; reload before saving.");
 
         var instance = Normalize(request.Instance) ?? "dev";
         var endpoint = NormalizeUrl(request.Endpoint, "Endpoint", request.AllowPrivateHttp);
@@ -468,10 +464,12 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
             throw new InvalidOperationException("Netclaw cannot be enabled because its paired-device token is unavailable. Replace the token or restore the shared Data Protection key ring.");
 
         var snapshot = AiAssistantChatRuntimeSnapshot.From(settings);
-        if (chatRuntime is not null)
-            await chatRuntime.ReconfigureAsync(snapshot, cancellationToken);
-        else
-            runtimeConfiguration.Publish(snapshot);
+        var applied = chatRuntime is not null
+            ? await chatRuntime.TryReconfigureAsync(snapshot, cancellationToken)
+            : runtimeConfiguration.TryPublish(snapshot);
+        if (!applied)
+            throw new IntegrationProviderConfigurationConflictException(
+                "The Netclaw runtime has already applied a newer provider revision; reload before applying this profile.");
     }
 
     private async Task<M2MConnectivitySettings?> LoadOrchestratorAsync(CancellationToken cancellationToken)
@@ -627,7 +625,9 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
                 !string.IsNullOrWhiteSpace(options?.DeviceToken) ? "available" :
                 !string.IsNullOrWhiteSpace(stored?.ProtectedDeviceToken) ? (resolveSecret ? "available" : "configured") : "not-configured",
             SourceKey = managedByDeployment ? IntegrationConfigurationAliases.GetDeploymentSourceKey(configuration, netclaw: true) : "database",
-            ProfileFingerprint = profileFingerprintOverride ?? stored?.ProfileFingerprint ?? BuildNetclawSecretBindingFingerprint(instance, endpoint)
+            ProfileFingerprint = profileFingerprintOverride ?? stored?.ProfileFingerprint ?? BuildNetclawSecretBindingFingerprint(instance, endpoint),
+            CanAdoptLegacySessions = !string.IsNullOrWhiteSpace(endpoint) &&
+                (managedByDeployment || stored is not null)
         };
     }
 
@@ -695,6 +695,18 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
 
     private static string? Normalize(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static void RequireExpectedRevision(
+        int? expectedRevision,
+        int currentRevision,
+        string conflictMessage)
+    {
+        if (expectedRevision is null)
+            throw new IntegrationProviderConfigurationConflictException(
+                "ExpectedRevision is required; reload the provider settings before saving or testing a draft.");
+        if (expectedRevision.Value != currentRevision)
+            throw new IntegrationProviderConfigurationConflictException(conflictMessage);
+    }
 
     private static string BuildOrchestratorSecretBindingFingerprint(
         string? baseUrl,

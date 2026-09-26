@@ -12,8 +12,15 @@ public sealed record AiAssistantChatRuntimeSnapshot(
     int ConnectionCapacity,
     TimeSpan TurnInactivityTimeout,
     TimeSpan ActivityHeartbeatInterval,
-    string ProfileFingerprint)
+    string ProfileFingerprint,
+    int Revision = 0,
+    string Source = "deployment",
+    bool ManagedByDeployment = true,
+    string? SourceKey = null,
+    bool CanAdoptLegacySessions = false)
 {
+    public string RuntimeSourceKey => SourceKey ?? Source;
+
     public static AiAssistantChatRuntimeSnapshot From(NetclawResolvedSettings settings)
         => new(
             settings.Enabled,
@@ -25,5 +32,10 @@ public sealed record AiAssistantChatRuntimeSnapshot(
             settings.ConnectionCapacity,
             settings.TurnInactivityTimeout,
             settings.ActivityHeartbeatInterval,
-            settings.ProfileFingerprint);
+            settings.ProfileFingerprint,
+            settings.Revision,
+            settings.Source,
+            settings.ManagedByDeployment,
+            settings.SourceKey,
+            settings.CanAdoptLegacySessions);
 }

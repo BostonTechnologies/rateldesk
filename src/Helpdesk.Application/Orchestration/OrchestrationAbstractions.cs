@@ -60,6 +60,7 @@ public sealed class NetclawResolvedSettings
     public string SecretState { get; init; } = "not-configured";
     public string? SourceKey { get; init; }
     public string ProfileFingerprint { get; init; } = string.Empty;
+    public bool CanAdoptLegacySessions { get; init; }
 }
 
 public sealed class OrchestrationHealthResult
@@ -69,11 +70,18 @@ public sealed class OrchestrationHealthResult
     public string Message { get; init; } = string.Empty;
 }
 
-public class OrchestrationSubmissionUncertainException(string message)
-    : InvalidOperationException(message);
+public class OrchestrationSubmissionUncertainException(
+    string message,
+    OrchestrationIngestResult? acknowledgement = null)
+    : InvalidOperationException(message)
+{
+    public OrchestrationIngestResult? Acknowledgement { get; } = acknowledgement;
+}
 
-public sealed class OrchestrationAcknowledgementException(string message)
-    : OrchestrationSubmissionUncertainException(message);
+public sealed class OrchestrationAcknowledgementException(
+    string message,
+    OrchestrationIngestResult? acknowledgement = null)
+    : OrchestrationSubmissionUncertainException(message, acknowledgement);
 
 public sealed class OrchestrationSubmissionRejectedException(string message)
     : InvalidOperationException(message);

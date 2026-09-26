@@ -156,6 +156,71 @@ public sealed class OrchestrationIngestResult
     public string? RequestId { get; set; }
     public string? RunId { get; set; }
     public string ExecutionId { get; set; } = string.Empty;
-    public string Status { get; set; } = "Submitted";
+    public string Status { get; set; } = string.Empty;
     public string? Message { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public OrchestrationSubmissionDisposition Disposition { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public OrchestrationExecutionOutcome Outcome { get; set; }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool HasRemoteIdentity =>
+        !string.IsNullOrWhiteSpace(ExecutionId) ||
+        !string.IsNullOrWhiteSpace(RequestId) ||
+        !string.IsNullOrWhiteSpace(RunId);
+}
+
+public static class OrchestrationIngestClassifier
+{
+    public static void Apply(OrchestrationIngestResult result, bool hasStatus)
+    {
+        var status = result.Status.Trim().ToLowerInvariant();
+        var outcome = status switch
+        {
+            "completed" or "complete" or "done" or "success" or "succeeded" => OrchestrationExecutionOutcome.Completed,
+            "failed" or "failure" or "error" or "rejected" or "denied" or "invalid" => OrchestrationExecutionOutcome.Failed,
+            "cancelled" or "canceled" => OrchestrationExecutionOutcome.Cancelled,
+            "accepted" or "queued" or "submitted" or "started" or "running" or
+            "in_progress" or "in-progress" or "processing" or "pending" or
+            "already_exists" or "already-exists" or "duplicate" or "existing" => OrchestrationExecutionOutcome.Processing,
+            _ => OrchestrationExecutionOutcome.Unknown
+        };
+
+        result.Outcome = outcome;
+        if (!result.HasRemoteIdentity)
+        {
+            result.Disposition = outcome is OrchestrationExecutionOutcome.Failed
+                ? OrchestrationSubmissionDisposition.Rejected
+                : OrchestrationSubmissionDisposition.Unknown;
+            return;
+        }
+
+        if (!hasStatus || outcome is OrchestrationExecutionOutcome.Unknown)
+        {
+            result.Disposition = OrchestrationSubmissionDisposition.Unknown;
+            return;
+        }
+
+        result.Disposition = result.Status.Trim().ToLowerInvariant() is "already_exists" or "already-exists" or "duplicate" or "existing"
+            || outcome is OrchestrationExecutionOutcome.Completed or OrchestrationExecutionOutcome.Failed or OrchestrationExecutionOutcome.Cancelled
+            ? OrchestrationSubmissionDisposition.Existing
+            : OrchestrationSubmissionDisposition.Admitted;
+    }
+}
+
+public enum OrchestrationSubmissionDisposition
+{
+    Unknown,
+    Rejected,
+    Admitted,
+    Existing
+}
+
+public enum OrchestrationExecutionOutcome
+{
+    Unknown,
+    Processing,
+    Completed,
+    Failed,
+    Cancelled
 }
