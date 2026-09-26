@@ -42,7 +42,7 @@ must remain unpublished until the human merge and release gates are satisfied.
 | B4-06 | Netclaw options migration, setup, and authenticated diagnostics | Implemented; real daemon interoperability pending | Canonical options/aliases, protected token storage, draft/saved SignalR diagnostics, immutable runtime reconfiguration, UI, actual authenticated SignalR negotiate/WebSocket/fallback coverage, and focused tests are green; unchanged Netclaw daemon acceptance still needs an authorized paired-device environment |
 | B4-07 | Integration hub, navigation, responsive UX, and accessibility | Implemented and validated locally | Hub cards, route cleanup, responsive UI, draft-test controls, existing Playwright coverage, and the final-head desktop/mobile browser journey are green; hosted evidence remains pending |
 | B4-08 | Public guides, examples, migration notes, and release notes | Implemented and under final review | Integration guide now includes source-backed NetRatel provider prerequisites; Netclaw/self-hosting guidance and compatibility notes retained |
-| B4-09 | Integrated security, upgrade, UX, release rehearsal, and final review | In progress; not release-ready | Final rework-head regression, migration, Release build, version/layout, UX, and non-publishing package evidence is recorded below; final-head hosted CI, real provider journeys, merge, and release publication gates remain open |
+| B4-09 | Integrated security, upgrade, UX, release rehearsal, and final review | In progress; not release-ready | Final rework-head regression, migration, Release build, version/layout, UX, package evidence, and hosted validation are recorded below; real provider journeys, merge, and release publication gates remain open |
 
 ## Evidence log
 
@@ -65,7 +65,7 @@ secrets, private endpoints, local workstation diagnostics, or customer data.
 | 2026-09-26 | Package and archive rehearsal | `tools/release/package-assets.sh 0.1.1-beta.4 local-beta4-final-worktree artifacts/release/beta4-final`; checksum, Compose, archive, and release-helper tests | Seven final-head archives generated; `SHA256SUMS`, release manifest, deployment Compose validation, Linux x64 executable/stdio initialize probe, stable-promotion helpers, and draft-upload safety tests passed without publishing |
 | 2026-09-26 | NetRatel Dev connectivity | Read-only `netratel_health`, `netratel_system`, `netratel_capabilities`, `netratel_connectivity`, and `netratel_access whoami`; bounded `netratel_connectivity test` | M2M token acquisition Green (49 ms) and protected remote health Green (HTTP 200, 3,887 ms); no RatelDesk ingest or ticket operation was performed |
 | 2026-09-26 | External acceptance | NetRatel ingest/ticket, Netclaw paired-device SignalR, and deployed CLI/stdio/HTTP MCP journeys | Full live/deployed acceptance remains unrun because no exact deployed RatelDesk endpoint and no authorized paired Netclaw device target were identified; do not infer these gates from mocks, local fixtures, or connectivity health |
-| 2026-09-26 | Hosted/release gates | Final-head full test matrix, browser evidence, hosted CI, package/archive rehearsal, merge, publication, and deployment | Local package/archive rehearsal is green; final-head hosted checks are pending push; PR #94 remains draft and no release, registry, deployment, or upstream write has been performed |
+| 2026-09-26 | Hosted/release gates | [Pull request validation run 36263572804](https://github.com/BostonTechnologies/RatelDesk/actions/runs/36263572804) and [managed PostgreSQL run 36263572778](https://github.com/BostonTechnologies/RatelDesk/actions/runs/36263572778) | Final implementation head `0f73da7` passed .NET, UX, mailbox lifecycle, Docker, Compose/PostgreSQL, disclosure/layout, release rehearsal, and all Linux x64/ARM64/Windows x64 archive-runtime jobs; PR #94 remains draft and no release, registry, deployment, or upstream write has been performed |
 
 ## Compatibility decisions
 
@@ -93,8 +93,8 @@ secrets, private endpoints, local workstation diagnostics, or customer data.
 - [ ] Real Netclaw SignalR evidence recorded against a pinned unchanged target
 - [x] Final-head packaged CLI/stdio/HTTP MCP acceptance evidence recorded (deployed journey remains an external gate)
 - [x] UI light/dark/mobile evidence captured without secrets
-- [ ] Full applicable tests and hosted checks green for the final head
+- [x] Full applicable tests and hosted checks green for the final implementation head
 - [x] Non-publishing beta.4 release rehearsal rerun after this rework
-- [ ] Branch clean and pushed after the final review edits
+- [x] Branch clean and pushed after the final review edits
 - [x] Rollup PR draft and reviewable
 - [x] Human merge/release/deployment steps handed off; no merge or publication performed
