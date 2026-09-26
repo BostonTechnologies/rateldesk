@@ -53,6 +53,7 @@ public static class DependencyInjection
 
     public static IServiceCollection AddHelpdeskInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
+        IntegrationConfigurationAliases.ValidateDeploymentConfiguration(configuration);
         var legacyPostgreSqlConnectionString = configuration.GetConnectionString("HelpdeskDb");
         var databaseOptions = configuration.GetSection(DatabaseOptions.SectionName).Get<DatabaseOptions>() ?? new DatabaseOptions();
         var databaseProvider = databaseOptions.ResolveProvider(legacyPostgreSqlConnectionString);
@@ -72,6 +73,7 @@ public static class DependencyInjection
                 "Native AI Assistant chat requires PostgreSQL for durable session ownership. Set Netclaw:Enabled=false (or the legacy AiAssistantChat:Enabled=false alias) to use SQLite with webhook AI assistance.")
             .Validate(x => x.IsValid(), "Enabled chat requires Dev instance, session hub, credential, positive limits, and an activity heartbeat shorter than the turn inactivity timeout; private HTTP requires explicit opt-in.")
             .ValidateOnStart();
+        services.AddSingleton<Helpdesk.Infrastructure.AiAssistant.Chat.IAiAssistantChatRuntimeState, Helpdesk.Infrastructure.AiAssistant.Chat.AiAssistantChatRuntimeState>();
         services.AddSingleton(TimeProvider.System);
         services.AddScoped<Helpdesk.Application.AiAssistant.Chat.IAiAssistantChatStore, Helpdesk.Infrastructure.AiAssistant.Chat.AiAssistantChatStore>();
         services.AddSingleton<Helpdesk.Application.AiAssistant.Chat.IChatLiveFeed, Helpdesk.Infrastructure.AiAssistant.Chat.ChatLiveFeed>();
@@ -97,10 +99,10 @@ public static class DependencyInjection
         AddRepositoryRegistrations(services);
 
         services.AddHttpClient("OrchestrationInternalApi")
-            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false })
+            .ConfigurePrimaryHttpMessageHandler(_ => IntegrationSafeHttpMessageHandler.Create())
             .SetHandlerLifetime(TimeSpan.FromMinutes(10));
         services.AddHttpClient("OrchestrationToken")
-            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false })
+            .ConfigurePrimaryHttpMessageHandler(_ => IntegrationSafeHttpMessageHandler.Create())
             .SetHandlerLifetime(TimeSpan.FromMinutes(10));
         services.AddHttpClient("AiAssistantWebhook")
             .SetHandlerLifetime(TimeSpan.FromMinutes(10));

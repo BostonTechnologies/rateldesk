@@ -1,4 +1,6 @@
 using Helpdesk.Infrastructure.Persistence.Connectivity;
+using Helpdesk.Application.AiAssistant.Chat;
+using Microsoft.Extensions.Options;
 
 namespace Helpdesk.Infrastructure.AiAssistant.Chat;
 
@@ -30,10 +32,36 @@ public sealed class AiAssistantChatOptions
     public bool IsValid()
     {
         if (!Enabled) return true;
-        if (Instance != "dev" || string.IsNullOrWhiteSpace(DeviceToken) || IdleMinutes <= 0 || ConnectionCapacity <= 0 || TurnInactivityTimeout <= TimeSpan.Zero || ActivityHeartbeatInterval <= TimeSpan.Zero || ActivityHeartbeatInterval >= TurnInactivityTimeout || !Uri.TryCreate(Endpoint, UriKind.Absolute, out var uri) || uri.AbsolutePath != "/hub/session" || !IntegrationEndpointPolicy.IsAllowed(uri)) return false;
+        if (Instance != "dev" || string.IsNullOrWhiteSpace(DeviceToken) || IdleMinutes <= 0 || ConnectionCapacity <= 0 || TurnInactivityTimeout <= TimeSpan.Zero || ActivityHeartbeatInterval <= TimeSpan.Zero || ActivityHeartbeatInterval >= TurnInactivityTimeout || !Uri.TryCreate(Endpoint, UriKind.Absolute, out var uri) || uri.AbsolutePath != "/hub/session" || !IntegrationEndpointPolicy.IsAllowed(uri, AllowPrivateHttp)) return false;
         if (uri.Scheme == "https") return true;
-        if (!AllowPrivateHttp || uri.Scheme != "http" || !System.Net.IPAddress.TryParse(uri.Host, out var ip)) return false;
-        var bytes = ip.GetAddressBytes();
-        return bytes.Length == 4 && (bytes[0] == 10 || bytes[0] == 192 && bytes[1] == 168 || bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31);
+        return AllowPrivateHttp && uri.Scheme == "http" &&
+            System.Net.IPAddress.TryParse(uri.Host, out var ip) &&
+            IntegrationEndpointPolicy.IsPrivateNetworkAddress(ip);
     }
+}
+
+public interface IAiAssistantChatRuntimeState
+{
+    AiAssistantChatRuntimeSnapshot Current { get; }
+    void Publish(AiAssistantChatRuntimeSnapshot snapshot);
+}
+
+public sealed class AiAssistantChatRuntimeState(IOptions<AiAssistantChatOptions> options) : IAiAssistantChatRuntimeState
+{
+    private AiAssistantChatRuntimeSnapshot current = new(
+        options.Value.Enabled,
+        options.Value.Instance,
+        options.Value.Endpoint,
+        options.Value.DeviceToken,
+        options.Value.AllowPrivateHttp,
+        options.Value.IdleMinutes,
+        options.Value.ConnectionCapacity,
+        options.Value.TurnInactivityTimeout,
+        options.Value.ActivityHeartbeatInterval,
+        string.Empty);
+
+    public AiAssistantChatRuntimeSnapshot Current => Volatile.Read(ref current);
+
+    public void Publish(AiAssistantChatRuntimeSnapshot snapshot)
+        => Volatile.Write(ref current, snapshot);
 }

@@ -43,7 +43,7 @@ public sealed class OrchestrationCatalogService(
             throw new InvalidOperationException("External orchestration connectivity is disabled.");
         }
 
-        var endpoint = BuildAbsoluteUri(settings.BaseUrl, BuildCatalogPath(settings.CatalogPath, "request-definitions"));
+        var endpoint = BuildAbsoluteUri(settings.BaseUrl, BuildCatalogPath(settings.CatalogPath, "request-definitions"), settings.AllowPrivateHttp);
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
             Content = JsonContent.Create(requestPayload, options: WireJsonOptions)
@@ -59,7 +59,7 @@ public sealed class OrchestrationCatalogService(
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"External orchestration request-definition create failed ({(int)response.StatusCode}): {ExtractErrorMessage(content)}");
+            throw new InvalidOperationException($"External orchestration request-definition create failed ({(int)response.StatusCode}): {ExtractErrorMessage(content, settings)}");
         }
 
         NetRatelCatalogRequestDefinitionDto? parsed;
@@ -67,15 +67,16 @@ public sealed class OrchestrationCatalogService(
         {
             parsed = JsonSerializer.Deserialize<NetRatelCatalogRequestDefinitionDto>(content, JsonOptions);
         }
-        catch (JsonException exception)
+        catch (JsonException)
         {
-            throw new InvalidOperationException("External orchestration returned an incompatible request-definition response.", exception);
+            throw new InvalidOperationException("External orchestration returned an incompatible request-definition response.");
         }
         if (parsed is null)
         {
             throw new InvalidOperationException("External orchestration returned an empty response for request-definition creation.");
         }
 
+        ValidateRequestDefinitionContract(parsed);
         return MapRequestDefinition(parsed);
     }
 
@@ -94,7 +95,7 @@ public sealed class OrchestrationCatalogService(
             ? throw new InvalidOperationException("Request definition id is required.")
             : requestDefinitionId.Trim();
 
-        var endpoint = BuildAbsoluteUri(settings.BaseUrl, BuildCatalogPath(settings.CatalogPath, $"request-definitions/{normalizedRequestDefinitionId}/inputs/sync"));
+        var endpoint = BuildAbsoluteUri(settings.BaseUrl, BuildCatalogPath(settings.CatalogPath, $"request-definitions/{normalizedRequestDefinitionId}/inputs/sync"), settings.AllowPrivateHttp);
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
             Content = JsonContent.Create(new
@@ -113,7 +114,7 @@ public sealed class OrchestrationCatalogService(
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"External orchestration request-definition input sync failed ({(int)response.StatusCode}): {ExtractErrorMessage(content)}");
+            throw new InvalidOperationException($"External orchestration request-definition input sync failed ({(int)response.StatusCode}): {ExtractErrorMessage(content, settings)}");
         }
 
         NetRatelCatalogRequestDefinitionDto? parsed;
@@ -121,15 +122,16 @@ public sealed class OrchestrationCatalogService(
         {
             parsed = JsonSerializer.Deserialize<NetRatelCatalogRequestDefinitionDto>(content, JsonOptions);
         }
-        catch (JsonException exception)
+        catch (JsonException)
         {
-            throw new InvalidOperationException("External orchestration returned an incompatible request-definition response.", exception);
+            throw new InvalidOperationException("External orchestration returned an incompatible request-definition response.");
         }
         if (parsed is null)
         {
             throw new InvalidOperationException("External orchestration returned an empty response for request-definition input sync.");
         }
 
+        ValidateRequestDefinitionContract(parsed);
         return MapRequestDefinition(parsed);
     }
 
@@ -141,7 +143,7 @@ public sealed class OrchestrationCatalogService(
             return [];
         }
 
-        var endpoint = BuildAbsoluteUri(settings.BaseUrl, BuildCatalogPath(settings.CatalogPath, path));
+        var endpoint = BuildAbsoluteUri(settings.BaseUrl, BuildCatalogPath(settings.CatalogPath, path), settings.AllowPrivateHttp);
         using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
         await AttachAuthHeaderAsync(settings, request, cancellationToken);
 
@@ -153,35 +155,58 @@ public sealed class OrchestrationCatalogService(
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"External orchestration catalog request failed ({(int)response.StatusCode}): {ExtractErrorMessage(content)}");
+            throw new InvalidOperationException($"External orchestration catalog request failed ({(int)response.StatusCode}): {ExtractErrorMessage(content, settings)}");
         }
 
         if (string.IsNullOrWhiteSpace(content))
-        {
-            return [];
-        }
+            throw new InvalidOperationException("External orchestration returned an empty catalogue response.");
 
         if (typeof(T) == typeof(OrchestrationCatalogRequestDefinitionDto))
         {
             try
             {
-                var wire = JsonSerializer.Deserialize<List<NetRatelCatalogRequestDefinitionDto>>(content, JsonOptions) ?? [];
+                var wire = JsonSerializer.Deserialize<List<NetRatelCatalogRequestDefinitionDto>>(content, JsonOptions)
+                    ?? throw new InvalidOperationException("External orchestration returned a null request-definition catalogue.");
+                foreach (var item in wire)
+                    ValidateRequestDefinitionContract(item);
                 return wire.Select(item => (T)(object)MapRequestDefinition(item)).ToArray();
             }
-            catch (JsonException exception)
+            catch (InvalidOperationException)
             {
-                throw new InvalidOperationException("External orchestration returned an incompatible request-definition catalogue.", exception);
+                throw;
+            }
+            catch (JsonException)
+            {
+                throw new InvalidOperationException("External orchestration returned an incompatible request-definition catalogue.");
             }
         }
 
         try
         {
-            var parsed = JsonSerializer.Deserialize<List<T>>(content, JsonOptions);
-            return parsed ?? [];
+            var parsed = JsonSerializer.Deserialize<List<T>>(content, JsonOptions)
+                ?? throw new InvalidOperationException("External orchestration returned a null catalogue.");
+            if (typeof(T) == typeof(OrchestrationCatalogJobDto))
+            {
+                foreach (var item in parsed.Cast<OrchestrationCatalogJobDto>())
+                    if (string.IsNullOrWhiteSpace(item.Id) || string.IsNullOrWhiteSpace(item.Name))
+                        throw new InvalidOperationException("External orchestration returned an incompatible job catalogue.");
+            }
+            else if (typeof(T) == typeof(OrchestrationCatalogTenantDto))
+            {
+                foreach (var item in parsed.Cast<OrchestrationCatalogTenantDto>())
+                    if (item.TenantId <= 0 || string.IsNullOrWhiteSpace(item.Name))
+                        throw new InvalidOperationException("External orchestration returned an incompatible tenant catalogue.");
+            }
+
+            return parsed;
         }
-        catch (JsonException exception)
+        catch (InvalidOperationException)
         {
-            throw new InvalidOperationException("External orchestration returned an incompatible catalogue response.", exception);
+            throw;
+        }
+        catch (JsonException)
+        {
+            throw new InvalidOperationException("External orchestration returned an incompatible catalogue response.");
         }
     }
 
@@ -191,11 +216,12 @@ public sealed class OrchestrationCatalogService(
         CancellationToken cancellationToken)
     {
         var accessToken = await _tokenService.GetAccessTokenAsync(settings, cancellationToken);
+        request.Options.Set(IntegrationSafeHttpMessageHandler.AllowPrivateHttpOption, settings.AllowPrivateHttp);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
     }
 
-    private static Uri BuildAbsoluteUri(string? baseUrl, string path)
+    private static Uri BuildAbsoluteUri(string? baseUrl, string path, bool allowPrivateHttp)
     {
         if (string.IsNullOrWhiteSpace(baseUrl))
         {
@@ -203,13 +229,24 @@ public sealed class OrchestrationCatalogService(
         }
 
         var uri = new Uri(new Uri(baseUrl, UriKind.Absolute), path);
-        if (!IntegrationEndpointPolicy.IsAllowed(uri))
+        if (!IntegrationEndpointPolicy.IsAllowed(uri, allowPrivateHttp))
             throw new InvalidOperationException("The configured NetRatel endpoint is not allowed by the outbound integration policy.");
         return uri;
     }
 
     private static string BuildCatalogPath(string catalogPath, string suffix)
         => $"{catalogPath.TrimEnd('/')}/{suffix.TrimStart('/')}";
+
+    private static void ValidateRequestDefinitionContract(NetRatelCatalogRequestDefinitionDto item)
+    {
+        if (string.IsNullOrWhiteSpace(item.RequestDefinitionId)
+            || string.IsNullOrWhiteSpace(item.RequestDefinitionName)
+            || string.IsNullOrWhiteSpace(item.ClientIdentity)
+            || item.Inputs is null)
+        {
+            throw new InvalidOperationException("External orchestration returned an incompatible request-definition catalogue.");
+        }
+    }
 
     private static async Task<string> ReadBoundedContentAsync(HttpContent content, CancellationToken cancellationToken)
     {
@@ -228,7 +265,7 @@ public sealed class OrchestrationCatalogService(
         return System.Text.Encoding.UTF8.GetString(buffer.GetBuffer(), 0, checked((int)buffer.Length));
     }
 
-    private static string ExtractErrorMessage(string content)
+    private static string ExtractErrorMessage(string content, OrchestrationResolvedSettings settings)
     {
         if (string.IsNullOrWhiteSpace(content)) return "provider returned no error details";
         try
@@ -240,13 +277,12 @@ public sealed class OrchestrationCatalogService(
                 {
                     var value = element.GetString();
                     if (!string.IsNullOrWhiteSpace(value))
-                        return value.Trim()[..Math.Min(value.Trim().Length, 256)];
+                        return IntegrationErrorSafety.ProviderMessage(value, 256, settings.ClientSecret);
                 }
             }
         }
         catch (JsonException)
         {
-            // Do not return an arbitrary upstream body to an administrator.
             return "provider returned an invalid error response";
         }
 

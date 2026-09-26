@@ -78,13 +78,15 @@
                         <MudItem xs="12" md="4"><MudTextField @bind-Value="draft.HealthPath" @bind-Value:after="MarkDirty" Label="Health path" Disabled="@settings.ManagedByDeployment" /></MudItem>
                         <MudItem xs="12" md="4"><MudTextField @bind-Value="draft.IngestPath" @bind-Value:after="MarkDirty" Label="Ingest path" Disabled="@settings.ManagedByDeployment" /></MudItem>
                         <MudItem xs="12" md="4"><MudTextField @bind-Value="draft.CatalogPath" @bind-Value:after="MarkDirty" Label="Catalog path" Disabled="@settings.ManagedByDeployment" /></MudItem>
+                        <MudItem xs="12"><MudCheckBox @bind-Value="draft.AllowPrivateHttp" @bind-Value:after="MarkDirty" Label="Allow private HTTP (local development only)" Disabled="@settings.ManagedByDeployment" /></MudItem>
                     </MudGrid>
                 </MudExpansionPanel>
             </MudExpansionPanels>
 
             <MudStack Row="true" Spacing="2" Class="mt-2">
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(saving || settings.ManagedByDeployment)" OnClick="SaveAsync">@(saving ? "Saving…" : "Save settings")</MudButton>
-                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(testing || isDirty)" OnClick="TestConnectionAsync">Test saved configuration</MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(testing || isDirty || saving || settings.ManagedByDeployment)" OnClick="TestConnectionAsync">Test saved configuration</MudButton>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Disabled="@(testing || saving || settings.ManagedByDeployment)" OnClick="TestDraftAsync">Test draft</MudButton>
                 <MudButton Variant="Variant.Text" Disabled="@loading" OnClick="RefreshAsync">Refresh</MudButton>
             </MudStack>
 
@@ -127,6 +129,7 @@
     private bool saving;
     private bool testing;
     private bool isDirty;
+    private long testGeneration;
 
     private IReadOnlyList<SettingRow> ResolvedSettings => settings is null ? [] :
     [
@@ -139,6 +142,7 @@
         new("Scope", Display(settings.Scope)),
         new("Token endpoint", Display(settings.TokenEndpoint)),
         new("Client secret", settings.HasClientSecret ? "Configured (protected)" : "Not configured"),
+        new("Secret state", settings.SecretState),
         new("Last saved", DisplayTimestamp(settings.UpdatedAtUtc, "Not saved")),
         new("Last applied", DisplayTimestamp(settings.LastAppliedAtUtc, "Not applied")),
         new("Last tested", settings.LastTestedAtUtc is null ? "Not tested" : $"{DisplayTimestamp(settings.LastTestedAtUtc, "Not tested")} ({(settings.LastTestSucceeded == true ? "passed" : "failed")})")
@@ -174,6 +178,7 @@
             Scope = settings.Scope,
             TokenEndpoint = settings.TokenEndpoint,
             ClientId = settings.ClientId,
+            AllowPrivateHttp = settings.AllowPrivateHttp,
             RemoteSystemName = settings.RemoteSystemName,
             HealthPath = settings.HealthPath,
             IngestPath = settings.IngestPath,
@@ -185,6 +190,7 @@
     private async Task SaveAsync()
     {
         if (settings?.ManagedByDeployment == true) return;
+        ++testGeneration;
         testResult = null;
         saving = true;
         try
@@ -209,12 +215,14 @@
     private async Task RefreshAsync()
     {
         if (isDirty && !await JS.InvokeAsync<bool>("confirm", "Discard unsaved NetRatel orchestrator changes?")) return;
+        ++testGeneration;
         await LoadAsync();
     }
 
     private void MarkDirty()
     {
         if (settings?.ManagedByDeployment == true) return;
+        ++testGeneration;
         isDirty = true;
         testResult = null;
     }
@@ -228,18 +236,52 @@
 
     private async Task TestConnectionAsync()
     {
+        var requestGeneration = testGeneration;
         testing = true;
         try
         {
             using var response = await HelpdeskApi.PostAsync("/api/v1/admin/orchestration/test", null);
-            testResult = await response.Content.ReadFromJsonAsync<OrchestrationConnectivityTestResultDto>()
+            var result = await response.Content.ReadFromJsonAsync<OrchestrationConnectivityTestResultDto>()
                          ?? new() { Message = "Unknown validation result." };
-            Snackbar.Add(testResult.Message, testResult.Success ? Severity.Success : Severity.Warning);
+            if (requestGeneration == testGeneration)
+            {
+                testResult = result;
+                Snackbar.Add(result.Message, result.Success ? Severity.Success : Severity.Warning);
+            }
         }
         catch (HttpRequestException)
         {
-            testResult = new() { Message = "The protected NetRatel validation request failed." };
-            Snackbar.Add(testResult.Message, Severity.Error);
+            if (requestGeneration == testGeneration)
+            {
+                testResult = new() { Message = "The protected NetRatel validation request failed." };
+                Snackbar.Add(testResult.Message, Severity.Error);
+            }
+        }
+        finally { testing = false; }
+    }
+
+    private async Task TestDraftAsync()
+    {
+        var requestGeneration = testGeneration;
+        testing = true;
+        try
+        {
+            using var response = await HelpdeskApi.PostAsJsonAsync("/api/v1/admin/orchestration/test-draft", draft);
+            var result = await response.Content.ReadFromJsonAsync<OrchestrationConnectivityTestResultDto>()
+                         ?? new() { Message = "Unknown draft validation result." };
+            if (requestGeneration == testGeneration)
+            {
+                testResult = result;
+                Snackbar.Add(result.Message, result.Success ? Severity.Success : Severity.Warning);
+            }
+        }
+        catch (HttpRequestException)
+        {
+            if (requestGeneration == testGeneration)
+            {
+                testResult = new() { Message = "The protected NetRatel draft validation request failed." };
+                Snackbar.Add(testResult.Message, Severity.Error);
+            }
         }
         finally { testing = false; }
     }

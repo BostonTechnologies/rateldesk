@@ -93,6 +93,54 @@ public sealed class IntegrationProviderSettingsTests
     }
 
     [Fact]
+    public void Packaged_appsettings_defaults_are_database_managed()
+    {
+        var repository = new DirectoryInfo(AppContext.BaseDirectory);
+        while (repository is not null && !File.Exists(Path.Combine(repository.FullName, "Helpdesk.sln")))
+            repository = repository.Parent;
+        var path = Path.Combine(repository?.FullName ?? throw new InvalidOperationException("Repository root was not found."), "src", "Helpdesk.API", "appsettings.json");
+        Assert.True(File.Exists(path), $"Expected the repository appsettings file at {path}.");
+
+        var configuration = new ConfigurationBuilder()
+            .AddJsonFile(path, optional: false)
+            .Build();
+
+        Assert.False(IntegrationConfigurationAliases.HasDeploymentOrchestratorConfiguration(configuration));
+        Assert.False(IntegrationConfigurationAliases.HasDeploymentNetclawConfiguration(configuration));
+    }
+
+    [Fact]
+    public void Explicit_empty_operator_values_are_authoritative()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Orchestrator:Enabled"] = "",
+                ["Orchestrator:BaseUrl"] = ""
+            })
+            .Build();
+
+        Assert.True(IntegrationConfigurationAliases.HasDeploymentOrchestratorConfiguration(configuration));
+        Assert.Equal("Orchestrator", IntegrationConfigurationAliases.GetDeploymentSourceKey(configuration, netclaw: false));
+    }
+
+    [Fact]
+    public void Malformed_deployment_values_fail_with_the_controlling_key()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Netclaw:Enabled"] = "sometimes"
+            })
+            .Build();
+
+        var exception = Assert.Throws<InvalidOperationException>(() => IntegrationConfigurationAliases.ReadNetclaw(configuration));
+
+        Assert.Contains("Netclaw:Enabled", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("sometimes", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Deployment_reads_do_not_invent_a_saved_timestamp()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -147,6 +195,241 @@ public sealed class IntegrationProviderSettingsTests
     }
 
     [Fact]
+    public async Task Retained_secret_cannot_cross_an_authenticated_destination_boundary()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var service = fixture.CreateService();
+
+        var saved = await service.UpdateOrchestratorSettingsAsync(new UpdateOrchestrationConnectivitySettingsDto
+        {
+            Enabled = true,
+            BaseUrl = "https://provider-a.example.test",
+            Authority = "https://provider-a.example.test",
+            ClientId = "client-a",
+            ClientSecret = "secret-a"
+        });
+
+        await Assert.ThrowsAsync<ArgumentException>(() => service.UpdateOrchestratorSettingsAsync(new UpdateOrchestrationConnectivitySettingsDto
+        {
+            ExpectedRevision = saved.Revision,
+            Enabled = true,
+            BaseUrl = "https://provider-b.example.test",
+            Authority = "https://provider-b.example.test",
+            ClientId = "client-a"
+        }));
+
+        var metadata = await service.GetOrchestratorSettingsAsync();
+        Assert.True(metadata.HasClientSecret);
+        Assert.Equal("configured", metadata.SecretState);
+    }
+
+    [Fact]
+    public async Task Same_authenticated_destination_may_retain_secret_without_decrypting_metadata()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var service = fixture.CreateService();
+
+        var saved = await service.UpdateOrchestratorSettingsAsync(new UpdateOrchestrationConnectivitySettingsDto
+        {
+            Enabled = true,
+            BaseUrl = "https://provider.example.test",
+            Authority = "https://provider.example.test",
+            ClientId = "client-a",
+            ClientSecret = "secret-a"
+        });
+
+        var updated = await service.UpdateOrchestratorSettingsAsync(new UpdateOrchestrationConnectivitySettingsDto
+        {
+            ExpectedRevision = saved.Revision,
+            Enabled = true,
+            BaseUrl = "https://provider.example.test",
+            Authority = "https://provider.example.test",
+            ClientId = "client-a",
+            RemoteSystemName = "renamed"
+        });
+
+        Assert.True(updated.HasClientSecret);
+        Assert.Equal("configured", updated.SecretState);
+        Assert.Equal("secret-a", (await service.GetResolvedOrchestratorSettingsAsync()).ClientSecret);
+    }
+
+    [Fact]
+    public async Task Draft_diagnostic_resolves_a_candidate_without_persisting_or_rebinding_a_secret()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var service = fixture.CreateService();
+        var saved = await service.UpdateOrchestratorSettingsAsync(new UpdateOrchestrationConnectivitySettingsDto
+        {
+            Enabled = true,
+            BaseUrl = "https://provider.example.test",
+            Authority = "https://provider.example.test",
+            ClientId = "client-a",
+            ClientSecret = "secret-a"
+        });
+
+        var draft = await service.ResolveOrchestratorDraftAsync(new UpdateOrchestrationConnectivitySettingsDto
+        {
+            ExpectedRevision = saved.Revision,
+            Enabled = true,
+            BaseUrl = "https://provider.example.test",
+            Authority = "https://provider.example.test",
+            ClientId = "client-a",
+            RemoteSystemName = "draft-only"
+        });
+
+        Assert.Equal("draft", draft.Source);
+        Assert.Equal(saved.Revision, draft.Revision);
+        Assert.Equal("secret-a", draft.ClientSecret);
+        Assert.Equal("draft-only", draft.RemoteSystemName);
+        var stored = await fixture.Db.M2MConnectivitySettings.SingleAsync();
+        Assert.Equal(saved.Revision, stored.Revision);
+        Assert.Equal("https://provider.example.test", stored.RemoteBaseUrl);
+        Assert.Null(stored.LastTestedAtUtc);
+    }
+
+    [Fact]
+    public async Task Draft_diagnostic_rejects_a_changed_destination_without_a_replacement_secret()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var service = fixture.CreateService();
+        var saved = await service.UpdateOrchestratorSettingsAsync(new UpdateOrchestrationConnectivitySettingsDto
+        {
+            Enabled = true,
+            BaseUrl = "https://provider-a.example.test",
+            Authority = "https://provider-a.example.test",
+            ClientId = "client-a",
+            ClientSecret = "secret-a"
+        });
+
+        await Assert.ThrowsAsync<ArgumentException>(() => service.ResolveOrchestratorDraftAsync(new UpdateOrchestrationConnectivitySettingsDto
+        {
+            ExpectedRevision = saved.Revision,
+            Enabled = true,
+            BaseUrl = "https://provider-b.example.test",
+            Authority = "https://provider-b.example.test",
+            ClientId = "client-a"
+        }));
+
+        Assert.Equal(saved.Revision, (await fixture.Db.M2MConnectivitySettings.SingleAsync()).Revision);
+    }
+
+    [Fact]
+    public async Task Netclaw_draft_diagnostic_does_not_apply_or_persist_candidate_settings()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var service = fixture.CreateService();
+        var draft = await service.ResolveNetclawDraftAsync(new UpdateNetclawConnectivitySettingsDto
+        {
+            Enabled = false,
+            Endpoint = "https://netclaw.example.test/hub/session",
+            DeviceToken = "draft-device-token",
+            Instance = "dev"
+        });
+
+        Assert.Equal("draft", draft.Source);
+        Assert.Equal("draft-device-token", draft.DeviceToken);
+        Assert.Empty(await fixture.Db.NetclawConnectivitySettings.ToListAsync());
+        Assert.False(fixture.ChatOptions.Value.Enabled);
+    }
+
+    [Fact]
+    public async Task Missing_data_protection_key_is_safe_and_exposed_as_unavailable_only_when_resolved()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var protectingProvider = new EphemeralDataProtectionProvider(NullLoggerFactory.Instance);
+        var service = fixture.CreateService(protectionProvider: protectingProvider);
+        await service.UpdateOrchestratorSettingsAsync(new UpdateOrchestrationConnectivitySettingsDto
+        {
+            Enabled = true,
+            BaseUrl = "https://provider.example.test",
+            Authority = "https://provider.example.test",
+            ClientId = "client-a",
+            ClientSecret = "secret-a"
+        });
+
+        var metadataService = fixture.CreateService(protectionProvider: new EphemeralDataProtectionProvider(NullLoggerFactory.Instance));
+        var metadata = await metadataService.GetOrchestratorSettingsAsync();
+        Assert.True(metadata.HasClientSecret);
+        Assert.Equal("configured", metadata.SecretState);
+
+        var resolved = await metadataService.GetResolvedOrchestratorSettingsAsync();
+        Assert.True(resolved.SecretUnavailable);
+        Assert.Equal("unavailable", resolved.SecretState);
+        Assert.Null(resolved.ClientSecret);
+    }
+
+    [Fact]
+    public async Task Concurrent_first_profile_creation_has_one_winner()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"rateldesk-provider-{Guid.NewGuid():N}.db");
+        try
+        {
+            var options = new DbContextOptionsBuilder<HelpdeskDbContext>().UseSqlite($"Data Source={databasePath}").Options;
+            var tenant = Substitute.For<ITenantContext>();
+            tenant.TenantId.Returns("test");
+            await using (var initializer = new HelpdeskDbContext(options, tenant, new HttpContextAccessor()))
+                await initializer.Database.EnsureCreatedAsync();
+
+            await using var firstDb = new HelpdeskDbContext(options, tenant, new HttpContextAccessor());
+            await using var secondDb = new HelpdeskDbContext(options, tenant, new HttpContextAccessor());
+            var configuration = new ConfigurationBuilder().AddInMemoryCollection().Build();
+            var protection = new EphemeralDataProtectionProvider(NullLoggerFactory.Instance);
+            var first = CreateService(firstDb, configuration, protection);
+            var second = CreateService(secondDb, configuration, protection);
+            var request = new UpdateOrchestrationConnectivitySettingsDto
+            {
+                Enabled = false,
+                BaseUrl = "https://provider.example.test"
+            };
+
+            var saves = new[]
+            {
+                first.UpdateOrchestratorSettingsAsync(request),
+                second.UpdateOrchestratorSettingsAsync(request)
+            };
+            try { await Task.WhenAll(saves); }
+            catch (Exception)
+            {
+                var failedSave = saves.Single(x => x.IsFaulted);
+                Assert.IsType<IntegrationProviderConfigurationConflictException>(failedSave.Exception?.InnerException);
+            }
+
+            await using var verification = new HelpdeskDbContext(options, tenant, new HttpContextAccessor());
+            Assert.Single(await verification.M2MConnectivitySettings.ToListAsync());
+        }
+        finally
+        {
+            if (File.Exists(databasePath)) File.Delete(databasePath);
+        }
+    }
+
+    [Fact]
+    public async Task Test_result_for_an_old_revision_cannot_overwrite_current_profile()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var service = fixture.CreateService();
+        var first = await service.UpdateOrchestratorSettingsAsync(new UpdateOrchestrationConnectivitySettingsDto
+        {
+            Enabled = false,
+            BaseUrl = "https://provider.example.test"
+        });
+        var oldFingerprint = first.ProfileFingerprint;
+        var current = await service.UpdateOrchestratorSettingsAsync(new UpdateOrchestrationConnectivitySettingsDto
+        {
+            ExpectedRevision = first.Revision,
+            Enabled = false,
+            BaseUrl = "https://provider.example.test",
+            RemoteSystemName = "new profile"
+        });
+
+        Assert.False(await service.RecordOrchestratorTestAsync(first.Revision, oldFingerprint, succeeded: true));
+        var stored = await fixture.Db.M2MConnectivitySettings.SingleAsync();
+        Assert.Equal(current.Revision, stored.Revision);
+        Assert.Null(stored.LastTestedAtUtc);
+        Assert.Null(stored.LastTestSucceeded);
+    }
+
+    [Fact]
     public async Task Persisted_netclaw_profile_is_stored_but_not_enabled_on_sqlite()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -165,6 +448,19 @@ public sealed class IntegrationProviderSettingsTests
         Assert.False(fixture.ChatOptions.Value.Enabled);
         Assert.NotEqual("synthetic-device-token", (await fixture.Db.NetclawConnectivitySettings.SingleAsync()).ProtectedDeviceToken);
     }
+
+    private static IntegrationProviderSettingsService CreateService(
+        HelpdeskDbContext db,
+        IConfiguration configuration,
+        IDataProtectionProvider protectionProvider)
+        => new(
+            db,
+            configuration,
+            new IntegrationProviderSecretProtector(protectionProvider),
+            Options.Create(new AiAssistantChatOptions()),
+            new DatabaseOptions { Provider = "Sqlite" },
+            TimeProvider.System,
+            NullLogger<IntegrationProviderSettingsService>.Instance);
 
     private sealed class Fixture : IAsyncDisposable
     {
@@ -191,11 +487,13 @@ public sealed class IntegrationProviderSettingsTests
             return new Fixture(connection, db);
         }
 
-        public IntegrationProviderSettingsService CreateService(IConfiguration? configuration = null)
+        public IntegrationProviderSettingsService CreateService(
+            IConfiguration? configuration = null,
+            IDataProtectionProvider? protectionProvider = null)
             => new(
                 Db,
                 configuration ?? Configuration,
-                new IntegrationProviderSecretProtector(new EphemeralDataProtectionProvider(NullLoggerFactory.Instance)),
+                new IntegrationProviderSecretProtector(protectionProvider ?? new EphemeralDataProtectionProvider(NullLoggerFactory.Instance)),
                 ChatOptions,
                 new DatabaseOptions { Provider = "Sqlite" },
                 TimeProvider.System,

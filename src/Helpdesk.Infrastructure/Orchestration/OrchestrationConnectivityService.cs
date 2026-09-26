@@ -30,6 +30,14 @@ public sealed class OrchestrationConnectivityService(
     public async Task<OrchestrationConnectivityTestResultDto> TestOrchestrationConnectivityAsync(CancellationToken cancellationToken = default)
     {
         var settings = await GetResolvedOrchestrationSettingsAsync(cancellationToken);
+        return await TestOrchestrationConnectivityAsync(settings, cancellationToken);
+    }
+
+    public async Task<OrchestrationConnectivityTestResultDto> TestOrchestrationConnectivityAsync(
+        OrchestrationResolvedSettings settings,
+        CancellationToken cancellationToken = default,
+        bool useTokenCache = true)
+    {
         if (!settings.Enabled)
         {
             return new OrchestrationConnectivityTestResultDto
@@ -83,7 +91,7 @@ public sealed class OrchestrationConnectivityService(
         try
         {
             var tokenStopwatch = Stopwatch.StartNew();
-            await _orchestrationTokenService.GetAccessTokenAsync(settings, cancellationToken);
+            await _orchestrationTokenService.GetAccessTokenAsync(settings, cancellationToken, useTokenCache);
             tokenStopwatch.Stop();
 
             probes.Add(new OrchestrationConnectivityProbeResultDto
@@ -101,26 +109,27 @@ public sealed class OrchestrationConnectivityService(
         {
             throw;
         }
-        catch (Exception ex)
+        catch (Exception)
         {
+            const string safeMessage = "Token acquisition failed. Check the configured provider credentials and endpoint.";
             probes.Add(CreateProbe(
                 "AcquireToken",
                 settings.TokenEndpoint ?? BuildTokenEndpoint(settings.Authority) ?? "-",
                 OrchestrationConnectivityTrafficLight.Red,
-                Truncate(ex.Message, 256),
+                safeMessage,
                 settings.RemoteSystemName));
 
             return new OrchestrationConnectivityTestResultDto
             {
                 Success = false,
-                Message = Truncate(ex.Message, 256),
+                Message = safeMessage,
                 Probes = probes
             };
         }
 
         try
         {
-            var result = await _orchestrationClient.HealthAsync(settings, cancellationToken);
+            var result = await _orchestrationClient.HealthAsync(settings, cancellationToken, useTokenCache);
             probes.Add(new OrchestrationConnectivityProbeResultDto
             {
                 ProbeName = "RemoteHealth",
@@ -138,7 +147,7 @@ public sealed class OrchestrationConnectivityService(
 
             if (result.Success && _protectedDiagnostics is not null)
             {
-                var identity = await _protectedDiagnostics.IdentityAsync(settings, cancellationToken);
+                var identity = await _protectedDiagnostics.IdentityAsync(settings, cancellationToken, useTokenCache);
                 probes.Add(new OrchestrationConnectivityProbeResultDto
                 {
                     ProbeName = "ProtectedIdentity",
@@ -177,19 +186,20 @@ public sealed class OrchestrationConnectivityService(
         {
             throw;
         }
-        catch (Exception ex)
+        catch (Exception)
         {
+            const string safeMessage = "Remote health probe failed. Check the provider endpoint and protected health contract.";
             probes.Add(CreateProbe(
                 "RemoteHealth",
                 BuildHealthEndpoint(settings),
                 OrchestrationConnectivityTrafficLight.Red,
-                Truncate(ex.Message, 256),
+                safeMessage,
                 settings.RemoteSystemName));
 
             return new OrchestrationConnectivityTestResultDto
             {
                 Success = false,
-                Message = Truncate(ex.Message, 256),
+                Message = safeMessage,
                 Probes = probes
             };
         }
@@ -225,6 +235,7 @@ public sealed class OrchestrationConnectivityService(
             Scope = scope,
             ClientId = Normalize(_options.ClientId),
             ClientSecret = Normalize(_options.ClientSecret),
+            AllowPrivateHttp = _options.AllowPrivateHttp,
             RemoteSystemName = Normalize(_options.ProviderName) ?? "NetRatel orchestrator",
             HealthPath = NormalizePath(_options.HealthPath, "/internal/health"),
             IngestPath = NormalizePath(_options.IngestPath, "/internal/ingest"),
@@ -252,6 +263,8 @@ public sealed class OrchestrationConnectivityService(
             Source = settings.Source,
             ManagedByDeployment = settings.ManagedByDeployment,
             HasClientSecret = settings.HasClientSecret,
+            AllowPrivateHttp = settings.AllowPrivateHttp,
+            SourceKey = settings.SourceKey,
             HealthPath = settings.HealthPath,
             IngestPath = settings.IngestPath,
             CatalogPath = settings.CatalogPath,

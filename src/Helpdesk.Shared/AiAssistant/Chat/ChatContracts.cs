@@ -9,6 +9,7 @@ public sealed class AiAssistantChatConversation
     public string TicketId { get; set; } = string.Empty;
     public string TicketType { get; set; } = string.Empty;
     public string? AiAssistantSessionId { get; set; }
+    public string? ProviderProfileFingerprint { get; set; }
     public ChatState State { get; set; }
     public long LastSequence { get; set; }
     public Guid? ActiveMessageId { get; set; }

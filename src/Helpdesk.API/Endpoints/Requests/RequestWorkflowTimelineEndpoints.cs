@@ -157,6 +157,8 @@ public static class RequestWorkflowTimelineEndpoints
             "DomainEvent.RequestTask.AutomationRunning" => $"Automation running{taskNameSuffix}",
             "DomainEvent.RequestTask.AutomationCompleted" => $"Automation completed{taskNameSuffix}",
             "DomainEvent.RequestTask.AutomationFailed" => $"Automation failed{taskNameSuffix}",
+            "DomainEvent.RequestTask.AutomationSubmitRejected" => $"Automation submission rejected{taskNameSuffix}",
+            "DomainEvent.RequestTask.AutomationSubmitUncertain" => $"Automation submission uncertain{taskNameSuffix}",
             "DomainEvent.Workflow.Evaluated" => "Workflow evaluated",
             "DomainEvent.Workflow.Progressed" => "Workflow progressed",
             "DomainEvent.Workflow.RequestBlockedByTaskFailure" => $"Request blocked by task failure{taskNameSuffix}",
@@ -170,7 +172,8 @@ public static class RequestWorkflowTimelineEndpoints
     {
         if (eventType is "DomainEvent.Workflow.RequestFailedByCriticalTask"
             or "DomainEvent.RequestTask.Failed"
-            or "DomainEvent.RequestTask.AutomationFailed")
+            or "DomainEvent.RequestTask.AutomationFailed"
+            or "DomainEvent.RequestTask.AutomationSubmitUncertain")
         {
             return "Error";
         }
@@ -178,7 +181,8 @@ public static class RequestWorkflowTimelineEndpoints
         if (eventType is "DomainEvent.RequestTask.Escalated"
             or "DomainEvent.RequestTask.RetryScheduled"
             or "DomainEvent.RequestTask.Blocked"
-            or "DomainEvent.Workflow.RequestBlockedByTaskFailure")
+            or "DomainEvent.Workflow.RequestBlockedByTaskFailure"
+            or "DomainEvent.RequestTask.AutomationSubmitRejected")
         {
             return "Warning";
         }

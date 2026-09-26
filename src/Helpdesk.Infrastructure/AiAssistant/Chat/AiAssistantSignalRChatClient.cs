@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.SignalR.Client;
-using Microsoft.Extensions.Options;
+using Helpdesk.Application.AiAssistant.Chat;
+using Helpdesk.Infrastructure.Persistence.Connectivity;
 
 namespace Helpdesk.Infrastructure.AiAssistant.Chat;
 
@@ -19,24 +20,27 @@ public interface IAiAssistantChatClientFactory
     IAiAssistantChatClient Create();
 }
 
-public sealed class AiAssistantChatClientFactory(IOptions<AiAssistantChatOptions> options) : IAiAssistantChatClientFactory
+// Additive capability for factories that can bind a client to one immutable
+// runtime snapshot. Older implementations remain valid through Create().
+public interface IAiAssistantChatRuntimeClientFactory
 {
-    public IAiAssistantChatClient Create() => new AiAssistantSignalRChatClient(options.Value);
+    IAiAssistantChatClient Create(AiAssistantChatRuntimeSnapshot snapshot);
 }
 
-public sealed class AiAssistantSignalRChatClient(AiAssistantChatOptions options) : IAiAssistantChatClient
+public sealed class AiAssistantChatClientFactory(IAiAssistantChatRuntimeState runtime) : IAiAssistantChatClientFactory, IAiAssistantChatRuntimeClientFactory
+{
+    public IAiAssistantChatClient Create() => Create(runtime.Current);
+    public IAiAssistantChatClient Create(AiAssistantChatRuntimeSnapshot snapshot) => new AiAssistantSignalRChatClient(snapshot);
+}
+
+public sealed class AiAssistantSignalRChatClient(AiAssistantChatRuntimeSnapshot options) : IAiAssistantChatClient
 {
     public bool IsConnected => connection.State == HubConnectionState.Connected;
     private readonly HubConnection connection = new HubConnectionBuilder()
         .WithUrl(options.Endpoint, http =>
         {
             http.AccessTokenProvider = () => Task.FromResult<string?>(options.DeviceToken);
-            http.HttpMessageHandlerFactory = handler =>
-            {
-                if (handler is HttpClientHandler clientHandler)
-                    clientHandler.AllowAutoRedirect = false;
-                return handler;
-            };
+            http.HttpMessageHandlerFactory = _ => IntegrationSafeHttpMessageHandler.Create(options.AllowPrivateHttp);
         })
         .Build();
 

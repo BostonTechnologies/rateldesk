@@ -19,7 +19,10 @@ public sealed class OrchestrationTokenService(
     private readonly IMemoryCache _cache = cache;
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
-    public async Task<string> GetAccessTokenAsync(OrchestrationResolvedSettings settings, CancellationToken cancellationToken = default)
+    public async Task<string> GetAccessTokenAsync(
+        OrchestrationResolvedSettings settings,
+        CancellationToken cancellationToken = default,
+        bool useCache = true)
     {
         var tokenEndpoint = settings.TokenEndpoint
             ?? (string.IsNullOrWhiteSpace(settings.Authority) ? null : $"{settings.Authority.TrimEnd('/')}/connect/token");
@@ -32,11 +35,11 @@ public sealed class OrchestrationTokenService(
             throw new InvalidOperationException("External orchestration token endpoint is not a valid absolute URL.");
         try
         {
-            IntegrationEndpointPolicy.Validate(tokenUri, "TokenEndpoint");
+            IntegrationEndpointPolicy.Validate(tokenUri, "TokenEndpoint", settings.AllowPrivateHttp);
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
-            throw new InvalidOperationException(exception.Message, exception);
+            throw new InvalidOperationException("The external orchestration token endpoint is not allowed by the outbound integration policy.");
         }
 
         if (string.IsNullOrWhiteSpace(settings.ClientId) || string.IsNullOrWhiteSpace(settings.ClientSecret))
@@ -53,13 +56,14 @@ public sealed class OrchestrationTokenService(
             settings.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture),
             Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(settings.ClientSecret))));
         var cacheKey = $"orchestration_token::{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(cacheMaterial)))}";
-        if (_cache.TryGetValue(cacheKey, out string? cachedToken) && !string.IsNullOrWhiteSpace(cachedToken))
+        if (useCache && _cache.TryGetValue(cacheKey, out string? cachedToken) && !string.IsNullOrWhiteSpace(cachedToken))
         {
             return cachedToken;
         }
 
         var client = _httpClientFactory.CreateClient("OrchestrationToken");
         using var request = new HttpRequestMessage(HttpMethod.Post, tokenEndpoint);
+        request.Options.Set(IntegrationSafeHttpMessageHandler.AllowPrivateHttpOption, settings.AllowPrivateHttp);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var form = new Dictionary<string, string>
@@ -82,9 +86,9 @@ public sealed class OrchestrationTokenService(
         {
             throw new InvalidOperationException("The external orchestration token request timed out.");
         }
-        catch (HttpRequestException exception)
+        catch (HttpRequestException)
         {
-            throw new InvalidOperationException("The external orchestration token endpoint could not be reached.", exception);
+            throw new InvalidOperationException("The external orchestration token endpoint could not be reached.");
         }
 
         using (response)
@@ -100,16 +104,16 @@ public sealed class OrchestrationTokenService(
             }
 
             if (!response.IsSuccessStatusCode)
-                throw new InvalidOperationException($"Token request failed ({(int)response.StatusCode}): {ExtractErrorCode(content)}");
+                throw new InvalidOperationException($"Token request failed ({(int)response.StatusCode}): {IntegrationErrorSafety.ProviderCode(content, settings.ClientSecret)}");
 
             JsonDocument doc;
             try
             {
                 doc = JsonDocument.Parse(content);
             }
-            catch (JsonException exception)
+            catch (JsonException)
             {
-                throw new InvalidOperationException("Token response was not valid JSON.", exception);
+                throw new InvalidOperationException("Token response was not valid JSON.");
             }
 
             using (doc)
@@ -122,9 +126,9 @@ public sealed class OrchestrationTokenService(
                 {
                     token = tokenElement.GetString();
                 }
-                catch (InvalidOperationException exception)
+                catch (InvalidOperationException)
                 {
-                    throw new InvalidOperationException("Token response returned an invalid access_token.", exception);
+                    throw new InvalidOperationException("Token response returned an invalid access_token.");
                 }
 
                 if (string.IsNullOrWhiteSpace(token))
@@ -137,10 +141,13 @@ public sealed class OrchestrationTokenService(
                 var safetySeconds = Math.Min(30, Math.Max(1, expiresInSeconds / 5));
                 var cacheDuration = TimeSpan.FromSeconds(Math.Max(1, expiresInSeconds - safetySeconds));
 
-                _cache.Set(
-                    cacheKey,
-                    token,
-                    _timeProvider.GetUtcNow().Add(cacheDuration));
+                if (useCache)
+                {
+                    _cache.Set(
+                        cacheKey,
+                        token,
+                        _timeProvider.GetUtcNow().Add(cacheDuration));
+                }
 
                 return token;
             }
@@ -164,30 +171,4 @@ public sealed class OrchestrationTokenService(
         return Encoding.UTF8.GetString(buffer.GetBuffer(), 0, checked((int)buffer.Length));
     }
 
-    private static string ExtractErrorCode(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return "provider returned no error details";
-        try
-        {
-            using var document = JsonDocument.Parse(value);
-            foreach (var name in new[] { "error", "error_code", "code" })
-            {
-                if (document.RootElement.TryGetProperty(name, out var element) && element.ValueKind == JsonValueKind.String)
-                {
-                    var code = element.GetString();
-                    if (!string.IsNullOrWhiteSpace(code))
-                    {
-                        var normalized = code.Trim();
-                        return normalized[..Math.Min(normalized.Length, 128)];
-                    }
-                }
-            }
-        }
-        catch (JsonException)
-        {
-            return "provider returned an invalid error response";
-        }
-
-        return "provider rejected the token request";
-    }
 }

@@ -20,11 +20,14 @@ public sealed class OrchestrationInternalClient(
     private readonly IOrchestrationTokenService _tokenService = tokenService;
     private readonly ILogger<OrchestrationInternalClient> _logger = logger;
 
-    public async Task<OrchestrationHealthResult> HealthAsync(OrchestrationResolvedSettings settings, CancellationToken cancellationToken = default)
+    public async Task<OrchestrationHealthResult> HealthAsync(
+        OrchestrationResolvedSettings settings,
+        CancellationToken cancellationToken = default,
+        bool useTokenCache = true)
     {
-        var endpoint = BuildAbsoluteUri(settings.BaseUrl, settings.HealthPath);
+        var endpoint = BuildAbsoluteUri(settings.BaseUrl, settings.HealthPath, settings.AllowPrivateHttp);
         using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
-        await AttachAuthHeaderAsync(settings, request, cancellationToken);
+        await AttachAuthHeaderAsync(settings, request, cancellationToken, useTokenCache);
 
         var client = _httpClientFactory.CreateClient("OrchestrationInternalApi");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -34,7 +37,7 @@ public sealed class OrchestrationInternalClient(
 
         var message = response.IsSuccessStatusCode
             ? ParseHealth(content)
-            : (Success: false, Message: $"HTTP {(int)response.StatusCode}: {ExtractErrorMessage(content)}");
+            : (Success: false, Message: $"HTTP {(int)response.StatusCode}: {ExtractErrorMessage(content, settings)}");
 
         return new OrchestrationHealthResult
         {
@@ -44,11 +47,14 @@ public sealed class OrchestrationInternalClient(
         };
     }
 
-    public async Task<OrchestrationHealthResult> IdentityAsync(OrchestrationResolvedSettings settings, CancellationToken cancellationToken = default)
+    public async Task<OrchestrationHealthResult> IdentityAsync(
+        OrchestrationResolvedSettings settings,
+        CancellationToken cancellationToken = default,
+        bool useTokenCache = true)
     {
-        var endpoint = BuildAbsoluteUri(settings.BaseUrl, "/api/v1/system/m2m/ping");
+        var endpoint = BuildAbsoluteUri(settings.BaseUrl, "/api/v1/system/m2m/ping", settings.AllowPrivateHttp);
         using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
-        await AttachAuthHeaderAsync(settings, request, cancellationToken);
+        await AttachAuthHeaderAsync(settings, request, cancellationToken, useTokenCache);
         var client = _httpClientFactory.CreateClient("OrchestrationInternalApi");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(RequestTimeout);
@@ -63,7 +69,7 @@ public sealed class OrchestrationInternalClient(
                 ? "Protected NetRatel identity probe succeeded."
                 : response.IsSuccessStatusCode
                     ? "The protected identity response did not match the NetRatel contract."
-                : $"HTTP {(int)response.StatusCode}: {ExtractErrorMessage(content)}"
+                : $"HTTP {(int)response.StatusCode}: {ExtractErrorMessage(content, settings)}"
         };
     }
 
@@ -72,7 +78,7 @@ public sealed class OrchestrationInternalClient(
         OrchestrationIngestRequest requestPayload,
         CancellationToken cancellationToken = default)
     {
-        var endpoint = BuildAbsoluteUri(settings.BaseUrl, settings.IngestPath);
+        var endpoint = BuildAbsoluteUri(settings.BaseUrl, settings.IngestPath, settings.AllowPrivateHttp);
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
             Content = JsonContent.Create(
@@ -88,16 +94,16 @@ public sealed class OrchestrationInternalClient(
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(RequestTimeout);
-            response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
-            var content = await ReadBoundedContentAsync(response.Content, timeout.Token);
-
-            using (response)
+            using (response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token))
             {
+                var content = await ReadBoundedContentAsync(response.Content, timeout.Token);
                 if (!response.IsSuccessStatusCode)
                 {
-                    var message = $"External NetRatel ingest failed ({(int)response.StatusCode}): {ExtractErrorMessage(content)}";
+                    var message = $"External NetRatel ingest failed ({(int)response.StatusCode}): {ExtractErrorMessage(content, settings)}";
                     if ((int)response.StatusCode is 408 or 429 or >= 500)
                         throw new OrchestrationSubmissionUncertainException(message);
+                    if ((int)response.StatusCode is >= 400 and < 500)
+                        throw new OrchestrationSubmissionRejectedException(message);
                     throw new InvalidOperationException(message);
                 }
 
@@ -111,12 +117,17 @@ public sealed class OrchestrationInternalClient(
                         PropertyNameCaseInsensitive = true
                     });
 
-                    if (parsed is not null && !string.IsNullOrWhiteSpace(parsed.ExecutionId))
+                    if (parsed is not null &&
+                        !string.IsNullOrWhiteSpace(parsed.ExecutionId) &&
+                        IsPositiveAcknowledgementStatus(parsed.Status))
                         return parsed;
+
+                    if (parsed is not null && IsNegativeAcknowledgementStatus(parsed.Status))
+                        throw new OrchestrationSubmissionRejectedException("NetRatel explicitly rejected the submitted operation.");
                 }
-                catch (JsonException exception)
-                {
-                    _logger.LogDebug(exception, "NetRatel returned malformed ingest JSON.");
+            catch (JsonException exception)
+            {
+                _logger.LogDebug("NetRatel returned malformed ingest JSON. ExceptionType={ExceptionType}", exception.GetType().Name);
                 }
 
                 throw new OrchestrationAcknowledgementException("NetRatel returned a successful response without a valid execution identifier.");
@@ -128,7 +139,8 @@ public sealed class OrchestrationInternalClient(
         }
         catch (HttpRequestException exception)
         {
-            throw new OrchestrationSubmissionUncertainException("The NetRatel submission could not be confirmed because the provider connection failed.", exception);
+            _logger.LogDebug("The NetRatel submission connection failed before acknowledgement. ExceptionType={ExceptionType}", exception.GetType().Name);
+            throw new OrchestrationSubmissionUncertainException("The NetRatel submission could not be confirmed because the provider connection failed.");
         }
 
     }
@@ -205,17 +217,30 @@ public sealed class OrchestrationInternalClient(
         return false;
     }
 
+    private static bool IsPositiveAcknowledgementStatus(string? status)
+        => status?.Trim().ToLowerInvariant() is
+            "accepted" or "queued" or "submitted" or "started" or "running" or
+            "in_progress" or "in-progress" or "processing" or "success" or "succeeded" or
+            "already_exists" or "already-exists" or "duplicate";
+
+    private static bool IsNegativeAcknowledgementStatus(string? status)
+        => status?.Trim().ToLowerInvariant() is
+            "rejected" or "denied" or "failed" or "failure" or "error" or "invalid" or
+            "cancelled" or "canceled";
+
     private async Task AttachAuthHeaderAsync(
         OrchestrationResolvedSettings settings,
         HttpRequestMessage request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool useTokenCache = true)
     {
-        var accessToken = await _tokenService.GetAccessTokenAsync(settings, cancellationToken);
+        var accessToken = await _tokenService.GetAccessTokenAsync(settings, cancellationToken, useTokenCache);
+        request.Options.Set(IntegrationSafeHttpMessageHandler.AllowPrivateHttpOption, settings.AllowPrivateHttp);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
     }
 
-    private static Uri BuildAbsoluteUri(string? baseUrl, string path)
+    private static Uri BuildAbsoluteUri(string? baseUrl, string path, bool allowPrivateHttp)
     {
         if (string.IsNullOrWhiteSpace(baseUrl))
         {
@@ -223,7 +248,7 @@ public sealed class OrchestrationInternalClient(
         }
 
         var uri = new Uri(new Uri(baseUrl, UriKind.Absolute), path);
-        if (!IntegrationEndpointPolicy.IsAllowed(uri))
+        if (!IntegrationEndpointPolicy.IsAllowed(uri, allowPrivateHttp))
             throw new InvalidOperationException("The configured NetRatel endpoint is not allowed by the outbound integration policy.");
         return uri;
     }
@@ -233,7 +258,7 @@ public sealed class OrchestrationInternalClient(
         return value.Length <= maxLength ? value : value[..maxLength];
     }
 
-    private string ExtractErrorMessage(string content)
+    private string ExtractErrorMessage(string content, OrchestrationResolvedSettings settings)
     {
         if (string.IsNullOrWhiteSpace(content))
         {
@@ -247,15 +272,15 @@ public sealed class OrchestrationInternalClient(
             var message = TryGetString(root, "message", "detail", "title");
             if (!string.IsNullOrWhiteSpace(message))
             {
-                return Truncate(message, 500);
+                return IntegrationErrorSafety.ProviderMessage(message, 500, settings.ClientSecret);
             }
         }
         catch (JsonException exception)
         {
-            _logger.LogDebug(exception, "The external orchestration provider error response was not JSON.");
+            _logger.LogDebug("The external orchestration provider error response was not JSON. ExceptionType={ExceptionType}", exception.GetType().Name);
         }
 
-        return string.IsNullOrWhiteSpace(content) ? string.Empty : "Provider returned an incompatible error response.";
+        return "Provider returned an incompatible error response.";
     }
 
     private static string? TryGetString(JsonElement element, params string[] propertyNames)

@@ -11,6 +11,7 @@ public sealed class OrchestrationM2MOptions
     public string? Authority { get; set; }
     public string? ClientId { get; set; }
     public string? ClientSecret { get; set; }
+    public bool AllowPrivateHttp { get; set; }
     public string HealthPath { get; set; } = "/internal/health";
     public string IngestPath { get; set; } = "/internal/ingest";
     public string CatalogPath { get; set; } = "/internal/catalog";

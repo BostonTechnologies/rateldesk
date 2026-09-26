@@ -15,7 +15,7 @@ public static class IntegrationConfigurationAliases
     private static readonly string[] OrchestratorNames =
     [
         "Enabled", "ProviderName", "BaseUrl", "Audience", "Scope", "TokenEndpoint", "Authority",
-        "ClientId", "ClientSecret", "HealthPath", "IngestPath", "CatalogPath"
+        "ClientId", "ClientSecret", "AllowPrivateHttp", "HealthPath", "IngestPath", "CatalogPath"
     ];
 
     private static readonly string[] NetclawNames =
@@ -54,6 +54,7 @@ public static class IntegrationConfigurationAliases
             Authority = ReadString(configuration, Key(canonical, OrchestratorSection, LegacyOrchestratorSection, "Authority")),
             ClientId = clientId,
             ClientSecret = clientSecret,
+            AllowPrivateHttp = ReadBool(configuration, Key(canonical, OrchestratorSection, LegacyOrchestratorSection, "AllowPrivateHttp")),
             HealthPath = ReadString(configuration, Key(canonical, OrchestratorSection, LegacyOrchestratorSection, "HealthPath"))
                 ?? "/internal/health",
             IngestPath = ReadString(configuration, Key(canonical, OrchestratorSection, LegacyOrchestratorSection, "IngestPath"))
@@ -86,6 +87,50 @@ public static class IntegrationConfigurationAliases
 
     public static bool HasDeploymentNetclawConfiguration(IConfiguration configuration)
         => HasDeploymentConfiguration(configuration, NetclawSection, LegacyNetclawSection, NetclawNames);
+
+    public static string? GetDeploymentSourceKey(IConfiguration configuration, bool netclaw)
+    {
+        var canonicalSection = netclaw ? NetclawSection : OrchestratorSection;
+        var legacySection = netclaw ? LegacyNetclawSection : LegacyOrchestratorSection;
+        var names = netclaw ? NetclawNames : OrchestratorNames;
+
+        if (configuration is IConfigurationRoot root)
+        {
+            foreach (var provider in root.Providers.Reverse())
+            {
+                if (names.Any(name => provider.TryGet($"{canonicalSection}:{name}", out _)))
+                    return canonicalSection;
+                if (names.Any(name => provider.TryGet($"{legacySection}:{name}", out _)))
+                    return legacySection;
+            }
+        }
+
+        if (names.Any(name => configuration[$"{canonicalSection}:{name}"] is not null))
+            return canonicalSection;
+        return names.Any(name => configuration[$"{legacySection}:{name}"] is not null)
+            ? legacySection
+            : null;
+    }
+
+    public static void ValidateDeploymentConfiguration(IConfiguration configuration)
+    {
+        ValidateBool(configuration, OrchestratorSection, "Enabled");
+        ValidateBool(configuration, LegacyOrchestratorSection, "Enabled");
+        ValidateBool(configuration, OrchestratorSection, "AllowPrivateHttp");
+        ValidateBool(configuration, LegacyOrchestratorSection, "AllowPrivateHttp");
+        ValidateBool(configuration, NetclawSection, "Enabled");
+        ValidateBool(configuration, LegacyNetclawSection, "Enabled");
+        ValidateBool(configuration, NetclawSection, "AllowPrivateHttp");
+        ValidateBool(configuration, LegacyNetclawSection, "AllowPrivateHttp");
+        ValidateInt(configuration, NetclawSection, "IdleMinutes");
+        ValidateInt(configuration, LegacyNetclawSection, "IdleMinutes");
+        ValidateInt(configuration, NetclawSection, "ConnectionCapacity");
+        ValidateInt(configuration, LegacyNetclawSection, "ConnectionCapacity");
+        ValidateTimeSpan(configuration, NetclawSection, "TurnInactivityTimeout");
+        ValidateTimeSpan(configuration, LegacyNetclawSection, "TurnInactivityTimeout");
+        ValidateTimeSpan(configuration, NetclawSection, "ActivityHeartbeatInterval");
+        ValidateTimeSpan(configuration, LegacyNetclawSection, "ActivityHeartbeatInterval");
+    }
 
     public static void LogCompatibilityWarnings(IConfiguration configuration, ILogger logger)
     {
@@ -126,13 +171,31 @@ public static class IntegrationConfigurationAliases
     }
 
     private static bool ReadBool(IConfiguration configuration, string key)
-        => bool.TryParse(ReadString(configuration, key), out var value) && value;
+    {
+        if (!HasKey(configuration, key)) return false;
+        var value = configuration[key];
+        if (!bool.TryParse(value, out var parsed))
+            throw InvalidValue(key, value, "true or false");
+        return parsed;
+    }
 
     private static int ReadInt(IConfiguration configuration, string key, int fallback)
-        => int.TryParse(ReadString(configuration, key), out var value) ? value : fallback;
+    {
+        if (!HasKey(configuration, key)) return fallback;
+        var value = configuration[key];
+        if (!int.TryParse(value, out var parsed))
+            throw InvalidValue(key, value, "an integer");
+        return parsed;
+    }
 
     private static TimeSpan ReadTimeSpan(IConfiguration configuration, string key, TimeSpan fallback)
-        => TimeSpan.TryParse(ReadString(configuration, key), out var value) ? value : fallback;
+    {
+        if (!HasKey(configuration, key)) return fallback;
+        var value = configuration[key];
+        if (!TimeSpan.TryParse(value, out var parsed))
+            throw InvalidValue(key, value, "a time span");
+        return parsed;
+    }
 
     private static bool HasKey(IConfiguration configuration, string key)
     {
@@ -196,8 +259,9 @@ public static class IntegrationConfigurationAliases
         {
             if (!provider.TryGet(key, out var value)) continue;
 
-            // The checked-in appsettings file is an example/default surface. It
-            // must not prevent a database-managed profile from taking effect.
+            // Only the packaged base appsettings file may contain neutral example
+            // values. Environment, secret, command-line, and appsettings.Production
+            // values are operator intent, including explicit empty values.
             if (provider is Microsoft.Extensions.Configuration.FileConfigurationProvider file &&
                 IsNeutralExampleValue(configuration, key, value, file.Source?.Path))
             {
@@ -212,9 +276,9 @@ public static class IntegrationConfigurationAliases
 
     private static bool IsNeutralExampleValue(IConfiguration configuration, string key, string? value, string? path)
     {
-        if (string.IsNullOrWhiteSpace(value)) return false;
         var fileName = path is null ? string.Empty : System.IO.Path.GetFileName(path);
-        if (!fileName.StartsWith("appsettings", StringComparison.OrdinalIgnoreCase)) return false;
+        if (!string.Equals(fileName, "appsettings.json", StringComparison.OrdinalIgnoreCase)) return false;
+        if (string.IsNullOrWhiteSpace(value)) return false;
         if (key.StartsWith(OrchestratorSection + ":", StringComparison.OrdinalIgnoreCase) ||
             key.StartsWith(LegacyOrchestratorSection + ":", StringComparison.OrdinalIgnoreCase))
         {
@@ -234,4 +298,28 @@ public static class IntegrationConfigurationAliases
         return key.EndsWith(":ProviderName", StringComparison.OrdinalIgnoreCase) &&
             value.Contains("example", StringComparison.OrdinalIgnoreCase);
     }
+
+    private static void ValidateBool(IConfiguration configuration, string section, string name)
+    {
+        var key = $"{section}:{name}";
+        if (HasKey(configuration, key) && !bool.TryParse(configuration[key], out _))
+            throw InvalidValue(key, configuration[key], "true or false");
+    }
+
+    private static void ValidateInt(IConfiguration configuration, string section, string name)
+    {
+        var key = $"{section}:{name}";
+        if (HasKey(configuration, key) && !int.TryParse(configuration[key], out _))
+            throw InvalidValue(key, configuration[key], "an integer");
+    }
+
+    private static void ValidateTimeSpan(IConfiguration configuration, string section, string name)
+    {
+        var key = $"{section}:{name}";
+        if (HasKey(configuration, key) && !TimeSpan.TryParse(configuration[key], out _))
+            throw InvalidValue(key, configuration[key], "a time span");
+    }
+
+    private static InvalidOperationException InvalidValue(string key, string? value, string expected)
+        => new($"Configuration key '{key}' has an invalid value. Expected {expected}; the value was not accepted.");
 }

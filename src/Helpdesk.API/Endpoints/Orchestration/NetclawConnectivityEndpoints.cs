@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Helpdesk.Application.AiAssistant.Chat;
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Infrastructure.AiAssistant.Chat;
 using Helpdesk.Infrastructure.Persistence;
@@ -10,6 +11,8 @@ namespace Helpdesk.API.Endpoints.Orchestration;
 
 public static class NetclawConnectivityEndpoints
 {
+    private static readonly SemaphoreSlim DiagnosticGate = new(4, 4);
+
     public static void MapNetclawConnectivityEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/v1/admin/netclaw")
@@ -59,9 +62,14 @@ public static class NetclawConnectivityEndpoints
             ClaimsPrincipal principal,
             CancellationToken ct) =>
         {
+            var testedProfile = await settings.GetResolvedNetclawSettingsAsync(ct);
             async Task<IResult> CompleteAsync(NetclawConnectivityTestResultDto result)
             {
-                await settings.RecordNetclawTestAsync(result.Success, ct);
+                await settings.RecordNetclawTestAsync(
+                    testedProfile.Revision,
+                    testedProfile.ProfileFingerprint,
+                    result.Success,
+                    ct);
                 db.ActivityLogs.Add(new ActivityLog
                 {
                     UserId = Actor(principal),
@@ -72,8 +80,7 @@ public static class NetclawConnectivityEndpoints
                 return result.Success ? Results.Ok(result) : Results.BadRequest(result);
             }
 
-            var resolved = await settings.GetResolvedNetclawSettingsAsync(ct);
-            if (!resolved.ConfiguredEnabled)
+            if (!testedProfile.ConfiguredEnabled)
             {
                 return await CompleteAsync(new NetclawConnectivityTestResultDto
                 {
@@ -83,17 +90,17 @@ public static class NetclawConnectivityEndpoints
                 });
             }
 
-            if (!resolved.RuntimeSupported)
+            if (!testedProfile.RuntimeSupported)
             {
                 return await CompleteAsync(new NetclawConnectivityTestResultDto
                 {
                     Success = false,
-                    Message = resolved.RuntimeIssue ?? "Native Netclaw chat is unavailable for this database provider.",
-                    Probes = [Probe("RuntimeCapability", false, null, resolved.RuntimeIssue ?? "Native chat is unavailable.")]
+                    Message = testedProfile.RuntimeIssue ?? "Native Netclaw chat is unavailable for this database provider.",
+                    Probes = [Probe("RuntimeCapability", false, null, testedProfile.RuntimeIssue ?? "Native chat is unavailable.")]
                 });
             }
 
-            if (!resolved.Enabled || string.IsNullOrWhiteSpace(resolved.Endpoint) || string.IsNullOrWhiteSpace(resolved.DeviceToken))
+            if (!testedProfile.Enabled || string.IsNullOrWhiteSpace(testedProfile.Endpoint) || string.IsNullOrWhiteSpace(testedProfile.DeviceToken))
             {
                 return await CompleteAsync(new NetclawConnectivityTestResultDto
                 {
@@ -104,13 +111,18 @@ public static class NetclawConnectivityEndpoints
             }
 
             var stopwatch = Stopwatch.StartNew();
-            await using var client = clients.Create();
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            deadline.CancelAfter(TimeSpan.FromSeconds(30));
+            var entered = false;
             try
             {
+                await DiagnosticGate.WaitAsync(deadline.Token);
+                entered = true;
+                await using var client = CreateClient(clients, AiAssistantChatRuntimeSnapshot.From(testedProfile));
                 // EnsureSession is the smallest authenticated production
                 // protocol operation. No prompt is sent and the connection is
                 // disposed before the diagnostic request completes.
-                var session = await client.ConnectAsync(null, _ => Task.CompletedTask, ct);
+                _ = await client.ConnectAsync(null, _ => Task.CompletedTask, deadline.Token);
                 stopwatch.Stop();
                 var result = new NetclawConnectivityTestResultDto
                 {
@@ -130,14 +142,113 @@ public static class NetclawConnectivityEndpoints
                     Probes = [Probe("AuthenticatedSignalR", false, 408, "The authenticated session negotiation timed out.", stopwatch.ElapsedMilliseconds)]
                 });
             }
-            catch (Exception exception)
+            catch (Exception)
             {
                 return await CompleteAsync(new NetclawConnectivityTestResultDto
                 {
                     Success = false,
                     Message = "Netclaw rejected the authenticated session negotiation.",
-                    Probes = [Probe("AuthenticatedSignalR", false, null, exception.GetType().Name, stopwatch.ElapsedMilliseconds)]
+                    Probes = [Probe("AuthenticatedSignalR", false, null, "The authenticated session negotiation failed.", stopwatch.ElapsedMilliseconds)]
                 });
+            }
+            finally
+            {
+                if (entered) DiagnosticGate.Release();
+            }
+        });
+
+        group.MapPost("/test-draft", async (
+            UpdateNetclawConnectivitySettingsDto request,
+            IIntegrationProviderSettingsService settings,
+            IAiAssistantChatClientFactory clients,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                var draft = await settings.ResolveNetclawDraftAsync(request, ct);
+                if (!draft.ConfiguredEnabled)
+                {
+                    return Results.BadRequest(new NetclawConnectivityTestResultDto
+                    {
+                        Success = false,
+                        Message = "Netclaw is disabled in this draft.",
+                        Probes = [Probe("Configuration", false, null, "Enable Netclaw before testing the draft.")]
+                    });
+                }
+
+                if (!draft.RuntimeSupported)
+                {
+                    return Results.BadRequest(new NetclawConnectivityTestResultDto
+                    {
+                        Success = false,
+                        Message = draft.RuntimeIssue ?? "Native Netclaw chat is unavailable for this database provider.",
+                        Probes = [Probe("RuntimeCapability", false, null, draft.RuntimeIssue ?? "Native chat is unavailable.")]
+                    });
+                }
+
+                if (!draft.Enabled || string.IsNullOrWhiteSpace(draft.Endpoint) || string.IsNullOrWhiteSpace(draft.DeviceToken))
+                {
+                    return Results.BadRequest(new NetclawConnectivityTestResultDto
+                    {
+                        Success = false,
+                        Message = "The Netclaw draft is incomplete.",
+                        Probes = [Probe("Configuration", false, null, "A valid endpoint and paired-device token are required.")]
+                    });
+                }
+
+                var stopwatch = Stopwatch.StartNew();
+                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                deadline.CancelAfter(TimeSpan.FromSeconds(30));
+                var entered = false;
+                try
+                {
+                    await DiagnosticGate.WaitAsync(deadline.Token);
+                    entered = true;
+                    await using var client = CreateClient(clients, AiAssistantChatRuntimeSnapshot.From(draft));
+                    _ = await client.ConnectAsync(null, _ => Task.CompletedTask, deadline.Token);
+                    stopwatch.Stop();
+                    return Results.Ok(new NetclawConnectivityTestResultDto
+                    {
+                        Success = true,
+                        Message = "Authenticated Netclaw draft session negotiation succeeded; no settings were saved or applied.",
+                        SessionProtocol = "EnsureSession",
+                        Probes = [Probe("AuthenticatedSignalR", true, 200, "Authenticated draft session protocol accepted.", stopwatch.ElapsedMilliseconds)]
+                    });
+                }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    return Results.BadRequest(new NetclawConnectivityTestResultDto
+                    {
+                        Success = false,
+                        Message = "Netclaw draft session negotiation timed out.",
+                        Probes = [Probe("AuthenticatedSignalR", false, 408, "The authenticated draft session negotiation timed out.", stopwatch.ElapsedMilliseconds)]
+                    });
+                }
+                catch (Exception)
+                {
+                    return Results.BadRequest(new NetclawConnectivityTestResultDto
+                    {
+                        Success = false,
+                        Message = "Netclaw rejected the authenticated draft session negotiation.",
+                        Probes = [Probe("AuthenticatedSignalR", false, null, "The authenticated draft session negotiation failed.", stopwatch.ElapsedMilliseconds)]
+                    });
+                }
+                finally
+                {
+                    if (entered) DiagnosticGate.Release();
+                }
+            }
+            catch (IntegrationProviderConfigurationConflictException ex)
+            {
+                return Results.Conflict(new { code = "configuration_conflict", message = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { code = "invalid_configuration", message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { code = "draft_not_testable", message = ex.Message });
             }
         });
     }
@@ -162,4 +273,11 @@ public static class NetclawConnectivityEndpoints
         ?? principal.FindFirstValue("sub")
         ?? principal.Identity?.Name
         ?? "unknown";
+
+    private static IAiAssistantChatClient CreateClient(
+        IAiAssistantChatClientFactory clients,
+        AiAssistantChatRuntimeSnapshot snapshot)
+        => clients is IAiAssistantChatRuntimeClientFactory snapshotFactory
+            ? snapshotFactory.Create(snapshot)
+            : clients.Create();
 }

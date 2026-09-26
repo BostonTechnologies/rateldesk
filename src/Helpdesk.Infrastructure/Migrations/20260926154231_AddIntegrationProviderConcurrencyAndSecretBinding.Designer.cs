@@ -4,17 +4,20 @@ using System.Collections.Generic;
 using Helpdesk.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
-namespace Helpdesk.Infrastructure.Persistence.Migrations
+namespace Helpdesk.Infrastructure.Migrations
 {
     [DbContext(typeof(HelpdeskDbContext))]
-    partial class HelpdeskDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260926154231_AddIntegrationProviderConcurrencyAndSecretBinding")]
+    partial class AddIntegrationProviderConcurrencyAndSecretBinding
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -319,10 +322,6 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Property<string>("OrganizationId")
                         .IsRequired()
                         .HasColumnType("text");
-
-                    b.Property<string>("ProviderProfileFingerprint")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
 
                     b.Property<int>("State")
                         .HasColumnType("integer");

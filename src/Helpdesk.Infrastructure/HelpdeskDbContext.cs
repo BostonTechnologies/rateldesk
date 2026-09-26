@@ -141,6 +141,7 @@ public class HelpdeskDbContext(
         {
             entity.ToTable("AiAssistantChatConversations");
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.ProviderProfileFingerprint).HasMaxLength(64);
             entity.HasIndex(x => new { x.OrganizationId, x.TicketType, x.TicketId }).IsUnique().HasFilter("\"State\" <> 4");
             entity.HasIndex(x => new { x.State, x.LastTransportActivityAtUtc });
         });
@@ -318,6 +319,9 @@ public class HelpdeskDbContext(
         {
             entity.ToTable("M2MConnectivitySettings");
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.ProviderKey).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.HasIndex(x => x.ProviderKey).IsUnique();
             entity.Property(x => x.RemoteBaseUrl).HasMaxLength(1024);
             entity.Property(x => x.RemoteAudience).HasMaxLength(256);
             entity.Property(x => x.RemoteSystemName).HasMaxLength(128);
@@ -335,6 +339,9 @@ public class HelpdeskDbContext(
         {
             entity.ToTable("NetclawConnectivitySettings");
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.ProviderKey).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.HasIndex(x => x.ProviderKey).IsUnique();
             entity.Property(x => x.Instance).HasMaxLength(64);
             entity.Property(x => x.Endpoint).HasMaxLength(1024);
             entity.Property(x => x.ProtectedDeviceToken).HasMaxLength(8192);

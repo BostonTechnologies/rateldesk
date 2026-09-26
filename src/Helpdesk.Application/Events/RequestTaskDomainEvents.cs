@@ -16,6 +16,8 @@ public static class RequestTaskDomainEventTypes
     public const string AutomationCompleted = "DomainEvent.RequestTask.AutomationCompleted";
     public const string AutomationFailed = "DomainEvent.RequestTask.AutomationFailed";
     public const string AutomationSubmitFailed = "DomainEvent.RequestTask.AutomationSubmitFailed";
+    public const string AutomationSubmitRejected = "DomainEvent.RequestTask.AutomationSubmitRejected";
+    public const string AutomationSubmitUncertain = "DomainEvent.RequestTask.AutomationSubmitUncertain";
     public const string Blocked = "DomainEvent.RequestTask.Blocked";
     public const string Unblocked = "DomainEvent.RequestTask.Unblocked";
     public const string Skipped = "DomainEvent.RequestTask.Skipped";
@@ -312,6 +314,38 @@ public sealed record RequestTaskAutomationSubmitFailedEvent(
     string CorrelationId)
     : DomainEvent(
         EventType: RequestTaskDomainEventTypes.AutomationSubmitFailed,
+        Source: "RequestTask",
+        TenantId: TenantId,
+        EntityId: RequestId,
+        CorrelationId: CorrelationId,
+        Reference: TaskId,
+        OccurredUtc: Timestamp.UtcDateTime);
+
+public sealed record RequestTaskAutomationSubmitUncertainEvent(
+    string TaskId,
+    string RequestId,
+    string Reason,
+    string? TenantId,
+    DateTimeOffset Timestamp,
+    string CorrelationId)
+    : DomainEvent(
+        EventType: RequestTaskDomainEventTypes.AutomationSubmitUncertain,
+        Source: "RequestTask",
+        TenantId: TenantId,
+        EntityId: RequestId,
+        CorrelationId: CorrelationId,
+        Reference: TaskId,
+        OccurredUtc: Timestamp.UtcDateTime);
+
+public sealed record RequestTaskAutomationSubmitRejectedEvent(
+    string TaskId,
+    string RequestId,
+    string Reason,
+    string? TenantId,
+    DateTimeOffset Timestamp,
+    string CorrelationId)
+    : DomainEvent(
+        EventType: RequestTaskDomainEventTypes.AutomationSubmitRejected,
         Source: "RequestTask",
         TenantId: TenantId,
         EntityId: RequestId,

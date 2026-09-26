@@ -87,9 +87,9 @@ last-test metadata without returning the paired-device token.
 
 The endpoint must be an absolute URL with exactly the `/hub/session` path. Use
 HTTPS in normal deployments. RatelDesk accepts HTTP only when
-`Netclaw__AllowPrivateHttp=true` and the endpoint is a private literal
-IPv4 address; that exception is for a trusted private network, not a DNS name
-or public service.
+`Netclaw__AllowPrivateHttp=true` and the endpoint resolves to a private
+literal IPv4 or IPv6 address (including IPv6 ULA); that exception is for a
+trusted private network, not a DNS name or public service.
 
 When NetClaw is behind a reverse proxy, forward SignalR/WebSocket upgrades and
 long-lived connections to `/hub/session`. Configure the daemon's non-local
@@ -101,6 +101,13 @@ change and select **AI Assistant**. Send a harmless test prompt, then refresh
 or reconnect the browser and confirm the saved conversation recovers. A failed
 or silent transport is not a reason to resend a message: use the ticket UI's
 recovery controls so an already admitted turn cannot be duplicated.
+
+The Integration hub's **Test draft** action validates the edited endpoint and
+token without saving, applying, or recording the draft. **Test saved
+configuration** validates the currently applied profile and records only
+protected metadata. A real daemon pairing, SignalR session, reconnect, and
+post-restart ticket journey still require an authorized NetClaw environment;
+repository tests do not substitute for that external acceptance.
 
 ### Rotate or revoke the chat device
 

@@ -196,16 +196,40 @@ public sealed class RequestTaskLifecycleService(
 
             return task;
         }
-        catch (Exception ex)
+        catch (OrchestrationSubmissionUncertainException ex)
         {
             _logger.LogWarning(
-                ex,
-                "External orchestration automation submit failed and requires manual retry. RequestId={RequestId} TaskId={TaskId} CorrelationId={CorrelationId}",
+                "External orchestration automation submit outcome is uncertain and requires reconciliation. RequestId={RequestId} TaskId={TaskId} CorrelationId={CorrelationId}",
                 task.RequestId,
                 task.Id,
                 correlationId);
 
-            return await HandleAutomationSubmissionFailureAsync(task, Truncate(ex.Message, 500), correlationId, ct);
+            return await HandleUncertainAutomationSubmissionAsync(task, Truncate(ex.Message, 500), correlationId, ct);
+        }
+        catch (OrchestrationSubmissionRejectedException ex)
+        {
+            _logger.LogWarning(
+                "External orchestration automation submit was explicitly rejected before admission. RequestId={RequestId} TaskId={TaskId} CorrelationId={CorrelationId}",
+                task.RequestId,
+                task.Id,
+                correlationId);
+
+            return await HandleRejectedAutomationSubmissionAsync(task, Truncate(ex.Message, 500), correlationId, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                "External orchestration automation submit failed and requires manual retry. RequestId={RequestId} TaskId={TaskId} CorrelationId={CorrelationId} ExceptionType={ExceptionType}",
+                task.RequestId,
+                task.Id,
+                correlationId,
+                ex.GetType().Name);
+
+            return await HandleAutomationSubmissionFailureAsync(
+                task,
+                "External orchestration submission failed. Check provider status before retrying.",
+                correlationId,
+                ct);
         }
     }
 
@@ -388,6 +412,80 @@ public sealed class RequestTaskLifecycleService(
         task.FailureReason = reason;
 
         return await FailAsync(task.Id, reason, ct);
+    }
+
+    private async Task<RequestTask> HandleUncertainAutomationSubmissionAsync(
+        RequestTask task,
+        string reason,
+        string correlationId,
+        CancellationToken ct)
+    {
+        await _domainEvents.PublishAsync(
+            new RequestTaskAutomationSubmitUncertainEvent(
+                task.Id,
+                task.RequestId,
+                reason,
+                task.OrganizationId,
+                DateTimeOffset.UtcNow,
+                correlationId),
+            ct);
+
+        task.LastAutomationStatus = AutomationTaskStatuses.SubmitUncertainManualReconcile;
+        task.LastAutomationUpdatedAt = DateTimeOffset.UtcNow;
+        task.NextRetryAt = null;
+        task.ResultJson = reason;
+        task.FailureReason = reason;
+
+        return await FailUncertainSubmissionAsync(task, reason, ct);
+    }
+
+    private async Task<RequestTask> HandleRejectedAutomationSubmissionAsync(
+        RequestTask task,
+        string reason,
+        string correlationId,
+        CancellationToken ct)
+    {
+        await _domainEvents.PublishAsync(
+            new RequestTaskAutomationSubmitRejectedEvent(
+                task.Id,
+                task.RequestId,
+                reason,
+                task.OrganizationId,
+                DateTimeOffset.UtcNow,
+                correlationId),
+            ct);
+
+        task.LastAutomationStatus = AutomationTaskStatuses.SubmitRejectedManualRetry;
+        task.LastAutomationUpdatedAt = DateTimeOffset.UtcNow;
+        task.NextRetryAt = null;
+        task.ResultJson = reason;
+        task.FailureReason = reason;
+
+        return await FailAsync(task.Id, reason, ct);
+    }
+
+    private async Task<RequestTask> FailUncertainSubmissionAsync(
+        RequestTask task,
+        string reason,
+        CancellationToken ct)
+    {
+        task.Status = RequestTaskStatus.Failed;
+        task.State = TicketState.OnHold;
+        task.FailureReason = reason;
+        task.ResultJson = reason;
+        task.UpdatedAt = DateTime.UtcNow;
+        await _requestTasks.UpdateAsync(task);
+
+        await _domainEvents.PublishAsync(
+            new RequestTaskFailedEvent(
+                task.Id,
+                task.RequestId,
+                task.OrganizationId,
+                DateTimeOffset.UtcNow,
+                GetCorrelationId()),
+            ct);
+
+        return task;
     }
 
     private async Task<RequestTask> GetRequiredTaskAsync(string taskId)

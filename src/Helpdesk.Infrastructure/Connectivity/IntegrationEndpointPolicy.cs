@@ -16,7 +16,7 @@ public static class IntegrationEndpointPolicy
         "instance-data.ec2.internal"
     ];
 
-    public static void Validate(Uri uri, string fieldName)
+    public static void Validate(Uri uri, string fieldName, bool allowPrivateHttp = false)
     {
         if (uri.Scheme is not ("http" or "https") ||
             uri.UserInfo.Length != 0 ||
@@ -30,14 +30,46 @@ public static class IntegrationEndpointPolicy
         {
             throw new ArgumentException($"{fieldName} targets a reserved link-local, multicast, unspecified, or metadata address.", fieldName);
         }
+
+        if (uri.Scheme == "http" && (!allowPrivateHttp || IsPublicIp(uri.Host)))
+        {
+            throw new ArgumentException($"{fieldName} must use HTTPS unless explicit private HTTP is enabled.", fieldName);
+        }
     }
 
-    public static bool IsAllowed(Uri uri) =>
+    public static bool IsAllowed(Uri uri, bool allowPrivateHttp = false) =>
         uri.Scheme is "http" or "https" &&
         uri.UserInfo.Length == 0 &&
         uri.Query.Length == 0 &&
         uri.Fragment.Length == 0 &&
-        !IsRejectedHost(uri.Host);
+        !IsRejectedHost(uri.Host) &&
+        (uri.Scheme == "https" || (allowPrivateHttp && !IsPublicIp(uri.Host)));
+
+    public static void ValidateResolvedAddresses(
+        Uri uri,
+        IReadOnlyCollection<IPAddress> addresses,
+        string fieldName,
+        bool allowPrivateHttp)
+    {
+        if (!IsAllowed(uri, allowPrivateHttp))
+            throw new ArgumentException($"{fieldName} is not allowed by the outbound integration policy.", fieldName);
+        if (addresses.Count == 0)
+            throw new ArgumentException($"{fieldName} did not resolve to an address.", fieldName);
+        if (addresses.Any(IsRejectedAddress))
+            throw new ArgumentException($"{fieldName} resolved to a reserved link-local, multicast, unspecified, or metadata address.", fieldName);
+        if (uri.Scheme == "http" && addresses.Any(address => !IsPrivateNetworkAddress(address)))
+            throw new ArgumentException($"{fieldName} resolved to a public address while private HTTP is enabled.", fieldName);
+    }
+
+    public static bool IsPrivateNetworkAddress(IPAddress address)
+    {
+        if (address.IsIPv4MappedToIPv6) address = address.MapToIPv4();
+        if (IPAddress.IsLoopback(address)) return true;
+        var bytes = address.GetAddressBytes();
+        if (bytes.Length == 4)
+            return bytes[0] == 10 || bytes[0] == 192 && bytes[1] == 168 || bytes[0] == 172 && bytes[1] is >= 16 and <= 31;
+        return bytes.Length == 16 && (bytes[0] & 0xfe) == 0xfc;
+    }
 
     private static bool IsRejectedHost(string host)
     {
@@ -49,8 +81,21 @@ public static class IntegrationEndpointPolicy
         if (address.Equals(IPAddress.Any) || address.Equals(IPAddress.IPv6Any)) return true;
         if (address.IsIPv6LinkLocal || address.IsIPv6Multicast || address.IsIPv6SiteLocal) return true;
         if (address.IsIPv4MappedToIPv6) address = address.MapToIPv4();
+        return IsRejectedAddress(address);
+    }
+
+    private static bool IsRejectedAddress(IPAddress address)
+    {
+        if (address.IsIPv4MappedToIPv6) address = address.MapToIPv4();
+        if (address.Equals(IPAddress.IPv6Any) || address.IsIPv6LinkLocal || address.IsIPv6Multicast || address.IsIPv6SiteLocal)
+            return true;
         var bytes = address.GetAddressBytes();
         return bytes.Length == 4 &&
             (bytes[0] == 0 || bytes[0] == 169 && bytes[1] == 254 || bytes[0] >= 224);
+    }
+
+    private static bool IsPublicIp(string host)
+    {
+        return IPAddress.TryParse(host.TrimEnd('.'), out var address) && !IsPrivateNetworkAddress(address);
     }
 }

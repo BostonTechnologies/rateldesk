@@ -63,8 +63,13 @@ public static class ExternalOrchestrationEndpoints
             ClaimsPrincipal principal,
             CancellationToken ct) =>
         {
-            var result = await connectivity.TestOrchestrationConnectivityAsync(ct);
-            await settings.RecordOrchestratorTestAsync(result.Success, ct);
+            var testedProfile = await settings.GetResolvedOrchestratorSettingsAsync(ct);
+            var result = await connectivity.TestOrchestrationConnectivityAsync(testedProfile, ct);
+            await settings.RecordOrchestratorTestAsync(
+                testedProfile.Revision,
+                testedProfile.ProfileFingerprint,
+                result.Success,
+                ct);
             db.ActivityLogs.Add(new ActivityLog
             {
                 UserId = Actor(principal),
@@ -96,6 +101,32 @@ public static class ExternalOrchestrationEndpoints
                 ct);
 
             return Results.BadRequest(result);
+        });
+
+        group.MapPost("/test-draft", async (
+            UpdateOrchestrationConnectivitySettingsDto request,
+            IOrchestrationConnectivityService connectivity,
+            IIntegrationProviderSettingsService settings,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                var draft = await settings.ResolveOrchestratorDraftAsync(request, ct);
+                var result = await connectivity.TestOrchestrationConnectivityAsync(draft, ct, useTokenCache: false);
+                return result.Success ? Results.Ok(result) : Results.BadRequest(result);
+            }
+            catch (IntegrationProviderConfigurationConflictException ex)
+            {
+                return Results.Conflict(new { code = "configuration_conflict", message = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { code = "invalid_configuration", message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { code = "draft_not_testable", message = ex.Message });
+            }
         });
 
         group.MapGet("/catalog/jobs", async (

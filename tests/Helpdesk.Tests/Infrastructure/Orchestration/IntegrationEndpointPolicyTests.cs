@@ -1,5 +1,6 @@
 using Helpdesk.Infrastructure.AiAssistant.Chat;
 using Helpdesk.Infrastructure.Persistence.Connectivity;
+using System.Net;
 using Xunit;
 
 namespace Helpdesk.Tests.Infrastructure.Orchestration;
@@ -37,5 +38,63 @@ public sealed class IntegrationEndpointPolicyTests
         };
 
         Assert.False(options.IsValid());
+    }
+
+    [Theory]
+    [InlineData("http://10.20.30.40/internal/health")]
+    [InlineData("http://provider.example.test/internal/health")]
+    public void Plain_http_requires_explicit_private_opt_in(string value)
+    {
+        Assert.Throws<ArgumentException>(() => IntegrationEndpointPolicy.Validate(new Uri(value), "BaseUrl"));
+    }
+
+    [Fact]
+    public void Private_http_opt_in_still_rejects_public_or_mapped_addresses()
+    {
+        var uri = new Uri("http://provider.example.test/internal/health");
+
+        IntegrationEndpointPolicy.ValidateResolvedAddresses(
+            uri,
+            [IPAddress.Parse("10.20.30.40")],
+            "BaseUrl",
+            allowPrivateHttp: true);
+
+        Assert.Throws<ArgumentException>(() => IntegrationEndpointPolicy.ValidateResolvedAddresses(
+            uri,
+            [IPAddress.Parse("203.0.113.10")],
+            "BaseUrl",
+            allowPrivateHttp: true));
+    }
+
+    [Fact]
+    public void Resolved_ipv6_link_local_is_rejected_and_ipv6_private_http_is_allowed()
+    {
+        var uri = new Uri("http://provider.example.test/internal/health");
+
+        Assert.Throws<ArgumentException>(() => IntegrationEndpointPolicy.ValidateResolvedAddresses(
+            uri,
+            [IPAddress.Parse("fe80::1")],
+            "BaseUrl",
+            allowPrivateHttp: true));
+
+        IntegrationEndpointPolicy.ValidateResolvedAddresses(
+            uri,
+            [IPAddress.Parse("fd00::1")],
+            "BaseUrl",
+            allowPrivateHttp: true);
+    }
+
+    [Fact]
+    public void Netclaw_private_http_validation_accepts_ipv6_ula_literals()
+    {
+        var options = new AiAssistantChatOptions
+        {
+            Enabled = true,
+            DeviceToken = "synthetic-token",
+            AllowPrivateHttp = true,
+            Endpoint = "http://[fd00::1]/hub/session"
+        };
+
+        Assert.True(options.IsValid());
     }
 }

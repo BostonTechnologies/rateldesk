@@ -79,7 +79,8 @@
 
             <MudStack Row="true" Spacing="2">
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(saving || settings.ManagedByDeployment)" OnClick="SaveAsync">@(saving ? "Saving…" : "Save settings")</MudButton>
-                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(testing || isDirty)" OnClick="TestAsync">Test saved configuration</MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(testing || isDirty || saving || settings.ManagedByDeployment)" OnClick="TestAsync">Test saved configuration</MudButton>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Disabled="@(testing || saving || settings.ManagedByDeployment)" OnClick="TestDraftAsync">Test draft</MudButton>
                 <MudButton Variant="Variant.Text" Disabled="@loading" OnClick="RefreshAsync">Refresh</MudButton>
             </MudStack>
 
@@ -114,6 +115,7 @@
     private bool saving;
     private bool testing;
     private bool isDirty;
+    private long testGeneration;
     private string turnTimeoutText = "00:05:00";
     private string heartbeatText = "00:00:15";
 
@@ -124,6 +126,7 @@
         new("Enabled", settings.Enabled ? "Yes" : "No"),
         new("Endpoint", Display(settings.Endpoint)),
         new("Paired token", settings.HasDeviceToken ? "Configured (protected)" : "Not configured"),
+        new("Token state", settings.SecretState),
         new("Runtime", settings.RuntimeSupported ? "Available" : "Unavailable"),
         new("Last saved", DisplayTimestamp(settings.UpdatedAtUtc, "Not saved")),
         new("Last applied", DisplayTimestamp(settings.LastAppliedAtUtc, "Not applied")),
@@ -170,6 +173,7 @@
     private async Task SaveAsync()
     {
         if (settings?.ManagedByDeployment == true) return;
+        ++testGeneration;
         testResult = null;
         if (!TimeSpan.TryParse(turnTimeoutText, out var turnTimeout) || !TimeSpan.TryParse(heartbeatText, out var heartbeat))
         {
@@ -201,12 +205,14 @@
     private async Task RefreshAsync()
     {
         if (isDirty && !await JS.InvokeAsync<bool>("confirm", "Discard unsaved Netclaw changes?")) return;
+        ++testGeneration;
         await LoadAsync();
     }
 
     private void MarkDirty()
     {
         if (settings?.ManagedByDeployment == true) return;
+        ++testGeneration;
         isDirty = true;
         testResult = null;
     }
@@ -220,18 +226,60 @@
 
     private async Task TestAsync()
     {
+        var requestGeneration = testGeneration;
         testing = true;
         try
         {
             using var response = await HelpdeskApi.PostAsync("/api/v1/admin/netclaw/test", null);
-            testResult = await response.Content.ReadFromJsonAsync<NetclawConnectivityTestResultDto>()
+            var result = await response.Content.ReadFromJsonAsync<NetclawConnectivityTestResultDto>()
                          ?? new() { Message = "Unknown validation result." };
-            Snackbar.Add(testResult.Message, testResult.Success ? Severity.Success : Severity.Warning);
+            if (requestGeneration == testGeneration)
+            {
+                testResult = result;
+                Snackbar.Add(result.Message, result.Success ? Severity.Success : Severity.Warning);
+            }
         }
         catch (HttpRequestException)
         {
-            testResult = new() { Message = "The authenticated Netclaw validation request failed." };
-            Snackbar.Add(testResult.Message, Severity.Error);
+            if (requestGeneration == testGeneration)
+            {
+                testResult = new() { Message = "The authenticated Netclaw validation request failed." };
+                Snackbar.Add(testResult.Message, Severity.Error);
+            }
+        }
+        finally { testing = false; }
+    }
+
+    private async Task TestDraftAsync()
+    {
+        if (!TimeSpan.TryParse(turnTimeoutText, out var turnTimeout) || !TimeSpan.TryParse(heartbeatText, out var heartbeat))
+        {
+            Snackbar.Add("Use valid hh:mm:ss timeout values.", Severity.Error);
+            return;
+        }
+
+        draft.TurnInactivityTimeout = turnTimeout;
+        draft.ActivityHeartbeatInterval = heartbeat;
+        var requestGeneration = testGeneration;
+        testing = true;
+        try
+        {
+            using var response = await HelpdeskApi.PostAsJsonAsync("/api/v1/admin/netclaw/test-draft", draft);
+            var result = await response.Content.ReadFromJsonAsync<NetclawConnectivityTestResultDto>()
+                         ?? new() { Message = "Unknown draft validation result." };
+            if (requestGeneration == testGeneration)
+            {
+                testResult = result;
+                Snackbar.Add(result.Message, result.Success ? Severity.Success : Severity.Warning);
+            }
+        }
+        catch (HttpRequestException)
+        {
+            if (requestGeneration == testGeneration)
+            {
+                testResult = new() { Message = "The Netclaw draft validation request failed." };
+                Snackbar.Add(testResult.Message, Severity.Error);
+            }
         }
         finally { testing = false; }
     }

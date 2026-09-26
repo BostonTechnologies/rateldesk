@@ -18,10 +18,15 @@ public sealed class OrchestrationConnectivitySettingsDto
     public string Source { get; set; } = "database";
     public bool ManagedByDeployment { get; set; }
     public bool HasClientSecret { get; set; }
+    public bool SecretUnavailable { get; set; }
+    public string SecretState { get; set; } = "not-configured";
     public string HealthPath { get; set; } = "/internal/health";
     public string IngestPath { get; set; } = "/internal/ingest";
     public string CatalogPath { get; set; } = "/internal/catalog";
     public string? ClientId { get; set; }
+    public bool AllowPrivateHttp { get; set; }
+    public string? SourceKey { get; set; }
+    public string ProfileFingerprint { get; set; } = string.Empty;
 }
 
 public sealed class UpdateOrchestrationConnectivitySettingsDto
@@ -36,6 +41,7 @@ public sealed class UpdateOrchestrationConnectivitySettingsDto
     public string? ClientId { get; set; }
     public string? ClientSecret { get; set; }
     public bool ClearClientSecret { get; set; }
+    public bool AllowPrivateHttp { get; set; }
     public string? RemoteSystemName { get; set; }
     public string? HealthPath { get; set; }
     public string? IngestPath { get; set; }
@@ -63,6 +69,10 @@ public sealed class NetclawConnectivitySettingsDto
     public string Source { get; set; } = "database";
     public bool ManagedByDeployment { get; set; }
     public bool HasDeviceToken { get; set; }
+    public bool SecretUnavailable { get; set; }
+    public string SecretState { get; set; } = "not-configured";
+    public string? SourceKey { get; set; }
+    public string ProfileFingerprint { get; set; } = string.Empty;
 }
 
 public sealed class NetclawConnectivityTestResultDto

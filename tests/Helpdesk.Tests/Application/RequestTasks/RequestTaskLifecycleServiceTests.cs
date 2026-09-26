@@ -266,7 +266,7 @@ public sealed class RequestTaskLifecycleServiceTests
                 "2",
                 "2"));
         orchestrationClient.IngestAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<OrchestrationIngestRequest>(), Arg.Any<CancellationToken>())
-            .Returns<Task<OrchestrationIngestResult>>(_ => throw new InvalidOperationException("Target client for job 'Test Job (Linux)' is no longer registered in External orchestration."));
+            .Returns<Task<OrchestrationIngestResult>>(_ => throw new InvalidOperationException("provider failed with client_secret=synthetic-secret and Bearer synthetic-token"));
 
         var service = new RequestTaskLifecycleService(
             tasks,
@@ -285,7 +285,66 @@ public sealed class RequestTaskLifecycleServiceTests
         Assert.Equal(RequestTaskStatus.Failed, failed.Status);
         Assert.Equal(AutomationTaskStatuses.SubmitFailedManualRetry, failed.LastAutomationStatus);
         Assert.Null(failed.NextRetryAt);
-        Assert.Contains("Target client", failed.FailureReason);
+        Assert.Equal("External orchestration submission failed. Check provider status before retrying.", failed.FailureReason);
+        Assert.DoesNotContain("synthetic-secret", failed.FailureReason, StringComparison.Ordinal);
+        Assert.DoesNotContain("synthetic-token", failed.FailureReason, StringComparison.Ordinal);
         await failurePolicy.Received(1).OnTaskFailedAsync(task.RequestId, task.Id, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task StartAsync_UncertainOrchestrationSubmit_MarksManualReconciliation_AndDoesNotRetry()
+    {
+        var tasks = Substitute.For<IRepository<RequestTask>>();
+        var requests = Substitute.For<IRepository<Request>>();
+        var connectivity = Substitute.For<IOrchestrationConnectivityService>();
+        var bindings = Substitute.For<IAutomationBindingService>();
+        var payloadBuilder = Substitute.For<IRequestTaskPayloadBuilder>();
+        var orchestrationClient = Substitute.For<IOrchestrationInternalClient>();
+        var failurePolicy = Substitute.For<IFailurePolicyEngine>();
+        var domainEvents = Substitute.For<IDomainEventPublisher>();
+        var correlation = Substitute.For<ICorrelationContext>();
+        correlation.GetCorrelationId().Returns("corr-uncertain");
+
+        const string taskId = "019e20bb13717583bef964579cbcf340";
+        var task = new RequestTask
+        {
+            Id = taskId,
+            RequestId = "019e20bb112a7685aac9294e5c6db8e1",
+            Title = "Submit uncertain job",
+            Type = RequestTaskType.Automation,
+            Status = RequestTaskStatus.Pending,
+            MaxRetries = 3,
+            RetryDelayMinutes = 0,
+            OrganizationId = "tenant-1"
+        };
+
+        tasks.GetAsync(taskId).Returns(task);
+        connectivity.GetResolvedOrchestrationSettingsAsync(Arg.Any<CancellationToken>())
+            .Returns(new OrchestrationResolvedSettings { Enabled = true, BaseUrl = "https://orchestration.local" });
+        payloadBuilder.BuildAsync(task, "corr-uncertain", Arg.Any<CancellationToken>())
+            .Returns(RequestTaskPayloadBuildResult.Succeeded("Uncertain job", "{}", "binding-1", "2", "2"));
+        orchestrationClient.IngestAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<OrchestrationIngestRequest>(), Arg.Any<CancellationToken>())
+            .Returns<Task<OrchestrationIngestResult>>(_ => throw new OrchestrationSubmissionUncertainException("The submission acknowledgement could not be confirmed."));
+
+        var service = new RequestTaskLifecycleService(
+            tasks,
+            requests,
+            connectivity,
+            bindings,
+            payloadBuilder,
+            orchestrationClient,
+            failurePolicy,
+            domainEvents,
+            correlation,
+            NullLogger<RequestTaskLifecycleService>.Instance);
+
+        var failed = await service.StartAsync(taskId, CancellationToken.None);
+
+        Assert.Equal(RequestTaskStatus.Failed, failed.Status);
+        Assert.Equal(AutomationTaskStatuses.SubmitUncertainManualReconcile, failed.LastAutomationStatus);
+        Assert.Null(failed.NextRetryAt);
+        Assert.Contains("acknowledgement", failed.FailureReason, StringComparison.OrdinalIgnoreCase);
+        await failurePolicy.DidNotReceive().OnTaskFailedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await domainEvents.Received(1).PublishAsync(Arg.Is<RequestTaskAutomationSubmitUncertainEvent>(x => x.TaskId == taskId), Arg.Any<CancellationToken>());
     }
 }

@@ -30,6 +30,51 @@ available to the callback caller. Keep callback validation and the legacy
 `Orchestration:Provider` inbound settings separate from this outbound
 provider profile.
 
+## Provider-side prerequisite (source-backed)
+
+Before configuring RatelDesk, configure a dedicated NetRatel M2M client in the
+unchanged compatibility target. The pinned primary sources are
+`src/NetRatel/NetRatel.API/README.m2m.md`,
+`src/NetRatel/NetRatel.API/Endpoints/Internal/InternalEndpoints.cs`, and
+`src/NetRatel/NetRatel.API/Endpoints/Systems/SystemEndpoints.cs` at revision
+`cc58661bff496825d68de4db9ec53da92de45942`.
+
+The provider-side values for a client named `rateldesk-orchestrator` are:
+
+```text
+M2M__Audience=netratel.api
+M2M__AllowedCallerClientIds__0=rateldesk-orchestrator
+M2MClients__rateldesk_orchestrator__Secret=<secret-from-the-provider-secret-store>
+M2MClients__rateldesk_orchestrator__AllowedAudiences__0=netratel.api
+M2MClients__rateldesk_orchestrator__AllowedScopes__0=netratel.api
+```
+
+Keep any other approved caller IDs in the provider allow-list; the example
+above shows the required RatelDesk entry, not a replacement for existing
+callers. Configure the provider's M2M authority and signing/JWKS issuer using
+the deployment's supported identity-provider settings. Do not put the shared
+secret in tracked files or reuse a browser, CLI, MCP, or account credential.
+
+The source-backed setup sequence is:
+
+1. Register the confidential client with the provider's identity authority and
+   store its secret in the provider secret store.
+2. Add that exact client ID to `M2M:AllowedCallerClientIds` and grant only the
+   `netratel.api` audience and scope in `M2MClients:<client-id>`.
+3. Verify `POST /connect/token` with `grant_type=client_credentials` and
+   `scope=netratel.api`, then use the returned access token for
+   `GET /api/v1/system/m2m/ping` and `GET /internal/health`.
+4. Confirm the same token can read the internal catalogue routes required by
+   the RatelDesk profile. Define the request/job and tenant/client records
+   before enabling task submission.
+
+The pinned source specifies the configuration contract and protected routes;
+it does not specify a universal administrator-UI workflow for creating an
+identity-provider client. Follow the deployed identity provider's documented
+client-registration procedure, then perform the token, identity, health, and
+catalogue checks above. Live provider acceptance remains an environment gate
+until those checks are run against the unchanged target.
+
 ## Configure through the Integration hub
 
 An administrator can open **Administration → Integration hub → NetRatel
@@ -55,6 +100,7 @@ Orchestrator__Audience=netratel.api
 Orchestrator__Scope=netratel.api
 Orchestrator__ClientId=<dedicated-client-id>
 Orchestrator__ClientSecret=<secret-from-secret-store>
+Orchestrator__AllowPrivateHttp=false
 Orchestrator__HealthPath=/internal/health
 Orchestrator__IngestPath=/internal/ingest
 Orchestrator__CatalogPath=/internal/catalog

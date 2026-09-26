@@ -113,12 +113,17 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(366, operationCount);
+        Assert.Equal(368, operationCount);
 #else
-        Assert.Equal(365, operationCount);
+        Assert.Equal(367, operationCount);
 #endif
+        var paths = document.RootElement.GetProperty("paths");
+        Assert.True(paths.TryGetProperty("/api/v1/admin/orchestration/test-draft", out var orchestrationDraft));
+        Assert.True(orchestrationDraft.TryGetProperty("post", out _));
+        Assert.True(paths.TryGetProperty("/api/v1/admin/netclaw/test-draft", out var netclawDraft));
+        Assert.True(netclawDraft.TryGetProperty("post", out _));
 
-        var pathOrder = document.RootElement.GetProperty("paths").EnumerateObject().Select(path => path.Name).ToArray();
+        var pathOrder = paths.EnumerateObject().Select(path => path.Name).ToArray();
         Assert.Equal(pathOrder.Order(StringComparer.Ordinal), pathOrder);
         foreach (var path in document.RootElement.GetProperty("paths").EnumerateObject())
         {
