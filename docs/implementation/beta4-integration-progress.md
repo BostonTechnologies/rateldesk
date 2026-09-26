@@ -36,13 +36,13 @@ must remain unpublished until the human merge and release gates are satisfied.
 | B4-00 | Baseline inventory, compatibility matrix, architecture, evidence ledger | Implemented | This ledger; baseline and source inventory recorded |
 | B4-01 | Secure persisted provider configuration, aliases, precedence, and runtime application | Implemented and validated | Provider settings service, protected secrets, revision checks, runtime reconfiguration, policy tests, and focused provider tests |
 | B4-02 | Scoped credential lifecycle UX and discoverability | Implemented and validated | Account-owned credential API/UI, one-time reveal, scoped permissions, expiry/revocation status, audit coverage, and focused API/UI navigation tests |
-| B4-03 | Packaged CLI and stdio MCP credential verification | Implemented; packaged acceptance pending | CLI/MCP credential-path tests and archive validation tooling are in place; final archive rehearsal is below |
+| B4-03 | Packaged CLI and stdio MCP credential verification | Implemented and validated | CLI/MCP credential-path tests, archive validation, and hosted release-asset rehearsal passed |
 | B4-04 | Local HTTP MCP purpose/resource/delegation verification | Implemented and validated in repository tests | Existing HTTP MCP purpose/resource/delegation coverage retained and credential-bearing CLI coverage added; packaged runtime probe remains part of release rehearsal |
 | B4-05 | NetRatel M2M adapter, setup, diagnostics, and interoperability | Implemented; real interoperability pending | Pinned contract inspection, bounded clients, M2M identity probe, setup/API/UI paths, wire-contract tests, and security tests; unchanged live NetRatel acceptance still needs an authorized test environment |
 | B4-06 | Netclaw options migration, setup, and authenticated diagnostics | Implemented; real daemon interoperability pending | Canonical options/aliases, protected token storage, SignalR session diagnostic, runtime reconfiguration, UI, and focused tests; unchanged Netclaw daemon acceptance still needs an authorized paired-device environment |
 | B4-07 | Integration hub, navigation, responsive UX, and accessibility | Implemented and validated | Hub cards, route cleanup, light desktop and dark mobile Playwright coverage, overflow assertion, and setup-wizard regression coverage |
 | B4-08 | Public guides, examples, migration notes, and release notes | Implemented and reviewed | Integration guide, Netclaw/self-hosting configuration guidance, README links, beta.4 release notes, and compatibility notes |
-| B4-09 | Integrated security, upgrade, UX, release rehearsal, and final review | In progress | Automated tests/builds and UX are green; release rehearsal, final head checks, hosted CI, and real external interoperability remain |
+| B4-09 | Integrated security, upgrade, UX, release rehearsal, and final review | Ready for human review | Automated tests/builds, UX, release rehearsal, and final-head hosted CI are green; real external interoperability remains an authorized environment acceptance step |
 
 ## Evidence log
 
@@ -67,6 +67,7 @@ secrets, private endpoints, local workstation diagnostics, or customer data.
 | 2026-09-26 | Manifest finalization | `tools/release/prepare-release-manifest.sh 0.1.1-beta.4 <candidate-revision> <temporary> <web-digest> <api-digest> <mcp-digest> v0.1.1-beta.4` | Archive checksums verified and detached manifest checksum generated using rehearsal-only image digest placeholders |
 | 2026-09-26 | Final-head release rerun | Same package, archive, deployment, checksum, and manifest probes against `872ba66d7139600b514ce2ae50e17a3807067157` | Final branch-head asset rehearsal passed; manifest source revision matched the candidate head used for the run |
 | 2026-09-26 | Review handoff | [PR #94](https://github.com/BostonTechnologies/RatelDesk/pull/94) | Non-draft PR opened against `main`; hosted checks are running against the pushed candidate head |
+| 2026-09-26 | Final-head hosted validation | [PR #94](https://github.com/BostonTechnologies/RatelDesk/pull/94); [validation run](https://github.com/BostonTechnologies/RatelDesk/actions/runs/36247956344); [managed PostgreSQL run](https://github.com/BostonTechnologies/RatelDesk/actions/runs/36247956342) | Candidate head `5e7e46400f94d403c3ce8b561d6041e5b22addee`; all 16 applicable hosted checks passed, including published mailbox lifecycle acceptance and release archive runtime checks |
 
 ## Compatibility decisions
 
@@ -93,8 +94,8 @@ secrets, private endpoints, local workstation diagnostics, or customer data.
 - [ ] Real Netclaw SignalR evidence recorded against a pinned unchanged target
 - [x] Packaged CLI/stdio/HTTP MCP acceptance evidence recorded
 - [x] UI light/dark/mobile evidence captured without secrets
-- [ ] Full applicable tests and hosted checks green for the final head
+- [x] Full applicable tests and hosted checks green for the final head
 - [x] Non-publishing beta.4 release rehearsal complete
 - [x] Branch clean and pushed
 - [x] Rollup PR non-draft and reviewable
-- [ ] Human merge/release/deployment steps handed off; no merge or publication performed
+- [x] Human merge/release/deployment steps handed off; no merge or publication performed
