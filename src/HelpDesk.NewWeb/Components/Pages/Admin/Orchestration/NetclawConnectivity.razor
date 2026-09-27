@@ -46,10 +46,27 @@
                 <MudItem xs="12" md="7">
                     <MudSwitch @bind-Value="draft.Enabled" @bind-Value:after="MarkDirty" Color="Color.Primary" Disabled="@settings.ManagedByDeployment" Label="Enable native Netclaw chat" />
                     <MudTextField @bind-Value="draft.Endpoint" @bind-Value:after="MarkDirty" Label="Netclaw session endpoint" Placeholder="https://netclaw.example.com/hub/session" Required="@draft.Enabled" Disabled="@settings.ManagedByDeployment" />
-                    <MudTextField @bind-Value="draft.DeviceToken" @bind-Value:after="MarkDirty" Label="Paired-device token" InputType="InputType.Password" HelperText="The API stores this protected token; it is never sent to the browser." Disabled="@settings.ManagedByDeployment" />
-                    @if (settings.HasDeviceToken && !settings.ManagedByDeployment)
+                    <MudTextField @bind-Value="pairingCode" Label="One-time Netclaw pairing code" HelperText="The API exchanges this code and stores the returned token; the token is never sent to the browser." MaxLength="1024" Disabled="@(settings.ManagedByDeployment || pairing)" data-testid="netclaw-pairing-code" />
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!CanPairAndSave)" OnClick="PairAndSaveAsync" data-testid="pair-and-save-netclaw">
+                        @(pairing ? "Pairing and saving…" : "Pair and save")
+                    </MudButton>
+                    @if (loadingLegacySessions)
                     {
-                        <MudCheckBox @bind-Value="draft.ClearDeviceToken" @bind-Value:after="MarkDirty" Color="Color.Warning" Label="Clear the saved paired-device token" />
+                        <MudText Typo="Typo.caption">Checking historical session ownership before pairing…</MudText>
+                    }
+                    else if (legacySessionsUnavailable)
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true">The historical session list could not be loaded. The API will check ownership before consuming the pairing code; refresh the list if the API reports an ownership conflict.</MudAlert>
+                    }
+                    else if (unboundLegacySessions.Count > 0)
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true">
+                            Unbound sessions are listed below. Pairing can continue when the saved provider identity is unchanged; if it changes, confirm historical owners first. The API checks before consuming the code. <a href="#netclaw-legacy-ownership">Review unbound sessions</a>.
+                        </MudAlert>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(pairingStatusMessage))
+                    {
+                        <MudAlert Severity="@pairingStatusSeverity" Variant="Variant.Outlined" data-testid="netclaw-pairing-status">@pairingStatusMessage</MudAlert>
                     }
                     <MudTextField @bind-Value="draft.Instance" @bind-Value:after="MarkDirty" Label="Instance" HelperText="The native adapter currently requires the dev instance contract." Disabled="@settings.ManagedByDeployment" />
                     <MudCheckBox @bind-Value="draft.AllowPrivateHttp" @bind-Value:after="MarkDirty" Label="Allow private HTTP (local development only)" Disabled="@settings.ManagedByDeployment" />
@@ -66,7 +83,90 @@
                 </MudItem>
             </MudGrid>
 
+            @if (!string.IsNullOrWhiteSpace(legacyOwnershipStatusMessage))
+            {
+                <MudAlert Class="mt-2" Severity="@legacyOwnershipStatusSeverity" Variant="Variant.Outlined" data-testid="netclaw-legacy-ownership-status">
+                    @legacyOwnershipStatusMessage
+                </MudAlert>
+            }
+
+            @if (loadingLegacySessions || legacySessionsUnavailable || unboundLegacySessions.Count > 0)
+            {
+            <MudPaper Class="pa-4" Outlined="true" id="netclaw-legacy-ownership" data-testid="netclaw-legacy-ownership">
+                <MudStack Spacing="2">
+                    <div>
+                        <MudText Typo="Typo.h6">Historical Netclaw session ownership</MudText>
+                        <MudText Typo="Typo.body2">Review unbound chat sessions before changing their provider owner. This historical provider is separate from the settings draft above.</MudText>
+                    </div>
+                    @if (loadingLegacySessions)
+                    {
+                        <MudProgressLinear Indeterminate="true" />
+                    }
+                    else if (legacySessionsUnavailable)
+                    {
+                        <MudAlert Severity="Severity.Error">Unbound Netclaw sessions could not be loaded. Refresh before confirming ownership.</MudAlert>
+                    }
+                    else if (unboundLegacySessions.Count == 0)
+                    {
+                        <MudAlert Severity="Severity.Info" Dense="true">No unbound historical Netclaw sessions.</MudAlert>
+                    }
+                    else
+                    {
+                        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                            @unboundLegacySessions.Count unbound session(s) need explicit ownership confirmation. Confirm only selected sessions that used the same historical endpoint and instance. Confirmation preserves chat transcripts.
+                        </MudAlert>
+                        <MudTable Items="unboundLegacySessions" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" data-testid="unbound-netclaw-sessions">
+                            <HeaderContent>
+                                <MudTh>Select</MudTh><MudTh>Conversation</MudTh><MudTh>Organization</MudTh><MudTh>Ticket</MudTh><MudTh>Type</MudTh><MudTh>Last activity</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Select">
+                                    <input type="checkbox"
+                                           data-testid="legacy-session-select-@context.ConversationId"
+                                           aria-label="@($"Select conversation {context.ConversationId} for ticket {context.TicketId} historical ownership confirmation")"
+                                           checked="@selectedLegacySessionIds.Contains(context.ConversationId)"
+                                           disabled="@(confirmingLegacyOwnership || pairing)"
+                                           @onchange="args => SetLegacySessionSelection(context.ConversationId, args.Value is true)" />
+                                </MudTd>
+                                <MudTd DataLabel="Conversation">@context.ConversationId</MudTd>
+                                <MudTd DataLabel="Organization">@context.OrganizationId</MudTd>
+                                <MudTd DataLabel="Ticket">@context.TicketId</MudTd>
+                                <MudTd DataLabel="Type">@context.TicketType</MudTd>
+                                <MudTd DataLabel="Last activity">@DisplayTimestamp(context.LastActivityUtc, "Unknown")</MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    }
+
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                        The endpoint and instance below describe the historical owner of the selected sessions. They do not change or copy the current Netclaw draft or its token.
+                    </MudAlert>
+                    <MudGrid>
+                        <MudItem xs="12" sm="4">
+                            <MudTextField @bind-Value="historicalInstance" @bind-Value:after="HistoricalProviderChanged" Label="Historical instance" Placeholder="dev" Disabled="@(confirmingLegacyOwnership || pairing)" data-testid="historical-netclaw-instance" />
+                        </MudItem>
+                        <MudItem xs="12" sm="8">
+                            <MudTextField @bind-Value="historicalEndpoint" @bind-Value:after="HistoricalProviderChanged" Label="Historical Netclaw session endpoint" Placeholder="https://old-netclaw.example/hub/session" Disabled="@(confirmingLegacyOwnership || pairing)" data-testid="historical-netclaw-endpoint" />
+                        </MudItem>
+                        <MudItem xs="12">
+                            <MudCheckBox @bind-Value="historicalAllowPrivateHttp" @bind-Value:after="HistoricalProviderChanged" Label="Allow private HTTP for this historical endpoint" Color="Color.Warning" Disabled="@(confirmingLegacyOwnership || pairing)" data-testid="historical-netclaw-private-http" />
+                            <MudCheckBox @bind-Value="historicalOwnershipAcknowledged" Label="I confirm the selected sessions used this historical endpoint and instance and should be assigned to that provider." Color="Color.Warning" Disabled="@(confirmingLegacyOwnership || pairing)" data-testid="historical-netclaw-owner-acknowledgement" />
+                        </MudItem>
+                    </MudGrid>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Warning" Disabled="@(!CanConfirmLegacyOwnership)" OnClick="ConfirmLegacySessionOwnersAsync" data-testid="confirm-netclaw-legacy-ownership">
+                        @(confirmingLegacyOwnership ? "Confirming…" : $"Confirm ownership for {selectedLegacySessionIds.Count} selected")
+                    </MudButton>
+                </MudStack>
+            </MudPaper>
+            }
+
             <MudExpansionPanels>
+                <MudExpansionPanel Text="Advanced/manual token">
+                    <MudTextField @bind-Value="draft.DeviceToken" @bind-Value:after="MarkDirty" Label="Paired-device token" InputType="InputType.Password" HelperText="Manual recovery only. The API stores this protected token; it is never sent back to the browser." Disabled="@settings.ManagedByDeployment" />
+                    @if (settings.HasDeviceToken && !settings.ManagedByDeployment)
+                    {
+                        <MudCheckBox @bind-Value="draft.ClearDeviceToken" @bind-Value:after="MarkDirty" Color="Color.Warning" Label="Clear the saved paired-device token" />
+                    }
+                </MudExpansionPanel>
                 <MudExpansionPanel Text="Advanced session limits">
                     <MudGrid>
                         <MudItem xs="12" sm="6"><MudNumericField T="int" @bind-Value="draft.IdleMinutes" @bind-Value:after="MarkDirty" Label="Idle minutes" Min="1" Max="1440" Disabled="@settings.ManagedByDeployment" /></MudItem>
@@ -78,10 +178,10 @@
             </MudExpansionPanels>
 
             <MudStack Row="true" Spacing="2">
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(saving || settings.ManagedByDeployment)" OnClick="SaveAsync">@(saving ? "Saving…" : "Save settings")</MudButton>
-                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(testing || isDirty || saving || settings.ManagedByDeployment)" OnClick="TestAsync">Test saved configuration</MudButton>
-                <MudButton Variant="Variant.Text" Color="Color.Primary" Disabled="@(testing || saving || settings.ManagedByDeployment)" OnClick="TestDraftAsync">Test draft</MudButton>
-                <MudButton Variant="Variant.Text" Disabled="@loading" OnClick="RefreshAsync">Refresh</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(saving || testing || pairing || confirmingLegacyOwnership || settings.ManagedByDeployment)" OnClick="SaveAsync">@(saving ? "Saving…" : "Save settings")</MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(testing || isDirty || saving || pairing || confirmingLegacyOwnership || settings.ManagedByDeployment)" OnClick="TestAsync">Test saved configuration</MudButton>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Disabled="@(testing || saving || pairing || confirmingLegacyOwnership || settings.ManagedByDeployment)" OnClick="TestDraftAsync">Test draft</MudButton>
+                <MudButton Variant="Variant.Text" Disabled="@(loading || pairing || confirmingLegacyOwnership)" OnClick="RefreshAsync">Refresh</MudButton>
             </MudStack>
 
             @if (testResult is not null)
@@ -107,17 +207,58 @@
 </MudPaper>
 
 @code {
+    private const string UnboundLegacySessionsPath = "/api/v1/admin/netclaw/legacy-sessions/unbound";
+    private const string ConfirmLegacySessionOwnerPath = "/api/v1/admin/netclaw/legacy-sessions/confirm-owner";
+    private const string PairAndSavePath = "/api/v1/admin/netclaw/pair-and-save";
+
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
     private NetclawConnectivitySettingsDto? settings;
     private UpdateNetclawConnectivitySettingsDto draft = new();
     private NetclawConnectivityTestResultDto? testResult;
+    private IReadOnlyList<NetclawUnboundLegacySessionDto> unboundLegacySessions = [];
+    private readonly HashSet<Guid> selectedLegacySessionIds = [];
     private bool loading = true;
+    private bool loadingLegacySessions;
+    private bool legacySessionsUnavailable;
     private bool saving;
     private bool testing;
+    private bool pairing;
+    private bool confirmingLegacyOwnership;
     private bool isDirty;
+    private string? legacyOwnershipStatusMessage;
+    private Severity legacyOwnershipStatusSeverity = Severity.Info;
     private long testGeneration;
     private string turnTimeoutText = "00:05:00";
     private string heartbeatText = "00:00:15";
+    private string historicalInstance = string.Empty;
+    private string historicalEndpoint = string.Empty;
+    private string pairingCode = string.Empty;
+    private string? pairingStatusMessage;
+    private Severity pairingStatusSeverity = Severity.Info;
+    private bool historicalAllowPrivateHttp;
+    private bool historicalOwnershipAcknowledged;
+
+    private bool CanConfirmLegacyOwnership =>
+        !loadingLegacySessions &&
+        !legacySessionsUnavailable &&
+        !saving &&
+        !testing &&
+        !pairing &&
+        !confirmingLegacyOwnership &&
+        selectedLegacySessionIds.Count > 0 &&
+        historicalOwnershipAcknowledged &&
+        !string.IsNullOrWhiteSpace(historicalInstance) &&
+        !string.IsNullOrWhiteSpace(historicalEndpoint);
+
+    private bool CanPairAndSave =>
+        settings is not null &&
+        !settings.ManagedByDeployment &&
+        draft.Enabled &&
+        !string.IsNullOrWhiteSpace(pairingCode) &&
+        !saving &&
+        !testing &&
+        !pairing &&
+        !confirmingLegacyOwnership;
 
     private IReadOnlyList<SettingRow> ResolvedSettings => settings is null ? [] :
     [
@@ -143,12 +284,50 @@
             settings = await HelpdeskApi.GetFromJsonAsync<NetclawConnectivitySettingsDto>("/api/v1/admin/netclaw");
             if (settings is not null) SyncDraft();
         }
-        catch (HttpRequestException)
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException)
         {
             Snackbar.Add("Netclaw settings could not be loaded.", Severity.Error);
         }
         finally { loading = false; }
+
+        await LoadUnboundLegacySessionsAsync(clearSelection: true);
     }
+
+    private async Task LoadUnboundLegacySessionsAsync(bool clearSelection = false)
+    {
+        legacyOwnershipStatusMessage = null;
+        historicalOwnershipAcknowledged = false;
+        loadingLegacySessions = true;
+        legacySessionsUnavailable = false;
+        try
+        {
+            unboundLegacySessions = await HelpdeskApi.GetFromJsonAsync<List<NetclawUnboundLegacySessionDto>>(UnboundLegacySessionsPath) ?? [];
+            var currentIds = unboundLegacySessions.Select(session => session.ConversationId).ToHashSet();
+            selectedLegacySessionIds.RemoveWhere(id => !currentIds.Contains(id));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException)
+        {
+            unboundLegacySessions = [];
+            selectedLegacySessionIds.Clear();
+            legacySessionsUnavailable = true;
+        }
+        finally
+        {
+            loadingLegacySessions = false;
+        }
+
+        if (clearSelection) selectedLegacySessionIds.Clear();
+    }
+
+    private void SetLegacySessionSelection(Guid conversationId, bool selected)
+    {
+        if (confirmingLegacyOwnership || pairing) return;
+        if (selected) selectedLegacySessionIds.Add(conversationId);
+        else selectedLegacySessionIds.Remove(conversationId);
+        historicalOwnershipAcknowledged = false;
+    }
+
+    private void HistoricalProviderChanged() => historicalOwnershipAcknowledged = false;
 
     private void SyncDraft()
     {
@@ -167,12 +346,13 @@
         };
         turnTimeoutText = settings.TurnInactivityTimeout.ToString("c");
         heartbeatText = settings.ActivityHeartbeatInterval.ToString("c");
+        pairingCode = string.Empty;
         isDirty = false;
     }
 
     private async Task SaveAsync()
     {
-        if (settings?.ManagedByDeployment == true) return;
+        if (settings is null || settings.ManagedByDeployment || saving || testing || pairing || confirmingLegacyOwnership) return;
         ++testGeneration;
         testResult = null;
         if (!TimeSpan.TryParse(turnTimeoutText, out var turnTimeout) || !TimeSpan.TryParse(heartbeatText, out var heartbeat))
@@ -188,7 +368,28 @@
             using var response = await HelpdeskApi.PutAsJsonAsync("/api/v1/admin/netclaw", draft);
             if (!response.IsSuccessStatusCode)
             {
-                Snackbar.Add(response.StatusCode == System.Net.HttpStatusCode.Conflict ? "Settings changed elsewhere; refresh and try again." : "Netclaw settings could not be saved.", Severity.Error);
+                if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+                {
+                    var code = await ReadApiErrorCodeAsync(response);
+                    if (code == "unbound_legacy_sessions")
+                    {
+                        await LoadUnboundLegacySessionsAsync();
+                        Snackbar.Add("Unbound legacy sessions need explicit ownership confirmation before this profile can be saved. Review the historical ownership section below.", Severity.Error);
+                    }
+                    else if (code == "legacy_session_conflict")
+                    {
+                        await LoadUnboundLegacySessionsAsync(clearSelection: true);
+                        Snackbar.Add("The legacy session list changed. Review it again and select the sessions to confirm.", Severity.Error);
+                    }
+                    else
+                    {
+                        Snackbar.Add(SaveConflictMessage(code), Severity.Error);
+                    }
+                }
+                else
+                {
+                    Snackbar.Add("Netclaw settings could not be saved.", Severity.Error);
+                }
                 return;
             }
             settings = await response.Content.ReadFromJsonAsync<NetclawConnectivitySettingsDto>();
@@ -202,8 +403,125 @@
         finally { saving = false; }
     }
 
+    private async Task PairAndSaveAsync()
+    {
+        if (!CanPairAndSave) return;
+        if (!TimeSpan.TryParse(turnTimeoutText, out var turnTimeout) || !TimeSpan.TryParse(heartbeatText, out var heartbeat))
+        {
+            pairingStatusMessage = "Use valid hh:mm:ss timeout values before pairing.";
+            pairingStatusSeverity = Severity.Error;
+            return;
+        }
+
+        pairing = true;
+        pairingStatusMessage = null;
+        ++testGeneration;
+        testResult = null;
+        try
+        {
+            using var response = await HelpdeskApi.PostAsJsonAsync(PairAndSavePath, new PairNetclawDeviceDto
+            {
+                PairingCode = pairingCode.Trim(),
+                ExpectedRevision = draft.ExpectedRevision,
+                Enabled = draft.Enabled,
+                Instance = draft.Instance,
+                Endpoint = draft.Endpoint,
+                AllowPrivateHttp = draft.AllowPrivateHttp,
+                IdleMinutes = draft.IdleMinutes,
+                ConnectionCapacity = draft.ConnectionCapacity,
+                TurnInactivityTimeout = turnTimeout,
+                ActivityHeartbeatInterval = heartbeat
+            });
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var code = await ReadApiErrorCodeAsync(response);
+                var profileReloaded = true;
+                if (code == "unbound_legacy_sessions" || code == "legacy_session_conflict")
+                {
+                    await LoadUnboundLegacySessionsAsync(clearSelection: code == "legacy_session_conflict");
+                }
+                else if (code == "pairing_saved_runtime_conflict")
+                {
+                    pairingCode = string.Empty;
+                    draft.DeviceToken = null;
+                    draft.ClearDeviceToken = false;
+                    profileReloaded = await ReloadSavedProfileAfterPairAsync(syncDraft: true);
+                }
+                else if (code is "pairing_code_rejected" or "pairing_code_not_found" or "pairing_code_consumed" or "pairing_outcome_uncertain" or "pairing_timeout" or "invalid_pairing_response")
+                {
+                    pairingCode = string.Empty;
+                    if (code is "pairing_code_consumed" or "pairing_outcome_uncertain" or "pairing_timeout" or "invalid_pairing_response")
+                        profileReloaded = await ReloadSavedProfileAfterPairAsync();
+                }
+
+                pairingStatusMessage = profileReloaded
+                    ? PairingErrorMessage(code)
+                    : "Pairing outcome may have changed the saved profile, but RatelDesk could not reload it. Use Refresh before requesting another code.";
+                pairingStatusSeverity = response.StatusCode == System.Net.HttpStatusCode.TooManyRequests
+                    ? Severity.Warning
+                    : Severity.Error;
+                Snackbar.Add(pairingStatusMessage, pairingStatusSeverity);
+                return;
+            }
+
+            var saved = await response.Content.ReadFromJsonAsync<NetclawConnectivitySettingsDto>();
+            if (saved is null)
+            {
+                pairingCode = string.Empty;
+                pairingStatusMessage = "The pairing response could not be confirmed. Refresh the saved profile before requesting another code.";
+                pairingStatusSeverity = Severity.Warning;
+                if (!await ReloadSavedProfileAfterPairAsync())
+                    pairingStatusMessage = "The pairing response could not be confirmed and the saved profile could not be reloaded. Refresh before requesting another code.";
+                return;
+            }
+
+            settings = saved;
+            pairingCode = string.Empty;
+            SyncDraft();
+            pairingStatusMessage = "Netclaw paired and settings saved. The protected token was not returned to the browser.";
+            pairingStatusSeverity = Severity.Success;
+            Snackbar.Add(pairingStatusMessage, Severity.Success);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
+        {
+            pairingCode = string.Empty;
+            pairingStatusMessage = "Pairing outcome is uncertain. Refresh the saved profile before requesting another code.";
+            pairingStatusSeverity = Severity.Warning;
+            if (!await ReloadSavedProfileAfterPairAsync())
+                pairingStatusMessage = "Pairing outcome is uncertain and the saved profile could not be reloaded. Refresh before requesting another code.";
+            Snackbar.Add(pairingStatusMessage, Severity.Warning);
+        }
+        finally { pairing = false; }
+    }
+
+    private async Task<bool> ReloadSavedProfileAfterPairAsync(bool syncDraft = false)
+    {
+        try
+        {
+            var current = await HelpdeskApi.GetFromJsonAsync<NetclawConnectivitySettingsDto>("/api/v1/admin/netclaw");
+            if (current is not null)
+            {
+                settings = current;
+                if (syncDraft) SyncDraft();
+                return true;
+            }
+        }
+        catch (HttpRequestException)
+        {
+            return false;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return false;
+        }
+
+        return false;
+    }
+
     private async Task RefreshAsync()
     {
+        if (pairing || confirmingLegacyOwnership) return;
         if (isDirty && !await JS.InvokeAsync<bool>("confirm", "Discard unsaved Netclaw changes?")) return;
         ++testGeneration;
         await LoadAsync();
@@ -220,17 +538,32 @@
     private async Task ConfirmInternalNavigationAsync(LocationChangingContext context)
     {
         if (!isDirty) return;
-        if (saving || testing || !await JS.InvokeAsync<bool>("confirm", "Discard unsaved Netclaw changes?"))
+        if (saving || testing || pairing || !await JS.InvokeAsync<bool>("confirm", "Discard unsaved Netclaw changes?"))
             context.PreventNavigation();
     }
 
     private async Task TestAsync()
     {
+        if (settings is null || settings.ManagedByDeployment || testing || saving || pairing || confirmingLegacyOwnership) return;
         var requestGeneration = testGeneration;
         testing = true;
         try
         {
             using var response = await HelpdeskApi.PostAsync("/api/v1/admin/netclaw/test", null);
+            if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                var code = await ReadApiErrorCodeAsync(response);
+                var message = code == "diagnostic_superseded"
+                    ? "Netclaw settings changed while the test was running. Refresh and test the current saved profile."
+                    : "Netclaw test conflicted with a newer configuration. Refresh before testing again.";
+                if (requestGeneration == testGeneration)
+                {
+                    testResult = new() { Message = message };
+                    Snackbar.Add(message, Severity.Warning);
+                }
+                return;
+            }
+
             var result = await response.Content.ReadFromJsonAsync<NetclawConnectivityTestResultDto>()
                          ?? new() { Message = "Unknown validation result." };
             if (requestGeneration == testGeneration)
@@ -252,6 +585,7 @@
 
     private async Task TestDraftAsync()
     {
+        if (settings is null || settings.ManagedByDeployment || testing || saving || pairing || confirmingLegacyOwnership) return;
         if (!TimeSpan.TryParse(turnTimeoutText, out var turnTimeout) || !TimeSpan.TryParse(heartbeatText, out var heartbeat))
         {
             Snackbar.Add("Use valid hh:mm:ss timeout values.", Severity.Error);
@@ -265,10 +599,29 @@
         try
         {
             using var response = await HelpdeskApi.PostAsJsonAsync("/api/v1/admin/netclaw/test-draft", draft);
+            if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                var code = await ReadApiErrorCodeAsync(response);
+                var message = code switch
+                {
+                    "configuration_revision_conflict" => "The saved Netclaw revision changed after this draft was loaded. Keep a copy of your draft, then refresh before testing again.",
+                    "runtime_revision_conflict" => "The Netclaw runtime has a newer profile revision. Refresh and compare the saved profile before testing again.",
+                    _ => "Netclaw draft testing conflicted with the current configuration. Refresh before testing again."
+                };
+                if (requestGeneration == testGeneration)
+                {
+                    testResult = new() { Message = message };
+                    Snackbar.Add(message, Severity.Warning);
+                }
+                return;
+            }
+
             var result = await response.Content.ReadFromJsonAsync<NetclawConnectivityTestResultDto>()
                          ?? new() { Message = "Unknown draft validation result." };
             if (requestGeneration == testGeneration)
             {
+                if (result.Success && unboundLegacySessions.Count > 0)
+                    result.Message = $"{result.Message} Unbound legacy sessions still need explicit ownership confirmation in the historical ownership section before a changed profile can be saved.";
                 testResult = result;
                 Snackbar.Add(result.Message, result.Success ? Severity.Success : Severity.Warning);
             }
@@ -283,6 +636,110 @@
         }
         finally { testing = false; }
     }
+
+    private async Task ConfirmLegacySessionOwnersAsync()
+    {
+        if (!CanConfirmLegacyOwnership) return;
+        var selectedIds = selectedLegacySessionIds.ToArray();
+        confirmingLegacyOwnership = true;
+        try
+        {
+            using var response = await HelpdeskApi.PostAsJsonAsync(ConfirmLegacySessionOwnerPath, new ConfirmNetclawLegacySessionsDto
+            {
+                HistoricalInstance = historicalInstance,
+                HistoricalEndpoint = historicalEndpoint,
+                AllowPrivateHttp = historicalAllowPrivateHttp,
+                ExpectedEligibleConversations = selectedIds.Length,
+                ConversationIds = selectedIds
+            });
+
+            if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                var code = await ReadApiErrorCodeAsync(response);
+                await LoadUnboundLegacySessionsAsync(clearSelection: true);
+                var message = code == "legacy_session_conflict"
+                    ? "The legacy session list changed. Review it again and select the sessions to confirm. Your Netclaw draft is unchanged."
+                    : "Legacy session ownership could not be confirmed. Review the refreshed list and try again. Your Netclaw draft is unchanged.";
+                legacyOwnershipStatusMessage = message;
+                legacyOwnershipStatusSeverity = Severity.Warning;
+                Snackbar.Add(message, Severity.Warning);
+                return;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var message = "Historical provider details were not accepted. Check the endpoint, instance, and private HTTP setting.";
+                legacyOwnershipStatusMessage = message;
+                legacyOwnershipStatusSeverity = Severity.Error;
+                Snackbar.Add(message, Severity.Error);
+                return;
+            }
+
+            await LoadUnboundLegacySessionsAsync(clearSelection: true);
+            var successMessage = $"Ownership confirmed for {selectedIds.Length} selected legacy session(s). Existing chat transcripts were preserved; your Netclaw draft is unchanged.";
+            legacyOwnershipStatusMessage = successMessage;
+            legacyOwnershipStatusSeverity = Severity.Success;
+            Snackbar.Add(successMessage, Severity.Success);
+        }
+        catch (HttpRequestException)
+        {
+            await LoadUnboundLegacySessionsAsync(clearSelection: true);
+            var message = "Legacy session ownership could not be confirmed. The refreshed list shows which sessions remain unbound. Your Netclaw draft is unchanged.";
+            legacyOwnershipStatusMessage = message;
+            legacyOwnershipStatusSeverity = Severity.Error;
+            Snackbar.Add(message, Severity.Error);
+        }
+        finally
+        {
+            confirmingLegacyOwnership = false;
+        }
+    }
+
+    private static async Task<string?> ReadApiErrorCodeAsync(HttpResponseMessage response)
+    {
+        try
+        {
+            await using var stream = await response.Content.ReadAsStreamAsync();
+            using var document = await System.Text.Json.JsonDocument.ParseAsync(stream);
+            return document.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                   document.RootElement.TryGetProperty("code", out var code) &&
+                   code.ValueKind == System.Text.Json.JsonValueKind.String
+                ? code.GetString()
+                : null;
+        }
+        catch (Exception ex) when (ex is System.Text.Json.JsonException or IOException)
+        {
+            return null;
+        }
+    }
+
+    private static string SaveConflictMessage(string? code) => code switch
+    {
+        "configuration_revision_conflict" => "Another administrator saved Netclaw settings. Keep a copy of your draft, then refresh before saving.",
+        "runtime_revision_conflict" => "The Netclaw runtime has a newer profile revision. Refresh and compare the saved profile before retrying.",
+        "configuration_conflict" => "Netclaw settings conflicted with another update. Refresh and try again.",
+        _ => "Netclaw settings could not be saved because of a configuration conflict. Refresh and try again."
+    };
+
+    private static string PairingErrorMessage(string? code) => code switch
+    {
+        "invalid_pairing_code" => "Enter the one-time code from Netclaw.",
+        "invalid_pairing_draft" => "Enable Netclaw and check the endpoint and session limits before pairing.",
+        "configuration_revision_conflict" => "The saved Netclaw revision changed before pairing. Keep the draft, refresh, and request a code after reviewing the current profile.",
+        "unbound_legacy_sessions" => "Unbound legacy sessions need explicit historical ownership confirmation before pairing. No code was sent to Netclaw.",
+        "legacy_session_conflict" => "The legacy session list changed. Review it again before pairing.",
+        "pairing_code_rejected" => "Netclaw rejected the code. It may be expired or already used; generate a fresh code.",
+        "pairing_code_not_found" => "Netclaw has no active code. Generate a fresh code and try again.",
+        "pairing_rate_limited" => "Netclaw is rate limiting pairing. Wait before trying again.",
+        "pairing_device_name_conflict" => "Netclaw rejected the generated device names. The current pairing code remains usable; retry the pairing action.",
+        "pairing_timeout" => "Pairing timed out and the outcome is uncertain. Review the current saved revision before requesting another code.",
+        "invalid_pairing_response" => "Netclaw may have accepted the code, but its response was invalid. Refresh the saved profile and generate a fresh code.",
+        "pairing_saved_runtime_conflict" => "Pairing succeeded and the protected settings were saved, but the runtime did not apply them. Review the refreshed saved profile.",
+        "pairing_code_consumed" => "Netclaw accepted the code, but RatelDesk could not complete the save. Resolve the conflict and generate a fresh code.",
+        "pairing_outcome_uncertain" => "Pairing outcome is uncertain. Review the current saved revision before requesting another code.",
+        "pairing_not_available" => "Pairing is unavailable while Netclaw is managed by deployment configuration.",
+        _ => "Netclaw could not complete pairing. Check the endpoint and current settings, then try again."
+    };
 
     private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "(not configured)" : value;
     private static string DisplayTimestamp(DateTimeOffset? value, string emptyText) => value?.ToLocalTime().ToString("g") ?? emptyText;

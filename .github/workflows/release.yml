@@ -130,7 +130,7 @@ jobs:
       - name: Execute extracted Linux x64 archives
         run: tools/release/test-executable-archives.sh release-assets linux-x64
 
-      - name: Test draft release asset upload semantics
+      - name: Test release asset upload semantics
         run: tools/release/test-publish-release-assets.sh
 
       - name: Transfer validated release payload
@@ -430,10 +430,6 @@ jobs:
           MCP_HTTP_DIGEST: ${{ needs.publish-mcp-http.outputs.digest }}
         run: |
           set -euo pipefail
-          prerelease_flag=()
-          if [[ "$PRERELEASE" == true ]]; then
-            prerelease_flag=(--prerelease)
-          fi
           release_notes="RatelDesk $VERSION
 
           Containers
@@ -460,8 +456,5 @@ jobs:
             "$VERSION" "$SOURCE_REVISION" release-assets \
             "$WEB_DIGEST" "$API_DIGEST" "$MCP_HTTP_DIGEST" "$RELEASE_TAG"
           tools/release/publish-release-assets.sh "$RELEASE_TAG" "$VERSION" release-assets
-          gh release edit "$RELEASE_TAG" \
-            --title "RatelDesk $VERSION" \
-            --draft \
-            "${prerelease_flag[@]}" \
-            --notes "$release_notes"
+          tools/release/update-release-metadata.sh \
+            "$RELEASE_TAG" "$VERSION" "$PRERELEASE" "$release_notes"

@@ -113,15 +113,20 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(370, operationCount);
+        Assert.Equal(371, operationCount);
 #else
-        Assert.Equal(369, operationCount);
+        Assert.Equal(370, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         Assert.True(paths.TryGetProperty("/api/v1/admin/orchestration/test-draft", out var orchestrationDraft));
         Assert.True(orchestrationDraft.TryGetProperty("post", out _));
         Assert.True(paths.TryGetProperty("/api/v1/admin/netclaw/test-draft", out var netclawDraft));
         Assert.True(netclawDraft.TryGetProperty("post", out _));
+        Assert.True(paths.TryGetProperty("/api/v1/admin/netclaw/pair-and-save", out var pairNetclaw));
+        Assert.True(pairNetclaw.TryGetProperty("post", out var pairNetclawOperation));
+        Assert.Equal(["Netclaw"], pairNetclawOperation.GetProperty("tags").EnumerateArray().Select(tag => tag.GetString()).OfType<string>().ToArray());
+        Assert.Equal(["IntegrationCredential", "JwtBearer", "LocalSession"],
+            SecuritySchemes(document, "/api/v1/admin/netclaw/pair-and-save", "post"));
         Assert.True(paths.TryGetProperty("/api/v1/admin/netclaw/legacy-sessions/unbound", out var unboundLegacySessions));
         Assert.True(unboundLegacySessions.TryGetProperty("get", out var listUnboundOperation));
         Assert.Equal(["Netclaw"], listUnboundOperation.GetProperty("tags").EnumerateArray().Select(tag => tag.GetString()).OfType<string>().ToArray());
@@ -132,6 +137,13 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         Assert.Equal(["Netclaw"], confirmLegacyOwnerOperation.GetProperty("tags").EnumerateArray().Select(tag => tag.GetString()).OfType<string>().ToArray());
         Assert.Equal(["IntegrationCredential", "JwtBearer", "LocalSession"],
             SecuritySchemes(document, "/api/v1/admin/netclaw/legacy-sessions/confirm-owner", "post"));
+        var pairEndpoint = _factory.Services.GetServices<EndpointDataSource>()
+            .SelectMany(source => source.Endpoints)
+            .OfType<RouteEndpoint>()
+            .Single(endpoint => endpoint.RoutePattern.RawText == "/api/v1/admin/netclaw/pair-and-save" &&
+                endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods.Contains("POST") == true);
+        Assert.Contains(pairEndpoint.Metadata.OfType<Microsoft.AspNetCore.Authorization.IAuthorizeData>(),
+            metadata => metadata.Policy == "HelpdeskAdmin");
 
         var pathOrder = paths.EnumerateObject().Select(path => path.Name).ToArray();
         Assert.Equal(pathOrder.Order(StringComparer.Ordinal), pathOrder);

@@ -314,7 +314,7 @@ jobs:
       - name: Execute extracted Linux x64 archives
         run: tools/release/test-executable-archives.sh release-assets linux-x64
 
-      - name: Test draft release asset upload semantics
+      - name: Test release asset upload and state preservation
         run: tools/release/test-publish-release-assets.sh
 
       - name: Upload release rehearsal assets

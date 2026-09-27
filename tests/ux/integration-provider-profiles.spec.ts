@@ -50,6 +50,7 @@ test('admin UI saves and reloads PostgreSQL provider profiles without exposing p
 
   await page.getByLabel('Enable native Netclaw chat').check();
   await page.getByLabel('Netclaw session endpoint').fill('https://netclaw-e2e.invalid/hub/session');
+  await page.getByText('Advanced/manual token', { exact: true }).click();
   await page.getByLabel('Paired-device token').fill(netclawToken);
   await page.getByRole('button', { name: 'Save settings' }).click();
   await expect(page.getByText('Netclaw settings saved and applied to new chat connections.', { exact: true })).toBeVisible();
@@ -62,6 +63,7 @@ test('admin UI saves and reloads PostgreSQL provider profiles without exposing p
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Netclaw AI harness' })).toBeVisible();
   await expect(page.getByLabel('Netclaw session endpoint')).toHaveValue('https://netclaw-e2e.invalid/hub/session');
+  await page.getByText('Advanced/manual token', { exact: true }).click();
   await expectSecretInputBlank(page, 'Paired-device token');
   await expect.poll(() => settingValue(page, 'Revision')).toBe(String(savedNetclawRevision));
   await expect.poll(() => settingValue(page, 'Paired token')).toBe('Configured (protected)');

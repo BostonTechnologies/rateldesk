@@ -304,7 +304,11 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
 
         var existing = await LoadNetclawAsync(cancellationToken);
         var currentRevision = existing?.Revision ?? 0;
-        RequireExpectedRevision(request.ExpectedRevision, currentRevision, "The Netclaw configuration changed; reload before testing the draft.");
+        RequireExpectedRevision(
+            request.ExpectedRevision,
+            currentRevision,
+            "The Netclaw configuration changed; reload before testing the draft.",
+            "configuration_revision_conflict");
 
         var instance = Normalize(request.Instance) ?? "dev";
         var endpoint = NormalizeUrl(request.Endpoint, "Endpoint", request.AllowPrivateHttp);
@@ -353,6 +357,59 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
             profileFingerprintOverride: profileFingerprint);
     }
 
+    public async Task<NetclawPairingTarget> ResolveNetclawPairingTargetAsync(
+        UpdateNetclawConnectivitySettingsDto request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (netclawManagedByDeployment)
+            throw new InvalidOperationException("Netclaw is managed by deployment configuration and cannot be paired here.");
+
+        // Pairing creates the token needed by an enabled profile. Validate the
+        // rest of the draft with a server-only placeholder; it is never stored,
+        // returned, or included in diagnostics.
+        var candidate = await ResolveNetclawDraftAsync(new UpdateNetclawConnectivitySettingsDto
+        {
+            ExpectedRevision = request.ExpectedRevision,
+            Enabled = request.Enabled,
+            Instance = request.Instance,
+            Endpoint = request.Endpoint,
+            DeviceToken = "pairing-preflight-placeholder",
+            AllowPrivateHttp = request.AllowPrivateHttp,
+            IdleMinutes = request.IdleMinutes,
+            ConnectionCapacity = request.ConnectionCapacity,
+            TurnInactivityTimeout = request.TurnInactivityTimeout,
+            ActivityHeartbeatInterval = request.ActivityHeartbeatInterval
+        }, cancellationToken);
+
+        if (!candidate.ConfiguredEnabled || string.IsNullOrWhiteSpace(candidate.Endpoint))
+            throw new ArgumentException("Enable Netclaw and provide a valid session endpoint before pairing.");
+        if (!Uri.TryCreate(candidate.Endpoint, UriKind.Absolute, out var endpoint) ||
+            endpoint.AbsolutePath != "/hub/session" ||
+            endpoint.Query.Length != 0 ||
+            endpoint.Fragment.Length != 0)
+            throw new ArgumentException("The Netclaw session endpoint must use the exact /hub/session path.");
+
+        // Recheck the revision and ownership gate immediately before the
+        // one-time remote code exchange. UpdateNetclawSettingsAsync repeats
+        // these checks when persisting, covering races during the exchange.
+        var existing = await LoadNetclawAsync(cancellationToken);
+        RequireExpectedRevision(
+            request.ExpectedRevision,
+            existing?.Revision ?? 0,
+            "The Netclaw configuration changed; reload before pairing.",
+            "configuration_revision_conflict");
+
+        var profileFingerprint = BuildNetclawSecretBindingFingerprint(candidate.Instance, candidate.Endpoint);
+        if (!string.Equals(existing?.ProfileFingerprint, profileFingerprint, StringComparison.Ordinal) &&
+            await UnboundLegacySessions().AnyAsync(cancellationToken))
+            throw new IntegrationProviderConfigurationConflictException(
+                "Legacy Netclaw sessions have no provider binding. Confirm their historical provider before pairing a changed profile.",
+                "unbound_legacy_sessions");
+
+        return new NetclawPairingTarget(endpoint, request.AllowPrivateHttp);
+    }
+
     public async Task<NetclawConnectivitySettingsDto> UpdateNetclawSettingsAsync(
         UpdateNetclawConnectivitySettingsDto request,
         CancellationToken cancellationToken = default)
@@ -362,7 +419,11 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
 
         var existing = await LoadNetclawAsync(cancellationToken);
         var currentRevision = existing?.Revision ?? 0;
-        RequireExpectedRevision(request.ExpectedRevision, currentRevision, "The Netclaw configuration changed; reload before saving.");
+        RequireExpectedRevision(
+            request.ExpectedRevision,
+            currentRevision,
+            "The Netclaw configuration changed; reload before saving.",
+            "configuration_revision_conflict");
 
         var instance = Normalize(request.Instance) ?? "dev";
         var endpoint = NormalizeUrl(request.Endpoint, "Endpoint", request.AllowPrivateHttp);
@@ -375,7 +436,8 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
         if (!string.Equals(existing?.ProfileFingerprint, secretBindingFingerprint, StringComparison.Ordinal) &&
             await UnboundLegacySessions().AnyAsync(cancellationToken))
             throw new IntegrationProviderConfigurationConflictException(
-                "Legacy Netclaw sessions have no provider binding. Confirm their historical provider before changing the saved profile.");
+                "Legacy Netclaw sessions have no provider binding. Confirm their historical provider before changing the saved profile.",
+                "unbound_legacy_sessions");
         var protectedToken = existing?.ProtectedDeviceToken ?? string.Empty;
         if (request.ClearDeviceToken)
         {
@@ -475,14 +537,16 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
         var count = await eligible.CountAsync(cancellationToken);
         if (count != request.ExpectedEligibleConversations)
             throw new IntegrationProviderConfigurationConflictException(
-                "The eligible legacy conversation count changed. Reload and confirm the historical provider again.");
+                "The eligible legacy conversation count changed. Reload and confirm the historical provider again.",
+                "legacy_session_conflict");
 
         var updated = await eligible.ExecuteUpdateAsync(
             setters => setters.SetProperty(conversation => conversation.ProviderProfileFingerprint, fingerprint),
             cancellationToken);
         if (updated != count)
             throw new IntegrationProviderConfigurationConflictException(
-                "The eligible legacy conversations changed during confirmation. Retry after reloading.");
+                "The eligible legacy conversations changed during confirmation. Retry after reloading.",
+                "legacy_session_conflict");
 
         db.ActivityLogs.Add(new ActivityLog
         {
@@ -502,6 +566,7 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
             .AsNoTracking()
             .Select(conversation => new NetclawUnboundLegacySessionDto(
                 conversation.Id,
+                conversation.OrganizationId,
                 conversation.TicketId,
                 conversation.TicketType,
                 conversation.LastActivityUtc))
@@ -547,7 +612,8 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
             : runtimeConfiguration.TryPublish(snapshot);
         if (!applied)
             throw new IntegrationProviderConfigurationConflictException(
-                "The Netclaw runtime has already applied a newer provider revision; reload before applying this profile.");
+                "The Netclaw runtime has already applied a newer provider revision; reload before applying this profile.",
+                "runtime_revision_conflict");
     }
 
     private async Task<M2MConnectivitySettings?> LoadOrchestratorAsync(CancellationToken cancellationToken)
@@ -776,13 +842,15 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
     private static void RequireExpectedRevision(
         int? expectedRevision,
         int currentRevision,
-        string conflictMessage)
+        string conflictMessage,
+        string conflictCode = "configuration_conflict")
     {
         if (expectedRevision is null)
             throw new IntegrationProviderConfigurationConflictException(
-                "ExpectedRevision is required; reload the provider settings before saving or testing a draft.");
+                "ExpectedRevision is required; reload the provider settings before saving or testing a draft.",
+                conflictCode);
         if (expectedRevision.Value != currentRevision)
-            throw new IntegrationProviderConfigurationConflictException(conflictMessage);
+            throw new IntegrationProviderConfigurationConflictException(conflictMessage, conflictCode);
     }
 
     private static string BuildOrchestratorSecretBindingFingerprint(

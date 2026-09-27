@@ -48,21 +48,31 @@ internal host name into tracked configuration or support tickets.
 
 ## Connect RatelDesk to NetClaw for ticket chat
 
-Create a dedicated NetClaw paired device for the RatelDesk API. Give it a
-recognizable tenant-specific name, such as `rateldesk-tenant-a-api`. Use
-NetClaw's one-time pairing flow from a secure operator environment; on an
-existing daemon, that begins with `netclaw daemon pair`. The resulting device
-token is a secret for RatelDesk API only.
+For an administrator-managed profile, open **Admin → Automation → Integration
+→ Netclaw** and enter the NetClaw session endpoint and instance. Generate a
+one-time code with the NetClaw pairing flow, then enter it in **One-time
+NetClaw pairing code** and choose **Pair and save**. The code expires after
+five minutes and is single-use. RatelDesk's authorized API makes the exchange
+from the server, assigns a unique `rateldesk-api-...` device name, protects the
+returned token, and saves the profile. The token is never returned to the
+browser. Use
+HTTPS for the endpoint; private HTTP requires the explicit local-development
+setting.
 
-Store the token directly in the deployment's secret manager or protected
-runtime configuration. Never put it in an appsettings file, Compose file,
-browser configuration, shell history, ticket, issue, pull request, or example.
-If NetClaw CLI pairing is used, its local secret file is also sensitive; move
-the token into the approved RatelDesk secret store without pasting it into a
-tracked file.
+Beta.3 conversations with unbound historical sessions must have their old
+provider owner confirmed in the page's **Historical Netclaw session
+ownership** section before pairing. The API checks this before sending the
+one-time code to NetClaw, so the code remains unused if ownership still blocks
+the profile change.
 
-Configure the **API service only**. The canonical beta.4 namespace is
-`Netclaw__...`; replace the example endpoint and inject the token through your
+The UI's **Advanced/manual token** section remains available for recovery. If
+you use NetClaw CLI pairing, its local secret file is sensitive too. Never put
+the token or one-time code in an appsettings file, Compose file, browser
+configuration, shell history, ticket, issue, pull request, or example.
+
+Deployment-managed profiles are read-only in the Integration hub. Configure
+the **API service only** through the canonical `Netclaw__...` namespace;
+replace the example endpoint and inject the token through your deployment
 secret mechanism:
 
 ```text

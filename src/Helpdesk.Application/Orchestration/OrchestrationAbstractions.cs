@@ -63,6 +63,22 @@ public sealed class NetclawResolvedSettings
     public bool CanAdoptLegacySessions { get; init; }
 }
 
+public sealed record NetclawPairingTarget(Uri SessionEndpoint, bool AllowPrivateHttp);
+
+public sealed class NetclawPairingException(string code, int statusCode, string message) : Exception(message)
+{
+    public string Code { get; } = code;
+    public int StatusCode { get; } = statusCode;
+}
+
+public interface INetclawPairingService
+{
+    Task<string> ExchangeCodeAsync(
+        NetclawPairingTarget target,
+        string pairingCode,
+        CancellationToken cancellationToken = default);
+}
+
 public sealed class OrchestrationHealthResult
 {
     public bool Success { get; init; }
@@ -145,6 +161,9 @@ public interface IIntegrationProviderSettingsService
     Task<NetclawResolvedSettings> ResolveNetclawDraftAsync(
         UpdateNetclawConnectivitySettingsDto request,
         CancellationToken cancellationToken = default);
+    Task<NetclawPairingTarget> ResolveNetclawPairingTargetAsync(
+        UpdateNetclawConnectivitySettingsDto request,
+        CancellationToken cancellationToken = default);
     Task<NetclawConnectivitySettingsDto> UpdateNetclawSettingsAsync(
         UpdateNetclawConnectivitySettingsDto request,
         CancellationToken cancellationToken = default);
@@ -157,7 +176,12 @@ public interface IIntegrationProviderSettingsService
     Task ApplyNetclawRuntimeAsync(NetclawResolvedSettings settings, CancellationToken cancellationToken = default);
 }
 
-public sealed class IntegrationProviderConfigurationConflictException(string message) : InvalidOperationException(message);
+public sealed class IntegrationProviderConfigurationConflictException(
+    string message,
+    string code = "configuration_conflict") : InvalidOperationException(message)
+{
+    public string Code { get; } = code;
+}
 
 public interface IOrchestrationTokenService
 {

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Creates or resumes a *draft* GitHub release and appends only verified assets.
-# Existing assets are downloaded and checked before reuse; this script never
-# overwrites a release asset with different content.
+# Creates a draft release when none exists, then appends verified assets to it.
+# Existing releases keep their current publication state. Existing assets are
+# downloaded and checked before reuse; this script never overwrites a release
+# asset with different content.
 if [[ $# -ne 3 ]]; then
   echo "usage: $0 <tag> <version> <asset-directory>" >&2
   exit 64
@@ -41,10 +42,7 @@ if [[ "${RELEASE_ASSET_DRY_RUN:-false}" == true ]]; then
 fi
 
 metadata=""
-if metadata="$($gh_bin release view "$tag" --json isDraft,assets 2>/dev/null)"; then
-  is_draft="$(python3 -c 'import json,sys; print(str(json.load(sys.stdin).get("isDraft", False)).lower())' <<<"$metadata")"
-  [[ "$is_draft" == true ]] || { echo "Existing release '$tag' is not a draft; refusing to modify it." >&2; exit 1; }
-else
+if ! metadata="$($gh_bin release view "$tag" --json assets 2>/dev/null)"; then
   "$gh_bin" release create "$tag" --draft --title "RatelDesk $version" --notes "Release assets are being verified before publication."
   metadata='{"assets":[]}'
 fi
@@ -66,4 +64,4 @@ for asset in "${assets[@]}"; do
 done
 
 final_metadata="$($gh_bin release view "$tag" --json assets)"
-python3 -c 'import json,sys; expected=set(sys.argv[1:]); actual={item.get("name") for item in json.load(sys.stdin).get("assets", [])}; missing=sorted(expected-actual); unexpected=sorted(actual-expected); (not (missing or unexpected)) or (_ for _ in ()).throw(SystemExit(f"Draft release assets are incomplete; missing={missing}, unexpected={unexpected}"))' "${assets[@]}" <<<"$final_metadata"
+python3 -c 'import json,sys; expected=set(sys.argv[1:]); actual={item.get("name") for item in json.load(sys.stdin).get("assets", [])}; missing=sorted(expected-actual); (not missing) or (_ for _ in ()).throw(SystemExit(f"Release is missing required assets: {missing}"))' "${assets[@]}" <<<"$final_metadata"
