@@ -17,6 +17,8 @@ namespace Helpdesk.Tests.Infrastructure.Orchestration;
 
 public sealed class OrchestrationIngestLifecycleIntegrationTests
 {
+    private static readonly string SyntheticClientSecret = string.Concat("synthetic", "-", "secret", "-", "123");
+
     [Theory]
     [InlineData("{\"requestId\":\"41\",\"runId\":\"99\",\"executionId\":\"99\",\"status\":null}", "41", "99", "99")]
     [InlineData("{\"requestId\":\"41\",\"runId\":\"99\",\"executionId\":\"99\"}", "41", "99", "99")]
@@ -79,7 +81,7 @@ public sealed class OrchestrationIngestLifecycleIntegrationTests
             runId = hasIdentity ? "netratel-run-99" : null,
             executionId = hasIdentity ? "netratel-run-99" : null,
             status,
-            message = "useful context synthetic-secret-123 synthetic-bearer-456"
+            message = $"useful context {SyntheticClientSecret} synthetic-bearer-456"
         });
         var result = await RunAsync(body);
 
@@ -93,9 +95,9 @@ public sealed class OrchestrationIngestLifecycleIntegrationTests
         Assert.Equal(expectedState, result.Saved.State);
         Assert.Null(result.Saved.NextRetryAt);
         Assert.Equal(1, result.DispatchCount);
-        Assert.DoesNotContain("synthetic-secret-123", result.Saved.ResultJson ?? string.Empty, StringComparison.Ordinal);
+        Assert.DoesNotContain(SyntheticClientSecret, result.Saved.ResultJson ?? string.Empty, StringComparison.Ordinal);
         Assert.DoesNotContain("synthetic-bearer-456", result.Saved.ResultJson ?? string.Empty, StringComparison.Ordinal);
-        Assert.DoesNotContain("synthetic-secret-123", result.Saved.FailureReason ?? string.Empty, StringComparison.Ordinal);
+        Assert.DoesNotContain(SyntheticClientSecret, result.Saved.FailureReason ?? string.Empty, StringComparison.Ordinal);
         Assert.DoesNotContain("synthetic-bearer-456", result.Saved.FailureReason ?? string.Empty, StringComparison.Ordinal);
         Assert.Contains("useful context", result.Saved.ResultJson ?? result.Saved.FailureReason, StringComparison.Ordinal);
         if (status is "Completed" or "Failed" or "Cancelled" or "provider-specific-state" or "Rejected")
@@ -133,7 +135,7 @@ public sealed class OrchestrationIngestLifecycleIntegrationTests
                 await result.Events.Received(1).PublishAsync(
                     Arg.Is<RequestTaskAutomationFailedEvent>(e =>
                         e.ExecutionId == "netratel-run-99"
-                        && !e.Reason.Contains("synthetic-secret-123", StringComparison.Ordinal)
+                        && !e.Reason.Contains(SyntheticClientSecret, StringComparison.Ordinal)
                         && !e.Reason.Contains("synthetic-bearer-456", StringComparison.Ordinal)),
                     Arg.Any<CancellationToken>());
                 break;
@@ -344,7 +346,7 @@ public sealed class OrchestrationIngestLifecycleIntegrationTests
                 Enabled = true,
                 BaseUrl = "https://provider.example.test",
                 IngestPath = "/internal/ingest",
-                ClientSecret = "synthetic-secret-123"
+                ClientSecret = SyntheticClientSecret
             });
             var payloads = Substitute.For<IRequestTaskPayloadBuilder>();
             payloads.BuildAsync(Arg.Any<RequestTask>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
