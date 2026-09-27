@@ -1,0 +1,205 @@
+.netclaw-page,
+.netclaw-page-heading,
+.netclaw-setup,
+.netclaw-profile {
+    min-width: 0;
+}
+
+.netclaw-page-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: .75rem;
+    margin-bottom: 1rem;
+}
+
+.netclaw-page-heading {
+    min-width: 0;
+    max-width: 62rem;
+}
+
+.netclaw-muted-copy {
+    color: var(--mud-palette-text-secondary);
+}
+
+.netclaw-page-heading ::deep .mud-typography-body2 {
+    max-width: 70ch;
+}
+
+.netclaw-page-navigation {
+    display: flex;
+    min-width: 0;
+    align-items: flex-start;
+    justify-content: flex-end;
+}
+
+.netclaw-page-navigation ::deep .mud-button-root {
+    flex: 0 0 auto;
+    width: max-content;
+    max-width: 100%;
+    white-space: nowrap;
+}
+
+.netclaw-page-navigation ::deep .mud-button-label {
+    white-space: nowrap;
+}
+
+.netclaw-loading {
+    display: grid;
+    gap: .65rem;
+    max-width: 42rem;
+}
+
+.netclaw-main-grid {
+    min-width: 0;
+    align-items: stretch;
+}
+
+.netclaw-setup {
+    padding-block: .15rem;
+}
+
+.netclaw-enable-setting {
+    display: grid;
+    gap: .1rem;
+}
+
+.netclaw-primary-action ::deep .mud-button-root {
+    min-height: 3rem;
+    font-size: 1rem;
+}
+
+.netclaw-history-healthy {
+    padding-left: .25rem;
+}
+
+.netclaw-profile {
+    height: 100%;
+    box-sizing: border-box;
+    padding: 1rem;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 7px;
+    background: var(--mud-palette-background-gray);
+}
+
+.netclaw-profile-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 1rem;
+    margin: 0;
+    border-top: 1px solid var(--mud-palette-divider);
+}
+
+.netclaw-profile-item {
+    min-width: 0;
+    padding: .6rem 0;
+    border-bottom: 1px solid var(--mud-palette-divider-light);
+}
+
+.netclaw-profile-item-wide {
+    grid-column: 1 / -1;
+}
+
+.netclaw-profile-item dt {
+    color: var(--mud-palette-text-secondary);
+    font-size: .75rem;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.netclaw-profile-item dd {
+    margin: .18rem 0 0;
+    color: var(--mud-palette-text-primary);
+    font-size: .9rem;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.netclaw-action-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+}
+
+.netclaw-action-row ::deep .mud-button-root {
+    min-height: 2.5rem;
+}
+
+.netclaw-history-panel {
+    min-width: 0;
+    border-left: 3px solid var(--mud-palette-warning);
+}
+
+.netclaw-history-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+}
+
+.netclaw-legacy-table,
+.netclaw-probe-table {
+    min-width: 0;
+}
+
+.netclaw-legacy-select {
+    width: 1.5rem;
+    height: 1.5rem;
+    margin: 0;
+    accent-color: var(--mud-palette-primary);
+    cursor: pointer;
+}
+
+.netclaw-legacy-select:focus-visible {
+    outline: 2px solid var(--mud-palette-primary);
+    outline-offset: 2px;
+}
+
+.netclaw-legacy-table ::deep .mud-table-cell,
+.netclaw-probe-table ::deep .mud-table-cell {
+    overflow-wrap: anywhere;
+}
+
+.netclaw-advanced-settings {
+    margin-top: .25rem;
+}
+
+@media (max-width: 600px) {
+    .netclaw-profile {
+        padding: .85rem;
+    }
+
+    .netclaw-action-row ::deep .mud-button-root {
+        flex: 1 1 calc(50% - .5rem);
+    }
+
+    .netclaw-history-panel {
+        padding: .85rem !important;
+    }
+}
+
+@media (max-width: 600px) {
+    .netclaw-page-header {
+        grid-template-columns: minmax(0, 1fr);
+        gap: .5rem;
+    }
+
+    .netclaw-page-navigation {
+        justify-content: flex-start;
+    }
+
+    .netclaw-page-navigation ::deep .mud-button-root {
+        max-width: max-content;
+    }
+}
+
+@media (max-width: 360px) {
+    .netclaw-profile-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .netclaw-profile-item-wide {
+        grid-column: auto;
+    }
+}

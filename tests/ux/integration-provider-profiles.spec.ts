@@ -7,6 +7,15 @@ import { authenticate } from './auth';
 test.use({ trace: 'off', screenshot: 'off' });
 
 async function settingValue(page: Page, name: string): Promise<string> {
+  const currentPath = new URL(page.url()).pathname;
+  if (currentPath === '/admin/automation/integration/netclaw') {
+    const netclawProfile = page.getByTestId('netclaw-runtime-profile');
+    await expect(netclawProfile).toBeVisible();
+    const field = netclawProfile.locator('.netclaw-profile-item').filter({ has: page.getByText(name, { exact: true }) });
+    await expect(field).toHaveCount(1);
+    return (await field.locator('dd').innerText()).trim();
+  }
+
   const row = page.getByRole('row').filter({ has: page.getByText(name, { exact: true }) });
   await expect(row).toHaveCount(1);
   return (await row.locator('td').nth(1).innerText()).trim();
@@ -52,7 +61,9 @@ test('admin UI saves and reloads PostgreSQL provider profiles without exposing p
   await page.getByLabel('Netclaw session endpoint').fill('https://netclaw-e2e.invalid/hub/session');
   await page.getByText('Advanced/manual token', { exact: true }).click();
   await page.getByLabel('Paired-device token').fill(netclawToken);
-  await page.getByRole('button', { name: 'Save settings' }).click();
+  const saveNetclawSettings = page.getByRole('button', { name: 'Save settings' });
+  await expect(saveNetclawSettings).toBeEnabled();
+  await saveNetclawSettings.click();
   await expect(page.getByText('Netclaw settings saved and applied to new chat connections.', { exact: true })).toBeVisible();
   await expectSecretInputBlank(page, 'Paired-device token');
   await expect.poll(() => settingValue(page, 'Paired token')).toBe('Configured (protected)');

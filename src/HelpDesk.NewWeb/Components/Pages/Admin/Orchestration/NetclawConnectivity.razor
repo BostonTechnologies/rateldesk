@@ -10,198 +10,263 @@
 <PageTitle>Netclaw AI harness</PageTitle>
 <NavigationLock ConfirmExternalNavigation="@isDirty" OnBeforeInternalNavigation="ConfirmInternalNavigationAsync" />
 
-<MudPaper Class="helpdesk-content-surface pa-4" data-testid="netclaw-settings-page">
+<MudPaper Class="helpdesk-content-surface pa-4 netclaw-page" data-testid="netclaw-settings-page">
     <MudStack Spacing="3">
-        <MudStack Row="true" AlignItems="AlignItems.Center">
-            <div>
+        <div class="netclaw-page-header">
+            <div class="netclaw-page-heading">
                 <MudText Typo="Typo.h4" HtmlTag="h1">Netclaw AI harness</MudText>
-                <MudText Typo="Typo.body2">Native authenticated SignalR transport for the ticket AI Assistant.</MudText>
+                <MudText Typo="Typo.body2" Class="netclaw-muted-copy">Pair your daemon and manage the authenticated chat connection used by the ticket AI Assistant.</MudText>
             </div>
-            <MudSpacer />
-            <MudButton Href="/admin/automation/integration" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack">Integration hub</MudButton>
-        </MudStack>
+            <div class="netclaw-page-navigation">
+                <MudButton Class="netclaw-hub-link" Href="/admin/automation/integration" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack">Integration hub</MudButton>
+            </div>
+        </div>
 
         @if (loading)
         {
-            <MudProgressLinear Indeterminate="true" />
+            <div class="netclaw-loading" role="status" aria-live="polite" aria-label="Loading Netclaw settings">
+                <MudProgressLinear Indeterminate="true" />
+                <MudText Typo="Typo.body2" Class="netclaw-muted-copy">Loading the saved profile…</MudText>
+            </div>
         }
         else if (settings is null)
         {
-            <MudAlert Severity="Severity.Error">Netclaw settings could not be loaded.</MudAlert>
+            <MudStack Spacing="2" AlignItems="AlignItems.Start">
+                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">Netclaw settings could not be loaded. Check the connection and try again.</MudAlert>
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" Disabled="@loading">Try again</MudButton>
+            </MudStack>
         }
         else
         {
-            @if (settings.ManagedByDeployment)
-            {
-                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
-                    This destination is managed by deployment configuration. Review it here and change the canonical <code>Netclaw__...</code> values in the deployment environment.
-                </MudAlert>
-            }
-            @if (!settings.RuntimeSupported && settings.Enabled)
-            {
-                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">@settings.RuntimeIssue</MudAlert>
-            }
+            <MudStack Spacing="3">
+                @if (settings.ManagedByDeployment)
+                {
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                        This profile is managed by deployment configuration. Review it here, then change the canonical <code>Netclaw__...</code> values in the deployment environment.
+                    </MudAlert>
+                }
+                @if (!settings.RuntimeSupported && settings.Enabled)
+                {
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">@settings.RuntimeIssue</MudAlert>
+                }
 
-            <MudGrid>
-                <MudItem xs="12" md="7">
-                    <MudSwitch @bind-Value="draft.Enabled" @bind-Value:after="MarkDirty" Color="Color.Primary" Disabled="@settings.ManagedByDeployment" Label="Enable native Netclaw chat" />
-                    <MudTextField @bind-Value="draft.Endpoint" @bind-Value:after="MarkDirty" Label="Netclaw session endpoint" Placeholder="https://netclaw.example.com/hub/session" Required="@draft.Enabled" Disabled="@settings.ManagedByDeployment" />
-                    <MudTextField @bind-Value="pairingCode" Label="One-time Netclaw pairing code" HelperText="The API exchanges this code and stores the returned token; the token is never sent to the browser." MaxLength="1024" Disabled="@(settings.ManagedByDeployment || pairing)" data-testid="netclaw-pairing-code" />
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!CanPairAndSave)" OnClick="PairAndSaveAsync" data-testid="pair-and-save-netclaw">
-                        @(pairing ? "Pairing and saving…" : "Pair and save")
-                    </MudButton>
-                    @if (loadingLegacySessions)
-                    {
-                        <MudText Typo="Typo.caption">Checking historical session ownership before pairing…</MudText>
-                    }
-                    else if (legacySessionsUnavailable)
-                    {
-                        <MudAlert Severity="Severity.Warning" Dense="true">The historical session list could not be loaded. The API will check ownership before consuming the pairing code; refresh the list if the API reports an ownership conflict.</MudAlert>
-                    }
-                    else if (unboundLegacySessions.Count > 0)
-                    {
-                        <MudAlert Severity="Severity.Warning" Dense="true">
-                            Unbound sessions are listed below. Pairing can continue when the saved provider identity is unchanged; if it changes, confirm historical owners first. The API checks before consuming the code. <a href="#netclaw-legacy-ownership">Review unbound sessions</a>.
+                <MudGrid Spacing="4" Class="netclaw-main-grid">
+                    <MudItem xs="12" md="7">
+                        <section class="netclaw-setup" aria-labelledby="netclaw-setup-heading">
+                            <MudStack Spacing="2">
+                                <div>
+                                    <MudText Typo="Typo.h5" HtmlTag="h2" id="netclaw-setup-heading">Connect Netclaw</MudText>
+                                    <MudText Typo="Typo.body2" Class="netclaw-muted-copy">Enter the daemon endpoint and one-time code. RatelDesk exchanges the code and stores the protected token for you.</MudText>
+                                </div>
+
+                                <div class="netclaw-enable-setting">
+                                    <MudSwitch @bind-Value="draft.Enabled" @bind-Value:after="MarkDirty" Color="Color.Primary" Disabled="@(settings.ManagedByDeployment || saving || pairing || confirmingLegacyOwnership)" Label="Enable native Netclaw chat" />
+                                    <MudText Typo="Typo.caption" Class="netclaw-muted-copy">Use the authenticated SignalR session transport for new AI Assistant conversations.</MudText>
+                                </div>
+
+                                <MudTextField @bind-Value="draft.Endpoint" @bind-Value:after="MarkDirty" Label="Netclaw session endpoint" Placeholder="https://netclaw.example.com/hub/session" HelperText="Use the daemon's /hub/session endpoint." Required="@draft.Enabled" Disabled="@(settings.ManagedByDeployment || saving || pairing || confirmingLegacyOwnership)" data-testid="netclaw-endpoint" />
+
+                                <MudTextField @bind-Value="draft.Instance" @bind-Value:after="MarkDirty" Label="Instance" HelperText="The native adapter currently requires the dev instance contract." Disabled="@(settings.ManagedByDeployment || saving || pairing || confirmingLegacyOwnership)" />
+                                <MudCheckBox @bind-Value="draft.AllowPrivateHttp" @bind-Value:after="MarkDirty" Label="Allow private HTTP (local development only)" Disabled="@(settings.ManagedByDeployment || saving || pairing || confirmingLegacyOwnership)" />
+
+                                <MudTextField @bind-Value="pairingCode" Label="One-time Netclaw pairing code" InputType="InputType.Password" autocomplete="off" HelperText="Paste the code from netclaw daemon pair. It expires and can be used once." MaxLength="1024" Immediate="true" Disabled="@(settings.ManagedByDeployment || pairing || saving || confirmingLegacyOwnership)" data-testid="netclaw-pairing-code" />
+                                <div class="netclaw-primary-action">
+                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" FullWidth="true" Disabled="@(!CanPairAndSave)" OnClick="PairAndSaveAsync" StartIcon="@Icons.Material.Filled.Link" data-testid="pair-and-save-netclaw">
+                                        @(pairing ? "Pairing and saving…" : "Pair and save")
+                                    </MudButton>
+                                </div>
+
+                                @if (!string.IsNullOrWhiteSpace(pairingStatusMessage))
+                                {
+                                    <div role="status" aria-live="polite" aria-atomic="true">
+                                        <MudAlert Severity="@pairingStatusSeverity" Variant="Variant.Outlined" data-testid="netclaw-pairing-status">@pairingStatusMessage</MudAlert>
+                                    </div>
+                                }
+
+                                @if (loadingLegacySessions)
+                                {
+                                    <MudText Typo="Typo.caption" Class="netclaw-muted-copy">Checking historical session ownership…</MudText>
+                                }
+                                else if (legacySessionsUnavailable)
+                                {
+                                    <MudAlert Severity="Severity.Warning" Dense="true">The history list is unavailable. The API still checks ownership before using a pairing code; refresh the list if it reports a conflict.</MudAlert>
+                                }
+                                else if (unboundLegacySessions.Count > 0)
+                                {
+                                    <MudAlert Severity="Severity.Warning" Dense="true">
+                                        @unboundLegacySessions.Count historical session(s) need review. Pairing can continue if the saved provider identity stays the same. <a href="#netclaw-legacy-ownership">Review session owners</a>.
+                                    </MudAlert>
+                                }
+                                else
+                                {
+                                    <MudText Typo="Typo.caption" Class="netclaw-history-healthy netclaw-muted-copy">No unbound historical sessions.</MudText>
+                                }
+
+                            </MudStack>
+                        </section>
+                    </MudItem>
+
+                    <MudItem xs="12" md="5">
+                        <section class="netclaw-profile" aria-labelledby="netclaw-profile-heading">
+                            <MudStack Spacing="2">
+                                <div>
+                                    <MudText Typo="Typo.h6" HtmlTag="h2" id="netclaw-profile-heading">Effective profile</MudText>
+                                    <MudText Typo="Typo.body2" Class="netclaw-muted-copy">Current saved settings used by the API runtime.</MudText>
+                                </div>
+                                <dl class="netclaw-profile-grid" data-testid="netclaw-runtime-profile">
+                                    @foreach (var setting in ResolvedSettings)
+                                    {
+                                        <div class="@(setting.Name == "Endpoint" ? "netclaw-profile-item netclaw-profile-item-wide" : "netclaw-profile-item")">
+                                            <dt>@setting.Name</dt>
+                                            <dd>@setting.Value</dd>
+                                        </div>
+                                    }
+                                </dl>
+                                <MudText Typo="Typo.caption" Class="netclaw-muted-copy">SQLite supports webhook/history fallback. Native chat requires PostgreSQL durable session ownership.</MudText>
+                            </MudStack>
+                        </section>
+                    </MudItem>
+                </MudGrid>
+
+                @if (!string.IsNullOrWhiteSpace(legacyOwnershipStatusMessage))
+                {
+                    <div role="status" aria-live="polite" aria-atomic="true">
+                        <MudAlert Severity="@legacyOwnershipStatusSeverity" Variant="Variant.Outlined" data-testid="netclaw-legacy-ownership-status">
+                            @legacyOwnershipStatusMessage
                         </MudAlert>
-                    }
-                    @if (!string.IsNullOrWhiteSpace(pairingStatusMessage))
-                    {
-                        <MudAlert Severity="@pairingStatusSeverity" Variant="Variant.Outlined" data-testid="netclaw-pairing-status">@pairingStatusMessage</MudAlert>
-                    }
-                    <MudTextField @bind-Value="draft.Instance" @bind-Value:after="MarkDirty" Label="Instance" HelperText="The native adapter currently requires the dev instance contract." Disabled="@settings.ManagedByDeployment" />
-                    <MudCheckBox @bind-Value="draft.AllowPrivateHttp" @bind-Value:after="MarkDirty" Label="Allow private HTTP (local development only)" Disabled="@settings.ManagedByDeployment" />
-                </MudItem>
-                <MudItem xs="12" md="5">
-                    <MudText Typo="Typo.subtitle2">Runtime profile</MudText>
-                    <MudTable Items="ResolvedSettings" Dense="true" Hover="true" Class="mt-2">
-                        <RowTemplate>
-                            <MudTd DataLabel="Setting">@context.Name</MudTd>
-                            <MudTd DataLabel="Value">@context.Value</MudTd>
-                        </RowTemplate>
-                    </MudTable>
-                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">SQLite keeps the supported webhook/history fallback; native chat requires PostgreSQL durable session ownership.</MudText>
-                </MudItem>
-            </MudGrid>
-
-            @if (!string.IsNullOrWhiteSpace(legacyOwnershipStatusMessage))
-            {
-                <MudAlert Class="mt-2" Severity="@legacyOwnershipStatusSeverity" Variant="Variant.Outlined" data-testid="netclaw-legacy-ownership-status">
-                    @legacyOwnershipStatusMessage
-                </MudAlert>
-            }
-
-            @if (loadingLegacySessions || legacySessionsUnavailable || unboundLegacySessions.Count > 0)
-            {
-            <MudPaper Class="pa-4" Outlined="true" id="netclaw-legacy-ownership" data-testid="netclaw-legacy-ownership">
-                <MudStack Spacing="2">
-                    <div>
-                        <MudText Typo="Typo.h6">Historical Netclaw session ownership</MudText>
-                        <MudText Typo="Typo.body2">Review unbound chat sessions before changing their provider owner. This historical provider is separate from the settings draft above.</MudText>
                     </div>
-                    @if (loadingLegacySessions)
-                    {
-                        <MudProgressLinear Indeterminate="true" />
-                    }
-                    else if (legacySessionsUnavailable)
-                    {
-                        <MudAlert Severity="Severity.Error">Unbound Netclaw sessions could not be loaded. Refresh before confirming ownership.</MudAlert>
-                    }
-                    else if (unboundLegacySessions.Count == 0)
-                    {
-                        <MudAlert Severity="Severity.Info" Dense="true">No unbound historical Netclaw sessions.</MudAlert>
-                    }
-                    else
-                    {
-                        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
-                            @unboundLegacySessions.Count unbound session(s) need explicit ownership confirmation. Confirm only selected sessions that used the same historical endpoint and instance. Confirmation preserves chat transcripts.
+                }
+
+                <section aria-label="Connection actions">
+                    <MudText Typo="Typo.caption" Class="netclaw-muted-copy mb-1">Pair and save is the normal setup. Save settings is the manual recovery path for profile edits or an existing token.</MudText>
+                    <MudStack Row="true" Spacing="2" Class="netclaw-action-row">
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(saving || testing || pairing || confirmingLegacyOwnership || settings.ManagedByDeployment)" OnClick="SaveAsync">@(saving ? "Saving…" : "Save settings")</MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(testing || isDirty || saving || pairing || confirmingLegacyOwnership || settings.ManagedByDeployment)" OnClick="TestAsync">Test saved configuration</MudButton>
+                        <MudButton Variant="Variant.Text" Color="Color.Primary" Disabled="@(testing || saving || pairing || confirmingLegacyOwnership || settings.ManagedByDeployment)" OnClick="TestDraftAsync">Test draft</MudButton>
+                        <MudButton Variant="Variant.Text" Disabled="@(loading || saving || testing || pairing || confirmingLegacyOwnership)" OnClick="RefreshAsync">Refresh</MudButton>
+                    </MudStack>
+                </section>
+
+                @if (testResult is not null)
+                {
+                    <div role="status" aria-live="polite" aria-atomic="true">
+                        <MudAlert Severity="@(testResult.Success ? Severity.Success : Severity.Warning)" Variant="Variant.Outlined" data-testid="netclaw-test-status">
+                            @testResult.Message
                         </MudAlert>
-                        <MudTable Items="unboundLegacySessions" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" data-testid="unbound-netclaw-sessions">
-                            <HeaderContent>
-                                <MudTh>Select</MudTh><MudTh>Conversation</MudTh><MudTh>Organization</MudTh><MudTh>Ticket</MudTh><MudTh>Type</MudTh><MudTh>Last activity</MudTh>
-                            </HeaderContent>
+                    </div>
+                    @if (testResult.Probes.Count > 0)
+                    {
+                        <MudTable Items="testResult.Probes" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Class="netclaw-probe-table">
+                            <HeaderContent><MudTh>Probe</MudTh><MudTh>Success</MudTh><MudTh>HTTP</MudTh><MudTh>Message</MudTh></HeaderContent>
                             <RowTemplate>
-                                <MudTd DataLabel="Select">
-                                    <input type="checkbox"
-                                           data-testid="legacy-session-select-@context.ConversationId"
-                                           aria-label="@($"Select conversation {context.ConversationId} for ticket {context.TicketId} historical ownership confirmation")"
-                                           checked="@selectedLegacySessionIds.Contains(context.ConversationId)"
-                                           disabled="@(confirmingLegacyOwnership || pairing)"
-                                           @onchange="args => SetLegacySessionSelection(context.ConversationId, args.Value is true)" />
-                                </MudTd>
-                                <MudTd DataLabel="Conversation">@context.ConversationId</MudTd>
-                                <MudTd DataLabel="Organization">@context.OrganizationId</MudTd>
-                                <MudTd DataLabel="Ticket">@context.TicketId</MudTd>
-                                <MudTd DataLabel="Type">@context.TicketType</MudTd>
-                                <MudTd DataLabel="Last activity">@DisplayTimestamp(context.LastActivityUtc, "Unknown")</MudTd>
+                                <MudTd DataLabel="Probe">@context.ProbeName</MudTd>
+                                <MudTd DataLabel="Success">@(context.Success ? "Yes" : "No")</MudTd>
+                                <MudTd DataLabel="HTTP">@context.StatusCode</MudTd>
+                                <MudTd DataLabel="Message">@context.Message</MudTd>
                             </RowTemplate>
                         </MudTable>
                     }
-
-                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
-                        The endpoint and instance below describe the historical owner of the selected sessions. They do not change or copy the current Netclaw draft or its token.
-                    </MudAlert>
-                    <MudGrid>
-                        <MudItem xs="12" sm="4">
-                            <MudTextField @bind-Value="historicalInstance" @bind-Value:after="HistoricalProviderChanged" Label="Historical instance" Placeholder="dev" Disabled="@(confirmingLegacyOwnership || pairing)" data-testid="historical-netclaw-instance" />
-                        </MudItem>
-                        <MudItem xs="12" sm="8">
-                            <MudTextField @bind-Value="historicalEndpoint" @bind-Value:after="HistoricalProviderChanged" Label="Historical Netclaw session endpoint" Placeholder="https://old-netclaw.example/hub/session" Disabled="@(confirmingLegacyOwnership || pairing)" data-testid="historical-netclaw-endpoint" />
-                        </MudItem>
-                        <MudItem xs="12">
-                            <MudCheckBox @bind-Value="historicalAllowPrivateHttp" @bind-Value:after="HistoricalProviderChanged" Label="Allow private HTTP for this historical endpoint" Color="Color.Warning" Disabled="@(confirmingLegacyOwnership || pairing)" data-testid="historical-netclaw-private-http" />
-                            <MudCheckBox @bind-Value="historicalOwnershipAcknowledged" Label="I confirm the selected sessions used this historical endpoint and instance and should be assigned to that provider." Color="Color.Warning" Disabled="@(confirmingLegacyOwnership || pairing)" data-testid="historical-netclaw-owner-acknowledgement" />
-                        </MudItem>
-                    </MudGrid>
-                    <MudButton Variant="Variant.Outlined" Color="Color.Warning" Disabled="@(!CanConfirmLegacyOwnership)" OnClick="ConfirmLegacySessionOwnersAsync" data-testid="confirm-netclaw-legacy-ownership">
-                        @(confirmingLegacyOwnership ? "Confirming…" : $"Confirm ownership for {selectedLegacySessionIds.Count} selected")
-                    </MudButton>
-                </MudStack>
-            </MudPaper>
-            }
-
-            <MudExpansionPanels>
-                <MudExpansionPanel Text="Advanced/manual token">
-                    <MudTextField @bind-Value="draft.DeviceToken" @bind-Value:after="MarkDirty" Label="Paired-device token" InputType="InputType.Password" HelperText="Manual recovery only. The API stores this protected token; it is never sent back to the browser." Disabled="@settings.ManagedByDeployment" />
-                    @if (settings.HasDeviceToken && !settings.ManagedByDeployment)
-                    {
-                        <MudCheckBox @bind-Value="draft.ClearDeviceToken" @bind-Value:after="MarkDirty" Color="Color.Warning" Label="Clear the saved paired-device token" />
-                    }
-                </MudExpansionPanel>
-                <MudExpansionPanel Text="Advanced session limits">
-                    <MudGrid>
-                        <MudItem xs="12" sm="6"><MudNumericField T="int" @bind-Value="draft.IdleMinutes" @bind-Value:after="MarkDirty" Label="Idle minutes" Min="1" Max="1440" Disabled="@settings.ManagedByDeployment" /></MudItem>
-                        <MudItem xs="12" sm="6"><MudNumericField T="int" @bind-Value="draft.ConnectionCapacity" @bind-Value:after="MarkDirty" Label="Connection capacity" Min="1" Max="1000" Disabled="@settings.ManagedByDeployment" /></MudItem>
-                        <MudItem xs="12" sm="6"><MudTextField @bind-Value="turnTimeoutText" @bind-Value:after="MarkDirty" Label="Turn inactivity timeout" HelperText="hh:mm:ss" Disabled="@settings.ManagedByDeployment" /></MudItem>
-                        <MudItem xs="12" sm="6"><MudTextField @bind-Value="heartbeatText" @bind-Value:after="MarkDirty" Label="Activity heartbeat interval" HelperText="hh:mm:ss" Disabled="@settings.ManagedByDeployment" /></MudItem>
-                    </MudGrid>
-                </MudExpansionPanel>
-            </MudExpansionPanels>
-
-            <MudStack Row="true" Spacing="2">
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(saving || testing || pairing || confirmingLegacyOwnership || settings.ManagedByDeployment)" OnClick="SaveAsync">@(saving ? "Saving…" : "Save settings")</MudButton>
-                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(testing || isDirty || saving || pairing || confirmingLegacyOwnership || settings.ManagedByDeployment)" OnClick="TestAsync">Test saved configuration</MudButton>
-                <MudButton Variant="Variant.Text" Color="Color.Primary" Disabled="@(testing || saving || pairing || confirmingLegacyOwnership || settings.ManagedByDeployment)" OnClick="TestDraftAsync">Test draft</MudButton>
-                <MudButton Variant="Variant.Text" Disabled="@(loading || pairing || confirmingLegacyOwnership)" OnClick="RefreshAsync">Refresh</MudButton>
-            </MudStack>
-
-            @if (testResult is not null)
-            {
-                <MudAlert Class="mt-2" Severity="@(testResult.Success ? Severity.Success : Severity.Warning)" Variant="Variant.Outlined">
-                    @testResult.Message
-                </MudAlert>
-                @if (testResult.Probes.Count > 0)
-                {
-                    <MudTable Items="testResult.Probes" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm">
-                        <HeaderContent><MudTh>Probe</MudTh><MudTh>Success</MudTh><MudTh>HTTP</MudTh><MudTh>Message</MudTh></HeaderContent>
-                        <RowTemplate>
-                            <MudTd DataLabel="Probe">@context.ProbeName</MudTd>
-                            <MudTd DataLabel="Success">@(context.Success ? "Yes" : "No")</MudTd>
-                            <MudTd DataLabel="HTTP">@context.StatusCode</MudTd>
-                            <MudTd DataLabel="Message">@context.Message</MudTd>
-                        </RowTemplate>
-                    </MudTable>
                 }
-            }
+
+                @if (loadingLegacySessions || legacySessionsUnavailable || unboundLegacySessions.Count > 0)
+                {
+                    <MudPaper Class="netclaw-history-panel pa-4" Outlined="true" id="netclaw-legacy-ownership" data-testid="netclaw-legacy-ownership">
+                        <MudStack Spacing="2">
+                            <div class="netclaw-history-heading">
+                                <div>
+                                    <MudText Typo="Typo.h6" HtmlTag="h2">Historical session ownership</MudText>
+                                    <MudText Typo="Typo.body2" Class="netclaw-muted-copy">Assign older, unbound conversations to the provider they originally used.</MudText>
+                                </div>
+                                @if (!loadingLegacySessions && !legacySessionsUnavailable && unboundLegacySessions.Count > 0)
+                                {
+                                    <MudChip T="string" Color="Color.Warning" Variant="Variant.Outlined">@unboundLegacySessions.Count need review</MudChip>
+                                }
+                            </div>
+
+                            @if (loadingLegacySessions)
+                            {
+                                <div role="status" aria-live="polite" aria-label="Checking historical session ownership">
+                                    <MudProgressLinear Indeterminate="true" />
+                                    <MudText Typo="Typo.caption" Class="netclaw-muted-copy">Checking older conversations…</MudText>
+                                </div>
+                            }
+                            else if (legacySessionsUnavailable)
+                            {
+                                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">Unbound sessions could not be loaded. Refresh before confirming ownership.</MudAlert>
+                            }
+                            else if (unboundLegacySessions.Count == 0)
+                            {
+                                <MudAlert Severity="Severity.Info" Dense="true">No unbound historical Netclaw sessions.</MudAlert>
+                            }
+                            else
+                            {
+                                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                                    Confirm only sessions that used the same historical endpoint and instance. This does not change the current profile or delete chat transcripts.
+                                </MudAlert>
+                                <MudTable Items="unboundLegacySessions" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" data-testid="unbound-netclaw-sessions" Class="netclaw-legacy-table">
+                                    <HeaderContent>
+                                        <MudTh>Select</MudTh><MudTh>Conversation</MudTh><MudTh>Organization</MudTh><MudTh>Ticket</MudTh><MudTh>Type</MudTh><MudTh>Last activity</MudTh>
+                                    </HeaderContent>
+                                    <RowTemplate>
+                                        <MudTd DataLabel="Select">
+                                            <input type="checkbox"
+                                                   data-testid="legacy-session-select-@context.ConversationId"
+                                                   class="netclaw-legacy-select"
+                                                   aria-label="@($"Select conversation {context.ConversationId} for ticket {context.TicketId} historical ownership confirmation")"
+                                                   checked="@selectedLegacySessionIds.Contains(context.ConversationId)"
+                                                   disabled="@(confirmingLegacyOwnership || pairing || saving || testing)"
+                                                   @onchange="args => SetLegacySessionSelection(context.ConversationId, args.Value is true)" />
+                                        </MudTd>
+                                        <MudTd DataLabel="Conversation">@context.ConversationId</MudTd>
+                                        <MudTd DataLabel="Organization">@context.OrganizationId</MudTd>
+                                        <MudTd DataLabel="Ticket">@context.TicketId</MudTd>
+                                        <MudTd DataLabel="Type">@context.TicketType</MudTd>
+                                        <MudTd DataLabel="Last activity">@DisplayTimestamp(context.LastActivityUtc, "Unknown")</MudTd>
+                                    </RowTemplate>
+                                </MudTable>
+                            }
+
+                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                                The endpoint and instance below belong to the selected sessions' historical provider. They do not change or copy the current profile or token.
+                            </MudAlert>
+                            <MudGrid Spacing="2">
+                                <MudItem xs="12" sm="4">
+                                    <MudTextField @bind-Value="historicalInstance" @bind-Value:after="HistoricalProviderChanged" Label="Historical instance" Placeholder="dev" Disabled="@(confirmingLegacyOwnership || pairing || saving || testing)" data-testid="historical-netclaw-instance" />
+                                </MudItem>
+                                <MudItem xs="12" sm="8">
+                                    <MudTextField @bind-Value="historicalEndpoint" @bind-Value:after="HistoricalProviderChanged" Label="Historical Netclaw session endpoint" Placeholder="https://old-netclaw.example/hub/session" Disabled="@(confirmingLegacyOwnership || pairing || saving || testing)" data-testid="historical-netclaw-endpoint" />
+                                </MudItem>
+                                <MudItem xs="12">
+                                    <MudCheckBox @bind-Value="historicalAllowPrivateHttp" @bind-Value:after="HistoricalProviderChanged" Label="Allow private HTTP for this historical endpoint" Color="Color.Warning" Disabled="@(confirmingLegacyOwnership || pairing || saving || testing)" data-testid="historical-netclaw-private-http" />
+                                    <MudCheckBox @bind-Value="historicalOwnershipAcknowledged" Label="I confirm the selected sessions used this historical endpoint and instance and should be assigned to that provider." Color="Color.Warning" Disabled="@(confirmingLegacyOwnership || pairing || saving || testing)" data-testid="historical-netclaw-owner-acknowledgement" />
+                                </MudItem>
+                            </MudGrid>
+                            <MudButton Variant="Variant.Outlined" Color="Color.Warning" Disabled="@(!CanConfirmLegacyOwnership)" OnClick="ConfirmLegacySessionOwnersAsync" data-testid="confirm-netclaw-legacy-ownership">
+                                @(confirmingLegacyOwnership ? "Confirming…" : $"Confirm ownership for {selectedLegacySessionIds.Count} selected")
+                            </MudButton>
+                        </MudStack>
+                    </MudPaper>
+                }
+
+                <MudExpansionPanels Class="netclaw-advanced-settings">
+                    <MudExpansionPanel Text="Advanced/manual token">
+                        <MudText Typo="Typo.body2" Class="netclaw-muted-copy mb-2">Use this recovery path only if you already have a paired-device token. Pairing above is the normal setup.</MudText>
+                        <MudTextField @bind-Value="draft.DeviceToken" @bind-Value:after="MarkDirty" Label="Paired-device token" InputType="InputType.Password" HelperText="The API protects this token; it is never sent back to the browser. Leave blank to keep the saved token." Disabled="@(settings.ManagedByDeployment || saving || pairing || confirmingLegacyOwnership)" />
+                        @if (settings.HasDeviceToken && !settings.ManagedByDeployment)
+                        {
+                            <MudCheckBox @bind-Value="draft.ClearDeviceToken" @bind-Value:after="MarkDirty" Color="Color.Warning" Label="Clear the saved paired-device token" Disabled="@(saving || pairing || confirmingLegacyOwnership)" />
+                        }
+                    </MudExpansionPanel>
+                    <MudExpansionPanel Text="Advanced session limits">
+                        <MudGrid Spacing="2">
+                            <MudItem xs="12" sm="6"><MudNumericField T="int" @bind-Value="draft.IdleMinutes" @bind-Value:after="MarkDirty" Label="Idle minutes" Min="1" Max="1440" Disabled="@(settings.ManagedByDeployment || saving || pairing || confirmingLegacyOwnership)" /></MudItem>
+                            <MudItem xs="12" sm="6"><MudNumericField T="int" @bind-Value="draft.ConnectionCapacity" @bind-Value:after="MarkDirty" Label="Connection capacity" Min="1" Max="1000" Disabled="@(settings.ManagedByDeployment || saving || pairing || confirmingLegacyOwnership)" /></MudItem>
+                            <MudItem xs="12" sm="6"><MudTextField @bind-Value="turnTimeoutText" @bind-Value:after="MarkDirty" Label="Turn inactivity timeout" HelperText="hh:mm:ss" Disabled="@(settings.ManagedByDeployment || saving || pairing || confirmingLegacyOwnership)" /></MudItem>
+                            <MudItem xs="12" sm="6"><MudTextField @bind-Value="heartbeatText" @bind-Value:after="MarkDirty" Label="Activity heartbeat interval" HelperText="hh:mm:ss" Disabled="@(settings.ManagedByDeployment || saving || pairing || confirmingLegacyOwnership)" /></MudItem>
+                        </MudGrid>
+                    </MudExpansionPanel>
+                </MudExpansionPanels>
+            </MudStack>
         }
     </MudStack>
 </MudPaper>
