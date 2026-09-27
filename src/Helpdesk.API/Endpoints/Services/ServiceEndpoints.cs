@@ -11,6 +11,7 @@ using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 using System.Text.Json;
 
 namespace Helpdesk.API.Endpoints.Services;
@@ -29,7 +30,9 @@ public static class ServiceEndpoints
             [FromServices] IRepository<RequestForm> formsRepo,
             [FromServices] HelpdeskDbContext db,
             [FromServices] ITenantContext tenant,
+            [FromServices] ICurrentUserAccessService accessService,
             [FromServices] ISelfServiceAudienceService selfServiceAudienceService,
+            ClaimsPrincipal user,
             [FromQuery] string? q,
             [FromQuery] int? pageSize,
             CancellationToken token,
@@ -38,6 +41,7 @@ public static class ServiceEndpoints
             var term = q?.Trim();
             var take = Math.Clamp(pageSize ?? 6, 1, 25);
             var isAdmin = tenant.IsHelpdeskAdmin;
+            var access = await accessService.ResolveAsync(user, token);
             var isTestUser = await selfServiceAudienceService.IsTestUserAsync(token);
             var organizationId = tenant.TenantId;
 
@@ -71,34 +75,80 @@ public static class ServiceEndpoints
                 }
             }
 
-            var serviceItems = await servicesQuery.Select(s => new ServiceItemDto
+            var serviceRows = await servicesQuery.Select(s => new
             {
                 Id = s.Id,
                 Name = s.Name,
                 Description = s.Description,
-                ItemType = ServiceItemType.Service,
-                AvailableRequestCount = 0,
                 AllowedOrganizationIds = s.AllowedOrganizationIds,
-                ReleaseStatus = null
+                AllowedCustomerIds = s.AllowedCustomerIds
             }).ToListAsync(token);
+
+            var visibilityRows = string.IsNullOrWhiteSpace(term)
+                ? serviceRows.Select(service => new
+                {
+                    service.Id,
+                    service.AllowedOrganizationIds,
+                    service.AllowedCustomerIds
+                }).ToList()
+                : await servicesRepo.Query()
+                    .AsNoTracking()
+                    .IgnoreQueryFilters()
+                    .Select(service => new
+                    {
+                        service.Id,
+                        service.AllowedOrganizationIds,
+                        service.AllowedCustomerIds
+                    })
+                    .ToListAsync(token);
+            var visibleServiceIds = visibilityRows
+                .Where(service => isAdmin
+                    || (IsAllowedForTenant(service.AllowedOrganizationIds, organizationId)
+                        && IsAllowedForCustomer(service.AllowedCustomerIds, access.CustomerId)))
+                .Select(service => service.Id)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             if (!isAdmin)
             {
-                serviceItems = serviceItems
-                    .Where(item => IsAllowedForTenant(item.AllowedOrganizationIds, organizationId))
+                serviceRows = serviceRows
+                    .Where(service => IsAllowedForTenant(service.AllowedOrganizationIds, organizationId)
+                        && IsAllowedForCustomer(service.AllowedCustomerIds, access.CustomerId))
                     .ToList();
             }
 
-            var formItems = await formsQuery.Select(f => new ServiceItemDto
+            var serviceItems = serviceRows.Select(service => new ServiceItemDto
             {
-                Id = f.Id,
-                Name = f.Title,
-                Description = f.Description ?? string.Empty,
-                ItemType = ServiceItemType.RequestForm,
+                Id = service.Id,
+                Name = service.Name,
+                Description = service.Description,
+                ItemType = ServiceItemType.Service,
                 AvailableRequestCount = 0,
-                AllowedOrganizationIds = f.AllowedOrganizationIds,
-                ReleaseStatus = f.ReleaseStatus
+                AllowedOrganizationIds = service.AllowedOrganizationIds,
+                ReleaseStatus = null
+            }).ToList();
+
+            var formRows = await formsQuery.Select(f => new
+            {
+                f.ServiceId,
+                Item = new ServiceItemDto
+                {
+                    Id = f.Id,
+                    Name = f.Title,
+                    Description = f.Description ?? string.Empty,
+                    ItemType = ServiceItemType.RequestForm,
+                    AvailableRequestCount = 0,
+                    AllowedOrganizationIds = f.AllowedOrganizationIds,
+                    ReleaseStatus = f.ReleaseStatus
+                }
             }).ToListAsync(token);
+            if (!isAdmin)
+            {
+                formRows = formRows
+                    .Where(form => string.IsNullOrWhiteSpace(form.ServiceId)
+                        || visibleServiceIds.Contains(form.ServiceId))
+                    .ToList();
+            }
+            var formItems = formRows.Select(form => form.Item).ToList();
 
             var combined = serviceItems.Concat(formItems).OrderBy(x => x.Name).ToList();
             var items = combined.Take(take).ToList();
@@ -119,34 +169,68 @@ public static class ServiceEndpoints
             IRepository<Service> servicesRepo,
             IRepository<RequestForm> formsRepo,
             ITenantContext tenant,
+            ICurrentUserAccessService accessService,
+            ClaimsPrincipal user,
             ISelfServiceAudienceService selfServiceAudienceService,
             CancellationToken token) =>
         {
             var isAdmin = tenant.IsHelpdeskAdmin;
+            var access = await accessService.ResolveAsync(user, token);
             var isTestUser = await selfServiceAudienceService.IsTestUserAsync(token);
             var organizationId = tenant.TenantId;
 
             var allServices = await servicesRepo.Query()
                 .AsNoTracking()
                 .IgnoreQueryFilters()
-                .Select(s => new { s.Id, s.Name, s.Description, s.ParentServiceId, s.AllowedOrganizationIds })
+                .Select(s => new
+                {
+                    s.Id,
+                    s.Name,
+                    s.Description,
+                    s.ParentServiceId,
+                    s.AllowedOrganizationIds,
+                    s.AllowedCustomerIds
+                })
                 .ToListAsync(token);
 
             if (!isAdmin)
             {
                 allServices = allServices
-                    .Where(s => IsAllowedForTenant(s.AllowedOrganizationIds, organizationId))
+                    .Where(s => IsAllowedForTenant(s.AllowedOrganizationIds, organizationId)
+                        && IsAllowedForCustomer(s.AllowedCustomerIds, access.CustomerId))
                     .ToList();
+            }
+
+            var visibleServiceIds = allServices
+                .Select(service => service.Id)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (!isAdmin
+                && !string.IsNullOrWhiteSpace(parentServiceId)
+                && !visibleServiceIds.Contains(parentServiceId))
+            {
+                return Results.Ok(Array.Empty<ServiceItemDto>());
             }
 
             var services = allServices
                 .Where(s => s.ParentServiceId == parentServiceId)
                 .ToList();
 
-            var forms = await selfServiceAudienceService
+            var formRows = await selfServiceAudienceService
                 .ApplyAudienceFilter(formsRepo.Query().AsNoTracking().IgnoreQueryFilters(), isAdmin, isTestUser, organizationId)
-                .Select(f => new { f.Id, f.Title, f.Description, f.ServiceId, f.AllowedOrganizationIds, f.ReleaseStatus })
+                .Select(f => new
+                {
+                    f.Id,
+                    f.Title,
+                    f.Description,
+                    f.ServiceId,
+                    f.AllowedOrganizationIds,
+                    f.ReleaseStatus
+                })
                 .ToListAsync(token);
+            var forms = isAdmin
+                ? formRows
+                : formRows.Where(form => string.IsNullOrWhiteSpace(form.ServiceId)
+                    || visibleServiceIds.Contains(form.ServiceId)).ToList();
 
             var requestCounts = BuildAvailableRequestCounts(
                 allServices.Select(s => new ServiceCountNode(s.Id, s.ParentServiceId)),
@@ -162,7 +246,10 @@ public static class ServiceEndpoints
                 AvailableRequestCount = requestCounts.GetValueOrDefault(s.Id),
                 AllowedOrganizationIds = s.AllowedOrganizationIds
             }));
-            result.AddRange(forms.Where(f => f.ServiceId == parentServiceId).Select(f => new ServiceItemDto
+            var parentForms = string.IsNullOrWhiteSpace(parentServiceId)
+                ? forms.Where(form => string.IsNullOrWhiteSpace(form.ServiceId))
+                : forms.Where(form => form.ServiceId == parentServiceId);
+            result.AddRange(parentForms.Select(f => new ServiceItemDto
             {
                 Id = f.Id,
                 Name = f.Title,
@@ -194,36 +281,66 @@ public static class ServiceEndpoints
         .WithSummary("List services")
         .WithDescription("Retrieves all services with computed depth.");
 
-        services.MapGet("/{id}", async (string id, [FromServices] IRepository<Service> repo, ITenantContext tenant) =>
+        services.MapGet("/{id}", async (
+            string id,
+            [FromServices] IRepository<Service> repo,
+            [FromServices] ITenantContext tenant,
+            [FromServices] ICurrentUserAccessService accessService,
+            ClaimsPrincipal user,
+            CancellationToken token) =>
         {
             var entity = await repo.GetByIdAsync(id);
             if (entity is null) return Results.NotFound();
-            if (!tenant.IsHelpdeskAdmin && !IsAllowedForTenant(entity.AllowedOrganizationIds, tenant.TenantId))
+            var access = await accessService.ResolveAsync(user, token);
+            if (!tenant.IsHelpdeskAdmin
+                && (!IsAllowedForTenant(entity.AllowedOrganizationIds, tenant.TenantId)
+                    || !IsAllowedForCustomer(entity.AllowedCustomerIds, access.CustomerId)))
             {
                 return Results.Forbid();
             }
 
-            var all = await repo.GetAllAsync(); // for depth calc
+            var all = await repo.GetAllAsync();
+            if (!tenant.IsHelpdeskAdmin)
+            {
+                all = all.Where(service =>
+                    IsAllowedForTenant(service.AllowedOrganizationIds, tenant.TenantId)
+                    && IsAllowedForCustomer(service.AllowedCustomerIds, access.CustomerId));
+            }
             var dto = ToDtoWithDepth(entity, all.ToDictionary(s => s.Id));
+            if (!tenant.IsHelpdeskAdmin)
+            {
+                dto.AllowedCustomerIds = [];
+            }
             return Results.Ok(dto);
         })
         .RequireAuthorization()
         .WithName("GetServiceById")
         .WithSummary("Get a single service by id");
 
-        services.MapGet("/{id}/breadcrumb", async (string id, [FromServices] IRepository<Service> repo, ITenantContext tenant) =>
+        services.MapGet("/{id}/breadcrumb", async (
+            string id,
+            [FromServices] IRepository<Service> repo,
+            [FromServices] ITenantContext tenant,
+            [FromServices] ICurrentUserAccessService accessService,
+            ClaimsPrincipal user,
+            CancellationToken token) =>
         {
             var all = await repo.GetAllAsync();
             var dict = all.ToDictionary(s => s.Id);
             if (!dict.TryGetValue(id, out var current)) return Results.NotFound();
-            if (!tenant.IsHelpdeskAdmin && !IsAllowedForTenant(current.AllowedOrganizationIds, tenant.TenantId))
+            var access = await accessService.ResolveAsync(user, token);
+            if (!tenant.IsHelpdeskAdmin
+                && (!IsAllowedForTenant(current.AllowedOrganizationIds, tenant.TenantId)
+                    || !IsAllowedForCustomer(current.AllowedCustomerIds, access.CustomerId)))
             {
                 return Results.Forbid();
             }
 
             var visibleServices = tenant.IsHelpdeskAdmin
                 ? all
-                : all.Where(service => IsAllowedForTenant(service.AllowedOrganizationIds, tenant.TenantId));
+                : all.Where(service =>
+                    IsAllowedForTenant(service.AllowedOrganizationIds, tenant.TenantId)
+                    && IsAllowedForCustomer(service.AllowedCustomerIds, access.CustomerId));
             var chain = BuildBreadcrumb(current, visibleServices.ToDictionary(service => service.Id));
             return Results.Ok(chain);
         })
@@ -786,6 +903,17 @@ public static class ServiceEndpoints
         return allowedOrganizationIds == null
                || allowedOrganizationIds.Count == 0
                || allowedOrganizationIds.Contains(tenantId, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static bool IsAllowedForCustomer(IReadOnlyCollection<string>? allowedCustomerIds, string? customerId)
+    {
+        if (allowedCustomerIds == null || allowedCustomerIds.Count == 0)
+        {
+            return true;
+        }
+
+        return !string.IsNullOrWhiteSpace(customerId)
+               && allowedCustomerIds.Contains(customerId, StringComparer.OrdinalIgnoreCase);
     }
 
     private static string? ResolveRequestFormOrganizationId(

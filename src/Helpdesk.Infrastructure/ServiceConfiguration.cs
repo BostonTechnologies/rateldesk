@@ -1,7 +1,5 @@
 using System.Text.Json;
 using Helpdesk.Shared.Models;
-using Helpdesk.Shared.Services;
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
@@ -11,15 +9,6 @@ namespace Helpdesk.Infrastructure.Persistence;
 
 public class ServiceConfiguration : IEntityTypeConfiguration<Service>
 {
-    private readonly ITenantContext _tenantContext;
-    private readonly IHttpContextAccessor _httpContextAccessor;
-
-    public ServiceConfiguration(ITenantContext tenantContext, IHttpContextAccessor httpContextAccessor)
-    {
-        _tenantContext = tenantContext;
-        _httpContextAccessor = httpContextAccessor;
-    }
-
     public void Configure(EntityTypeBuilder<Service> builder)
     {
         // ----- converters & comparers for List<string> -----
@@ -50,14 +39,10 @@ public class ServiceConfiguration : IEntityTypeConfiguration<Service>
         orgProp.Metadata.SetValueComparer(listComparer);
         orgProp.HasColumnType("TEXT");
 
-        // ----- query filter: admin sees all; else user must be allowed -----
-        // Avoid null-propagation (?.) inside the expression tree.
-        var httpContext = _httpContextAccessor.HttpContext;
-
-        builder.HasQueryFilter(service =>
-            httpContext == null                                      // design-time / background
-            || _tenantContext.IsHelpdeskAdmin                         // admins see all
-            || (_tenantContext.UserId != null                         // else user must be in AllowedCustomerIds
-                && service.AllowedCustomerIds.Contains(_tenantContext.UserId)));
+        // Service visibility depends on the resolved organization and customer, so it is
+        // enforced by the service endpoints. Do not put it in a global query filter:
+        // AllowedCustomerIds is value-converted JSON text (whose collection membership
+        // EF cannot translate), and a filter configured here would capture scoped context
+        // values in EF's cached model.
     }
 }

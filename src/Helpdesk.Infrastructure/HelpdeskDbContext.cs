@@ -910,7 +910,7 @@ public class HelpdeskDbContext(
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
-        modelBuilder.ApplyConfiguration(new ServiceConfiguration(_tenantContext, _httpContextAccessor));
+        modelBuilder.ApplyConfiguration(new ServiceConfiguration());
         modelBuilder.ApplyConfiguration(new RequestFormConfiguration(_tenantContext, isPostgreSql));
         modelBuilder.Entity<RequestForm>().HasQueryFilter(form =>
             _tenantContext.IsHelpdeskAdmin ||

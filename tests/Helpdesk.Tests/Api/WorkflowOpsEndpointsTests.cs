@@ -75,8 +75,14 @@ public sealed class WorkflowOpsEndpointsTests
     {
         await using var harness = await WorkflowOpsHarness.CreateAsync(actor, useSqlite: true);
 
-        var first = await harness.Client.GetFromJsonAsync<PagedResponse<AutomationBindingIssueOpsDto>>(
+        var firstResponse = await harness.Client.GetAsync(
             "/api/v1/ops/tasks/orchestration/binding-issues?page=1&pageSize=1");
+        var firstJson = await firstResponse.Content.ReadAsStringAsync();
+        Assert.True(firstResponse.IsSuccessStatusCode, firstJson);
+        Assert.DoesNotContain("restricted-customer-id", firstJson, StringComparison.Ordinal);
+        var first = System.Text.Json.JsonSerializer.Deserialize<PagedResponse<AutomationBindingIssueOpsDto>>(
+            firstJson,
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
         var second = await harness.Client.GetFromJsonAsync<PagedResponse<AutomationBindingIssueOpsDto>>(
             "/api/v1/ops/tasks/orchestration/binding-issues?page=2&pageSize=1");
 
@@ -197,7 +203,12 @@ public sealed class WorkflowOpsEndpointsTests
                 NewTask("task-retry", "req-alpha", "org-alpha", RequestTaskStatus.Failed, nextRetryAt: DateTimeOffset.UtcNow.AddMinutes(30)),
                 NewTask("task-other", "req-other", "org-other", RequestTaskStatus.InProgress, dueAt: DateTimeOffset.UtcNow.AddHours(-3)));
 
-            db.Services.Add(new Service { Id = "workflow-service", Name = "Workflow service" });
+            db.Services.Add(new Service
+            {
+                Id = "workflow-service",
+                Name = "Workflow service",
+                AllowedCustomerIds = ["restricted-customer-id"]
+            });
             db.RequestForms.AddRange(
                 new RequestForm { Id = "form-alpha", Title = "Alpha form", OrganizationId = "org-alpha", ServiceId = "workflow-service" },
                 new RequestForm { Id = "form-other", Title = "Other form", OrganizationId = "org-other", ServiceId = "workflow-service" });
