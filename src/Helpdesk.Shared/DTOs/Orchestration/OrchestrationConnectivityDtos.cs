@@ -108,6 +108,20 @@ public sealed class UpdateNetclawConnectivitySettingsDto
     public TimeSpan ActivityHeartbeatInterval { get; set; } = TimeSpan.FromSeconds(15);
 }
 
+public sealed class PairNetclawDeviceDto
+{
+    public string? PairingCode { get; set; }
+    public int? ExpectedRevision { get; set; }
+    public bool Enabled { get; set; }
+    public string? Instance { get; set; }
+    public string? Endpoint { get; set; }
+    public bool AllowPrivateHttp { get; set; }
+    public int IdleMinutes { get; set; } = 15;
+    public int ConnectionCapacity { get; set; } = 25;
+    public TimeSpan TurnInactivityTimeout { get; set; } = TimeSpan.FromMinutes(5);
+    public TimeSpan ActivityHeartbeatInterval { get; set; } = TimeSpan.FromSeconds(15);
+}
+
 public sealed class ConfirmNetclawLegacySessionsDto
 {
     public string? HistoricalInstance { get; set; }
@@ -118,7 +132,12 @@ public sealed class ConfirmNetclawLegacySessionsDto
 }
 
 public sealed record NetclawLegacySessionConfirmationDto(int BoundConversations, string ProviderProfileFingerprint);
-public sealed record NetclawUnboundLegacySessionDto(Guid ConversationId, string TicketId, string TicketType, DateTimeOffset LastActivityUtc);
+public sealed record NetclawUnboundLegacySessionDto(
+    Guid ConversationId,
+    string OrganizationId,
+    string TicketId,
+    string TicketType,
+    DateTimeOffset LastActivityUtc);
 
 public sealed class OrchestrationConnectivityTestResultDto
 {

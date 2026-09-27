@@ -19,6 +19,7 @@ using Helpdesk.Application.WorkLogs;
 using Helpdesk.Application.Workflow;
 using Helpdesk.Application.AiAssistant;
 using Helpdesk.Infrastructure.Configuration;
+using Helpdesk.Infrastructure.Connectivity;
 using Helpdesk.Infrastructure.Email;
 using Helpdesk.Infrastructure.Html;
 using Helpdesk.Infrastructure.Services;
@@ -102,6 +103,10 @@ public static class DependencyInjection
             .ConfigurePrimaryHttpMessageHandler(_ => IntegrationSafeHttpMessageHandler.Create())
             .SetHandlerLifetime(TimeSpan.FromMinutes(10));
         services.AddHttpClient("OrchestrationToken")
+            .ConfigurePrimaryHttpMessageHandler(_ => IntegrationSafeHttpMessageHandler.Create())
+            .SetHandlerLifetime(TimeSpan.FromMinutes(10));
+        services.AddHttpClient<INetclawPairingService, NetclawPairingService>(client =>
+            client.Timeout = Timeout.InfiniteTimeSpan)
             .ConfigurePrimaryHttpMessageHandler(_ => IntegrationSafeHttpMessageHandler.Create())
             .SetHandlerLifetime(TimeSpan.FromMinutes(10));
         services.AddHttpClient("AiAssistantWebhook")

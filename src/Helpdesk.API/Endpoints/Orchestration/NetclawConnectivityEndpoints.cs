@@ -43,7 +43,7 @@ public static class NetclawConnectivityEndpoints
             }
             catch (IntegrationProviderConfigurationConflictException ex)
             {
-                return Results.Conflict(new { code = "configuration_conflict", message = ex.Message });
+                return Results.Conflict(new { code = ex.Code, message = ex.Message });
             }
             catch (ArgumentException ex)
             {
@@ -52,6 +52,80 @@ public static class NetclawConnectivityEndpoints
             catch (InvalidOperationException ex)
             {
                 return Results.BadRequest(new { code = "configuration_not_editable", message = ex.Message });
+            }
+        });
+
+        group.MapPost("/pair-and-save", async (
+            PairNetclawDeviceDto request,
+            IIntegrationProviderSettingsService settings,
+            INetclawPairingService pairing,
+            HelpdeskDbContext db,
+            ClaimsPrincipal principal,
+            CancellationToken ct) =>
+        {
+            if (request is null || string.IsNullOrWhiteSpace(request.PairingCode) || request.PairingCode.Length > 1024)
+                return Results.BadRequest(new { code = "invalid_pairing_code", message = "Enter a valid one-time pairing code." });
+
+            var settingsDraft = ToNetclawSettingsDraft(request, deviceToken: null);
+            var tokenReceived = false;
+            try
+            {
+                var target = await settings.ResolveNetclawPairingTargetAsync(settingsDraft, ct);
+                var deviceToken = await pairing.ExchangeCodeAsync(target, request.PairingCode.Trim(), ct);
+                tokenReceived = true;
+                var result = await settings.UpdateNetclawSettingsAsync(
+                    ToNetclawSettingsDraft(request, deviceToken),
+                    ct);
+
+                db.ActivityLogs.Add(new ActivityLog
+                {
+                    UserId = Actor(principal),
+                    RelatedEntityId = result.ProviderKey,
+                    Message = $"Integration provider settings paired and updated. Provider={result.ProviderKey}; Revision={result.Revision}; Source={result.Source}; Enabled={result.Enabled}; SecretConfigured={result.HasDeviceToken}; SecretAction=paired."
+                });
+                await db.SaveChangesAsync(ct);
+                return Results.Ok(result);
+            }
+            catch (NetclawPairingException ex)
+            {
+                return Results.Json(new { code = ex.Code, message = ex.Message }, statusCode: ex.StatusCode);
+            }
+            catch (IntegrationProviderConfigurationConflictException ex) when (!tokenReceived)
+            {
+                return Results.Conflict(new { code = ex.Code, message = PairingPreflightConflictMessage(ex.Code) });
+            }
+            catch (IntegrationProviderConfigurationConflictException ex)
+            {
+                if (ex.Code == "runtime_revision_conflict")
+                {
+                    return Results.Conflict(new
+                    {
+                        code = "pairing_saved_runtime_conflict",
+                        message = "Pairing succeeded and protected settings were saved, but a newer runtime revision prevented application. Refresh and review the saved profile."
+                    });
+                }
+
+                return Results.Conflict(new
+                {
+                    code = "pairing_code_consumed",
+                    message = "Netclaw accepted the one-time code, but RatelDesk could not complete the settings save. Resolve the conflict, then request a fresh code."
+                });
+            }
+            catch (ArgumentException) when (!tokenReceived)
+            {
+                return Results.BadRequest(new { code = "invalid_pairing_draft", message = "Enable Netclaw and provide a valid endpoint and session limits before pairing." });
+            }
+            catch (InvalidOperationException) when (!tokenReceived)
+            {
+                return Results.BadRequest(new { code = "pairing_not_available", message = "Netclaw settings are managed by deployment configuration or are not available for pairing here." });
+            }
+            catch (Exception) when (tokenReceived)
+            {
+                return Results.Json(new
+                {
+                    code = "pairing_outcome_uncertain",
+                    message = "Netclaw accepted the one-time code, but RatelDesk could not confirm the save. Refresh the saved profile before requesting another code."
+                }, statusCode: StatusCodes.Status502BadGateway);
             }
         });
 
@@ -72,7 +146,7 @@ public static class NetclawConnectivityEndpoints
             }
             catch (IntegrationProviderConfigurationConflictException ex)
             {
-                return Results.Conflict(new { code = "legacy_session_conflict", message = ex.Message });
+                return Results.Conflict(new { code = ex.Code, message = ex.Message });
             }
             catch (ArgumentException ex)
             {
@@ -269,7 +343,7 @@ public static class NetclawConnectivityEndpoints
             }
             catch (IntegrationProviderConfigurationConflictException ex)
             {
-                return Results.Conflict(new { code = "configuration_conflict", message = ex.Message });
+                return Results.Conflict(new { code = ex.Code, message = ex.Message });
             }
             catch (ArgumentException ex)
             {
@@ -302,6 +376,31 @@ public static class NetclawConnectivityEndpoints
         ?? principal.FindFirstValue("sub")
         ?? principal.Identity?.Name
         ?? "unknown";
+
+    private static UpdateNetclawConnectivitySettingsDto ToNetclawSettingsDraft(
+        PairNetclawDeviceDto request,
+        string? deviceToken)
+        => new()
+        {
+            ExpectedRevision = request.ExpectedRevision,
+            Enabled = request.Enabled,
+            Instance = request.Instance,
+            Endpoint = request.Endpoint,
+            DeviceToken = deviceToken,
+            ClearDeviceToken = false,
+            AllowPrivateHttp = request.AllowPrivateHttp,
+            IdleMinutes = request.IdleMinutes,
+            ConnectionCapacity = request.ConnectionCapacity,
+            TurnInactivityTimeout = request.TurnInactivityTimeout,
+            ActivityHeartbeatInterval = request.ActivityHeartbeatInterval
+        };
+
+    private static string PairingPreflightConflictMessage(string code) => code switch
+    {
+        "configuration_revision_conflict" => "The saved Netclaw revision changed before pairing. Keep the draft and refresh before trying again.",
+        "unbound_legacy_sessions" => "Confirm historical ownership for unbound legacy sessions before pairing. No pairing code was sent to Netclaw.",
+        _ => "Netclaw pairing conflicted with the current settings. No pairing code was sent to Netclaw."
+    };
 
     private static IAiAssistantChatClient CreateClient(
         IAiAssistantChatClientFactory clients,
