@@ -91,7 +91,7 @@
                     </MudNavGroup>
 
                     <MudNavGroup Title="Automation" Icon="@Icons.Material.Filled.SmartToy" Expanded="@automationExpanded" ExpandedChanged="OnAutomationExpandedChanged">
-                        <MudNavLink Href="/settings/connectivity" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.CloudSync">Orchestrator</MudNavLink>
+                        <MudNavLink Href="/admin/automation/integration" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Hub">Integration hub</MudNavLink>
                         <MudNavLink Href="/admin/automation" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.SmartToy">Automation Rules</MudNavLink>
                         <MudNavLink Href="/admin/requests/services" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Apps">Service Explorer</MudNavLink>
                         <MudNavLink Href="/admin/ai-assistant-webhooks" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Webhook">Webhooks</MudNavLink>
@@ -146,6 +146,8 @@
             || MatchesPath(path, "admin/layouts");
         var isAutomationPath = MatchesPath(path, "settings/connectivity")
             || MatchesPath(path, "admin/orchestration/orchestration")
+            || MatchesPath(path, "admin/automation/integration")
+            || MatchesPath(path, "admin/integrations")
             || MatchesPath(path, "admin/automation")
             || MatchesPath(path, "admin/requests/services")
             || MatchesPath(path, "admin/ai-assistant-webhooks");

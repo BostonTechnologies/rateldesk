@@ -1,0 +1,290 @@
+@page "/admin/automation/integration/netclaw"
+@attribute [Authorize(Roles = "HelpdeskAdmin")]
+@using System.Net.Http.Json
+@using Helpdesk.Shared.DTOs.Orchestration
+
+@inject IHttpClientFactory HttpClientFactory
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+
+<PageTitle>Netclaw AI harness</PageTitle>
+<NavigationLock ConfirmExternalNavigation="@isDirty" OnBeforeInternalNavigation="ConfirmInternalNavigationAsync" />
+
+<MudPaper Class="helpdesk-content-surface pa-4" data-testid="netclaw-settings-page">
+    <MudStack Spacing="3">
+        <MudStack Row="true" AlignItems="AlignItems.Center">
+            <div>
+                <MudText Typo="Typo.h4" HtmlTag="h1">Netclaw AI harness</MudText>
+                <MudText Typo="Typo.body2">Native authenticated SignalR transport for the ticket AI Assistant.</MudText>
+            </div>
+            <MudSpacer />
+            <MudButton Href="/admin/automation/integration" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack">Integration hub</MudButton>
+        </MudStack>
+
+        @if (loading)
+        {
+            <MudProgressLinear Indeterminate="true" />
+        }
+        else if (settings is null)
+        {
+            <MudAlert Severity="Severity.Error">Netclaw settings could not be loaded.</MudAlert>
+        }
+        else
+        {
+            @if (settings.ManagedByDeployment)
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                    This destination is managed by deployment configuration. Review it here and change the canonical <code>Netclaw__...</code> values in the deployment environment.
+                </MudAlert>
+            }
+            @if (!settings.RuntimeSupported && settings.Enabled)
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">@settings.RuntimeIssue</MudAlert>
+            }
+
+            <MudGrid>
+                <MudItem xs="12" md="7">
+                    <MudSwitch @bind-Value="draft.Enabled" @bind-Value:after="MarkDirty" Color="Color.Primary" Disabled="@settings.ManagedByDeployment" Label="Enable native Netclaw chat" />
+                    <MudTextField @bind-Value="draft.Endpoint" @bind-Value:after="MarkDirty" Label="Netclaw session endpoint" Placeholder="https://netclaw.example.com/hub/session" Required="@draft.Enabled" Disabled="@settings.ManagedByDeployment" />
+                    <MudTextField @bind-Value="draft.DeviceToken" @bind-Value:after="MarkDirty" Label="Paired-device token" InputType="InputType.Password" HelperText="The API stores this protected token; it is never sent to the browser." Disabled="@settings.ManagedByDeployment" />
+                    @if (settings.HasDeviceToken && !settings.ManagedByDeployment)
+                    {
+                        <MudCheckBox @bind-Value="draft.ClearDeviceToken" @bind-Value:after="MarkDirty" Color="Color.Warning" Label="Clear the saved paired-device token" />
+                    }
+                    <MudTextField @bind-Value="draft.Instance" @bind-Value:after="MarkDirty" Label="Instance" HelperText="The native adapter currently requires the dev instance contract." Disabled="@settings.ManagedByDeployment" />
+                    <MudCheckBox @bind-Value="draft.AllowPrivateHttp" @bind-Value:after="MarkDirty" Label="Allow private HTTP (local development only)" Disabled="@settings.ManagedByDeployment" />
+                </MudItem>
+                <MudItem xs="12" md="5">
+                    <MudText Typo="Typo.subtitle2">Runtime profile</MudText>
+                    <MudTable Items="ResolvedSettings" Dense="true" Hover="true" Class="mt-2">
+                        <RowTemplate>
+                            <MudTd DataLabel="Setting">@context.Name</MudTd>
+                            <MudTd DataLabel="Value">@context.Value</MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">SQLite keeps the supported webhook/history fallback; native chat requires PostgreSQL durable session ownership.</MudText>
+                </MudItem>
+            </MudGrid>
+
+            <MudExpansionPanels>
+                <MudExpansionPanel Text="Advanced session limits">
+                    <MudGrid>
+                        <MudItem xs="12" sm="6"><MudNumericField T="int" @bind-Value="draft.IdleMinutes" @bind-Value:after="MarkDirty" Label="Idle minutes" Min="1" Max="1440" Disabled="@settings.ManagedByDeployment" /></MudItem>
+                        <MudItem xs="12" sm="6"><MudNumericField T="int" @bind-Value="draft.ConnectionCapacity" @bind-Value:after="MarkDirty" Label="Connection capacity" Min="1" Max="1000" Disabled="@settings.ManagedByDeployment" /></MudItem>
+                        <MudItem xs="12" sm="6"><MudTextField @bind-Value="turnTimeoutText" @bind-Value:after="MarkDirty" Label="Turn inactivity timeout" HelperText="hh:mm:ss" Disabled="@settings.ManagedByDeployment" /></MudItem>
+                        <MudItem xs="12" sm="6"><MudTextField @bind-Value="heartbeatText" @bind-Value:after="MarkDirty" Label="Activity heartbeat interval" HelperText="hh:mm:ss" Disabled="@settings.ManagedByDeployment" /></MudItem>
+                    </MudGrid>
+                </MudExpansionPanel>
+            </MudExpansionPanels>
+
+            <MudStack Row="true" Spacing="2">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(saving || settings.ManagedByDeployment)" OnClick="SaveAsync">@(saving ? "Saving…" : "Save settings")</MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(testing || isDirty || saving || settings.ManagedByDeployment)" OnClick="TestAsync">Test saved configuration</MudButton>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Disabled="@(testing || saving || settings.ManagedByDeployment)" OnClick="TestDraftAsync">Test draft</MudButton>
+                <MudButton Variant="Variant.Text" Disabled="@loading" OnClick="RefreshAsync">Refresh</MudButton>
+            </MudStack>
+
+            @if (testResult is not null)
+            {
+                <MudAlert Class="mt-2" Severity="@(testResult.Success ? Severity.Success : Severity.Warning)" Variant="Variant.Outlined">
+                    @testResult.Message
+                </MudAlert>
+                @if (testResult.Probes.Count > 0)
+                {
+                    <MudTable Items="testResult.Probes" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm">
+                        <HeaderContent><MudTh>Probe</MudTh><MudTh>Success</MudTh><MudTh>HTTP</MudTh><MudTh>Message</MudTh></HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Probe">@context.ProbeName</MudTd>
+                            <MudTd DataLabel="Success">@(context.Success ? "Yes" : "No")</MudTd>
+                            <MudTd DataLabel="HTTP">@context.StatusCode</MudTd>
+                            <MudTd DataLabel="Message">@context.Message</MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
+            }
+        }
+    </MudStack>
+</MudPaper>
+
+@code {
+    private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
+    private NetclawConnectivitySettingsDto? settings;
+    private UpdateNetclawConnectivitySettingsDto draft = new();
+    private NetclawConnectivityTestResultDto? testResult;
+    private bool loading = true;
+    private bool saving;
+    private bool testing;
+    private bool isDirty;
+    private long testGeneration;
+    private string turnTimeoutText = "00:05:00";
+    private string heartbeatText = "00:00:15";
+
+    private IReadOnlyList<SettingRow> ResolvedSettings => settings is null ? [] :
+    [
+        new("Source", settings.ManagedByDeployment ? "Deployment" : "Saved administrator profile"),
+        new("Revision", settings.Revision.ToString()),
+        new("Enabled", settings.Enabled ? "Yes" : "No"),
+        new("Endpoint", Display(settings.Endpoint)),
+        new("Paired token", settings.HasDeviceToken ? "Configured (protected)" : "Not configured"),
+        new("Token state", settings.SecretState),
+        new("Runtime", settings.RuntimeSupported ? "Available" : "Unavailable"),
+        new("Last saved", DisplayTimestamp(settings.UpdatedAtUtc, "Not saved")),
+        new("Last applied", DisplayTimestamp(settings.LastAppliedAtUtc, "Not applied")),
+        new("Last tested", settings.LastTestedAtUtc is null ? "Not tested" : $"{DisplayTimestamp(settings.LastTestedAtUtc, "Not tested")} ({(settings.LastTestSucceeded == true ? "passed" : "failed")})")
+    ];
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        try
+        {
+            settings = await HelpdeskApi.GetFromJsonAsync<NetclawConnectivitySettingsDto>("/api/v1/admin/netclaw");
+            if (settings is not null) SyncDraft();
+        }
+        catch (HttpRequestException)
+        {
+            Snackbar.Add("Netclaw settings could not be loaded.", Severity.Error);
+        }
+        finally { loading = false; }
+    }
+
+    private void SyncDraft()
+    {
+        if (settings is null) return;
+        draft = new UpdateNetclawConnectivitySettingsDto
+        {
+            ExpectedRevision = settings.Revision,
+            Enabled = settings.Enabled,
+            Instance = settings.Instance,
+            Endpoint = settings.Endpoint,
+            AllowPrivateHttp = settings.AllowPrivateHttp,
+            IdleMinutes = settings.IdleMinutes,
+            ConnectionCapacity = settings.ConnectionCapacity,
+            TurnInactivityTimeout = settings.TurnInactivityTimeout,
+            ActivityHeartbeatInterval = settings.ActivityHeartbeatInterval
+        };
+        turnTimeoutText = settings.TurnInactivityTimeout.ToString("c");
+        heartbeatText = settings.ActivityHeartbeatInterval.ToString("c");
+        isDirty = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (settings?.ManagedByDeployment == true) return;
+        ++testGeneration;
+        testResult = null;
+        if (!TimeSpan.TryParse(turnTimeoutText, out var turnTimeout) || !TimeSpan.TryParse(heartbeatText, out var heartbeat))
+        {
+            Snackbar.Add("Use valid hh:mm:ss timeout values.", Severity.Error);
+            return;
+        }
+        draft.TurnInactivityTimeout = turnTimeout;
+        draft.ActivityHeartbeatInterval = heartbeat;
+        saving = true;
+        try
+        {
+            using var response = await HelpdeskApi.PutAsJsonAsync("/api/v1/admin/netclaw", draft);
+            if (!response.IsSuccessStatusCode)
+            {
+                Snackbar.Add(response.StatusCode == System.Net.HttpStatusCode.Conflict ? "Settings changed elsewhere; refresh and try again." : "Netclaw settings could not be saved.", Severity.Error);
+                return;
+            }
+            settings = await response.Content.ReadFromJsonAsync<NetclawConnectivitySettingsDto>();
+            if (settings is not null) SyncDraft();
+            Snackbar.Add("Netclaw settings saved and applied to new chat connections.", Severity.Success);
+        }
+        catch (HttpRequestException)
+        {
+            Snackbar.Add("Netclaw settings could not be saved.", Severity.Error);
+        }
+        finally { saving = false; }
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (isDirty && !await JS.InvokeAsync<bool>("confirm", "Discard unsaved Netclaw changes?")) return;
+        ++testGeneration;
+        await LoadAsync();
+    }
+
+    private void MarkDirty()
+    {
+        if (settings?.ManagedByDeployment == true) return;
+        ++testGeneration;
+        isDirty = true;
+        testResult = null;
+    }
+
+    private async Task ConfirmInternalNavigationAsync(LocationChangingContext context)
+    {
+        if (!isDirty) return;
+        if (saving || testing || !await JS.InvokeAsync<bool>("confirm", "Discard unsaved Netclaw changes?"))
+            context.PreventNavigation();
+    }
+
+    private async Task TestAsync()
+    {
+        var requestGeneration = testGeneration;
+        testing = true;
+        try
+        {
+            using var response = await HelpdeskApi.PostAsync("/api/v1/admin/netclaw/test", null);
+            var result = await response.Content.ReadFromJsonAsync<NetclawConnectivityTestResultDto>()
+                         ?? new() { Message = "Unknown validation result." };
+            if (requestGeneration == testGeneration)
+            {
+                testResult = result;
+                Snackbar.Add(result.Message, result.Success ? Severity.Success : Severity.Warning);
+            }
+        }
+        catch (HttpRequestException)
+        {
+            if (requestGeneration == testGeneration)
+            {
+                testResult = new() { Message = "The authenticated Netclaw validation request failed." };
+                Snackbar.Add(testResult.Message, Severity.Error);
+            }
+        }
+        finally { testing = false; }
+    }
+
+    private async Task TestDraftAsync()
+    {
+        if (!TimeSpan.TryParse(turnTimeoutText, out var turnTimeout) || !TimeSpan.TryParse(heartbeatText, out var heartbeat))
+        {
+            Snackbar.Add("Use valid hh:mm:ss timeout values.", Severity.Error);
+            return;
+        }
+
+        draft.TurnInactivityTimeout = turnTimeout;
+        draft.ActivityHeartbeatInterval = heartbeat;
+        var requestGeneration = testGeneration;
+        testing = true;
+        try
+        {
+            using var response = await HelpdeskApi.PostAsJsonAsync("/api/v1/admin/netclaw/test-draft", draft);
+            var result = await response.Content.ReadFromJsonAsync<NetclawConnectivityTestResultDto>()
+                         ?? new() { Message = "Unknown draft validation result." };
+            if (requestGeneration == testGeneration)
+            {
+                testResult = result;
+                Snackbar.Add(result.Message, result.Success ? Severity.Success : Severity.Warning);
+            }
+        }
+        catch (HttpRequestException)
+        {
+            if (requestGeneration == testGeneration)
+            {
+                testResult = new() { Message = "The Netclaw draft validation request failed." };
+                Snackbar.Add(testResult.Message, Severity.Error);
+            }
+        }
+        finally { testing = false; }
+    }
+
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "(not configured)" : value;
+    private static string DisplayTimestamp(DateTimeOffset? value, string emptyText) => value?.ToLocalTime().ToString("g") ?? emptyText;
+    private sealed record SettingRow(string Name, string Value);
+}

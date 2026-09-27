@@ -100,7 +100,7 @@
                 ClientIdentity = clientIdentity!.Trim()
             };
 
-            using var response = await Api.PostAsJsonAsync("api/v1/admin/orchestration/orchestration/catalog/request-definitions", dto);
+            using var response = await Api.PostAsJsonAsync("api/v1/admin/orchestration/catalog/request-definitions", dto);
             if (!response.IsSuccessStatusCode)
             {
                 throw new InvalidOperationException(await response.Content.ReadAsStringAsync());

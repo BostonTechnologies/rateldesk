@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Helpdesk.API.Middleware;
 using Helpdesk.Infrastructure.Auth.Rbac;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
@@ -340,8 +341,80 @@ public class CurrentUserAccessServiceTests
         Assert.False(access.HasPermission(HelpdeskPermissions.IncidentWrite, "org-b"));
     }
 
-    [Fact]
-    public async Task Integration_credential_keeps_customer_identity_but_limits_authorization_to_its_scoped_organization()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Integration_credential_projects_scoped_organization_into_tenant_filter_without_foreign_customer(bool isInstanceAdministrator)
+    {
+        await using var identityDb = CreateIdentityDb();
+        var httpContext = new DefaultHttpContext();
+        var httpContextAccessor = new HttpContextAccessor { HttpContext = httpContext };
+        var tenantContext = new TenantContext(httpContextAccessor);
+        var dbOptions = new DbContextOptionsBuilder<HelpdeskDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var db = new HelpdeskDbContext(dbOptions, tenantContext, httpContextAccessor);
+
+        db.Organizations.AddRange(
+            new Organization { Id = "org-a", Name = "Organization A" },
+            new Organization { Id = "org-b", Name = "Organization B" });
+        db.Customers.Add(new Customer { Id = "customer-a", Name = "Customer A", Email = "owner@example.test", OrganizationId = "org-a" });
+        db.CustomerAuthLinks.Add(new CustomerAuthLink { CustomerId = "customer-a", LocalAccountId = "owner", InviteStatus = CustomerInviteStatus.Active });
+        db.Users.Add(new User { Id = "owner", Name = "Owner", Email = "owner@example.test", OrganizationId = "org-a" });
+        db.Incidents.AddRange(
+            new Incident { Id = "incident-a", OrganizationId = "org-a", CustomerId = "customer-a", Title = "Organization A incident" },
+            new Incident { Id = "incident-b", OrganizationId = "org-b", CustomerId = "customer-b", Title = "Organization B incident" });
+        if (!isInstanceAdministrator)
+        {
+            db.ScopedRoleAssignments.Add(new ScopedRoleAssignment
+            {
+                UserId = "owner",
+                OrganizationId = "org-b",
+                RoleKey = ScopedRoleCatalog.IncidentReader
+            });
+        }
+        identityDb.Users.Add(new ApplicationUser
+        {
+            Id = "owner",
+            UserName = "owner@example.test",
+            Email = "owner@example.test",
+            IsEnabled = true,
+            IsInstanceAdministrator = isInstanceAdministrator
+        });
+        await db.SaveChangesAsync();
+        await identityDb.SaveChangesAsync();
+
+        httpContext.User = new ClaimsPrincipal(new ClaimsIdentity(
+        [
+            new Claim(ClaimTypes.NameIdentifier, "owner"),
+            new Claim("auth_mode", "integration"),
+            new Claim("integration_organization_id", "org-b"),
+            new Claim("integration_permission", HelpdeskPermissions.IncidentRead)
+        ], "IntegrationCredential"));
+        var accessService = new CurrentUserAccessService(db, identityDb);
+        await new UserAccessClaimsMiddleware(_ => Task.CompletedTask).InvokeAsync(httpContext, accessService);
+
+        var access = await accessService.ResolveAsync(httpContext.User);
+        Assert.Equal("org-b", access.PrimaryOrganizationId);
+        Assert.Equal("Organization B", access.PrimaryOrganizationName);
+        Assert.Null(access.CustomerId);
+        Assert.Equal(new[] { "org-b" }, access.AllowedOrganizationIds);
+        Assert.True(access.HasPermission(HelpdeskPermissions.IncidentRead, "org-b"));
+        Assert.False(access.HasPermission(HelpdeskPermissions.IncidentRead, "org-a"));
+        Assert.False(access.HasPermission(HelpdeskPermissions.IncidentWrite, "org-b"));
+        Assert.Equal("org-b", tenantContext.TenantId);
+        Assert.Null(httpContext.User.FindFirstValue("customer_id"));
+        Assert.Contains(httpContext.User.Claims, claim => claim.Type == "allowed_organization_id" && claim.Value == "org-b");
+        Assert.DoesNotContain(httpContext.User.Claims, claim => claim.Type == "allowed_organization_id" && claim.Value == "org-a");
+        Assert.Equal(new[] { "incident-b" }, await db.Incidents.Select(incident => incident.Id).ToArrayAsync());
+    }
+
+    [Theory]
+    [InlineData("org-b", null)]
+    [InlineData("org-a", "customer-a")]
+    public async Task Integration_credential_projects_scoped_organization_and_only_keeps_matching_customer_identity(
+        string requestedOrganizationId,
+        string? expectedCustomerId)
     {
         await using var db = CreateDb();
         await using var identityDb = CreateIdentityDb();
@@ -351,7 +424,9 @@ public class CurrentUserAccessServiceTests
         db.Customers.Add(new Customer { Id = "customer-a", Name = "Customer A", Email = "owner@example.test", OrganizationId = "org-a" });
         db.Users.Add(new User { Id = "owner", Name = "Owner", Email = "owner@example.test", OrganizationId = "org-a" });
         db.CustomerAuthLinks.Add(new CustomerAuthLink { CustomerId = "customer-a", LocalAccountId = "owner", InviteStatus = CustomerInviteStatus.Active });
-        db.ScopedRoleAssignments.Add(new ScopedRoleAssignment { UserId = "owner", OrganizationId = "org-b", RoleKey = ScopedRoleCatalog.SelfServiceUser });
+        db.ScopedRoleAssignments.AddRange(
+            new ScopedRoleAssignment { UserId = "owner", OrganizationId = "org-a", RoleKey = ScopedRoleCatalog.SelfServiceUser },
+            new ScopedRoleAssignment { UserId = "owner", OrganizationId = "org-b", RoleKey = ScopedRoleCatalog.SelfServiceUser });
         identityDb.Users.Add(new ApplicationUser { Id = "owner", UserName = "owner@example.test", IsEnabled = true });
         await db.SaveChangesAsync();
         await identityDb.SaveChangesAsync();
@@ -359,17 +434,18 @@ public class CurrentUserAccessServiceTests
         [
             new Claim(ClaimTypes.NameIdentifier, "owner"),
             new Claim("auth_mode", "integration"),
-            new Claim("integration_organization_id", "org-b"),
+            new Claim("integration_organization_id", requestedOrganizationId),
             new Claim("integration_permission", HelpdeskPermissions.SelfServiceUser)
         ], "IntegrationCredential"));
 
         var access = await new CurrentUserAccessService(db, identityDb).ResolveAsync(principal);
 
-        Assert.Equal("customer-a", access.CustomerId);
-        Assert.Equal("org-a", access.PrimaryOrganizationId);
-        Assert.Equal(["org-b"], access.AllowedOrganizationIds);
-        Assert.True(access.HasPermission(HelpdeskPermissions.SelfServiceUser, "org-b"));
-        Assert.False(access.HasPermission(HelpdeskPermissions.SelfServiceUser, "org-a"));
+        Assert.Equal(expectedCustomerId, access.CustomerId);
+        Assert.Equal(requestedOrganizationId, access.PrimaryOrganizationId);
+        Assert.Equal(requestedOrganizationId == "org-b" ? "Organization B" : "Organization A", access.PrimaryOrganizationName);
+        Assert.Equal([requestedOrganizationId], access.AllowedOrganizationIds);
+        Assert.True(access.HasPermission(HelpdeskPermissions.SelfServiceUser, requestedOrganizationId));
+        Assert.False(access.HasPermission(HelpdeskPermissions.SelfServiceUser, requestedOrganizationId == "org-b" ? "org-a" : "org-b"));
     }
 
     [Fact]

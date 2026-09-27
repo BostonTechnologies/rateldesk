@@ -1,129 +1,154 @@
 @page "/settings/connectivity"
 @page "/admin/orchestration/orchestration"
+@page "/admin/automation/integration/orchestrator"
 @attribute [Authorize(Roles = "HelpdeskAdmin")]
 @using System.Net.Http.Json
 @using Helpdesk.Shared.DTOs.Orchestration
 
 @inject IHttpClientFactory HttpClientFactory
+@inject IJSRuntime JS
 @inject ISnackbar Snackbar
 
-<PageTitle>Orchestrator</PageTitle>
+<PageTitle>NetRatel orchestrator</PageTitle>
+<NavigationLock ConfirmExternalNavigation="@isDirty" OnBeforeInternalNavigation="ConfirmInternalNavigationAsync" />
 
-<MudPaper Class="pa-4">
-    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
-        <div>
-            <MudText Typo="Typo.h4" HtmlTag="h1">Orchestrator</MudText>
-            <MudText Typo="Typo.body2">Connectivity and validation</MudText>
-        </div>
-        <MudSpacer />
-        @if (settings is not null)
-        {
-            <MudText Typo="Typo.caption">Runtime config loaded: @settings.UpdatedAtUtc.LocalDateTime.ToString("g")</MudText>
-        }
-    </MudStack>
-
-    @if (loading)
-    {
-        <MudProgressLinear Indeterminate="true" />
-    }
-    else if (settings is null)
-    {
-        <MudAlert Severity="Severity.Error">Could not load External orchestration connectivity status.</MudAlert>
-    }
-    else
-    {
-        @if (HasLoopbackConfigurationWarning())
-        {
-            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mb-4">
-                This External orchestration target points to localhost or another loopback address. That only works for local development.
-            </MudAlert>
-        }
-
-        <MudTable Items="ResolvedSettings" Dense="true" Hover="true">
-            <HeaderContent>
-                <MudTh>Setting</MudTh>
-                <MudTh>Value</MudTh>
-            </HeaderContent>
-            <RowTemplate>
-                <MudTd DataLabel="Setting">@context.Name</MudTd>
-                <MudTd DataLabel="Value">@context.Value</MudTd>
-            </RowTemplate>
-        </MudTable>
-
-        <MudStack Row="true" Spacing="2" Class="mt-4">
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@testing" OnClick="TestConnectionAsync">Validate</MudButton>
-            <MudButton Variant="Variant.Outlined" Disabled="@loading" OnClick="LoadAsync">Refresh</MudButton>
+<MudPaper Class="helpdesk-content-surface pa-4" data-testid="orchestrator-settings-page">
+    <MudStack Spacing="3">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-1">
+            <div>
+                <MudText Typo="Typo.h4" HtmlTag="h1">NetRatel orchestrator</MudText>
+                <MudText Typo="Typo.body2">Administrator-managed outbound automation connectivity.</MudText>
+            </div>
+            <MudSpacer />
+            <MudButton Href="/admin/automation/integration" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack">Integration hub</MudButton>
         </MudStack>
 
-        @if (testResult is not null)
+        @if (loading)
         {
-            <MudAlert Class="mt-4" Severity="@(testResult.Success ? Severity.Success : Severity.Warning)" Variant="Variant.Outlined">
-                @testResult.Message
-                @if (testResult.StatusCode is not null)
-                {
-                    <span> (HTTP @testResult.StatusCode)</span>
-                }
-            </MudAlert>
+            <MudProgressLinear Indeterminate="true" />
         }
+        else if (settings is null)
+        {
+            <MudAlert Severity="Severity.Error">NetRatel orchestrator settings could not be loaded.</MudAlert>
+        }
+        else
+        {
+            @if (settings.ManagedByDeployment)
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                    This destination is managed by deployment configuration. Review it here and change the canonical <code>Orchestrator__...</code> values in the deployment environment.
+                </MudAlert>
+            }
+            @if (HasLoopbackConfigurationWarning())
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">
+                    This target points to localhost or another loopback address. That is suitable only when the API and NetRatel share the intended local network namespace.
+                </MudAlert>
+            }
 
-        @if (testResult?.Probes?.Count > 0)
-        {
-            <MudTable Class="mt-4" Items="testResult.Probes" Dense="true" Hover="true">
-                <HeaderContent>
-                    <MudTh>Probe</MudTh>
-                    <MudTh>Target</MudTh>
-                    <MudTh>Status</MudTh>
-                    <MudTh>HTTP</MudTh>
-                    <MudTh>Latency (ms)</MudTh>
-                    <MudTh>Remote</MudTh>
-                    <MudTh>When</MudTh>
-                    <MudTh>Message</MudTh>
-                </HeaderContent>
-                <RowTemplate>
-                    <MudTd DataLabel="Probe">@context.ProbeName</MudTd>
-                    <MudTd DataLabel="Target">@context.Target</MudTd>
-                    <MudTd DataLabel="Status">
-                        <MudChip T="string" Color="@GetStatusColor(context.Status)" Variant="Variant.Filled">
-                            @context.Status
-                        </MudChip>
-                    </MudTd>
-                    <MudTd DataLabel="HTTP">@context.HttpStatus</MudTd>
-                    <MudTd DataLabel="Latency">@context.LatencyMs</MudTd>
-                    <MudTd DataLabel="Remote">@context.RemoteSystemName</MudTd>
-                    <MudTd DataLabel="When">@context.CheckedAtUtc.ToLocalTime().ToString("yyyy/MM/dd HH:mm:ss zzz")</MudTd>
-                    <MudTd DataLabel="Message">@context.Message</MudTd>
-                </RowTemplate>
-            </MudTable>
+            <MudGrid>
+                <MudItem xs="12" md="7">
+                    <MudSwitch @bind-Value="draft.Enabled" @bind-Value:after="MarkDirty" Color="Color.Primary" Disabled="@settings.ManagedByDeployment" Label="Enable NetRatel automation" />
+                    <MudTextField @bind-Value="draft.BaseUrl" @bind-Value:after="MarkDirty" Label="NetRatel API base URL" Placeholder="https://netratel.example.com" Required="@draft.Enabled" Disabled="@settings.ManagedByDeployment" Immediate="true" />
+                    <MudTextField @bind-Value="draft.ClientId" @bind-Value:after="MarkDirty" Label="Dedicated M2M client id" Required="@draft.Enabled" Disabled="@settings.ManagedByDeployment" Immediate="true" />
+                    <MudTextField @bind-Value="draft.ClientSecret" @bind-Value:after="MarkDirty" Label="Dedicated M2M client secret" InputType="InputType.Password" HelperText="Leave blank to retain the protected secret." Disabled="@settings.ManagedByDeployment" />
+                    @if (settings.HasClientSecret && !settings.ManagedByDeployment)
+                    {
+                        <MudCheckBox @bind-Value="draft.ClearClientSecret" @bind-Value:after="MarkDirty" Color="Color.Warning" Label="Clear the saved client secret" />
+                    }
+                </MudItem>
+                <MudItem xs="12" md="5">
+                    <MudText Typo="Typo.subtitle2">Effective profile</MudText>
+                    <MudTable Items="ResolvedSettings" Dense="true" Hover="true" Class="mt-2">
+                        <RowTemplate>
+                            <MudTd DataLabel="Setting">@context.Name</MudTd>
+                            <MudTd DataLabel="Value">@context.Value</MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                </MudItem>
+            </MudGrid>
+
+            <MudExpansionPanels>
+                <MudExpansionPanel Text="Advanced OAuth and endpoint settings">
+                    <MudGrid>
+                        <MudItem xs="12" md="6"><MudTextField @bind-Value="draft.Authority" @bind-Value:after="MarkDirty" Label="OAuth authority" Disabled="@settings.ManagedByDeployment" /></MudItem>
+                        <MudItem xs="12" md="6"><MudTextField @bind-Value="draft.TokenEndpoint" @bind-Value:after="MarkDirty" Label="Token endpoint" Disabled="@settings.ManagedByDeployment" /></MudItem>
+                        <MudItem xs="12" md="6"><MudTextField @bind-Value="draft.Audience" @bind-Value:after="MarkDirty" Label="Audience" Disabled="@settings.ManagedByDeployment" /></MudItem>
+                        <MudItem xs="12" md="6"><MudTextField @bind-Value="draft.Scope" @bind-Value:after="MarkDirty" Label="Scope" Disabled="@settings.ManagedByDeployment" /></MudItem>
+                        <MudItem xs="12" md="4"><MudTextField @bind-Value="draft.HealthPath" @bind-Value:after="MarkDirty" Label="Health path" Disabled="@settings.ManagedByDeployment" /></MudItem>
+                        <MudItem xs="12" md="4"><MudTextField @bind-Value="draft.IngestPath" @bind-Value:after="MarkDirty" Label="Ingest path" Disabled="@settings.ManagedByDeployment" /></MudItem>
+                        <MudItem xs="12" md="4"><MudTextField @bind-Value="draft.CatalogPath" @bind-Value:after="MarkDirty" Label="Catalog path" Disabled="@settings.ManagedByDeployment" /></MudItem>
+                        <MudItem xs="12"><MudCheckBox @bind-Value="draft.AllowPrivateHttp" @bind-Value:after="MarkDirty" Label="Allow private HTTP (local development only)" Disabled="@settings.ManagedByDeployment" /></MudItem>
+                    </MudGrid>
+                </MudExpansionPanel>
+            </MudExpansionPanels>
+
+            <MudStack Row="true" Spacing="2" Class="mt-2">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(saving || settings.ManagedByDeployment)" OnClick="SaveAsync">@(saving ? "Saving…" : "Save settings")</MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(testing || isDirty || saving || settings.ManagedByDeployment)" OnClick="TestConnectionAsync">Test saved configuration</MudButton>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Disabled="@(testing || saving || settings.ManagedByDeployment)" OnClick="TestDraftAsync">Test draft</MudButton>
+                <MudButton Variant="Variant.Text" Disabled="@loading" OnClick="RefreshAsync">Refresh</MudButton>
+            </MudStack>
+
+            @if (testResult is not null)
+            {
+                <MudAlert Class="mt-2" Severity="@(testResult.Success ? Severity.Success : Severity.Warning)" Variant="Variant.Outlined">
+                    @testResult.Message
+                    @if (testResult.StatusCode is not null)
+                    {
+                        <span> (HTTP @testResult.StatusCode)</span>
+                    }
+                </MudAlert>
+            }
+
+            @if (testResult?.Probes?.Count > 0)
+            {
+                <MudTable Class="mt-2" Items="testResult.Probes" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm">
+                    <HeaderContent>
+                        <MudTh>Probe</MudTh><MudTh>Status</MudTh><MudTh>HTTP</MudTh><MudTh>Latency</MudTh><MudTh>Message</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Probe">@context.ProbeName</MudTd>
+                        <MudTd DataLabel="Status"><MudChip T="string" Color="@GetStatusColor(context.Status)">@context.Status</MudChip></MudTd>
+                        <MudTd DataLabel="HTTP">@context.HttpStatus</MudTd>
+                        <MudTd DataLabel="Latency">@context.LatencyMs ms</MudTd>
+                        <MudTd DataLabel="Message">@context.Message</MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
         }
-    }
+    </MudStack>
 </MudPaper>
 
 @code {
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
-
     private OrchestrationConnectivitySettingsDto? settings;
+    private UpdateOrchestrationConnectivitySettingsDto draft = new();
     private OrchestrationConnectivityTestResultDto? testResult;
     private bool loading = true;
+    private bool saving;
     private bool testing;
+    private bool isDirty;
+    private long testGeneration;
 
-    private IReadOnlyList<SettingRow> ResolvedSettings =>
-        settings is null
-            ? []
-            :
-            [
-                new("Enabled", settings.Enabled ? "Yes" : "No"),
-                new("External orchestration API Base URL", Display(settings.BaseUrl)),
-                new("Authority", Display(settings.Authority)),
-                new("Audience", Display(settings.Audience)),
-                new("Scope", Display(settings.Scope)),
-                new("Token Endpoint", Display(settings.TokenEndpoint)),
-                new("Remote Name", Display(settings.RemoteSystemName))
-            ];
+    private IReadOnlyList<SettingRow> ResolvedSettings => settings is null ? [] :
+    [
+        new("Source", settings.ManagedByDeployment ? "Deployment" : "Saved administrator profile"),
+        new("Revision", settings.Revision.ToString()),
+        new("Enabled", settings.Enabled ? "Yes" : "No"),
+        new("Base URL", Display(settings.BaseUrl)),
+        new("Authority", Display(settings.Authority)),
+        new("Audience", Display(settings.Audience)),
+        new("Scope", Display(settings.Scope)),
+        new("Token endpoint", Display(settings.TokenEndpoint)),
+        new("Client secret", settings.HasClientSecret ? "Configured (protected)" : "Not configured"),
+        new("Secret state", settings.SecretState),
+        new("Last saved", DisplayTimestamp(settings.UpdatedAtUtc, "Not saved")),
+        new("Last applied", DisplayTimestamp(settings.LastAppliedAtUtc, "Not applied")),
+        new("Last tested", settings.LastTestedAtUtc is null ? "Not tested" : $"{DisplayTimestamp(settings.LastTestedAtUtc, "Not tested")} ({(settings.LastTestSucceeded == true ? "passed" : "failed")})")
+    ];
 
-    protected override async Task OnInitializedAsync()
-    {
-        await LoadAsync();
-    }
+    protected override async Task OnInitializedAsync() => await LoadAsync();
 
     private async Task LoadAsync()
     {
@@ -131,76 +156,149 @@
         try
         {
             settings = await HelpdeskApi.GetFromJsonAsync<OrchestrationConnectivitySettingsDto>("/api/v1/admin/orchestration");
+            if (settings is not null) SyncDraft();
         }
-        catch (Exception ex)
+        catch (HttpRequestException)
         {
-            Snackbar.Add($"Failed to load External orchestration connectivity status: {ex.Message}", Severity.Error);
+            Snackbar.Add("NetRatel orchestrator settings could not be loaded.", Severity.Error);
         }
-        finally
+        finally { loading = false; }
+    }
+
+    private void SyncDraft()
+    {
+        if (settings is null) return;
+        draft = new UpdateOrchestrationConnectivitySettingsDto
         {
-            loading = false;
+            ExpectedRevision = settings.Revision,
+            Enabled = settings.Enabled,
+            BaseUrl = settings.BaseUrl,
+            Authority = settings.Authority,
+            Audience = settings.Audience,
+            Scope = settings.Scope,
+            TokenEndpoint = settings.TokenEndpoint,
+            ClientId = settings.ClientId,
+            AllowPrivateHttp = settings.AllowPrivateHttp,
+            RemoteSystemName = settings.RemoteSystemName,
+            HealthPath = settings.HealthPath,
+            IngestPath = settings.IngestPath,
+            CatalogPath = settings.CatalogPath
+        };
+        isDirty = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (settings?.ManagedByDeployment == true) return;
+        ++testGeneration;
+        testResult = null;
+        saving = true;
+        try
+        {
+            using var response = await HelpdeskApi.PutAsJsonAsync("/api/v1/admin/orchestration", draft);
+            if (!response.IsSuccessStatusCode)
+            {
+                Snackbar.Add(response.StatusCode == System.Net.HttpStatusCode.Conflict ? "Settings changed elsewhere; refresh and try again." : "NetRatel settings could not be saved.", Severity.Error);
+                return;
+            }
+            settings = await response.Content.ReadFromJsonAsync<OrchestrationConnectivitySettingsDto>();
+            if (settings is not null) SyncDraft();
+            Snackbar.Add("NetRatel orchestrator settings saved.", Severity.Success);
         }
+        catch (HttpRequestException)
+        {
+            Snackbar.Add("NetRatel settings could not be saved.", Severity.Error);
+        }
+        finally { saving = false; }
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (isDirty && !await JS.InvokeAsync<bool>("confirm", "Discard unsaved NetRatel orchestrator changes?")) return;
+        ++testGeneration;
+        await LoadAsync();
+    }
+
+    private void MarkDirty()
+    {
+        if (settings?.ManagedByDeployment == true) return;
+        ++testGeneration;
+        isDirty = true;
+        testResult = null;
+    }
+
+    private async Task ConfirmInternalNavigationAsync(LocationChangingContext context)
+    {
+        if (!isDirty) return;
+        if (saving || testing || !await JS.InvokeAsync<bool>("confirm", "Discard unsaved NetRatel orchestrator changes?"))
+            context.PreventNavigation();
     }
 
     private async Task TestConnectionAsync()
     {
+        var requestGeneration = testGeneration;
         testing = true;
         try
         {
             using var response = await HelpdeskApi.PostAsync("/api/v1/admin/orchestration/test", null);
-            testResult = await response.Content.ReadFromJsonAsync<OrchestrationConnectivityTestResultDto>()
-                         ?? new OrchestrationConnectivityTestResultDto { Success = false, Message = "Unknown test result." };
-
-            Snackbar.Add(
-                testResult.Message,
-                testResult.Success ? Severity.Success : Severity.Warning);
-        }
-        catch (Exception ex)
-        {
-            testResult = new OrchestrationConnectivityTestResultDto
+            var result = await response.Content.ReadFromJsonAsync<OrchestrationConnectivityTestResultDto>()
+                         ?? new() { Message = "Unknown validation result." };
+            if (requestGeneration == testGeneration)
             {
-                Success = false,
-                Message = ex.Message
-            };
-            Snackbar.Add($"External orchestration validation failed: {ex.Message}", Severity.Error);
+                testResult = result;
+                Snackbar.Add(result.Message, result.Success ? Severity.Success : Severity.Warning);
+            }
         }
-        finally
+        catch (HttpRequestException)
         {
-            testing = false;
+            if (requestGeneration == testGeneration)
+            {
+                testResult = new() { Message = "The protected NetRatel validation request failed." };
+                Snackbar.Add(testResult.Message, Severity.Error);
+            }
         }
+        finally { testing = false; }
     }
 
-    private static Color GetStatusColor(OrchestrationConnectivityTrafficLight status)
-        => status switch
-        {
-            OrchestrationConnectivityTrafficLight.Green => Color.Success,
-            OrchestrationConnectivityTrafficLight.Amber => Color.Warning,
-            _ => Color.Error
-        };
-
-    private bool HasLoopbackConfigurationWarning()
+    private async Task TestDraftAsync()
     {
-        return IsLoopbackUri(settings?.BaseUrl)
-            || IsLoopbackUri(settings?.Authority)
-            || IsLoopbackUri(settings?.TokenEndpoint);
+        var requestGeneration = testGeneration;
+        testing = true;
+        try
+        {
+            using var response = await HelpdeskApi.PostAsJsonAsync("/api/v1/admin/orchestration/test-draft", draft);
+            var result = await response.Content.ReadFromJsonAsync<OrchestrationConnectivityTestResultDto>()
+                         ?? new() { Message = "Unknown draft validation result." };
+            if (requestGeneration == testGeneration)
+            {
+                testResult = result;
+                Snackbar.Add(result.Message, result.Success ? Severity.Success : Severity.Warning);
+            }
+        }
+        catch (HttpRequestException)
+        {
+            if (requestGeneration == testGeneration)
+            {
+                testResult = new() { Message = "The protected NetRatel draft validation request failed." };
+                Snackbar.Add(testResult.Message, Severity.Error);
+            }
+        }
+        finally { testing = false; }
     }
+
+    private bool HasLoopbackConfigurationWarning() => IsLoopbackUri(settings?.BaseUrl) || IsLoopbackUri(settings?.Authority) || IsLoopbackUri(settings?.TokenEndpoint);
 
     private static bool IsLoopbackUri(string? value)
+        => Uri.TryCreate(value, UriKind.Absolute, out var uri) && (uri.IsLoopback || string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase));
+
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "(not configured)" : value;
+    private static string DisplayTimestamp(DateTimeOffset? value, string emptyText) => value?.ToLocalTime().ToString("g") ?? emptyText;
+    private static Color GetStatusColor(OrchestrationConnectivityTrafficLight status) => status switch
     {
-        if (string.IsNullOrWhiteSpace(value)
-            || !Uri.TryCreate(value, UriKind.Absolute, out var uri))
-        {
-            return false;
-        }
-
-        return uri.IsLoopback
-            || string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(uri.Host, "127.0.0.1", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(uri.Host, "::1", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string Display(string? value)
-        => string.IsNullOrWhiteSpace(value) ? "(not configured)" : value;
+        OrchestrationConnectivityTrafficLight.Green => Color.Success,
+        OrchestrationConnectivityTrafficLight.Amber => Color.Warning,
+        _ => Color.Error
+    };
 
     private sealed record SettingRow(string Name, string Value);
 }

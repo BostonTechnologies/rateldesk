@@ -2193,7 +2193,7 @@
         }
 
         var bindings = await Api.GetFromJsonAsync<List<AutomationBindingDto>>(
-            $"api/v1/admin/orchestration/orchestration/bindings?requestFormId={Uri.EscapeDataString(requestFormId)}") ?? new();
+            $"api/v1/admin/orchestration/bindings?requestFormId={Uri.EscapeDataString(requestFormId)}") ?? new();
 
         foreach (var binding in bindings)
         {
@@ -2209,7 +2209,7 @@
         }
 
         using var response = await Api.PostAsync(
-            $"api/v1/admin/orchestration/orchestration/bindings/refresh-drift?requestFormId={Uri.EscapeDataString(requestFormId)}",
+            $"api/v1/admin/orchestration/bindings/refresh-drift?requestFormId={Uri.EscapeDataString(requestFormId)}",
             content: null);
         if (!response.IsSuccessStatusCode)
         {
@@ -2242,7 +2242,7 @@
         }
 
         using var response = await Api.PostAsync(
-            $"api/v1/admin/orchestration/orchestration/bindings/{SelectedBinding.BindingId}/mark-import-pending",
+            $"api/v1/admin/orchestration/bindings/{SelectedBinding.BindingId}/mark-import-pending",
             content: null);
         if (!response.IsSuccessStatusCode)
         {
@@ -2268,7 +2268,7 @@
         }
 
         using var response = await Api.PostAsync(
-            $"api/v1/admin/orchestration/orchestration/bindings/{SelectedBinding.BindingId}/import-inputs",
+            $"api/v1/admin/orchestration/bindings/{SelectedBinding.BindingId}/import-inputs",
             content: null);
         if (!response.IsSuccessStatusCode)
         {
@@ -2309,7 +2309,7 @@
         try
         {
             selectedBindingDriftPreview = await Api.GetFromJsonAsync<AutomationBindingDriftPreviewDto>(
-                $"api/v1/admin/orchestration/orchestration/bindings/{SelectedBinding.BindingId}/drift-preview");
+                $"api/v1/admin/orchestration/bindings/{SelectedBinding.BindingId}/drift-preview");
         }
         catch (Exception ex)
         {
@@ -2330,9 +2330,9 @@
         try
         {
             orchestrationRequestDefinitions = await Api.GetFromJsonAsync<List<OrchestrationCatalogRequestDefinitionDto>>(
-                "api/v1/admin/orchestration/orchestration/catalog/request-definitions") ?? new();
+                "api/v1/admin/orchestration/catalog/request-definitions") ?? new();
             orchestrationJobs = await Api.GetFromJsonAsync<List<OrchestrationCatalogJobDto>>(
-                "api/v1/admin/orchestration/orchestration/catalog/jobs") ?? new();
+                "api/v1/admin/orchestration/catalog/jobs") ?? new();
         }
         catch (Exception ex)
         {
@@ -2393,7 +2393,7 @@
         }
 
         var currentBindings = await Api.GetFromJsonAsync<List<AutomationBindingDto>>(
-            $"api/v1/admin/orchestration/orchestration/bindings?requestFormId={Uri.EscapeDataString(requestFormId)}") ?? new();
+            $"api/v1/admin/orchestration/bindings?requestFormId={Uri.EscapeDataString(requestFormId)}") ?? new();
         var bindingsByTask = currentBindings.ToDictionary(x => x.TaskTemplateId);
         var automationTaskIds = Tasks
             .Where(x => string.Equals(x.Type, "automation", StringComparison.OrdinalIgnoreCase))
@@ -2408,7 +2408,7 @@
             {
                 if (existingBinding is not null)
                 {
-                    await Api.DeleteAsync($"api/v1/admin/orchestration/orchestration/bindings/{existingBinding.Id}");
+                    await Api.DeleteAsync($"api/v1/admin/orchestration/bindings/{existingBinding.Id}");
                 }
 
                 automationBindings.Remove(task.Id);
@@ -2420,11 +2420,11 @@
             {
                 if (!string.IsNullOrWhiteSpace(editor.BindingId))
                 {
-                    await Api.DeleteAsync($"api/v1/admin/orchestration/orchestration/bindings/{editor.BindingId}");
+                    await Api.DeleteAsync($"api/v1/admin/orchestration/bindings/{editor.BindingId}");
                 }
                 else if (existingBinding is not null)
                 {
-                    await Api.DeleteAsync($"api/v1/admin/orchestration/orchestration/bindings/{existingBinding.Id}");
+                    await Api.DeleteAsync($"api/v1/admin/orchestration/bindings/{existingBinding.Id}");
                 }
 
                 editor.ClearForDelete();
@@ -2445,7 +2445,7 @@
                         OrchestrationJobDefinitionName = Normalize(editor.OrchestrationJobDefinitionName)
                     };
 
-                    using var createResponse = await Api.PostAsJsonAsync("api/v1/admin/orchestration/orchestration/bindings", createDto);
+                    using var createResponse = await Api.PostAsJsonAsync("api/v1/admin/orchestration/bindings", createDto);
                     if (!createResponse.IsSuccessStatusCode)
                     {
                         throw new InvalidOperationException(await createResponse.Content.ReadAsStringAsync());
@@ -2479,7 +2479,7 @@
                 };
 
                 using var updateResponse = await Api.PutAsJsonAsync(
-                    $"api/v1/admin/orchestration/orchestration/bindings/{editor.BindingId}",
+                    $"api/v1/admin/orchestration/bindings/{editor.BindingId}",
                     updateDto);
                 if (!updateResponse.IsSuccessStatusCode)
                 {
@@ -2496,7 +2496,7 @@
 
         foreach (var staleBinding in currentBindings.Where(x => !automationTaskIds.Contains(x.TaskTemplateId)))
         {
-            await Api.DeleteAsync($"api/v1/admin/orchestration/orchestration/bindings/{staleBinding.Id}");
+            await Api.DeleteAsync($"api/v1/admin/orchestration/bindings/{staleBinding.Id}");
         }
     }
 
@@ -2508,7 +2508,7 @@
         }
 
         var bindings = await Api.GetFromJsonAsync<List<AutomationBindingDto>>(
-            $"api/v1/admin/orchestration/orchestration/bindings?requestFormId={Uri.EscapeDataString(requestFormId)}") ?? new();
+            $"api/v1/admin/orchestration/bindings?requestFormId={Uri.EscapeDataString(requestFormId)}") ?? new();
 
         var failures = new List<string>();
         foreach (var binding in bindings.Where(x => x.Enabled))
@@ -2516,7 +2516,7 @@
             try
             {
                 using var response = await Api.PostAsync(
-                    $"api/v1/admin/orchestration/orchestration/bindings/{binding.Id}/sync-inputs",
+            $"api/v1/admin/orchestration/bindings/{binding.Id}/sync-inputs",
                     content: null);
 
                 if (!response.IsSuccessStatusCode)

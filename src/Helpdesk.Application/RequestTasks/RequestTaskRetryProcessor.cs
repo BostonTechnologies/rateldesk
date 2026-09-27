@@ -29,7 +29,7 @@ public sealed class RequestTaskRetryProcessor(
         var dueRetries = (await _requestTasks.GetAllAsync())
             .Where(task => task.Type == RequestTaskType.Automation
                 && task.Status == RequestTaskStatus.Failed
-                && !AutomationTaskStatuses.RequiresManualRetry(task.LastAutomationStatus)
+                && !AutomationTaskStatuses.RequiresOperatorAction(task.LastAutomationStatus)
                 && task.NextRetryAt.HasValue
                 && task.NextRetryAt <= now)
             .ToList();

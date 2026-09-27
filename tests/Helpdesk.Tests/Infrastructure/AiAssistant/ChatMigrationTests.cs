@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Helpdesk.Infrastructure.Migrations;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Shared.AiAssistant.Chat;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Http;
@@ -37,9 +38,19 @@ public sealed class ChatMigrationTests : IAsyncLifetime
         await db.SaveChangesAsync();
         var original = JsonSerializer.Serialize(await db.Set<AiAssistantWebhookConfiguration>().AsNoTracking().SingleAsync(x => x.Id == webhook.Id));
         await migrator.MigrateAsync("20260909063810_AddAiAssistantSignalRChat");
+        var legacyConversationId = Guid.NewGuid();
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "AiAssistantChatConversations"
+                ("Id", "OrganizationId", "TicketId", "TicketType", "AiAssistantSessionId", "State", "LastSequence", "ActiveMessageId", "LastActivityUtc", "CreatedByUserId")
+            VALUES
+                ({legacyConversationId}, {"migration-test"}, {"legacy-ticket"}, {"incidents"}, {"beta3-session"}, {(int)ChatState.Idle}, 0, NULL, {DateTimeOffset.UtcNow}, {"operator"});
+            """);
         await migrator.MigrateAsync(); // Normal repository EF migration path is repeatable.
         Assert.Empty(await db.Database.GetPendingMigrationsAsync());
         Assert.Equal(original, JsonSerializer.Serialize(await db.Set<AiAssistantWebhookConfiguration>().AsNoTracking().SingleAsync(x => x.Id == webhook.Id)));
+        var upgradedConversation = await db.Set<AiAssistantChatConversation>().AsNoTracking().SingleAsync(x => x.Id == legacyConversationId);
+        Assert.Equal("beta3-session", upgradedConversation.AiAssistantSessionId);
+        Assert.Null(upgradedConversation.ProviderProfileFingerprint);
         var tables = await db.Database.SqlQueryRaw<string>("SELECT tablename AS \"Value\" FROM pg_tables WHERE schemaname = 'public' AND tablename LIKE 'AiAssistantChat%'").ToListAsync();
         Assert.Equal(3, tables.Count);
         var retiredTables = await db.Database.SqlQueryRaw<string>("SELECT tablename AS \"Value\" FROM pg_tables WHERE schemaname = 'public' AND tablename IN ('AiProviders', 'KnowledgeBaseArticles', 'KnowledgeEmbeddings', 'OrganizationAiKbSettings')").ToListAsync();

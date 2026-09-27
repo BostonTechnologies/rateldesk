@@ -1222,6 +1222,7 @@ app.MapOrganizationChangeParticipantEndpoints();
 app.MapAdminTenantEndpoints();
 app.MapTenantBrandingEndpoints();
 app.MapExternalOrchestrationEndpoints();
+app.MapNetclawConnectivityEndpoints();
 app.MapExternalOrchestrationCallbackEndpoints();
 app.MapAiAssistantAiAssistantEndpoints();
 Helpdesk.API.Endpoints.AiAssistant.Chat.AiAssistantChatEndpoints.MapAiAssistantChatEndpoints(app);

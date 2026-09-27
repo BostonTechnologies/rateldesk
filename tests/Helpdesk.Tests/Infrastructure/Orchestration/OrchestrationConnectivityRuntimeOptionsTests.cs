@@ -20,6 +20,7 @@ public sealed class OrchestrationConnectivityRuntimeOptionsTests
         var sut = new OrchestrationConnectivityService(
             Options.Create(new OrchestrationM2MOptions
             {
+                Enabled = true,
                 BaseUrl = "https://orchestration.local/",
                 Authority = "https://issuer.local",
                 Audience = "orchestrator.api",
@@ -57,6 +58,7 @@ public sealed class OrchestrationConnectivityRuntimeOptionsTests
         var sut = new OrchestrationConnectivityService(
             Options.Create(new OrchestrationM2MOptions
             {
+                Enabled = true,
                 BaseUrl = "https://orchestration.local",
                 Audience = "orchestrator.api",
                 Scope = "orchestrator.m2m"
@@ -92,7 +94,7 @@ public sealed class OrchestrationConnectivityRuntimeOptionsTests
             }))
         });
         var factory = Substitute.For<IHttpClientFactory>();
-        factory.CreateClient().Returns(new HttpClient(handler));
+        factory.CreateClient("OrchestrationToken").Returns(new HttpClient(handler));
         var sut = new OrchestrationTokenService(factory, new MemoryCache(new MemoryCacheOptions()));
 
         await sut.GetAccessTokenAsync(new OrchestrationResolvedSettings

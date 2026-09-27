@@ -147,7 +147,7 @@
                     {
                         <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="true">Running</MudButton>
                     }
-                    @if (context.Type == RequestTaskType.Automation && context.Status == RequestTaskStatus.Failed && CanOperate(context))
+                    @if (context.Type == RequestTaskType.Automation && context.Status == RequestTaskStatus.Failed && CanOperate(context) && !RequiresManualReconciliation(context.LastAutomationStatus))
                     {
                         <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Warning" Disabled="@(rowActionBusy || !CanOperate(context))" OnClick="@(async () => await RetryTaskAsync(context.Id))">Retry</MudButton>
                     }
@@ -307,6 +307,9 @@
 
     private bool HasAutomationRecoveryContext(RequestTaskListItemDto task)
         => !string.IsNullOrWhiteSpace(GetAutomationRecoverySearch(task));
+
+    private static bool RequiresManualReconciliation(string? status)
+        => status is "SubmitUncertainManualReconcile";
 
     private string BuildAutomationRecoveryLink(RequestTaskListItemDto task)
         => $"/notifications?source={Uri.EscapeDataString("Orchestration")}&search={Uri.EscapeDataString(GetAutomationRecoverySearch(task) ?? string.Empty)}";

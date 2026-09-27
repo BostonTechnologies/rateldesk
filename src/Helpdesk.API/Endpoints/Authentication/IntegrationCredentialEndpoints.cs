@@ -117,6 +117,13 @@ public static class IntegrationCredentialEndpoints
             };
             identityDb.IntegrationCredentials.Add(credential);
             await identityDb.SaveChangesAsync(ct);
+            db.ActivityLogs.Add(new Helpdesk.Shared.Models.ActivityLog
+            {
+                UserId = owner.UserId,
+                RelatedEntityId = credential.Id.ToString("N"),
+                Message = $"Integration credential created. Prefix={credential.Prefix}; Purpose={credential.Purpose}; OrganizationId={credential.OrganizationId}; Permissions={credential.Permissions}; ExpiresAtUtc={credential.ExpiresAtUtc:O}."
+            });
+            await db.SaveChangesAsync(ct);
             context.Response.Headers.CacheControl = "no-store";
             return Results.Created($"/api/v1/integration-credentials/{credential.Id:N}", new CreatedIntegrationCredential(
                 credential.Id, credential.Prefix, $"rdk_{credential.Id:N}_{secret}", credential.Purpose,
@@ -126,7 +133,7 @@ public static class IntegrationCredentialEndpoints
             });
         }).WithSummary("Create an API integration credential");
 
-        group.MapDelete("/{credentialId:guid}", async (Guid credentialId, ClaimsPrincipal principal, IIntegrationCredentialOwnerResolver ownerResolver, RatelDeskIdentityDbContext identityDb, CancellationToken ct) =>
+        group.MapDelete("/{credentialId:guid}", async (Guid credentialId, ClaimsPrincipal principal, IIntegrationCredentialOwnerResolver ownerResolver, RatelDeskIdentityDbContext identityDb, HelpdeskDbContext db, CancellationToken ct) =>
         {
             var owner = await ownerResolver.ResolveAsync(principal, ct);
             if (owner is null) return Results.Forbid();
@@ -136,6 +143,13 @@ public static class IntegrationCredentialEndpoints
             {
                 credential.RevokedAtUtc = DateTimeOffset.UtcNow;
                 await identityDb.SaveChangesAsync(ct);
+                db.ActivityLogs.Add(new Helpdesk.Shared.Models.ActivityLog
+                {
+                    UserId = owner.UserId,
+                    RelatedEntityId = credential.Id.ToString("N"),
+                    Message = $"Integration credential revoked. Prefix={credential.Prefix}; Purpose={credential.Purpose}; OrganizationId={credential.OrganizationId}."
+                });
+                await db.SaveChangesAsync(ct);
             }
             return Results.NoContent();
         }).WithSummary("Revoke an integration credential");
@@ -143,6 +157,7 @@ public static class IntegrationCredentialEndpoints
         app.MapPost("/api/v1/integration-credentials/self/revoke", async (
             ClaimsPrincipal principal,
             RatelDeskIdentityDbContext identityDb,
+            HelpdeskDbContext db,
             CancellationToken ct) =>
         {
             if (!Guid.TryParseExact(principal.FindFirstValue("integration_credential_id"), "N", out var credentialId))
@@ -154,6 +169,13 @@ public static class IntegrationCredentialEndpoints
             {
                 credential.RevokedAtUtc = DateTimeOffset.UtcNow;
                 await identityDb.SaveChangesAsync(ct);
+                db.ActivityLogs.Add(new Helpdesk.Shared.Models.ActivityLog
+                {
+                    UserId = credential.OwnerUserId,
+                    RelatedEntityId = credential.Id.ToString("N"),
+                    Message = $"Presenting integration credential revoked. Prefix={credential.Prefix}; Purpose={credential.Purpose}; OrganizationId={credential.OrganizationId}."
+                });
+                await db.SaveChangesAsync(ct);
             }
             return Results.NoContent();
         }).RequireAuthorization(SelfRevocationPolicy).WithTags("Integration Credentials").WithSummary("Revoke the presenting integration credential");

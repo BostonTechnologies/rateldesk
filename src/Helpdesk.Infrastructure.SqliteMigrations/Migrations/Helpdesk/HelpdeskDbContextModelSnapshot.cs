@@ -23,12 +23,51 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("AllowPrivateHttp")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CatalogPath")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("ClientId")
                         .HasMaxLength(256)
                         .HasColumnType("TEXT");
 
                     b.Property<bool>("Enabled")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("HealthPath")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("IngestPath")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("LastAppliedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool?>("LastTestSucceeded")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset?>("LastTestedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProfileFingerprint")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProtectedClientSecret")
+                        .HasMaxLength(8192)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProviderKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("RemoteAudience")
                         .HasMaxLength(256)
@@ -42,6 +81,10 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .HasMaxLength(1024)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("RemoteScope")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("RemoteSystemName")
                         .HasMaxLength(128)
                         .HasColumnType("TEXT");
@@ -50,12 +93,100 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .HasMaxLength(1024)
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SecretBindingFingerprint")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("SecretBindingRevision")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTimeOffset>("UpdatedAtUtc")
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ProviderKey")
+                        .IsUnique();
+
                     b.ToTable("M2MConnectivitySettings", (string)null);
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.Persistence.Connectivity.NetclawConnectivitySettings", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ActivityHeartbeatIntervalSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("AllowPrivateHttp")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ConnectionCapacity")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Endpoint")
+                        .HasMaxLength(1024)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("IdleMinutes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Instance")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("LastAppliedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool?>("LastTestSucceeded")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset?>("LastTestedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProfileFingerprint")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProtectedDeviceToken")
+                        .HasMaxLength(8192)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProviderKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SecretBindingFingerprint")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("SecretBindingRevision")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("TurnInactivityTimeoutSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProviderKey")
+                        .IsUnique();
+
+                    b.ToTable("NetclawConnectivitySettings", (string)null);
                 });
 
             modelBuilder.Entity("Helpdesk.Infrastructure.Persistence.Entities.NotificationEntity", b =>
@@ -181,6 +312,10 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
 
                     b.Property<string>("OrganizationId")
                         .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProviderProfileFingerprint")
+                        .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
                     b.Property<int>("State")

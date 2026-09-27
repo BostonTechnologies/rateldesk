@@ -92,7 +92,7 @@
     private async Task LoadOrchestrationTenantsAsync()
     {
         orchestrationTenantsLoading = true;
-        try { orchestrationTenants = await Api.GetFromJsonAsync<List<OrchestrationCatalogTenantDto>>("api/v1/admin/orchestration/orchestration/catalog/tenants") ?? new(); }
+        try { orchestrationTenants = await Api.GetFromJsonAsync<List<OrchestrationCatalogTenantDto>>("api/v1/admin/orchestration/catalog/tenants") ?? new(); }
         catch (Exception ex) { orchestrationTenantsError = $"External orchestration tenant catalog could not be loaded: {ex.Message}"; }
         finally { orchestrationTenantsLoading = false; }
     }

@@ -294,25 +294,26 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
             requestedPermissions.Any(permission => !HelpdeskPermissions.AssignablePermissions.Contains(permission, StringComparer.OrdinalIgnoreCase)))
             return Empty(true);
 
+        var requestedOrganization = await _db.Organizations.AsNoTracking()
+            .SingleOrDefaultAsync(candidate => candidate.Id == requestedOrganizationId, ct);
+        if (requestedOrganization?.State != Helpdesk.Shared.Models.EntityState.Enabled)
+            return Empty(true);
+
         HashSet<ScopedPermissionGrant> effectiveGrants;
         if (profile.IsHelpdeskAdmin)
         {
-            var organization = await _db.Organizations.AsNoTracking()
-                .SingleOrDefaultAsync(candidate => candidate.Id == requestedOrganizationId, ct);
-            if (organization?.State != Helpdesk.Shared.Models.EntityState.Enabled)
-                return Empty(true);
-
             // Instance administration authorizes issuing a deliberately
             // bounded credential, never an instance-wide administrator token.
             effectiveGrants = requestedPermissions
-                .Select(permission => new ScopedPermissionGrant(permission, requestedOrganizationId))
+                .Select(permission => new ScopedPermissionGrant(permission, requestedOrganization.Id))
                 .ToHashSet();
         }
         else
         {
             effectiveGrants = profile.ScopedPermissionGrants
                 .Where(grant => requestedPermissions.Contains(grant.Permission) &&
-                                string.Equals(grant.OrganizationId, requestedOrganizationId, StringComparison.OrdinalIgnoreCase))
+                                string.Equals(grant.OrganizationId, requestedOrganization.Id, StringComparison.OrdinalIgnoreCase))
+                .Select(grant => new ScopedPermissionGrant(grant.Permission, requestedOrganization.Id))
                 .ToHashSet();
         }
 
@@ -328,6 +329,11 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
 
         return profile with
         {
+            PrimaryOrganizationId = requestedOrganization.Id,
+            PrimaryOrganizationName = requestedOrganization.Name,
+            CustomerId = string.Equals(profile.PrimaryOrganizationId, requestedOrganization.Id, StringComparison.OrdinalIgnoreCase)
+                ? profile.CustomerId
+                : null,
             IsHelpdeskAdmin = false,
             RoleBundles = effectivePermissions,
             Permissions = effectivePermissions,

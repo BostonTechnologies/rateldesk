@@ -156,7 +156,7 @@ else
                                             {
                                                 <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="true">Running</MudButton>
                                             }
-                                            @if (context.Type == RequestTaskType.Automation && context.Status == RequestTaskStatus.Failed && canRetryAutomationTasks)
+                                            @if (context.Type == RequestTaskType.Automation && context.Status == RequestTaskStatus.Failed && canRetryAutomationTasks && !RequiresManualReconciliation(context.LastAutomationStatus))
                                             {
                                                 <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Warning" Disabled="@(!CanOperateTask(context) || taskActionInProgress)"
                                                            OnClick="@(async () => await RetryTaskAsync(context))">Retry</MudButton>
@@ -776,6 +776,9 @@ else
     private bool HasAutomationRecoveryContext(RequestTaskDto task)
         => !string.IsNullOrWhiteSpace(GetAutomationRecoverySearch(task));
 
+    private static bool RequiresManualReconciliation(string? status)
+        => status is "SubmitUncertainManualReconcile";
+
     private string BuildAutomationRecoveryLink(RequestTaskDto task)
         => $"/notifications?source={Uri.EscapeDataString("Orchestration")}&search={Uri.EscapeDataString(GetAutomationRecoverySearch(task) ?? string.Empty)}";
 
@@ -938,7 +941,7 @@ else
             "Tasks" => "DomainEvent.RequestTask.Blocked,DomainEvent.RequestTask.Unblocked,DomainEvent.RequestTask.Skipped,DomainEvent.RequestTask.Started,DomainEvent.RequestTask.Completed,DomainEvent.RequestTask.Failed,DomainEvent.RequestTask.RetryScheduled,DomainEvent.RequestTask.RetryTriggered,DomainEvent.RequestTask.AutomationSubmitted,DomainEvent.RequestTask.AutomationRunning,DomainEvent.RequestTask.AutomationCompleted,DomainEvent.RequestTask.AutomationFailed",
             "Workflow" => "DomainEvent.Workflow.Evaluated,DomainEvent.Workflow.Progressed,DomainEvent.Workflow.RequestBlockedByTaskFailure,DomainEvent.Workflow.RequestFailedByCriticalTask,DomainEvent.Workflow.TaskFailureIgnored",
             "SLA" => "DomainEvent.RequestTask.SlaStarted,DomainEvent.RequestTask.Escalated,DomainEvent.RequestTask.SlaBreached",
-            "Orchestrator" => "DomainEvent.RequestTask.AutomationSubmitted,DomainEvent.RequestTask.AutomationRunning,DomainEvent.RequestTask.AutomationCompleted,DomainEvent.RequestTask.AutomationFailed,DomainEvent.Orchestration.External orchestration.CallbackReceived",
+            "Orchestrator" => "DomainEvent.RequestTask.AutomationSubmitted,DomainEvent.RequestTask.AutomationRunning,DomainEvent.RequestTask.AutomationCompleted,DomainEvent.RequestTask.AutomationFailed,DomainEvent.RequestTask.AutomationSubmitRejected,DomainEvent.RequestTask.AutomationSubmitUncertain,DomainEvent.Orchestration.External orchestration.CallbackReceived",
             _ => null
         };
 

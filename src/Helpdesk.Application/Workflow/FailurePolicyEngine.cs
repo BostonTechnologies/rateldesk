@@ -209,7 +209,7 @@ public sealed class FailurePolicyEngine(
             return false;
         }
 
-        if (AutomationTaskStatuses.RequiresManualRetry(task.LastAutomationStatus))
+        if (AutomationTaskStatuses.RequiresOperatorAction(task.LastAutomationStatus))
         {
             return false;
         }
