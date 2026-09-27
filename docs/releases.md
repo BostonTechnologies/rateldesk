@@ -108,13 +108,19 @@ git push origin v0.1.0
 
 The canonical tag is a SemVer tag (`vMAJOR.MINOR.PATCH` or `vMAJOR.MINOR.PATCH-prerelease`) on `main`, and its value must exactly equal MSBuild's evaluated repository version. For compatibility with the existing `RatelDesk-0.1.1-beta.3` release tag, the workflow also accepts the equivalent `RatelDesk-MAJOR.MINOR.PATCH[-prerelease]` form. The tag workflow reruns release validation, builds Web and API images for amd64 and arm64, attaches provenance/SBOM data, then creates the GitHub Release only after both image pushes complete.
 
-To recover an exact existing tag after the tag push has already happened, dispatch `release.yml` from `main` with the exact tag as the required input:
+To recover an exact existing tag after the tag push has already happened,
+dispatch `release.yml` from `main` with the exact tag as the required input.
+For example, once the beta.5 tag exists:
 
 ```bash
-gh workflow run release.yml --ref main -f tag=RatelDesk-0.1.1-beta.3
+gh workflow run release.yml --ref main -f tag=RatelDesk-0.1.1-beta.5
 ```
 
-The existing draft-release safety checks still refuse to modify a published release.
+For tags containing this workflow revision, an existing GitHub Release receives
+any missing validated assets and updated metadata while retaining its draft or
+published state. A rerun reuses matching assets; it stops if an asset with the
+same name has different content, so operators can resolve the conflict without
+overwriting it. Dispatching an older tag checks out that tag's release scripts.
 
 Stable releases publish `ghcr.io/bostontechnologies/rateldesk-web` and `ghcr.io/bostontechnologies/rateldesk-api` with the exact version and `latest`. Prereleases publish only their exact tag and become GitHub prereleases. Consumers should use an exact tag or an immutable digest, never rely on `latest` for a production deployment.
 
