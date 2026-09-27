@@ -168,6 +168,69 @@ The unchanged Netclaw paired-device journey also remains unrun without an
 authorized paired device. Local provider-shaped responders and authenticated
 Kestrel hubs cover regression behavior only.
 
+## Private-HTTP legacy-confirmation correction (2026-09-27)
+
+H1 was found at reviewed head `6db10589f69eb8c19e4f352c583792bfcc7d95cd`:
+`ConfirmNetclawLegacySessionsAsync` passed the request's private-HTTP opt-in to
+URL normalization but omitted it from the temporary `AiAssistantChatOptions`
+validator. The isolated regression was added before changing production code.
+Both synthetic RFC1918 IPv4 and IPv6 ULA service cases threw the expected
+invalid historical endpoint error, and both authenticated endpoint cases
+returned HTTP 400 instead of success: **4 failed, 0 passed** on the reviewed
+production code. This is executable failing-before evidence, not a claim of a
+real daemon failure.
+
+The failing theories were
+`IntegrationProviderSettingsTests.Legacy_confirmation_accepts_explicit_private_http_and_preserves_only_selected_history`
+and
+`NetclawLegacySessionConfirmationEndpointsTests.Authenticated_admin_can_confirm_private_http_legacy_owner_for_selected_session`
+(two address-family cases each). The test additions were run against the
+unmodified `6db1058` production method before the repair.
+
+The one-field production repair and its regression tests are in
+`12d770ff5aba4cbcc64672bfccda6d9a3005f2cc`. The temporary validator now
+uses `AllowPrivateHttp = request.AllowPrivateHttp`; the existing endpoint,
+instance, path, and private-address policy remains in force. SQLite service and
+authenticated endpoint tests cover opted-in private IPv4 and ULA, selected-only
+binding, preserved session IDs and transcripts, one safe administrator audit,
+no chat-client call, omitted/false opt-in, public HTTP, invalid path/instance,
+count/ID conflicts, and HTTPS default behavior. The PostgreSQL chat fixture
+retains the HTTPS provider A success path, adds opted-in private-HTTP provider
+A resume after a fresh manager, and fences provider B from A's session. These
+fixtures use synthetic metadata and a controlled chat client; they do not
+contact an unchanged Netclaw daemon.
+
+After the repair, the service and endpoint class filter passed **35/35** and
+the initial PostgreSQL A/B filter passed **2/2**. After restoring the original
+HTTPS deployment-provider test alongside the private-HTTP case, the final
+focused Release filter passed **38/38**. The final Release build passed with
+**0 errors and 20 pre-existing warnings**; the full .NET suite passed
+**1,536 tests with 6 existing skips and 0 failures**. Whitespace, layout,
+version `0.1.1-beta.4`, public-disclosure, and Slopwatch checks passed
+(0 findings across 1,314 files). Tests used .NET SDK 10.0.401 under the
+repository's 10.0.400 latest-feature pin and disposable `postgres:16`.
+
+The final focused command was `dotnet test tests/Helpdesk.Tests/Helpdesk.Tests.csproj
+--configuration Release --no-build --no-restore --filter
+'FullyQualifiedName~IntegrationProviderSettingsTests|FullyQualifiedName~NetclawLegacySessionConfirmationEndpointsTests|FullyQualifiedName~ChatTransportLifecycleTests.Administrator_confirmed_legacy_session_resumes_with_its_historical_provider|FullyQualifiedName~ChatTransportLifecycleTests.Different_deployment_provider_cannot_resume_administrator_bound_legacy_session'`.
+The full command was `dotnet test Helpdesk.sln --configuration Release
+--no-build --no-restore --logger 'console;verbosity=minimal'`.
+
+At the same product commit, [PR validation run 36310096983](https://github.com/BostonTechnologies/RatelDesk/actions/runs/36310096983)
+passed all **15/15 jobs**, including .NET, published mailbox lifecycle, UX,
+Docker, Compose, disclosure/layout, the nonpublishing `0.0.0-pr` release-asset
+rehearsal, and Linux x64,
+Linux ARM64, and Windows x64 archive runtimes.
+[Managed PostgreSQL run 36310096954](https://github.com/BostonTechnologies/RatelDesk/actions/runs/36310096954)
+also passed. These runs validate the H1 product head, rather than the earlier
+`6db1058` review checkpoint. This ledger update is evidence-only and follows
+the product commit.
+
+`docs/netclaw.md` now states that `allowPrivateHttp` must be set in the legacy
+confirmation request and is not inherited from deployment settings. PR #94
+remains draft. The unchanged paired Netclaw journey and full pinned NetRatel
+ingest/ticket journey remain separate external interoperability gates.
+
 ## Compatibility decisions
 
 - Canonical outbound provider namespaces are `Orchestrator` and `Netclaw`.
@@ -194,8 +257,8 @@ Kestrel hubs cover regression behavior only.
 - [ ] Real Netclaw SignalR evidence recorded against a pinned unchanged target
 - [x] Final implementation-head CLI/stdio/HTTP MCP protected-operation acceptance against published local hosts and disposable PostgreSQL recorded
 - [x] UI light/dark/mobile evidence captured without secrets
-- [x] Full applicable tests and hosted checks green for the final product implementation head (`c21b63a`)
-- [x] Non-publishing beta.4 release rehearsal rerun after this rework
+- [x] Full applicable tests and hosted checks green for the latest product implementation head (`12d770f`)
+- [x] Nonpublishing PR release rehearsal and all archive runtimes rerun at `12d770f`; beta.4 candidate-specific package rehearsal previously passed at `c21b63a`
 - [x] Branch clean and pushed after the final review edits and evidence follow-up
 - [x] Rollup PR draft and reviewable
 - [x] Human merge/release/deployment steps handed off; no merge or publication performed
