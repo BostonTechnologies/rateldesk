@@ -3,8 +3,14 @@ using System.Threading.Channels;
 using Helpdesk.Application.Events;
 using Helpdesk.Application.AiAssistant.Chat;
 using Helpdesk.Infrastructure.AiAssistant.Chat;
+using Helpdesk.Infrastructure.Configuration;
+using Helpdesk.Infrastructure.Orchestration;
+using Helpdesk.Infrastructure.Persistence.Connectivity;
 using Helpdesk.Shared.AiAssistant.Chat;
+using Helpdesk.Shared.DTOs.Orchestration;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -174,6 +180,58 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
     }
 
     [Fact]
+    public async Task Administrator_confirmed_legacy_uncertain_session_reconciles_without_resending()
+    {
+        const string endpoint = "https://provider-a.invalid/hub/session";
+        var runtime = new AiAssistantChatRuntimeState(Options.Create(new AiAssistantChatOptions
+        {
+            Enabled = true,
+            Endpoint = endpoint,
+            DeviceToken = "synthetic-device-token-a"
+        }));
+        await using var run = await Run.CreateAsync(fixture, runtimeState: runtime);
+        run.Client.FailSend = true;
+        await run.SendAsync();
+        var original = Assert.Single(run.Client.Sent);
+
+        await using (var db = fixture.Context())
+        {
+            var conversation = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == run.Conversation);
+            Assert.Equal(ChatState.DeliveryUnknown, conversation.State);
+            Assert.NotNull(conversation.AiAssistantSessionId);
+            conversation.ProviderProfileFingerprint = null;
+            await db.SaveChangesAsync();
+        }
+
+        var confirmed = await ConfirmLegacySessionAsync(fixture, run.Conversation, endpoint);
+        Assert.Equal(runtime.Current.ProfileFingerprint, confirmed.ProviderProfileFingerprint);
+        var resumed = new ControlledClient
+        {
+            RecentMessages = JsonSerializer.SerializeToElement(new[] { new { role = "user", content = original } })
+        };
+        run.Factory.Next = resumed;
+
+        await run.Manager.ReconcileAsync(run.Conversation, default);
+
+        Assert.Equal(run.Client.SessionId, resumed.RequestedSessionId);
+        Assert.Single(run.Client.Sent);
+        Assert.Empty(resumed.Sent);
+        var events = await run.WaitForAsync(items => items.Any(item => item.Type == "recovery_admission_confirmed"));
+        Assert.Contains(events, item => item.Type == "recovery_admission_confirmed");
+
+        await resumed.EmitAsync(new { type = "text", sessionId = resumed.SessionId, text = "Recovered historical turn output" });
+        await resumed.EmitAsync(new { type = "turn_completed", sessionId = resumed.SessionId });
+        var completed = await run.WaitForAsync(items => items.Any(item => item.Type == "turn_completed"));
+        Assert.Equal("Recovered historical turn output", Assert.Single(completed, item => item.Type == "assistant").Text);
+        await using var check = fixture.Context();
+        var persisted = await check.Set<AiAssistantChatConversation>().AsNoTracking().SingleAsync(x => x.Id == run.Conversation);
+        Assert.Equal(ChatState.Idle, persisted.State);
+        Assert.Equal(confirmed.ProviderProfileFingerprint, persisted.ProviderProfileFingerprint);
+        Assert.Single(run.Client.Sent);
+        Assert.Empty(resumed.Sent);
+    }
+
+    [Fact]
     public async Task ArchiveDuringConnectionCannotWriteSessionBindingOrSend()
     {
         await using var run = await Run.CreateAsync(fixture);
@@ -243,7 +301,7 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
     }
 
     [Fact]
-    public async Task Trusted_legacy_session_is_adopted_without_speculative_durable_rewrite()
+    public async Task Administrator_confirmed_legacy_session_resumes_with_its_historical_provider()
     {
         var runtime = new AiAssistantChatRuntimeState(Options.Create(new AiAssistantChatOptions
         {
@@ -260,6 +318,31 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
             await db.SaveChangesAsync();
         }
 
+        await using (var db = fixture.Context())
+        {
+            var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Netclaw:Enabled"] = "true",
+                ["Netclaw:Endpoint"] = "https://chat.invalid/hub/session",
+                ["Netclaw:DeviceToken"] = "device-token"
+            }).Build();
+            var settings = new IntegrationProviderSettingsService(
+                db,
+                configuration,
+                new IntegrationProviderSecretProtector(new EphemeralDataProtectionProvider(NullLoggerFactory.Instance)),
+                Options.Create(new AiAssistantChatOptions()),
+                new DatabaseOptions { Provider = "PostgreSql" },
+                TimeProvider.System,
+                NullLogger<IntegrationProviderSettingsService>.Instance);
+            var confirmed = await settings.ConfirmNetclawLegacySessionsAsync(new ConfirmNetclawLegacySessionsDto
+            {
+                HistoricalEndpoint = "https://chat.invalid/hub/session",
+                ExpectedEligibleConversations = 1,
+                ConversationIds = [run.Conversation]
+            }, "synthetic-admin");
+            Assert.Equal(runtime.Current.ProfileFingerprint, confirmed.ProviderProfileFingerprint);
+        }
+
         await run.SendAsync();
 
         Assert.Equal("legacy-session", run.Client.RequestedSessionId);
@@ -270,9 +353,10 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
     }
 
     [Fact]
-    public async Task Legacy_session_without_trusted_runtime_authority_is_not_reused()
+    public async Task Unbound_legacy_session_is_never_reused_even_when_runtime_flag_is_true()
     {
         var runtime = new AiAssistantChatRuntimeState(Options.Create(new AiAssistantChatOptions { Enabled = true }));
+        runtime.Publish(runtime.Current with { CanAdoptLegacySessions = true });
         await using var run = await Run.CreateAsync(fixture, runtimeState: runtime);
         await using (var db = fixture.Context())
         {
@@ -288,6 +372,157 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
         await using var check = fixture.Context();
         Assert.Equal(ChatState.DeliveryUnknown, (await check.Set<AiAssistantChatConversation>().AsNoTracking().SingleAsync(x => x.Id == run.Conversation)).State);
         Assert.Equal("legacy-session", (await check.Set<AiAssistantChatConversation>().AsNoTracking().SingleAsync(x => x.Id == run.Conversation)).AiAssistantSessionId);
+    }
+
+    [Fact]
+    public async Task Concurrently_appearing_unbound_session_is_rejected_after_connect_with_runtime_flag_true()
+    {
+        var runtime = new AiAssistantChatRuntimeState(Options.Create(new AiAssistantChatOptions { Enabled = true }));
+        runtime.Publish(runtime.Current with { CanAdoptLegacySessions = true });
+        await using var run = await Run.CreateAsync(fixture, runtimeState: runtime);
+        run.Client.ConnectGate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var sending = run.SendAsync();
+        await run.Client.ConnectStarted.Task.WaitAsync(timeout.Token);
+
+        await using (var db = fixture.Context())
+        {
+            var conversation = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == run.Conversation, timeout.Token);
+            conversation.AiAssistantSessionId = run.Client.SessionId;
+            conversation.ProviderProfileFingerprint = null;
+            await db.SaveChangesAsync(timeout.Token);
+        }
+
+        run.Client.ConnectGate.TrySetResult();
+        await sending.WaitAsync(timeout.Token);
+
+        Assert.Null(run.Client.RequestedSessionId);
+        Assert.Empty(run.Client.Sent);
+        await using var check = fixture.Context();
+        var persisted = await check.Set<AiAssistantChatConversation>().AsNoTracking().SingleAsync(x => x.Id == run.Conversation);
+        Assert.Equal(ChatState.DeliveryUnknown, persisted.State);
+        Assert.Equal("signalr/lifecycle-test", persisted.AiAssistantSessionId);
+        Assert.Null(persisted.ProviderProfileFingerprint);
+    }
+
+    [Fact]
+    public async Task Different_deployment_provider_cannot_resume_administrator_bound_legacy_session()
+    {
+        var runtime = new AiAssistantChatRuntimeState(Options.Create(new AiAssistantChatOptions
+        {
+            Enabled = true,
+            Endpoint = "https://provider-b.invalid/hub/session",
+            DeviceToken = "synthetic-token-b"
+        }));
+        var (ticket, conversationId) = await fixture.CreateAsync();
+        await using (var db = fixture.Context())
+        {
+            var conversation = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == conversationId);
+            conversation.AiAssistantSessionId = "session-a";
+            conversation.ProviderProfileFingerprint = null;
+            await db.SaveChangesAsync();
+        }
+
+        await using (var db = fixture.Context())
+        {
+            var configurationB = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Netclaw:Enabled"] = "true",
+                ["Netclaw:Endpoint"] = "https://provider-b.invalid/hub/session",
+                ["Netclaw:DeviceToken"] = "synthetic-token-b"
+            }).Build();
+            var service = new IntegrationProviderSettingsService(
+                db,
+                configurationB,
+                new IntegrationProviderSecretProtector(new EphemeralDataProtectionProvider(NullLoggerFactory.Instance)),
+                Options.Create(new AiAssistantChatOptions()),
+                new DatabaseOptions { Provider = "PostgreSql" },
+                TimeProvider.System,
+                NullLogger<IntegrationProviderSettingsService>.Instance);
+            var confirmedA = await service.ConfirmNetclawLegacySessionsAsync(new ConfirmNetclawLegacySessionsDto
+            {
+                HistoricalInstance = "dev",
+                HistoricalEndpoint = "https://provider-a.invalid/hub/session",
+                ExpectedEligibleConversations = 1,
+                ConversationIds = [conversationId]
+            }, "synthetic-admin");
+            var resolvedB = await service.GetResolvedNetclawSettingsAsync();
+            Assert.NotEqual(confirmedA.ProviderProfileFingerprint, resolvedB.ProfileFingerprint);
+            Assert.Equal(runtime.Current.ProfileFingerprint, resolvedB.ProfileFingerprint);
+            Assert.False(resolvedB.CanAdoptLegacySessions);
+        }
+
+        await using var run = await Run.AttachAsync(fixture, ticket, conversationId, runtimeState: runtime);
+        await run.SendAsync();
+
+        Assert.False(run.Client.ConnectStarted.Task.IsCompleted);
+        Assert.Empty(run.Client.Sent);
+        await using var check = fixture.Context();
+        var conversationAfter = await check.Set<AiAssistantChatConversation>().AsNoTracking().SingleAsync(x => x.Id == run.Conversation);
+        Assert.Equal("session-a", conversationAfter.AiAssistantSessionId);
+        Assert.NotEqual(runtime.Current.ProfileFingerprint, conversationAfter.ProviderProfileFingerprint);
+
+        var (freshTicket, freshConversation) = await fixture.CreateAsync();
+        var freshRequest = new ChatMessageRequest(freshConversation, Guid.NewGuid(), "Start a fresh conversation with provider B.");
+        await using (var db = fixture.Context())
+            await fixture.Store(db).AcceptMessageAsync("incidents", freshTicket, freshRequest, "operator", default);
+        var freshClient = new ControlledClient("provider-b-fresh-session");
+        run.Factory.Next = freshClient;
+        await run.Manager.SendAsync(freshConversation, freshRequest.ClientMessageId, freshRequest.Text, default);
+
+        Assert.Null(freshClient.RequestedSessionId);
+        Assert.Single(freshClient.Sent);
+        await using var freshCheck = fixture.Context();
+        var persistedFresh = await freshCheck.Set<AiAssistantChatConversation>().AsNoTracking().SingleAsync(x => x.Id == freshConversation);
+        Assert.Equal("provider-b-fresh-session", persistedFresh.AiAssistantSessionId);
+        Assert.Equal(runtime.Current.ProfileFingerprint, persistedFresh.ProviderProfileFingerprint);
+    }
+
+    [Fact]
+    public async Task Administrator_confirmed_legacy_approval_wait_resumes_with_provider_A_without_resending()
+    {
+        const string endpoint = "https://provider-a.invalid/hub/session";
+        var runtime = new AiAssistantChatRuntimeState(Options.Create(new AiAssistantChatOptions
+        {
+            Enabled = true,
+            Endpoint = endpoint,
+            DeviceToken = "synthetic-device-token-a"
+        }));
+        await using var run = await Run.CreateAsync(fixture, runtimeState: runtime);
+        await run.SendAsync();
+        await run.Client.EmitApprovalAsync("call-one");
+        var events = await run.WaitForAsync(items => items.Any(item => item.Type == "approval_request"));
+        await using (var stateDb = fixture.Context())
+            Assert.Equal(ChatState.AwaitingApproval, await stateDb.Set<AiAssistantChatConversation>().AsNoTracking()
+                .Where(item => item.Id == run.Conversation).Select(item => item.State).SingleAsync());
+
+        var savedSession = run.Client.SessionId;
+        await using (var db = fixture.Context())
+        {
+            var conversation = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == run.Conversation);
+            conversation.ProviderProfileFingerprint = null;
+            await db.SaveChangesAsync();
+        }
+        var confirmed = await ConfirmLegacySessionAsync(fixture, run.Conversation, endpoint);
+        Assert.Equal(runtime.Current.ProfileFingerprint, confirmed.ProviderProfileFingerprint);
+        await run.Manager.RetireAsync(run.Conversation, default);
+        var resumed = new ControlledClient();
+        run.Factory.Next = resumed;
+
+        await using (var db = fixture.Context())
+            await fixture.Store(db).AcceptApprovalAsync("incidents", run.Ticket, "call-one", new(run.Conversation, "approve_once"), "approver", default);
+        await run.Manager.RespondAsync(run.Conversation, "call-one", "approve_once", default);
+
+        Assert.Equal(savedSession, resumed.RequestedSessionId);
+        Assert.Equal((savedSession, "call-one", "approve_once"), Assert.Single(resumed.Responses));
+        Assert.Single(run.Client.Sent);
+        Assert.Empty(resumed.Sent);
+        await using var check = fixture.Context();
+        var conversationAfter = await check.Set<AiAssistantChatConversation>().AsNoTracking().SingleAsync(x => x.Id == run.Conversation);
+        Assert.Equal(ChatState.Processing, conversationAfter.State);
+        Assert.Equal(confirmed.ProviderProfileFingerprint, conversationAfter.ProviderProfileFingerprint);
+        Assert.Equal(savedSession, conversationAfter.AiAssistantSessionId);
+        Assert.Single(events, item => item.Type == "approval_request");
     }
 
     [Fact]
@@ -344,7 +579,7 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
             Source: "database",
             ManagedByDeployment: false,
             SourceKey: "database",
-            CanAdoptLegacySessions: true);
+            CanAdoptLegacySessions: false);
         Assert.True(runtime.TryPublish(initial));
 
         await using var run = await Run.CreateAsync(fixture, runtimeState: runtime);
@@ -371,6 +606,30 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
         var persisted = await check.Set<AiAssistantChatConversation>().AsNoTracking().SingleAsync(x => x.Id == run.Conversation);
         Assert.Equal("same-provider-session", persisted.AiAssistantSessionId);
         Assert.Equal(initial.ProfileFingerprint, persisted.ProviderProfileFingerprint);
+    }
+
+    private static async Task<NetclawLegacySessionConfirmationDto> ConfirmLegacySessionAsync(
+        ChatPostgresFixture fixture,
+        Guid conversationId,
+        string historicalEndpoint)
+    {
+        await using var db = fixture.Context();
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection().Build();
+        var settings = new IntegrationProviderSettingsService(
+            db,
+            configuration,
+            new IntegrationProviderSecretProtector(new EphemeralDataProtectionProvider(NullLoggerFactory.Instance)),
+            Options.Create(new AiAssistantChatOptions()),
+            new DatabaseOptions { Provider = "PostgreSql" },
+            TimeProvider.System,
+            NullLogger<IntegrationProviderSettingsService>.Instance);
+        return await settings.ConfirmNetclawLegacySessionsAsync(new ConfirmNetclawLegacySessionsDto
+        {
+            HistoricalInstance = "dev",
+            HistoricalEndpoint = historicalEndpoint,
+            ExpectedEligibleConversations = 1,
+            ConversationIds = [conversationId]
+        }, "synthetic-admin");
     }
 
     private sealed class Run : IAsyncDisposable
@@ -407,6 +666,17 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
             TimeProvider? timeProvider = null,
             IAiAssistantChatRuntimeState? runtimeState = null)
         {
+            var (ticket, conversation) = await fixture.CreateAsync();
+            return await AttachAsync(fixture, ticket, conversation, timeProvider, runtimeState);
+        }
+
+        public static async Task<Run> AttachAsync(
+            ChatPostgresFixture fixture,
+            string ticket,
+            Guid conversation,
+            TimeProvider? timeProvider = null,
+            IAiAssistantChatRuntimeState? runtimeState = null)
+        {
             var services = new ServiceCollection().AddScoped(_ => fixture.Context())
                 .AddSingleton(Substitute.For<IDomainEventPublisher>())
                 .AddSingleton(Substitute.For<ICorrelationContext>()).BuildServiceProvider();
@@ -421,7 +691,6 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
                 timeProvider,
                 runtimeState);
             await manager.StartAsync(default);
-            var (ticket, conversation) = await fixture.CreateAsync();
             return new(fixture, services, feed, manager, factory, ticket, conversation, timeProvider);
         }
 
@@ -478,7 +747,10 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
     private sealed class ControlledClient : IAiAssistantChatClient
     {
         private Func<JsonElement, Task>? output;
-        public string SessionId { get; private set; } = "signalr/lifecycle-test";
+        public string SessionId { get; private set; }
+
+        public ControlledClient(string sessionId = "signalr/lifecycle-test") => SessionId = sessionId;
+
         public string? RequestedSessionId { get; private set; }
         public JsonElement? RecentMessages { get; init; }
         public bool FailSend { get; set; }

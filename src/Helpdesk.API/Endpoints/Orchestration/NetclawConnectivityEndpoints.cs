@@ -55,6 +55,31 @@ public static class NetclawConnectivityEndpoints
             }
         });
 
+        group.MapGet("/legacy-sessions/unbound", async (
+            IIntegrationProviderSettingsService settings,
+            CancellationToken ct) => Results.Ok(await settings.GetUnboundNetclawLegacySessionsAsync(ct)));
+
+        group.MapPost("/legacy-sessions/confirm-owner", async (
+            ConfirmNetclawLegacySessionsDto request,
+            IIntegrationProviderSettingsService settings,
+            ClaimsPrincipal principal,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                var result = await settings.ConfirmNetclawLegacySessionsAsync(request, Actor(principal), ct);
+                return Results.Ok(result);
+            }
+            catch (IntegrationProviderConfigurationConflictException ex)
+            {
+                return Results.Conflict(new { code = "legacy_session_conflict", message = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { code = "invalid_legacy_provider", message = ex.Message });
+            }
+        });
+
         group.MapPost("/test", async (
             IIntegrationProviderSettingsService settings,
             IAiAssistantChatClientFactory clients,
@@ -65,18 +90,21 @@ public static class NetclawConnectivityEndpoints
             var testedProfile = await settings.GetResolvedNetclawSettingsAsync(ct);
             async Task<IResult> CompleteAsync(NetclawConnectivityTestResultDto result)
             {
-                await settings.RecordNetclawTestAsync(
+                var recorded = await settings.RecordNetclawTestAsync(
                     testedProfile.Revision,
                     testedProfile.ProfileFingerprint,
                     result.Success,
                     ct);
+                var superseded = !testedProfile.ManagedByDeployment && testedProfile.Revision > 0 && !recorded;
                 db.ActivityLogs.Add(new ActivityLog
                 {
                     UserId = Actor(principal),
                     RelatedEntityId = "Netclaw",
-                    Message = $"Integration provider connectivity test completed. Provider=Netclaw; Success={result.Success}; StatusCode={result.StatusCode?.ToString() ?? "none"}."
+                    Message = $"Integration provider connectivity test completed. Provider=Netclaw; Success={result.Success}; Superseded={superseded}; StatusCode={result.StatusCode?.ToString() ?? "none"}."
                 });
                 await db.SaveChangesAsync(ct);
+                if (superseded)
+                    return Results.Conflict(new { code = "diagnostic_superseded", message = "The provider configuration changed while this test was running. Reload and test the current settings." });
                 return result.Success ? Results.Ok(result) : Results.BadRequest(result);
             }
 
@@ -114,6 +142,7 @@ public static class NetclawConnectivityEndpoints
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
             deadline.CancelAfter(TimeSpan.FromSeconds(30));
             var entered = false;
+            NetclawConnectivityTestResultDto result;
             try
             {
                 await DiagnosticGate.WaitAsync(deadline.Token);
@@ -124,37 +153,37 @@ public static class NetclawConnectivityEndpoints
                 // disposed before the diagnostic request completes.
                 _ = await client.ConnectAsync(null, _ => Task.CompletedTask, deadline.Token);
                 stopwatch.Stop();
-                var result = new NetclawConnectivityTestResultDto
+                result = new NetclawConnectivityTestResultDto
                 {
                     Success = true,
                     Message = "Authenticated Netclaw SignalR session negotiation succeeded.",
                     SessionProtocol = "EnsureSession",
                     Probes = [Probe("AuthenticatedSignalR", true, 200, "Authenticated session protocol accepted.", stopwatch.ElapsedMilliseconds)]
                 };
-                return await CompleteAsync(result);
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
-                return await CompleteAsync(new NetclawConnectivityTestResultDto
+                result = new NetclawConnectivityTestResultDto
                 {
                     Success = false,
                     Message = "Netclaw session negotiation timed out.",
                     Probes = [Probe("AuthenticatedSignalR", false, 408, "The authenticated session negotiation timed out.", stopwatch.ElapsedMilliseconds)]
-                });
+                };
             }
             catch (Exception)
             {
-                return await CompleteAsync(new NetclawConnectivityTestResultDto
+                result = new NetclawConnectivityTestResultDto
                 {
                     Success = false,
                     Message = "Netclaw rejected the authenticated session negotiation.",
                     Probes = [Probe("AuthenticatedSignalR", false, null, "The authenticated session negotiation failed.", stopwatch.ElapsedMilliseconds)]
-                });
+                };
             }
             finally
             {
                 if (entered) DiagnosticGate.Release();
             }
+            return await CompleteAsync(result);
         });
 
         group.MapPost("/test-draft", async (

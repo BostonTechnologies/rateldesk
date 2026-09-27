@@ -108,6 +108,18 @@ public sealed class UpdateNetclawConnectivitySettingsDto
     public TimeSpan ActivityHeartbeatInterval { get; set; } = TimeSpan.FromSeconds(15);
 }
 
+public sealed class ConfirmNetclawLegacySessionsDto
+{
+    public string? HistoricalInstance { get; set; }
+    public string? HistoricalEndpoint { get; set; }
+    public bool AllowPrivateHttp { get; set; }
+    public int ExpectedEligibleConversations { get; set; }
+    public IReadOnlyList<Guid> ConversationIds { get; set; } = [];
+}
+
+public sealed record NetclawLegacySessionConfirmationDto(int BoundConversations, string ProviderProfileFingerprint);
+public sealed record NetclawUnboundLegacySessionDto(Guid ConversationId, string TicketId, string TicketType, DateTimeOffset LastActivityUtc);
+
 public sealed class OrchestrationConnectivityTestResultDto
 {
     public bool Success { get; set; }
@@ -168,13 +180,16 @@ public sealed class OrchestrationIngestResult
         !string.IsNullOrWhiteSpace(ExecutionId) ||
         !string.IsNullOrWhiteSpace(RequestId) ||
         !string.IsNullOrWhiteSpace(RunId);
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool HasExecutionIdentity => !string.IsNullOrWhiteSpace(ExecutionId);
 }
 
 public static class OrchestrationIngestClassifier
 {
     public static void Apply(OrchestrationIngestResult result, bool hasStatus)
     {
-        var status = result.Status.Trim().ToLowerInvariant();
+        var status = result.Status?.Trim().ToLowerInvariant() ?? string.Empty;
         var outcome = status switch
         {
             "completed" or "complete" or "done" or "success" or "succeeded" => OrchestrationExecutionOutcome.Completed,
@@ -195,13 +210,16 @@ public static class OrchestrationIngestClassifier
             return;
         }
 
-        if (!hasStatus || outcome is OrchestrationExecutionOutcome.Unknown)
+        // NetRatel's successful ingest contract supplies ExecutionId explicitly.
+        // RequestId and RunId are useful for reconciliation, but neither proves
+        // that a remote execution was acknowledged.
+        if (!hasStatus || outcome is OrchestrationExecutionOutcome.Unknown || !result.HasExecutionIdentity)
         {
             result.Disposition = OrchestrationSubmissionDisposition.Unknown;
             return;
         }
 
-        result.Disposition = result.Status.Trim().ToLowerInvariant() is "already_exists" or "already-exists" or "duplicate" or "existing"
+        result.Disposition = status is "already_exists" or "already-exists" or "duplicate" or "existing"
             || outcome is OrchestrationExecutionOutcome.Completed or OrchestrationExecutionOutcome.Failed or OrchestrationExecutionOutcome.Cancelled
             ? OrchestrationSubmissionDisposition.Existing
             : OrchestrationSubmissionDisposition.Admitted;

@@ -217,18 +217,15 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
             }
             var providerChanged = !string.IsNullOrWhiteSpace(conversation.ProviderProfileFingerprint) &&
                 !string.Equals(conversation.ProviderProfileFingerprint, snapshot.ProfileFingerprint, StringComparison.Ordinal);
-            var legacySession = string.IsNullOrWhiteSpace(conversation.ProviderProfileFingerprint) &&
+            var unboundLegacySession = string.IsNullOrWhiteSpace(conversation.ProviderProfileFingerprint) &&
                 !string.IsNullOrWhiteSpace(conversation.AiAssistantSessionId);
-            if ((providerChanged && conversation.State != ChatState.Idle) ||
-                (legacySession && !snapshot.CanAdoptLegacySessions))
+            if (providerChanged || unboundLegacySession)
             {
                 throw new ChatConflictException("This conversation belongs to a different Netclaw provider profile. Start a new conversation instead of reusing its remote session.");
             }
-            // A legacy saved session can be resumed only when the runtime snapshot
-            // came from the trusted legacy deployment/profile context. A changed
-            // profile may replace an idle session, but that decision is kept local
-            // until the new session has been negotiated and the durable row locked.
-            var requestedSessionId = providerChanged ? null : conversation.AiAssistantSessionId;
+            // A saved remote session is authorized only by its durable provider
+            // fingerprint, which legacy confirmation writes per conversation.
+            var requestedSessionId = conversation.AiAssistantSessionId;
             if (owners.TryGetValue(id, out var existing))
             {
                 if (!string.Equals(existing.ProfileFingerprint, snapshot.ProfileFingerprint, StringComparison.Ordinal))
@@ -268,15 +265,12 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
                 if (conversation.State == ChatState.Archived) throw new ChatConflictException("The conversation was archived while its transport connected.");
                 var durableProviderChanged = !string.IsNullOrWhiteSpace(conversation.ProviderProfileFingerprint) &&
                     !string.Equals(conversation.ProviderProfileFingerprint, snapshot.ProfileFingerprint, StringComparison.Ordinal);
-                if (durableProviderChanged && conversation.State != ChatState.Idle)
+                if (durableProviderChanged)
                     throw new ChatConflictException("The conversation's provider profile changed while its transport connected.");
                 if (string.IsNullOrWhiteSpace(conversation.ProviderProfileFingerprint) &&
-                    !string.IsNullOrWhiteSpace(conversation.AiAssistantSessionId) &&
-                    !snapshot.CanAdoptLegacySessions)
+                    !string.IsNullOrWhiteSpace(conversation.AiAssistantSessionId))
                     throw new ChatConflictException("The legacy conversation has no trusted provider binding. Start a new conversation instead of reusing its remote session.");
-                if (durableProviderChanged)
-                    conversation.AiAssistantSessionId = null;
-                if (!durableProviderChanged && conversation.AiAssistantSessionId is not null && conversation.AiAssistantSessionId != ensured.SessionId)
+                if (conversation.AiAssistantSessionId is not null && conversation.AiAssistantSessionId != ensured.SessionId)
                     throw new ChatConflictException("The conversation's session binding changed.");
                 owner.SessionId = ensured.SessionId;
                 owner.AdvanceSequence(conversation.LastSequence);

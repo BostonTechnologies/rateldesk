@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.WebSockets;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http.Connections.Client;
@@ -35,12 +36,20 @@ public sealed class AiAssistantChatClientFactory(IAiAssistantChatRuntimeState ru
     public IAiAssistantChatClient Create(AiAssistantChatRuntimeSnapshot snapshot) => new AiAssistantSignalRChatClient(snapshot);
 }
 
-public sealed class AiAssistantSignalRChatClient(AiAssistantChatRuntimeSnapshot options) : IAiAssistantChatClient
+public sealed class AiAssistantSignalRChatClient : IAiAssistantChatClient
 {
-    public bool IsConnected => connection.State == HubConnectionState.Connected;
-    private readonly HubConnection connection = BuildConnection(options);
+    public AiAssistantSignalRChatClient(AiAssistantChatRuntimeSnapshot options)
+        : this(options, null) { }
 
-    private static HubConnection BuildConnection(AiAssistantChatRuntimeSnapshot options)
+    internal AiAssistantSignalRChatClient(AiAssistantChatRuntimeSnapshot options, IntegrationConnectionHooks? hooks)
+    {
+        connection = BuildConnection(options, hooks);
+    }
+
+    public bool IsConnected => connection.State == HubConnectionState.Connected;
+    private readonly HubConnection connection;
+
+    private static HubConnection BuildConnection(AiAssistantChatRuntimeSnapshot options, IntegrationConnectionHooks? hooks)
     {
         if (!Uri.TryCreate(options.Endpoint, UriKind.Absolute, out var endpoint))
             throw new ArgumentException("The Netclaw endpoint must be an absolute URI.", nameof(options));
@@ -49,8 +58,8 @@ public sealed class AiAssistantSignalRChatClient(AiAssistantChatRuntimeSnapshot 
             .WithUrl(endpoint, http =>
             {
                 http.AccessTokenProvider = () => Task.FromResult<string?>(options.DeviceToken);
-                http.HttpMessageHandlerFactory = _ => IntegrationSafeHttpMessageHandler.Create(options.AllowPrivateHttp, endpoint);
-                http.WebSocketFactory = (context, cancellationToken) => CreateWebSocketAsync(context, endpoint, options.AllowPrivateHttp, cancellationToken);
+                http.HttpMessageHandlerFactory = _ => IntegrationSafeHttpMessageHandler.CreateSignalRHandler(options.AllowPrivateHttp, endpoint, hooks);
+                http.WebSocketFactory = (context, cancellationToken) => CreateWebSocketAsync(context, endpoint, options.AllowPrivateHttp, cancellationToken, hooks);
             })
             .Build();
     }
@@ -59,30 +68,37 @@ public sealed class AiAssistantSignalRChatClient(AiAssistantChatRuntimeSnapshot 
         WebSocketConnectionContext context,
         Uri configuredEndpoint,
         bool allowPrivateHttp,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IntegrationConnectionHooks? hooks)
     {
         await IntegrationSafeHttpMessageHandler.ValidateSignalRTargetAsync(
             configuredEndpoint,
             context.Uri,
             allowPrivateHttp,
-            cancellationToken);
+            cancellationToken,
+            hooks);
 
         var socket = new ClientWebSocket();
+        var socketsHandler = IntegrationSafeHttpMessageHandler.CreateCore(allowPrivateHttp, configuredEndpoint, hooks);
+        var invoker = new HttpMessageInvoker(
+            IntegrationSafeHttpMessageHandler.WrapSignalRHandler(socketsHandler, configuredEndpoint, allowPrivateHttp));
         try
         {
-            socket.Options.Proxy = null;
             if (context.Options is not null)
             {
                 foreach (var header in context.Options.Headers)
                     socket.Options.SetRequestHeader(header.Key, header.Value);
                 if (context.Options.Cookies is not null)
-                    socket.Options.Cookies = context.Options.Cookies;
+                {
+                    socketsHandler.UseCookies = true;
+                    socketsHandler.CookieContainer = context.Options.Cookies;
+                }
                 if (context.Options.ClientCertificates is { Count: > 0 })
-                    socket.Options.ClientCertificates.AddRange(context.Options.ClientCertificates);
+                    socketsHandler.SslOptions.ClientCertificates = context.Options.ClientCertificates;
                 if (context.Options.Credentials is not null)
-                    socket.Options.Credentials = context.Options.Credentials;
-                if (context.Options.UseDefaultCredentials is not null)
-                    socket.Options.UseDefaultCredentials = context.Options.UseDefaultCredentials.Value;
+                    socketsHandler.Credentials = context.Options.Credentials;
+                else if (context.Options.UseDefaultCredentials == true)
+                    socketsHandler.Credentials = CredentialCache.DefaultCredentials;
 
                 var token = context.Options.AccessTokenProvider is null
                     ? null
@@ -92,13 +108,36 @@ public sealed class AiAssistantSignalRChatClient(AiAssistantChatRuntimeSnapshot 
                 context.Options.WebSocketConfiguration?.Invoke(socket.Options);
             }
 
-            await socket.ConnectAsync(context.Uri, cancellationToken);
-            return socket;
+            await socket.ConnectAsync(context.Uri, invoker, cancellationToken);
+            return new OwnedWebSocket(socket, invoker);
         }
         catch
         {
             socket.Dispose();
+            invoker.Dispose();
             throw;
+        }
+    }
+
+    private sealed class OwnedWebSocket(ClientWebSocket socket, HttpMessageInvoker invoker) : WebSocket
+    {
+        public override WebSocketCloseStatus? CloseStatus => socket.CloseStatus;
+        public override string? CloseStatusDescription => socket.CloseStatusDescription;
+        public override WebSocketState State => socket.State;
+        public override string? SubProtocol => socket.SubProtocol;
+        public override void Abort() => socket.Abort();
+        public override Task CloseAsync(WebSocketCloseStatus closeStatus, string? statusDescription, CancellationToken cancellationToken)
+            => socket.CloseAsync(closeStatus, statusDescription, cancellationToken);
+        public override Task CloseOutputAsync(WebSocketCloseStatus closeStatus, string? statusDescription, CancellationToken cancellationToken)
+            => socket.CloseOutputAsync(closeStatus, statusDescription, cancellationToken);
+        public override Task<WebSocketReceiveResult> ReceiveAsync(ArraySegment<byte> buffer, CancellationToken cancellationToken)
+            => socket.ReceiveAsync(buffer, cancellationToken);
+        public override Task SendAsync(ArraySegment<byte> buffer, WebSocketMessageType messageType, bool endOfMessage, CancellationToken cancellationToken)
+            => socket.SendAsync(buffer, messageType, endOfMessage, cancellationToken);
+        public override void Dispose()
+        {
+            socket.Dispose();
+            invoker.Dispose();
         }
     }
 

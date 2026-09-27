@@ -6,6 +6,7 @@ using Helpdesk.Infrastructure.Orchestration;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.Persistence.Connectivity;
 using Helpdesk.Shared.DTOs.Orchestration;
+using Helpdesk.Shared.AiAssistant.Chat;
 using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
@@ -458,6 +459,228 @@ public sealed class IntegrationProviderSettingsTests
         Assert.Contains("PostgreSQL", saved.RuntimeIssue, StringComparison.Ordinal);
         Assert.False(fixture.ChatOptions.Value.Enabled);
         Assert.NotEqual("synthetic-device-token", (await fixture.Db.NetclawConnectivitySettings.SingleAsync()).ProtectedDeviceToken);
+    }
+
+    [Fact]
+    public async Task Legacy_session_owner_must_be_explicitly_confirmed_before_database_provider_change()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var legacy = new AiAssistantChatConversation
+        {
+            OrganizationId = "synthetic-tenant",
+            TicketId = "synthetic-ticket",
+            TicketType = "incidents",
+            AiAssistantSessionId = "session-a",
+            ProviderProfileFingerprint = null
+        };
+        fixture.Db.Set<AiAssistantChatConversation>().Add(legacy);
+        await fixture.Db.SaveChangesAsync();
+        var protection = new EphemeralDataProtectionProvider(NullLoggerFactory.Instance);
+        var service = fixture.CreateService(protectionProvider: protection);
+
+        await Assert.ThrowsAsync<IntegrationProviderConfigurationConflictException>(() => service.UpdateNetclawSettingsAsync(new UpdateNetclawConnectivitySettingsDto
+        {
+            ExpectedRevision = 0,
+            Endpoint = "https://provider-b.example.test/hub/session",
+            DeviceToken = "synthetic-token-b"
+        }));
+        var confirmed = await service.ConfirmNetclawLegacySessionsAsync(new ConfirmNetclawLegacySessionsDto
+        {
+            HistoricalInstance = "dev",
+            HistoricalEndpoint = "https://provider-a.example.test/hub/session",
+            ExpectedEligibleConversations = 1,
+            ConversationIds = [legacy.Id]
+        }, "synthetic-admin");
+        Assert.Equal(1, confirmed.BoundConversations);
+        Assert.Equal(confirmed.ProviderProfileFingerprint,
+            (await fixture.Db.Set<AiAssistantChatConversation>().AsNoTracking().SingleAsync(x => x.Id == legacy.Id)).ProviderProfileFingerprint);
+        var audit = await fixture.Db.ActivityLogs.SingleAsync();
+        Assert.Equal("synthetic-admin", audit.UserId);
+        Assert.Contains("HistoricalInstance=dev", audit.Message, StringComparison.Ordinal);
+        Assert.Contains("HistoricalEndpoint=https://provider-a.example.test/hub/session", audit.Message, StringComparison.Ordinal);
+        Assert.Contains($"ProviderFingerprint={confirmed.ProviderProfileFingerprint}", audit.Message, StringComparison.Ordinal);
+        Assert.Contains("BoundConversations=1", audit.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("synthetic-token", audit.Message, StringComparison.Ordinal);
+
+        var providerA = await service.UpdateNetclawSettingsAsync(new UpdateNetclawConnectivitySettingsDto
+        {
+            ExpectedRevision = 0,
+            Endpoint = "https://provider-a.example.test/hub/session",
+            DeviceToken = "synthetic-token-a"
+        });
+        Assert.Equal(confirmed.ProviderProfileFingerprint, providerA.ProfileFingerprint);
+        var rotatedA = await service.UpdateNetclawSettingsAsync(new UpdateNetclawConnectivitySettingsDto
+        {
+            ExpectedRevision = providerA.Revision,
+            Endpoint = providerA.Endpoint,
+            DeviceToken = "synthetic-token-a-rotated"
+        });
+        Assert.Equal(providerA.ProfileFingerprint, rotatedA.ProfileFingerprint);
+
+        var providerB = await service.UpdateNetclawSettingsAsync(new UpdateNetclawConnectivitySettingsDto
+        {
+            ExpectedRevision = rotatedA.Revision,
+            Endpoint = "https://provider-b.example.test/hub/session",
+            DeviceToken = "synthetic-token-b"
+        });
+        var restartedService = fixture.CreateService(protectionProvider: protection);
+        var resolvedB = await restartedService.GetResolvedNetclawSettingsAsync();
+        Assert.Equal(providerB.ProfileFingerprint, resolvedB.ProfileFingerprint);
+        Assert.False(resolvedB.CanAdoptLegacySessions);
+        Assert.NotEqual(resolvedB.ProfileFingerprint,
+            (await fixture.Db.Set<AiAssistantChatConversation>().AsNoTracking().SingleAsync(x => x.Id == legacy.Id)).ProviderProfileFingerprint);
+    }
+
+    [Fact]
+    public async Task Legacy_confirmation_rejects_null_conversation_ids()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var service = fixture.CreateService();
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() => service.ConfirmNetclawLegacySessionsAsync(
+            new ConfirmNetclawLegacySessionsDto
+            {
+                HistoricalInstance = "dev",
+                HistoricalEndpoint = "https://provider-a.example.test/hub/session",
+                ExpectedEligibleConversations = 1,
+                ConversationIds = null!
+            },
+            "synthetic-admin"));
+
+        Assert.Equal("ConversationIds", exception.ParamName);
+        Assert.Empty(await fixture.Db.ActivityLogs.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Legacy_confirmation_rejects_duplicate_conversation_ids()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var service = fixture.CreateService();
+        var conversationId = Guid.NewGuid();
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() => service.ConfirmNetclawLegacySessionsAsync(
+            new ConfirmNetclawLegacySessionsDto
+            {
+                HistoricalInstance = "dev",
+                HistoricalEndpoint = "https://provider-a.example.test/hub/session",
+                ExpectedEligibleConversations = 1,
+                ConversationIds = [conversationId, conversationId]
+            },
+            "synthetic-admin"));
+
+        Assert.Equal("ConversationIds", exception.ParamName);
+        Assert.Empty(await fixture.Db.ActivityLogs.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Legacy_confirmation_binds_only_selected_ids_and_leaves_other_sessions_unbound()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var selected = new AiAssistantChatConversation
+        {
+            OrganizationId = "synthetic-tenant",
+            TicketId = "selected-ticket",
+            TicketType = "incidents",
+            AiAssistantSessionId = "session-a"
+        };
+        var unselected = new AiAssistantChatConversation
+        {
+            OrganizationId = "synthetic-tenant",
+            TicketId = "unselected-ticket",
+            TicketType = "incidents",
+            AiAssistantSessionId = "session-b"
+        };
+        fixture.Db.Set<AiAssistantChatConversation>().AddRange(selected, unselected);
+        await fixture.Db.SaveChangesAsync();
+        var service = fixture.CreateService();
+
+        var confirmed = await service.ConfirmNetclawLegacySessionsAsync(new ConfirmNetclawLegacySessionsDto
+        {
+            HistoricalInstance = "dev",
+            HistoricalEndpoint = "https://provider-a.example.test/hub/session",
+            ExpectedEligibleConversations = 1,
+            ConversationIds = [selected.Id]
+        }, "synthetic-admin");
+
+        Assert.Equal(1, confirmed.BoundConversations);
+        var persisted = await fixture.Db.Set<AiAssistantChatConversation>().AsNoTracking()
+            .OrderBy(conversation => conversation.Id).ToListAsync();
+        Assert.Equal(confirmed.ProviderProfileFingerprint,
+            persisted.Single(conversation => conversation.Id == selected.Id).ProviderProfileFingerprint);
+        Assert.Null(persisted.Single(conversation => conversation.Id == unselected.Id).ProviderProfileFingerprint);
+        Assert.Equal(unselected.Id,
+            Assert.Single(await service.GetUnboundNetclawLegacySessionsAsync()).ConversationId);
+    }
+
+    [Fact]
+    public async Task Legacy_confirmation_rejects_endpoint_credentials_without_audit_record()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var legacy = new AiAssistantChatConversation
+        {
+            OrganizationId = "synthetic-tenant",
+            TicketId = "synthetic-ticket",
+            TicketType = "incidents",
+            AiAssistantSessionId = "session-a"
+        };
+        fixture.Db.Set<AiAssistantChatConversation>().Add(legacy);
+        await fixture.Db.SaveChangesAsync();
+        var service = fixture.CreateService();
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() => service.ConfirmNetclawLegacySessionsAsync(
+            new ConfirmNetclawLegacySessionsDto
+            {
+                HistoricalInstance = "dev",
+                HistoricalEndpoint = "https://synthetic-user:synthetic-password@provider-a.example.test/hub/session",
+                ExpectedEligibleConversations = 1,
+                ConversationIds = [legacy.Id]
+            },
+            "synthetic-admin"));
+
+        Assert.Equal("HistoricalEndpoint", exception.ParamName);
+        Assert.Empty(await fixture.Db.ActivityLogs.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Deployment_owned_provider_cannot_claim_unbound_or_confirmed_legacy_sessions_by_endpoint_alone()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var legacy = new AiAssistantChatConversation
+        {
+            OrganizationId = "synthetic-tenant",
+            TicketId = "synthetic-ticket",
+            TicketType = "incidents",
+            AiAssistantSessionId = "session-a"
+        };
+        fixture.Db.Set<AiAssistantChatConversation>().Add(legacy);
+        await fixture.Db.SaveChangesAsync();
+        var configurationA = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Netclaw:Endpoint"] = "https://provider-a.example.test/hub/session",
+            ["Netclaw:Enabled"] = "true",
+            ["Netclaw:DeviceToken"] = "synthetic-token-a"
+        }).Build();
+        var serviceA = fixture.CreateService(configurationA);
+        Assert.False((await serviceA.GetResolvedNetclawSettingsAsync()).CanAdoptLegacySessions);
+        var confirmed = await serviceA.ConfirmNetclawLegacySessionsAsync(new ConfirmNetclawLegacySessionsDto
+        {
+            HistoricalEndpoint = "https://provider-a.example.test/hub/session",
+            ExpectedEligibleConversations = 1,
+            ConversationIds = [legacy.Id]
+        }, "synthetic-admin");
+        Assert.Equal(confirmed.ProviderProfileFingerprint, (await serviceA.GetResolvedNetclawSettingsAsync()).ProfileFingerprint);
+
+        var configurationB = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Netclaw:Endpoint"] = "https://provider-b.example.test/hub/session",
+            ["Netclaw:Enabled"] = "true",
+            ["Netclaw:DeviceToken"] = "synthetic-token-b"
+        }).Build();
+        var resolvedB = await fixture.CreateService(configurationB).GetResolvedNetclawSettingsAsync();
+        Assert.False(resolvedB.CanAdoptLegacySessions);
+        Assert.NotEqual(confirmed.ProviderProfileFingerprint, resolvedB.ProfileFingerprint);
+        Assert.Equal(confirmed.ProviderProfileFingerprint,
+            (await fixture.Db.Set<AiAssistantChatConversation>().AsNoTracking().SingleAsync(x => x.Id == legacy.Id)).ProviderProfileFingerprint);
     }
 
     [Fact]

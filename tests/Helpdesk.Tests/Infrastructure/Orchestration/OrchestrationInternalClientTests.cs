@@ -145,6 +145,97 @@ public sealed class OrchestrationInternalClientTests
         Assert.Equal(OrchestrationExecutionOutcome.Unknown, result.Outcome);
     }
 
+    [Theory]
+    [InlineData("\"status\":null")]
+    [InlineData("\"status\":\"\"")]
+    [InlineData("\"status\":42")]
+    [InlineData("\"other\":true")]
+    public async Task Incomplete_status_preserves_remote_identity_as_unknown(string field)
+    {
+        var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent($"{{\"requestId\":\"41\",\"runId\":\"99\",\"executionId\":\"99\",{field}}}")
+        });
+        var result = await Client(handler).IngestAsync(Settings(), Request());
+
+        Assert.Equal("41", result.RequestId);
+        Assert.Equal("99", result.RunId);
+        Assert.Equal("99", result.ExecutionId);
+        Assert.Equal(OrchestrationSubmissionDisposition.Unknown, result.Disposition);
+    }
+
+    [Theory]
+    [InlineData("{\"requestId\":\"41\",\"status\":\"Accepted\"}", "41", null)]
+    [InlineData("{\"runId\":\"99\",\"status\":\"Accepted\"}", null, "99")]
+    public async Task Partial_accepted_acknowledgement_never_fabricates_execution_identity(string body, string? requestId, string? runId)
+    {
+        var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body)
+        });
+        var result = await Client(handler).IngestAsync(Settings(), Request());
+
+        Assert.Equal(requestId, result.RequestId);
+        Assert.Equal(runId, result.RunId);
+        Assert.True(string.IsNullOrEmpty(result.ExecutionId));
+        Assert.Equal(OrchestrationSubmissionDisposition.Unknown, result.Disposition);
+    }
+
+    [Fact]
+    public async Task Http_error_with_request_identity_cannot_establish_admission()
+    {
+        var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.BadRequest)
+        {
+            Content = new StringContent("""{"requestId":"41","status":"Accepted","message":"provider rejected the shape"}""")
+        });
+        var error = await Assert.ThrowsAsync<OrchestrationSubmissionUncertainException>(() => Client(handler).IngestAsync(Settings(), Request()));
+
+        Assert.Equal("41", error.Acknowledgement?.RequestId);
+        Assert.Equal(OrchestrationSubmissionDisposition.Unknown, error.Acknowledgement?.Disposition);
+    }
+
+    [Theory]
+    [InlineData("Accepted")]
+    [InlineData("Completed")]
+    [InlineData("provider-specific-state")]
+    [InlineData("Rejected")]
+    public async Task Acknowledgement_message_redacts_submitted_secret_and_actual_bearer(string status)
+    {
+        var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(JsonSerializer.Serialize(new
+            {
+                executionId = status == "Rejected" ? null : "99",
+                status,
+                message = "diagnostic secret and token with ordinary context"
+            }))
+        });
+
+        if (status == "Rejected")
+        {
+            var error = await Assert.ThrowsAsync<OrchestrationSubmissionRejectedException>(() => Client(handler).IngestAsync(Settings(), Request()));
+            Assert.DoesNotContain("secret", error.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("token", error.Message, StringComparison.Ordinal);
+            Assert.Contains("diagnostic", error.Message, StringComparison.Ordinal);
+        }
+        else
+        {
+            var result = await Client(handler).IngestAsync(Settings(), Request());
+            Assert.DoesNotContain("secret", result.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("token", result.Message, StringComparison.Ordinal);
+            Assert.Contains("diagnostic", result.Message, StringComparison.Ordinal);
+        }
+    }
+
+    private static OrchestrationInternalClient Client(HttpMessageHandler handler)
+    {
+        var factory = Substitute.For<IHttpClientFactory>();
+        factory.CreateClient("OrchestrationInternalApi").Returns(new HttpClient(handler));
+        var tokens = Substitute.For<IOrchestrationTokenService>();
+        tokens.GetAccessTokenAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<CancellationToken>()).Returns("token");
+        return new OrchestrationInternalClient(factory, tokens, NullLogger<OrchestrationInternalClient>.Instance);
+    }
+
     [Fact]
     public async Task Explicit_http_rejection_is_not_reported_as_uncertain()
     {

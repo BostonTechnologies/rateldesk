@@ -103,7 +103,7 @@ public sealed class OrchestrationInternalClient(
                 {
                     if (!response.IsSuccessStatusCode)
                     {
-                        var message = $"External NetRatel ingest failed ({(int)response.StatusCode}): {ExtractErrorMessage(content, settings)}";
+                        var message = $"External NetRatel ingest failed ({(int)response.StatusCode}): {ExtractErrorMessage(content, settings, request.Headers.Authorization?.Parameter)}";
                         if ((int)response.StatusCode is 408 or 429 or >= 500)
                             throw new OrchestrationSubmissionUncertainException(message);
                         if ((int)response.StatusCode is >= 400 and < 500)
@@ -114,26 +114,33 @@ public sealed class OrchestrationInternalClient(
                     throw new OrchestrationAcknowledgementException("NetRatel accepted the HTTP request without returning an execution acknowledgement.");
                 }
 
-                var parsed = TryParseIngest(content, out var hasStatus);
+                var parsed = TryParseIngest(content, settings, request.Headers.Authorization?.Parameter, out var hasStatus);
+                if (parsed is not null)
+                    OrchestrationIngestClassifier.Apply(parsed, hasStatus);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var message = $"External NetRatel ingest failed ({(int)response.StatusCode}): {ExtractErrorMessage(content, settings, request.Headers.Authorization?.Parameter)}";
+                    if (parsed?.HasRemoteIdentity == true)
+                    {
+                        parsed.Disposition = OrchestrationSubmissionDisposition.Unknown;
+                        throw new OrchestrationSubmissionUncertainException(message, parsed);
+                    }
+                    if ((int)response.StatusCode is 408 or 429 or >= 500)
+                        throw new OrchestrationSubmissionUncertainException(message, parsed);
+                    if ((int)response.StatusCode is >= 400 and < 500)
+                        throw new OrchestrationSubmissionRejectedException(message);
+                    throw new InvalidOperationException(message);
+                }
+
                 if (parsed is not null)
                 {
-                    OrchestrationIngestClassifier.Apply(parsed, hasStatus);
                     if (parsed.HasRemoteIdentity)
                         return parsed;
 
                     if (parsed.Disposition == OrchestrationSubmissionDisposition.Rejected)
                         throw new OrchestrationSubmissionRejectedException(
                             FirstNonEmpty(parsed.Message, "NetRatel explicitly rejected the submitted operation.")!);
-                }
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    var message = $"External NetRatel ingest failed ({(int)response.StatusCode}): {ExtractErrorMessage(content, settings)}";
-                    if ((int)response.StatusCode is 408 or 429 or >= 500)
-                        throw new OrchestrationSubmissionUncertainException(message, parsed);
-                    if ((int)response.StatusCode is >= 400 and < 500)
-                        throw new OrchestrationSubmissionRejectedException(message);
-                    throw new InvalidOperationException(message);
                 }
 
                 throw new OrchestrationAcknowledgementException(
@@ -233,7 +240,11 @@ public sealed class OrchestrationInternalClient(
         return false;
     }
 
-    private OrchestrationIngestResult? TryParseIngest(string content, out bool hasStatus)
+    private OrchestrationIngestResult? TryParseIngest(
+        string content,
+        OrchestrationResolvedSettings settings,
+        string? bearerToken,
+        out bool hasStatus)
     {
         hasStatus = false;
         try
@@ -242,13 +253,18 @@ public sealed class OrchestrationInternalClient(
             if (document.RootElement.ValueKind != JsonValueKind.Object)
                 return null;
 
-            hasStatus = TryGetProperty(document.RootElement, "status", out var status)
-                && status.ValueKind == JsonValueKind.String
-                && !string.IsNullOrWhiteSpace(status.GetString());
-            return JsonSerializer.Deserialize<OrchestrationIngestResult>(content, new JsonSerializerOptions
+            var root = document.RootElement;
+            var status = TryGetIngestString(root, "status");
+            hasStatus = !string.IsNullOrWhiteSpace(status);
+            var message = TryGetIngestString(root, "message");
+            return new OrchestrationIngestResult
             {
-                PropertyNameCaseInsensitive = true
-            });
+                RequestId = TryGetIngestString(root, "requestId"),
+                RunId = TryGetIngestString(root, "runId"),
+                ExecutionId = TryGetIngestString(root, "executionId") ?? string.Empty,
+                Status = status is null ? string.Empty : IntegrationErrorSafety.ProviderMessage(status, 128, settings.ClientSecret, bearerToken),
+                Message = message is null ? null : IntegrationErrorSafety.ProviderMessage(message, 500, settings.ClientSecret, bearerToken)
+            };
         }
         catch (JsonException exception)
         {
@@ -256,6 +272,11 @@ public sealed class OrchestrationInternalClient(
             return null;
         }
     }
+
+    private static string? TryGetIngestString(JsonElement root, string name)
+        => TryGetProperty(root, name, out var value) && value.ValueKind == JsonValueKind.String
+            ? FirstNonEmpty(value.GetString())
+            : null;
 
     private static string? FirstNonEmpty(params string?[] values)
         => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
@@ -292,7 +313,7 @@ public sealed class OrchestrationInternalClient(
         return value.Length <= maxLength ? value : value[..maxLength];
     }
 
-    private string ExtractErrorMessage(string content, OrchestrationResolvedSettings settings)
+    private string ExtractErrorMessage(string content, OrchestrationResolvedSettings settings, string? bearerToken = null)
     {
         if (string.IsNullOrWhiteSpace(content))
         {
@@ -306,7 +327,7 @@ public sealed class OrchestrationInternalClient(
             var message = TryGetString(root, "message", "detail", "title");
             if (!string.IsNullOrWhiteSpace(message))
             {
-                return IntegrationErrorSafety.ProviderMessage(message, 500, settings.ClientSecret);
+                return IntegrationErrorSafety.ProviderMessage(message, 500, settings.ClientSecret, bearerToken);
             }
         }
         catch (JsonException exception)

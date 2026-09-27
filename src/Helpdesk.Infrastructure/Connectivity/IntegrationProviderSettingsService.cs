@@ -1,3 +1,4 @@
+using System.Data;
 using Helpdesk.Application.AiAssistant.Chat;
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Infrastructure.AiAssistant.Chat;
@@ -5,6 +6,8 @@ using Helpdesk.Infrastructure.Configuration;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.Persistence.Connectivity;
 using Helpdesk.Shared.DTOs.Orchestration;
+using Helpdesk.Shared.AiAssistant.Chat;
+using Helpdesk.Shared.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -261,17 +264,12 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
         var stored = await LoadOrchestratorAsync(cancellationToken);
         if (stored is null || stored.Revision != expectedRevision || !string.Equals(stored.ProfileFingerprint, profileFingerprint, StringComparison.Ordinal))
             return false;
-        stored.LastTestedAtUtc = clock.GetUtcNow();
-        stored.LastTestSucceeded = succeeded;
-        try
-        {
-            await db.SaveChangesAsync(cancellationToken);
-            return true;
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            return false;
-        }
+        var testedAt = clock.GetUtcNow();
+        return await db.M2MConnectivitySettings
+            .Where(x => x.Id == stored.Id && x.Revision == expectedRevision && x.ProfileFingerprint == profileFingerprint)
+            .ExecuteUpdateAsync(updates => updates
+                .SetProperty(x => x.LastTestedAtUtc, testedAt)
+                .SetProperty(x => x.LastTestSucceeded, succeeded), cancellationToken) == 1;
     }
 
     public async Task<NetclawConnectivitySettingsDto> GetNetclawSettingsAsync(CancellationToken cancellationToken = default)
@@ -374,6 +372,10 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
         var heartbeat = request.ActivityHeartbeatInterval;
         var nextRevision = currentRevision + 1;
         var secretBindingFingerprint = BuildNetclawSecretBindingFingerprint(instance, endpoint);
+        if (!string.Equals(existing?.ProfileFingerprint, secretBindingFingerprint, StringComparison.Ordinal) &&
+            await UnboundLegacySessions().AnyAsync(cancellationToken))
+            throw new IntegrationProviderConfigurationConflictException(
+                "Legacy Netclaw sessions have no provider binding. Confirm their historical provider before changing the saved profile.");
         var protectedToken = existing?.ProtectedDeviceToken ?? string.Empty;
         if (request.ClearDeviceToken)
         {
@@ -435,6 +437,86 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
         return ToNetclawDto(resolved, stored);
     }
 
+    public async Task<NetclawLegacySessionConfirmationDto> ConfirmNetclawLegacySessionsAsync(
+        ConfirmNetclawLegacySessionsDto request,
+        string administratorId,
+        CancellationToken cancellationToken = default)
+    {
+        if (request is null)
+            throw new ArgumentException("A legacy session confirmation request is required.", nameof(request));
+        if (string.IsNullOrWhiteSpace(administratorId))
+            throw new ArgumentException("An authenticated administrator is required.", nameof(administratorId));
+        if (request.ExpectedEligibleConversations < 1)
+            throw new ArgumentException("Confirm the positive number of legacy conversations to bind.", nameof(request.ExpectedEligibleConversations));
+        var submittedIds = request.ConversationIds;
+        if (submittedIds is null ||
+            submittedIds.Count != request.ExpectedEligibleConversations ||
+            submittedIds.Any(id => id == Guid.Empty) ||
+            submittedIds.Distinct().Count() != submittedIds.Count)
+            throw new ArgumentException("Identify each eligible legacy conversation exactly once.", nameof(request.ConversationIds));
+        var conversationIds = submittedIds.ToArray();
+
+        var instance = Normalize(request.HistoricalInstance) ?? "dev";
+        var endpoint = NormalizeUrl(request.HistoricalEndpoint, "HistoricalEndpoint", request.AllowPrivateHttp);
+        if (endpoint is null || !new AiAssistantChatOptions
+            {
+                Enabled = true,
+                Instance = instance,
+                Endpoint = endpoint,
+                DeviceToken = "confirmation-only"
+            }.IsValid())
+            throw new ArgumentException("Identify a valid historical Netclaw hub endpoint and instance.", nameof(request.HistoricalEndpoint));
+
+        var fingerprint = BuildNetclawSecretBindingFingerprint(instance, endpoint);
+        var auditEndpoint = new Uri(endpoint, UriKind.Absolute).GetLeftPart(UriPartial.Path);
+        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        var eligible = UnboundLegacySessions().Where(conversation => conversationIds.Contains(conversation.Id));
+        var count = await eligible.CountAsync(cancellationToken);
+        if (count != request.ExpectedEligibleConversations)
+            throw new IntegrationProviderConfigurationConflictException(
+                "The eligible legacy conversation count changed. Reload and confirm the historical provider again.");
+
+        var updated = await eligible.ExecuteUpdateAsync(
+            setters => setters.SetProperty(conversation => conversation.ProviderProfileFingerprint, fingerprint),
+            cancellationToken);
+        if (updated != count)
+            throw new IntegrationProviderConfigurationConflictException(
+                "The eligible legacy conversations changed during confirmation. Retry after reloading.");
+
+        db.ActivityLogs.Add(new ActivityLog
+        {
+            UserId = administratorId,
+            RelatedEntityId = "Netclaw",
+            Message = $"Legacy Netclaw session owner confirmed. HistoricalInstance={instance}; HistoricalEndpoint={auditEndpoint}; ProviderFingerprint={fingerprint}; BoundConversations={updated}."
+        });
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return new NetclawLegacySessionConfirmationDto(updated, fingerprint);
+    }
+
+    public async Task<IReadOnlyList<NetclawUnboundLegacySessionDto>> GetUnboundNetclawLegacySessionsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var sessions = await UnboundLegacySessions()
+            .AsNoTracking()
+            .Select(conversation => new NetclawUnboundLegacySessionDto(
+                conversation.Id,
+                conversation.TicketId,
+                conversation.TicketType,
+                conversation.LastActivityUtc))
+            .ToListAsync(cancellationToken);
+        return sessions
+            .OrderBy(conversation => conversation.LastActivityUtc)
+            .ThenBy(conversation => conversation.ConversationId)
+            .ToArray();
+    }
+
+    private IQueryable<AiAssistantChatConversation> UnboundLegacySessions()
+        => db.Set<AiAssistantChatConversation>().Where(conversation =>
+            conversation.ProviderProfileFingerprint == null &&
+            conversation.AiAssistantSessionId != null &&
+            conversation.AiAssistantSessionId != "");
+
     public async Task<bool> RecordNetclawTestAsync(
         int expectedRevision,
         string profileFingerprint,
@@ -445,17 +527,12 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
         var stored = await LoadNetclawAsync(cancellationToken);
         if (stored is null || stored.Revision != expectedRevision || !string.Equals(stored.ProfileFingerprint, profileFingerprint, StringComparison.Ordinal))
             return false;
-        stored.LastTestedAtUtc = clock.GetUtcNow();
-        stored.LastTestSucceeded = succeeded;
-        try
-        {
-            await db.SaveChangesAsync(cancellationToken);
-            return true;
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            return false;
-        }
+        var testedAt = clock.GetUtcNow();
+        return await db.NetclawConnectivitySettings
+            .Where(x => x.Id == stored.Id && x.Revision == expectedRevision && x.ProfileFingerprint == profileFingerprint)
+            .ExecuteUpdateAsync(updates => updates
+                .SetProperty(x => x.LastTestedAtUtc, testedAt)
+                .SetProperty(x => x.LastTestSucceeded, succeeded), cancellationToken) == 1;
     }
 
     public async Task ApplyNetclawRuntimeAsync(NetclawResolvedSettings settings, CancellationToken cancellationToken = default)
@@ -626,8 +703,7 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
                 !string.IsNullOrWhiteSpace(stored?.ProtectedDeviceToken) ? (resolveSecret ? "available" : "configured") : "not-configured",
             SourceKey = managedByDeployment ? IntegrationConfigurationAliases.GetDeploymentSourceKey(configuration, netclaw: true) : "database",
             ProfileFingerprint = profileFingerprintOverride ?? stored?.ProfileFingerprint ?? BuildNetclawSecretBindingFingerprint(instance, endpoint),
-            CanAdoptLegacySessions = !string.IsNullOrWhiteSpace(endpoint) &&
-                (managedByDeployment || stored is not null)
+            CanAdoptLegacySessions = false
         };
     }
 

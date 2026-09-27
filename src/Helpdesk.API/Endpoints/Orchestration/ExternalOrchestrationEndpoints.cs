@@ -65,18 +65,22 @@ public static class ExternalOrchestrationEndpoints
         {
             var testedProfile = await settings.GetResolvedOrchestratorSettingsAsync(ct);
             var result = await connectivity.TestOrchestrationConnectivityAsync(testedProfile, ct);
-            await settings.RecordOrchestratorTestAsync(
+            var recorded = await settings.RecordOrchestratorTestAsync(
                 testedProfile.Revision,
                 testedProfile.ProfileFingerprint,
                 result.Success,
                 ct);
+            var superseded = !testedProfile.ManagedByDeployment && testedProfile.Revision > 0 && !recorded;
             db.ActivityLogs.Add(new ActivityLog
             {
                 UserId = Actor(principal),
                 RelatedEntityId = "Orchestrator",
-                Message = $"Integration provider connectivity test completed. Provider=Orchestrator; Success={result.Success}; StatusCode={result.StatusCode?.ToString() ?? "none"}."
+                Message = $"Integration provider connectivity test completed. Provider=Orchestrator; Success={result.Success}; Superseded={superseded}; StatusCode={result.StatusCode?.ToString() ?? "none"}."
             });
             await db.SaveChangesAsync(ct);
+
+            if (superseded)
+                return Results.Conflict(new { code = "diagnostic_superseded", message = "The provider configuration changed while this test was running. Reload and test the current settings." });
 
             if (result.Success)
             {

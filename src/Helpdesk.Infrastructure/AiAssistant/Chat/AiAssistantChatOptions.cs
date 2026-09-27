@@ -65,7 +65,7 @@ public sealed class AiAssistantChatRuntimeState(IOptions<AiAssistantChatOptions>
         Source: "deployment",
         ManagedByDeployment: true,
         SourceKey: "deployment",
-        CanAdoptLegacySessions: !string.IsNullOrWhiteSpace(options.Value.Endpoint));
+        CanAdoptLegacySessions: false);
 
     public AiAssistantChatRuntimeSnapshot Current => Volatile.Read(ref current);
 

@@ -148,6 +148,11 @@ public interface IIntegrationProviderSettingsService
     Task<NetclawConnectivitySettingsDto> UpdateNetclawSettingsAsync(
         UpdateNetclawConnectivitySettingsDto request,
         CancellationToken cancellationToken = default);
+    Task<NetclawLegacySessionConfirmationDto> ConfirmNetclawLegacySessionsAsync(
+        ConfirmNetclawLegacySessionsDto request,
+        string administratorId,
+        CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<NetclawUnboundLegacySessionDto>> GetUnboundNetclawLegacySessionsAsync(CancellationToken cancellationToken = default);
     Task<bool> RecordNetclawTestAsync(int expectedRevision, string profileFingerprint, bool succeeded, CancellationToken cancellationToken = default);
     Task ApplyNetclawRuntimeAsync(NetclawResolvedSettings settings, CancellationToken cancellationToken = default);
 }

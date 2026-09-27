@@ -624,8 +624,8 @@ public sealed class RequestTaskLifecycleService(
         }
 
         task.OrchestrationExternalRequestId = FirstNonEmpty(result.RequestId, task.OrchestrationExternalRequestId);
-        task.OrchestrationExternalRunId = FirstNonEmpty(result.RunId, result.ExecutionId, task.OrchestrationExternalRunId);
-        task.OrchestratorExecutionId = FirstNonEmpty(result.ExecutionId, task.OrchestratorExecutionId, result.RunId, result.RequestId);
+        task.OrchestrationExternalRunId = FirstNonEmpty(result.RunId, task.OrchestrationExternalRunId);
+        task.OrchestratorExecutionId = FirstNonEmpty(result.ExecutionId, task.OrchestratorExecutionId);
         task.LastAutomationStatus = FirstNonEmpty(result.Status, task.LastAutomationStatus) ?? "submitted";
         task.LastAutomationUpdatedAt = DateTimeOffset.UtcNow;
         task.ResultJson = FirstNonEmpty(result.Message, result.Status, task.ResultJson);

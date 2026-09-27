@@ -108,20 +108,30 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         }
 
         Assert.True(violations.Count == 0, string.Join(Environment.NewLine, violations));
-        // Release includes the beta.4 operations; Debug also exposes the authorized
-        // /__debug/me endpoint. Keep both inventories explicit so additions or omissions
-        // require a reviewed taxonomy update.
+        // Release includes the beta.4 and legacy-session administration operations;
+        // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
+        // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(368, operationCount);
+        Assert.Equal(370, operationCount);
 #else
-        Assert.Equal(367, operationCount);
+        Assert.Equal(369, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         Assert.True(paths.TryGetProperty("/api/v1/admin/orchestration/test-draft", out var orchestrationDraft));
         Assert.True(orchestrationDraft.TryGetProperty("post", out _));
         Assert.True(paths.TryGetProperty("/api/v1/admin/netclaw/test-draft", out var netclawDraft));
         Assert.True(netclawDraft.TryGetProperty("post", out _));
+        Assert.True(paths.TryGetProperty("/api/v1/admin/netclaw/legacy-sessions/unbound", out var unboundLegacySessions));
+        Assert.True(unboundLegacySessions.TryGetProperty("get", out var listUnboundOperation));
+        Assert.Equal(["Netclaw"], listUnboundOperation.GetProperty("tags").EnumerateArray().Select(tag => tag.GetString()).OfType<string>().ToArray());
+        Assert.Equal(["IntegrationCredential", "JwtBearer", "LocalSession"],
+            SecuritySchemes(document, "/api/v1/admin/netclaw/legacy-sessions/unbound", "get"));
+        Assert.True(paths.TryGetProperty("/api/v1/admin/netclaw/legacy-sessions/confirm-owner", out var confirmLegacyOwner));
+        Assert.True(confirmLegacyOwner.TryGetProperty("post", out var confirmLegacyOwnerOperation));
+        Assert.Equal(["Netclaw"], confirmLegacyOwnerOperation.GetProperty("tags").EnumerateArray().Select(tag => tag.GetString()).OfType<string>().ToArray());
+        Assert.Equal(["IntegrationCredential", "JwtBearer", "LocalSession"],
+            SecuritySchemes(document, "/api/v1/admin/netclaw/legacy-sessions/confirm-owner", "post"));
 
         var pathOrder = paths.EnumerateObject().Select(path => path.Name).ToArray();
         Assert.Equal(pathOrder.Order(StringComparer.Ordinal), pathOrder);

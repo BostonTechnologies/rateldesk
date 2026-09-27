@@ -85,6 +85,32 @@ read-only in the Integration hub; otherwise the administrator can persist a
 protected profile in the database. The profile records revision, applied, and
 last-test metadata without returning the paired-device token.
 
+### Resume beta.3 sessions after an upgrade
+
+Beta.3 conversations with a saved remote session and no provider binding need
+an administrator to confirm which historical NetClaw provider owns them. Do
+this while the old provider identity is known, before changing its endpoint or
+instance. An unbound session cannot be sent to the currently configured
+provider merely because that provider has a saved profile.
+
+An authorized Helpdesk administrator can list eligible conversation and ticket
+IDs with `GET /api/v1/admin/netclaw/legacy-sessions/unbound`. After checking the
+old deployment records, submit the selected conversation IDs, the old instance
+and endpoint, and set `expectedEligibleConversations` to the number of selected
+IDs expected to remain eligible for binding. Send that request to
+`POST /api/v1/admin/netclaw/legacy-sessions/confirm-owner`. This operation binds
+only those IDs to the historical provider fingerprint and records the actor,
+historical instance and endpoint, fingerprint, and selected count in the audit
+log. It does not contact the daemon or send conversation content. A changed
+count requires a fresh review. Keep the confirmation with the migration record;
+do not include device tokens or remote session IDs in it.
+
+The confirmed conversations resume only with the matching provider. Rotating
+that provider's token keeps its identity and saved sessions. A different
+provider requires a new conversation or the existing manual recovery controls;
+clearing or replacing the current profile does not grant it ownership of old
+sessions.
+
 The endpoint must be an absolute URL with exactly the `/hub/session` path. Use
 HTTPS in normal deployments. RatelDesk accepts HTTP only when
 `Netclaw__AllowPrivateHttp=true` and the endpoint resolves to a private
