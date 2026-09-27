@@ -5,6 +5,7 @@ using Helpdesk.Infrastructure.AiAssistant.Chat;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.DTOs.Orchestration;
 using Helpdesk.Shared.Models;
+using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 
 namespace Helpdesk.API.Endpoints.Orchestration;
@@ -58,7 +59,7 @@ public static class NetclawConnectivityEndpoints
         group.MapPost("/pair-and-save", async (
             PairNetclawDeviceDto request,
             IIntegrationProviderSettingsService settings,
-            INetclawPairingService pairing,
+            [FromServices] INetclawPairingService pairing,
             HelpdeskDbContext db,
             ClaimsPrincipal principal,
             CancellationToken ct) =>
