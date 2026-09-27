@@ -463,7 +463,8 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
                 Enabled = true,
                 Instance = instance,
                 Endpoint = endpoint,
-                DeviceToken = "confirmation-only"
+                DeviceToken = "confirmation-only",
+                AllowPrivateHttp = request.AllowPrivateHttp
             }.IsValid())
             throw new ArgumentException("Identify a valid historical Netclaw hub endpoint and instance.", nameof(request.HistoricalEndpoint));
 

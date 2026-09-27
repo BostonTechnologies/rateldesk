@@ -105,6 +105,13 @@ log. It does not contact the daemon or send conversation content. A changed
 count requires a fresh review. Keep the confirmation with the migration record;
 do not include device tokens or remote session IDs in it.
 
+For a historical private-HTTP provider, include `"allowPrivateHttp": true`
+explicitly in this confirmation request after reviewing the selected endpoint.
+The request field does not inherit `Netclaw__AllowPrivateHttp` or another
+environment setting. Omitting it keeps the default HTTPS-only behavior. This
+opt-in still requires a private literal IP address and the exact hub path; it
+does not disable TLS or certificate validation for HTTPS endpoints.
+
 The confirmed conversations resume only with the matching provider. Rotating
 that provider's token keeps its identity and saved sessions. A different
 provider requires a new conversation or the existing manual recovery controls;
@@ -112,10 +119,11 @@ clearing or replacing the current profile does not grant it ownership of old
 sessions.
 
 The endpoint must be an absolute URL with exactly the `/hub/session` path. Use
-HTTPS in normal deployments. RatelDesk accepts HTTP only when
-`Netclaw__AllowPrivateHttp=true` and the endpoint resolves to a private
-literal IPv4 or IPv6 address (including IPv6 ULA); that exception is for a
-trusted private network, not a DNS name or public service.
+HTTPS in normal deployments. Saving a private-HTTP deployment profile requires
+`Netclaw__AllowPrivateHttp=true`; legacy confirmation separately requires its
+own explicit `allowPrivateHttp` request field. RatelDesk accepts HTTP only for
+a private literal IPv4 or IPv6 address (including IPv6 ULA), not a DNS name or
+public service. This exception is intended for a trusted private network.
 
 When NetClaw is behind a reverse proxy, forward SignalR/WebSocket upgrades and
 long-lived connections to `/hub/session`. Configure the daemon's non-local

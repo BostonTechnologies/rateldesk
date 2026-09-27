@@ -300,31 +300,39 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
         Assert.True(run.Client.Disposed);
     }
 
-    [Fact]
-    public async Task Administrator_confirmed_legacy_session_resumes_with_its_historical_provider()
+    [Theory]
+    [InlineData("https://chat.invalid/hub/session", false)]
+    [InlineData("http://10.23.45.67/hub/session", true)]
+    public async Task Administrator_confirmed_legacy_session_resumes_with_its_historical_provider(
+        string historicalEndpoint,
+        bool allowPrivateHttp)
     {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var (ticket, conversationId) = await fixture.CreateAsync();
+        await using (var db = fixture.Context())
+        {
+            var conversation = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == conversationId);
+            conversation.AiAssistantSessionId = "legacy-session";
+            conversation.ProviderProfileFingerprint = null;
+            await db.SaveChangesAsync(timeout.Token);
+        }
+
         var runtime = new AiAssistantChatRuntimeState(Options.Create(new AiAssistantChatOptions
         {
             Enabled = true,
-            Endpoint = "https://chat.invalid/hub/session",
-            DeviceToken = "device-token"
+            Endpoint = historicalEndpoint,
+            DeviceToken = "synthetic-device-token-a",
+            AllowPrivateHttp = allowPrivateHttp
         }));
-        await using var run = await Run.CreateAsync(fixture, runtimeState: runtime);
-        await using (var db = fixture.Context())
-        {
-            var conversation = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == run.Conversation);
-            conversation.AiAssistantSessionId = "legacy-session";
-            conversation.ProviderProfileFingerprint = null;
-            await db.SaveChangesAsync();
-        }
 
         await using (var db = fixture.Context())
         {
             var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Netclaw:Enabled"] = "true",
-                ["Netclaw:Endpoint"] = "https://chat.invalid/hub/session",
-                ["Netclaw:DeviceToken"] = "device-token"
+                ["Netclaw:Endpoint"] = historicalEndpoint,
+                ["Netclaw:DeviceToken"] = "synthetic-device-token-a",
+                ["Netclaw:AllowPrivateHttp"] = allowPrivateHttp.ToString()
             }).Build();
             var settings = new IntegrationProviderSettingsService(
                 db,
@@ -336,14 +344,17 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
                 NullLogger<IntegrationProviderSettingsService>.Instance);
             var confirmed = await settings.ConfirmNetclawLegacySessionsAsync(new ConfirmNetclawLegacySessionsDto
             {
-                HistoricalEndpoint = "https://chat.invalid/hub/session",
+                HistoricalEndpoint = historicalEndpoint,
+                AllowPrivateHttp = allowPrivateHttp,
                 ExpectedEligibleConversations = 1,
-                ConversationIds = [run.Conversation]
-            }, "synthetic-admin");
+                ConversationIds = [conversationId]
+            }, "synthetic-admin", timeout.Token);
             Assert.Equal(runtime.Current.ProfileFingerprint, confirmed.ProviderProfileFingerprint);
         }
 
-        await run.SendAsync();
+        await using var run = await Run.AttachAsync(fixture, ticket, conversationId, runtimeState: runtime, cancellationToken: timeout.Token);
+
+        await run.SendAsync(timeout.Token);
 
         Assert.Equal("legacy-session", run.Client.RequestedSessionId);
         await using var check = fixture.Context();
@@ -408,6 +419,7 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
     [Fact]
     public async Task Different_deployment_provider_cannot_resume_administrator_bound_legacy_session()
     {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         var runtime = new AiAssistantChatRuntimeState(Options.Create(new AiAssistantChatOptions
         {
             Enabled = true,
@@ -420,7 +432,7 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
             var conversation = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == conversationId);
             conversation.AiAssistantSessionId = "session-a";
             conversation.ProviderProfileFingerprint = null;
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(timeout.Token);
         }
 
         await using (var db = fixture.Context())
@@ -442,18 +454,19 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
             var confirmedA = await service.ConfirmNetclawLegacySessionsAsync(new ConfirmNetclawLegacySessionsDto
             {
                 HistoricalInstance = "dev",
-                HistoricalEndpoint = "https://provider-a.invalid/hub/session",
+                HistoricalEndpoint = "http://10.23.45.67/hub/session",
+                AllowPrivateHttp = true,
                 ExpectedEligibleConversations = 1,
                 ConversationIds = [conversationId]
-            }, "synthetic-admin");
+            }, "synthetic-admin", timeout.Token);
             var resolvedB = await service.GetResolvedNetclawSettingsAsync();
             Assert.NotEqual(confirmedA.ProviderProfileFingerprint, resolvedB.ProfileFingerprint);
             Assert.Equal(runtime.Current.ProfileFingerprint, resolvedB.ProfileFingerprint);
             Assert.False(resolvedB.CanAdoptLegacySessions);
         }
 
-        await using var run = await Run.AttachAsync(fixture, ticket, conversationId, runtimeState: runtime);
-        await run.SendAsync();
+        await using var run = await Run.AttachAsync(fixture, ticket, conversationId, runtimeState: runtime, cancellationToken: timeout.Token);
+        await run.SendAsync(timeout.Token);
 
         Assert.False(run.Client.ConnectStarted.Task.IsCompleted);
         Assert.Empty(run.Client.Sent);
@@ -611,7 +624,9 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
     private static async Task<NetclawLegacySessionConfirmationDto> ConfirmLegacySessionAsync(
         ChatPostgresFixture fixture,
         Guid conversationId,
-        string historicalEndpoint)
+        string historicalEndpoint,
+        bool allowPrivateHttp = false,
+        CancellationToken cancellationToken = default)
     {
         await using var db = fixture.Context();
         var configuration = new ConfigurationBuilder().AddInMemoryCollection().Build();
@@ -627,9 +642,10 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
         {
             HistoricalInstance = "dev",
             HistoricalEndpoint = historicalEndpoint,
+            AllowPrivateHttp = allowPrivateHttp,
             ExpectedEligibleConversations = 1,
             ConversationIds = [conversationId]
-        }, "synthetic-admin");
+        }, "synthetic-admin", cancellationToken);
     }
 
     private sealed class Run : IAsyncDisposable
@@ -675,7 +691,8 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
             string ticket,
             Guid conversation,
             TimeProvider? timeProvider = null,
-            IAiAssistantChatRuntimeState? runtimeState = null)
+            IAiAssistantChatRuntimeState? runtimeState = null,
+            CancellationToken cancellationToken = default)
         {
             var services = new ServiceCollection().AddScoped(_ => fixture.Context())
                 .AddSingleton(Substitute.For<IDomainEventPublisher>())
@@ -690,15 +707,15 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
                 factory,
                 timeProvider,
                 runtimeState);
-            await manager.StartAsync(default);
+            await manager.StartAsync(cancellationToken);
             return new(fixture, services, feed, manager, factory, ticket, conversation, timeProvider);
         }
 
-        public async Task SendAsync()
+        public async Task SendAsync(CancellationToken cancellationToken = default)
         {
             await using var db = fixture.Context();
-            Assert.True(await fixture.Store(db, timeProvider: timeProvider).AcceptMessageAsync("incidents", Ticket, Request, "operator", default));
-            await Manager.SendAsync(Conversation, Request.ClientMessageId, Request.Text, default);
+            Assert.True(await fixture.Store(db, timeProvider: timeProvider).AcceptMessageAsync("incidents", Ticket, Request, "operator", cancellationToken));
+            await Manager.SendAsync(Conversation, Request.ClientMessageId, Request.Text, cancellationToken);
         }
 
         public async Task<List<AiAssistantChatEvent>> WaitForAsync(Func<List<AiAssistantChatEvent>, bool> condition)

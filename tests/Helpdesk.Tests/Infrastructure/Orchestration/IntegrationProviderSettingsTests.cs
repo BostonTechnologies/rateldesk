@@ -531,6 +531,155 @@ public sealed class IntegrationProviderSettingsTests
             (await fixture.Db.Set<AiAssistantChatConversation>().AsNoTracking().SingleAsync(x => x.Id == legacy.Id)).ProviderProfileFingerprint);
     }
 
+    [Theory]
+    [InlineData("http://10.23.45.67/hub/session")]
+    [InlineData("http://[fd12:3456:789a::42]/hub/session")]
+    public async Task Legacy_confirmation_accepts_explicit_private_http_and_preserves_only_selected_history(string historicalEndpoint)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await using var fixture = await Fixture.CreateAsync();
+        var selected = new AiAssistantChatConversation
+        {
+            OrganizationId = "synthetic-tenant",
+            TicketId = "selected-ticket",
+            TicketType = "incidents",
+            AiAssistantSessionId = "synthetic-remote-session-a",
+            ProviderProfileFingerprint = null
+        };
+        var unselected = new AiAssistantChatConversation
+        {
+            OrganizationId = "synthetic-tenant",
+            TicketId = "unselected-ticket",
+            TicketType = "incidents",
+            AiAssistantSessionId = "synthetic-remote-session-b",
+            ProviderProfileFingerprint = null
+        };
+        fixture.Db.Set<AiAssistantChatConversation>().AddRange(selected, unselected);
+        fixture.Db.Set<AiAssistantChatEvent>().AddRange(
+            new AiAssistantChatEvent
+            {
+                ConversationId = selected.Id,
+                Sequence = 1,
+                Type = "user",
+                Text = "Synthetic transcript to preserve"
+            },
+            new AiAssistantChatEvent
+            {
+                ConversationId = unselected.Id,
+                Sequence = 1,
+                Type = "user",
+                Text = "Unselected transcript to preserve"
+            });
+        await fixture.Db.SaveChangesAsync(timeout.Token);
+        var service = fixture.CreateService();
+
+        var confirmed = await service.ConfirmNetclawLegacySessionsAsync(new ConfirmNetclawLegacySessionsDto
+        {
+            HistoricalInstance = "dev",
+            HistoricalEndpoint = historicalEndpoint,
+            AllowPrivateHttp = true,
+            ExpectedEligibleConversations = 1,
+            ConversationIds = [selected.Id]
+        }, "synthetic-admin", timeout.Token);
+
+        Assert.Equal(1, confirmed.BoundConversations);
+        var conversations = await fixture.Db.Set<AiAssistantChatConversation>().AsNoTracking()
+            .OrderBy(conversation => conversation.Id).ToListAsync(timeout.Token);
+        var persistedSelected = Assert.Single(conversations, conversation => conversation.Id == selected.Id);
+        var persistedUnselected = Assert.Single(conversations, conversation => conversation.Id == unselected.Id);
+        Assert.Equal("synthetic-remote-session-a", persistedSelected.AiAssistantSessionId);
+        Assert.Equal(confirmed.ProviderProfileFingerprint, persistedSelected.ProviderProfileFingerprint);
+        Assert.Equal("synthetic-remote-session-b", persistedUnselected.AiAssistantSessionId);
+        Assert.Null(persistedUnselected.ProviderProfileFingerprint);
+        var transcript = await fixture.Db.Set<AiAssistantChatEvent>().AsNoTracking().ToListAsync(timeout.Token);
+        Assert.Equal("Synthetic transcript to preserve",
+            Assert.Single(transcript, chatEvent => chatEvent.ConversationId == selected.Id).Text);
+        Assert.Equal("Unselected transcript to preserve",
+            Assert.Single(transcript, chatEvent => chatEvent.ConversationId == unselected.Id).Text);
+        var audit = await fixture.Db.ActivityLogs.SingleAsync(timeout.Token);
+        Assert.Equal("synthetic-admin", audit.UserId);
+        Assert.Contains("Legacy Netclaw session owner confirmed", audit.Message, StringComparison.Ordinal);
+        Assert.Contains($"HistoricalEndpoint={historicalEndpoint}", audit.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("synthetic-device-token", audit.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("synthetic-remote-session-a", audit.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("synthetic-remote-session-b", audit.Message, StringComparison.Ordinal);
+        Assert.Single(await fixture.Db.ActivityLogs.ToListAsync(timeout.Token));
+    }
+
+    [Fact]
+    public async Task Legacy_confirmation_private_http_without_opt_in_leaves_session_and_audit_unchanged()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await using var fixture = await Fixture.CreateAsync();
+        var legacy = new AiAssistantChatConversation
+        {
+            OrganizationId = "synthetic-tenant",
+            TicketId = "synthetic-ticket",
+            TicketType = "incidents",
+            AiAssistantSessionId = "synthetic-remote-session",
+            ProviderProfileFingerprint = null
+        };
+        fixture.Db.Set<AiAssistantChatConversation>().Add(legacy);
+        await fixture.Db.SaveChangesAsync(timeout.Token);
+        var service = fixture.CreateService();
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() => service.ConfirmNetclawLegacySessionsAsync(
+            new ConfirmNetclawLegacySessionsDto
+            {
+                HistoricalInstance = "dev",
+                HistoricalEndpoint = "http://10.23.45.67/hub/session",
+                AllowPrivateHttp = false,
+                ExpectedEligibleConversations = 1,
+                ConversationIds = [legacy.Id]
+            },
+            "synthetic-admin", timeout.Token));
+
+        Assert.Equal("HistoricalEndpoint", exception.ParamName);
+        var persisted = await fixture.Db.Set<AiAssistantChatConversation>().AsNoTracking()
+            .SingleAsync(conversation => conversation.Id == legacy.Id, timeout.Token);
+        Assert.Equal("synthetic-remote-session", persisted.AiAssistantSessionId);
+        Assert.Null(persisted.ProviderProfileFingerprint);
+        Assert.Empty(await fixture.Db.ActivityLogs.ToListAsync(timeout.Token));
+    }
+
+    [Theory]
+    [InlineData("http://203.0.113.42/hub/session", "dev", true)]
+    [InlineData("https://provider-a.example.test/wrong-path", "dev", false)]
+    [InlineData("https://provider-a.example.test/hub/session", "production", false)]
+    public async Task Legacy_confirmation_keeps_historical_endpoint_validation(
+        string historicalEndpoint,
+        string historicalInstance,
+        bool allowPrivateHttp)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await using var fixture = await Fixture.CreateAsync();
+        var legacy = new AiAssistantChatConversation
+        {
+            OrganizationId = "synthetic-tenant",
+            TicketId = "synthetic-ticket",
+            TicketType = "incidents",
+            AiAssistantSessionId = "synthetic-remote-session",
+            ProviderProfileFingerprint = null
+        };
+        fixture.Db.Set<AiAssistantChatConversation>().Add(legacy);
+        await fixture.Db.SaveChangesAsync(timeout.Token);
+        var service = fixture.CreateService();
+
+        await Assert.ThrowsAsync<ArgumentException>(() => service.ConfirmNetclawLegacySessionsAsync(new ConfirmNetclawLegacySessionsDto
+        {
+            HistoricalInstance = historicalInstance,
+            HistoricalEndpoint = historicalEndpoint,
+            AllowPrivateHttp = allowPrivateHttp,
+            ExpectedEligibleConversations = 1,
+            ConversationIds = [legacy.Id]
+        }, "synthetic-admin", timeout.Token));
+
+        var persisted = await fixture.Db.Set<AiAssistantChatConversation>().AsNoTracking()
+            .SingleAsync(conversation => conversation.Id == legacy.Id, timeout.Token);
+        Assert.Null(persisted.ProviderProfileFingerprint);
+        Assert.Empty(await fixture.Db.ActivityLogs.ToListAsync(timeout.Token));
+    }
+
     [Fact]
     public async Task Legacy_confirmation_rejects_null_conversation_ids()
     {
@@ -570,6 +719,47 @@ public sealed class IntegrationProviderSettingsTests
 
         Assert.Equal("ConversationIds", exception.ParamName);
         Assert.Empty(await fixture.Db.ActivityLogs.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Legacy_confirmation_rejects_a_changed_eligible_count_without_binding_or_audit()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await using var fixture = await Fixture.CreateAsync();
+        var eligible = new AiAssistantChatConversation
+        {
+            OrganizationId = "synthetic-tenant",
+            TicketId = "eligible-ticket",
+            TicketType = "incidents",
+            AiAssistantSessionId = "synthetic-eligible-session"
+        };
+        var alreadyBound = new AiAssistantChatConversation
+        {
+            OrganizationId = "synthetic-tenant",
+            TicketId = "already-bound-ticket",
+            TicketType = "incidents",
+            AiAssistantSessionId = "synthetic-bound-session",
+            ProviderProfileFingerprint = "previous-provider-fingerprint"
+        };
+        fixture.Db.Set<AiAssistantChatConversation>().AddRange(eligible, alreadyBound);
+        await fixture.Db.SaveChangesAsync(timeout.Token);
+        var service = fixture.CreateService();
+
+        await Assert.ThrowsAsync<IntegrationProviderConfigurationConflictException>(() => service.ConfirmNetclawLegacySessionsAsync(
+            new ConfirmNetclawLegacySessionsDto
+            {
+                HistoricalInstance = "dev",
+                HistoricalEndpoint = "https://provider-a.example.test/hub/session",
+                ExpectedEligibleConversations = 2,
+                ConversationIds = [eligible.Id, alreadyBound.Id]
+            },
+            "synthetic-admin", timeout.Token));
+
+        var persisted = await fixture.Db.Set<AiAssistantChatConversation>().AsNoTracking()
+            .ToDictionaryAsync(conversation => conversation.Id, timeout.Token);
+        Assert.Null(persisted[eligible.Id].ProviderProfileFingerprint);
+        Assert.Equal("previous-provider-fingerprint", persisted[alreadyBound.Id].ProviderProfileFingerprint);
+        Assert.Empty(await fixture.Db.ActivityLogs.ToListAsync(timeout.Token));
     }
 
     [Fact]
