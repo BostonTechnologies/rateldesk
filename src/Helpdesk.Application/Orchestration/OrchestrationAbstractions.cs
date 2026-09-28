@@ -164,6 +164,11 @@ public interface IIntegrationProviderSettingsService
     Task<NetclawPairingTarget> ResolveNetclawPairingTargetAsync(
         UpdateNetclawConnectivitySettingsDto request,
         CancellationToken cancellationToken = default);
+    Task<NetclawPairingTarget> ResolveNetclawPairingTargetAsync(
+        UpdateNetclawConnectivitySettingsDto request,
+        string administratorId,
+        string? legacyOwnershipReviewToken,
+        CancellationToken cancellationToken = default);
     Task<NetclawConnectivitySettingsDto> UpdateNetclawSettingsAsync(
         UpdateNetclawConnectivitySettingsDto request,
         CancellationToken cancellationToken = default);
@@ -176,12 +181,30 @@ public interface IIntegrationProviderSettingsService
     Task ApplyNetclawRuntimeAsync(NetclawResolvedSettings settings, CancellationToken cancellationToken = default);
 }
 
-public sealed class IntegrationProviderConfigurationConflictException(
+public class IntegrationProviderConfigurationConflictException(
     string message,
     string code = "configuration_conflict") : InvalidOperationException(message)
 {
     public string Code { get; } = code;
 }
+
+public sealed class NetclawLegacySessionReviewRequiredException(
+    NetclawLegacySessionReviewConflictDto review)
+    : IntegrationProviderConfigurationConflictException(review.Message, review.Code)
+{
+    public NetclawLegacySessionReviewConflictDto Review { get; } = review;
+}
+
+public sealed class NetclawLegacySessionReviewConflictException(
+    string message,
+    NetclawLegacySessionReviewDto review)
+    : IntegrationProviderConfigurationConflictException(message, "legacy_session_conflict")
+{
+    public NetclawLegacySessionReviewDto Review { get; } = review;
+}
+
+public sealed class NetclawPairingRuntimeUnavailableException(string message)
+    : InvalidOperationException(message);
 
 public interface IOrchestrationTokenService
 {

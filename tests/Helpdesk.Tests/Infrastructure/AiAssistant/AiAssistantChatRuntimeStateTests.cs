@@ -1,5 +1,6 @@
 using Helpdesk.Application.AiAssistant.Chat;
 using Helpdesk.Infrastructure.AiAssistant.Chat;
+using Helpdesk.Infrastructure.Persistence.Connectivity;
 using Microsoft.Extensions.Options;
 using Xunit;
 
@@ -7,6 +8,46 @@ namespace Helpdesk.Tests.Infrastructure.AiAssistant;
 
 public sealed class AiAssistantChatRuntimeStateTests
 {
+    [Theory]
+    [InlineData("https://provider-a.example.test")]
+    [InlineData("https://provider-a.example.test/")]
+    public void Initial_deployment_snapshot_canonicalizes_daemon_address_and_fingerprint(string endpoint)
+    {
+        const string canonicalEndpoint = "https://provider-a.example.test/hub/session";
+        var state = new AiAssistantChatRuntimeState(Options.Create(new AiAssistantChatOptions
+        {
+            Enabled = true,
+            Instance = "dev",
+            Endpoint = endpoint,
+            DeviceToken = "synthetic-chat-device-token"
+        }));
+
+        Assert.True(state.Current.Enabled);
+        Assert.Equal(canonicalEndpoint, state.Current.Endpoint);
+        Assert.Equal(
+            IntegrationProviderSecretBinding.Fingerprint("Netclaw", "dev", canonicalEndpoint),
+            state.Current.ProfileFingerprint);
+    }
+
+    [Theory]
+    [InlineData("", "synthetic-chat-device-token")]
+    [InlineData("https://provider-a.example.test/custom", "synthetic-chat-device-token")]
+    [InlineData("https://provider-a.example.test/hub/session", "")]
+    public void Invalid_enabled_deployment_options_start_disabled(string endpoint, string deviceToken)
+    {
+        var state = new AiAssistantChatRuntimeState(Options.Create(new AiAssistantChatOptions
+        {
+            Enabled = true,
+            Instance = "dev",
+            Endpoint = endpoint,
+            DeviceToken = deviceToken
+        }));
+
+        Assert.False(state.Current.Enabled);
+        if (endpoint is "" or "https://provider-a.example.test/custom")
+            Assert.Equal(string.Empty, state.Current.Endpoint);
+    }
+
     [Fact]
     public void Publish_swaps_an_immutable_provider_snapshot_as_one_value()
     {

@@ -49,25 +49,64 @@ internal host name into tracked configuration or support tickets.
 ## Connect RatelDesk to NetClaw for ticket chat
 
 For an administrator-managed profile, open **Admin → Automation → Integration
-→ Netclaw** and enter the NetClaw session endpoint and instance. Generate a
-one-time code with the NetClaw pairing flow, then enter it in **One-time
-NetClaw pairing code** and choose **Pair and save**. The code expires after
-five minutes and is single-use. RatelDesk's authorized API makes the exchange
-from the server, assigns a unique `rateldesk-api-...` device name, protects the
-returned token, and saves the profile. The token is never returned to the
-browser. Use
-HTTPS for the endpoint; private HTTP requires the explicit local-development
-setting.
+→ Netclaw** (`/admin/automation/integration/netclaw`). Start the NetClaw pairing
+flow with `netclaw daemon pair`, then enter the daemon address and one-time
+pairing code it prints. The page asks for a **Netclaw address** and **Pairing
+code**. The code is single-use; use the expiry printed by Netclaw. Choose
+**Pair & connect**. Do not append a route or enter an instance name. The
+supported native instance is selected internally.
 
-Beta.3 conversations with unbound historical sessions must have their old
-provider owner confirmed in the page's **Historical Netclaw session
-ownership** section before pairing. The API checks this before sending the
-one-time code to NetClaw, so the code remains unused if ownership still blocks
-the profile change.
+The address accepts the daemon base form, an optional trailing slash, or the
+canonical session route with an optional trailing slash. For example, these
+forms identify the same private HTTP daemon:
 
-The UI's **Advanced/manual token** section remains available for recovery. If
-you use NetClaw CLI pairing, its local secret file is sensitive too. Never put
-the token or one-time code in an appsettings file, Compose file, browser
+```text
+http://192.168.1.20:5199
+http://192.168.1.20:5199/
+http://192.168.1.20:5199/hub/session
+http://192.168.1.20:5199/hub/session/
+```
+
+The same path forms are accepted with HTTPS, for example
+`https://netclaw.example.com:5199`. Other paths, URL user information, query
+strings, and fragments are rejected. RatelDesk normalizes an accepted address
+to `/hub/session` for the saved profile and SignalR connection, and derives
+`/api/pair/exchange` for pairing.
+
+RatelDesk's authorized API exchanges the code with the daemon, protects the
+returned device token, saves the canonical profile, and applies it at runtime.
+It then establishes and verifies an authenticated SignalR session before
+showing **Connected** with the verification time. The browser never receives
+the paired-device token. The connected view offers **Test connection** and
+**Edit / Re-pair**; revision, source, and token-state details are in
+**Advanced diagnostics**. **Advanced diagnostics**, **Manual token / recovery**,
+and **Session limits** are collapsed by default.
+
+Use HTTPS for normal deployments. Entering an explicit private literal HTTP
+address can authorize HTTP for that pairing when it meets RatelDesk's private
+network policy; no separate private-HTTP checkbox is needed in this flow.
+Public HTTP, host names over HTTP, and addresses forbidden by the
+outbound-network policy remain rejected. Deployment-managed and advanced
+profiles still require the explicit private-HTTP setting where applicable.
+
+If beta.3 conversations with unbound historical sessions exist, **Pair &
+connect** checks for them before exchanging the code, then asks whether they
+used this same Netclaw server. Confirming binds the reviewed conversations to
+this provider, preserves their session IDs and transcripts, records the
+ownership decision, and continues the original
+pairing operation without asking for the code again. The ownership step does
+not contact Netclaw. If the eligible conversation set changed after review,
+RatelDesk stops before exchanging the code and asks for a fresh review.
+
+Choose **No — review them separately** to use the advanced per-session recovery
+path. It retains explicit session selection and provider isolation; do not bind
+a conversation to a provider until its prior owner is confirmed. The API checks
+ownership before it sends the one-time code to Netclaw, so the code stays
+unused while recovery blocks pairing.
+
+The **Manual token / recovery** section is for advanced recovery. If you use
+Netclaw CLI pairing, its local secret file is sensitive too. Never put the
+token or one-time code in an appsettings file, Compose file, browser
 configuration, shell history, ticket, issue, pull request, or example.
 
 Deployment-managed profiles are read-only in the Integration hub. Configure
@@ -87,7 +126,10 @@ Netclaw__TurnInactivityTimeout=00:05:00
 Netclaw__ActivityHeartbeatInterval=00:00:15
 ```
 
-The former `AiAssistantChat__...` names remain readable as a migration alias.
+Use the canonical session route in deployment configuration; interactive
+pairing accepts either the daemon base address or that route and normalizes it
+internally. The former `AiAssistantChat__...` names remain readable as a
+migration alias.
 At the same configuration-provider priority, `Netclaw__...` wins. A higher
 priority legacy source can override a lower-priority canonical source, as with
 normal .NET configuration precedence. Deployment-managed configuration is
@@ -116,11 +158,12 @@ count requires a fresh review. Keep the confirmation with the migration record;
 do not include device tokens or remote session IDs in it.
 
 For a historical private-HTTP provider, include `"allowPrivateHttp": true`
-explicitly in this confirmation request after reviewing the selected endpoint.
+explicitly in this confirmation request after reviewing the selected address.
 The request field does not inherit `Netclaw__AllowPrivateHttp` or another
 environment setting. Omitting it keeps the default HTTPS-only behavior. This
-opt-in still requires a private literal IP address and the exact hub path; it
-does not disable TLS or certificate validation for HTTPS endpoints.
+opt-in still requires a private literal IP address that passes daemon-address
+normalization; it does not disable TLS or certificate validation for HTTPS
+endpoints.
 
 The confirmed conversations resume only with the matching provider. Rotating
 that provider's token keeps its identity and saved sessions. A different
@@ -128,8 +171,10 @@ provider requires a new conversation or the existing manual recovery controls;
 clearing or replacing the current profile does not grant it ownership of old
 sessions.
 
-The endpoint must be an absolute URL with exactly the `/hub/session` path. Use
-HTTPS in normal deployments. Saving a private-HTTP deployment profile requires
+The daemon address is normalized to the canonical `/hub/session` route for
+runtime connections and provider identity. Interactive pairing also derives
+the canonical `/api/pair/exchange` route. Use HTTPS in normal deployments.
+Saving a private-HTTP deployment profile requires
 `Netclaw__AllowPrivateHttp=true`; legacy confirmation separately requires its
 own explicit `allowPrivateHttp` request field. RatelDesk accepts HTTP only for
 a private literal IPv4 or IPv6 address (including IPv6 ULA), not a DNS name or
@@ -146,12 +191,10 @@ or reconnect the browser and confirm the saved conversation recovers. A failed
 or silent transport is not a reason to resend a message: use the ticket UI's
 recovery controls so an already admitted turn cannot be duplicated.
 
-The Integration hub's **Test draft** action validates the edited endpoint and
-token without saving, applying, or recording the draft. **Test saved
-configuration** validates the currently applied profile and records only
-protected metadata. A real daemon pairing, SignalR session, reconnect, and
-post-restart ticket journey still require an authorized NetClaw environment;
-repository tests do not substitute for that external acceptance.
+A real daemon pairing, authenticated SignalR session, reconnect, and
+post-restart ticket journey still require an authorized NetClaw environment.
+The **Test connection** action checks a connected profile; repository tests do
+not substitute for live external acceptance.
 
 ### Rotate or revoke the chat device
 
@@ -261,7 +304,7 @@ or NetClaw deployment into another organization.
 
 | Symptom | Check first |
 | --- | --- |
-| AI Assistant cannot connect or reconnect | Confirm PostgreSQL and `Netclaw__Enabled`; validate the exact `/hub/session` URL, TLS chain, paired-device token, proxy WebSocket forwarding, and NetClaw exposure mode. Run `netclaw doctor` on the daemon host. |
+| AI Assistant cannot connect or reconnect | Confirm PostgreSQL and `Netclaw__Enabled`; validate the daemon address and HTTPS/private-network policy, paired-device token, proxy WebSocket forwarding, and NetClaw exposure mode. Run `netclaw doctor` on the daemon host. |
 | AI Assistant is unavailable after a restart | Confirm the API has the current injected token and that the token was not placed on the Web service. Use the ticket UI recovery path; do not blindly resend an uncertain turn. |
 | HTTP MCP returns `401` | Treat this as a credential, expiry, owner, purpose, resource-URI, permission, or organization-scope problem. Compare the exact configured and credential-bound public `/mcp` URI, then rotate or recreate the credential if necessary. |
 | Proxy rejects or cannot reach `/mcp` | Check DNS, TLS, proxy route, forwarded `Authorization` and MCP headers, streaming behavior, and the MCP host health. This is distinct from a RatelDesk authorization failure. |

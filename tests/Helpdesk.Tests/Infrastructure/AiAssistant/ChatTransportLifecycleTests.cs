@@ -366,7 +366,7 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
     [Fact]
     public async Task Unbound_legacy_session_is_never_reused_even_when_runtime_flag_is_true()
     {
-        var runtime = new AiAssistantChatRuntimeState(Options.Create(new AiAssistantChatOptions { Enabled = true }));
+        var runtime = new AiAssistantChatRuntimeState(Options.Create(EnabledTestOptions()));
         runtime.Publish(runtime.Current with { CanAdoptLegacySessions = true });
         await using var run = await Run.CreateAsync(fixture, runtimeState: runtime);
         await using (var db = fixture.Context())
@@ -388,7 +388,7 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
     [Fact]
     public async Task Concurrently_appearing_unbound_session_is_rejected_after_connect_with_runtime_flag_true()
     {
-        var runtime = new AiAssistantChatRuntimeState(Options.Create(new AiAssistantChatOptions { Enabled = true }));
+        var runtime = new AiAssistantChatRuntimeState(Options.Create(EnabledTestOptions()));
         runtime.Publish(runtime.Current with { CanAdoptLegacySessions = true });
         await using var run = await Run.CreateAsync(fixture, runtimeState: runtime);
         run.Client.ConnectGate = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -648,6 +648,14 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
         }, "synthetic-admin", cancellationToken);
     }
 
+    private static AiAssistantChatOptions EnabledTestOptions()
+        => new()
+        {
+            Enabled = true,
+            Endpoint = "https://chat.invalid/hub/session",
+            DeviceToken = "synthetic-chat-device-token"
+        };
+
     private sealed class Run : IAsyncDisposable
     {
         private readonly ChatPostgresFixture fixture;
@@ -701,7 +709,7 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
             var feed = new ChatLiveFeed();
             var manager = new AiAssistantChatSessionManager(
                 services.GetRequiredService<IServiceScopeFactory>(),
-                Options.Create(new AiAssistantChatOptions { Enabled = true }),
+                Options.Create(EnabledTestOptions()),
                 feed,
                 NullLogger<AiAssistantChatSessionManager>.Instance,
                 factory,

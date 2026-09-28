@@ -1,7 +1,10 @@
 using System.Data;
+using System.Security.Cryptography;
+using System.Text;
 using Helpdesk.Application.AiAssistant.Chat;
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Infrastructure.AiAssistant.Chat;
+using Helpdesk.Infrastructure.Connectivity;
 using Helpdesk.Infrastructure.Configuration;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.Persistence.Connectivity;
@@ -14,6 +17,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Npgsql;
 
 namespace Helpdesk.Infrastructure.Orchestration;
 
@@ -277,7 +281,12 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
         if (netclawManagedByDeployment)
             return ToNetclawDto(ResolveNetclaw(deploymentNetclaw, null, "deployment", managedByDeployment: true, resolveSecret: false), null);
 
-        var stored = await LoadNetclawAsync(cancellationToken);
+        var stored = await db.NetclawConnectivitySettings
+            .AsNoTracking()
+            .Where(x => x.ProviderKey == "Netclaw")
+            .OrderByDescending(x => x.Revision)
+            .ThenBy(x => x.Id)
+            .FirstOrDefaultAsync(cancellationToken);
         var resolved = stored is null
             ? ResolveNetclaw(new AiAssistantChatOptions(), null, "database", managedByDeployment: false, resolveSecret: false)
             : ResolveNetclaw(null, stored, "database", managedByDeployment: false, resolveSecret: false);
@@ -289,7 +298,12 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
         if (netclawManagedByDeployment)
             return ResolveNetclaw(deploymentNetclaw, null, "deployment", managedByDeployment: true, resolveSecret: false);
 
-        var stored = await LoadNetclawAsync(cancellationToken);
+        var stored = await db.NetclawConnectivitySettings
+            .AsNoTracking()
+            .Where(x => x.ProviderKey == "Netclaw")
+            .OrderByDescending(x => x.Revision)
+            .ThenBy(x => x.Id)
+            .FirstOrDefaultAsync(cancellationToken);
         return stored is null
             ? ResolveNetclaw(new AiAssistantChatOptions(), null, "database", managedByDeployment: false, resolveSecret: true)
             : ResolveNetclaw(null, stored, "database", managedByDeployment: false, resolveSecret: true);
@@ -301,6 +315,11 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
     {
         if (netclawManagedByDeployment)
             throw new InvalidOperationException("Netclaw is managed by deployment configuration and cannot be tested as a database draft.");
+        ValidateNetclawSessionLimits(
+            request.IdleMinutes,
+            request.ConnectionCapacity,
+            request.TurnInactivityTimeout,
+            request.ActivityHeartbeatInterval);
 
         var existing = await LoadNetclawAsync(cancellationToken);
         var currentRevision = existing?.Revision ?? 0;
@@ -311,7 +330,7 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
             "configuration_revision_conflict");
 
         var instance = Normalize(request.Instance) ?? "dev";
-        var endpoint = NormalizeUrl(request.Endpoint, "Endpoint", request.AllowPrivateHttp);
+        var endpoint = NetclawEndpointNormalizer.Normalize(request.Endpoint, "Endpoint", request.AllowPrivateHttp);
         var profileFingerprint = BuildNetclawSecretBindingFingerprint(instance, endpoint);
         string? deviceToken = null;
 
@@ -360,10 +379,25 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
     public async Task<NetclawPairingTarget> ResolveNetclawPairingTargetAsync(
         UpdateNetclawConnectivitySettingsDto request,
         CancellationToken cancellationToken = default)
+        => await ResolveNetclawPairingTargetAsync(
+            request,
+            "unknown",
+            legacyOwnershipReviewToken: null,
+            cancellationToken);
+
+    public async Task<NetclawPairingTarget> ResolveNetclawPairingTargetAsync(
+        UpdateNetclawConnectivitySettingsDto request,
+        string administratorId,
+        string? legacyOwnershipReviewToken,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (string.IsNullOrWhiteSpace(administratorId))
+            throw new ArgumentException("An authenticated administrator is required.", nameof(administratorId));
         if (netclawManagedByDeployment)
             throw new InvalidOperationException("Netclaw is managed by deployment configuration and cannot be paired here.");
+
+        var allowPrivateHttp = NetclawEndpointNormalizer.IsPrivateHttpLiteral(request.Endpoint);
 
         // Pairing creates the token needed by an enabled profile. Validate the
         // rest of the draft with a server-only placeholder; it is never stored,
@@ -371,11 +405,11 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
         var candidate = await ResolveNetclawDraftAsync(new UpdateNetclawConnectivitySettingsDto
         {
             ExpectedRevision = request.ExpectedRevision,
-            Enabled = request.Enabled,
-            Instance = request.Instance,
+            Enabled = true,
+            Instance = "dev",
             Endpoint = request.Endpoint,
             DeviceToken = "pairing-preflight-placeholder",
-            AllowPrivateHttp = request.AllowPrivateHttp,
+            AllowPrivateHttp = allowPrivateHttp,
             IdleMinutes = request.IdleMinutes,
             ConnectionCapacity = request.ConnectionCapacity,
             TurnInactivityTimeout = request.TurnInactivityTimeout,
@@ -383,17 +417,16 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
         }, cancellationToken);
 
         if (!candidate.ConfiguredEnabled || string.IsNullOrWhiteSpace(candidate.Endpoint))
-            throw new ArgumentException("Enable Netclaw and provide a valid session endpoint before pairing.");
-        if (!Uri.TryCreate(candidate.Endpoint, UriKind.Absolute, out var endpoint) ||
-            endpoint.AbsolutePath != "/hub/session" ||
-            endpoint.Query.Length != 0 ||
-            endpoint.Fragment.Length != 0)
-            throw new ArgumentException("The Netclaw session endpoint must use the exact /hub/session path.");
+            throw new ArgumentException("Enter the Netclaw daemon address shown by \"netclaw daemon pair\".");
+        if (!candidate.RuntimeSupported)
+            throw new NetclawPairingRuntimeUnavailableException("Native Netclaw pairing requires PostgreSQL durable session ownership.");
+        if (!Uri.TryCreate(candidate.Endpoint, UriKind.Absolute, out var endpoint))
+            throw new ArgumentException("Enter the Netclaw daemon address shown by \"netclaw daemon pair\".");
 
         // Recheck the revision and ownership gate immediately before the
         // one-time remote code exchange. UpdateNetclawSettingsAsync repeats
         // these checks when persisting, covering races during the exchange.
-        var existing = await LoadNetclawAsync(cancellationToken);
+        var existing = await LoadNetclawSnapshotAsync(cancellationToken);
         RequireExpectedRevision(
             request.ExpectedRevision,
             existing?.Revision ?? 0,
@@ -401,13 +434,29 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
             "configuration_revision_conflict");
 
         var profileFingerprint = BuildNetclawSecretBindingFingerprint(candidate.Instance, candidate.Endpoint);
-        if (!string.Equals(existing?.ProfileFingerprint, profileFingerprint, StringComparison.Ordinal) &&
-            await UnboundLegacySessions().AnyAsync(cancellationToken))
-            throw new IntegrationProviderConfigurationConflictException(
-                "Legacy Netclaw sessions have no provider binding. Confirm their historical provider before pairing a changed profile.",
-                "unbound_legacy_sessions");
+        var unboundIds = await GetUnboundNetclawLegacySessionIdsAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(legacyOwnershipReviewToken))
+        {
+            if (unboundIds.Count > 0)
+                throw CreateLegacyReviewRequired(CreateNetclawLegacySessionReview(
+                    unboundIds,
+                    candidate.Revision,
+                    profileFingerprint,
+                    candidate.Endpoint));
+        }
+        else
+        {
+            await ConfirmPairingLegacySessionOwnershipAsync(
+                candidate.Revision,
+                candidate.Instance,
+                candidate.Endpoint,
+                profileFingerprint,
+                legacyOwnershipReviewToken,
+                administratorId,
+                cancellationToken);
+        }
 
-        return new NetclawPairingTarget(endpoint, request.AllowPrivateHttp);
+        return new NetclawPairingTarget(endpoint, allowPrivateHttp);
     }
 
     public async Task<NetclawConnectivitySettingsDto> UpdateNetclawSettingsAsync(
@@ -416,8 +465,15 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
     {
         if (netclawManagedByDeployment)
             throw new InvalidOperationException("Netclaw is managed by deployment configuration and is read-only here.");
+        ValidateNetclawSessionLimits(
+            request.IdleMinutes,
+            request.ConnectionCapacity,
+            request.TurnInactivityTimeout,
+            request.ActivityHeartbeatInterval);
 
         var existing = await LoadNetclawAsync(cancellationToken);
+        if (existing is not null)
+            await db.Entry(existing).ReloadAsync(cancellationToken);
         var currentRevision = existing?.Revision ?? 0;
         RequireExpectedRevision(
             request.ExpectedRevision,
@@ -426,7 +482,7 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
             "configuration_revision_conflict");
 
         var instance = Normalize(request.Instance) ?? "dev";
-        var endpoint = NormalizeUrl(request.Endpoint, "Endpoint", request.AllowPrivateHttp);
+        var endpoint = NetclawEndpointNormalizer.Normalize(request.Endpoint, "Endpoint", request.AllowPrivateHttp);
         var idleMinutes = request.IdleMinutes;
         var capacity = request.ConnectionCapacity;
         var turnTimeout = request.TurnInactivityTimeout;
@@ -519,7 +575,7 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
         var conversationIds = submittedIds.ToArray();
 
         var instance = Normalize(request.HistoricalInstance) ?? "dev";
-        var endpoint = NormalizeUrl(request.HistoricalEndpoint, "HistoricalEndpoint", request.AllowPrivateHttp);
+        var endpoint = NetclawEndpointNormalizer.Normalize(request.HistoricalEndpoint, "HistoricalEndpoint", request.AllowPrivateHttp);
         if (endpoint is null || !new AiAssistantChatOptions
             {
                 Enabled = true,
@@ -559,6 +615,142 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
         return new NetclawLegacySessionConfirmationDto(updated, fingerprint);
     }
 
+    private async Task ConfirmPairingLegacySessionOwnershipAsync(
+        int expectedRevision,
+        string instance,
+        string endpoint,
+        string profileFingerprint,
+        string submittedReviewToken,
+        string administratorId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+            var existing = await LoadNetclawSnapshotAsync(cancellationToken);
+            RequireExpectedRevision(
+                expectedRevision,
+                existing?.Revision ?? 0,
+                "The Netclaw configuration changed; reload and review pairing before continuing.",
+                "configuration_revision_conflict");
+
+            var eligibleIds = await GetUnboundNetclawLegacySessionIdsAsync(cancellationToken);
+            var currentReview = CreateNetclawLegacySessionReview(eligibleIds, expectedRevision, profileFingerprint, endpoint);
+            if (!ReviewTokensEqual(submittedReviewToken, currentReview.ReviewToken))
+                throw CreateLegacyReviewConflict(currentReview);
+
+            if (eligibleIds.Count == 0)
+                throw CreateLegacyReviewConflict(currentReview);
+
+            var updated = await UnboundLegacySessions()
+                .Where(conversation => eligibleIds.Contains(conversation.Id))
+                .ExecuteUpdateAsync(
+                    setters => setters.SetProperty(conversation => conversation.ProviderProfileFingerprint, profileFingerprint),
+                    cancellationToken);
+            if (updated != eligibleIds.Count)
+                throw new ConcurrentLegacySessionSetChangedException();
+
+            db.ActivityLogs.Add(new ActivityLog
+            {
+                UserId = administratorId,
+                RelatedEntityId = "Netclaw",
+                Message = $"Legacy Netclaw same-server ownership confirmed. Endpoint={endpoint}; ProviderFingerprint={profileFingerprint}; BoundConversations={updated}."
+            });
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch (ConcurrentLegacySessionSetChangedException)
+        {
+            var refreshedIds = await GetUnboundNetclawLegacySessionIdsAsync(cancellationToken);
+            throw CreateLegacyReviewConflict(CreateNetclawLegacySessionReview(
+                refreshedIds,
+                expectedRevision,
+                profileFingerprint,
+                endpoint));
+        }
+        catch (Exception exception) when (IsLegacyReviewConcurrencyFailure(exception))
+        {
+            var refreshedIds = await GetUnboundNetclawLegacySessionIdsAsync(cancellationToken);
+            var refreshedReview = CreateNetclawLegacySessionReview(
+                refreshedIds,
+                expectedRevision,
+                profileFingerprint,
+                endpoint);
+            throw CreateLegacyReviewConflict(refreshedReview);
+        }
+    }
+
+    private async Task<IReadOnlyList<Guid>> GetUnboundNetclawLegacySessionIdsAsync(
+        CancellationToken cancellationToken)
+        => await UnboundLegacySessions()
+            .OrderBy(conversation => conversation.Id)
+            .Select(conversation => conversation.Id)
+            .ToListAsync(cancellationToken);
+
+    private static NetclawLegacySessionReviewDto CreateNetclawLegacySessionReview(
+        IReadOnlyList<Guid> conversationIds,
+        int revision,
+        string profileFingerprint,
+        string endpoint)
+    {
+        var orderedIds = conversationIds.Order().Select(id => id.ToString("N"));
+        var reviewMaterial = $"netclaw-legacy-review-v1\n{revision}\n{profileFingerprint}\n{string.Join('\n', orderedIds)}";
+        var reviewToken = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(reviewMaterial)));
+        return new NetclawLegacySessionReviewDto(
+            conversationIds.Count,
+            endpoint,
+            reviewToken);
+    }
+
+    private static bool ReviewTokensEqual(string provided, string expected)
+    {
+        if (provided.Length != expected.Length)
+            return false;
+        var providedBytes = Encoding.UTF8.GetBytes(provided);
+        var expectedBytes = Encoding.UTF8.GetBytes(expected);
+        return CryptographicOperations.FixedTimeEquals(providedBytes, expectedBytes);
+    }
+
+    private static NetclawLegacySessionReviewRequiredException CreateLegacyReviewRequired(
+        NetclawLegacySessionReviewDto review)
+    {
+        var message = review.ConversationCount == 1
+            ? "1 older conversation needs provider confirmation before pairing."
+            : $"{review.ConversationCount} older conversations need provider confirmation before pairing.";
+        return new NetclawLegacySessionReviewRequiredException(new NetclawLegacySessionReviewConflictDto(
+            "legacy_ownership_confirmation_required",
+            message,
+            review.CanonicalEndpoint,
+            NetclawEndpointNormalizer.ToDaemonAddress(review.CanonicalEndpoint),
+            review.ConversationCount,
+            review.ReviewToken));
+    }
+
+    private static NetclawLegacySessionReviewConflictException CreateLegacyReviewConflict(
+        NetclawLegacySessionReviewDto review)
+        => new(
+            "The older-conversation list changed. Review it again; your pairing code was not used.",
+            review);
+
+    private static bool IsLegacyReviewConcurrencyFailure(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is DbUpdateConcurrencyException)
+                return true;
+            if (current is PostgresException postgresException &&
+                postgresException.SqlState is PostgresErrorCodes.SerializationFailure or PostgresErrorCodes.DeadlockDetected)
+                return true;
+        }
+
+        return false;
+    }
+
+    private sealed class ConcurrentLegacySessionSetChangedException()
+        : Exception("The unbound legacy session set changed during pairing ownership confirmation.")
+    {
+    }
+
     public async Task<IReadOnlyList<NetclawUnboundLegacySessionDto>> GetUnboundNetclawLegacySessionsAsync(
         CancellationToken cancellationToken = default)
     {
@@ -594,11 +786,12 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
         if (stored is null || stored.Revision != expectedRevision || !string.Equals(stored.ProfileFingerprint, profileFingerprint, StringComparison.Ordinal))
             return false;
         var testedAt = clock.GetUtcNow();
-        return await db.NetclawConnectivitySettings
+        var updated = await db.NetclawConnectivitySettings
             .Where(x => x.Id == stored.Id && x.Revision == expectedRevision && x.ProfileFingerprint == profileFingerprint)
             .ExecuteUpdateAsync(updates => updates
                 .SetProperty(x => x.LastTestedAtUtc, testedAt)
                 .SetProperty(x => x.LastTestSucceeded, succeeded), cancellationToken) == 1;
+        return updated;
     }
 
     public async Task ApplyNetclawRuntimeAsync(NetclawResolvedSettings settings, CancellationToken cancellationToken = default)
@@ -625,6 +818,14 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
 
     private async Task<NetclawConnectivitySettings?> LoadNetclawAsync(CancellationToken cancellationToken)
         => await db.NetclawConnectivitySettings
+            .Where(x => x.ProviderKey == "Netclaw")
+            .OrderByDescending(x => x.Revision)
+            .ThenBy(x => x.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    private async Task<NetclawConnectivitySettings?> LoadNetclawSnapshotAsync(CancellationToken cancellationToken)
+        => await db.NetclawConnectivitySettings
+            .AsNoTracking()
             .Where(x => x.ProviderKey == "Netclaw")
             .OrderByDescending(x => x.Revision)
             .ThenBy(x => x.Id)
@@ -721,7 +922,23 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
         string? profileFingerprintOverride = null)
     {
         var instance = Normalize(options?.Instance ?? stored?.Instance) ?? "dev";
-        var endpoint = Normalize(options?.Endpoint ?? stored?.Endpoint);
+        var endpointValue = Normalize(options?.Endpoint ?? stored?.Endpoint);
+        var allowPrivateHttp = options?.AllowPrivateHttp ?? stored?.AllowPrivateHttp ?? false;
+        var endpointValid = endpointValue is null;
+        string? canonicalEndpoint = null;
+        if (endpointValue is not null)
+        {
+            try
+            {
+                canonicalEndpoint = NetclawEndpointNormalizer.Normalize(endpointValue, "Endpoint", allowPrivateHttp);
+                endpointValid = canonicalEndpoint is not null;
+            }
+            catch (ArgumentException)
+            {
+                endpointValid = false;
+            }
+        }
+        var endpoint = canonicalEndpoint ?? endpointValue;
         var token = options?.DeviceToken;
         var secretUnavailable = false;
         if (resolveSecret && token is null && !string.IsNullOrWhiteSpace(stored?.ProtectedDeviceToken))
@@ -737,9 +954,21 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
         }
         var configuredEnabled = options?.Enabled ?? stored?.Enabled ?? false;
         var runtimeSupported = databaseOptions.ResolveProvider(configuration.GetConnectionString("HelpdeskDb")) is DatabaseProvider.PostgreSql;
-        var runtimeEnabled = configuredEnabled && runtimeSupported;
+        var idleMinutes = options?.IdleMinutes ?? stored?.IdleMinutes ?? 15;
+        var connectionCapacity = options?.ConnectionCapacity ?? stored?.ConnectionCapacity ?? 25;
+        var turnInactivityTimeout = options?.TurnInactivityTimeout ?? TimeSpan.FromSeconds(stored?.TurnInactivityTimeoutSeconds ?? 300);
+        var activityHeartbeatInterval = options?.ActivityHeartbeatInterval ?? TimeSpan.FromSeconds(stored?.ActivityHeartbeatIntervalSeconds ?? 15);
+        var hasDeviceToken = !string.IsNullOrWhiteSpace(options?.DeviceToken) || !string.IsNullOrWhiteSpace(stored?.ProtectedDeviceToken);
+        var resolvedSecretAvailable = !resolveSecret || (!secretUnavailable && !string.IsNullOrWhiteSpace(token));
+        var runtimeConfigurationValid = endpointValid && endpoint is not null && instance == "dev" &&
+            idleMinutes > 0 && connectionCapacity > 0 &&
+            AiAssistantChatOptions.AreSessionLimitsStorageCompatible(turnInactivityTimeout, activityHeartbeatInterval) &&
+            hasDeviceToken && resolvedSecretAvailable;
+        var runtimeEnabled = configuredEnabled && runtimeSupported && runtimeConfigurationValid;
         var runtimeIssue = configuredEnabled && !runtimeSupported
             ? "Native Netclaw chat requires PostgreSQL durable session ownership; SQLite webhook/history fallback remains available."
+            : configuredEnabled && !runtimeConfigurationValid
+                ? "The saved Netclaw profile is incomplete or invalid; review its endpoint, paired-device token, and session limits."
             : null;
 
         return new NetclawResolvedSettings
@@ -751,11 +980,11 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
             Instance = instance,
             Endpoint = endpoint,
             DeviceToken = Normalize(token),
-            AllowPrivateHttp = options?.AllowPrivateHttp ?? stored?.AllowPrivateHttp ?? false,
-            IdleMinutes = options?.IdleMinutes ?? stored?.IdleMinutes ?? 15,
-            ConnectionCapacity = options?.ConnectionCapacity ?? stored?.ConnectionCapacity ?? 25,
-            TurnInactivityTimeout = options?.TurnInactivityTimeout ?? TimeSpan.FromSeconds(stored?.TurnInactivityTimeoutSeconds ?? 300),
-            ActivityHeartbeatInterval = options?.ActivityHeartbeatInterval ?? TimeSpan.FromSeconds(stored?.ActivityHeartbeatIntervalSeconds ?? 15),
+            AllowPrivateHttp = allowPrivateHttp,
+            IdleMinutes = idleMinutes,
+            ConnectionCapacity = connectionCapacity,
+            TurnInactivityTimeout = turnInactivityTimeout,
+            ActivityHeartbeatInterval = activityHeartbeatInterval,
             UpdatedAtUtc = stored?.UpdatedAtUtc,
             LastAppliedAtUtc = stored?.LastAppliedAtUtc,
             LastTestedAtUtc = stored?.LastTestedAtUtc,
@@ -763,13 +992,14 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
             Revision = revisionOverride ?? stored?.Revision ?? 0,
             Source = source,
             ManagedByDeployment = managedByDeployment,
-            HasDeviceToken = !string.IsNullOrWhiteSpace(options?.DeviceToken) || !string.IsNullOrWhiteSpace(stored?.ProtectedDeviceToken),
+            HasDeviceToken = hasDeviceToken,
             SecretUnavailable = secretUnavailable,
             SecretState = secretUnavailable ? "unavailable" :
                 !string.IsNullOrWhiteSpace(options?.DeviceToken) ? "available" :
                 !string.IsNullOrWhiteSpace(stored?.ProtectedDeviceToken) ? (resolveSecret ? "available" : "configured") : "not-configured",
             SourceKey = managedByDeployment ? IntegrationConfigurationAliases.GetDeploymentSourceKey(configuration, netclaw: true) : "database",
-            ProfileFingerprint = profileFingerprintOverride ?? stored?.ProfileFingerprint ?? BuildNetclawSecretBindingFingerprint(instance, endpoint),
+            ProfileFingerprint = profileFingerprintOverride ?? stored?.ProfileFingerprint ??
+                (endpointValid ? BuildNetclawSecretBindingFingerprint(instance, endpoint) : string.Empty),
             CanAdoptLegacySessions = false
         };
     }
@@ -817,6 +1047,7 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
             RuntimeIssue = resolved.RuntimeIssue,
             Instance = resolved.Instance,
             Endpoint = resolved.Endpoint,
+            DaemonAddress = NetclawEndpointNormalizer.TryGetDaemonAddress(resolved.Endpoint),
             AllowPrivateHttp = resolved.AllowPrivateHttp,
             IdleMinutes = resolved.IdleMinutes,
             ConnectionCapacity = resolved.ConnectionCapacity,
@@ -870,7 +1101,10 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
             clientId);
 
     private static string BuildNetclawSecretBindingFingerprint(string? instance, string? endpoint)
-        => IntegrationProviderSecretBinding.Fingerprint("Netclaw", instance, endpoint);
+    {
+        var canonicalEndpoint = NetclawEndpointNormalizer.Normalize(endpoint, "Endpoint", allowPrivateHttp: true);
+        return IntegrationProviderSecretBinding.Fingerprint("Netclaw", instance, canonicalEndpoint);
+    }
 
     private static bool CanRetainOrchestratorSecret(
         M2MConnectivitySettings existing,
@@ -897,8 +1131,30 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
     {
         var existingFingerprint = existing.SecretBindingFingerprint;
         if (string.IsNullOrWhiteSpace(existingFingerprint))
-            existingFingerprint = BuildNetclawSecretBindingFingerprint(existing.Instance, existing.Endpoint);
+        {
+            try
+            {
+                existingFingerprint = BuildNetclawSecretBindingFingerprint(existing.Instance, existing.Endpoint);
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+        }
         return string.Equals(existingFingerprint, candidateFingerprint, StringComparison.Ordinal);
+    }
+
+    private static void ValidateNetclawSessionLimits(
+        int idleMinutes,
+        int connectionCapacity,
+        TimeSpan turnInactivityTimeout,
+        TimeSpan activityHeartbeatInterval)
+    {
+        if (idleMinutes <= 0 || connectionCapacity <= 0 ||
+            !AiAssistantChatOptions.AreSessionLimitsStorageCompatible(turnInactivityTimeout, activityHeartbeatInterval))
+            throw new ArgumentException(
+                "Session limits must be positive, use whole seconds, fit the saved range, and keep the activity heartbeat shorter than turn inactivity.",
+                "SessionLimits");
     }
 
     private static string? NormalizeUrl(string? value, string fieldName, bool allowPrivateHttp = false)

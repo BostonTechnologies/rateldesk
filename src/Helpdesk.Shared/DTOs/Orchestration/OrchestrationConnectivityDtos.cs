@@ -56,6 +56,7 @@ public sealed class NetclawConnectivitySettingsDto
     public string? RuntimeIssue { get; set; }
     public string Instance { get; set; } = "dev";
     public string? Endpoint { get; set; }
+    public string? DaemonAddress { get; set; }
     public bool AllowPrivateHttp { get; set; }
     public int IdleMinutes { get; set; } = 15;
     public int ConnectionCapacity { get; set; } = 25;
@@ -116,11 +117,25 @@ public sealed class PairNetclawDeviceDto
     public string? Instance { get; set; }
     public string? Endpoint { get; set; }
     public bool AllowPrivateHttp { get; set; }
+    public string? LegacyOwnershipReviewToken { get; set; }
     public int IdleMinutes { get; set; } = 15;
     public int ConnectionCapacity { get; set; } = 25;
     public TimeSpan TurnInactivityTimeout { get; set; } = TimeSpan.FromMinutes(5);
     public TimeSpan ActivityHeartbeatInterval { get; set; } = TimeSpan.FromSeconds(15);
 }
+
+public sealed record NetclawLegacySessionReviewDto(
+    int ConversationCount,
+    string CanonicalEndpoint,
+    string ReviewToken);
+
+public sealed record NetclawLegacySessionReviewConflictDto(
+    string Code,
+    string Message,
+    string CanonicalEndpoint,
+    string DaemonAddress,
+    int LegacyConversationCount,
+    string LegacyOwnershipReviewToken);
 
 public sealed class ConfirmNetclawLegacySessionsDto
 {

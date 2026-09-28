@@ -97,28 +97,14 @@ public sealed class NetclawPairingService : INetclawPairingService
 
     private static Uri BuildExchangeEndpoint(Uri sessionEndpoint, bool allowPrivateHttp)
     {
-        if (!sessionEndpoint.IsAbsoluteUri ||
-            sessionEndpoint.AbsolutePath != "/hub/session" ||
-            sessionEndpoint.Query.Length != 0 ||
-            sessionEndpoint.Fragment.Length != 0)
-            throw new NetclawPairingException("invalid_pairing_target", StatusCodes.Status400BadRequest, "The Netclaw session endpoint must use the exact /hub/session path.");
-
         try
         {
-            IntegrationEndpointPolicy.Validate(sessionEndpoint, "Netclaw endpoint", allowPrivateHttp);
+            return NetclawEndpointNormalizer.BuildPairingExchangeEndpoint(sessionEndpoint, allowPrivateHttp);
         }
         catch (ArgumentException)
         {
-            throw new NetclawPairingException("invalid_pairing_target", StatusCodes.Status400BadRequest, "The Netclaw session endpoint is not allowed for pairing.");
+            throw new NetclawPairingException("invalid_pairing_target", StatusCodes.Status400BadRequest, "The Netclaw daemon address is not allowed for pairing.");
         }
-
-        var builder = new UriBuilder(sessionEndpoint)
-        {
-            Path = "/api/pair/exchange",
-            Query = string.Empty,
-            Fragment = string.Empty
-        };
-        return builder.Uri;
     }
 
     private static NetclawPairingException CreateStatusException(HttpStatusCode statusCode)

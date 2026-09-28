@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -24,6 +25,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -39,11 +41,138 @@ public sealed class NetclawLegacySessionConfirmationEndpointsTests
     private const string ConfirmOwnerPath = "/api/v1/admin/netclaw/legacy-sessions/confirm-owner";
     private const string PairAndSavePath = "/api/v1/admin/netclaw/pair-and-save";
 
+    private static AiAssistantChatConversation CreateLegacyConversation(string ticketId, string sessionId)
+        => new()
+        {
+            OrganizationId = "synthetic-tenant",
+            TicketId = ticketId,
+            TicketType = "incidents",
+            AiAssistantSessionId = sessionId
+        };
+
+    [Fact]
+    public async Task Initial_get_returns_an_empty_profile_without_projecting_a_daemon_address()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await using var harness = await EndpointHarness.CreateAsync(
+            timeout.Token,
+            simulateNativeRuntimeSupported: true);
+        harness.AuthorizeAs("admin");
+
+        using var response = await harness.Client.GetAsync(SettingsPath, timeout.Token);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var profile = await response.Content.ReadFromJsonAsync<NetclawConnectivitySettingsDto>(timeout.Token);
+        Assert.NotNull(profile);
+        Assert.Null(profile.Endpoint);
+        Assert.Null(profile.DaemonAddress);
+    }
+
+    [Fact]
+    public async Task Pairing_reports_private_http_policy_rejection_without_exchanging_the_code()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await using var harness = await EndpointHarness.CreateAsync(
+            timeout.Token,
+            simulateNativeRuntimeSupported: true,
+            provideSuccessfulChatClient: true);
+        harness.AuthorizeAs("admin");
+
+        using var response = await harness.Client.PostAsJsonAsync(PairAndSavePath, new PairNetclawDeviceDto
+        {
+            PairingCode = "synthetic-one-time-code",
+            ExpectedRevision = 0,
+            Endpoint = "http://netclaw.example.test"
+        }, timeout.Token);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
+        Assert.Equal("private_http_not_allowed", body.RootElement.GetProperty("code").GetString());
+        await harness.PairingService.DidNotReceive().ExchangeCodeAsync(
+            Arg.Any<NetclawPairingTarget>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(TimeSpan.TicksPerSecond / 2, TimeSpan.TicksPerSecond)]
+    [InlineData(TimeSpan.TicksPerSecond * 60, TimeSpan.TicksPerSecond / 2)]
+    [InlineData((long)int.MaxValue * TimeSpan.TicksPerSecond + TimeSpan.TicksPerSecond, TimeSpan.TicksPerSecond)]
+    public async Task Pairing_rejects_session_limits_that_cannot_be_saved_before_exchange(long turnTicks, long heartbeatTicks)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await using var harness = await EndpointHarness.CreateAsync(timeout.Token);
+        harness.AuthorizeAs("admin");
+
+        using var response = await harness.Client.PostAsJsonAsync(PairAndSavePath, new PairNetclawDeviceDto
+        {
+            PairingCode = "synthetic-one-time-code",
+            ExpectedRevision = 0,
+            Endpoint = "https://netclaw.example.test",
+            TurnInactivityTimeout = TimeSpan.FromTicks(turnTicks),
+            ActivityHeartbeatInterval = TimeSpan.FromTicks(heartbeatTicks)
+        }, timeout.Token);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
+        Assert.Equal("invalid_session_limits", body.RootElement.GetProperty("code").GetString());
+        await harness.PairingService.DidNotReceive().ExchangeCodeAsync(
+            Arg.Any<NetclawPairingTarget>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(0, 25)]
+    [InlineData(-1, 25)]
+    [InlineData(15, 0)]
+    [InlineData(15, -1)]
+    public async Task Pairing_rejects_nonpositive_idle_and_capacity_limits_before_exchange(int idleMinutes, int connectionCapacity)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await using var harness = await EndpointHarness.CreateAsync(timeout.Token);
+        harness.AuthorizeAs("admin");
+
+        using var response = await harness.Client.PostAsJsonAsync(PairAndSavePath, new PairNetclawDeviceDto
+        {
+            PairingCode = "synthetic-one-time-code",
+            ExpectedRevision = 0,
+            Endpoint = "https://netclaw.example.test",
+            IdleMinutes = idleMinutes,
+            ConnectionCapacity = connectionCapacity
+        }, timeout.Token);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
+        Assert.Equal("invalid_session_limits", body.RootElement.GetProperty("code").GetString());
+        await harness.PairingService.DidNotReceive().ExchangeCodeAsync(
+            Arg.Any<NetclawPairingTarget>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Pairing_rejects_an_unavailable_native_runtime_before_exchange()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await using var harness = await EndpointHarness.CreateAsync(timeout.Token);
+        harness.AuthorizeAs("admin");
+
+        using var response = await harness.Client.PostAsJsonAsync(PairAndSavePath, new PairNetclawDeviceDto
+        {
+            PairingCode = "synthetic-one-time-code",
+            ExpectedRevision = 0,
+            Endpoint = "https://netclaw.example.test"
+        }, timeout.Token);
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
+        Assert.Equal("netclaw_runtime_unavailable", body.RootElement.GetProperty("code").GetString());
+        await harness.PairingService.DidNotReceive().ExchangeCodeAsync(
+            Arg.Any<NetclawPairingTarget>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task Pairing_preflight_blocks_code_exchange_when_legacy_sessions_need_owner_confirmation()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-        await using var harness = await EndpointHarness.CreateAsync(timeout.Token);
+        await using var harness = await EndpointHarness.CreateAsync(
+            timeout.Token,
+            simulateNativeRuntimeSupported: true);
         var legacy = new AiAssistantChatConversation
         {
             OrganizationId = "synthetic-tenant",
@@ -64,9 +193,11 @@ public sealed class NetclawLegacySessionConfirmationEndpointsTests
         }, timeout.Token);
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-        var body = await response.Content.ReadAsStringAsync(timeout.Token);
-        Assert.Contains("unbound_legacy_sessions", body, StringComparison.Ordinal);
-        Assert.DoesNotContain("synthetic-one-time-code", body, StringComparison.Ordinal);
+        var body = await response.Content.ReadFromJsonAsync<NetclawLegacySessionReviewConflictDto>(timeout.Token);
+        Assert.NotNull(body);
+        Assert.Equal("legacy_ownership_confirmation_required", body.Code);
+        Assert.Equal(1, body.LegacyConversationCount);
+        Assert.DoesNotContain("synthetic-one-time-code", await response.Content.ReadAsStringAsync(timeout.Token), StringComparison.Ordinal);
         await harness.PairingService.DidNotReceive().ExchangeCodeAsync(
             Arg.Any<NetclawPairingTarget>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
         await using var db = harness.CreateDbContext();
@@ -77,7 +208,10 @@ public sealed class NetclawLegacySessionConfirmationEndpointsTests
     public async Task Pair_and_save_stores_a_protected_token_and_returns_a_redacted_profile()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-        await using var harness = await EndpointHarness.CreateAsync(timeout.Token);
+        await using var harness = await EndpointHarness.CreateAsync(
+            timeout.Token,
+            simulateNativeRuntimeSupported: true,
+            provideSuccessfulChatClient: true);
         harness.AuthorizeAs("admin");
 
         using var response = await harness.Client.PostAsJsonAsync(PairAndSavePath, new PairNetclawDeviceDto
@@ -115,10 +249,362 @@ public sealed class NetclawLegacySessionConfirmationEndpointsTests
     }
 
     [Fact]
-    public async Task Pairing_the_same_saved_provider_allows_unbound_sessions_without_assigning_their_history()
+    public async Task Pair_and_save_accepts_the_private_daemon_address_and_saves_the_canonical_hub_endpoint()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-        await using var harness = await EndpointHarness.CreateAsync(timeout.Token);
+        var runtime = new AiAssistantChatRuntimeState(Options.Create(new AiAssistantChatOptions()));
+        await using var harness = await EndpointHarness.CreateAsync(
+            timeout.Token,
+            runtimeState: runtime,
+            simulateNativeRuntimeSupported: true,
+            provideSuccessfulChatClient: true);
+        harness.AuthorizeAs("admin");
+
+        using var response = await harness.Client.PostAsJsonAsync(PairAndSavePath, new PairNetclawDeviceDto
+        {
+            PairingCode = "synthetic-one-time-code",
+            ExpectedRevision = 0,
+            Endpoint = "http://10.99.10.129:5199"
+        }, timeout.Token);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync(timeout.Token);
+        Assert.DoesNotContain("synthetic-one-time-code", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("synthetic-paired-device-token", body, StringComparison.Ordinal);
+        var profile = JsonSerializer.Deserialize<NetclawConnectivitySettingsDto>(body, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.NotNull(profile);
+        Assert.Equal("http://10.99.10.129:5199/hub/session", profile.Endpoint);
+        Assert.Equal(1, profile.Revision);
+        Assert.True(profile.Enabled);
+        Assert.True(profile.AllowPrivateHttp);
+        Assert.True(profile.LastTestSucceeded);
+        Assert.NotNull(profile.LastTestedAtUtc);
+        await harness.PairingService.Received(1).ExchangeCodeAsync(
+            Arg.Is<NetclawPairingTarget>(target =>
+                target.SessionEndpoint.AbsoluteUri == "http://10.99.10.129:5199/hub/session" && target.AllowPrivateHttp),
+            "synthetic-one-time-code",
+            Arg.Any<CancellationToken>());
+
+        await using var db = harness.CreateDbContext();
+        var stored = await db.NetclawConnectivitySettings.SingleAsync(timeout.Token);
+        Assert.Equal("http://10.99.10.129:5199/hub/session", stored.Endpoint);
+        Assert.True(stored.Enabled);
+        Assert.True(stored.AllowPrivateHttp);
+        Assert.Equal(1, stored.Revision);
+        var protectedToken = Assert.IsType<string>(stored.ProtectedDeviceToken);
+        Assert.Equal("synthetic-paired-device-token", harness.SecretProtector.Unprotect(protectedToken));
+        Assert.Equal("http://10.99.10.129:5199/hub/session", runtime.Current.Endpoint);
+        Assert.True(runtime.Current.Enabled);
+        Assert.Equal(1, runtime.Current.Revision);
+        Assert.Equal(1, harness.ChatClientDisposalCount);
+    }
+
+    [Fact]
+    public async Task Pair_and_save_records_a_redacted_saved_verification_failure_and_disposes_client()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await using var harness = await EndpointHarness.CreateAsync(
+            timeout.Token,
+            simulateNativeRuntimeSupported: true,
+            provideSuccessfulChatClient: true);
+        harness.AuthorizeAs("admin");
+        harness.UseFailingChatClient("synthetic upstream authentication detail");
+
+        using var response = await harness.Client.PostAsJsonAsync(PairAndSavePath, new PairNetclawDeviceDto
+        {
+            PairingCode = "synthetic-one-time-code",
+            ExpectedRevision = 0,
+            Endpoint = "https://netclaw.example.test"
+        }, timeout.Token);
+
+        Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync(timeout.Token);
+        Assert.Contains("pairing_saved_verification_failed", body, StringComparison.Ordinal);
+        Assert.Contains("Review the saved connection", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("synthetic upstream authentication detail", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("synthetic-one-time-code", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("synthetic-paired-device-token", body, StringComparison.Ordinal);
+        Assert.Equal(1, harness.ChatClientDisposalCount);
+
+        await using var db = harness.CreateDbContext();
+        var stored = await db.NetclawConnectivitySettings.SingleAsync(timeout.Token);
+        Assert.Equal(1, stored.Revision);
+        Assert.False(stored.LastTestSucceeded);
+        Assert.NotNull(stored.LastTestedAtUtc);
+        var protectedToken = Assert.IsType<string>(stored.ProtectedDeviceToken);
+        Assert.Equal("synthetic-paired-device-token", harness.SecretProtector.Unprotect(protectedToken));
+        var audit = await db.ActivityLogs.Select(log => log.Message).SingleAsync(timeout.Token);
+        Assert.Contains("Verified=False", audit, StringComparison.Ordinal);
+        Assert.DoesNotContain("synthetic-one-time-code", audit, StringComparison.Ordinal);
+        Assert.DoesNotContain("synthetic-paired-device-token", audit, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Pair_and_save_reports_uncertain_saved_verification_when_recording_result_fails()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await using var harness = await EndpointHarness.CreateAsync(
+            timeout.Token,
+            simulateNativeRuntimeSupported: true,
+            provideSuccessfulChatClient: true,
+            commandInterceptor: new VerificationResultWriteFailureInterceptor());
+        harness.AuthorizeAs("admin");
+
+        using var response = await harness.Client.PostAsJsonAsync(PairAndSavePath, new PairNetclawDeviceDto
+        {
+            PairingCode = "synthetic-one-time-code",
+            ExpectedRevision = 0,
+            Endpoint = "https://netclaw.example.test"
+        }, timeout.Token);
+
+        Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync(timeout.Token);
+        Assert.Contains("pairing_saved_verification_uncertain", body, StringComparison.Ordinal);
+        Assert.Contains("Review the saved connection", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("synthetic verification write failure", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("synthetic-one-time-code", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("synthetic-paired-device-token", body, StringComparison.Ordinal);
+        Assert.Equal(1, harness.ChatClientDisposalCount);
+
+        await using var db = harness.CreateDbContext();
+        var stored = await db.NetclawConnectivitySettings.SingleAsync(timeout.Token);
+        Assert.Equal(1, stored.Revision);
+        Assert.Null(stored.LastTestSucceeded);
+        var protectedToken = Assert.IsType<string>(stored.ProtectedDeviceToken);
+        Assert.Equal("synthetic-paired-device-token", harness.SecretProtector.Unprotect(protectedToken));
+        Assert.Empty(await db.ActivityLogs.ToListAsync(timeout.Token));
+    }
+
+    [Fact]
+    public async Task Pairing_code_is_reported_consumed_when_a_competing_profile_revision_wins_during_exchange()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var runtime = new AiAssistantChatRuntimeState(Options.Create(new AiAssistantChatOptions()));
+        await using var harness = await EndpointHarness.CreateAsync(
+            timeout.Token,
+            runtimeState: runtime,
+            simulateNativeRuntimeSupported: true,
+            provideSuccessfulChatClient: true);
+        harness.AuthorizeAs("admin");
+        harness.PairingService.ExchangeCodeAsync(
+                Arg.Any<NetclawPairingTarget>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(async _ =>
+            {
+                var competing = await harness.UpdateNetclawSettingsAsync(new UpdateNetclawConnectivitySettingsDto
+                {
+                    ExpectedRevision = 0,
+                    Enabled = false,
+                    Endpoint = "https://competing-profile.example.test",
+                    ClearDeviceToken = true
+                });
+                Assert.Equal(1, competing.Revision);
+                return "synthetic-paired-device-token";
+            });
+
+        using var response = await harness.Client.PostAsJsonAsync(PairAndSavePath, new PairNetclawDeviceDto
+        {
+            PairingCode = "synthetic-one-time-code",
+            ExpectedRevision = 0,
+            Endpoint = "https://netclaw.example.test"
+        }, timeout.Token);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync(timeout.Token);
+        Assert.Contains("pairing_code_consumed", body, StringComparison.Ordinal);
+        Assert.Contains("request a fresh code", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("synthetic-one-time-code", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("synthetic-paired-device-token", body, StringComparison.Ordinal);
+        Assert.Equal(0, harness.ChatClientCreationCount);
+        Assert.Equal(0, harness.ChatClientDisposalCount);
+
+        await using var db = harness.CreateDbContext();
+        var stored = await db.NetclawConnectivitySettings.SingleAsync(timeout.Token);
+        Assert.Equal(1, stored.Revision);
+        Assert.Equal("https://competing-profile.example.test/hub/session", stored.Endpoint);
+        Assert.False(stored.Enabled);
+        Assert.Empty(stored.ProtectedDeviceToken ?? string.Empty);
+        Assert.Null(stored.LastTestSucceeded);
+        Assert.Equal(1, runtime.Current.Revision);
+        Assert.Equal("https://competing-profile.example.test/hub/session", runtime.Current.Endpoint);
+        Assert.False(runtime.Current.Enabled);
+        Assert.Empty(await db.ActivityLogs.ToListAsync(timeout.Token));
+    }
+
+    [Fact]
+    public async Task Pairing_verification_does_not_report_connected_when_a_newer_profile_wins_during_ensure_session()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var runtime = new AiAssistantChatRuntimeState(Options.Create(new AiAssistantChatOptions()));
+        await using var harness = await EndpointHarness.CreateAsync(
+            timeout.Token,
+            runtimeState: runtime,
+            simulateNativeRuntimeSupported: true,
+            provideSuccessfulChatClient: true);
+        harness.AuthorizeAs("admin");
+        harness.UseChatClient(async _ =>
+        {
+            var newer = await harness.UpdateNetclawSettingsAsync(new UpdateNetclawConnectivitySettingsDto
+            {
+                ExpectedRevision = 1,
+                Enabled = false,
+                Endpoint = "https://newer-profile.example.test",
+                ClearDeviceToken = true
+            });
+            Assert.Equal(2, newer.Revision);
+            return new SessionEnsureResult("synthetic-ensured-session", Created: false);
+        });
+
+        using var response = await harness.Client.PostAsJsonAsync(PairAndSavePath, new PairNetclawDeviceDto
+        {
+            PairingCode = "synthetic-one-time-code",
+            ExpectedRevision = 0,
+            Endpoint = "https://netclaw.example.test"
+        }, timeout.Token);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync(timeout.Token);
+        Assert.Contains("pairing_verification_superseded", body, StringComparison.Ordinal);
+        Assert.Contains("inspect the current profile", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("synthetic-one-time-code", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("synthetic-paired-device-token", body, StringComparison.Ordinal);
+        Assert.Equal(1, harness.ChatClientDisposalCount);
+
+        await using var db = harness.CreateDbContext();
+        var stored = await db.NetclawConnectivitySettings.SingleAsync(timeout.Token);
+        Assert.Equal(2, stored.Revision);
+        Assert.Equal("https://newer-profile.example.test/hub/session", stored.Endpoint);
+        Assert.False(stored.Enabled);
+        Assert.Empty(stored.ProtectedDeviceToken ?? string.Empty);
+        Assert.Null(stored.LastTestedAtUtc);
+        Assert.Null(stored.LastTestSucceeded);
+        Assert.Equal(2, runtime.Current.Revision);
+        Assert.Equal("https://newer-profile.example.test/hub/session", runtime.Current.Endpoint);
+        Assert.False(runtime.Current.Enabled);
+        Assert.Empty(await db.ActivityLogs.ToListAsync(timeout.Token));
+    }
+
+    [Fact]
+    public async Task Pairing_ownership_review_binds_two_sessions_and_preserves_their_transcripts_with_one_audit()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var runtime = new AiAssistantChatRuntimeState(Options.Create(new AiAssistantChatOptions()));
+        await using var harness = await EndpointHarness.CreateAsync(
+            timeout.Token,
+            runtimeState: runtime,
+            simulateNativeRuntimeSupported: true,
+            provideSuccessfulChatClient: true);
+        harness.AuthorizeAs("admin");
+        var first = CreateLegacyConversation("migration-ticket-a", "synthetic-old-session-a");
+        var second = CreateLegacyConversation("migration-ticket-b", "synthetic-old-session-b");
+        var transcripts = new[]
+        {
+            new AiAssistantChatEvent { ConversationId = first.Id, Sequence = 1, Type = "user", Text = "Synthetic transcript A" },
+            new AiAssistantChatEvent { ConversationId = second.Id, Sequence = 1, Type = "user", Text = "Synthetic transcript B" }
+        };
+        await harness.SeedAsync([first, second], transcripts, timeout.Token);
+        var request = new PairNetclawDeviceDto
+        {
+            PairingCode = "synthetic-one-time-code",
+            ExpectedRevision = 0,
+            Endpoint = "https://netclaw.example.test"
+        };
+
+        using var reviewResponse = await harness.Client.PostAsJsonAsync(PairAndSavePath, request, timeout.Token);
+        Assert.Equal(HttpStatusCode.Conflict, reviewResponse.StatusCode);
+        var review = await reviewResponse.Content.ReadFromJsonAsync<NetclawLegacySessionReviewConflictDto>(timeout.Token);
+        Assert.NotNull(review);
+        Assert.Equal(2, review.LegacyConversationCount);
+        Assert.Equal("https://netclaw.example.test/hub/session", review.CanonicalEndpoint);
+        Assert.Equal("https://netclaw.example.test", review.DaemonAddress);
+        await harness.PairingService.DidNotReceive().ExchangeCodeAsync(
+            Arg.Any<NetclawPairingTarget>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+
+        request.LegacyOwnershipReviewToken = review.LegacyOwnershipReviewToken;
+        using var pairResponse = await harness.Client.PostAsJsonAsync(PairAndSavePath, request, timeout.Token);
+
+        Assert.Equal(HttpStatusCode.OK, pairResponse.StatusCode);
+        var profile = await pairResponse.Content.ReadFromJsonAsync<NetclawConnectivitySettingsDto>(timeout.Token);
+        Assert.NotNull(profile);
+        Assert.True(profile.LastTestSucceeded);
+        Assert.Equal(1, profile.Revision);
+        Assert.DoesNotContain("synthetic-one-time-code", await pairResponse.Content.ReadAsStringAsync(timeout.Token), StringComparison.Ordinal);
+        Assert.DoesNotContain("synthetic-paired-device-token", await pairResponse.Content.ReadAsStringAsync(timeout.Token), StringComparison.Ordinal);
+        await harness.PairingService.Received(1).ExchangeCodeAsync(
+            Arg.Any<NetclawPairingTarget>(), "synthetic-one-time-code", Arg.Any<CancellationToken>());
+
+        await using var db = harness.CreateDbContext();
+        var savedConversations = await db.Set<AiAssistantChatConversation>().AsNoTracking().ToListAsync(timeout.Token);
+        Assert.Equal(2, savedConversations.Count);
+        Assert.Equal(first.Id, Assert.Single(savedConversations, conversation => conversation.TicketId == first.TicketId).Id);
+        Assert.Equal(second.Id, Assert.Single(savedConversations, conversation => conversation.TicketId == second.TicketId).Id);
+        Assert.All(savedConversations, conversation => Assert.Equal(profile.ProfileFingerprint, conversation.ProviderProfileFingerprint));
+        var savedTranscripts = await db.Set<AiAssistantChatEvent>().AsNoTracking().OrderBy(item => item.ConversationId).ToListAsync(timeout.Token);
+        Assert.Equal("Synthetic transcript A", Assert.Single(savedTranscripts, item => item.ConversationId == first.Id).Text);
+        Assert.Equal("Synthetic transcript B", Assert.Single(savedTranscripts, item => item.ConversationId == second.Id).Text);
+        var audit = Assert.Single(await db.ActivityLogs.ToListAsync(timeout.Token));
+        Assert.Contains("BoundConversations=2", audit.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("synthetic-one-time-code", audit.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("synthetic-paired-device-token", audit.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("added")]
+    [InlineData("removed")]
+    [InlineData("same-count-replacement")]
+    public async Task Stale_pairing_review_conflicts_when_the_exact_unbound_set_changes(string change)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await using var harness = await EndpointHarness.CreateAsync(
+            timeout.Token,
+            simulateNativeRuntimeSupported: true);
+        harness.AuthorizeAs("admin");
+        var original = CreateLegacyConversation("review-ticket-original", "synthetic-original-session");
+        await harness.SeedAsync([original], [], timeout.Token);
+        var request = new PairNetclawDeviceDto
+        {
+            PairingCode = "synthetic-one-time-code",
+            ExpectedRevision = 0,
+            Endpoint = "https://netclaw.example.test"
+        };
+        using var reviewResponse = await harness.Client.PostAsJsonAsync(PairAndSavePath, request, timeout.Token);
+        Assert.Equal(HttpStatusCode.Conflict, reviewResponse.StatusCode);
+        var review = await reviewResponse.Content.ReadFromJsonAsync<NetclawLegacySessionReviewConflictDto>(timeout.Token);
+        Assert.NotNull(review);
+
+        await using (var db = harness.CreateDbContext())
+        {
+            var persistedOriginal = await db.Set<AiAssistantChatConversation>().SingleAsync(timeout.Token);
+            if (change is "removed" or "same-count-replacement")
+                db.Remove(persistedOriginal);
+            if (change is "added" or "same-count-replacement")
+                db.Add(CreateLegacyConversation("review-ticket-added", "synthetic-added-session"));
+            await db.SaveChangesAsync(timeout.Token);
+        }
+
+        request.LegacyOwnershipReviewToken = review.LegacyOwnershipReviewToken;
+        using var pairResponse = await harness.Client.PostAsJsonAsync(PairAndSavePath, request, timeout.Token);
+
+        Assert.Equal(HttpStatusCode.Conflict, pairResponse.StatusCode);
+        var conflict = await pairResponse.Content.ReadFromJsonAsync<NetclawLegacySessionReviewConflictDto>(timeout.Token);
+        Assert.NotNull(conflict);
+        Assert.Equal("legacy_session_conflict", conflict.Code);
+        Assert.Equal(change == "added" ? 2 : change == "removed" ? 0 : 1, conflict.LegacyConversationCount);
+        await harness.PairingService.DidNotReceive().ExchangeCodeAsync(
+            Arg.Any<NetclawPairingTarget>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await using var verification = harness.CreateDbContext();
+        Assert.Empty(await verification.NetclawConnectivitySettings.ToListAsync(timeout.Token));
+        Assert.Empty(await verification.ActivityLogs.ToListAsync(timeout.Token));
+        Assert.All(await verification.Set<AiAssistantChatConversation>().ToListAsync(timeout.Token),
+            conversation => Assert.Null(conversation.ProviderProfileFingerprint));
+    }
+
+    [Fact]
+    public async Task Pairing_requires_ownership_review_even_when_unbound_history_matches_the_saved_profile()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await using var harness = await EndpointHarness.CreateAsync(
+            timeout.Token,
+            simulateNativeRuntimeSupported: true);
         harness.AuthorizeAs("admin");
         const string endpoint = "https://current-provider.example.test/hub/session";
         using (var initialSave = await harness.Client.PutAsJsonAsync(SettingsPath, new UpdateNetclawConnectivitySettingsDto
@@ -158,12 +644,13 @@ public sealed class NetclawLegacySessionConfirmationEndpointsTests
             Endpoint = endpoint
         }, timeout.Token);
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var saved = await response.Content.ReadFromJsonAsync<NetclawConnectivitySettingsDto>(timeout.Token);
-        Assert.NotNull(saved);
-        Assert.Equal(2, saved.Revision);
-        await harness.PairingService.Received(1).ExchangeCodeAsync(
-            Arg.Any<NetclawPairingTarget>(), "synthetic-one-time-code", Arg.Any<CancellationToken>());
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var review = await response.Content.ReadFromJsonAsync<NetclawLegacySessionReviewConflictDto>(timeout.Token);
+        Assert.NotNull(review);
+        Assert.Equal("legacy_ownership_confirmation_required", review.Code);
+        Assert.Equal(1, review.LegacyConversationCount);
+        await harness.PairingService.DidNotReceive().ExchangeCodeAsync(
+            Arg.Any<NetclawPairingTarget>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
 
         await using var db = harness.CreateDbContext();
         var persisted = await db.Set<AiAssistantChatConversation>().AsNoTracking().SingleAsync(timeout.Token);
@@ -554,11 +1041,29 @@ public sealed class NetclawLegacySessionConfirmationEndpointsTests
         Assert.Equal("invalid_legacy_provider", body.GetProperty("code").GetString());
     }
 
+    private sealed class VerificationResultWriteFailureInterceptor : DbCommandInterceptor
+    {
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.TrimStart().StartsWith("UPDATE", StringComparison.OrdinalIgnoreCase) &&
+                command.CommandText.Contains("LastTestSucceeded", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("synthetic verification write failure");
+
+            return base.NonQueryExecutingAsync(command, eventData, result, cancellationToken);
+        }
+    }
+
     private sealed class EndpointHarness : IAsyncDisposable
     {
         private readonly SqliteConnection connection;
         private readonly WebApplication app;
         private readonly ITenantContext tenant;
+        private readonly ClientDisposalProbe clientDisposalProbe;
+        private readonly ClientCreationProbe clientCreationProbe;
 
         private EndpointHarness(
             SqliteConnection connection,
@@ -566,7 +1071,10 @@ public sealed class NetclawLegacySessionConfirmationEndpointsTests
             HttpClient client,
             ITenantContext tenant,
             IAiAssistantChatClientFactory clientFactory,
-            INetclawPairingService pairingService)
+            INetclawPairingService pairingService,
+            IntegrationProviderSecretProtector secretProtector,
+            ClientDisposalProbe clientDisposalProbe,
+            ClientCreationProbe clientCreationProbe)
         {
             this.connection = connection;
             this.app = app;
@@ -574,16 +1082,25 @@ public sealed class NetclawLegacySessionConfirmationEndpointsTests
             this.tenant = tenant;
             ClientFactory = clientFactory;
             PairingService = pairingService;
+            SecretProtector = secretProtector;
+            this.clientDisposalProbe = clientDisposalProbe;
+            this.clientCreationProbe = clientCreationProbe;
         }
 
         public HttpClient Client { get; }
         public IAiAssistantChatClientFactory ClientFactory { get; }
         public INetclawPairingService PairingService { get; }
+        public IntegrationProviderSecretProtector SecretProtector { get; }
+        public int ChatClientDisposalCount => clientDisposalProbe.Count;
+        public int ChatClientCreationCount => clientCreationProbe.Count;
 
         public static async Task<EndpointHarness> CreateAsync(
             CancellationToken cancellationToken,
             bool deploymentAllowsPrivateHttp = false,
-            IAiAssistantChatRuntimeState? runtimeState = null)
+            IAiAssistantChatRuntimeState? runtimeState = null,
+            bool simulateNativeRuntimeSupported = false,
+            bool provideSuccessfulChatClient = false,
+            DbCommandInterceptor? commandInterceptor = null)
         {
             var connection = new SqliteConnection("Data Source=:memory:");
             await connection.OpenAsync(cancellationToken);
@@ -601,19 +1118,33 @@ public sealed class NetclawLegacySessionConfirmationEndpointsTests
             tenant.TenantId.Returns("synthetic-tenant");
             tenant.UserId.Returns("synthetic-admin");
             tenant.IsHelpdeskAdmin.Returns(true);
+            var secretProtector = new IntegrationProviderSecretProtector(new EphemeralDataProtectionProvider(NullLoggerFactory.Instance));
+            var clientDisposalProbe = new ClientDisposalProbe();
+            var clientCreationProbe = new ClientCreationProbe();
             builder.Services.AddSingleton(tenant);
-            builder.Services.AddDbContext<HelpdeskDbContext>(options => options.UseSqlite(connection));
+            builder.Services.AddDbContext<HelpdeskDbContext>(options =>
+            {
+                options.UseSqlite(connection);
+                if (commandInterceptor is not null)
+                    options.AddInterceptors(commandInterceptor);
+            });
             if (runtimeState is not null) builder.Services.AddSingleton(runtimeState);
             builder.Services.AddScoped<IIntegrationProviderSettingsService>(services => new IntegrationProviderSettingsService(
                 services.GetRequiredService<HelpdeskDbContext>(),
                 services.GetRequiredService<IConfiguration>(),
-                new IntegrationProviderSecretProtector(new EphemeralDataProtectionProvider(NullLoggerFactory.Instance)),
+                secretProtector,
                 Options.Create(new AiAssistantChatOptions()),
-                new DatabaseOptions { Provider = "Sqlite" },
+                new DatabaseOptions { Provider = simulateNativeRuntimeSupported ? "PostgreSql" : "Sqlite" },
                 TimeProvider.System,
                 NullLogger<IntegrationProviderSettingsService>.Instance,
                 runtimeState: services.GetService<IAiAssistantChatRuntimeState>()));
             var clientFactory = Substitute.For<IAiAssistantChatClientFactory>();
+            if (provideSuccessfulChatClient)
+                clientFactory.Create().Returns(_ =>
+                {
+                    clientCreationProbe.Increment();
+                    return new SuccessfulChatClient(clientDisposalProbe);
+                });
             builder.Services.AddSingleton(clientFactory);
             var pairingService = Substitute.For<INetclawPairingService>();
             pairingService.ExchangeCodeAsync(
@@ -645,7 +1176,16 @@ public sealed class NetclawLegacySessionConfirmationEndpointsTests
             await app.StartAsync(cancellationToken);
             var client = app.GetTestClient();
             client.Timeout = TimeSpan.FromSeconds(15);
-            return new EndpointHarness(connection, app, client, tenant, clientFactory, pairingService);
+            return new EndpointHarness(
+                connection,
+                app,
+                client,
+                tenant,
+                clientFactory,
+                pairingService,
+                secretProtector,
+                clientDisposalProbe,
+                clientCreationProbe);
         }
 
         public HelpdeskDbContext CreateDbContext()
@@ -668,12 +1208,105 @@ public sealed class NetclawLegacySessionConfirmationEndpointsTests
         public void AuthorizeAs(string identity)
             => Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", identity);
 
+        public void UseFailingChatClient(string errorMessage)
+            => ClientFactory.Create().Returns(_ =>
+            {
+                clientCreationProbe.Increment();
+                return new FailingChatClient(clientDisposalProbe, errorMessage);
+            });
+
+        public void UseChatClient(Func<CancellationToken, Task<SessionEnsureResult>> connect)
+            => ClientFactory.Create().Returns(_ =>
+            {
+                clientCreationProbe.Increment();
+                return new CallbackChatClient(clientDisposalProbe, connect);
+            });
+
+        public async Task<NetclawConnectivitySettingsDto> UpdateNetclawSettingsAsync(
+            UpdateNetclawConnectivitySettingsDto request,
+            CancellationToken cancellationToken = default)
+        {
+            await using var scope = app.Services.CreateAsyncScope();
+            var settings = scope.ServiceProvider.GetRequiredService<IIntegrationProviderSettingsService>();
+            return await settings.UpdateNetclawSettingsAsync(request, cancellationToken);
+        }
+
         public async ValueTask DisposeAsync()
         {
             Client.Dispose();
             await app.StopAsync();
             await app.DisposeAsync();
             await connection.DisposeAsync();
+        }
+
+        private sealed class SuccessfulChatClient(ClientDisposalProbe disposalProbe) : IAiAssistantChatClient
+        {
+            public bool IsConnected => true;
+
+            public Task<SessionEnsureResult> ConnectAsync(string? sessionId, Func<JsonElement, Task> output, CancellationToken ct)
+                => Task.FromResult(new SessionEnsureResult(sessionId ?? "synthetic-ensured-session", Created: false));
+
+            public Task SendAsync(string sessionId, string text, CancellationToken ct) => Task.CompletedTask;
+
+            public Task RespondAsync(string sessionId, string callId, string key, CancellationToken ct) => Task.CompletedTask;
+
+            public ValueTask DisposeAsync()
+            {
+                disposalProbe.Increment();
+                return ValueTask.CompletedTask;
+            }
+        }
+
+        private sealed class FailingChatClient(ClientDisposalProbe disposalProbe, string errorMessage) : IAiAssistantChatClient
+        {
+            public bool IsConnected => false;
+
+            public Task<SessionEnsureResult> ConnectAsync(string? sessionId, Func<JsonElement, Task> output, CancellationToken ct)
+                => Task.FromException<SessionEnsureResult>(new HttpRequestException(errorMessage));
+
+            public Task SendAsync(string sessionId, string text, CancellationToken ct) => Task.CompletedTask;
+
+            public Task RespondAsync(string sessionId, string callId, string key, CancellationToken ct) => Task.CompletedTask;
+
+            public ValueTask DisposeAsync()
+            {
+                disposalProbe.Increment();
+                return ValueTask.CompletedTask;
+            }
+        }
+
+        private sealed class CallbackChatClient(
+            ClientDisposalProbe disposalProbe,
+            Func<CancellationToken, Task<SessionEnsureResult>> connect) : IAiAssistantChatClient
+        {
+            public bool IsConnected => true;
+
+            public Task<SessionEnsureResult> ConnectAsync(string? sessionId, Func<JsonElement, Task> output, CancellationToken ct)
+                => connect(ct);
+
+            public Task SendAsync(string sessionId, string text, CancellationToken ct) => Task.CompletedTask;
+
+            public Task RespondAsync(string sessionId, string callId, string key, CancellationToken ct) => Task.CompletedTask;
+
+            public ValueTask DisposeAsync()
+            {
+                disposalProbe.Increment();
+                return ValueTask.CompletedTask;
+            }
+        }
+
+        public sealed class ClientDisposalProbe
+        {
+            private int count;
+            public int Count => Volatile.Read(ref count);
+            public void Increment() => Interlocked.Increment(ref count);
+        }
+
+        private sealed class ClientCreationProbe
+        {
+            private int count;
+            public int Count => Volatile.Read(ref count);
+            public void Increment() => Interlocked.Increment(ref count);
         }
     }
 
