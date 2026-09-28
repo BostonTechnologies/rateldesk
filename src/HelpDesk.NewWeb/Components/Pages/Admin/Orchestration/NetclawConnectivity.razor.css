@@ -13,6 +13,7 @@
 
 .netclaw-page-navigation ::deep .mud-button-root {
     min-height: 2.5rem;
+    white-space: nowrap;
 }
 
 .netclaw-muted-copy {

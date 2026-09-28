@@ -58,6 +58,18 @@ public sealed class ChatPostgresFixture : IAsyncLifetime
 
 public sealed class ChatPostgresTests(ChatPostgresFixture fixture) : IClassFixture<ChatPostgresFixture>
 {
+    private static AiAssistantChatOptions EnabledTestOptions(
+        TimeSpan? turnInactivityTimeout = null,
+        TimeSpan? activityHeartbeatInterval = null)
+        => new()
+        {
+            Enabled = true,
+            Endpoint = "https://chat.invalid/hub/session",
+            DeviceToken = "synthetic-chat-device-token",
+            TurnInactivityTimeout = turnInactivityTimeout ?? TimeSpan.FromMinutes(5),
+            ActivityHeartbeatInterval = activityHeartbeatInterval ?? TimeSpan.FromSeconds(15)
+        };
+
     [Fact]
     public async Task StaleProcessingBecomesDeliveryUnknownAndRetiresLateOutputOwner()
     {
@@ -72,7 +84,7 @@ public sealed class ChatPostgresTests(ChatPostgresFixture fixture) : IClassFixtu
         factory.Create().Returns(client);
         var feed = new ChatLiveFeed();
         using var manager = new AiAssistantChatSessionManager(services.GetRequiredService<IServiceScopeFactory>(),
-            Options.Create(new AiAssistantChatOptions { Enabled = true, TurnInactivityTimeout = TimeSpan.FromMinutes(5), ActivityHeartbeatInterval = TimeSpan.FromSeconds(15) }), feed,
+            Options.Create(EnabledTestOptions(TimeSpan.FromMinutes(5), TimeSpan.FromSeconds(15))), feed,
             NullLogger<AiAssistantChatSessionManager>.Instance, factory, clock);
         await manager.StartAsync(default);
         try
@@ -117,7 +129,7 @@ public sealed class ChatPostgresTests(ChatPostgresFixture fixture) : IClassFixtu
         factory.Create().Returns(client);
         using var manager = new AiAssistantChatSessionManager(
             services.GetRequiredService<IServiceScopeFactory>(),
-            Options.Create(new AiAssistantChatOptions { Enabled = true }),
+            Options.Create(EnabledTestOptions()),
             new ChatLiveFeed(),
             NullLogger<AiAssistantChatSessionManager>.Instance,
             factory,
@@ -141,7 +153,7 @@ public sealed class ChatPostgresTests(ChatPostgresFixture fixture) : IClassFixtu
         var clock = new MutableTimeProvider(new DateTimeOffset(2026, 9, 10, 12, 0, 0, TimeSpan.Zero));
         await using var services = new ServiceCollection().AddScoped(_ => fixture.Context()).BuildServiceProvider();
         using var manager = new AiAssistantChatSessionManager(services.GetRequiredService<IServiceScopeFactory>(),
-            Options.Create(new AiAssistantChatOptions { Enabled = true }), new ChatLiveFeed(), NullLogger<AiAssistantChatSessionManager>.Instance,
+            Options.Create(EnabledTestOptions()), new ChatLiveFeed(), NullLogger<AiAssistantChatSessionManager>.Instance,
             Substitute.For<IAiAssistantChatClientFactory>(), clock);
         await manager.StartAsync(default);
         try
@@ -176,7 +188,7 @@ public sealed class ChatPostgresTests(ChatPostgresFixture fixture) : IClassFixtu
         factory.Create().Returns(client);
         var feed = new ChatLiveFeed();
         using var manager = new AiAssistantChatSessionManager(services.GetRequiredService<IServiceScopeFactory>(),
-            Options.Create(new AiAssistantChatOptions { Enabled = true }), feed, NullLogger<AiAssistantChatSessionManager>.Instance, factory, clock);
+            Options.Create(EnabledTestOptions()), feed, NullLogger<AiAssistantChatSessionManager>.Instance, factory, clock);
         await manager.StartAsync(default);
         try
         {
@@ -215,7 +227,7 @@ public sealed class ChatPostgresTests(ChatPostgresFixture fixture) : IClassFixtu
             .BuildServiceProvider();
         using var manager = new AiAssistantChatSessionManager(
             services.GetRequiredService<IServiceScopeFactory>(),
-            Options.Create(new AiAssistantChatOptions { Enabled = true }),
+            Options.Create(EnabledTestOptions()),
             new ChatLiveFeed(),
             NullLogger<AiAssistantChatSessionManager>.Instance,
             Substitute.For<IAiAssistantChatClientFactory>());
@@ -260,7 +272,7 @@ public sealed class ChatPostgresTests(ChatPostgresFixture fixture) : IClassFixtu
         factory.Create().Returns(client);
         var feed = new ChatLiveFeed();
         using var manager = new AiAssistantChatSessionManager(services.GetRequiredService<IServiceScopeFactory>(),
-            Options.Create(new AiAssistantChatOptions { Enabled = true }), feed,
+            Options.Create(EnabledTestOptions()), feed,
             NullLogger<AiAssistantChatSessionManager>.Instance, factory);
         await manager.StartAsync(default);
         try
@@ -308,7 +320,7 @@ public sealed class ChatPostgresTests(ChatPostgresFixture fixture) : IClassFixtu
         var factory = Substitute.For<IAiAssistantChatClientFactory>();
         factory.Create().Returns(client);
         using var manager = new AiAssistantChatSessionManager(services.GetRequiredService<IServiceScopeFactory>(),
-            Options.Create(new AiAssistantChatOptions { Enabled = true }), new ChatLiveFeed(),
+            Options.Create(EnabledTestOptions()), new ChatLiveFeed(),
             NullLogger<AiAssistantChatSessionManager>.Instance, factory);
         await manager.StartAsync(default);
         try
@@ -334,7 +346,7 @@ public sealed class ChatPostgresTests(ChatPostgresFixture fixture) : IClassFixtu
     {
         await using var services = new ServiceCollection().AddScoped(_ => fixture.Context()).BuildServiceProvider();
         AiAssistantChatSessionManager Create() => new(services.GetRequiredService<IServiceScopeFactory>(),
-            Options.Create(new AiAssistantChatOptions { Enabled = true }), new ChatLiveFeed(),
+            Options.Create(EnabledTestOptions()), new ChatLiveFeed(),
             NullLogger<AiAssistantChatSessionManager>.Instance, Substitute.For<IAiAssistantChatClientFactory>());
         using var first = Create();
         using var second = Create();
