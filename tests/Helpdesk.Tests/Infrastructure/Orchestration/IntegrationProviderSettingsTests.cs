@@ -8,10 +8,12 @@ using Helpdesk.Infrastructure.Persistence.Connectivity;
 using Helpdesk.Shared.DTOs.Orchestration;
 using Helpdesk.Shared.AiAssistant.Chat;
 using Helpdesk.Shared.Services;
+using System.Data.Common;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -338,6 +340,76 @@ public sealed class IntegrationProviderSettingsTests
         Assert.Equal("draft-device-token", draft.DeviceToken);
         Assert.Empty(await fixture.Db.NetclawConnectivitySettings.ToListAsync());
         Assert.False(fixture.ChatOptions.Value.Enabled);
+    }
+
+    [Fact]
+    public async Task Pairing_preflight_rechecks_the_current_revision_after_loading_a_tracked_draft()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"rateldesk-netclaw-revision-race-{Guid.NewGuid():N}.db");
+        var connectionString = $"Data Source={databasePath}";
+        var tenant = Substitute.For<ITenantContext>();
+        tenant.TenantId.Returns("test");
+        var baseOptions = new DbContextOptionsBuilder<HelpdeskDbContext>()
+            .UseSqlite(connectionString)
+            .Options;
+        try
+        {
+            await using (var initializer = new HelpdeskDbContext(baseOptions, tenant, new HttpContextAccessor()))
+            {
+                await initializer.Database.EnsureCreatedAsync();
+                initializer.NetclawConnectivitySettings.Add(new NetclawConnectivitySettings
+                {
+                    ProviderKey = "Netclaw",
+                    Revision = 1,
+                    Endpoint = "https://saved-provider.example.test/hub/session",
+                    ProfileFingerprint = "synthetic-profile-revision-1"
+                });
+                await initializer.SaveChangesAsync();
+            }
+
+            async Task AdvanceProfileRevisionAsync(CancellationToken cancellationToken)
+            {
+                await using var concurrentEditor = new HelpdeskDbContext(baseOptions, tenant, new HttpContextAccessor());
+                var stored = await concurrentEditor.NetclawConnectivitySettings.SingleAsync(cancellationToken);
+                stored.Revision = 2;
+                stored.ProfileFingerprint = "synthetic-profile-revision-2";
+                await concurrentEditor.SaveChangesAsync(cancellationToken);
+            }
+
+            var interceptor = new AdvanceProfileRevisionBeforeSecondReadInterceptor(AdvanceProfileRevisionAsync);
+            var interceptedOptions = new DbContextOptionsBuilder<HelpdeskDbContext>()
+                .UseSqlite(connectionString)
+                .AddInterceptors(interceptor)
+                .Options;
+            await using var serviceDb = new HelpdeskDbContext(interceptedOptions, tenant, new HttpContextAccessor());
+            var service = new IntegrationProviderSettingsService(
+                serviceDb,
+                new ConfigurationBuilder().AddInMemoryCollection().Build(),
+                new IntegrationProviderSecretProtector(new EphemeralDataProtectionProvider(NullLoggerFactory.Instance)),
+                Options.Create(new AiAssistantChatOptions()),
+                new DatabaseOptions { Provider = "PostgreSql" },
+                TimeProvider.System,
+                NullLogger<IntegrationProviderSettingsService>.Instance);
+
+            var exception = await Assert.ThrowsAsync<IntegrationProviderConfigurationConflictException>(() =>
+                service.ResolveNetclawPairingTargetAsync(new UpdateNetclawConnectivitySettingsDto
+                {
+                    ExpectedRevision = 1,
+                    Enabled = true,
+                    Instance = "dev",
+                    Endpoint = "https://new-provider.example.test",
+                    DeviceToken = "synthetic-preflight-token"
+                }, "synthetic-admin", legacyOwnershipReviewToken: null));
+
+            Assert.Equal("configuration_revision_conflict", exception.Code);
+            Assert.Equal(2, interceptor.ProfileRevision);
+            await using var verification = new HelpdeskDbContext(baseOptions, tenant, new HttpContextAccessor());
+            Assert.Equal(2, (await verification.NetclawConnectivitySettings.SingleAsync()).Revision);
+        }
+        finally
+        {
+            if (File.Exists(databasePath)) File.Delete(databasePath);
+        }
     }
 
     [Fact]
@@ -940,6 +1012,31 @@ public sealed class IntegrationProviderSettingsTests
             NullLogger<IntegrationProviderSettingsService>.Instance,
             chatRuntime,
             runtimeState);
+
+    private sealed class AdvanceProfileRevisionBeforeSecondReadInterceptor(
+        Func<CancellationToken, Task> advanceProfileRevision) : DbCommandInterceptor
+    {
+        private int profileReadCount;
+        private int profileRevision;
+
+        public int ProfileRevision => Volatile.Read(ref profileRevision);
+
+        public override async ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("NetclawConnectivitySettings", StringComparison.OrdinalIgnoreCase) &&
+                Interlocked.Increment(ref profileReadCount) == 2)
+            {
+                await advanceProfileRevision(cancellationToken);
+                Volatile.Write(ref profileRevision, 2);
+            }
+
+            return result;
+        }
+    }
 
     private sealed class BlockingRuntimeTransport(IAiAssistantChatRuntimeState runtime) : IAiAssistantChatTransport
     {

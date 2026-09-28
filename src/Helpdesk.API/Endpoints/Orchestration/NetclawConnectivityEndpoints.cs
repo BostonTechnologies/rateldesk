@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Helpdesk.Application.AiAssistant.Chat;
 using Helpdesk.Application.Orchestration;
+using Helpdesk.Infrastructure.Connectivity;
 using Helpdesk.Infrastructure.AiAssistant.Chat;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.DTOs.Orchestration;
@@ -60,6 +61,7 @@ public static class NetclawConnectivityEndpoints
             PairNetclawDeviceDto request,
             IIntegrationProviderSettingsService settings,
             [FromServices] INetclawPairingService pairing,
+            IAiAssistantChatClientFactory clients,
             HelpdeskDbContext db,
             ClaimsPrincipal principal,
             CancellationToken ct) =>
@@ -69,27 +71,96 @@ public static class NetclawConnectivityEndpoints
 
             var settingsDraft = ToNetclawSettingsDraft(request, deviceToken: null);
             var tokenReceived = false;
+            var settingsSaved = false;
+            var legacyOwnershipConfirmed = !string.IsNullOrWhiteSpace(request.LegacyOwnershipReviewToken);
             try
             {
-                var target = await settings.ResolveNetclawPairingTargetAsync(settingsDraft, ct);
+                var target = await settings.ResolveNetclawPairingTargetAsync(
+                    settingsDraft,
+                    Actor(principal),
+                    request.LegacyOwnershipReviewToken,
+                    ct);
                 var deviceToken = await pairing.ExchangeCodeAsync(target, request.PairingCode.Trim(), ct);
                 tokenReceived = true;
-                var result = await settings.UpdateNetclawSettingsAsync(
+                var pairedProfile = await settings.UpdateNetclawSettingsAsync(
                     ToNetclawSettingsDraft(request, deviceToken),
                     ct);
+                settingsSaved = true;
 
-                db.ActivityLogs.Add(new ActivityLog
+                var savedSnapshot = await settings.GetResolvedNetclawSettingsAsync(ct);
+                if (!IsSameNetclawProfile(savedSnapshot, pairedProfile))
+                    return Results.Conflict(new
+                    {
+                        code = "pairing_saved_runtime_conflict",
+                        message = "Pairing succeeded and was saved, but the saved connection changed before verification. Refresh and review the saved profile before requesting another code."
+                    });
+
+                var verification = await VerifyAuthenticatedNetclawSessionAsync(
+                    clients,
+                    AiAssistantChatRuntimeSnapshot.From(savedSnapshot),
+                    ct);
+                var recorded = await settings.RecordNetclawTestAsync(
+                    pairedProfile.Revision,
+                    pairedProfile.ProfileFingerprint,
+                    verification.Success,
+                    ct);
+                if (!recorded)
+                    return Results.Conflict(new
+                    {
+                        code = "pairing_verification_superseded",
+                        message = "Pairing succeeded, but the saved connection changed during verification. Refresh and inspect the current profile before requesting another code."
+                    });
+
+                var result = await settings.GetNetclawSettingsAsync(ct);
+                if (!IsSameNetclawProfile(result, pairedProfile))
+                    return Results.Conflict(new
+                    {
+                        code = "pairing_verification_superseded",
+                        message = "Pairing succeeded, but the saved connection changed during verification. Refresh and inspect the current profile before requesting another code."
+                    });
+
+                if (!verification.Success)
                 {
-                    UserId = Actor(principal),
-                    RelatedEntityId = result.ProviderKey,
-                    Message = $"Integration provider settings paired and updated. Provider={result.ProviderKey}; Revision={result.Revision}; Source={result.Source}; Enabled={result.Enabled}; SecretConfigured={result.HasDeviceToken}; SecretAction=paired."
-                });
+                    if (!legacyOwnershipConfirmed)
+                        AddPairingAudit(db, principal, pairedProfile, verified: false);
+                    await db.SaveChangesAsync(ct);
+                    return Results.Json(new
+                    {
+                        code = "pairing_saved_verification_failed",
+                        message = "Pairing succeeded and was saved, but authenticated SignalR verification failed. Review the saved connection before requesting another code."
+                    }, statusCode: StatusCodes.Status502BadGateway);
+                }
+
+                if (result.LastTestSucceeded != true)
+                    return Results.Conflict(new
+                    {
+                        code = "pairing_verification_superseded",
+                        message = "Pairing succeeded, but a newer connection check replaced the verification result. Refresh and inspect the current profile."
+                    });
+
+                if (!legacyOwnershipConfirmed)
+                    AddPairingAudit(db, principal, pairedProfile, verified: true);
                 await db.SaveChangesAsync(ct);
                 return Results.Ok(result);
             }
             catch (NetclawPairingException ex)
             {
                 return Results.Json(new { code = ex.Code, message = ex.Message }, statusCode: ex.StatusCode);
+            }
+            catch (NetclawLegacySessionReviewRequiredException ex)
+            {
+                return Results.Conflict(ex.Review);
+            }
+            catch (NetclawLegacySessionReviewConflictException ex)
+            {
+                var review = ex.Review;
+                return Results.Conflict(new NetclawLegacySessionReviewConflictDto(
+                    ex.Code,
+                    ex.Message,
+                    review.CanonicalEndpoint,
+                    NetclawEndpointNormalizer.ToDaemonAddress(review.CanonicalEndpoint),
+                    review.ConversationCount,
+                    review.ReviewToken));
             }
             catch (IntegrationProviderConfigurationConflictException ex) when (!tokenReceived)
             {
@@ -102,9 +173,16 @@ public static class NetclawConnectivityEndpoints
                     return Results.Conflict(new
                     {
                         code = "pairing_saved_runtime_conflict",
-                        message = "Pairing succeeded and protected settings were saved, but a newer runtime revision prevented application. Refresh and review the saved profile."
+                        message = "Pairing succeeded and protected settings were saved, but a newer runtime revision prevented application. Refresh and review the saved profile before requesting another code."
                     });
                 }
+
+                if (settingsSaved)
+                    return Results.Conflict(new
+                    {
+                        code = "pairing_saved_verification_uncertain",
+                        message = "Pairing succeeded and was saved, but authenticated SignalR verification could not be confirmed. Review the saved connection before requesting another code."
+                    });
 
                 return Results.Conflict(new
                 {
@@ -112,13 +190,41 @@ public static class NetclawConnectivityEndpoints
                     message = "Netclaw accepted the one-time code, but RatelDesk could not complete the settings save. Resolve the conflict, then request a fresh code."
                 });
             }
-            catch (ArgumentException) when (!tokenReceived)
+            catch (NetclawPairingRuntimeUnavailableException ex) when (!tokenReceived)
             {
-                return Results.BadRequest(new { code = "invalid_pairing_draft", message = "Enable Netclaw and provide a valid endpoint and session limits before pairing." });
+                return Results.Json(new { code = "netclaw_runtime_unavailable", message = ex.Message }, statusCode: StatusCodes.Status503ServiceUnavailable);
             }
-            catch (InvalidOperationException) when (!tokenReceived)
+            catch (ArgumentException ex) when (!tokenReceived && string.Equals(ex.ParamName, "SessionLimits", StringComparison.Ordinal))
             {
-                return Results.BadRequest(new { code = "pairing_not_available", message = "Netclaw settings are managed by deployment configuration or are not available for pairing here." });
+                return Results.BadRequest(new
+                {
+                    code = "invalid_session_limits",
+                    message = "Session limits must use positive whole seconds and keep the activity heartbeat shorter than turn inactivity."
+                });
+            }
+            catch (ArgumentException) when (!tokenReceived && IsPrivateHttpDenied(request.Endpoint))
+            {
+                return Results.BadRequest(new
+                {
+                    code = "private_http_not_allowed",
+                    message = "Private HTTP pairing requires a private IP address. Use HTTPS for DNS names and public addresses."
+                });
+            }
+            catch (ArgumentException ex) when (!tokenReceived)
+            {
+                return Results.BadRequest(new { code = "invalid_pairing_draft", message = ex.Message });
+            }
+            catch (InvalidOperationException ex) when (!tokenReceived)
+            {
+                return Results.BadRequest(new { code = "pairing_not_available", message = ex.Message });
+            }
+            catch (Exception) when (tokenReceived && settingsSaved)
+            {
+                return Results.Json(new
+                {
+                    code = "pairing_saved_verification_uncertain",
+                    message = "Pairing succeeded and was saved, but authenticated SignalR verification could not be confirmed. Review the saved connection before requesting another code."
+                }, statusCode: StatusCodes.Status502BadGateway);
             }
             catch (Exception) when (tokenReceived)
             {
@@ -372,6 +478,92 @@ public static class NetclawConnectivityEndpoints
             CheckedAtUtc = DateTimeOffset.UtcNow
         };
 
+    private static async Task<NetclawConnectivityTestResultDto> VerifyAuthenticatedNetclawSessionAsync(
+        IAiAssistantChatClientFactory clients,
+        AiAssistantChatRuntimeSnapshot snapshot,
+        CancellationToken cancellationToken)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(30));
+        var entered = false;
+        try
+        {
+            await DiagnosticGate.WaitAsync(deadline.Token);
+            entered = true;
+            await using var client = CreateClient(clients, snapshot);
+            var ensured = await client.ConnectAsync(null, _ => Task.CompletedTask, deadline.Token);
+            if (ensured is null || string.IsNullOrWhiteSpace(ensured.SessionId))
+            {
+                stopwatch.Stop();
+                return new NetclawConnectivityTestResultDto
+                {
+                    Success = false,
+                    Message = "Netclaw did not confirm an authenticated session.",
+                    Probes = [Probe("AuthenticatedSignalR", false, null, "The authenticated session protocol returned no session confirmation.", stopwatch.ElapsedMilliseconds)]
+                };
+            }
+
+            stopwatch.Stop();
+            return new NetclawConnectivityTestResultDto
+            {
+                Success = true,
+                Message = "Authenticated Netclaw SignalR session negotiation succeeded.",
+                SessionProtocol = "EnsureSession",
+                Probes = [Probe("AuthenticatedSignalR", true, 200, "Authenticated session protocol accepted.", stopwatch.ElapsedMilliseconds)]
+            };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            return new NetclawConnectivityTestResultDto
+            {
+                Success = false,
+                Message = "Netclaw session negotiation timed out.",
+                Probes = [Probe("AuthenticatedSignalR", false, 408, "The authenticated session negotiation timed out.", stopwatch.ElapsedMilliseconds)]
+            };
+        }
+        catch (Exception)
+        {
+            return new NetclawConnectivityTestResultDto
+            {
+                Success = false,
+                Message = "Netclaw rejected the authenticated session negotiation.",
+                Probes = [Probe("AuthenticatedSignalR", false, null, "The authenticated session negotiation failed.", stopwatch.ElapsedMilliseconds)]
+            };
+        }
+        finally
+        {
+            if (entered)
+                DiagnosticGate.Release();
+        }
+    }
+
+    private static bool IsSameNetclawProfile(NetclawResolvedSettings snapshot, NetclawConnectivitySettingsDto profile)
+        => snapshot.Revision == profile.Revision &&
+           string.Equals(snapshot.ProfileFingerprint, profile.ProfileFingerprint, StringComparison.Ordinal);
+
+    private static bool IsSameNetclawProfile(NetclawConnectivitySettingsDto current, NetclawConnectivitySettingsDto paired)
+        => current.Revision == paired.Revision &&
+           string.Equals(current.ProfileFingerprint, paired.ProfileFingerprint, StringComparison.Ordinal);
+
+    private static void AddPairingAudit(
+        HelpdeskDbContext db,
+        ClaimsPrincipal principal,
+        NetclawConnectivitySettingsDto profile,
+        bool verified)
+    {
+        db.ActivityLogs.Add(new ActivityLog
+        {
+            UserId = Actor(principal),
+            RelatedEntityId = profile.ProviderKey,
+            Message = $"Integration provider pair-and-connect completed. Provider=Netclaw; Revision={profile.Revision}; Verified={verified}; SecretConfigured={profile.HasDeviceToken}."
+        });
+    }
+
     private static string Actor(ClaimsPrincipal principal) =>
         principal.FindFirstValue(ClaimTypes.NameIdentifier)
         ?? principal.FindFirstValue("sub")
@@ -384,12 +576,12 @@ public static class NetclawConnectivityEndpoints
         => new()
         {
             ExpectedRevision = request.ExpectedRevision,
-            Enabled = request.Enabled,
-            Instance = request.Instance,
+            Enabled = true,
+            Instance = "dev",
             Endpoint = request.Endpoint,
             DeviceToken = deviceToken,
             ClearDeviceToken = false,
-            AllowPrivateHttp = request.AllowPrivateHttp,
+            AllowPrivateHttp = NetclawEndpointNormalizer.IsPrivateHttpLiteral(request.Endpoint),
             IdleMinutes = request.IdleMinutes,
             ConnectionCapacity = request.ConnectionCapacity,
             TurnInactivityTimeout = request.TurnInactivityTimeout,
@@ -402,6 +594,11 @@ public static class NetclawConnectivityEndpoints
         "unbound_legacy_sessions" => "Confirm historical ownership for unbound legacy sessions before pairing. No pairing code was sent to Netclaw.",
         _ => "Netclaw pairing conflicted with the current settings. No pairing code was sent to Netclaw."
     };
+
+    private static bool IsPrivateHttpDenied(string? endpoint)
+        => Uri.TryCreate(endpoint?.Trim(), UriKind.Absolute, out var uri) &&
+           uri.Scheme == Uri.UriSchemeHttp &&
+           !NetclawEndpointNormalizer.IsPrivateHttpLiteral(uri);
 
     private static IAiAssistantChatClient CreateClient(
         IAiAssistantChatClientFactory clients,

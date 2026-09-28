@@ -2,8 +2,13 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using Helpdesk.Application.Orchestration;
+using Helpdesk.Infrastructure;
 using Helpdesk.Infrastructure.Connectivity;
 using Helpdesk.Infrastructure.Persistence.Connectivity;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Http;
+using Microsoft.Extensions.Http.Resilience;
 using Xunit;
 
 namespace Helpdesk.Tests.Infrastructure.Orchestration;
@@ -177,6 +182,55 @@ public sealed class NetclawPairingServiceTests
 
         Assert.Equal("pairing_outcome_uncertain", exception.Code);
         Assert.DoesNotContain("synthetic-one-time-code", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Registered_pairing_client_does_not_retry_a_transient_failure_inherited_from_http_defaults()
+    {
+        var requestCount = 0;
+        var handler = new StubHandler((_, _) =>
+        {
+            Interlocked.Increment(ref requestCount);
+            return Task.FromResult(JsonResponse(HttpStatusCode.ServiceUnavailable, "synthetic transient response"));
+        });
+        var directory = Path.Combine(Path.GetTempPath(), "rateldesk-netclaw-pairing-http-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Database:Provider"] = "Sqlite",
+                ["Database:Sqlite:Path"] = Path.Combine(directory, "helpdesk.db")
+            }).Build();
+            var services = new ServiceCollection();
+            services.AddLogging();
+#pragma warning disable EXTEXP0001
+            services.ConfigureHttpClientDefaults(client => client.AddStandardResilienceHandler());
+#pragma warning restore EXTEXP0001
+            services.AddHelpdeskInfrastructure(configuration);
+            services.Configure<HttpClientFactoryOptions>(nameof(INetclawPairingService), options =>
+                options.HttpMessageHandlerBuilderActions.Add(builder =>
+                {
+                    var configuredHandler = builder.PrimaryHandler;
+                    builder.PrimaryHandler = handler;
+                    configuredHandler.Dispose();
+                }));
+
+            await using var serviceProvider = services.BuildServiceProvider();
+            var pairing = serviceProvider.GetRequiredService<INetclawPairingService>();
+            var exception = await Assert.ThrowsAsync<NetclawPairingException>(() => pairing.ExchangeCodeAsync(
+                new NetclawPairingTarget(new Uri("https://netclaw.example.test/hub/session"), AllowPrivateHttp: false),
+                "synthetic-one-time-code"));
+
+            Assert.Equal("pairing_service_error", exception.Code);
+            Assert.Equal(1, Volatile.Read(ref requestCount));
+            Assert.DoesNotContain("synthetic transient response", exception.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            handler.Dispose();
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]

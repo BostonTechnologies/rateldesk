@@ -1,9 +1,11 @@
-// Loopback-only deterministic API fixture for the real NewWeb ticket component.
-// This is browser presentation evidence, not live AiAssistant/authorization evidence.
+// Loopback-only deterministic API fixture for real NewWeb presentation routes.
+// This is browser presentation evidence, not live Netclaw/AiAssistant or authorization evidence.
 import http from 'node:http';
 const conversation = '11111111-1111-4111-8111-111111111111';
 const actor = 'c0c48409df3ca07e12725a961d4152790fd135c2384a3e3a522282e2bd847178';
 let events = [], state = 0;
+let netclawPresentationMode = 'first-run';
+let netclawPairResponseStatuses = [];
 const streams = new Set();
 function event(type, text, extra = {}) {
   const value = { Id: crypto.randomUUID(), ConversationId: conversation, Sequence: events.length + 1,
@@ -34,6 +36,14 @@ reset();
 http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1');
   const reply = value => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(value)); };
+  if (url.pathname === '/fixture/netclaw') {
+    const requestedMode = url.searchParams.get('mode');
+    if (['first-run', 'legacy', 'connected', 'uncertain'].includes(requestedMode)) {
+      netclawPresentationMode = requestedMode;
+      netclawPairResponseStatuses = [];
+    }
+    return reply({ mode: netclawPresentationMode, pairResponseStatuses: [...netclawPairResponseStatuses] });
+  }
   if (url.pathname === '/fixture/reset') { reset(url.searchParams.get('mode')); return reply({ ok: true }); }
   if (url.pathname === '/fixture/draft') {
     for (const stream of streams) stream.write(`event: text-delta\ndata: ${JSON.stringify({ ConversationId: conversation, Text: 'Streaming response', AfterSequence: events.length })}\n\n`);
@@ -60,6 +70,60 @@ http.createServer(async (req, res) => {
     allowedOrganizationIds: [], managedOrganizationIds: [], scopedPermissionGrants: []
   });
   if (url.pathname === '/api/v1/branding') return reply({ applicationName: 'RatelDesk', faviconUrl: '/favicon.ico' });
+  if (req.method === 'GET' && url.pathname === '/api/v1/admin/netclaw') {
+    const connected = netclawPresentationMode === 'connected';
+    const verificationFailed = netclawPresentationMode === 'uncertain-saved';
+    return reply({
+      providerKey: 'Netclaw', enabled: connected || verificationFailed, runtimeSupported: true, runtimeIssue: null,
+      instance: 'dev', endpoint: connected || verificationFailed ? 'http://192.168.1.20:5199/hub/session' : null,
+      daemonAddress: connected || verificationFailed ? 'http://192.168.1.20:5199' : null, allowPrivateHttp: false,
+      idleMinutes: 15, connectionCapacity: 25, turnInactivityTimeout: '00:05:00',
+      activityHeartbeatInterval: '00:00:15', updatedAtUtc: null,
+      lastAppliedAtUtc: connected || verificationFailed ? '2026-09-28T08:00:00Z' : null,
+      lastTestedAtUtc: connected ? '2026-09-28T08:05:00Z' : null,
+      lastTestSucceeded: connected ? true : verificationFailed ? false : null,
+      revision: connected || verificationFailed ? 7 : 6, source: 'database', managedByDeployment: false,
+      hasDeviceToken: connected || verificationFailed, secretUnavailable: false,
+      secretState: connected || verificationFailed ? 'configured' : 'not-configured',
+      sourceKey: null, profileFingerprint: 'fixture-profile'
+    });
+  }
+  if (req.method === 'GET' && url.pathname === '/api/v1/admin/netclaw/legacy-sessions/unbound') return reply([]);
+  if (req.method === 'POST' && url.pathname === '/api/v1/admin/netclaw/pair-and-save') {
+    if (netclawPresentationMode === 'legacy') {
+      netclawPresentationMode = 'legacy-reviewed';
+      res.statusCode = 409;
+      netclawPairResponseStatuses.push(res.statusCode);
+      return reply({
+        code: 'legacy_ownership_confirmation_required',
+        message: 'Fixture-only untrusted detail must not be rendered.',
+        canonicalEndpoint: 'http://192.168.1.20:5199/hub/session',
+        daemonAddress: 'http://192.168.1.20:5199',
+        legacyConversationCount: 2,
+        legacyOwnershipReviewToken: 'fixture-ownership-review-token'
+      });
+    }
+    if (netclawPresentationMode === 'uncertain') {
+      netclawPresentationMode = 'uncertain-saved';
+      res.statusCode = 502;
+      netclawPairResponseStatuses.push(res.statusCode);
+      return reply({ code: 'pairing_saved_verification_uncertain', message: 'Fixture-only untrusted detail must not be rendered.' });
+    }
+    netclawPresentationMode = 'connected';
+    netclawPairResponseStatuses.push(res.statusCode);
+    return reply({
+      providerKey: 'Netclaw', enabled: true, runtimeSupported: true, instance: 'dev',
+      endpoint: 'http://192.168.1.20:5199/hub/session', daemonAddress: 'http://192.168.1.20:5199',
+      idleMinutes: 15, connectionCapacity: 25, turnInactivityTimeout: '00:05:00', activityHeartbeatInterval: '00:00:15',
+      lastAppliedAtUtc: '2026-09-28T08:00:00Z', lastTestedAtUtc: '2026-09-28T08:05:00Z',
+      lastTestSucceeded: true, revision: 7, source: 'database', managedByDeployment: false,
+      hasDeviceToken: true, secretUnavailable: false, secretState: 'configured', profileFingerprint: 'fixture-profile'
+    });
+  }
+  if (req.method === 'POST' && url.pathname === '/api/v1/admin/netclaw/test') {
+    netclawPresentationMode = 'connected';
+    return reply({ success: true, statusCode: 200, message: 'Authenticated SignalR verified.', sessionProtocol: 'SignalR' });
+  }
   if (url.pathname.endsWith('/chat/stream')) {
     res.writeHead(200, { 'Content-Type': 'text/event-stream' });
     for (const item of events.filter(x => x.Sequence > Number(url.searchParams.get('cursor') ?? 0))) res.write(`id: ${item.Sequence}\nevent: chat\ndata: ${JSON.stringify(item)}\n\n`);

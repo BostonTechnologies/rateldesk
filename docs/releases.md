@@ -1,6 +1,26 @@
 # Releases
 
-RatelDesk has one repository-owned release line. The root `Directory.Build.props` is the source of truth: maintainers update `VersionPrefix` when preparing the next release. All application projects inherit that value. `VersionSuffix` creates prereleases without changing the release line. The current planned test release is `0.1.1-beta.4`; earlier prereleases remain immutable.
+RatelDesk has one repository-owned release line. The root `Directory.Build.props` is the source of truth: maintainers update `VersionPrefix` when preparing the next release. All application projects inherit that value. `VersionSuffix` creates prereleases without changing the release line. The current planned test release is `0.1.1-beta.6`; earlier prereleases remain immutable.
+
+## 0.1.1-beta.6 — planned Netclaw onboarding update
+
+The beta.6 candidate simplifies the Netclaw first-run flow to a daemon address,
+one-time pairing code, and **Pair & connect**. RatelDesk normalizes the address
+to its session and pairing routes, protects the returned device token, saves
+the profile, applies it at runtime, and verifies an authenticated SignalR
+session before reporting the connection as complete. For an explicitly
+permitted private literal HTTP address, the pairing action supplies the
+connection's private-HTTP opt-in; public HTTP remains rejected.
+
+If beta.3 conversations still need a provider owner, the normal path asks
+whether they used this same Netclaw server before exchanging the one-time code.
+Confirming binds those conversations to this provider and continues pairing;
+reviewing them separately retains the detailed recovery path. The connected
+view keeps connection testing and re-pairing available, with token and runtime
+details in advanced diagnostics.
+
+This section describes the candidate under validation. It does not report
+completed tests, live Netclaw acceptance, publication, or deployment.
 
 ## 0.1.1-beta.4 — planned integration hub update
 

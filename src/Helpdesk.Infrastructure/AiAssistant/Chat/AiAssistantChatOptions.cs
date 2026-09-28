@@ -1,4 +1,5 @@
 using Helpdesk.Infrastructure.Persistence.Connectivity;
+using Helpdesk.Infrastructure.Connectivity;
 using Helpdesk.Application.AiAssistant.Chat;
 using Microsoft.Extensions.Options;
 
@@ -32,12 +33,29 @@ public sealed class AiAssistantChatOptions
     public bool IsValid()
     {
         if (!Enabled) return true;
-        if (Instance != "dev" || string.IsNullOrWhiteSpace(DeviceToken) || IdleMinutes <= 0 || ConnectionCapacity <= 0 || TurnInactivityTimeout <= TimeSpan.Zero || ActivityHeartbeatInterval <= TimeSpan.Zero || ActivityHeartbeatInterval >= TurnInactivityTimeout || !Uri.TryCreate(Endpoint, UriKind.Absolute, out var uri) || uri.AbsolutePath != "/hub/session" || !IntegrationEndpointPolicy.IsAllowed(uri, AllowPrivateHttp)) return false;
-        if (uri.Scheme == "https") return true;
-        return AllowPrivateHttp && uri.Scheme == "http" &&
-            System.Net.IPAddress.TryParse(uri.Host, out var ip) &&
-            IntegrationEndpointPolicy.IsPrivateNetworkAddress(ip);
+        if (Instance != "dev" || string.IsNullOrWhiteSpace(DeviceToken) || IdleMinutes <= 0 || ConnectionCapacity <= 0 ||
+            !AreSessionLimitsStorageCompatible(TurnInactivityTimeout, ActivityHeartbeatInterval))
+            return false;
+
+        try
+        {
+            return NetclawEndpointNormalizer.Normalize(Endpoint, nameof(Endpoint), AllowPrivateHttp) is not null;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
     }
+
+    internal static bool AreSessionLimitsStorageCompatible(TimeSpan turnInactivityTimeout, TimeSpan activityHeartbeatInterval)
+        => IsPositiveWholeSecondLimit(turnInactivityTimeout) &&
+           IsPositiveWholeSecondLimit(activityHeartbeatInterval) &&
+           activityHeartbeatInterval < turnInactivityTimeout;
+
+    private static bool IsPositiveWholeSecondLimit(TimeSpan value)
+        => value > TimeSpan.Zero &&
+           value.Ticks % TimeSpan.TicksPerSecond == 0 &&
+           value.Ticks / TimeSpan.TicksPerSecond <= int.MaxValue;
 }
 
 public interface IAiAssistantChatRuntimeState
@@ -51,21 +69,7 @@ public interface IAiAssistantChatRuntimeState
 public sealed class AiAssistantChatRuntimeState(IOptions<AiAssistantChatOptions> options) : IAiAssistantChatRuntimeState
 {
     private readonly object gate = new();
-    private AiAssistantChatRuntimeSnapshot current = new(
-        options.Value.Enabled,
-        options.Value.Instance,
-        options.Value.Endpoint,
-        options.Value.DeviceToken,
-        options.Value.AllowPrivateHttp,
-        options.Value.IdleMinutes,
-        options.Value.ConnectionCapacity,
-        options.Value.TurnInactivityTimeout,
-        options.Value.ActivityHeartbeatInterval,
-        IntegrationProviderSecretBinding.Fingerprint("Netclaw", options.Value.Instance, options.Value.Endpoint),
-        Source: "deployment",
-        ManagedByDeployment: true,
-        SourceKey: "deployment",
-        CanAdoptLegacySessions: false);
+    private AiAssistantChatRuntimeSnapshot current = CreateInitialSnapshot(options.Value);
 
     public AiAssistantChatRuntimeSnapshot Current => Volatile.Read(ref current);
 
@@ -97,5 +101,35 @@ public sealed class AiAssistantChatRuntimeState(IOptions<AiAssistantChatOptions>
         return incoming.Revision == existing.Revision &&
             !string.Equals(incoming.ProfileFingerprint, existing.ProfileFingerprint, StringComparison.Ordinal) &&
             !string.IsNullOrWhiteSpace(existing.ProfileFingerprint);
+    }
+
+    private static AiAssistantChatRuntimeSnapshot CreateInitialSnapshot(AiAssistantChatOptions options)
+    {
+        string endpoint;
+        try
+        {
+            endpoint = NetclawEndpointNormalizer.Normalize(options.Endpoint, nameof(options.Endpoint), options.AllowPrivateHttp) ?? string.Empty;
+        }
+        catch (ArgumentException)
+        {
+            endpoint = string.Empty;
+        }
+
+        var valid = options.IsValid();
+        return new AiAssistantChatRuntimeSnapshot(
+            options.Enabled && valid,
+            options.Instance,
+            endpoint,
+            options.DeviceToken,
+            options.AllowPrivateHttp,
+            options.IdleMinutes,
+            options.ConnectionCapacity,
+            options.TurnInactivityTimeout,
+            options.ActivityHeartbeatInterval,
+            IntegrationProviderSecretBinding.Fingerprint("Netclaw", options.Instance, endpoint),
+            Source: "deployment",
+            ManagedByDeployment: true,
+            SourceKey: "deployment",
+            CanAdoptLegacySessions: false);
     }
 }

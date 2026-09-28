@@ -254,6 +254,15 @@ var helpdeskApiClient = builder.Services.AddHttpClient("HelpdeskApi", client =>
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false })
     .AddHttpMessageHandler<TokenAuthorizationHandler>();
 
+// Pairing consumes a one-time code; a transient response must never replay this POST.
+var netclawPairingApiClient = builder.Services.AddHttpClient("NetclawPairingApi", client =>
+{
+    client.BaseAddress = new Uri(apiBaseUrl, UriKind.Absolute);
+    client.Timeout = TimeSpan.FromMinutes(5);
+})
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false })
+    .AddHttpMessageHandler<TokenAuthorizationHandler>();
+
 var helpdeskApiStreamingClient = builder.Services.AddHttpClient("HelpdeskApiStreaming", client =>
 {
     client.BaseAddress = new Uri(apiBaseUrl, UriKind.Absolute);
@@ -264,6 +273,7 @@ var helpdeskApiStreamingClient = builder.Services.AddHttpClient("HelpdeskApiStre
 
 #pragma warning disable EXTEXP0001
 helpdeskApiClient.RemoveAllResilienceHandlers();
+netclawPairingApiClient.RemoveAllResilienceHandlers();
 helpdeskApiClient.AddStandardResilienceHandler(options =>
 {
     options.AttemptTimeout.Timeout = TimeSpan.FromMinutes(2);

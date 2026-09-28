@@ -1,47 +1,22 @@
-.netclaw-page,
-.netclaw-page-heading,
-.netclaw-setup,
-.netclaw-profile {
+.netclaw-page {
+    box-sizing: border-box;
+    width: min(100%, 52rem);
     min-width: 0;
-}
-
-.netclaw-page-header {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: start;
-    gap: .75rem;
-    margin-bottom: 1rem;
-}
-
-.netclaw-page-heading {
-    min-width: 0;
-    max-width: 62rem;
-}
-
-.netclaw-muted-copy {
-    color: var(--mud-palette-text-secondary);
-}
-
-.netclaw-page-heading ::deep .mud-typography-body2 {
-    max-width: 70ch;
+    margin-inline: auto;
 }
 
 .netclaw-page-navigation {
     display: flex;
-    min-width: 0;
-    align-items: flex-start;
-    justify-content: flex-end;
+    justify-content: flex-start;
+    margin: -.5rem 0 .75rem -.5rem;
 }
 
 .netclaw-page-navigation ::deep .mud-button-root {
-    flex: 0 0 auto;
-    width: max-content;
-    max-width: 100%;
-    white-space: nowrap;
+    min-height: 2.5rem;
 }
 
-.netclaw-page-navigation ::deep .mud-button-label {
-    white-space: nowrap;
+.netclaw-muted-copy {
+    color: var(--mud-palette-text-secondary);
 }
 
 .netclaw-loading {
@@ -50,36 +25,169 @@
     max-width: 42rem;
 }
 
-.netclaw-main-grid {
-    min-width: 0;
-    align-items: stretch;
-}
-
-.netclaw-setup {
-    padding-block: .15rem;
-}
-
-.netclaw-enable-setting {
-    display: grid;
-    gap: .1rem;
-}
-
-.netclaw-primary-action ::deep .mud-button-root {
-    min-height: 3rem;
-    font-size: 1rem;
-}
-
-.netclaw-history-healthy {
-    padding-left: .25rem;
-}
-
-.netclaw-profile {
-    height: 100%;
+.netclaw-page ::deep .netclaw-card {
     box-sizing: border-box;
+    min-width: 0;
+    padding: clamp(1rem, 3vw, 1.5rem) !important;
+}
+
+.netclaw-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.netclaw-card-heading {
+    min-width: 0;
+}
+
+.netclaw-card-heading ::deep .mud-typography-h5 {
+    margin-bottom: .2rem;
+}
+
+.netclaw-pair-form {
+    display: grid;
+    gap: 1rem;
+    max-width: 42rem;
+}
+
+.netclaw-primary-action {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .5rem;
+    padding-top: .25rem;
+}
+
+.netclaw-primary-action ::deep .mud-button-root,
+.netclaw-connection-actions ::deep .mud-button-root,
+.netclaw-confirmation-actions ::deep .mud-button-root {
+    min-height: 2.5rem;
+}
+
+.netclaw-connection-summary,
+.netclaw-legacy-confirmation,
+.netclaw-state-review {
+    display: grid;
+    justify-items: start;
+    gap: .8rem;
+    max-width: 44rem;
+}
+
+.netclaw-connection-summary ::deep .mud-typography-h6,
+.netclaw-state-review ::deep .mud-typography-h6 {
+    margin-bottom: -.35rem;
+}
+
+.netclaw-daemon-address {
+    display: block;
+    max-width: 100%;
+    color: var(--mud-palette-text-primary);
+    font-size: .95rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+.netclaw-connection-actions,
+.netclaw-confirmation-actions,
+.netclaw-action-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .5rem;
+}
+
+.netclaw-state-message {
+    margin-block: 1rem;
+}
+
+.netclaw-state-review {
     padding: 1rem;
     border: 1px solid var(--mud-palette-divider);
-    border-radius: 7px;
+    border-radius: var(--mud-default-borderradius);
     background: var(--mud-palette-background-gray);
+}
+
+.netclaw-review-details {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .7rem 1rem;
+    width: 100%;
+    margin: 0;
+}
+
+.netclaw-review-details > div {
+    min-width: 0;
+}
+
+.netclaw-review-details dt,
+.netclaw-profile-item dt {
+    color: var(--mud-palette-text-secondary);
+    font-size: .75rem;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.netclaw-review-details dd,
+.netclaw-profile-item dd {
+    margin: .18rem 0 0;
+    color: var(--mud-palette-text-primary);
+    font-size: .9rem;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.netclaw-page ::deep .netclaw-history-panel {
+    min-width: 0;
+    margin-top: 1.5rem;
+    border-left: 3px solid var(--mud-palette-warning);
+}
+
+.netclaw-history-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+}
+
+.netclaw-page ::deep .netclaw-legacy-table,
+.netclaw-page ::deep .netclaw-probe-table {
+    min-width: 0;
+}
+
+.netclaw-page ::deep .netclaw-legacy-table .mud-table-container,
+.netclaw-page ::deep .netclaw-probe-table .mud-table-container {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.netclaw-legacy-select {
+    width: 1.5rem;
+    height: 1.5rem;
+    margin: 0;
+    accent-color: var(--mud-palette-primary);
+    cursor: pointer;
+}
+
+.netclaw-legacy-select:focus-visible {
+    outline: 2px solid var(--mud-palette-primary);
+    outline-offset: 2px;
+}
+
+.netclaw-page ::deep .netclaw-legacy-table .mud-table-cell,
+.netclaw-page ::deep .netclaw-probe-table .mud-table-cell {
+    overflow-wrap: anywhere;
+}
+
+.netclaw-page ::deep .netclaw-advanced-settings {
+    margin-top: 1.5rem;
+}
+
+.netclaw-page ::deep .netclaw-advanced-settings .mud-expansion-panel {
+    border-top: 1px solid var(--mud-palette-divider);
 }
 
 .netclaw-profile-grid {
@@ -100,101 +208,52 @@
     grid-column: 1 / -1;
 }
 
-.netclaw-profile-item dt {
-    color: var(--mud-palette-text-secondary);
-    font-size: .75rem;
-    font-weight: 600;
-    line-height: 1.35;
-}
-
-.netclaw-profile-item dd {
-    margin: .18rem 0 0;
-    color: var(--mud-palette-text-primary);
-    font-size: .9rem;
-    line-height: 1.4;
-    overflow-wrap: anywhere;
-}
-
-.netclaw-action-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: .5rem;
-}
-
-.netclaw-action-row ::deep .mud-button-root {
-    min-height: 2.5rem;
-}
-
-.netclaw-history-panel {
-    min-width: 0;
-    border-left: 3px solid var(--mud-palette-warning);
-}
-
-.netclaw-history-heading {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: .75rem;
-}
-
-.netclaw-legacy-table,
-.netclaw-probe-table {
-    min-width: 0;
-}
-
-.netclaw-legacy-select {
-    width: 1.5rem;
-    height: 1.5rem;
-    margin: 0;
-    accent-color: var(--mud-palette-primary);
-    cursor: pointer;
-}
-
-.netclaw-legacy-select:focus-visible {
-    outline: 2px solid var(--mud-palette-primary);
-    outline-offset: 2px;
-}
-
-.netclaw-legacy-table ::deep .mud-table-cell,
-.netclaw-probe-table ::deep .mud-table-cell {
-    overflow-wrap: anywhere;
-}
-
-.netclaw-advanced-settings {
-    margin-top: .25rem;
-}
-
 @media (max-width: 600px) {
-    .netclaw-profile {
-        padding: .85rem;
+    .netclaw-page ::deep .netclaw-card {
+        padding: 1rem !important;
     }
 
-    .netclaw-action-row ::deep .mud-button-root {
-        flex: 1 1 calc(50% - .5rem);
+    .netclaw-card-header {
+        align-items: flex-start;
+        gap: .5rem;
+        margin-bottom: 1rem;
     }
 
-    .netclaw-history-panel {
+    .netclaw-card-header ::deep .mud-chip {
+        flex: 0 0 auto;
+        max-width: 100%;
+    }
+
+    .netclaw-primary-action {
+        width: 100%;
+    }
+
+    .netclaw-primary-action ::deep .mud-button-root {
+        width: 100%;
+    }
+
+    .netclaw-confirmation-actions,
+    .netclaw-connection-actions {
+        width: 100%;
+    }
+
+    .netclaw-confirmation-actions ::deep .mud-button-root,
+    .netclaw-connection-actions ::deep .mud-button-root {
+        max-width: 100%;
+        white-space: normal;
+    }
+
+    .netclaw-page ::deep .netclaw-history-panel {
         padding: .85rem !important;
     }
 }
 
-@media (max-width: 600px) {
-    .netclaw-page-header {
-        grid-template-columns: minmax(0, 1fr);
-        gap: .5rem;
+@media (max-width: 390px) {
+    .netclaw-card-header {
+        flex-wrap: wrap;
     }
 
-    .netclaw-page-navigation {
-        justify-content: flex-start;
-    }
-
-    .netclaw-page-navigation ::deep .mud-button-root {
-        max-width: max-content;
-    }
-}
-
-@media (max-width: 360px) {
+    .netclaw-review-details,
     .netclaw-profile-grid {
         grid-template-columns: minmax(0, 1fr);
     }

@@ -6,7 +6,7 @@ const newWebCommand = process.env.HELPDESK_AI_ASSISTANT_CONFIGURATION === 'Relea
   : 'dotnet run --no-build --no-launch-profile';
 
 export default defineConfig(base, {
-  testMatch: '**/ai-assistant-chat.spec.ts',
+  testMatch: ['**/ai-assistant-chat.spec.ts', '**/netclaw-presentation.spec.ts'],
   testIgnore: [],
   retries: 0,
   use: { ...base.use, baseURL: 'https://127.0.0.1:5158', ignoreHTTPSErrors: true },

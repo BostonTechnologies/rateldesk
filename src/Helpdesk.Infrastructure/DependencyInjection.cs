@@ -105,10 +105,14 @@ public static class DependencyInjection
         services.AddHttpClient("OrchestrationToken")
             .ConfigurePrimaryHttpMessageHandler(_ => IntegrationSafeHttpMessageHandler.Create())
             .SetHandlerLifetime(TimeSpan.FromMinutes(10));
-        services.AddHttpClient<INetclawPairingService, NetclawPairingService>(client =>
+        var netclawPairingClient = services.AddHttpClient<INetclawPairingService, NetclawPairingService>(client =>
             client.Timeout = Timeout.InfiniteTimeSpan)
             .ConfigurePrimaryHttpMessageHandler(_ => IntegrationSafeHttpMessageHandler.Create())
             .SetHandlerLifetime(TimeSpan.FromMinutes(10));
+        // Pairing codes are consumable; a generic HTTP retry can spend one again after an ambiguous response.
+#pragma warning disable EXTEXP0001
+        netclawPairingClient.RemoveAllResilienceHandlers();
+#pragma warning restore EXTEXP0001
         services.AddHttpClient("AiAssistantWebhook")
             .SetHandlerLifetime(TimeSpan.FromMinutes(10));
         services.AddHttpClient<IAuthentikAdminClient, AuthentikAdminClient>()
