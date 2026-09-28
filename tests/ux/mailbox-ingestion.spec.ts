@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { authenticate, assertNoHorizontalOverflow, selectTheme } from './auth';
+import { waitForMailboxOrganizationSelection } from './mailbox-picker';
 
 // These cases include CRUD round trips or ten responsive screenshots.
 test.setTimeout(120_000);
@@ -19,6 +20,7 @@ test('provider selection, failed draft test, discard, save and explicit tenant r
   await organization.fill('Fixture');
   await expect(page.getByRole('option', { name: /Fixture Organization/ })).toBeVisible();
   await page.getByRole('option', { name: /Fixture Organization/ }).click();
+  await waitForMailboxOrganizationSelection(page, 'Fixture Organization');
   await page.getByRole('combobox', { name: 'Inbound provider', exact: true }).click();
   await page.getByRole('option', { name: 'POP3', exact: true }).click();
   await expect(page.getByLabel('Mailbox folder', { exact: true })).toHaveCount(0);

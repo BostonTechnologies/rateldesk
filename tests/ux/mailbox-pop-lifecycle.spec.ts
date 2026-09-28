@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { expect, test, type Page } from '@playwright/test';
+import { waitForMailboxOrganizationSelection } from './mailbox-picker';
 
 type Mailbox = { id: string; organizationId: string | null; mailboxAddress: string };
 type Incident = { id: string; subject: string; trackingId: string; organizationId: string };
@@ -22,6 +23,7 @@ async function addDedicated(page: Page, organization: string, provider: 'IMAP' |
   await page.getByRole('menuitem', { name: 'Tenant override' }).click();
   await page.getByRole('combobox', { name: /^RatelDesk organization/ }).fill(organization);
   await page.getByRole('option', { name: new RegExp(organization) }).click();
+  await waitForMailboxOrganizationSelection(page, organization);
   await page.getByRole('combobox', { name: 'Inbound provider' }).click();
   await page.getByRole('option', { name: provider, exact: true }).click();
   await page.getByLabel('Mailbox display name').fill(`${organization} ${provider} support`);
