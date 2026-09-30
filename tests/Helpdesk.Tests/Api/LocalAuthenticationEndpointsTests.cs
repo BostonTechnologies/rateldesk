@@ -54,7 +54,9 @@ public sealed class LocalAuthenticationEndpointsTests : IAsyncLifetime
             builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Authentication:Mode"] = "Local",
-                ["Authentication:AllowInsecureLocalhost"] = "true"
+                ["Authentication:AllowInsecureLocalhost"] = "true",
+                // This test host skips bootstrap, which normally creates the image-signing key.
+                ["StorageOptions:ImageSigningSecret"] = "synthetic-local-auth-image-secret"
             }));
             builder.ConfigureServices(services =>
             {

@@ -1,4 +1,5 @@
 using Helpdesk.API.Endpoints.Authentication;
+using Helpdesk.API.Endpoints.Incidents;
 using System.Security.Claims;
 using System.Text.Json;
 using Helpdesk.Application.Messaging;
@@ -31,6 +32,8 @@ public static class WorkLogEndpoints
             HttpContext context,
             [FromServices] ICurrentUserAccessService accessService,
             [FromServices] HelpdeskDbContext db,
+            [FromServices] IImageLinkSigner imageLinkSigner,
+            [FromServices] IOptions<StorageOptions> storageOptions,
             CancellationToken ct) =>
         {
             var authorization = await AuthorizeIncidentAsync(id, context.User, accessService, db, requireManager: false, ct);
@@ -53,7 +56,7 @@ public static class WorkLogEndpoints
             var ordered = string.Equals(order, "asc", StringComparison.OrdinalIgnoreCase)
                 ? events.OrderBy(evt => evt.CreatedUtc)
                 : events.OrderByDescending(evt => evt.CreatedUtc);
-            var timeline = ordered.Select(ToDto).ToList();
+            var timeline = ordered.Select(evt => ToDto(evt, imageLinkSigner, storageOptions.Value.PublicApiBaseUrl)).ToList();
 
             return Results.Ok(timeline);
         })
@@ -169,6 +172,8 @@ public static class WorkLogEndpoints
         [FromServices] ICurrentUserAccessService accessService,
         [FromServices] HelpdeskDbContext db,
         [FromServices] ITimelineEventBus eventBus,
+        [FromServices] IImageLinkSigner imageLinkSigner,
+        [FromServices] IOptions<StorageOptions> storageOptions,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken ct)
     {
@@ -235,7 +240,11 @@ public static class WorkLogEndpoints
                             continue;
                         }
 
-                        var json = JsonSerializer.Serialize(evt);
+                        // Project a fresh link per delivery without mutating the shared bus event.
+                        var payload = JsonSerializer.SerializeToNode(evt)!.AsObject();
+                        payload[nameof(TicketTimelineEventDto.MessageHtml)] = IncidentInlineImageLinks.Refresh(
+                            evt.MessageHtml, id, imageLinkSigner, storageOptions.Value.PublicApiBaseUrl);
+                        var json = payload.ToJsonString();
 
                         await context.Response.WriteAsync("event: timeline\n", ct);
                         await context.Response.WriteAsync($"data: {json}\n\n", ct);
@@ -265,7 +274,7 @@ public static class WorkLogEndpoints
         }
     }
 
-    private static TicketTimelineEventDto ToDto(TicketTimelineEvent evt)
+    private static TicketTimelineEventDto ToDto(TicketTimelineEvent evt, IImageLinkSigner signer, string? publicApiBaseUrl)
     {
         return new TicketTimelineEventDto
         {
@@ -275,7 +284,7 @@ public static class WorkLogEndpoints
             CreatedByUserId = evt.CreatedByUserId,
             CreatedByUserName = evt.CreatedByUserName,
             EventType = evt.EventType,
-            MessageHtml = evt.MessageHtml,
+            MessageHtml = IncidentInlineImageLinks.Refresh(evt.MessageHtml, evt.TicketId, signer, publicApiBaseUrl),
             MessageText = evt.MessageText,
             EmailStatus = evt.EmailStatus,
             EmailRecipient = evt.EmailRecipient,

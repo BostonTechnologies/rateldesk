@@ -21,6 +21,7 @@ using Helpdesk.Application.Timeline;
 using Helpdesk.Application.WorkLogs;
 using Helpdesk.Infrastructure.Auth.Rbac;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Storage;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.DTOs;
 using Helpdesk.Shared.DTOs.Change;
@@ -1652,7 +1653,10 @@ public sealed partial class LiveHistoryFilteringEndpointsTests
         public HttpClient Client { get; }
         public CapturingDomainEventPublisher DomainEvents { get; }
 
-        public static async Task<LiveHistoryFilteringHarness> CreateAsync(CurrentUserAccessProfile? accessProfile = null, Helpdesk.Application.RequestTasks.IRequestTaskLifecycleService? lifecycleService = null)
+        public static async Task<LiveHistoryFilteringHarness> CreateAsync(CurrentUserAccessProfile? accessProfile = null,
+            Helpdesk.Application.RequestTasks.IRequestTaskLifecycleService? lifecycleService = null,
+            IImageLinkSigner? imageLinkSigner = null, StorageOptions? storageOptions = null,
+            ITimelineEventBus? timelineEventBus = null)
         {
             var connection = new SqliteConnection("Data Source=:memory:");
             await connection.OpenAsync();
@@ -1680,8 +1684,10 @@ public sealed partial class LiveHistoryFilteringEndpointsTests
             builder.Services.AddSingleton<IDomainEventPublisher>(sp => sp.GetRequiredService<CapturingDomainEventPublisher>());
             builder.Services.AddSingleton<ICorrelationContext, TestCorrelationContext>();
             builder.Services.AddSingleton<IPublicTicketLinkSigner, TestPublicTicketLinkSigner>();
-            builder.Services.AddSingleton<IImageLinkSigner, TestImageLinkSigner>();
-            builder.Services.AddSingleton<ITimelineEventBus, TestTimelineEventBus>();
+            builder.Services.AddSingleton<IImageLinkSigner>(imageLinkSigner ?? new TestImageLinkSigner());
+            builder.Services.AddSingleton<ITimelineEventBus>(timelineEventBus ?? new TestTimelineEventBus());
+            if (storageOptions is not null)
+                builder.Services.AddSingleton<IOptions<StorageOptions>>(Options.Create(storageOptions));
             builder.Services.AddSingleton<IRequestSender, FailFastRequestSender>();
             if (lifecycleService is not null)
             {
