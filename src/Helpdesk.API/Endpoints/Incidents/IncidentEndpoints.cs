@@ -1106,7 +1106,7 @@ public static class IncidentEndpoints
                 inc.OriginalEmailHtml ?? string.Empty,
                 inc.Id,
                 imageLinkSigner,
-                storageOptions.Value.PublicApiBaseUrl);
+                storageOptions.Value.PublicApiBaseUrl) ?? string.Empty;
             string text = inc.OriginalEmailText ?? inc.Description ?? string.Empty;
 
             var sanitizer = new HtmlSanitizer();
