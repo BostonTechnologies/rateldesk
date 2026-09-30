@@ -1102,7 +1102,7 @@ public static class IncidentEndpoints
             var inc = await repo.GetAsync(id);
             if (inc is null) return Results.NotFound();
 
-            string html = RefreshIncidentInlineImageTokens(
+            string html = IncidentInlineImageLinks.Refresh(
                 inc.OriginalEmailHtml ?? string.Empty,
                 inc.Id,
                 imageLinkSigner,
@@ -1488,81 +1488,6 @@ public static class IncidentEndpoints
 
         var clean = global::System.Text.RegularExpressions.Regex.Replace(value, "[^a-zA-Z0-9_-]", "-");
         return string.IsNullOrWhiteSpace(clean) ? "unknown" : clean;
-    }
-
-    private static string RefreshIncidentInlineImageTokens(
-        string html,
-        string incidentId,
-        IImageLinkSigner imageLinkSigner,
-        string? publicApiBaseUrl)
-    {
-        if (string.IsNullOrWhiteSpace(html))
-        {
-            return string.Empty;
-        }
-
-        var safeIncidentId = SanitizePathSegment(incidentId);
-        var imagePathPrefix = $"/api/incidents/{Uri.EscapeDataString(safeIncidentId)}/images/";
-        var expires = DateTimeOffset.UtcNow.AddDays(30);
-        var imgSrcRegex = new global::System.Text.RegularExpressions.Regex(
-            "(?<prefix><img\\b[^>]*?\\bsrc\\s*=\\s*[\"'])(?<src>[^\"']+)(?<suffix>[\"'][^>]*>)",
-            global::System.Text.RegularExpressions.RegexOptions.IgnoreCase | global::System.Text.RegularExpressions.RegexOptions.Compiled);
-
-        return imgSrcRegex.Replace(html, match =>
-        {
-            var source = match.Groups["src"].Value;
-            if (string.IsNullOrWhiteSpace(source))
-            {
-                return match.Value;
-            }
-
-            // Root-relative URLs can be parsed as file: URIs by System.Uri.
-            // Only HTTP(S) sources need an absolute base when regenerating links.
-            var isAbsoluteHttpUrl = Uri.TryCreate(source, UriKind.Absolute, out var absolute) &&
-                (absolute.Scheme == Uri.UriSchemeHttp || absolute.Scheme == Uri.UriSchemeHttps);
-            var parsed = isAbsoluteHttpUrl
-                ? absolute!
-                : new Uri(new Uri("https://helpdesk.local", UriKind.Absolute), source);
-
-            if (!parsed.AbsolutePath.StartsWith(imagePathPrefix, StringComparison.OrdinalIgnoreCase))
-            {
-                return match.Value;
-            }
-
-            var filename = Uri.UnescapeDataString(parsed.AbsolutePath[imagePathPrefix.Length..]);
-            if (string.IsNullOrWhiteSpace(filename) || filename.Contains('/'))
-            {
-                return match.Value;
-            }
-
-            var safeFilename = Path.GetFileName(filename);
-            if (string.IsNullOrWhiteSpace(safeFilename))
-            {
-                return match.Value;
-            }
-
-            var token = imageLinkSigner.GenerateToken("incident", safeIncidentId, safeFilename, expires);
-            var refreshedRelative =
-                $"{imagePathPrefix}{Uri.EscapeDataString(safeFilename)}?token={Uri.EscapeDataString(token)}";
-
-            var refreshedSource = isAbsoluteHttpUrl
-                ? $"{ResolvePublicApiBaseUrl(source, publicApiBaseUrl)}{refreshedRelative}"
-                : refreshedRelative;
-
-            return $"{match.Groups["prefix"].Value}{refreshedSource}{match.Groups["suffix"].Value}";
-        });
-    }
-
-    private static string ResolvePublicApiBaseUrl(string originalSource, string? publicApiBaseUrl)
-    {
-        if (!string.IsNullOrWhiteSpace(publicApiBaseUrl))
-        {
-            return publicApiBaseUrl.TrimEnd('/');
-        }
-
-        return Uri.TryCreate(originalSource, UriKind.Absolute, out var originalUri)
-            ? originalUri.GetLeftPart(UriPartial.Authority)
-            : string.Empty;
     }
 
     private static void ApplyClosedAtTransition(Ticket ticket, TicketState previousState, TicketState currentState)
