@@ -53,12 +53,13 @@ public class UserProvisioningService : IUserProvisioningService
             using var createResponse = await client.SendAsync(request, cancellationToken);
 
             createResponse.EnsureSuccessStatusCode();
-            _logger.LogInformation("Provisioning ensured successfully for {Email}", email);
+            _logger.LogInformation("External account provisioning succeeded.");
             return await createResponse.Content.ReadFromJsonAsync<CurrentUserAccessDto>(cancellationToken);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Provisioning failed for {Email}", email);
+            _logger.LogWarning("External account provisioning failed: {Category}; HTTP status {StatusCode}.",
+                SignInFailureDiagnostics.Category(ex), (ex as HttpRequestException)?.StatusCode is { } status ? (int?)status : null);
             throw;
         }
     }

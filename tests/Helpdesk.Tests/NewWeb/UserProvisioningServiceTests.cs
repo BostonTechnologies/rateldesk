@@ -5,6 +5,7 @@ using System.Net.Http.Json;
 using System.Security.Claims;
 using Helpdesk.Shared.DTOs.Auth;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
 using NewWeb::HelpDesk.NewWeb.Services;
 using NSubstitute;
 
@@ -53,5 +54,42 @@ public sealed class UserProvisioningServiceTests
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
             => Task.FromResult(send(request));
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.BadRequest, "invalid-provisioning-identity")]
+    [InlineData(HttpStatusCode.Unauthorized, "api-token-rejected")]
+    [InlineData(HttpStatusCode.Forbidden, "account-access-denied")]
+    [InlineData(HttpStatusCode.ServiceUnavailable, "provisioning-api-unavailable")]
+    public async Task Failure_logs_only_fixed_categories_and_status_without_identity_token_body_or_exception(HttpStatusCode status, string category)
+    {
+        using var client = new HttpClient(new CaptureHandler(_ => new HttpResponseMessage(status)
+        {
+            Content = new StringContent("private-response-body-marker")
+        })) { BaseAddress = new Uri("https://api.example.test") };
+        var factory = Substitute.For<IHttpClientFactory>();
+        factory.CreateClient("SystemApiNoAuth").Returns(client);
+        var logger = new RecordingLogger();
+        var service = new UserProvisioningService(factory, logger);
+        var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim("email", "private-identity-marker@example.test")], "oidc"));
+        await Assert.ThrowsAsync<HttpRequestException>(() => service.EnsureUserAccessAsync(principal, "private-token-marker", CancellationToken.None));
+        var message = Assert.Single(logger.Messages);
+        Assert.Contains(category, message, StringComparison.Ordinal);
+        Assert.Contains(((int)status).ToString(), message, StringComparison.Ordinal);
+        Assert.DoesNotContain("private-", message, StringComparison.Ordinal);
+        Assert.All(logger.Exceptions, Assert.Null);
+    }
+
+    private sealed class RecordingLogger : ILogger<UserProvisioningService>
+    {
+        public List<string> Messages { get; } = [];
+        public List<Exception?> Exceptions { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel level) => true;
+        public void Log<TState>(LogLevel level, EventId id, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            Messages.Add(formatter(state, exception));
+            Exceptions.Add(exception);
+        }
     }
 }

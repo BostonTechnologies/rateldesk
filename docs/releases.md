@@ -1,6 +1,6 @@
 # Releases
 
-RatelDesk has one repository-owned release line. The root `Directory.Build.props` is the source of truth: maintainers update `VersionPrefix` when preparing the next release. All application projects inherit that value. `VersionSuffix` creates prereleases without changing the release line. The current planned test release is `0.1.1-beta.6`; earlier prereleases remain immutable.
+RatelDesk has one repository-owned release line. The root `Directory.Build.props` is the source of truth: maintainers update `VersionPrefix` when preparing the next release. All application projects inherit that value. `VersionSuffix` creates prereleases without changing the release line. The current planned test release is `0.1.1-beta.8`; earlier prereleases remain immutable.
 
 ## 0.1.1-beta.6 — planned Netclaw onboarding update
 

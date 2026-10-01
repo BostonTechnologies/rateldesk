@@ -89,7 +89,7 @@ public class WebAuthRoutesTests
     }
 
     [Fact]
-    public async Task Login_Page_Shows_Provider_Neutral_Authentik_Branding()
+    public async Task Login_Page_Shows_A_Distinct_Authentik_Link()
     {
         using var factory = CreateFactory();
         using var client = factory.CreateClient();
@@ -101,7 +101,7 @@ public class WebAuthRoutesTests
         Assert.Contains("RatelDesk", content, StringComparison.Ordinal);
         Assert.Contains("Self-hosted", content, StringComparison.Ordinal);
         Assert.Contains("Continue to RatelDesk using your authorised account.", content, StringComparison.Ordinal);
-        Assert.Contains("Sign in to RatelDesk", content, StringComparison.Ordinal);
+        Assert.Contains("Sign in with Authentik", content, StringComparison.Ordinal);
         Assert.Contains("href=\"/login-authentik\"", content, StringComparison.Ordinal);
         Assert.Contains("rateldesk-mark.webp", content, StringComparison.Ordinal);
         Assert.DoesNotContain("Automation Platform", content, StringComparison.Ordinal);

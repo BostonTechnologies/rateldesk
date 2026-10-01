@@ -237,6 +237,9 @@ if (webUsesOidc)
         OnTokenValidated = context => QueueUserProvisioningOnTokenValidatedAsync(context),
         OnRemoteFailure = context =>
         {
+            context.HttpContext.RequestServices.GetRequiredService<ILoggerFactory>()
+                .CreateLogger("ExternalSignIn")
+                .LogWarning("External sign-in failed: {Category}.", SignInFailureDiagnostics.Category(context.Failure));
             context.HandleResponse();
             context.Response.Redirect("/login?status=Authentication%20failed");
             return Task.CompletedTask;
@@ -719,6 +722,8 @@ static Task QueueUserProvisioningOnTokenValidatedAsync(TokenValidatedContext con
             var accessToken = context.TokenEndpointResponse?.AccessToken;
             if (string.IsNullOrWhiteSpace(accessToken))
             {
+                requestServices.GetRequiredService<ILoggerFactory>().CreateLogger("Provisioning")
+                    .LogWarning("External sign-in failed: missing-api-access-token.");
                 context.Fail("The identity provider did not issue an API access token.");
                 return;
             }
@@ -739,9 +744,7 @@ static Task QueueUserProvisioningOnTokenValidatedAsync(TokenValidatedContext con
             var logger = requestServices.GetRequiredService<ILoggerFactory>()
                 .CreateLogger("Provisioning");
 
-            logger.LogError(ex,
-                "User provisioning failed for {Email}",
-                principal.Identity?.Name);
+            logger.LogWarning("External sign-in provisioning failed: {Category}.", SignInFailureDiagnostics.Category(ex));
             context.Fail("Account access could not be established.");
         }
     }
