@@ -27,7 +27,15 @@
 	  <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="10.10.0" />
     <PackageReference Include="Microsoft.Graph" Version="5.105.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.12" />
-    <PackageReference Include="Microsoft.Kiota.Abstractions" Version="1.22.2" />
+    <!-- Keep the Kiota runtime family aligned: Graph's transitive 1.x serializers
+         reference interfaces removed in Kiota Abstractions 2.x. -->
+    <PackageReference Include="Microsoft.Kiota.Abstractions" Version="2.1.2" />
+    <PackageReference Include="Microsoft.Kiota.Authentication.Azure" Version="2.1.2" />
+    <PackageReference Include="Microsoft.Kiota.Http.HttpClientLibrary" Version="2.1.2" />
+    <PackageReference Include="Microsoft.Kiota.Serialization.Form" Version="2.1.2" />
+    <PackageReference Include="Microsoft.Kiota.Serialization.Json" Version="2.1.2" />
+    <PackageReference Include="Microsoft.Kiota.Serialization.Multipart" Version="2.1.2" />
+    <PackageReference Include="Microsoft.Kiota.Serialization.Text" Version="2.1.2" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.23.0" />
