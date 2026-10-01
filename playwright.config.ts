@@ -12,7 +12,7 @@ const testIgnore = process.env.HELPDESK_E2E_RUN_SETUP_WIZARD === 'true'
 
 export default defineConfig({
   testDir: './tests/ux',
-  testIgnore,
+  testIgnore: [...testIgnore, '**/login-presentation.spec.ts'],
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,

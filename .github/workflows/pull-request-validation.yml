@@ -136,6 +136,9 @@ jobs:
           HELPDESK_AI_ASSISTANT_CONFIGURATION: Release
         run: npm run test:ux:ai-assistant
 
+      - name: Run sign-in and branding Playwright validation
+        run: npx playwright test --config playwright.login.config.ts --output=artifacts/e2e/login-test-results
+
       - name: Upload Playwright reports and failure artifacts
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

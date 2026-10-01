@@ -623,6 +623,9 @@ builder.Services.AddAuthentication(options =>
 })
 .AddJwtBearer("Authentik", options =>
 {
+    // Provisioning, identity links, and role projection consume OIDC claim names.
+    // Keep sub/roles intact, consistently with the Web OIDC handler.
+    options.MapInboundClaims = false;
     var authority = builder.Configuration["Authentication:Authentik:Authority"];
     var audience = builder.Configuration["Authentication:Authentik:Audience"];
     if (!string.IsNullOrWhiteSpace(authority))

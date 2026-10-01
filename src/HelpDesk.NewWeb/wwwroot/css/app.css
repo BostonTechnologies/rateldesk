@@ -673,15 +673,6 @@ h1[tabindex="-1"]:focus
     object-fit: contain;
 }
 
-html[data-helpdesk-theme="dark"] .helpdesk-portal-logo,
-html[data-helpdesk-theme="dark"] .helpdesk-login-logo
-{
-    box-sizing: content-box;
-    padding: 8px;
-    border-radius: 6px;
-    background: #ffffff;
-}
-
 .helpdesk-portal-company
 {
     color: var(--mud-palette-text-secondary);
@@ -796,12 +787,41 @@ html[data-helpdesk-theme="dark"] .helpdesk-login-logo
     margin-inline: auto;
 }
 
-.helpdesk-login-primary-action
+.helpdesk-login-providers
 {
-    min-height: 46px;
-    background-color: var(--mud-palette-primary) !important;
-    box-shadow: 0 4px 12px color-mix(in srgb, var(--mud-palette-primary) 28%, transparent);
-    font-size: 0.98rem;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+}
+
+.helpdesk-login-provider-link
+{
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 44px;
+    max-width: 100%;
+    padding: 8px 16px;
+    border: 1px solid var(--mud-palette-text-secondary);
+    border-radius: 999px;
+    color: var(--mud-palette-text-primary);
+    background: var(--mud-palette-surface);
+    text-align: center;
+    text-decoration: none;
+    overflow-wrap: anywhere;
+}
+
+.helpdesk-login-provider-link:hover
+{
+    background: var(--mud-palette-action-default-hover);
+}
+
+.helpdesk-login-provider-link:focus-visible
+{
+    outline: 3px solid var(--mud-palette-primary);
+    outline-offset: 3px;
 }
 
 .helpdesk-login-dev-action

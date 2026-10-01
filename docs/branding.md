@@ -29,6 +29,10 @@ environment:
 
 The bundled browser defaults are `/branding/rateldesk-mark.webp`, `/branding/rateldesk-wordmark.webp`, and `/branding/rateldesk-splash.webp`; PNG counterparts are included for transparent-image fallback. The email default is the mail-client-compatible `/email-brand/rateldesk-email-wordmark.png`. `LogoUrl`, `CompactLogoUrl`, and `FaviconUrl` continue to override these upstream defaults, and tenant branding remains more specific where configured.
 
+Login and portal compact logos preserve transparency and aspect ratio in both themes. Custom opaque images retain their own background; custom transparent images should provide contrast against both light and dark surfaces. No theme-specific white backing or crop is added by the application.
+
+In Hybrid mode, local sign-in remains the main form action and external sign-in uses a compact provider link. Set `LoginUi__ProviderDisplayName` on Web to customize its label (default: `Authentik`). This is a display label for the configured provider and does not change its authority or challenge endpoint.
+
 ## Email templates
 
 Existing `BRAND_NAME`, `LOGO_HTML`, and `FOOTER_HTML` tokens continue to work. Templates may also use structured, escaped tokens such as `{{brand.application_name}}`, `{{brand.organization_name}}`, `{{brand.application_url}}`, `{{brand.organization_url}}`, `{{brand.support_url}}`, `{{brand.support_email}}`, `{{brand.logo_url}}`, `{{brand.email_from_display_name}}`, and `{{brand.tagline}}`.
