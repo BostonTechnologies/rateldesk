@@ -142,7 +142,7 @@ internal sealed class SignedOidcApi : IDisposable
         });
     }
 
-    public string Token(string? subject = "subject", string[]? roles = null, string roleClaim = "roles", string? issuer = null, string? audience = null, SecurityKey? key = null, bool expired = false, string? nonce = null)
+    public string Token(string? subject = "subject", string[]? roles = null, string roleClaim = "roles", string? issuer = null, string? audience = null, SecurityKey? key = null, bool expired = false, string? nonce = null, int validForMinutes = 5)
     {
         var claims = new List<Claim>
         {
@@ -153,7 +153,7 @@ internal sealed class SignedOidcApi : IDisposable
         if (nonce is not null) claims.Add(new Claim("nonce", nonce));
         claims.AddRange((roles ?? []).Select(role => new Claim(roleClaim, role)));
         var token = new JwtSecurityToken(issuer ?? Issuer, audience ?? Audience, claims,
-            DateTime.UtcNow.AddMinutes(-10), DateTime.UtcNow.AddMinutes(expired ? -5 : 5),
+            DateTime.UtcNow.AddMinutes(-10), DateTime.UtcNow.AddMinutes(expired ? -5 : validForMinutes),
             new SigningCredentials(key ?? Key, SecurityAlgorithms.RsaSha256));
         return new JwtSecurityTokenHandler().WriteToken(token);
     }

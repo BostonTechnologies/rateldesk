@@ -123,7 +123,11 @@ public sealed class OidcCallbackTests
             {
                 Content = JsonContent.Create(new
                 {
-                    access_token = api.Token(), id_token = api.Token(audience: "browser-client", nonce: nonce()), token_type = "Bearer", expires_in = 300
+                    // Keep these tokens outside the session's five-minute refresh window.
+                    // Refresh behavior is covered separately by TokenServiceTests.
+                    access_token = api.Token(validForMinutes: 60),
+                    id_token = api.Token(audience: "browser-client", nonce: nonce(), validForMinutes: 60),
+                    token_type = "Bearer", expires_in = 3600
                 })
             });
         }

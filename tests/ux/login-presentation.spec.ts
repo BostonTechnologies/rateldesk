@@ -37,10 +37,13 @@ for (const width of [1440, 360]) {
         await expect(provider).toHaveCSS('outline-style', 'solid');
       }
       await page.screenshot({ path: info.outputPath(`login-${theme}-${width}.png`), fullPage: true });
-      await selectTheme(page, theme === 'dark' ? 'Light' : 'Dark');
+      const selectedTheme = theme === 'dark' ? 'light' : 'dark';
+      await selectTheme(page, selectedTheme === 'light' ? 'Light' : 'Dark');
+      await expect(page.locator('html')).toHaveAttribute('data-helpdesk-theme', selectedTheme);
+      await expect.poll(() => page.evaluate(() => localStorage.getItem('helpdesk.theme.preference'))).toBe(selectedTheme);
       await expect(logo).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
       await page.reload();
-      await expect(page.locator('html')).toHaveAttribute('data-helpdesk-theme', theme === 'dark' ? 'light' : 'dark');
+      await expect(page.locator('html')).toHaveAttribute('data-helpdesk-theme', selectedTheme);
       await page.goto('/');
       await expect(page.locator('.helpdesk-portal-logo')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
       await page.screenshot({ path: info.outputPath(`portal-${width}.png`), fullPage: true });
@@ -73,6 +76,7 @@ test('custom opaque and transparent logos keep their intrinsic proportions', asy
     await expect.poll(() => logo.evaluate((image: HTMLImageElement) => image.naturalWidth / image.naturalHeight)).toBe(3);
     for (const theme of ['Dark', 'Light'] as const) {
       await selectTheme(page, theme);
+      await expect(page.locator('html')).toHaveAttribute('data-helpdesk-theme', theme.toLowerCase());
       await expect(logo).toHaveCSS('object-fit', 'contain');
       await expect(logo).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
       await page.screenshot({ path: info.outputPath(`${kind}-${theme}.png`), fullPage: true });
