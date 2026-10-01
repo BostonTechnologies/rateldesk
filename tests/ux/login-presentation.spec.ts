@@ -11,6 +11,8 @@ for (const width of [1440, 360]) {
           localStorage.setItem('helpdesk.theme.preference', value);
       }, theme);
       await page.goto('/login');
+      // OIDC-only mode has no local form to signal that prerendering is finished.
+      await expect(page.getByTestId('login-page')).toHaveAttribute('data-interactive', 'true');
       await expect(page.locator('html')).toHaveAttribute('data-helpdesk-theme', theme);
       const local = page.getByTestId('local-login-form');
       const provider = page.getByRole('link', { name: 'Sign in with Example Organization' });
