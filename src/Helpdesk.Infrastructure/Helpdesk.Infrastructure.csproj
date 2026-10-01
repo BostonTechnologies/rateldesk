@@ -37,7 +37,7 @@
     <PackageReference Include="Microsoft.Kiota.Serialization.Multipart" Version="2.1.2" />
     <PackageReference Include="Microsoft.Kiota.Serialization.Text" Version="2.1.2" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
-    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="4.1.2" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.23.0" />
   </ItemGroup>
   <ItemGroup>
