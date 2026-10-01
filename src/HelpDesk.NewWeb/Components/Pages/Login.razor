@@ -15,7 +15,7 @@
 <PageTitle>@_branding.ApplicationName</PageTitle>
 <HeadContent><link rel="icon" href="@_branding.FaviconUrl" /></HeadContent>
 
-<section class="helpdesk-login-page">
+<section class="helpdesk-login-page" data-testid="login-page" data-interactive="@(RendererInfo.IsInteractive ? "true" : "false")">
     <MudPaper Elevation="2" Class="helpdesk-login-panel">
         <MudStack AlignItems="AlignItems.Center" Spacing="1" Class="helpdesk-login-header">
             <img class="helpdesk-login-logo" src="@_branding.CompactLogoUrl" alt="@_branding.ApplicationName" />
