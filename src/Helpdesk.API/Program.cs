@@ -1023,6 +1023,7 @@ builder.Services.AddAuthorization(opts =>
     opts.AddPolicy("TenantUser", p => p.RequireRole("User"));
     opts.AddPolicy(HelpdeskPermissions.SelfServiceUser, p => p.RequireRole(HelpdeskPermissions.SelfServiceUser, HelpdeskPermissions.HelpdeskAdmin));
     opts.AddPolicy("IncidentAccess", p => p.RequireRole(HelpdeskPermissions.IncidentUser, HelpdeskPermissions.IncidentManager, HelpdeskPermissions.IncidentRead, HelpdeskPermissions.IncidentWrite, HelpdeskPermissions.IncidentDelete, HelpdeskPermissions.HelpdeskAdmin));
+    opts.AddPolicy(IncidentCreateBoundaryRequirement.Policy, p => p.AddRequirements(new IncidentCreateBoundaryRequirement()));
     opts.AddPolicy("IncidentManager", p => p.RequireRole(HelpdeskPermissions.IncidentManager, HelpdeskPermissions.IncidentWrite, HelpdeskPermissions.HelpdeskAdmin));
     opts.AddPolicy("RequestAccess", p => p.RequireRole(HelpdeskPermissions.RequestUser, HelpdeskPermissions.RequestManager, HelpdeskPermissions.RequestRead, HelpdeskPermissions.RequestWrite, HelpdeskPermissions.RequestDelete, HelpdeskPermissions.HelpdeskAdmin));
     opts.AddPolicy("RequestManager", p => p.RequireRole(HelpdeskPermissions.RequestManager, HelpdeskPermissions.RequestWrite, HelpdeskPermissions.HelpdeskAdmin));
@@ -1051,6 +1052,9 @@ builder.Services.AddAuthorization(opts =>
 });
 
 builder.Services.AddScoped<IIntegrationCredentialOwnerResolver, IntegrationCredentialOwnerResolver>();
+builder.Services.AddScoped<IIncidentReceiverAuthorization, IncidentReceiverAuthorization>();
+builder.Services.AddScoped<IAuthorizationHandler, IncidentCreateBoundaryHandler>();
+builder.Services.AddScoped<IncidentReceiver>();
 builder.Services.AddScoped<IAuthorizationHandler, IntegrationCredentialManagementSessionHandler>();
 builder.Services.AddSingleton<McpExecutionTokenService>();
 
@@ -1197,6 +1201,8 @@ app.MapGet("/api/v1/auth/ai-agent/status", (ClaimsPrincipal user) => Results.Ok(
 app.MapAiAgentOpsEndpoints();
 app.MapActivityEndpoints();
 app.MapIncidentEndpoints();
+Helpdesk.API.Endpoints.Integrations.IncidentReceiverEndpoints.MapIncidentReceiverEndpoints(app);
+Helpdesk.API.Endpoints.Integrations.IncidentReceiverSourceEndpoints.MapIncidentReceiverSourceEndpoints(app);
 app.MapEmailEndpoints();
 app.MapEmailSettingsEndpoints();
 app.MapInboundEmailRuleEndpoints();

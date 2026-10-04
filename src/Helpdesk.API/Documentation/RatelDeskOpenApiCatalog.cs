@@ -38,6 +38,8 @@ public static class RatelDeskOpenApiCatalog
         new("Role Definitions", "Identity & Access", "Scoped application role definitions."),
         new("Integration Credentials", "Identity & Access", "Revocable API credentials. Secrets are shown once."),
         new("MCP Gateway", "Automation & Integrations", "Paired MCP credential delegation."),
+        new("NetRatel Incident Receiver", "Automation & Integrations", "Authenticated incident-create v1 capability, target validation and immutable receipt reconciliation."),
+        new("NetRatel Source Administration", "Automation & Integrations", "Administrator-approved stable incident source namespaces and audited credential rotation."),
         new("Organizations", "Organizations & Customers", "Application tenant organizations."),
         new("Customers", "Organizations & Customers", "Contacts; a customer is not the application tenant."),
         new("Tenant Administration", "Organizations & Customers", "Tenant-scoped administration."),
@@ -197,6 +199,7 @@ public static class RatelDeskOpenApiCatalog
 
         operation.Security = policies switch
         {
+            _ when tag == "NetRatel Incident Receiver" => Requirements(document, IntegrationCredentialScheme),
             _ when policies.Contains("AuthentikAiAgentApi") => Requirements(document, AiAgentScheme),
             _ when policies.Contains("OrchestrationM2MOnly") => Requirements(document, OrchestrationScheme),
             _ when policies.Contains("SystemBlazorWeb") => Requirements(document, SystemScheme),

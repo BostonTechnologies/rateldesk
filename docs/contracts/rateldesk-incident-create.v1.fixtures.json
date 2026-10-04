@@ -1,0 +1,276 @@
+{
+  "contractVersion": "rateldesk.incident-create.v1",
+  "fingerprintProjection": "rateldesk.incident-create.v1.semantic-json",
+  "vectors": [
+    {
+      "name": "minimal",
+      "request": {
+        "title": "Incident",
+        "description": "Description",
+        "organizationId": "11111111-1111-1111-1111-111111111111",
+        "customerId": "22222222-2222-2222-2222-222222222222"
+      },
+      "fingerprint": "46e4bf2a6b2e9ccc1b3e862b7c02b9444e2b22db284f76eea9e18640581345bd"
+    },
+    {
+      "name": "reordered-equivalent-defaults",
+      "request": {
+        "categoryIds": null,
+        "requesterEmail": "ignored@example.test",
+        "ccRecipients": [],
+        "impact": null,
+        "dueDate": null,
+        "attachments": null,
+        "linkedAssetIds": [],
+        "assignedToId": "  ",
+        "priority": 0,
+        "customerId": "22222222-2222-2222-2222-222222222222",
+        "organizationId": "11111111-1111-1111-1111-111111111111",
+        "description": "Description",
+        "title": "Incident"
+      },
+      "fingerprint": "46e4bf2a6b2e9ccc1b3e862b7c02b9444e2b22db284f76eea9e18640581345bd"
+    },
+    {
+      "name": "sanitized-description-equivalent",
+      "request": {
+        "title": "Incident",
+        "description": "\u003Cb\u003EDescription\u003C/b\u003E",
+        "organizationId": "11111111-1111-1111-1111-111111111111",
+        "customerId": "22222222-2222-2222-2222-222222222222"
+      },
+      "fingerprint": "46e4bf2a6b2e9ccc1b3e862b7c02b9444e2b22db284f76eea9e18640581345bd"
+    },
+    {
+      "name": "material-title",
+      "request": {
+        "title": "Changed",
+        "description": "Description",
+        "organizationId": "11111111-1111-1111-1111-111111111111",
+        "customerId": "22222222-2222-2222-2222-222222222222"
+      },
+      "fingerprint": "497ce61c67f0c216c67e4bd7c51acbde36afd17ab2d0df48d077acd00e2f1334"
+    },
+    {
+      "name": "material-description",
+      "request": {
+        "title": "Incident",
+        "description": "Changed",
+        "organizationId": "11111111-1111-1111-1111-111111111111",
+        "customerId": "22222222-2222-2222-2222-222222222222"
+      },
+      "fingerprint": "d0c22434483764a59722dd3fbbb491a4c4bdd70fc26df2b607531bcf1ed4df0c"
+    },
+    {
+      "name": "material-priority",
+      "request": {
+        "title": "Incident",
+        "description": "Description",
+        "organizationId": "11111111-1111-1111-1111-111111111111",
+        "customerId": "22222222-2222-2222-2222-222222222222",
+        "priority": 3
+      },
+      "fingerprint": "57efb455a5526cd9a7fdc320d440c2e413d4f50eb3fd0eea7d729d12fca812b4"
+    },
+    {
+      "name": "material-organizationId",
+      "request": {
+        "title": "Incident",
+        "description": "Description",
+        "organizationId": "33333333-3333-3333-3333-333333333333",
+        "customerId": "22222222-2222-2222-2222-222222222222"
+      },
+      "fingerprint": "4f030a9259e56ce80680b4269df74f8c1973af9972a8da6f295f4c1a8a349ac9"
+    },
+    {
+      "name": "material-customerId",
+      "request": {
+        "title": "Incident",
+        "description": "Description",
+        "organizationId": "11111111-1111-1111-1111-111111111111",
+        "customerId": "44444444-4444-4444-4444-444444444444"
+      },
+      "fingerprint": "48113cf08a3cba19a7998ddc093afcc7e01f64aec962abbcf7832bd551912b6a"
+    },
+    {
+      "name": "material-assignedToId",
+      "request": {
+        "title": "Incident",
+        "description": "Description",
+        "organizationId": "11111111-1111-1111-1111-111111111111",
+        "customerId": "22222222-2222-2222-2222-222222222222",
+        "assignedToId": "55555555-5555-5555-5555-555555555555"
+      },
+      "fingerprint": "8a32169354c0962a484af880aa4e15a1b1b3db5cf9a384f038551614bd056e1f"
+    },
+    {
+      "name": "material-linkedAssetIds",
+      "request": {
+        "title": "Incident",
+        "description": "Description",
+        "organizationId": "11111111-1111-1111-1111-111111111111",
+        "customerId": "22222222-2222-2222-2222-222222222222",
+        "linkedAssetIds": [
+          "asset-1"
+        ]
+      },
+      "fingerprint": "1a648c3be8e844336824a34cfaf66eb1eca8f1e5c535d33979132306aa1cba0f"
+    },
+    {
+      "name": "material-attachments",
+      "request": {
+        "title": "Incident",
+        "description": "Description",
+        "organizationId": "11111111-1111-1111-1111-111111111111",
+        "customerId": "22222222-2222-2222-2222-222222222222",
+        "attachments": [
+          "attachment-1"
+        ]
+      },
+      "fingerprint": "2f65f5146ba676d3793278169255dc1e93ea11b03b1d16b092c158240e8501b0"
+    },
+    {
+      "name": "material-dueDate",
+      "request": {
+        "title": "Incident",
+        "description": "Description",
+        "organizationId": "11111111-1111-1111-1111-111111111111",
+        "customerId": "22222222-2222-2222-2222-222222222222",
+        "dueDate": "2026-10-01T00:00:00Z"
+      },
+      "fingerprint": "15001f6213752c927c1fa2d32a29856f433e80b693960db96a2f20501a64b8e5"
+    },
+    {
+      "name": "material-impact",
+      "request": {
+        "title": "Incident",
+        "description": "Description",
+        "organizationId": "11111111-1111-1111-1111-111111111111",
+        "customerId": "22222222-2222-2222-2222-222222222222",
+        "impact": "Changed"
+      },
+      "fingerprint": "aa7d714a6e631edb6a6cd1cc90ff0c2ce5012b65dafbddd85a2f9f8328cfc64b"
+    },
+    {
+      "name": "material-ccRecipients",
+      "request": {
+        "title": "Incident",
+        "description": "Description",
+        "organizationId": "11111111-1111-1111-1111-111111111111",
+        "customerId": "22222222-2222-2222-2222-222222222222",
+        "ccRecipients": [
+          "cc@example.test"
+        ]
+      },
+      "fingerprint": "f911dc0d6a0c3ac2c05715efbd6c69131031ad98f444b0efad12873fdb24e126"
+    },
+    {
+      "name": "material-categoryIds",
+      "request": {
+        "title": "Incident",
+        "description": "Description",
+        "organizationId": "11111111-1111-1111-1111-111111111111",
+        "customerId": "22222222-2222-2222-2222-222222222222",
+        "categoryIds": [
+          "66666666-6666-6666-6666-666666666666"
+        ]
+      },
+      "fingerprint": "fe8daa0229abc4673d0721514ed5ac177fcd05cbb7a55c246ac5475fb65e5c53"
+    },
+    {
+      "name": "cc-set-equivalence",
+      "request": {
+        "title": "Incident",
+        "description": "Description",
+        "organizationId": "11111111-1111-1111-1111-111111111111",
+        "customerId": "22222222-2222-2222-2222-222222222222",
+        "ccRecipients": [
+          " CC@example.test ",
+          "cc@example.test"
+        ]
+      },
+      "fingerprint": "f911dc0d6a0c3ac2c05715efbd6c69131031ad98f444b0efad12873fdb24e126"
+    },
+    {
+      "name": "utc-offset-equivalence",
+      "request": {
+        "title": "Incident",
+        "description": "Description",
+        "organizationId": "11111111-1111-1111-1111-111111111111",
+        "customerId": "22222222-2222-2222-2222-222222222222",
+        "dueDate": "2026-10-01T02:00:00\u002B02:00"
+      },
+      "fingerprint": "15001f6213752c927c1fa2d32a29856f433e80b693960db96a2f20501a64b8e5"
+    },
+    {
+      "name": "category-set-equivalence",
+      "request": {
+        "title": "Incident",
+        "description": "Description",
+        "organizationId": "11111111-1111-1111-1111-111111111111",
+        "customerId": "22222222-2222-2222-2222-222222222222",
+        "categoryIds": [
+          "66666666-6666-6666-6666-666666666666",
+          "66666666-6666-6666-6666-666666666666"
+        ]
+      },
+      "fingerprint": "fe8daa0229abc4673d0721514ed5ac177fcd05cbb7a55c246ac5475fb65e5c53"
+    },
+    {
+      "name": "ordered-assets",
+      "request": {
+        "title": "Incident",
+        "description": "Description",
+        "organizationId": "11111111-1111-1111-1111-111111111111",
+        "customerId": "22222222-2222-2222-2222-222222222222",
+        "linkedAssetIds": [
+          "a",
+          "b"
+        ]
+      },
+      "fingerprint": "60e73824f19cdb1cb237a99853c890d704f4c80d0978f712f454e392b0fa90aa"
+    },
+    {
+      "name": "reordered-assets-material",
+      "request": {
+        "title": "Incident",
+        "description": "Description",
+        "organizationId": "11111111-1111-1111-1111-111111111111",
+        "customerId": "22222222-2222-2222-2222-222222222222",
+        "linkedAssetIds": [
+          "b",
+          "a"
+        ]
+      },
+      "fingerprint": "701dbb93ecc870b04433099460eb575eb9f5eb2d34f7fb568714f6a8f5080bac"
+    },
+    {
+      "name": "ordered-attachments",
+      "request": {
+        "title": "Incident",
+        "description": "Description",
+        "organizationId": "11111111-1111-1111-1111-111111111111",
+        "customerId": "22222222-2222-2222-2222-222222222222",
+        "attachments": [
+          "a",
+          "b"
+        ]
+      },
+      "fingerprint": "c6dc006e945e530a674ff241be50bf965262222826dd6c5738a2ca0566300cc8"
+    },
+    {
+      "name": "reordered-attachments-material",
+      "request": {
+        "title": "Incident",
+        "description": "Description",
+        "organizationId": "11111111-1111-1111-1111-111111111111",
+        "customerId": "22222222-2222-2222-2222-222222222222",
+        "attachments": [
+          "b",
+          "a"
+        ]
+      },
+      "fingerprint": "0abba082a801d8afa4553a4c8358f0e077a4d3d4fb2416f2c5cf55013ba6a7bf"
+    }
+  ]
+}

@@ -1802,6 +1802,186 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.ToTable("IncidentCategoryLinks", (string)null);
                 });
 
+            modelBuilder.Entity("Helpdesk.Shared.Models.IncidentCreateReceipt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AcceptedJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("CommittedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CustomerId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("IncidentId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Location")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OrganizationId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("SourceNamespaceId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SourceNamespaceId", "Key")
+                        .IsUnique();
+
+                    b.ToTable("IncidentCreateReceipts");
+                });
+
+            modelBuilder.Entity("Helpdesk.Shared.Models.IncidentReceiverPrincipalBinding", b =>
+                {
+                    b.Property<Guid>("SourceNamespaceId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PrincipalKind")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PrincipalId")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("SourceNamespaceId", "PrincipalKind", "PrincipalId");
+
+                    b.ToTable("IncidentReceiverPrincipalBindings");
+                });
+
+            modelBuilder.Entity("Helpdesk.Shared.Models.IncidentReceiverSource", b =>
+                {
+                    b.Property<Guid>("SourceNamespaceId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CustomerId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("OrganizationId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("SourceInstanceId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("SourceNamespaceId");
+
+                    b.HasIndex("SourceInstanceId")
+                        .IsUnique();
+
+                    b.ToTable("IncidentReceiverSources");
+                });
+
+            modelBuilder.Entity("Helpdesk.Shared.Models.IncidentReceiverSourceAudit", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ActorId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("AtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CustomerId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("OrganizationId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PrincipalId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PrincipalKind")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Revision")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("SourceNamespaceId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SourceNamespaceId", "Revision");
+
+                    b.ToTable("IncidentReceiverSourceAudits");
+                });
+
             modelBuilder.Entity("Helpdesk.Shared.Models.InstanceBranding", b =>
                 {
                     b.Property<int>("Id")
@@ -3871,6 +4051,24 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.Navigation("Incident");
 
                     b.Navigation("TicketCategory");
+                });
+
+            modelBuilder.Entity("Helpdesk.Shared.Models.IncidentCreateReceipt", b =>
+                {
+                    b.HasOne("Helpdesk.Shared.Models.IncidentReceiverSource", null)
+                        .WithMany()
+                        .HasForeignKey("SourceNamespaceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Helpdesk.Shared.Models.IncidentReceiverPrincipalBinding", b =>
+                {
+                    b.HasOne("Helpdesk.Shared.Models.IncidentReceiverSource", null)
+                        .WithMany()
+                        .HasForeignKey("SourceNamespaceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.MailboxIngestionState", b =>
