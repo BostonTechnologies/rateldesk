@@ -1,0 +1,585 @@
+{
+  "contractVersion": "rateldesk.incident-create.v1",
+  "owner": "RatelDesk issue #116",
+  "authenticationModes": [
+    "api_bearer"
+  ],
+  "headers": {
+    "key": "Idempotency-Key",
+    "source": "X-NetRatel-Source-Instance",
+    "sourceFormat": "lowercase nonempty GUID D; identifier only; administrator-approved membership required"
+  },
+  "key": {
+    "maxLength": 256,
+    "pattern": "^[A-Za-z0-9._~-]{1,256}$",
+    "caseSensitive": true,
+    "receiptPathEncoding": "URI unreserved, no percent escapes; preserve dot segments verbatim"
+  },
+  "endpoints": {
+    "create": {
+      "method": "POST",
+      "path": "/api/v1/incidents/",
+      "body": "CreateIncidentDto",
+      "createdStatus": 201,
+      "replayStatus": 200,
+      "conflictStatus": 409,
+      "conflictCode": "idempotency-payload-conflict",
+      "response": "IncidentDto plus integrationReceipt for keyed requests only"
+    },
+    "capabilities": {
+      "method": "GET",
+      "path": "/api/v1/integrations/netratel/capabilities"
+    },
+    "receiptLookup": {
+      "method": "GET",
+      "path": "/api/v1/integrations/netratel/incident-receipts/{key}",
+      "successStatus": 200,
+      "missingStatus": 404,
+      "response": "immutable accepted keyed create body and captured Location"
+    },
+    "targetValidation": {
+      "method": "POST",
+      "path": "/api/v1/integrations/netratel/targets/validate",
+      "readOnly": true,
+      "successStatus": 200,
+      "malformedStatus": 400,
+      "malformedCode": "invalid-target-request",
+      "unauthorizedStatus": 403,
+      "unauthorizedCode": "target-not-authorized",
+      "invalidSelectionStatus": 422,
+      "invalidSelectionCode": "invalid-incident-target"
+    }
+  },
+  "integrationReceiptSchema": {
+    "type": "object",
+    "required": [
+      "contractVersion",
+      "receiverInstanceId",
+      "sourceNamespaceId",
+      "sourceInstanceId",
+      "key",
+      "fingerprint",
+      "outcome",
+      "incidentId",
+      "trackingId",
+      "organizationId",
+      "customerId",
+      "committedAtUtc",
+      "location"
+    ],
+    "properties": {
+      "contractVersion": {
+        "type": "string",
+        "const": "rateldesk.incident-create.v1"
+      },
+      "receiverInstanceId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "sourceNamespaceId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "sourceInstanceId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "key": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9._~-]{1,256}$",
+        "maxLength": 256
+      },
+      "fingerprint": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "outcome": {
+        "type": "string",
+        "const": "committed"
+      },
+      "incidentId": {
+        "type": "string"
+      },
+      "trackingId": {
+        "type": "string"
+      },
+      "organizationId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "customerId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "committedAtUtc": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "location": {
+        "type": "string",
+        "pattern": "^/",
+        "maxLength": 256
+      }
+    }
+  },
+  "capabilitySchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "required": [
+      "contractVersion",
+      "receiverInstanceId",
+      "sourceInstanceId",
+      "sourceNamespaceId",
+      "createEndpoint",
+      "receiptEndpointTemplate",
+      "targetValidationEndpoint",
+      "keyHeader",
+      "sourceHeader",
+      "maxKeyLength",
+      "keyPattern",
+      "minimumReceiptRetentionSeconds",
+      "maximumAutomaticReplaySeconds",
+      "receiptEvictionEnabled",
+      "atomicIncidentReceiptAndEffects",
+      "supportsReceiptLookup",
+      "supportsSafeSameKeyReplay",
+      "authenticationModes"
+    ],
+    "properties": {
+      "contractVersion": {
+        "type": "string",
+        "const": "rateldesk.incident-create.v1"
+      },
+      "receiverInstanceId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "sourceInstanceId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "sourceNamespaceId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "createEndpoint": {
+        "type": "string",
+        "format": "uri",
+        "description": "absolute StorageOptions.PublicApiBaseUrl + /api/v1/incidents/"
+      },
+      "receiptEndpointTemplate": {
+        "type": "string",
+        "pattern": "^[^{}]*\\{key\\}[^{}]*$",
+        "description": "absolute StorageOptions.PublicApiBaseUrl + /api/v1/integrations/netratel/incident-receipts/{key}"
+      },
+      "targetValidationEndpoint": {
+        "type": "string",
+        "format": "uri",
+        "description": "absolute StorageOptions.PublicApiBaseUrl + /api/v1/integrations/netratel/targets/validate"
+      },
+      "keyHeader": {
+        "type": "string",
+        "const": "Idempotency-Key"
+      },
+      "sourceHeader": {
+        "type": "string",
+        "const": "X-NetRatel-Source-Instance"
+      },
+      "maxKeyLength": {
+        "type": "integer",
+        "const": 256
+      },
+      "keyPattern": {
+        "type": "string",
+        "const": "^[A-Za-z0-9._~-]{1,256}$"
+      },
+      "minimumReceiptRetentionSeconds": {
+        "type": "integer",
+        "const": 7776000
+      },
+      "maximumAutomaticReplaySeconds": {
+        "type": "integer",
+        "const": 2592000
+      },
+      "receiptEvictionEnabled": {
+        "type": "boolean",
+        "const": false
+      },
+      "atomicIncidentReceiptAndEffects": {
+        "type": "boolean",
+        "const": true
+      },
+      "supportsReceiptLookup": {
+        "type": "boolean",
+        "const": true
+      },
+      "supportsSafeSameKeyReplay": {
+        "type": "boolean",
+        "const": true
+      },
+      "authenticationModes": {
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": {
+          "type": "string",
+          "enum": [
+            "api_bearer",
+            "oauth_client_credentials"
+          ]
+        },
+        "description": "V1 receiver initially advertises only api_bearer; OAuth requires the separately verified managed-principal implementation."
+      }
+    },
+    "additionalProperties": true
+  },
+  "targetRequestSchema": {
+    "type": "object",
+    "required": [
+      "organizationId",
+      "customerId"
+    ],
+    "properties": {
+      "organizationId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "customerId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "assignedToId": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "maxLength": 64,
+        "default": null
+      },
+      "categoryIds": {
+        "type": [
+          "array",
+          "null"
+        ],
+        "maxItems": 128,
+        "items": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "default": []
+      }
+    }
+  },
+  "targetResponseSchema": {
+    "type": "object",
+    "required": [
+      "contractVersion",
+      "receiverInstanceId",
+      "sourceInstanceId",
+      "sourceNamespaceId",
+      "valid",
+      "mapping"
+    ],
+    "properties": {
+      "contractVersion": {
+        "type": "string",
+        "const": "rateldesk.incident-create.v1"
+      },
+      "receiverInstanceId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "sourceInstanceId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "sourceNamespaceId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "valid": {
+        "type": "boolean",
+        "const": true
+      },
+      "mapping": {
+        "type": "object",
+        "required": [
+          "organizationId",
+          "customerId",
+          "assignedToId",
+          "categoryIds"
+        ],
+        "properties": {
+          "organizationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "customerId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "assignedToId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 64
+          },
+          "categoryIds": {
+            "type": "array",
+            "uniqueItems": true,
+            "maxItems": 128,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      }
+    }
+  },
+  "sourceAdministration": {
+    "authorization": "enabled interactive local/OIDC instance administrator; integration bearer cannot manage sources",
+    "register": {
+      "method": "POST",
+      "path": "/api/v1/integrations/netratel/sources/",
+      "body": {
+        "sourceInstanceId": "GUID D",
+        "organizationId": "local ID",
+        "customerId": "local ID",
+        "credentialId": "API-purpose credential GUID"
+      },
+      "status": 201
+    },
+    "bindOrDisableCredential": {
+      "method": "PUT",
+      "path": "/api/v1/integrations/netratel/sources/{sourceNamespaceId}/principal-bindings/{credentialId}",
+      "body": {
+        "expectedRevision": 1,
+        "isEnabled": true
+      }
+    },
+    "enableOrDisableSource": {
+      "method": "PATCH",
+      "path": "/api/v1/integrations/netratel/sources/{sourceNamespaceId}",
+      "body": {
+        "expectedRevision": 1,
+        "isEnabled": false
+      }
+    },
+    "list": {
+      "method": "GET",
+      "path": "/api/v1/integrations/netratel/sources/",
+      "maximumResults": 256
+    },
+    "mappingImmutable": true,
+    "physicalDeletionSupported": false,
+    "audit": "actor, time, operation, scope, principal identifier, enabled state, revision; no secret"
+  },
+  "futureManagedScopes": {
+    "rateldesk.incidents.create": "approved source/mapping keyed creation only",
+    "rateldesk.incident-receipts.read": "capability and receipt reconciliation only",
+    "rateldesk.incident-targets.read": "read-only approved mapping validation only"
+  },
+  "authorizationPrecedence": [
+    "HTTP authentication",
+    "header syntax",
+    "current credential purpose/revocation/expiry/owner and source binding",
+    "enabled approved organization/customer and effective operation permission",
+    "submitted/accepted mapping",
+    "bounds and semantic fingerprint",
+    "prior receipt/conflict",
+    "fresh creation category/assignee rules only"
+  ],
+  "fingerprint": {
+    "algorithm": "SHA-256 lowercase hex",
+    "projection": "rateldesk.incident-create.v1.semantic-json",
+    "encoding": "System.Text.Json Web defaults UTF-8, compact, fixed property order; no Unicode NFC folding",
+    "fieldsInOrder": [
+      "title",
+      "description",
+      "priority",
+      "customerId",
+      "organizationId",
+      "assignedToId",
+      "linkedAssetIds",
+      "attachments",
+      "dueDate",
+      "impact",
+      "ccRecipients",
+      "categoryIds"
+    ],
+    "normalization": {
+      "title": "exact string; nonblank <=256",
+      "description": "existing HtmlSanitizerService then HtmlToPlainTextConverter; exact resulting plain text; missing => empty; null invalid",
+      "priority": "integer 0-3; missing=Low=0; null/string invalid",
+      "customerId": "exact submitted ID, must equal approved canonical ID",
+      "organizationId": "exact submitted ID, must equal approved canonical ID",
+      "assignedToId": "missing/null/whitespace => null; otherwise exact string",
+      "linkedAssetIds": "ordered strings; missing/null=empty; no sorting or deduplication",
+      "attachments": "ordered strings; missing/null=empty; no sorting or deduplication",
+      "dueDate": "missing/null=null; unspecified interpreted UTC; offsets converted UTC; invariant roundtrip 7 fractional digits and Z",
+      "impact": "missing/null=null; empty is material",
+      "ccRecipients": "missing/null=empty; trim/lowercase invariant; omit empty; distinct set sorted ordinally; projection independent of current customer email",
+      "categoryIds": "missing/null=empty; omit empty GUID; distinct set of canonical GUID D sorted ordinally",
+      "requesterEmail": "ignored and excluded; creation derives requester from approved customer.Email; never trusted"
+    }
+  },
+  "bounds": {
+    "maximumJsonBodyBytes": 131072,
+    "maximumDescriptionCharacters": 65536,
+    "maximumImpactCharacters": 4096,
+    "maximumListItems": 128,
+    "maximumAssetOrAttachmentCharacters": 512,
+    "maximumCcCharacters": 254,
+    "maximumMappingIdCharacters": 64
+  },
+  "retention": {
+    "minimumReceiptRetentionSeconds": 7776000,
+    "maximumAutomaticReplaySeconds": 2592000,
+    "fullReceipts": "indefinite",
+    "evictionEnabled": false,
+    "futureEviction": "requires durable non-recreation barrier/tombstone; never turns accepted key into a fresh create opportunity"
+  },
+  "atomicity": {
+    "uniqueDatabaseKey": [
+      "sourceNamespaceId",
+      "key"
+    ],
+    "sameTransaction": [
+      "incident",
+      "immutable accepted receipt",
+      "category links",
+      "SLA state",
+      "notifications/support delivery records",
+      "deduplicated ingress outbox effects"
+    ],
+    "confirmationGuarantee": "one durable logical enqueue; external SMTP is not exactly-once",
+    "cacheControl": "no-store"
+  },
+  "rollout": {
+    "requiresDeployedCapability": true,
+    "beta8Compatible": false,
+    "receiverSourceBaseline": "9a9a8abd2578dc31d1ec500dd3893478f8fa2749",
+    "inspectedProducerMain": "af6a7ed84de4463097258f44199cbd1c6fbbc3c9",
+    "inspectedProducerConnectorHead": "f283e6af810209b8e7b6b2ef6a78428d4da0a28f"
+  },
+  "acceptedResponseSchema": {
+    "type": "object",
+    "required": [
+      "id",
+      "trackingId",
+      "organizationId",
+      "customerId",
+      "integrationReceipt"
+    ],
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "trackingId": {
+        "type": "string"
+      },
+      "organizationId": {
+        "type": "string"
+      },
+      "customerId": {
+        "type": "string"
+      },
+      "integrationReceipt": {
+        "type": "object",
+        "required": [
+          "contractVersion",
+          "receiverInstanceId",
+          "sourceNamespaceId",
+          "sourceInstanceId",
+          "key",
+          "fingerprint",
+          "outcome",
+          "incidentId",
+          "trackingId",
+          "organizationId",
+          "customerId",
+          "committedAtUtc",
+          "location"
+        ],
+        "properties": {
+          "contractVersion": {
+            "type": "string",
+            "const": "rateldesk.incident-create.v1"
+          },
+          "receiverInstanceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "sourceNamespaceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "sourceInstanceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "key": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._~-]{1,256}$",
+            "maxLength": 256
+          },
+          "fingerprint": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "outcome": {
+            "type": "string",
+            "const": "committed"
+          },
+          "incidentId": {
+            "type": "string"
+          },
+          "trackingId": {
+            "type": "string"
+          },
+          "organizationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "customerId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "committedAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "location": {
+            "type": "string",
+            "pattern": "^/",
+            "maxLength": 256
+          }
+        }
+      }
+    },
+    "additionalProperties": true,
+    "description": "The remaining existing IncidentDto fields are preserved. ID/tracking/organization/customer must agree with integrationReceipt."
+  }
+}

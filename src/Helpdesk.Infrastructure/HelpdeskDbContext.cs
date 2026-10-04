@@ -46,6 +46,10 @@ public class HelpdeskDbContext(
     }
 
     public DbSet<Incident> Incidents => Set<Incident>();
+    public DbSet<IncidentReceiverSource> IncidentReceiverSources => Set<IncidentReceiverSource>();
+    public DbSet<IncidentReceiverPrincipalBinding> IncidentReceiverPrincipalBindings => Set<IncidentReceiverPrincipalBinding>();
+    public DbSet<IncidentReceiverSourceAudit> IncidentReceiverSourceAudits => Set<IncidentReceiverSourceAudit>();
+    public DbSet<IncidentCreateReceipt> IncidentCreateReceipts => Set<IncidentCreateReceipt>();
     public DbSet<Request> Requests => Set<Request>();
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<CustomerAuthLink> CustomerAuthLinks => Set<CustomerAuthLink>();
@@ -127,6 +131,48 @@ public class HelpdeskDbContext(
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<IncidentReceiverSource>(entity =>
+        {
+            entity.HasKey(x => x.SourceNamespaceId);
+            entity.HasIndex(x => x.SourceInstanceId).IsUnique();
+            entity.Property(x => x.OrganizationId).HasMaxLength(64);
+            entity.Property(x => x.CustomerId).HasMaxLength(64);
+            entity.Property(x => x.CreatedBy).HasMaxLength(256);
+            entity.Property(x => x.UpdatedBy).HasMaxLength(256);
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+        });
+        modelBuilder.Entity<IncidentReceiverPrincipalBinding>(entity =>
+        {
+            entity.HasKey(x => new { x.SourceNamespaceId, x.PrincipalKind, x.PrincipalId });
+            entity.Property(x => x.PrincipalKind).HasMaxLength(64);
+            entity.Property(x => x.PrincipalId).HasMaxLength(256);
+            entity.HasOne<IncidentReceiverSource>().WithMany().HasForeignKey(x => x.SourceNamespaceId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<IncidentReceiverSourceAudit>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.SourceNamespaceId, x.Revision });
+            entity.Property(x => x.ActorId).HasMaxLength(256);
+            entity.Property(x => x.Action).HasMaxLength(64);
+            entity.Property(x => x.OrganizationId).HasMaxLength(64);
+            entity.Property(x => x.CustomerId).HasMaxLength(64);
+            entity.Property(x => x.PrincipalKind).HasMaxLength(64);
+            entity.Property(x => x.PrincipalId).HasMaxLength(256);
+        });
+        modelBuilder.Entity<IncidentCreateReceipt>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.SourceNamespaceId, x.Key }).IsUnique();
+            entity.Property(x => x.Key).HasMaxLength(256);
+            entity.Property(x => x.Fingerprint).HasMaxLength(64);
+            entity.Property(x => x.OrganizationId).HasMaxLength(64);
+            entity.Property(x => x.CustomerId).HasMaxLength(64);
+            entity.Property(x => x.IncidentId).HasMaxLength(64);
+            entity.Property(x => x.Location).HasMaxLength(256);
+            entity.HasOne<IncidentReceiverSource>().WithMany().HasForeignKey(x => x.SourceNamespaceId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
         var isPostgreSql = Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL";
         var isSqlite = Database.IsSqlite();
         modelBuilder.Entity<InstanceInitialization>(entity =>

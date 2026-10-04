@@ -113,11 +113,31 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(371, operationCount);
+        Assert.Equal(378, operationCount);
 #else
-        Assert.Equal(370, operationCount);
+        Assert.Equal(377, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
+        var receiverOperations = new[]
+        {
+            ("/api/v1/integrations/netratel/capabilities", "get"),
+            ("/api/v1/integrations/netratel/incident-receipts/{key}", "get"),
+            ("/api/v1/integrations/netratel/targets/validate", "post"),
+            ("/api/v1/integrations/netratel/sources", "get"),
+            ("/api/v1/integrations/netratel/sources", "post"),
+            ("/api/v1/integrations/netratel/sources/{namespaceId}", "patch"),
+            ("/api/v1/integrations/netratel/sources/{namespaceId}/principal-bindings/{credentialId}", "put")
+        };
+        foreach (var (path, method) in receiverOperations)
+        {
+            Assert.True(paths.TryGetProperty(path, out var receiverPath), $"Missing documented receiver path: {path}");
+            Assert.True(receiverPath.TryGetProperty(method, out var receiverOperation));
+            var expectedTag = path.Contains("/sources", StringComparison.Ordinal)
+                ? "NetRatel Source Administration" : "NetRatel Incident Receiver";
+            Assert.Equal([expectedTag], receiverOperation.GetProperty("tags").EnumerateArray().Select(tag => tag.GetString()).OfType<string>().ToArray());
+            Assert.Equal(path.Contains("/sources", StringComparison.Ordinal)
+                ? new[] { "JwtBearer", "LocalSession" } : new[] { "IntegrationCredential" }, SecuritySchemes(document, path, method));
+        }
         Assert.True(paths.TryGetProperty("/api/v1/admin/orchestration/test-draft", out var orchestrationDraft));
         Assert.True(orchestrationDraft.TryGetProperty("post", out _));
         Assert.True(paths.TryGetProperty("/api/v1/admin/netclaw/test-draft", out var netclawDraft));

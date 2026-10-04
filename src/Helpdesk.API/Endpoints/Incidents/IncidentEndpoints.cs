@@ -1,4 +1,5 @@
 using Helpdesk.API.Background;
+using Helpdesk.API.Authentication;
 using Helpdesk.API.Services;
 using Helpdesk.Application.Events;
 using Helpdesk.Application.Incidents;
@@ -313,8 +314,9 @@ public static class IncidentEndpoints
             return Results.Ok(incidentDto);
         });
 
-        group.MapPost("/", async (
-            [FromBody] CreateIncidentDto dto,
+        app.MapPost("/api/v1/incidents/", async (
+            HttpContext http,
+            [FromServices] IIncidentReceiverAuthorization receiverAuthorization,
             [FromServices] IRequestSender sender,
             [FromServices] HelpdeskDbContext db,
             [FromServices] IRepository<Customer> customers,
@@ -326,6 +328,22 @@ public static class IncidentEndpoints
             ClaimsPrincipal user,
             CancellationToken token) =>
         {
+            var keyed = http.Request.Headers.ContainsKey(IncidentReceiverContract.KeyHeader) ||
+                http.Request.Headers.ContainsKey(IncidentReceiverContract.SourceHeader) || receiverAuthorization.RequiresKey(user);
+            CreateIncidentDto? dto;
+            if (keyed)
+            {
+                http.Response.Headers.CacheControl = "no-store";
+                if (!IncidentReceiverContract.TryKey(http.Request.Headers, out var key) ||
+                    !IncidentReceiverContract.TrySource(http.Request.Headers, out var sourceId))
+                    return IncidentReceiverContract.Problem(400, "invalid-integration-headers");
+                dto = await Helpdesk.API.Endpoints.Integrations.IncidentReceiverEndpoints.ReadBoundedAsync<CreateIncidentDto>(http.Request, token);
+                if (dto is null) return IncidentReceiverContract.Problem(400, "invalid-incident-request");
+                return await IncidentReceiver.ExecuteCreateAsync(http.RequestServices, user, sourceId, key, dto, http, token);
+            }
+            try { dto = await http.Request.ReadFromJsonAsync<CreateIncidentDto>(token); }
+            catch (global::System.Text.Json.JsonException) { return Results.BadRequest(); }
+            if (dto is null) return Results.BadRequest();
             var categoryIds = NormalizeCategoryIds(dto.CategoryIds);
             var validation = await ValidateCategorySelectionAsync(
                 db,
@@ -420,7 +438,11 @@ public static class IncidentEndpoints
                 CategoryIds = categoryIds
             };
             return Results.Created($"/api/v1/incidents/{created.Id}", createdDto);
-        });
+        }).WithTags("Incidents").RequireAuthorization(IncidentCreateBoundaryRequirement.Policy)
+            .Accepts<CreateIncidentDto>("application/json")
+            .Produces<IncidentDto>(201).Produces<IntegrationIncidentDto>(200).ProducesProblem(409)
+            .WithSummary("Create an incident, optionally using the registered-source idempotency contract")
+            .WithDescription("Ordinary callers omit both headers. Keyed calls require Idempotency-Key and X-NetRatel-Source-Instance, current authorized source membership and approved mapping. A keyed 201 adds integrationReceipt; a 200 replays the immutable accepted result and Location. See docs/contracts/rateldesk-incident-create.v1.json.");
 
         group.MapPut("/{id}", async (
             [FromRoute] string id,

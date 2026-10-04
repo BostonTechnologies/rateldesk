@@ -86,6 +86,49 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  incident-receiver:
+    name: Incident receiver HTTP and provider acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out triggering commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up .NET SDK from global.json
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          global-json-file: global.json
+
+      - name: Restore NuGet packages cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('global.json', '**/*.csproj', '**/*.props', '**/*.targets') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Require real provider harness
+        run: docker info > /dev/null
+
+      - name: Build receiver acceptance tests
+        run: dotnet build tests/Helpdesk.Tests/Helpdesk.Tests.csproj --configuration Release
+
+      - name: Verify authenticated HTTP, SQLite, PostgreSQL and golden contract
+        run: >-
+          dotnet test tests/Helpdesk.Tests/Helpdesk.Tests.csproj --configuration Release --no-build
+          --filter "FullyQualifiedName~IncidentReceiver"
+          --logger "trx;LogFileName=incident-receiver.trx"
+          --results-directory TestResults/incident-receiver
+
+      - name: Upload receiver acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: incident-receiver-acceptance
+          path: TestResults/incident-receiver
+          if-no-files-found: error
+          retention-days: 14
+
   ux:
     name: Playwright UX validation
     runs-on: ubuntu-latest
