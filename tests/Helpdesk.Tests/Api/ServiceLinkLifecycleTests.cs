@@ -577,6 +577,9 @@ public sealed class ServiceLinkLifecycleTests
         using (var before = await CapabilitiesAsync(local, peer, token))
             Assert.Equal(HttpStatusCode.OK, before.StatusCode);
         var controlToken = await TokenAsync(peer.OutboundCredential, ServiceIdentityScopes.Control);
+        // Separate malformed-control scenarios from the completed consent burst;
+        // the production rate limiter remains enabled on the restarted replica.
+        await local.RestartAsync();
         int acceptedOperations;
         await using (var beforeInvalidControl = local.Services.CreateAsyncScope())
             acceptedOperations = await beforeInvalidControl.ServiceProvider.GetRequiredService<HelpdeskDbContext>()
@@ -592,6 +595,7 @@ public sealed class ServiceLinkLifecycleTests
                     ExpectedLinkRevision = 1, ReasonCode = reason
                 });
             Assert.Equal(HttpStatusCode.BadRequest, invalidControl.StatusCode);
+            Assert.Contains("invalid-reason-code", await invalidControl.Content.ReadAsStringAsync(), StringComparison.Ordinal);
             await using var afterInvalidControl = local.Services.CreateAsyncScope();
             Assert.Equal(acceptedOperations, await afterInvalidControl.ServiceProvider.GetRequiredService<HelpdeskDbContext>()
                 .Set<ServiceLinkOperation>().CountAsync());
@@ -704,8 +708,6 @@ public sealed class ServiceLinkLifecycleTests
         var credential = peer.OutboundCredential;
         var businessToken = await TokenAsync(credential, ServiceIdentityScopes.IncidentReceipts);
         var controlToken = await TokenAsync(credential, ServiceIdentityScopes.Control);
-        var configuration = local.Services.GetRequiredService<IConfiguration>();
-        var cache = local.Services.GetRequiredService<IOptionsMonitorCache<ServiceIdentityOptions>>();
         var changes = new Dictionary<string, string>
         {
             ["Audience"] = "rateldesk-different-api",
@@ -717,6 +719,11 @@ public sealed class ServiceLinkLifecycleTests
         };
         foreach (var change in changes)
         {
+            // Each independent drift scenario uses a fresh replica with the same durable
+            // grant and cached JWTs, keeping the production issuance limiter in force.
+            await local.RestartAsync();
+            var configuration = local.Services.GetRequiredService<IConfiguration>();
+            var cache = local.Services.GetRequiredService<IOptionsMonitorCache<ServiceIdentityOptions>>();
             var key = "ServiceIdentity:" + change.Key;
             var original = configuration[key];
             try
@@ -761,6 +768,7 @@ public sealed class ServiceLinkLifecycleTests
         await using var local = await LocalAsync(postgres);
         var start = await ActivateInitiatorAsync(local, peer);
         var source = await ReadSourceAsync(local);
+        await local.RestartAsync();
         var predecessor = peer.OutboundCredential;
         var cachedBusiness = await TokenAsync(predecessor, ServiceIdentityScopes.IncidentReceipts);
         using (var requested = await local.AdminAsync(HttpMethod.Post,
@@ -865,6 +873,7 @@ public sealed class ServiceLinkLifecycleTests
         await using var local = await LocalAsync(postgres);
         var start = await ActivateInitiatorAsync(local, peer);
         var source = await ReadSourceAsync(local);
+        await local.RestartAsync();
         var predecessor = peer.OutboundCredential;
         var cachedBusiness = await TokenAsync(predecessor, ServiceIdentityScopes.IncidentReceipts);
         using (var requested = await local.AdminAsync(HttpMethod.Post,
