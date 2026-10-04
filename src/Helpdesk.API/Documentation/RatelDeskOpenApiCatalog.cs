@@ -17,6 +17,7 @@ public static class RatelDeskOpenApiCatalog
     private const string AiAgentScheme = "AiAgentJwt";
     private const string OrchestrationScheme = "OrchestrationM2M";
     private const string SystemScheme = "SystemToken";
+    private const string ServiceIdentityScheme = "ServiceIdentity";
 
     private static readonly string[] GroupOrder =
     [
@@ -37,6 +38,9 @@ public static class RatelDeskOpenApiCatalog
         new("Users", "Identity & Access", "Application users and access."),
         new("Role Definitions", "Identity & Access", "Scoped application role definitions."),
         new("Integration Credentials", "Identity & Access", "Revocable API credentials. Secrets are shown once."),
+        new("Service Identity", "Identity & Access", "Service client-credentials issuer metadata, public keys, and token exchange."),
+        new("Service Clients", "Identity & Access", "Administrator-managed machine clients. Secrets are shown once."),
+        new("Reciprocal Service Links", "Automation & Integrations", "Explicit reciprocal consent, proof-bound bootstrap, and authenticated link lifecycle."),
         new("MCP Gateway", "Automation & Integrations", "Paired MCP credential delegation."),
         new("NetRatel Incident Receiver", "Automation & Integrations", "Authenticated incident-create v1 capability, target validation and immutable receipt reconciliation."),
         new("NetRatel Source Administration", "Automation & Integrations", "Administrator-approved stable incident source namespaces and audited credential rotation."),
@@ -157,6 +161,15 @@ public static class RatelDeskOpenApiCatalog
             In = ParameterLocation.Header,
             Description = "Client-credentials JWT for the configured orchestration provider."
         };
+        document.Components.SecuritySchemes[ServiceIdentityScheme] = new OpenApiSecurityScheme
+        {
+            Name = "Authorization",
+            Type = SecuritySchemeType.Http,
+            Scheme = "Bearer",
+            BearerFormat = "service JWT",
+            In = ParameterLocation.Header,
+            Description = "RS256 service-purpose JWT issued by this RatelDesk instance. Exact scopes and approved tenant, customer, peer, and source bindings apply."
+        };
         document.Components.SecuritySchemes[SystemScheme] = new OpenApiSecurityScheme
         {
             Name = "Authorization",
@@ -199,9 +212,11 @@ public static class RatelDeskOpenApiCatalog
 
         operation.Security = policies switch
         {
-            _ when tag == "NetRatel Incident Receiver" => Requirements(document, IntegrationCredentialScheme),
+            _ when tag == "NetRatel Incident Receiver" => Requirements(document, IntegrationCredentialScheme, ServiceIdentityScheme),
+            _ when policies.Contains("ServiceLinkVerify") || policies.Contains("ServiceLinkControl") => Requirements(document, ServiceIdentityScheme),
+            _ when policies.Contains("ServiceClientManagement") => Requirements(document, JwtBearerScheme, LocalSessionScheme),
             _ when policies.Contains("AuthentikAiAgentApi") => Requirements(document, AiAgentScheme),
-            _ when policies.Contains("OrchestrationM2MOnly") => Requirements(document, OrchestrationScheme),
+            _ when policies.Contains("OrchestrationM2MOnly") => Requirements(document, OrchestrationScheme, ServiceIdentityScheme),
             _ when policies.Contains("SystemBlazorWeb") => Requirements(document, SystemScheme),
             _ when policies.Contains("IntegrationCredentialManagementSession") => Requirements(document, JwtBearerScheme, LocalSessionScheme),
             _ when policies.Contains("IntegrationCredentialSelfRevocation") => Requirements(document, IntegrationCredentialScheme),

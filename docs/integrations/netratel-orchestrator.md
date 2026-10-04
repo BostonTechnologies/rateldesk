@@ -4,6 +4,16 @@ RatelDesk's NetRatel integration is an outbound, administrator-managed
 provider connection. It is separate from account-issued `rdk_` credentials,
 reverse HTTP MCP delegation, and inbound callback authentication.
 
+The **NetRatel M2M** option at `/account/integration-credentials` adds dedicated
+service identities and the guided reciprocal consent flow. Its issuer/link
+Options, exact narrow profiles, manual provisioning and later two-product
+acceptance sequence are documented in [NetRatel service linking](netratel-service-link.md).
+The shared [bostec.service-link.v1 contract](../contracts/bostec-service-link.v1.md)
+keeps each direction independently scoped and binds fresh callbacks to the
+RatelDesk-issued service credential. Existing deployment-configured legacy
+connections retain the behavior documented below; a peer without the shared
+contract needs an upgrade for guided linking.
+
 ## Contract and trust boundary
 
 The beta.4 adapter targets the unchanged NetRatel upstream contract at pinned

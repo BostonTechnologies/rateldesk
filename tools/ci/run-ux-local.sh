@@ -182,12 +182,25 @@ dotnet run --project src/Helpdesk.API/Helpdesk.API.csproj --configuration Releas
 ASPNETCORE_ENVIRONMENT=Development \
 Bootstrap__StateDirectory="$setup_state_dir/e2e-state" \
 DataProtection__KeyRingPath="$setup_state_dir/e2e-keys" \
-Authentication__Mode=Oidc \
+Authentication__Mode=Hybrid \
+Authentication__AllowInsecureLocalhost=true \
 ASPNETCORE_URLS="$api_url" \
+ServiceIdentity__Enabled=true \
+ServiceIdentity__Issuer="$api_url" \
+ServiceIdentity__Audience=rateldesk.services \
+ServiceIdentity__ApiBaseUrl="$api_url" \
+ServiceIdentity__WebBaseUrl="$web_url" \
+ServiceIdentity__InstanceId=helpdesk-e2e-rateldesk \
+ServiceIdentity__AllowPrivateHttp=true \
+ServiceLinks__Enabled=true \
+ServiceLinks__ApiBaseUrl="$api_url" \
+ServiceLinks__WebBaseUrl="$web_url" \
+ServiceLinks__AllowPrivateHttp=true \
 ConnectionStrings__HelpdeskDb="Host=127.0.0.1;Port=${database_port};Database=rateldesk;Username=rateldesk;Password=rateldesk" \
 EmailIngestion__Enabled=false \
 Helpdesk__E2eSeedData=true \
 StorageOptions__ImageSigningSecret="$e2e_system_secret" \
+StorageOptions__PublicApiBaseUrl="$api_url" \
 ExchangeEmail__TenantId=00000000-0000-0000-0000-000000000000 \
 ExchangeEmail__ClientId=00000000-0000-0000-0000-000000000001 \
 ExchangeEmail__ClientSecret="$e2e_system_secret" \
@@ -201,6 +214,9 @@ curl --fail --silent --show-error "$api_url/api/v1/setup/status" | python3 -c 'i
 
 ASPNETCORE_ENVIRONMENT=Development \
 ASPNETCORE_URLS="$web_url" \
+DataProtection__KeyRingPath="$setup_state_dir/e2e-keys" \
+Authentication__Mode=Hybrid \
+Authentication__AllowInsecureLocalhost=true \
 ApiBaseUrl="${api_url}/" \
 ReverseProxy__Clusters__apiCluster__Destinations__api1__Address="${api_url}/" \
 AUTHENTIK_CLIENT_SECRET="$e2e_system_secret" \
@@ -214,6 +230,9 @@ wait_for_health 'Helpdesk web' "$web_pid" "$web_url" '/' "$web_log"
 
 HELPDESK_E2E_AUTH_MODE=development \
 HELPDESK_E2E_BASE_URL="$web_url" \
+HELPDESK_E2E_API_BASE_URL="$api_url" \
+HELPDESK_E2E_LOCAL_EMAIL=fixture.admin@example.test \
+HELPDESK_E2E_LOCAL_PASSWORD="$e2e_system_secret" \
 HELPDESK_E2E_IGNORE_HTTPS_ERRORS=true \
 PLAYWRIGHT_HTML_OUTPUT_DIR="$artifact_dir/report" \
 npm run test:ux -- "$@"

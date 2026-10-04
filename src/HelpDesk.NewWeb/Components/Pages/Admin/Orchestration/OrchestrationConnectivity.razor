@@ -46,13 +46,22 @@
                 </MudAlert>
             }
 
+            <NetRatelM2M AllowManualCreation="false" DeploymentManaged="@settings.ManagedByDeployment" LinkManaged="@(!string.IsNullOrEmpty(settings.LinkId))" />
+
+            <MudExpansionPanels>
+            <MudExpansionPanel Text="Manual outbound credentials (advanced)">
+            @if (!string.IsNullOrEmpty(settings.LinkId))
+            {
+                <MudAlert Dense="true" Severity="Severity.Info">These values are protected by link @settings.LinkId. A changed endpoint, tenant or grant needs new reciprocal approval. Secret rotation uses the link's coordinated rotation operation.</MudAlert>
+            }
+
             <MudGrid>
                 <MudItem xs="12" md="7">
-                    <MudSwitch @bind-Value="draft.Enabled" @bind-Value:after="MarkDirty" Color="Color.Primary" Disabled="@settings.ManagedByDeployment" Label="Enable NetRatel automation" />
-                    <MudTextField @bind-Value="draft.BaseUrl" @bind-Value:after="MarkDirty" Label="NetRatel API base URL" Placeholder="https://netratel.example.com" Required="@draft.Enabled" Disabled="@settings.ManagedByDeployment" Immediate="true" />
-                    <MudTextField @bind-Value="draft.ClientId" @bind-Value:after="MarkDirty" Label="Dedicated M2M client id" Required="@draft.Enabled" Disabled="@settings.ManagedByDeployment" Immediate="true" />
-                    <MudTextField @bind-Value="draft.ClientSecret" @bind-Value:after="MarkDirty" Label="Dedicated M2M client secret" InputType="InputType.Password" HelperText="Leave blank to retain the protected secret." Disabled="@settings.ManagedByDeployment" />
-                    @if (settings.HasClientSecret && !settings.ManagedByDeployment)
+                    <MudSwitch @bind-Value="draft.Enabled" @bind-Value:after="MarkDirty" Color="Color.Primary" Disabled="@ProfileReadOnly" Label="Enable NetRatel automation" />
+                    <MudTextField @bind-Value="draft.BaseUrl" @bind-Value:after="MarkDirty" Label="NetRatel API base URL" Placeholder="https://netratel.example.com" Required="@draft.Enabled" Disabled="@ProfileReadOnly" Immediate="true" />
+                    <MudTextField @bind-Value="draft.ClientId" @bind-Value:after="MarkDirty" Label="Dedicated M2M client id" Required="@draft.Enabled" Disabled="@ProfileReadOnly" Immediate="true" />
+                    <MudTextField @bind-Value="draft.ClientSecret" @bind-Value:after="MarkDirty" Label="Dedicated M2M client secret" InputType="InputType.Password" HelperText="Leave blank to retain the protected secret." Disabled="@ProfileReadOnly" />
+                    @if (settings.HasClientSecret && !ProfileReadOnly)
                     {
                         <MudCheckBox @bind-Value="draft.ClearClientSecret" @bind-Value:after="MarkDirty" Color="Color.Warning" Label="Clear the saved client secret" />
                     }
@@ -71,22 +80,22 @@
             <MudExpansionPanels>
                 <MudExpansionPanel Text="Advanced OAuth and endpoint settings">
                     <MudGrid>
-                        <MudItem xs="12" md="6"><MudTextField @bind-Value="draft.Authority" @bind-Value:after="MarkDirty" Label="OAuth authority" Disabled="@settings.ManagedByDeployment" /></MudItem>
-                        <MudItem xs="12" md="6"><MudTextField @bind-Value="draft.TokenEndpoint" @bind-Value:after="MarkDirty" Label="Token endpoint" Disabled="@settings.ManagedByDeployment" /></MudItem>
-                        <MudItem xs="12" md="6"><MudTextField @bind-Value="draft.Audience" @bind-Value:after="MarkDirty" Label="Audience" Disabled="@settings.ManagedByDeployment" /></MudItem>
-                        <MudItem xs="12" md="6"><MudTextField @bind-Value="draft.Scope" @bind-Value:after="MarkDirty" Label="Scope" Disabled="@settings.ManagedByDeployment" /></MudItem>
-                        <MudItem xs="12" md="4"><MudTextField @bind-Value="draft.HealthPath" @bind-Value:after="MarkDirty" Label="Health path" Disabled="@settings.ManagedByDeployment" /></MudItem>
-                        <MudItem xs="12" md="4"><MudTextField @bind-Value="draft.IngestPath" @bind-Value:after="MarkDirty" Label="Ingest path" Disabled="@settings.ManagedByDeployment" /></MudItem>
-                        <MudItem xs="12" md="4"><MudTextField @bind-Value="draft.CatalogPath" @bind-Value:after="MarkDirty" Label="Catalog path" Disabled="@settings.ManagedByDeployment" /></MudItem>
-                        <MudItem xs="12"><MudCheckBox @bind-Value="draft.AllowPrivateHttp" @bind-Value:after="MarkDirty" Label="Allow private HTTP (local development only)" Disabled="@settings.ManagedByDeployment" /></MudItem>
+                        <MudItem xs="12" md="6"><MudTextField @bind-Value="draft.Authority" @bind-Value:after="MarkDirty" Label="OAuth authority" Disabled="@ProfileReadOnly" /></MudItem>
+                        <MudItem xs="12" md="6"><MudTextField @bind-Value="draft.TokenEndpoint" @bind-Value:after="MarkDirty" Label="Token endpoint" Disabled="@ProfileReadOnly" /></MudItem>
+                        <MudItem xs="12" md="6"><MudTextField @bind-Value="draft.Audience" @bind-Value:after="MarkDirty" Label="Audience" Disabled="@ProfileReadOnly" /></MudItem>
+                        <MudItem xs="12" md="6"><MudTextField @bind-Value="draft.Scope" @bind-Value:after="MarkDirty" Label="Scope" Disabled="@ProfileReadOnly" /></MudItem>
+                        <MudItem xs="12" md="4"><MudTextField @bind-Value="draft.HealthPath" @bind-Value:after="MarkDirty" Label="Health path" Disabled="@ProfileReadOnly" /></MudItem>
+                        <MudItem xs="12" md="4"><MudTextField @bind-Value="draft.IngestPath" @bind-Value:after="MarkDirty" Label="Ingest path" Disabled="@ProfileReadOnly" /></MudItem>
+                        <MudItem xs="12" md="4"><MudTextField @bind-Value="draft.CatalogPath" @bind-Value:after="MarkDirty" Label="Catalog path" Disabled="@ProfileReadOnly" /></MudItem>
+                        <MudItem xs="12"><MudCheckBox @bind-Value="draft.AllowPrivateHttp" @bind-Value:after="MarkDirty" Label="Allow private HTTP (local development only)" Disabled="@ProfileReadOnly" /></MudItem>
                     </MudGrid>
                 </MudExpansionPanel>
             </MudExpansionPanels>
 
             <MudStack Row="true" Spacing="2" Class="mt-2">
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(saving || settings.ManagedByDeployment)" OnClick="SaveAsync">@(saving ? "Saving…" : "Save settings")</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(saving || ProfileReadOnly)" OnClick="SaveAsync">@(saving ? "Saving…" : "Save settings")</MudButton>
                 <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(testing || isDirty || saving || settings.ManagedByDeployment)" OnClick="TestConnectionAsync">Test saved configuration</MudButton>
-                <MudButton Variant="Variant.Text" Color="Color.Primary" Disabled="@(testing || saving || settings.ManagedByDeployment)" OnClick="TestDraftAsync">Test draft</MudButton>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Disabled="@(testing || saving || ProfileReadOnly)" OnClick="TestDraftAsync">Test draft</MudButton>
                 <MudButton Variant="Variant.Text" Disabled="@loading" OnClick="RefreshAsync">Refresh</MudButton>
             </MudStack>
 
@@ -116,6 +125,8 @@
                     </RowTemplate>
                 </MudTable>
             }
+            </MudExpansionPanel>
+            </MudExpansionPanels>
         }
     </MudStack>
 </MudPaper>
@@ -130,10 +141,11 @@
     private bool testing;
     private bool isDirty;
     private long testGeneration;
+    private bool ProfileReadOnly => settings?.ManagedByDeployment == true || !string.IsNullOrEmpty(settings?.LinkId);
 
     private IReadOnlyList<SettingRow> ResolvedSettings => settings is null ? [] :
     [
-        new("Source", settings.ManagedByDeployment ? "Deployment" : "Saved administrator profile"),
+        new("Source", settings.ManagedByDeployment ? "Deployment" : !string.IsNullOrEmpty(settings.LinkId) ? "Approved reciprocal link" : "Saved administrator profile"),
         new("Revision", settings.Revision.ToString()),
         new("Enabled", settings.Enabled ? "Yes" : "No"),
         new("Base URL", Display(settings.BaseUrl)),
@@ -189,7 +201,7 @@
 
     private async Task SaveAsync()
     {
-        if (settings?.ManagedByDeployment == true) return;
+        if (ProfileReadOnly) return;
         ++testGeneration;
         testResult = null;
         saving = true;
@@ -221,7 +233,7 @@
 
     private void MarkDirty()
     {
-        if (settings?.ManagedByDeployment == true) return;
+        if (ProfileReadOnly) return;
         ++testGeneration;
         isDirty = true;
         testResult = null;

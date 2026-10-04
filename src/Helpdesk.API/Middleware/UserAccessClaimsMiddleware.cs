@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.Services;
+using Helpdesk.Infrastructure.ServiceIdentity;
 
 namespace Helpdesk.API.Middleware;
 
@@ -8,6 +9,13 @@ public sealed class UserAccessClaimsMiddleware(RequestDelegate next)
 {
     public async Task InvokeAsync(HttpContext context, ICurrentUserAccessService accessService)
     {
+        if (context.User.Identity?.IsAuthenticated == true && ServicePrincipalRegistry.IsMachinePrincipal(context.User))
+        {
+            // The service handler has verified these grant claims. Human account
+            // projection must neither erase them nor add application roles.
+            await next(context);
+            return;
+        }
         if (context.User.Identity?.IsAuthenticated == true && context.User.Identity is ClaimsIdentity identity)
         {
             // Preserve verified upstream roles before replacing the role claims

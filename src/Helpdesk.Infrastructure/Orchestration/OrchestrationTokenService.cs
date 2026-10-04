@@ -5,13 +5,15 @@ using System.Text.Json;
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Infrastructure.Persistence.Connectivity;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Helpdesk.Infrastructure.Orchestration;
 
 public sealed class OrchestrationTokenService(
     IHttpClientFactory httpClientFactory,
     IMemoryCache cache,
-    TimeProvider? timeProvider = null) : IOrchestrationTokenService
+    TimeProvider? timeProvider = null,
+    IServiceScopeFactory? scopes = null) : IOrchestrationTokenService
 {
     private const int MaximumResponseBytes = 256 * 1024;
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(20);
@@ -24,6 +26,18 @@ public sealed class OrchestrationTokenService(
         CancellationToken cancellationToken = default,
         bool useCache = true)
     {
+        if (settings.ServiceLink is not null && !settings.Enabled)
+            throw new InvalidOperationException("The service-link business sender is disabled.");
+        if (settings.Source == "database" && (settings.Revision > 0 || settings.ServiceLink is not null))
+        {
+            if (scopes is null) throw new InvalidOperationException("Durable provider authority is unavailable.");
+            await using var scope = scopes.CreateAsyncScope();
+            var current = await scope.ServiceProvider.GetRequiredService<IIntegrationProviderSettingsService>()
+                .GetResolvedOrchestratorSettingsAsync(cancellationToken);
+            if (!current.Enabled || current.SecretUnavailable || current.Revision != settings.Revision ||
+                current.ProfileFingerprint != settings.ProfileFingerprint || current.ServiceLink != settings.ServiceLink)
+                throw new InvalidOperationException("The provider changed or was disabled. Resolve its current settings before dispatching.");
+        }
         var tokenEndpoint = settings.TokenEndpoint
             ?? (string.IsNullOrWhiteSpace(settings.Authority) ? null : $"{settings.Authority.TrimEnd('/')}/connect/token");
         if (string.IsNullOrWhiteSpace(tokenEndpoint))
@@ -51,8 +65,16 @@ public sealed class OrchestrationTokenService(
         {
             throw new InvalidOperationException("External orchestration scope is not configured.");
         }
+        if (string.IsNullOrWhiteSpace(settings.Audience))
+            throw new InvalidOperationException("External orchestration audience is not configured.");
 
-        var cacheMaterial = string.Join("\n", tokenEndpoint, settings.ClientId, settings.Scope, settings.Audience,
+        var cacheMaterial = string.Join("\n", tokenEndpoint, settings.Authority, settings.BaseUrl, settings.ClientId,
+            settings.Scope, settings.Audience, settings.Source, settings.SourceKey, settings.ProfileFingerprint,
+            settings.ServiceLink?.LocalTenantId, settings.ServiceLink?.PeerTenantId, settings.ServiceLink?.PeerInstanceId,
+            settings.ServiceLink?.LinkId, settings.ServiceLink?.GrantHash, settings.ServiceLink?.DirectionId,
+            settings.ServiceLink?.SourceInstanceId, settings.ServiceLink?.SourceNamespaceId,
+            settings.ServiceLink?.LinkRevision.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            settings.ServiceLink?.CredentialRevision.ToString(System.Globalization.CultureInfo.InvariantCulture),
             settings.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture),
             Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(settings.ClientSecret))));
         var cacheKey = $"orchestration_token::{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(cacheMaterial)))}";

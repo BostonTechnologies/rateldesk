@@ -114,6 +114,15 @@ public sealed class RequestTaskLifecycleService(
         {
             return await HandleAutomationSubmissionFailureAsync(task, "External orchestration disabled", correlationId, ct);
         }
+        if (settings.ServiceLink is { } linked)
+        {
+            if (task.OrganizationId != linked.LocalTenantId)
+                return await HandleAutomationSubmissionFailureAsync(task, "The service link does not authorize this task organization", correlationId, ct);
+            task.OrchestrationLinkId = linked.LinkId;
+            task.OrchestrationPeerInstanceId = linked.PeerInstanceId;
+            task.OrchestrationLinkRevision = linked.LinkRevision;
+            await _requestTasks.UpdateAsync(task);
+        }
 
         var payloadResult = await _payloadBuilder.BuildAsync(task, correlationId, ct);
         if (!payloadResult.Success)

@@ -31,6 +31,10 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
             return Empty(false);
         }
 
+        // Service subjects are never application accounts, even if an external-subject link was mistakenly created.
+        if (user.HasClaim("auth_mode", "service") || user.HasClaim("auth_mode", "machine") || user.HasClaim("token_use", "rateldesk_service"))
+            return Empty(true);
+
         var claimedLocalAccountId = IsLocalAccount(user)
             ? user.FindFirstValue(ClaimTypes.NameIdentifier)
             : null;

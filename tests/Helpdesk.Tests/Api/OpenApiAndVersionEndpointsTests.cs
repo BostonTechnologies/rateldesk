@@ -71,7 +71,7 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         Assert.Empty(SecuritySchemes(document, "/api/v1/setup/status", "get"));
         Assert.Empty(SecuritySchemes(document, "/api/v1/tickets/public/view", "get"));
         Assert.Equal(["JwtBearer", "LocalSession"], SecuritySchemes(document, "/api/v1/integration-credentials", "get"));
-        Assert.Equal(["OrchestrationM2M"], SecuritySchemes(document, "/api/v1/orchestration/provider/m2m/ping", "get"));
+        Assert.Equal(["OrchestrationM2M", "ServiceIdentity"], SecuritySchemes(document, "/api/v1/orchestration/provider/m2m/ping", "get"));
         Assert.Equal(["AiAgentJwt"], SecuritySchemes(document, "/api/v1/auth/ai-agent/status", "get"));
         Assert.Equal(["IntegrationCredential", "JwtBearer", "LocalSession"], SecuritySchemes(document, "/api/v1/incidents", "get"));
         Assert.Equal(["McpIntegrationCredential"], SecuritySchemes(document, "/api/v1/mcp/execution-token", "post"));
@@ -108,14 +108,14 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         }
 
         Assert.True(violations.Count == 0, string.Join(Environment.NewLine, violations));
-        // Release includes the beta.4 and legacy-session administration operations;
+        // Release includes service issuer/client/link and legacy administration operations;
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(378, operationCount);
+        Assert.Equal(412, operationCount);
 #else
-        Assert.Equal(377, operationCount);
+        Assert.Equal(411, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         var receiverOperations = new[]
@@ -136,8 +136,14 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
                 ? "NetRatel Source Administration" : "NetRatel Incident Receiver";
             Assert.Equal([expectedTag], receiverOperation.GetProperty("tags").EnumerateArray().Select(tag => tag.GetString()).OfType<string>().ToArray());
             Assert.Equal(path.Contains("/sources", StringComparison.Ordinal)
-                ? new[] { "JwtBearer", "LocalSession" } : new[] { "IntegrationCredential" }, SecuritySchemes(document, path, method));
+                ? new[] { "JwtBearer", "LocalSession" } : new[] { "IntegrationCredential", "ServiceIdentity" }, SecuritySchemes(document, path, method));
         }
+        Assert.Empty(SecuritySchemes(document, "/connect/token", "post"));
+        Assert.Empty(SecuritySchemes(document, "/api/integrations/service-link/metadata", "get"));
+        Assert.Equal(["JwtBearer", "LocalSession"], SecuritySchemes(document, "/api/v1/admin/service-clients", "get"));
+        Assert.Equal(["JwtBearer", "LocalSession"], SecuritySchemes(document, "/api/v1/admin/service-links", "get"));
+        Assert.Equal(["ServiceIdentity"], SecuritySchemes(document, "/api/integrations/service-link/v1/links/{linkId}/verify", "post"));
+        Assert.Equal(["ServiceIdentity"], SecuritySchemes(document, "/api/integrations/service-link/v1/links/{linkId}/status", "get"));
         Assert.True(paths.TryGetProperty("/api/v1/admin/orchestration/test-draft", out var orchestrationDraft));
         Assert.True(orchestrationDraft.TryGetProperty("post", out _));
         Assert.True(paths.TryGetProperty("/api/v1/admin/netclaw/test-draft", out var netclawDraft));

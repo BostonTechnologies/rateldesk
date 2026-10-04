@@ -24,6 +24,9 @@ public sealed class IntegrationCredentialOwnerResolver(
             principal.HasClaim("auth_mode", "integration") ||
             principal.HasClaim("auth_mode", "mcp") ||
             principal.HasClaim("auth_mode", "gateway") ||
+            principal.HasClaim("auth_mode", "service") ||
+            principal.HasClaim("auth_mode", "machine") ||
+            principal.HasClaim("token_use", "rateldesk_service") ||
             principal.HasClaim("integration_purpose", "mcp"))
             return null;
 

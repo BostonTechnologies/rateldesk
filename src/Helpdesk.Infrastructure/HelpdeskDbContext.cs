@@ -3,6 +3,8 @@ using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Services;
 using Helpdesk.Infrastructure.Persistence.Entities;
 using Helpdesk.Infrastructure.Persistence.Connectivity;
+using Helpdesk.Infrastructure.ServiceIdentity;
+using Helpdesk.Infrastructure.ServiceLink;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.AspNetCore.Http;
@@ -131,6 +133,8 @@ public class HelpdeskDbContext(
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.ConfigureServiceIdentityModel();
+        modelBuilder.ConfigureServiceLinkModel();
         modelBuilder.Entity<IncidentReceiverSource>(entity =>
         {
             entity.HasKey(x => x.SourceNamespaceId);
@@ -368,6 +372,7 @@ public class HelpdeskDbContext(
             entity.Property(x => x.ProviderKey).HasMaxLength(64).IsRequired();
             entity.Property(x => x.Revision).IsConcurrencyToken();
             entity.HasIndex(x => x.ProviderKey).IsUnique();
+            entity.Property(x => x.ManagedSenderEnabled).HasDefaultValue(true);
             entity.Property(x => x.RemoteBaseUrl).HasMaxLength(1024);
             entity.Property(x => x.RemoteAudience).HasMaxLength(256);
             entity.Property(x => x.RemoteSystemName).HasMaxLength(128);
@@ -967,5 +972,17 @@ public class HelpdeskDbContext(
                 organization.ItSupportOrganizationId == _tenantContext.TenantId));
         modelBuilder.ApplyConfiguration(new NotificationEntityConfiguration());
         modelBuilder.ApplyConfiguration(new NotificationReadEntityConfiguration());
+        if (isSqlite)
+        {
+            // New service authority uses UTC ticks so SQLite can translate expiry and overlap
+            // comparisons. Existing timestamp mappings retain their upgrade representation.
+            var serviceUtc = new Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter<DateTimeOffset, long>(
+                value => value.UtcTicks, value => new DateTimeOffset(value, TimeSpan.Zero));
+            foreach (var entity in modelBuilder.Model.GetEntityTypes().Where(entity =>
+                entity.ClrType.Namespace == "Helpdesk.Infrastructure.ServiceIdentity"))
+                foreach (var property in entity.GetProperties().Where(property =>
+                    property.ClrType == typeof(DateTimeOffset) || property.ClrType == typeof(DateTimeOffset?)))
+                    property.SetValueConverter(serviceUtc);
+        }
     }
 }

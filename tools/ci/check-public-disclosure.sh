@@ -12,8 +12,9 @@ done
 repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
 
-# NetRatel is an intentional public integration term for beta.4; keep the
-# remaining organization, infrastructure, and operator identifiers blocked.
+# NetRatel and the exact bostec.service-link shared protocol identifiers are
+# intentional public integration terms. Other organization, infrastructure,
+# and operator identifiers remain blocked.
 blocked_text='boston|bostec|proxicon|komodo|openbao|spacetimeorchestrator|camelot|konrad|jeremi|hd-dev|@boston\.net\.za'
 blocked_files='(^|/)(\.env|appsettings\.Development\.local\.json)$|\.(pfx|pem|key)$|(^|/)(id_rsa|id_ed25519)$'
 
@@ -31,6 +32,11 @@ disallowed_matches=$(rg -n -i -e "$blocked_text" \
     -e 's#ghcr.io/bostontechnologies/rateldesk-mcp-http##g' \
     -e 's#orgs/BostonTechnologies/packages/container##g' \
     -e 's#BostonTechnologies/RatelDesk##g' \
+    -e 's#bostec\.service-link\.hash\.v1##g' \
+    -e 's#bostec\.service-link\.v1##g' \
+    -e 's#bostec\.service-link\.control##g' \
+    -e 's#bostec\.service-link\.verify##g' \
+    -e 's#bostec-service-link\.v1##g' \
   | rg -n -i -e "$blocked_text" || true)
 
 if [[ -n "$disallowed_matches" ]]; then
@@ -49,7 +55,13 @@ while IFS= read -r candidate_file; do
   mime_type=$(file --brief --mime-type "$candidate_file")
   [[ "$mime_type" == text/* || "$mime_type" == application/json || "$mime_type" == application/xml ]] && continue
 
-  if strings -a "$candidate_file" | rg -n -i -e "$blocked_text"; then
+  if strings -a "$candidate_file" | sed \
+      -e 's#bostec\.service-link\.hash\.v1##g' \
+      -e 's#bostec\.service-link\.v1##g' \
+      -e 's#bostec\.service-link\.control##g' \
+      -e 's#bostec\.service-link\.verify##g' \
+      -e 's#bostec-service-link\.v1##g' \
+      | rg -n -i -e "$blocked_text"; then
     printf 'public disclosure gate: private reference found in binary content: %s\n' "$candidate_file" >&2
     failed=true
   fi

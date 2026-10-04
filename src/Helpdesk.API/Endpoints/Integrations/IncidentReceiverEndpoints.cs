@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using Helpdesk.API.Services;
 using Helpdesk.Infrastructure.Storage;
+using Helpdesk.Infrastructure.ServiceIdentity;
 using Helpdesk.Shared.DTOs.Incident;
 using Microsoft.Extensions.Options;
 
@@ -43,7 +44,9 @@ public static class IncidentReceiverEndpoints
                 maxKeyLength = 256, keyPattern = "^[A-Za-z0-9._~-]{1,256}$",
                 minimumReceiptRetentionSeconds = 7776000, maximumAutomaticReplaySeconds = 2592000,
                 receiptEvictionEnabled = false, atomicIncidentReceiptAndEffects = true,
-                supportsReceiptLookup = true, supportsSafeSameKeyReplay = true, authenticationModes = new[] { "api_bearer" }
+                supportsReceiptLookup = true, supportsSafeSameKeyReplay = true,
+                authenticationModes = http.RequestServices.GetService<IOptions<ServiceIdentityOptions>>()?.Value.Enabled == true
+                    ? new[] { "api_bearer", "oauth_client_credentials" } : new[] { "api_bearer" }
             });
         });
         // Kestrel removes literal dot segments from Request.Path. Preserve the original contract using RawTarget
