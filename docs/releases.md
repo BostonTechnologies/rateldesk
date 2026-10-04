@@ -1,6 +1,29 @@
 # Releases
 
-RatelDesk has one repository-owned release line. The root `Directory.Build.props` is the source of truth: maintainers update `VersionPrefix` when preparing the next release. All application projects inherit that value. `VersionSuffix` creates prereleases without changing the release line. The current planned test release is `0.1.1-beta.8`; earlier prereleases remain immutable.
+RatelDesk has one repository-owned release line. The root `Directory.Build.props` is the source of truth: maintainers update `VersionPrefix` when preparing the next release. All application projects inherit that value. `VersionSuffix` creates prereleases without changing the release line. The current planned test release is `0.1.1-beta.9`; earlier prereleases remain immutable.
+
+## 0.1.1-beta.9 — service credentials and reciprocal NetRatel linking
+
+Adds dedicated, narrowly scoped NetRatel service clients, a durable asymmetric
+client-credentials issuer, and administrator consent for both directions of
+`bostec.service-link.v1`. The Integration hub offers guided linking and advanced
+manual credentials alongside the existing account API and MCP credentials.
+Link verification, commit recovery, revocation and directional rotation persist
+across API restarts. Business requests check the current durable grant, including
+cached tokens and protected outbound provider snapshots.
+
+This release includes the #116 keyed incident receiver and receipt contract.
+Both SQLite and PostgreSQL migrations preserve existing accounts, protected
+provider profiles, receiver namespaces and receipts. Existing outbound
+Orchestrator configuration and legacy callback authentication remain supported.
+The issuer and guided protocol require separate explicit deployment settings;
+see [configuration and acceptance](integrations/netratel-service-link.md) and
+the [shared protocol](contracts/bostec-service-link.v1.md).
+
+The current NetRatel release needs its companion implementation before guided
+linking can complete. Synthetic contract-peer and real RatelDesk provider tests
+are separate from the later two-product runtime acceptance documented above.
+This candidate does not report that external acceptance or a customer deployment.
 
 ## 0.1.1-beta.6 — planned Netclaw onboarding update
 
@@ -142,7 +165,10 @@ published state. A rerun reuses matching assets; it stops if an asset with the
 same name has different content, so operators can resolve the conflict without
 overwriting it. Dispatching an older tag checks out that tag's release scripts.
 
-Stable releases publish `ghcr.io/bostontechnologies/rateldesk-web` and `ghcr.io/bostontechnologies/rateldesk-api` with the exact version and `latest`. Prereleases publish only their exact tag and become GitHub prereleases. Consumers should use an exact tag or an immutable digest, never rely on `latest` for a production deployment.
+Tag workflows publish Web, API and HTTP MCP images with the exact version.
+Only the separate approved stable-channel promotion moves `latest`.
+Prereleases publish exact tags and become GitHub prereleases after the verified
+draft is published. Consumers should use an exact tag or an immutable digest.
 
 To use released images locally, set required credentials and run:
 

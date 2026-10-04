@@ -27,6 +27,13 @@ public sealed class OrchestrationConnectivitySettingsDto
     public bool AllowPrivateHttp { get; set; }
     public string? SourceKey { get; set; }
     public string ProfileFingerprint { get; set; } = string.Empty;
+    public string? PeerInstanceId { get; set; }
+    public string? PeerTenantId { get; set; }
+    public string? LocalTenantId { get; set; }
+    public string? LinkId { get; set; }
+    public long LinkRevision { get; set; }
+    public long CredentialRevision { get; set; }
+    public bool ManagedSenderEnabled { get; set; } = true;
 }
 
 public sealed class UpdateOrchestrationConnectivitySettingsDto

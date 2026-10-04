@@ -1,0 +1,57 @@
+@using Helpdesk.Shared.ServiceLink
+
+<MudStack Spacing="2" data-testid="service-link-consent-details">
+    <MudGrid Spacing="2">
+        @foreach (var peer in new[] { Initiator, Responder })
+        {
+            <MudItem xs="12" sm="6">
+                <MudPaper Outlined="true" Class="pa-3" Style="overflow-wrap:anywhere">
+                    <MudText Typo="Typo.subtitle2">@peer.Product · @CanonicalHost(peer.WebBaseUrl)</MudText>
+                    <MudText Typo="Typo.caption">Instance @peer.InstanceId</MudText>
+                    <MudText Typo="Typo.body2">Web: @peer.WebBaseUrl</MudText>
+                    <MudText Typo="Typo.body2">API: @peer.ApiBaseUrl</MudText>
+                    <MudText Typo="Typo.body2">Issuer: @peer.OauthIssuer</MudText>
+                    @if (peer.SourceInstanceId is not null)
+                    {
+                        <MudText Typo="Typo.body2">Incident source: @peer.SourceInstanceId</MudText>
+                    }
+                </MudPaper>
+            </MudItem>
+        }
+    </MudGrid>
+    @foreach (var grant in Grants.OrderBy(grant => grant.DirectionId, StringComparer.Ordinal))
+    {
+        <MudPaper Outlined="true" Class="pa-3" Style="overflow-wrap:anywhere">
+            <MudText Typo="Typo.subtitle2">@grant.CallerProduct → @grant.TargetProduct</MudText>
+            <MudText Typo="Typo.body2">Caller tenant: @Display(grant.CallerTenantId) · target tenant: @Display(grant.TargetTenantId)</MudText>
+            <MudText Typo="Typo.body2">Scopes: @string.Join(", ", grant.Scopes)</MudText>
+            @if (grant.ResourceConstraints.OrganizationId is not null)
+            {
+                <MudText Typo="Typo.body2">Organization: @grant.ResourceConstraints.OrganizationId</MudText>
+                <MudText Typo="Typo.body2">Customers: @DisplaySet(grant.ResourceConstraints.CustomerIds)</MudText>
+            }
+            @if (grant.TargetProduct == "netratel")
+            {
+                <MudText Typo="Typo.body2">Resources: @DisplaySet(grant.ResourceConstraints.ResourceIds)</MudText>
+                <MudText Typo="Typo.body2">Request definitions: @DisplaySet(grant.ResourceConstraints.RequestDefinitionIds)</MudText>
+            }
+            @if (grant.ResourceConstraints.RequestIds.Length > 0 || grant.ResourceConstraints.TaskIds.Length > 0)
+            {
+                <MudText Typo="Typo.body2">Requests: @DisplaySet(grant.ResourceConstraints.RequestIds) · tasks: @DisplaySet(grant.ResourceConstraints.TaskIds)</MudText>
+            }
+            @if (grant.SourceNamespaceId is not null)
+            {
+                <MudText Typo="Typo.caption">Stable receiver source namespace: @grant.SourceNamespaceId</MudText>
+            }
+        </MudPaper>
+    }
+</MudStack>
+
+@code {
+    [Parameter, EditorRequired] public ServiceLinkMetadata Initiator { get; set; } = new();
+    [Parameter, EditorRequired] public ServiceLinkMetadata Responder { get; set; } = new();
+    [Parameter, EditorRequired] public ServiceLinkGrant[] Grants { get; set; } = [];
+    private static string CanonicalHost(string value) => Uri.TryCreate(value, UriKind.Absolute, out var uri) ? uri.Authority : "Unverified origin";
+    private static string Display(string value) => string.IsNullOrWhiteSpace(value) ? "Awaiting explicit selection" : value;
+    private static string DisplaySet(IEnumerable<string> values) => values.Any() ? string.Join(", ", values) : "None granted";
+}

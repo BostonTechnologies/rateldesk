@@ -8,6 +8,8 @@ using Helpdesk.Infrastructure.Connectivity;
 using Helpdesk.Infrastructure.Configuration;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.Persistence.Connectivity;
+using Helpdesk.Infrastructure.ServiceLink;
+using Helpdesk.Infrastructure.ServiceIdentity;
 using Helpdesk.Shared.DTOs.Orchestration;
 using Helpdesk.Shared.AiAssistant.Chat;
 using Helpdesk.Shared.Models;
@@ -69,10 +71,11 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
         if (orchestratorManagedByDeployment)
             return ToOrchestratorDto(ResolveOrchestrator(deploymentOrchestrator, null, "deployment", managedByDeployment: true, resolveSecret: false), null);
 
-        var stored = await LoadOrchestratorAsync(cancellationToken);
+        var stored = await LoadOrchestratorSnapshotAsync(cancellationToken);
         var resolved = stored is null
             ? ResolveOrchestrator(null, null, "database", managedByDeployment: false, resolveSecret: false)
-            : ResolveOrchestrator(null, stored, "database", managedByDeployment: false, resolveSecret: false);
+            : ResolveOrchestrator(null, stored, "database", managedByDeployment: false, resolveSecret: false,
+                enabledOverride: await CurrentLinkedSenderEnabledAsync(stored, cancellationToken));
         return ToOrchestratorDto(resolved, stored);
     }
 
@@ -81,7 +84,7 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
         if (orchestratorManagedByDeployment)
             return ResolveOrchestrator(deploymentOrchestrator, null, "deployment", managedByDeployment: true, resolveSecret: false);
 
-        var stored = await LoadOrchestratorAsync(cancellationToken);
+        var stored = await LoadOrchestratorSnapshotAsync(cancellationToken);
         return stored is null
             ? new OrchestrationResolvedSettings
             {
@@ -95,7 +98,28 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
                 Source = "database",
                 Revision = 0
             }
-            : ResolveOrchestrator(null, stored, "database", managedByDeployment: false, resolveSecret: true);
+            : ResolveOrchestrator(null, stored, "database", managedByDeployment: false, resolveSecret: true,
+                enabledOverride: await CurrentLinkedSenderEnabledAsync(stored, cancellationToken));
+    }
+
+    private async Task<bool> CurrentLinkedSenderEnabledAsync(M2MConnectivitySettings stored, CancellationToken ct)
+    {
+        if (stored.LinkId is null) return stored.Enabled;
+        if (!stored.Enabled || !stored.ManagedSenderEnabled) return false;
+        var currentIdentity = new ServiceIdentityOptions();
+        try
+        {
+            configuration.GetSection(ServiceIdentityOptions.SectionName).Bind(currentIdentity);
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+        var attempt = await db.Set<ServiceLinkAttempt>().AsNoTracking().SingleOrDefaultAsync(x => x.LinkId == stored.LinkId &&
+            x.LinkRevision == stored.LinkRevision && x.GrantHash == stored.GrantHash && x.LocalTenantId == stored.LocalTenantId &&
+            x.PeerTenantId == stored.PeerTenantId && x.PeerInstanceId == stored.PeerInstanceId && x.Decision == "commit" &&
+            x.LifecycleState == "active" && x.LocalInboundActive && x.LocalBusinessSenderEnabled && x.PeerActiveAcknowledged, ct);
+        return attempt is not null && await ServiceLinkAuthority.InboundUsableAsync(db, attempt, clock, currentIdentity, ct);
     }
 
     public async Task<OrchestrationResolvedSettings> ResolveOrchestratorDraftAsync(
@@ -106,6 +130,8 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
             throw new InvalidOperationException("The NetRatel orchestrator is managed by deployment configuration and cannot be tested as a database draft.");
 
         var existing = await LoadOrchestratorAsync(cancellationToken);
+        if (existing?.LinkId is not null)
+            throw new InvalidOperationException("This provider belongs to an approved service link. Reconnect to approve a changed destination or grant.");
         var currentRevision = existing?.Revision ?? 0;
         RequireExpectedRevision(request.ExpectedRevision, currentRevision, "The NetRatel orchestrator configuration changed; reload before testing the draft.");
 
@@ -137,7 +163,7 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
 
             try
             {
-                clientSecret = secrets.Unprotect(existing.ProtectedClientSecret);
+                clientSecret = UnprotectOrchestratorSecret(existing);
             }
             catch (IntegrationProviderSecretUnavailableException)
             {
@@ -177,14 +203,42 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
             profileFingerprintOverride: profileFingerprint);
     }
 
-    public async Task<OrchestrationConnectivitySettingsDto> UpdateOrchestratorSettingsAsync(
+    public Task<OrchestrationConnectivitySettingsDto> UpdateOrchestratorSettingsAsync(
         UpdateOrchestrationConnectivitySettingsDto request,
         CancellationToken cancellationToken = default)
+        => SaveOrchestratorSettingsAsync(request, null, cancellationToken);
+
+    public Task<OrchestrationConnectivitySettingsDto> StageLinkedOrchestratorSettingsAsync(
+        UpdateOrchestrationConnectivitySettingsDto request, ServiceLinkOrchestratorBinding binding,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateServiceLinkBinding(binding);
+        if (request.Enabled) throw new ArgumentException("A staged service-link provider must remain disabled until the peer activation acknowledgement.", nameof(request));
+        return SaveOrchestratorSettingsAsync(request, binding, cancellationToken);
+    }
+
+    private async Task<OrchestrationConnectivitySettingsDto> SaveOrchestratorSettingsAsync(
+        UpdateOrchestrationConnectivitySettingsDto request, ServiceLinkOrchestratorBinding? binding,
+        CancellationToken cancellationToken)
     {
         if (orchestratorManagedByDeployment)
             throw new InvalidOperationException("The NetRatel orchestrator is managed by deployment configuration and is read-only here.");
 
         var existing = await LoadOrchestratorAsync(cancellationToken);
+        if (binding is null && existing?.LinkId is not null)
+            throw new InvalidOperationException("This provider belongs to an approved service link. Reconnect to approve a changed destination or grant.");
+        if (binding is not null && existing is not null)
+        {
+            if (existing.LinkId is not null && existing.LinkId != binding.LinkId)
+            {
+                if (!await CanReplaceTerminatedLinkedProviderAsync(existing, binding, cancellationToken))
+                    throw new IntegrationProviderConfigurationConflictException("The provider is already owned by another configuration. Revoke its local business authority before a newly approved reconnect.", "provider_ownership_conflict");
+                if (string.IsNullOrWhiteSpace(request.ClientSecret))
+                    throw new ArgumentException("A new approved link requires its own outbound credential; the previous link secret cannot be retained.", nameof(request.ClientSecret));
+            }
+            else if (existing.LinkId is null && (!string.IsNullOrWhiteSpace(existing.RemoteBaseUrl) || !string.IsNullOrWhiteSpace(existing.ClientId)))
+                throw new IntegrationProviderConfigurationConflictException("The provider is already owned by a manual configuration. Select an explicit ownership transition before linking.", "provider_ownership_conflict");
+        }
         var currentRevision = existing?.Revision ?? 0;
         RequireExpectedRevision(request.ExpectedRevision, currentRevision, "The NetRatel orchestrator configuration changed; reload before saving.");
 
@@ -205,7 +259,8 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
             tokenEndpoint,
             audience,
             scope,
-            clientId);
+            clientId, binding);
+        var stored = existing ?? new M2MConnectivitySettings { ProviderKey = "Orchestrator" };
         var protectedSecret = existing?.ProtectedClientSecret ?? string.Empty;
 
         if (request.ClearClientSecret)
@@ -215,7 +270,7 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
         }
         else if (!string.IsNullOrWhiteSpace(request.ClientSecret))
         {
-            protectedSecret = secrets.Protect(request.ClientSecret.Trim());
+            protectedSecret = secrets.Protect(request.ClientSecret.Trim(), OrchestratorSecretPurpose(stored.Id, secretBindingFingerprint));
         }
         else if (!string.IsNullOrWhiteSpace(protectedSecret) &&
                  existing is not null &&
@@ -231,8 +286,9 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
         if (request.Enabled && string.IsNullOrWhiteSpace(protectedSecret))
             throw new ArgumentException("A dedicated NetRatel M2M client secret is required when the orchestrator is enabled.", nameof(request.ClientSecret));
 
-        var stored = existing ?? new M2MConnectivitySettings { ProviderKey = "Orchestrator" };
         stored.Enabled = request.Enabled;
+        stored.ManagedSenderEnabled = binding is null;
+        ApplyServiceLinkBinding(stored, binding);
         stored.RemoteBaseUrl = baseUrl;
         stored.RemoteAudience = audience;
         stored.RemoteScope = scope;
@@ -256,6 +312,36 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
         if (existing is null) db.M2MConnectivitySettings.Add(stored);
         await SaveProviderConfigurationAsync(cancellationToken);
         return ToOrchestratorDto(ResolveOrchestrator(null, stored, "database", managedByDeployment: false, resolveSecret: false), stored);
+    }
+
+    private async Task<bool> CanReplaceTerminatedLinkedProviderAsync(M2MConnectivitySettings stored,
+        ServiceLinkOrchestratorBinding next, CancellationToken ct)
+    {
+        if (stored.Enabled || stored.ManagedSenderEnabled || stored.LocalTenantId != next.LocalTenantId) return false;
+        return await db.Set<ServiceLinkAttempt>().AsNoTracking().AnyAsync(x => x.LinkId == stored.LinkId &&
+            x.LocalTenantId == next.LocalTenantId && !x.LocalInboundActive && !x.LocalBusinessSenderEnabled &&
+            (x.LifecycleState == "revoked" || x.Decision == "abort" && (x.LifecycleState == "expired" || x.LifecycleState == "failed")), ct);
+    }
+
+    public async Task<OrchestrationConnectivitySettingsDto> SetLinkedOrchestratorSenderEnabledAsync(
+        string linkId, long linkRevision, int expectedProfileRevision, bool enabled,
+        CancellationToken cancellationToken = default)
+    {
+        if (orchestratorManagedByDeployment)
+            throw new InvalidOperationException("The NetRatel orchestrator is deployment-managed and read-only.");
+        var stored = await LoadOrchestratorAsync(cancellationToken);
+        if (stored is null || stored.LinkId != linkId || stored.LinkRevision != linkRevision)
+            throw new IntegrationProviderConfigurationConflictException("The provider no longer belongs to this service link.", "provider_ownership_conflict");
+        RequireExpectedRevision(expectedProfileRevision, stored.Revision, "The service-link provider changed; reload its current revision.");
+        if (enabled && (string.IsNullOrWhiteSpace(stored.ProtectedClientSecret) || string.IsNullOrWhiteSpace(stored.RemoteBaseUrl)))
+            throw new InvalidOperationException("An incomplete service-link provider cannot send business requests.");
+        stored.Enabled = enabled;
+        stored.ManagedSenderEnabled = enabled;
+        stored.Revision++;
+        stored.UpdatedAtUtc = clock.GetUtcNow();
+        stored.LastAppliedAtUtc = stored.UpdatedAtUtc;
+        await SaveProviderConfigurationAsync(cancellationToken);
+        return ToOrchestratorDto(ResolveOrchestrator(null, stored, "database", false, false), stored);
     }
 
     public async Task<bool> RecordOrchestratorTestAsync(
@@ -816,6 +902,12 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
             .ThenBy(x => x.Id)
             .FirstOrDefaultAsync(cancellationToken);
 
+    private async Task<M2MConnectivitySettings?> LoadOrchestratorSnapshotAsync(CancellationToken cancellationToken)
+        => await db.M2MConnectivitySettings.AsNoTracking()
+            .Where(x => x.ProviderKey == "Orchestrator")
+            .OrderByDescending(x => x.Revision).ThenBy(x => x.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+
     private async Task<NetclawConnectivitySettings?> LoadNetclawAsync(CancellationToken cancellationToken)
         => await db.NetclawConnectivitySettings
             .Where(x => x.ProviderKey == "Netclaw")
@@ -856,13 +948,14 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
         bool managedByDeployment,
         bool resolveSecret,
         int? revisionOverride = null,
-        string? profileFingerprintOverride = null)
+        string? profileFingerprintOverride = null,
+        bool? enabledOverride = null)
     {
         var baseUrl = Normalize(options?.BaseUrl ?? stored?.RemoteBaseUrl);
-        var authority = Normalize(options?.Authority ?? stored?.RemoteAuthority) ?? baseUrl;
-        var audience = Normalize(options?.Audience ?? stored?.RemoteAudience) ?? DefaultAudience;
-        var scope = Normalize(options?.Scope ?? stored?.RemoteScope) ?? audience;
-        var tokenEndpoint = Normalize(options?.TokenEndpoint ?? stored?.RemoteTokenEndpoint) ?? BuildTokenEndpoint(authority);
+        var authority = options?.SuppressedDefaults.Contains("Authority") == true ? string.Empty : Normalize(options?.Authority ?? stored?.RemoteAuthority) ?? baseUrl;
+        var audience = options?.SuppressedDefaults.Contains("Audience") == true ? string.Empty : Normalize(options?.Audience ?? stored?.RemoteAudience) ?? DefaultAudience;
+        var scope = options?.SuppressedDefaults.Contains("Scope") == true ? string.Empty : Normalize(options?.Scope ?? stored?.RemoteScope) ?? audience;
+        var tokenEndpoint = options?.SuppressedDefaults.Contains("TokenEndpoint") == true ? string.Empty : Normalize(options?.TokenEndpoint ?? stored?.RemoteTokenEndpoint) ?? BuildTokenEndpoint(authority);
         var clientId = Normalize(options?.ClientId ?? stored?.ClientId);
         var secret = options?.ClientSecret;
         var secretUnavailable = false;
@@ -870,14 +963,14 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
         {
             try
             {
-                secret = secrets.Unprotect(stored.ProtectedClientSecret);
+                secret = UnprotectOrchestratorSecret(stored);
             }
             catch (IntegrationProviderSecretUnavailableException)
             {
                 secretUnavailable = true;
             }
         }
-        var enabled = options?.Enabled ?? stored?.Enabled ?? false;
+        var enabled = (enabledOverride ?? options?.Enabled ?? stored?.Enabled ?? false) && (stored?.LinkId is null || stored.ManagedSenderEnabled);
 
         return new OrchestrationResolvedSettings
         {
@@ -908,7 +1001,8 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
                 !string.IsNullOrWhiteSpace(options?.ClientSecret) ? "available" :
                 !string.IsNullOrWhiteSpace(stored?.ProtectedClientSecret) ? (resolveSecret ? "available" : "configured") : "not-configured",
             SourceKey = managedByDeployment ? IntegrationConfigurationAliases.GetDeploymentSourceKey(configuration, netclaw: false) : "database",
-            ProfileFingerprint = profileFingerprintOverride ?? stored?.ProfileFingerprint ?? BuildOrchestratorSecretBindingFingerprint(baseUrl, authority, tokenEndpoint, audience, scope, clientId)
+            ProfileFingerprint = profileFingerprintOverride ?? stored?.ProfileFingerprint ?? BuildOrchestratorSecretBindingFingerprint(baseUrl, authority, tokenEndpoint, audience, scope, clientId),
+            ServiceLink = stored is null ? null : ServiceLinkBinding(stored)
         };
     }
 
@@ -1033,7 +1127,14 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
             HealthPath = resolved.HealthPath,
             IngestPath = resolved.IngestPath,
             CatalogPath = resolved.CatalogPath,
-            ClientId = resolved.ClientId
+            ClientId = resolved.ClientId,
+            PeerInstanceId = resolved.ServiceLink?.PeerInstanceId,
+            PeerTenantId = resolved.ServiceLink?.PeerTenantId,
+            LocalTenantId = resolved.ServiceLink?.LocalTenantId,
+            LinkId = resolved.ServiceLink?.LinkId,
+            LinkRevision = resolved.ServiceLink?.LinkRevision ?? 0,
+            CredentialRevision = resolved.ServiceLink?.CredentialRevision ?? 0,
+            ManagedSenderEnabled = stored?.ManagedSenderEnabled ?? true
         };
 
     private static NetclawConnectivitySettingsDto ToNetclawDto(
@@ -1090,8 +1191,10 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
         string? tokenEndpoint,
         string? audience,
         string? scope,
-        string? clientId)
-        => IntegrationProviderSecretBinding.Fingerprint(
+        string? clientId,
+        ServiceLinkOrchestratorBinding? binding = null)
+    {
+        var endpointFingerprint = IntegrationProviderSecretBinding.Fingerprint(
             "Orchestrator",
             baseUrl,
             authority ?? baseUrl,
@@ -1099,6 +1202,54 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
             audience,
             scope,
             clientId);
+        return binding is null ? endpointFingerprint : IntegrationProviderSecretBinding.Fingerprint(
+            "RatelDesk.Orchestrator.ServiceLink.v1", endpointFingerprint,
+            binding.LocalTenantId, binding.PeerTenantId, binding.PeerInstanceId, binding.LinkId,
+            binding.LinkRevision.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            binding.CredentialRevision.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            binding.GrantHash, binding.DirectionId, binding.SourceInstanceId, binding.SourceNamespaceId);
+    }
+
+    private static ServiceLinkOrchestratorBinding? ServiceLinkBinding(M2MConnectivitySettings stored)
+        => stored.LinkId is null ? null : new(stored.LocalTenantId ?? string.Empty, stored.PeerTenantId ?? string.Empty,
+            stored.PeerInstanceId ?? string.Empty, stored.LinkId, stored.LinkRevision, stored.CredentialRevision,
+            stored.GrantHash ?? string.Empty, stored.DirectionId ?? string.Empty, stored.SourceInstanceId, stored.SourceNamespaceId);
+
+    private static void ApplyServiceLinkBinding(M2MConnectivitySettings stored, ServiceLinkOrchestratorBinding? binding)
+    {
+        stored.LocalTenantId = binding?.LocalTenantId;
+        stored.PeerTenantId = binding?.PeerTenantId;
+        stored.PeerInstanceId = binding?.PeerInstanceId;
+        stored.LinkId = binding?.LinkId;
+        stored.LinkRevision = binding?.LinkRevision ?? 0;
+        stored.CredentialRevision = binding?.CredentialRevision ?? 0;
+        stored.GrantHash = binding?.GrantHash;
+        stored.DirectionId = binding?.DirectionId;
+        stored.SourceInstanceId = binding?.SourceInstanceId;
+        stored.SourceNamespaceId = binding?.SourceNamespaceId;
+    }
+
+    private static void ValidateServiceLinkBinding(ServiceLinkOrchestratorBinding binding)
+    {
+        if (new[] { binding.LocalTenantId, binding.PeerTenantId, binding.PeerInstanceId, binding.LinkId }.Any(x => string.IsNullOrWhiteSpace(x) || x.Length > 256 || x.Any(char.IsControl)) ||
+            binding.LinkRevision < 1 || binding.CredentialRevision < 1 || binding.GrantHash.Length != 64 ||
+            binding.GrantHash.Any(c => c is not (>= '0' and <= '9') and not (>= 'a' and <= 'f')) ||
+            binding.DirectionId is not ("initiator_to_responder" or "responder_to_initiator") ||
+            new[] { binding.SourceInstanceId, binding.SourceNamespaceId }.Any(x => x is not null && !Guid.TryParseExact(x, "D", out _)))
+            throw new ArgumentException("The outbound credential requires complete approved tenant, peer, link, grant and direction bindings.", nameof(binding));
+    }
+
+    private static string OrchestratorSecretPurpose(Guid profileId, string? fingerprint) => $"Orchestrator:{profileId:N}:{fingerprint}";
+
+    private string UnprotectOrchestratorSecret(M2MConnectivitySettings stored)
+    {
+        var expected = BuildOrchestratorSecretBindingFingerprint(stored.RemoteBaseUrl, stored.RemoteAuthority,
+            stored.RemoteTokenEndpoint, stored.RemoteAudience ?? DefaultAudience,
+            stored.RemoteScope ?? stored.RemoteAudience ?? DefaultScope, stored.ClientId, ServiceLinkBinding(stored));
+        if (!string.IsNullOrWhiteSpace(stored.SecretBindingFingerprint) && stored.SecretBindingFingerprint != expected)
+            throw new IntegrationProviderSecretUnavailableException("The saved secret does not belong to the current provider identity.", new System.Security.Cryptography.CryptographicException());
+        return secrets.Unprotect(stored.ProtectedClientSecret ?? string.Empty, OrchestratorSecretPurpose(stored.Id, expected));
+    }
 
     private static string BuildNetclawSecretBindingFingerprint(string? instance, string? endpoint)
     {

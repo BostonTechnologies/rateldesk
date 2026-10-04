@@ -30,6 +30,9 @@ public sealed class Rc3PostgresUpgradeTests
         const string rc3 = "20260910150846_AddAiAssistantChatTurnActivity";
         await migrator.MigrateAsync(rc3);
         var historicalMigrations = (await db.Database.GetAppliedMigrationsAsync()).ToArray();
+        // Seed and capture with the published RC3 ticket shape. The current
+        // migrator/context below must still apply and read every new column.
+        await using var historical = new Rc3TicketContext(options, new AdminTenantContext(), new HttpContextAccessor());
         var organization = new Organization { Id = "upgrade-org", Name = "Existing organization" };
         var user = new User { Id = "upgrade-admin", Name = "Existing administrator", Email = "admin@example.test", OrganizationId = organization.Id, Role = "HelpdeskAdmin" };
         var customer = new Customer { Id = "upgrade-customer", Name = "Existing customer", Email = "customer@example.test", OrganizationId = organization.Id };
@@ -48,18 +51,18 @@ public sealed class Rc3PostgresUpgradeTests
             INSERT INTO "Organizations" ("Id", "Name", "EnableAiIntake", "State")
             VALUES ({organization.Id}, {organization.Name}, {false}, {(int)organization.State});
             """);
-        db.AddRange(user, customer, incident, request, change, task);
-        db.WorkLogs.Add(new WorkLog { Id = "upgrade-worklog", TicketId = incident.Id, TechnicianId = user.Id, NotesText = "Preserved private note", IsInternalNote = true, Hours = 0.5 });
-        db.TicketTimelineEvents.Add(new TicketTimelineEvent { TicketId = incident.Id, CreatedByUserId = user.Id, EventType = TimelineEventType.TechnicianReply, MessageText = "Preserved reply" });
-        db.Attachments.Add(new Attachment { Id = Guid.NewGuid(), TicketId = incident.Id, FileName = "evidence.txt", FilePath = "legacy/evidence.txt", ContentType = "text/plain", SizeBytes = 42, UploadedById = user.Id });
-        await db.SaveChangesAsync();
+        historical.AddRange(user, customer, incident, request, change, task);
+        historical.WorkLogs.Add(new WorkLog { Id = "upgrade-worklog", TicketId = incident.Id, TechnicianId = user.Id, NotesText = "Preserved private note", IsInternalNote = true, Hours = 0.5 });
+        historical.TicketTimelineEvents.Add(new TicketTimelineEvent { TicketId = incident.Id, CreatedByUserId = user.Id, EventType = TimelineEventType.TechnicianReply, MessageText = "Preserved reply" });
+        historical.Attachments.Add(new Attachment { Id = Guid.NewGuid(), TicketId = incident.Id, FileName = "evidence.txt", FilePath = "legacy/evidence.txt", ContentType = "text/plain", SizeBytes = 42, UploadedById = user.Id });
+        await historical.SaveChangesAsync();
         const string linkId = "upgrade-oidc-link";
         await db.Database.ExecuteSqlInterpolatedAsync($"""
             INSERT INTO "CustomerAuthLinks" ("Id", "CustomerId", "AuthProviderType", "OidcIssuer", "OidcSubject", "InviteStatus")
             VALUES ({linkId}, {customer.Id}, {"Oidc"}, {"https://id.example.test"}, {"stable-subject"}, {(int)CustomerInviteStatus.Active});
             """);
         db.ChangeTracker.Clear();
-        var before = await CaptureBusinessRowsAsync(db);
+        var before = await CaptureBusinessRowsAsync(historical);
 
         await migrator.MigrateAsync();
         var adoption = new LegacyInstallationAdoptionService();
@@ -94,6 +97,18 @@ public sealed class Rc3PostgresUpgradeTests
         Timeline = await db.TicketTimelineEvents.AsNoTracking().OrderBy(x => x.Id).ToListAsync(),
         Attachments = await db.Attachments.AsNoTracking().OrderBy(x => x.Id).ToListAsync()
     });
+
+    private sealed class Rc3TicketContext(DbContextOptions<HelpdeskDbContext> options, ITenantContext tenant,
+        IHttpContextAccessor accessor) : HelpdeskDbContext(options, tenant, accessor)
+    {
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            base.OnModelCreating(modelBuilder);
+            modelBuilder.Entity<RequestTask>().Ignore(x => x.OrchestrationLinkId);
+            modelBuilder.Entity<RequestTask>().Ignore(x => x.OrchestrationPeerInstanceId);
+            modelBuilder.Entity<RequestTask>().Ignore(x => x.OrchestrationLinkRevision);
+        }
+    }
 
     private sealed class AdminTenantContext : ITenantContext
     {

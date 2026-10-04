@@ -31,7 +31,14 @@ public sealed class OrchestrationResolvedSettings
     public string SecretState { get; init; } = "not-configured";
     public string? SourceKey { get; init; }
     public string ProfileFingerprint { get; init; } = string.Empty;
+    public ServiceLinkOrchestratorBinding? ServiceLink { get; init; }
 }
+
+/// <summary>Approved ownership of the existing outbound provider profile, independent of its secret version.</summary>
+public sealed record ServiceLinkOrchestratorBinding(
+    string LocalTenantId, string PeerTenantId, string PeerInstanceId, string LinkId,
+    long LinkRevision, long CredentialRevision, string GrantHash, string DirectionId,
+    string? SourceInstanceId = null, string? SourceNamespaceId = null);
 
 public sealed class NetclawResolvedSettings
 {
@@ -154,6 +161,12 @@ public interface IIntegrationProviderSettingsService
         CancellationToken cancellationToken = default);
     Task<OrchestrationConnectivitySettingsDto> UpdateOrchestratorSettingsAsync(
         UpdateOrchestrationConnectivitySettingsDto request,
+        CancellationToken cancellationToken = default);
+    Task<OrchestrationConnectivitySettingsDto> StageLinkedOrchestratorSettingsAsync(
+        UpdateOrchestrationConnectivitySettingsDto request, ServiceLinkOrchestratorBinding binding,
+        CancellationToken cancellationToken = default);
+    Task<OrchestrationConnectivitySettingsDto> SetLinkedOrchestratorSenderEnabledAsync(
+        string linkId, long linkRevision, int expectedProfileRevision, bool enabled,
         CancellationToken cancellationToken = default);
     Task<bool> RecordOrchestratorTestAsync(int expectedRevision, string profileFingerprint, bool succeeded, CancellationToken cancellationToken = default);
     Task<NetclawConnectivitySettingsDto> GetNetclawSettingsAsync(CancellationToken cancellationToken = default);

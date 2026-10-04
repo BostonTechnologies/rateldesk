@@ -36,10 +36,12 @@ public static class IntegrationConfigurationAliases
             // upgrade path only when the legacy provider profile has no
             // provider-specific credential fields. A canonical Orchestrator
             // profile never borrows the inbound M2M credential.
-            if (!HasKey(configuration, $"{LegacyOrchestratorSection}:ClientId"))
-                clientId ??= ReadString(configuration, "M2M:ClientId");
-            if (!HasKey(configuration, $"{LegacyOrchestratorSection}:ClientSecret"))
-                clientSecret ??= ReadString(configuration, "M2M:ClientSecret");
+            if (!HasKey(configuration, $"{LegacyOrchestratorSection}:ClientId") &&
+                !HasKey(configuration, $"{LegacyOrchestratorSection}:ClientSecret"))
+            {
+                clientId = ReadString(configuration, "M2M:ClientId");
+                clientSecret = ReadString(configuration, "M2M:ClientSecret");
+            }
         }
 
         return new OrchestrationM2MOptions
@@ -60,7 +62,12 @@ public static class IntegrationConfigurationAliases
             IngestPath = ReadString(configuration, Key(canonical, OrchestratorSection, LegacyOrchestratorSection, "IngestPath"))
                 ?? "/internal/ingest",
             CatalogPath = ReadString(configuration, Key(canonical, OrchestratorSection, LegacyOrchestratorSection, "CatalogPath"))
-                ?? "/internal/catalog"
+                ?? "/internal/catalog",
+            SuppressedDefaults = new[] { "Authority", "TokenEndpoint", "Audience", "Scope" }.Where(name =>
+            {
+                var key = Key(canonical, OrchestratorSection, LegacyOrchestratorSection, name);
+                return HasKey(configuration, key) && string.IsNullOrWhiteSpace(configuration[key]);
+            }).ToHashSet(StringComparer.Ordinal)
         };
     }
 

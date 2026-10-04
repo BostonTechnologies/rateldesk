@@ -116,9 +116,12 @@ jobs:
       - name: Verify authenticated HTTP, SQLite, PostgreSQL and golden contract
         run: >-
           dotnet test tests/Helpdesk.Tests/Helpdesk.Tests.csproj --configuration Release --no-build
-          --filter "FullyQualifiedName~IncidentReceiver"
+          --filter "FullyQualifiedName~IncidentReceiver|FullyQualifiedName~ServiceIdentityHttpTests|FullyQualifiedName~ManagedOrchestrationCallbackHttpTests|FullyQualifiedName~ServiceLinkLifecycleTests|FullyQualifiedName~ServiceLinkCanonicalJsonTests|FullyQualifiedName~ServiceIdentityMigrationTests"
           --logger "trx;LogFileName=incident-receiver.trx"
           --results-directory TestResults/incident-receiver
+
+      - name: Require complete receiver and service provider evidence with no skipped cases
+        run: python3 tools/ci/check-service-provider-acceptance.py TestResults/incident-receiver/incident-receiver.trx
 
       - name: Upload receiver acceptance evidence
         if: always()

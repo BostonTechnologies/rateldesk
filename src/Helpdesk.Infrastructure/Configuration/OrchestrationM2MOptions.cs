@@ -16,4 +16,6 @@ public sealed class OrchestrationM2MOptions
     public string IngestPath { get; set; } = "/internal/ingest";
     public string CatalogPath { get; set; } = "/internal/catalog";
     public string[] AllowedCallerClientIds { get; set; } = Array.Empty<string>();
+    /// <summary>Populated by the effective alias resolver so an operator's empty value cannot re-enable an inferred default.</summary>
+    public HashSet<string> SuppressedDefaults { get; set; } = new(StringComparer.Ordinal);
 }

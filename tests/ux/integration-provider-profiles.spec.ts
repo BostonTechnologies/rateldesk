@@ -88,6 +88,7 @@ test('admin UI saves and reloads PostgreSQL provider profiles without exposing p
 
   await page.goto('/admin/automation/integration/orchestrator');
   await expect(page.getByRole('heading', { name: 'NetRatel orchestrator' })).toBeVisible();
+  await page.getByText('Manual outbound credentials (advanced)', { exact: true }).click();
   const initialNetRatelRevision = Number(await settingValue(page, 'Revision'));
 
   await page.getByLabel('Enable NetRatel automation').check();
@@ -104,6 +105,7 @@ test('admin UI saves and reloads PostgreSQL provider profiles without exposing p
 
   await page.reload();
   await expect(page.getByRole('heading', { name: 'NetRatel orchestrator' })).toBeVisible();
+  await page.getByText('Manual outbound credentials (advanced)', { exact: true }).click();
   await expect(page.getByLabel('NetRatel API base URL')).toHaveValue('https://netratel-e2e.invalid');
   await expectSecretInputBlank(page, 'Dedicated M2M client secret');
   await expect.poll(() => settingValue(page, 'Revision')).toBe(String(savedNetRatelRevision));

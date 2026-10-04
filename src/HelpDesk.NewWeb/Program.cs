@@ -48,6 +48,14 @@ var webDefaultScheme = webIsHybrid
 
 builder.AddServiceDefaults();
 
+// The bounded browser roundtrip contains temporary proof values; never export its URI into request spans.
+builder.Services.Configure<OpenTelemetry.Instrumentation.AspNetCore.AspNetCoreTraceInstrumentationOptions>(options =>
+{
+    var existingFilter = options.Filter;
+    options.Filter = context => !context.Request.Path.StartsWithSegments("/account/integration-credentials/link")
+        && (existingFilter?.Invoke(context) ?? true);
+});
+
 // DataProtection (shared ring for API + Web)
 var dpSection = builder.Configuration.GetSection("DataProtection");
 var keyRingPath = dpSection["KeyRingPath"]
@@ -266,6 +274,15 @@ var netclawPairingApiClient = builder.Services.AddHttpClient("NetclawPairingApi"
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false })
     .AddHttpMessageHandler<TokenAuthorizationHandler>();
 
+// Consent and proof capture use the durable coordinator's explicit retries; never replay a browser mutation automatically.
+var serviceLinkApiClient = builder.Services.AddHttpClient("ServiceLinkApi", client =>
+{
+    client.BaseAddress = new Uri(apiBaseUrl, UriKind.Absolute);
+    client.Timeout = TimeSpan.FromSeconds(45);
+})
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false, AllowAutoRedirect = false })
+    .AddHttpMessageHandler<TokenAuthorizationHandler>();
+
 var helpdeskApiStreamingClient = builder.Services.AddHttpClient("HelpdeskApiStreaming", client =>
 {
     client.BaseAddress = new Uri(apiBaseUrl, UriKind.Absolute);
@@ -277,6 +294,7 @@ var helpdeskApiStreamingClient = builder.Services.AddHttpClient("HelpdeskApiStre
 #pragma warning disable EXTEXP0001
 helpdeskApiClient.RemoveAllResilienceHandlers();
 netclawPairingApiClient.RemoveAllResilienceHandlers();
+serviceLinkApiClient.RemoveAllResilienceHandlers();
 helpdeskApiClient.AddStandardResilienceHandler(options =>
 {
     options.AttemptTimeout.Timeout = TimeSpan.FromMinutes(2);
@@ -363,6 +381,12 @@ fwd.KnownProxies.Clear();
 app.UseForwardedHeaders(fwd);
 
 app.UseHttpsRedirection();
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/account/integration-credentials/link"))
+        ServiceLinkBrowserEndpoints.ProtectResponse(context);
+    await next();
+});
 app.UseMiddleware<FirstRunEntryMiddleware>();
 app.UseAuthentication();
 app.UseMiddleware<TenantContextMiddleware>();
@@ -529,6 +553,7 @@ app.MapGet("/login-authentik", async (HttpContext ctx) =>
 app.MapGet("/login-azure", () => Results.LocalRedirect("/login-authentik"));
 
 app.MapLocalBrowserLoginEndpoints(webSupportsLocalAccounts, localCookieName);
+app.MapServiceLinkBrowserEndpoints();
 
 app.MapGet("/login-ai-agent", (IOptions<AuthentikAiAgentOptions> options) =>
 {

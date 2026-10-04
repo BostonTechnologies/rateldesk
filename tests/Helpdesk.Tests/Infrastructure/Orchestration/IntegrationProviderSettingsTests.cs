@@ -3,11 +3,16 @@ using Helpdesk.Application.AiAssistant.Chat;
 using Helpdesk.Infrastructure.AiAssistant.Chat;
 using Helpdesk.Infrastructure.Configuration;
 using Helpdesk.Infrastructure.Orchestration;
+using Helpdesk.Infrastructure.ServiceLink;
+using Helpdesk.Infrastructure.ServiceIdentity;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.Persistence.Connectivity;
 using Helpdesk.Shared.DTOs.Orchestration;
 using Helpdesk.Shared.AiAssistant.Chat;
 using Helpdesk.Shared.Services;
+using Helpdesk.Shared.Models;
+using Helpdesk.Shared.ServiceLink;
+using System.Text.Json;
 using System.Data.Common;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
@@ -17,6 +22,8 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Caching.Memory;
 using NSubstitute;
 using Xunit;
 
@@ -24,6 +31,385 @@ namespace Helpdesk.Tests.Infrastructure.Orchestration;
 
 public sealed class IntegrationProviderSettingsTests
 {
+    private static ServiceLinkOrchestratorBinding LinkedBinding(long credentialRevision = 1) =>
+        new("organization-1", "tenant-17", "peer-instance", "approved-link", 1, credentialRevision,
+            ServiceLinkCanonicalJson.HashObject(ApprovedProviderSummary()), "initiator_to_responder");
+
+    private static ServiceLinkGrantSummary ApprovedProviderSummary() => new()
+    {
+        AttemptId = "provider-authorization-fixture", LinkId = "approved-link", ProposedLinkRevision = 1,
+        DescriptorHash = new string('b', 64), ExpiresAt = "2099-01-01T00:00:00Z",
+        InitiatorInstanceId = "local-instance", ResponderInstanceId = "peer-instance",
+        InitiatorEndpointSnapshot = ProviderLocalMetadata(),
+        ResponderEndpointSnapshot = new()
+        {
+            Product = "netratel", ProductVersion = "provider-authority-fixture", InstanceId = "peer-instance",
+            SourceInstanceId = "12345678-1234-1234-1234-123456789abc", WebBaseUrl = "https://peer.example.test", ApiBaseUrl = "https://api.peer.example.test",
+            OauthIssuer = "https://issuer.peer.example.test", Audience = "netratel.services",
+            OauthMetadataUrl = "https://api.peer.example.test/.well-known/oauth-authorization-server",
+            TokenEndpoint = "https://api.peer.example.test/connect/token", JwksUri = "https://api.peer.example.test/.well-known/jwks.json",
+            ServiceLinkEndpoint = "https://api.peer.example.test" + ServiceLinkContract.EndpointPath,
+            ApprovalEndpoint = "https://peer.example.test/account/integrations/rateldesk/approve", CallbackEndpoint = "https://peer.example.test/account/integrations/rateldesk/callback"
+        },
+        Grants =
+        [
+            new ServiceLinkGrant
+            {
+                DirectionId = ServiceLinkContract.InitiatorToResponder, CallerSnapshot = "initiator", TargetSnapshot = "responder",
+                CallerProduct = "rateldesk", CallerInstanceId = "local-instance", CallerTenantId = "organization-1",
+                TargetProduct = "netratel", TargetInstanceId = "peer-instance", TargetTenantId = "tenant-17",
+                Issuer = "https://issuer.peer.example.test", Audience = "netratel.services", Capabilities = ["orchestration"],
+                Scopes = ["netratel.orchestration.invoke", "netratel.orchestration.read"],
+                ResourceConstraints = new() { TenantId = "tenant-17", ResourceIds = ["approved-resource"] }
+            },
+            new ServiceLinkGrant
+            {
+                DirectionId = ServiceLinkContract.ResponderToInitiator, CallerSnapshot = "responder", TargetSnapshot = "initiator",
+                CallerProduct = "netratel", CallerInstanceId = "peer-instance", CallerTenantId = "tenant-17",
+                TargetProduct = "rateldesk", TargetInstanceId = "local-instance", TargetTenantId = "organization-1",
+                Issuer = "https://issuer.local.example.test", Audience = "rateldesk.services", Capabilities = ["orchestration-callback"],
+                Scopes = [ServiceIdentityScopes.Callback],
+                ResourceConstraints = new() { OrganizationId = "organization-1", CustomerIds = ["customer-1"] },
+                SourceInstanceId = "12345678-1234-1234-1234-123456789abc", SourceNamespaceId = "abcdef12-1234-1234-1234-123456789abc"
+            }
+        ]
+    };
+
+    private static ServiceLinkMetadata ProviderLocalMetadata() => new()
+    {
+        Product = "rateldesk", ProductVersion = "provider-authority-fixture", InstanceId = "local-instance",
+        WebBaseUrl = "https://local.example.test", ApiBaseUrl = "https://api.local.example.test",
+        OauthIssuer = "https://issuer.local.example.test", Audience = "rateldesk.services",
+        OauthMetadataUrl = "https://api.local.example.test/.well-known/oauth-authorization-server",
+        TokenEndpoint = "https://api.local.example.test/connect/token", JwksUri = "https://api.local.example.test/.well-known/jwks.json",
+        ServiceLinkEndpoint = "https://api.local.example.test" + ServiceLinkContract.EndpointPath,
+        ApprovalEndpoint = "https://local.example.test/account/integration-credentials/link/approve",
+        CallbackEndpoint = "https://local.example.test/account/integration-credentials/link/callback"
+    };
+
+    private static UpdateOrchestrationConnectivitySettingsDto LinkedRequest(int revision, string? secret = "synthetic-linked-secret") => new()
+    {
+        ExpectedRevision = revision, Enabled = false, BaseUrl = "https://api.peer.example.test",
+        Authority = "https://issuer.peer.example.test", TokenEndpoint = "https://api.peer.example.test/connect/token",
+        Audience = "netratel.services", Scope = "netratel.orchestration.read netratel.orchestration.invoke",
+        ClientId = "dedicated-outbound", ClientSecret = secret
+    };
+
+    [Fact]
+    public async Task Linked_provider_stages_in_existing_store_and_requires_ownership_and_revision_to_enable()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var service = fixture.CreateService();
+        var staged = await service.StageLinkedOrchestratorSettingsAsync(LinkedRequest(0), LinkedBinding());
+        Assert.False(staged.Enabled);
+        Assert.False(staged.ManagedSenderEnabled);
+        Assert.Equal("approved-link", staged.LinkId);
+        Assert.Equal("synthetic-linked-secret", (await service.GetResolvedOrchestratorSettingsAsync()).ClientSecret);
+        await Assert.ThrowsAsync<IntegrationProviderConfigurationConflictException>(() =>
+            service.SetLinkedOrchestratorSenderEnabledAsync("foreign-link", 1, staged.Revision, true));
+        await Assert.ThrowsAsync<IntegrationProviderConfigurationConflictException>(() =>
+            service.SetLinkedOrchestratorSenderEnabledAsync("approved-link", 1, staged.Revision - 1, true));
+        var active = await service.SetLinkedOrchestratorSenderEnabledAsync("approved-link", 1, staged.Revision, true);
+        Assert.True(active.Enabled);
+        Assert.False((await service.GetResolvedOrchestratorSettingsAsync()).Enabled); // A configuration update alone grants no sender authority.
+        await RecordApprovedSenderAuthorityAsync(fixture);
+        Assert.True((await service.GetResolvedOrchestratorSettingsAsync()).Enabled);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.UpdateOrchestratorSettingsAsync(LinkedRequest(active.Revision)));
+        Assert.Single(await fixture.Db.M2MConnectivitySettings.AsNoTracking().ToListAsync());
+    }
+
+    [Fact]
+    public async Task Linked_provider_secret_cannot_cross_tenant_or_credential_revision_and_runtime_reads_current_database()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var service = fixture.CreateService();
+        var staged = await service.StageLinkedOrchestratorSettingsAsync(LinkedRequest(0), LinkedBinding());
+        await Assert.ThrowsAsync<ArgumentException>(() => service.StageLinkedOrchestratorSettingsAsync(
+            LinkedRequest(staged.Revision, null), LinkedBinding() with { PeerTenantId = "other-tenant" }));
+        await Assert.ThrowsAsync<ArgumentException>(() => service.StageLinkedOrchestratorSettingsAsync(
+            LinkedRequest(staged.Revision, null), LinkedBinding(2)));
+        var active = await service.SetLinkedOrchestratorSenderEnabledAsync("approved-link", 1, staged.Revision, true);
+        await RecordApprovedSenderAuthorityAsync(fixture);
+        // ExecuteUpdate bypasses this context's tracked old entity, as another replica does.
+        await fixture.Db.M2MConnectivitySettings.ExecuteUpdateAsync(s => s.SetProperty(x => x.ManagedSenderEnabled, false));
+        Assert.False((await service.GetResolvedOrchestratorSettingsAsync()).Enabled);
+        await fixture.Db.M2MConnectivitySettings.ExecuteUpdateAsync(s => s.SetProperty(x => x.PeerTenantId, "substituted-tenant"));
+        var substituted = await service.GetResolvedOrchestratorSettingsAsync();
+        Assert.True(substituted.SecretUnavailable);
+        Assert.Null(substituted.ClientSecret);
+    }
+
+    [Fact]
+    public async Task Guided_profile_respects_deployment_and_existing_manual_ownership()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var deployment = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Orchestrator:BaseUrl"] = "", ["Orchestrator:Enabled"] = "false"
+        }).Build();
+        var owned = fixture.CreateService(deployment);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => owned.StageLinkedOrchestratorSettingsAsync(LinkedRequest(0), LinkedBinding()));
+        Assert.Empty(await fixture.Db.M2MConnectivitySettings.ToListAsync());
+        var manual = fixture.CreateService();
+        await manual.UpdateOrchestratorSettingsAsync(LinkedRequest(0));
+        await Assert.ThrowsAsync<IntegrationProviderConfigurationConflictException>(() => manual.StageLinkedOrchestratorSettingsAsync(LinkedRequest(1), LinkedBinding()));
+        Assert.Null((await fixture.Db.M2MConnectivitySettings.SingleAsync()).LinkId);
+    }
+
+    [Fact]
+    public async Task Cached_link_token_is_refused_after_durable_profile_disable()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var settings = fixture.CreateService();
+        var staged = await settings.StageLinkedOrchestratorSettingsAsync(LinkedRequest(0), LinkedBinding());
+        await settings.SetLinkedOrchestratorSenderEnabledAsync("approved-link", 1, staged.Revision, true);
+        await RecordApprovedSenderAuthorityAsync(fixture);
+        var snapshot = await settings.GetResolvedOrchestratorSettingsAsync();
+        using var provider = new ServiceCollection().AddSingleton<IIntegrationProviderSettingsService>(settings).BuildServiceProvider();
+        var factory = Substitute.For<IHttpClientFactory>();
+        var handler = new StaticTokenHandler();
+        factory.CreateClient("OrchestrationToken").Returns(new HttpClient(handler));
+        using var memory = new MemoryCache(new MemoryCacheOptions());
+        var tokens = new OrchestrationTokenService(factory, memory, scopes: provider.GetRequiredService<IServiceScopeFactory>());
+        Assert.Equal("synthetic-access-token", await tokens.GetAccessTokenAsync(snapshot));
+        Assert.Equal("synthetic-access-token", await tokens.GetAccessTokenAsync(snapshot));
+        Assert.Equal(1, handler.Requests);
+        var successor = await settings.StageLinkedOrchestratorSettingsAsync(LinkedRequest(snapshot.Revision, "synthetic-successor-secret"), LinkedBinding(2));
+        await settings.SetLinkedOrchestratorSenderEnabledAsync("approved-link", 1, successor.Revision, true);
+        var rotated = await settings.GetResolvedOrchestratorSettingsAsync();
+        Assert.Equal(snapshot.ServiceLink!.LinkId, rotated.ServiceLink!.LinkId);
+        Assert.Equal(2, rotated.ServiceLink.CredentialRevision);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => tokens.GetAccessTokenAsync(snapshot));
+        Assert.Equal("synthetic-access-token", await tokens.GetAccessTokenAsync(rotated));
+        Assert.Equal(2, handler.Requests);
+        await fixture.Db.M2MConnectivitySettings.ExecuteUpdateAsync(s => s.SetProperty(x => x.ManagedSenderEnabled, false));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => tokens.GetAccessTokenAsync(rotated));
+    }
+
+    private sealed class StaticTokenHandler : HttpMessageHandler
+    {
+        public int Requests { get; private set; }
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Requests++;
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                { Content = new StringContent("{\"access_token\":\"synthetic-access-token\",\"expires_in\":300}") });
+        }
+    }
+
+    private static async Task RecordApprovedSenderAuthorityAsync(Fixture fixture)
+    {
+        var summary = ApprovedProviderSummary();
+        var inbound = summary.Grants.Single(x => x.DirectionId == ServiceLinkContract.ResponderToInitiator);
+        var principal = new ServicePrincipalRegistration
+        {
+            Name = "Synthetic inbound authority", ClientId = "synthetic-inbound", NormalizedClientId = "SYNTHETIC-INBOUND",
+            OrganizationId = "organization-1", PeerInstanceId = "peer-instance", PeerTenantId = "tenant-17",
+            LinkId = "approved-link", AttemptId = summary.AttemptId, GrantHash = ServiceLinkCanonicalJson.HashObject(summary),
+            DescriptorHash = summary.DescriptorHash, DirectionId = inbound.DirectionId, LinkRevision = 1, Status = "active",
+            AllowedScopesJson = JsonSerializer.Serialize(inbound.Scopes), CustomerIdsJson = JsonSerializer.Serialize(inbound.ResourceConstraints.CustomerIds),
+            ResourceConstraintsJson = JsonSerializer.Serialize(inbound.ResourceConstraints),
+            SourceInstanceId = Guid.Parse(inbound.SourceInstanceId!), SourceNamespaceId = Guid.Parse(inbound.SourceNamespaceId!)
+        };
+        fixture.Db.Organizations.Add(new Organization { Id = "organization-1", Name = "Synthetic local organization", IsEnabled = true });
+        fixture.Db.Customers.Add(new Customer { Id = "customer-1", Name = "Synthetic approved customer", OrganizationId = "organization-1", IsEnabled = true });
+        fixture.Db.Set<ServicePrincipalRegistration>().Add(principal);
+        fixture.Db.Set<ServicePrincipalSecret>().Add(new()
+        {
+            ServicePrincipalId = principal.Id, CredentialRevision = 1, Status = "active", SecretHash = new string('c', 64), Salt = new string('d', 64),
+            CreatedAtUtc = DateTimeOffset.UtcNow.AddHours(-1), ExpiresAtUtc = DateTimeOffset.UtcNow.AddDays(1)
+        });
+        fixture.Db.IncidentReceiverSources.Add(new()
+        {
+            SourceNamespaceId = principal.SourceNamespaceId.Value, SourceInstanceId = principal.SourceInstanceId.Value,
+            OrganizationId = principal.OrganizationId, CustomerId = "customer-1", IsEnabled = true
+        });
+        fixture.Db.IncidentReceiverPrincipalBindings.Add(new()
+        {
+            SourceNamespaceId = principal.SourceNamespaceId.Value, PrincipalKind = "service_principal", PrincipalId = principal.Id.ToString("N"), IsEnabled = true
+        });
+        // An isolated durable-authority fixture for provider resolution, not evidence of a completed pairing ceremony.
+        fixture.Db.Set<ServiceLinkAttempt>().Add(new ServiceLinkAttempt
+        {
+            AttemptId = "provider-authorization-fixture", Role = "initiator", LocalTenantId = "organization-1",
+            PeerTenantId = "tenant-17", PeerInstanceId = "peer-instance", LinkId = "approved-link", LinkRevision = 1,
+            GrantHash = principal.GrantHash, GrantSummaryJson = JsonSerializer.Serialize(summary), DescriptorHash = summary.DescriptorHash,
+            InboundPrincipalId = principal.Id, LifecycleState = "active", Decision = "commit",
+            LocalInboundActive = true, LocalBusinessSenderEnabled = true, PeerActiveAcknowledged = true
+        });
+        await fixture.Db.SaveChangesAsync();
+    }
+
+    [Theory]
+    [InlineData("registration-revoked")]
+    [InlineData("credential-revoked")]
+    [InlineData("credential-expired")]
+    [InlineData("credential-retired")]
+    [InlineData("missing-current-credential")]
+    [InlineData("organization-disabled")]
+    [InlineData("customer-disabled")]
+    [InlineData("source-disabled")]
+    [InlineData("source-changed")]
+    [InlineData("principal-binding-disabled")]
+    [InlineData("scope-changed")]
+    [InlineData("constraint-changed")]
+    [InlineData("grant-invalid")]
+    public async Task Held_linked_snapshot_observes_current_inbound_grant_even_when_lifecycle_flags_remain_active(string changedAuthority)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var settings = fixture.CreateService();
+        var staged = await settings.StageLinkedOrchestratorSettingsAsync(LinkedRequest(0), LinkedBinding());
+        await settings.SetLinkedOrchestratorSenderEnabledAsync("approved-link", 1, staged.Revision, true);
+        await RecordApprovedSenderAuthorityAsync(fixture);
+        var snapshot = await settings.GetResolvedOrchestratorSettingsAsync();
+        Assert.True(snapshot.Enabled);
+        using var provider = new ServiceCollection().AddSingleton<IIntegrationProviderSettingsService>(settings).BuildServiceProvider();
+        var factory = Substitute.For<IHttpClientFactory>();
+        var handler = new StaticTokenHandler();
+        factory.CreateClient("OrchestrationToken").Returns(new HttpClient(handler));
+        using var memory = new MemoryCache(new MemoryCacheOptions());
+        var tokens = new OrchestrationTokenService(factory, memory, scopes: provider.GetRequiredService<IServiceScopeFactory>());
+        await tokens.GetAccessTokenAsync(snapshot);
+        Assert.Equal(1, handler.Requests);
+
+        // Bypass tracked rows as a different replica or source administrator does; the lifecycle flags deliberately stay stale.
+        var past = DateTimeOffset.UtcNow.AddMinutes(-1);
+        switch (changedAuthority)
+        {
+            case "registration-revoked":
+                await fixture.Db.Set<ServicePrincipalRegistration>().ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, "revoked")); break;
+            case "credential-revoked":
+                await fixture.Db.Set<ServicePrincipalSecret>().ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, "revoked")); break;
+            case "credential-expired":
+                await fixture.Db.Set<ServicePrincipalSecret>().ExecuteUpdateAsync(s => s.SetProperty(x => x.ExpiresAtUtc, past)); break;
+            case "credential-retired":
+                await fixture.Db.Set<ServicePrincipalSecret>().ExecuteUpdateAsync(s => s.SetProperty(x => x.RetireAtUtc, past)); break;
+            case "missing-current-credential":
+                await fixture.Db.Set<ServicePrincipalRegistration>().ExecuteUpdateAsync(s => s.SetProperty(x => x.CurrentCredentialRevision, 2L)); break;
+            case "organization-disabled":
+                await fixture.Db.Organizations.ExecuteUpdateAsync(s => s.SetProperty(x => x.State, Helpdesk.Shared.Models.EntityState.Blocked)); break;
+            case "customer-disabled":
+                await fixture.Db.Customers.ExecuteUpdateAsync(s => s.SetProperty(x => x.State, Helpdesk.Shared.Models.EntityState.Blocked)); break;
+            case "source-disabled":
+                await fixture.Db.IncidentReceiverSources.ExecuteUpdateAsync(s => s.SetProperty(x => x.IsEnabled, false)); break;
+            case "source-changed":
+                var changedSource = Guid.NewGuid();
+                await fixture.Db.IncidentReceiverSources.ExecuteUpdateAsync(s => s.SetProperty(x => x.SourceInstanceId, changedSource)); break;
+            case "principal-binding-disabled":
+                await fixture.Db.IncidentReceiverPrincipalBindings.ExecuteUpdateAsync(s => s.SetProperty(x => x.IsEnabled, false)); break;
+            case "scope-changed":
+                await fixture.Db.Set<ServicePrincipalRegistration>().ExecuteUpdateAsync(s => s.SetProperty(x => x.AllowedScopesJson, "[]")); break;
+            case "constraint-changed":
+                var changed = JsonSerializer.Serialize(ApprovedProviderSummary().Grants[1].ResourceConstraints with { TaskIds = ["unapproved-task"] });
+                await fixture.Db.Set<ServicePrincipalRegistration>().ExecuteUpdateAsync(s => s.SetProperty(x => x.ResourceConstraintsJson, changed)); break;
+            case "grant-invalid":
+                await fixture.Db.Set<ServiceLinkAttempt>().ExecuteUpdateAsync(s => s.SetProperty(x => x.GrantSummaryJson, "{}")); break;
+            default: throw new ArgumentOutOfRangeException(nameof(changedAuthority));
+        }
+
+        var durableAttempt = await fixture.Db.Set<ServiceLinkAttempt>().AsNoTracking().SingleAsync();
+        Assert.True(durableAttempt.LocalInboundActive);
+        Assert.True(durableAttempt.LocalBusinessSenderEnabled);
+        Assert.Equal("active", durableAttempt.LifecycleState);
+        Assert.False((await settings.GetResolvedOrchestratorSettingsAsync()).Enabled);
+        Assert.False((await settings.GetOrchestratorSettingsAsync()).Enabled);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => tokens.GetAccessTokenAsync(snapshot));
+        Assert.Equal(1, handler.Requests); // No cached-token reuse or token-endpoint call after the durable grant changed.
+    }
+
+    [Theory]
+    [InlineData("Enabled", "false")]
+    [InlineData("Enabled", null)]
+    [InlineData("Issuer", "https://changed-issuer.example.test")]
+    [InlineData("Audience", "changed.services")]
+    [InlineData("InstanceId", "changed-instance")]
+    [InlineData("ApiBaseUrl", "https://changed-api.example.test")]
+    [InlineData("WebBaseUrl", "https://changed-web.example.test")]
+    public async Task Held_linked_snapshot_observes_current_local_service_identity_without_changing_stored_grant(string field, string? changedValue)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var settings = fixture.CreateService();
+        var staged = await settings.StageLinkedOrchestratorSettingsAsync(LinkedRequest(0), LinkedBinding());
+        await settings.SetLinkedOrchestratorSenderEnabledAsync("approved-link", 1, staged.Revision, true);
+        await RecordApprovedSenderAuthorityAsync(fixture);
+        var snapshot = await settings.GetResolvedOrchestratorSettingsAsync();
+        Assert.True(snapshot.Enabled);
+        using var provider = new ServiceCollection().AddSingleton<IIntegrationProviderSettingsService>(settings).BuildServiceProvider();
+        var factory = Substitute.For<IHttpClientFactory>();
+        var handler = new StaticTokenHandler();
+        factory.CreateClient("OrchestrationToken").Returns(new HttpClient(handler));
+        using var memory = new MemoryCache(new MemoryCacheOptions());
+        var tokens = new OrchestrationTokenService(factory, memory, scopes: provider.GetRequiredService<IServiceScopeFactory>());
+        await tokens.GetAccessTokenAsync(snapshot);
+        fixture.Configuration[$"ServiceIdentity:{field}"] = changedValue;
+
+        var current = await settings.GetResolvedOrchestratorSettingsAsync();
+        Assert.False(current.Enabled);
+        Assert.Equal(snapshot.Revision, current.Revision);
+        Assert.Equal(snapshot.ServiceLink!.GrantHash, current.ServiceLink!.GrantHash);
+        Assert.False((await settings.GetOrchestratorSettingsAsync()).Enabled);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => tokens.GetAccessTokenAsync(snapshot));
+        Assert.Equal(1, handler.Requests);
+    }
+
+    [Fact]
+    public async Task Reconnect_replaces_only_terminal_disabled_same_tenant_link_and_requires_fresh_secret()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var service = fixture.CreateService();
+        var staged = await service.StageLinkedOrchestratorSettingsAsync(LinkedRequest(0), LinkedBinding());
+        await RecordApprovedSenderAuthorityAsync(fixture);
+        var nextBinding = LinkedBinding() with { LinkId = "newly-approved-reconnect" };
+        await Assert.ThrowsAsync<IntegrationProviderConfigurationConflictException>(() =>
+            service.StageLinkedOrchestratorSettingsAsync(LinkedRequest(staged.Revision), nextBinding));
+        var stopped = await service.SetLinkedOrchestratorSenderEnabledAsync("approved-link", 1, staged.Revision, false);
+        var oldAttempt = await fixture.Db.Set<ServiceLinkAttempt>().SingleAsync();
+        oldAttempt.LifecycleState = "revoked"; oldAttempt.LocalInboundActive = false; oldAttempt.LocalBusinessSenderEnabled = false;
+        await fixture.Db.SaveChangesAsync();
+        await Assert.ThrowsAsync<IntegrationProviderConfigurationConflictException>(() => service.StageLinkedOrchestratorSettingsAsync(
+            LinkedRequest(stopped.Revision), nextBinding with { LocalTenantId = "foreign-organization" }));
+        await Assert.ThrowsAsync<ArgumentException>(() => service.StageLinkedOrchestratorSettingsAsync(LinkedRequest(stopped.Revision, null), nextBinding));
+        var replacement = await service.StageLinkedOrchestratorSettingsAsync(LinkedRequest(stopped.Revision, "synthetic-reconnect-secret"), nextBinding);
+        Assert.Equal("newly-approved-reconnect", replacement.LinkId);
+        Assert.False(replacement.Enabled);
+        Assert.Single(await fixture.Db.M2MConnectivitySettings.ToListAsync());
+        Assert.Equal("synthetic-reconnect-secret", (await service.GetResolvedOrchestratorSettingsAsync()).ClientSecret);
+        Assert.Equal("revoked", (await fixture.Db.Set<ServiceLinkAttempt>().SingleAsync()).LifecycleState);
+    }
+
+    [Fact]
+    public async Task Held_manual_database_profile_cannot_send_cached_tokens_after_host_rotation_or_disable()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var settings = fixture.CreateService();
+        await settings.UpdateOrchestratorSettingsAsync(new UpdateOrchestrationConnectivitySettingsDto
+        {
+            ExpectedRevision = 0, Enabled = true, BaseUrl = "https://original.example.test",
+            ClientId = "manual-outbound", ClientSecret = "synthetic-original-secret"
+        });
+        using var provider = new ServiceCollection().AddSingleton<IIntegrationProviderSettingsService>(settings).BuildServiceProvider();
+        var factory = Substitute.For<IHttpClientFactory>();
+        var handler = new StaticTokenHandler();
+        factory.CreateClient("OrchestrationToken").Returns(new HttpClient(handler));
+        using var memory = new MemoryCache(new MemoryCacheOptions());
+        var tokens = new OrchestrationTokenService(factory, memory, scopes: provider.GetRequiredService<IServiceScopeFactory>());
+        var original = await settings.GetResolvedOrchestratorSettingsAsync();
+        await tokens.GetAccessTokenAsync(original);
+        await settings.UpdateOrchestratorSettingsAsync(new UpdateOrchestrationConnectivitySettingsDto
+        {
+            ExpectedRevision = original.Revision, Enabled = true, BaseUrl = "https://successor.example.test",
+            ClientId = "manual-outbound", ClientSecret = "synthetic-successor-secret"
+        });
+        await Assert.ThrowsAsync<InvalidOperationException>(() => tokens.GetAccessTokenAsync(original));
+        Assert.Equal(1, handler.Requests);
+        var successor = await settings.GetResolvedOrchestratorSettingsAsync();
+        await tokens.GetAccessTokenAsync(successor);
+        Assert.Equal(2, handler.Requests);
+        await fixture.Db.M2MConnectivitySettings.ExecuteUpdateAsync(s => s.SetProperty(x => x.Enabled, false));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => tokens.GetAccessTokenAsync(successor));
+        Assert.Equal(2, handler.Requests);
+    }
+
     [Fact]
     public void Canonical_configuration_takes_precedence_over_legacy_aliases()
     {
@@ -45,6 +431,39 @@ public sealed class IntegrationProviderSettingsTests
         Assert.False(orchestrator.Enabled);
         Assert.Equal("https://canonical.example.test", orchestrator.BaseUrl);
         Assert.Equal("https://canonical.example.test/hub/session", netclaw.Endpoint);
+    }
+
+    [Theory]
+    [InlineData("Authority")]
+    [InlineData("TokenEndpoint")]
+    [InlineData("Audience")]
+    [InlineData("Scope")]
+    public async Task Explicit_empty_operator_identity_does_not_acquire_an_inferred_default(string field)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var values = new Dictionary<string, string?>
+        {
+            ["Orchestrator:BaseUrl"] = "https://peer.example.test", ["Orchestrator:Enabled"] = "true",
+            ["Orchestrator:ClientId"] = "deployment-client", ["Orchestrator:ClientSecret"] = "synthetic-deployment-secret",
+            [$"Orchestrator:{field}"] = ""
+        };
+        var resolved = await fixture.CreateService(new ConfigurationBuilder().AddInMemoryCollection(values).Build()).GetResolvedOrchestratorSettingsAsync();
+        var actual = field switch { "Authority" => resolved.Authority, "TokenEndpoint" => resolved.TokenEndpoint, "Audience" => resolved.Audience, _ => resolved.Scope };
+        Assert.Equal(string.Empty, actual);
+        var tokens = new OrchestrationTokenService(Substitute.For<IHttpClientFactory>(), new MemoryCache(new MemoryCacheOptions()));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => tokens.GetAccessTokenAsync(resolved));
+    }
+
+    [Fact]
+    public void Legacy_provider_partial_credential_cannot_borrow_an_unrelated_global_secret()
+    {
+        var options = IntegrationConfigurationAliases.ReadOrchestrator(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Orchestration:Provider:BaseUrl"] = "https://legacy.example.test", ["Orchestration:Provider:ClientId"] = "provider-client",
+            ["M2M:ClientId"] = "global-client", ["M2M:ClientSecret"] = "global-secret"
+        }).Build());
+        Assert.Equal("provider-client", options.ClientId);
+        Assert.Null(options.ClientSecret);
     }
 
     [Fact]
@@ -1067,7 +1486,12 @@ public sealed class IntegrationProviderSettingsTests
         private readonly SqliteConnection connection;
         public HelpdeskDbContext Db { get; }
         public IOptions<AiAssistantChatOptions> ChatOptions { get; } = Options.Create(new AiAssistantChatOptions());
-        public IConfiguration Configuration { get; } = new ConfigurationBuilder().AddInMemoryCollection().Build();
+        public IConfiguration Configuration { get; } = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["ServiceIdentity:Enabled"] = "true", ["ServiceIdentity:Issuer"] = "https://issuer.local.example.test",
+            ["ServiceIdentity:Audience"] = "rateldesk.services", ["ServiceIdentity:InstanceId"] = "local-instance",
+            ["ServiceIdentity:ApiBaseUrl"] = "https://api.local.example.test", ["ServiceIdentity:WebBaseUrl"] = "https://local.example.test"
+        }).Build();
 
         private Fixture(SqliteConnection connection, HelpdeskDbContext db)
         {

@@ -30,6 +30,7 @@ using Helpdesk.API.Endpoints.RequestTasks;
 using Helpdesk.API.Endpoints.Search;
 using Helpdesk.API.Endpoints.Sla;
 using Helpdesk.API.Endpoints.SupportNotifications;
+using Helpdesk.API.Endpoints.ServiceLink;
 using Helpdesk.API.Endpoints.Services;
 using Helpdesk.API.Endpoints.System;
 using Helpdesk.API.Endpoints.Tickets;
@@ -350,6 +351,8 @@ builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(keyRingPath))
     .SetApplicationName(dpSection["ApplicationName"] ?? "Helpdesk-Keyring");
 builder.Services.AddHelpdeskInfrastructure(builder.Configuration);
+builder.Services.AddRatelDeskServiceIdentity(builder.Configuration);
+builder.Services.AddServiceLinkProtocol(builder.Configuration);
 if (skipDatabaseStartup)
 {
     var testDatabaseRoot = new InMemoryDatabaseRoot();
@@ -531,6 +534,9 @@ builder.Services.AddAuthentication(options =>
             var iss = jwt.Issuer ?? string.Empty;
             var tokenUse = jwt.Claims.FirstOrDefault(c => c.Type == "token_use")?.Value;
             var authMode = jwt.Claims.FirstOrDefault(c => c.Type == "auth_mode")?.Value;
+
+            if (ServiceIdentityAuthenticationHandler.SelectServiceIssuer(jwt, builder.Configuration["ServiceIdentity:Issuer"] ?? string.Empty))
+                return ServiceIdentityAuthenticationHandler.SchemeName;
 
             var isSystemToken =
                 string.Equals(tokenUse, "system", StringComparison.OrdinalIgnoreCase) ||
@@ -1052,6 +1058,7 @@ builder.Services.AddAuthorization(opts =>
 });
 
 builder.Services.AddScoped<IIntegrationCredentialOwnerResolver, IntegrationCredentialOwnerResolver>();
+builder.Services.AddServiceOrchestrationCallbacks();
 builder.Services.AddScoped<IIncidentReceiverAuthorization, IncidentReceiverAuthorization>();
 builder.Services.AddScoped<IAuthorizationHandler, IncidentCreateBoundaryHandler>();
 builder.Services.AddScoped<IncidentReceiver>();
@@ -1166,6 +1173,8 @@ if (useHangfireRuntime)
 
 app.MapCurrentUserAccessEndpoint();
 app.MapIntegrationCredentialEndpoints();
+app.MapServiceIdentityEndpoints();
+app.MapServiceLinkEndpoints();
 app.MapMcpGatewayDelegationEndpoints();
 app.MapGet("/api/v1/setup/status", () => Results.Ok(new { state = "Ready" }))
     .AllowAnonymous()

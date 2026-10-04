@@ -1,0 +1,2376 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.service-link.example/bostec-service-link.v1.json",
+  "title": "bostec.service-link.v1",
+  "description": "Frozen paired product contract. This schema defines public shapes; authority, snapshot equality, hashes, expiry, set ordering and durable transitions are additionally enforced by runtime validators. The schema URI is an identifier, not a discoverable production service.",
+  "$defs": {
+    "operation": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "enum": [
+            "GET",
+            "POST"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "scope": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "method",
+        "path",
+        "scope"
+      ],
+      "additionalProperties": false
+    },
+    "permission_profile": {
+      "type": "object",
+      "properties": {
+        "capability": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/operation"
+          }
+        }
+      },
+      "required": [
+        "capability",
+        "scopes",
+        "operations"
+      ],
+      "additionalProperties": false
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "const": "bostec.service-link.v1"
+        },
+        "product": {
+          "enum": [
+            "netratel",
+            "rateldesk"
+          ]
+        },
+        "product_version": {
+          "type": "string"
+        },
+        "instance_id": {
+          "type": "string"
+        },
+        "source_instance_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "web_base_url": {
+          "type": "string"
+        },
+        "api_base_url": {
+          "type": "string"
+        },
+        "gateway_base_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "oauth_issuer": {
+          "type": "string"
+        },
+        "oauth_metadata_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "token_endpoint": {
+          "type": "string"
+        },
+        "jwks_uri": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "audience": {
+          "type": "string"
+        },
+        "token_endpoint_auth_methods_supported": {
+          "type": "array",
+          "items": {
+            "const": "client_secret_post"
+          },
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "service_link_endpoint": {
+          "type": "string"
+        },
+        "approval_endpoint": {
+          "type": "string"
+        },
+        "callback_endpoint": {
+          "type": "string"
+        },
+        "permission_profiles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/permission_profile"
+          }
+        },
+        "supported_contracts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "contains": {
+            "const": "bostec.service-link.v1"
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "contract",
+        "product",
+        "product_version",
+        "instance_id",
+        "source_instance_id",
+        "web_base_url",
+        "api_base_url",
+        "gateway_base_url",
+        "oauth_issuer",
+        "oauth_metadata_url",
+        "token_endpoint",
+        "jwks_uri",
+        "audience",
+        "token_endpoint_auth_methods_supported",
+        "service_link_endpoint",
+        "approval_endpoint",
+        "callback_endpoint",
+        "permission_profiles",
+        "supported_contracts"
+      ],
+      "additionalProperties": false
+    },
+    "resource_constraints": {
+      "type": "object",
+      "properties": {
+        "organization_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "customer_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "request_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "task_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "tenant_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "resource_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "request_definition_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "organization_id",
+        "customer_ids",
+        "request_ids",
+        "task_ids",
+        "tenant_id",
+        "resource_ids",
+        "request_definition_ids"
+      ],
+      "additionalProperties": false
+    },
+    "grant": {
+      "type": "object",
+      "properties": {
+        "direction_id": {
+          "enum": [
+            "initiator_to_responder",
+            "responder_to_initiator"
+          ]
+        },
+        "caller_snapshot": {
+          "enum": [
+            "initiator",
+            "responder"
+          ]
+        },
+        "target_snapshot": {
+          "enum": [
+            "initiator",
+            "responder"
+          ]
+        },
+        "caller_product": {
+          "enum": [
+            "rateldesk",
+            "netratel"
+          ]
+        },
+        "caller_instance_id": {
+          "type": "string"
+        },
+        "caller_tenant_id": {
+          "type": "string"
+        },
+        "target_product": {
+          "enum": [
+            "rateldesk",
+            "netratel"
+          ]
+        },
+        "target_instance_id": {
+          "type": "string"
+        },
+        "target_tenant_id": {
+          "type": "string"
+        },
+        "issuer": {
+          "type": "string"
+        },
+        "audience": {
+          "type": "string"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "resource_constraints": {
+          "$ref": "#/$defs/resource_constraints"
+        },
+        "source_instance_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_namespace_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "direction_id",
+        "caller_snapshot",
+        "target_snapshot",
+        "caller_product",
+        "caller_instance_id",
+        "caller_tenant_id",
+        "target_product",
+        "target_instance_id",
+        "target_tenant_id",
+        "issuer",
+        "audience",
+        "capabilities",
+        "scopes",
+        "resource_constraints",
+        "source_instance_id",
+        "source_namespace_id"
+      ],
+      "additionalProperties": false
+    },
+    "descriptor": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "const": "bostec.service-link.v1"
+        },
+        "attempt_id": {
+          "type": "string"
+        },
+        "expires_at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+          "format": "date-time"
+        },
+        "initiator_instance_id": {
+          "type": "string"
+        },
+        "initiator_tenant_id": {
+          "type": "string"
+        },
+        "expected_responder_instance_id": {
+          "type": "string"
+        },
+        "requested_responder_tenant_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "initiator_endpoint_snapshot": {
+          "$ref": "#/$defs/metadata"
+        },
+        "responder_endpoint_snapshot": {
+          "$ref": "#/$defs/metadata"
+        },
+        "descriptor_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "code_challenge": {
+          "type": "string"
+        },
+        "code_challenge_method": {
+          "const": "S256"
+        },
+        "requested_grants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/grant"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "initiator_callback_endpoint": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "contract",
+        "attempt_id",
+        "expires_at",
+        "initiator_instance_id",
+        "initiator_tenant_id",
+        "expected_responder_instance_id",
+        "requested_responder_tenant_id",
+        "initiator_endpoint_snapshot",
+        "responder_endpoint_snapshot",
+        "descriptor_hash",
+        "code_challenge",
+        "code_challenge_method",
+        "requested_grants",
+        "initiator_callback_endpoint"
+      ],
+      "additionalProperties": false
+    },
+    "grant_summary": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "const": "bostec.service-link.v1"
+        },
+        "attempt_id": {
+          "type": "string"
+        },
+        "link_id": {
+          "type": "string"
+        },
+        "proposed_link_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "descriptor_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expires_at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+          "format": "date-time"
+        },
+        "initiator_instance_id": {
+          "type": "string"
+        },
+        "responder_instance_id": {
+          "type": "string"
+        },
+        "initiator_endpoint_snapshot": {
+          "$ref": "#/$defs/metadata"
+        },
+        "responder_endpoint_snapshot": {
+          "$ref": "#/$defs/metadata"
+        },
+        "grants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/grant"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      },
+      "required": [
+        "contract",
+        "attempt_id",
+        "link_id",
+        "proposed_link_revision",
+        "descriptor_hash",
+        "expires_at",
+        "initiator_instance_id",
+        "responder_instance_id",
+        "initiator_endpoint_snapshot",
+        "responder_endpoint_snapshot",
+        "grants"
+      ],
+      "additionalProperties": false
+    },
+    "directional_credential": {
+      "type": "object",
+      "properties": {
+        "client_id": {
+          "type": "string"
+        },
+        "client_secret": {
+          "type": "string"
+        },
+        "token_endpoint_auth_method": {
+          "const": "client_secret_post"
+        },
+        "issuer": {
+          "type": "string"
+        },
+        "token_endpoint": {
+          "type": "string"
+        },
+        "audience": {
+          "type": "string"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "credential_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "caller_instance_id": {
+          "type": "string"
+        },
+        "caller_tenant_id": {
+          "type": "string"
+        },
+        "target_instance_id": {
+          "type": "string"
+        },
+        "target_tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "client_id",
+        "client_secret",
+        "token_endpoint_auth_method",
+        "issuer",
+        "token_endpoint",
+        "audience",
+        "scopes",
+        "credential_revision",
+        "caller_instance_id",
+        "caller_tenant_id",
+        "target_instance_id",
+        "target_tenant_id"
+      ],
+      "additionalProperties": false
+    },
+    "review_request": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "const": "bostec.service-link.v1"
+        },
+        "attempt_id": {
+          "type": "string"
+        },
+        "pairing_code": {
+          "type": "string"
+        },
+        "code_verifier": {
+          "type": "string"
+        },
+        "descriptor_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "contract",
+        "attempt_id",
+        "pairing_code",
+        "code_verifier",
+        "descriptor_hash"
+      ],
+      "additionalProperties": false
+    },
+    "review_response": {
+      "type": "object",
+      "properties": {
+        "grant_summary": {
+          "$ref": "#/$defs/grant_summary"
+        },
+        "grant_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "lifecycle_state": {
+          "const": "approved"
+        }
+      },
+      "required": [
+        "grant_summary",
+        "grant_hash",
+        "lifecycle_state"
+      ],
+      "additionalProperties": false
+    },
+    "exchange_request": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "const": "bostec.service-link.v1"
+        },
+        "attempt_id": {
+          "type": "string"
+        },
+        "pairing_code": {
+          "type": "string"
+        },
+        "code_verifier": {
+          "type": "string"
+        },
+        "descriptor_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "grant_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "initiator_consent_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "credential_for_responder": {
+          "$ref": "#/$defs/directional_credential"
+        }
+      },
+      "required": [
+        "contract",
+        "attempt_id",
+        "pairing_code",
+        "code_verifier",
+        "descriptor_hash",
+        "grant_hash",
+        "initiator_consent_id",
+        "credential_for_responder"
+      ],
+      "additionalProperties": false
+    },
+    "exchange_response": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "const": "bostec.service-link.v1"
+        },
+        "attempt_id": {
+          "type": "string"
+        },
+        "link_id": {
+          "type": "string"
+        },
+        "link_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "grant_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "lifecycle_state": {
+          "const": "prepared"
+        },
+        "credential_for_initiator": {
+          "$ref": "#/$defs/directional_credential"
+        }
+      },
+      "required": [
+        "contract",
+        "attempt_id",
+        "link_id",
+        "link_revision",
+        "grant_hash",
+        "lifecycle_state",
+        "credential_for_initiator"
+      ],
+      "additionalProperties": false
+    },
+    "verify_request": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "const": "bostec.service-link.v1"
+        },
+        "operation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "attempt_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "link_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "link_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "grant_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "direction_id": {
+          "enum": [
+            "initiator_to_responder",
+            "responder_to_initiator"
+          ]
+        },
+        "credential_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "rotation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "contract",
+        "operation_id",
+        "attempt_id",
+        "link_id",
+        "link_revision",
+        "grant_hash",
+        "direction_id",
+        "credential_revision",
+        "rotation_id"
+      ],
+      "additionalProperties": false
+    },
+    "commit_request": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "const": "bostec.service-link.v1"
+        },
+        "operation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "attempt_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "link_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "link_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "grant_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "commit_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "descriptor_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "initiator_verification_receipt_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "responder_verification_receipt_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "contract",
+        "operation_id",
+        "attempt_id",
+        "link_id",
+        "link_revision",
+        "grant_hash",
+        "commit_id",
+        "descriptor_hash",
+        "initiator_verification_receipt_id",
+        "responder_verification_receipt_id"
+      ],
+      "additionalProperties": false
+    },
+    "verification_receipt": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "const": "bostec.service-link.v1"
+        },
+        "link_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "link_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "grant_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "lifecycle_state": {
+          "enum": [
+            "awaiting_approval",
+            "approved",
+            "prepared",
+            "verified",
+            "in_doubt",
+            "commit_decided",
+            "active",
+            "revocation_pending",
+            "revoked",
+            "expired",
+            "failed"
+          ]
+        },
+        "verification_receipt_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "caller_instance_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "caller_tenant_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "target_instance_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "target_tenant_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "credential_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "rotation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "verified_at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "contract",
+        "link_id",
+        "link_revision",
+        "grant_hash",
+        "lifecycle_state",
+        "verification_receipt_id",
+        "caller_instance_id",
+        "caller_tenant_id",
+        "target_instance_id",
+        "target_tenant_id",
+        "credential_revision",
+        "rotation_id",
+        "verified_at"
+      ],
+      "additionalProperties": false
+    },
+    "rotation_status": {
+      "type": "object",
+      "properties": {
+        "rotation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "direction_id": {
+          "enum": [
+            "initiator_to_responder",
+            "responder_to_initiator"
+          ]
+        },
+        "rotation_state": {
+          "enum": [
+            "requested",
+            "offered",
+            "prepared",
+            "activated",
+            "retiring",
+            "completed",
+            "aborted",
+            "recovery_pending"
+          ]
+        },
+        "expected_current_credential_revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "successor_credential_revision": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "offer_expires_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "successor_verification_receipt_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "activate_decision_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "caller_switch_revision": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "predecessor_retire_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "rotation_id",
+        "direction_id",
+        "rotation_state",
+        "expected_current_credential_revision",
+        "successor_credential_revision",
+        "offer_expires_at",
+        "successor_verification_receipt_id",
+        "activate_decision_id",
+        "caller_switch_revision",
+        "predecessor_retire_at"
+      ],
+      "additionalProperties": false
+    },
+    "status_response": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "const": "bostec.service-link.v1"
+        },
+        "link_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "link_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "grant_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "lifecycle_state": {
+          "enum": [
+            "awaiting_approval",
+            "approved",
+            "prepared",
+            "verified",
+            "in_doubt",
+            "commit_decided",
+            "active",
+            "revocation_pending",
+            "revoked",
+            "expired",
+            "failed"
+          ]
+        },
+        "coordinator_instance_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "attempt_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "decision": {
+          "enum": [
+            "undecided",
+            "commit",
+            "abort"
+          ]
+        },
+        "commit_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "abort_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "descriptor_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "initiator_verification_receipt_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "responder_verification_receipt_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rotations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/rotation_status"
+          }
+        },
+        "local_inbound_ready": {
+          "type": "boolean"
+        },
+        "local_outbound_persisted": {
+          "type": "boolean"
+        },
+        "local_inbound_active": {
+          "type": "boolean"
+        },
+        "local_business_sender_enabled": {
+          "type": "boolean"
+        },
+        "peer_active_acknowledged": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "contract",
+        "link_id",
+        "link_revision",
+        "grant_hash",
+        "lifecycle_state",
+        "coordinator_instance_id",
+        "attempt_id",
+        "decision",
+        "commit_id",
+        "abort_id",
+        "descriptor_hash",
+        "initiator_verification_receipt_id",
+        "responder_verification_receipt_id",
+        "rotations",
+        "local_inbound_ready",
+        "local_outbound_persisted",
+        "local_inbound_active",
+        "local_business_sender_enabled",
+        "peer_active_acknowledged"
+      ],
+      "additionalProperties": false
+    },
+    "ack_request": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "const": "bostec.service-link.v1"
+        },
+        "operation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "link_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "link_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "grant_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "attempt_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "ack_phase": {
+          "enum": [
+            "prepared",
+            "active",
+            "revoked"
+          ]
+        },
+        "peer_operation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "commit_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "exchange_response_hash": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "revocation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "contract",
+        "operation_id",
+        "link_id",
+        "link_revision",
+        "grant_hash",
+        "attempt_id",
+        "ack_phase",
+        "peer_operation_id",
+        "commit_id",
+        "exchange_response_hash",
+        "revocation_id"
+      ],
+      "additionalProperties": false
+    },
+    "ack_response": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "const": "bostec.service-link.v1"
+        },
+        "link_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "link_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "grant_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "lifecycle_state": {
+          "enum": [
+            "awaiting_approval",
+            "approved",
+            "prepared",
+            "verified",
+            "in_doubt",
+            "commit_decided",
+            "active",
+            "revocation_pending",
+            "revoked",
+            "expired",
+            "failed"
+          ]
+        },
+        "acknowledged_phase": {
+          "enum": [
+            "prepared",
+            "active",
+            "revoked"
+          ]
+        },
+        "acknowledgement_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "contract",
+        "link_id",
+        "link_revision",
+        "grant_hash",
+        "lifecycle_state",
+        "acknowledged_phase",
+        "acknowledgement_id"
+      ],
+      "additionalProperties": false
+    },
+    "commit_response": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "const": "bostec.service-link.v1"
+        },
+        "link_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "link_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "grant_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "lifecycle_state": {
+          "enum": [
+            "awaiting_approval",
+            "approved",
+            "prepared",
+            "verified",
+            "in_doubt",
+            "commit_decided",
+            "active",
+            "revocation_pending",
+            "revoked",
+            "expired",
+            "failed"
+          ]
+        },
+        "decision": {
+          "const": "commit"
+        },
+        "commit_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "local_inbound_active": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "contract",
+        "link_id",
+        "link_revision",
+        "grant_hash",
+        "lifecycle_state",
+        "decision",
+        "commit_id",
+        "local_inbound_active"
+      ],
+      "additionalProperties": false
+    },
+    "abort_request": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "const": "bostec.service-link.v1"
+        },
+        "operation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "link_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "link_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "grant_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "attempt_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "abort_phase": {
+          "enum": [
+            "request",
+            "decision"
+          ]
+        },
+        "abort_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "reason_code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "contract",
+        "operation_id",
+        "link_id",
+        "link_revision",
+        "grant_hash",
+        "attempt_id",
+        "abort_phase",
+        "abort_id",
+        "reason_code"
+      ],
+      "additionalProperties": false
+    },
+    "abort_response": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "const": "bostec.service-link.v1"
+        },
+        "link_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "link_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "grant_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "lifecycle_state": {
+          "enum": [
+            "awaiting_approval",
+            "approved",
+            "prepared",
+            "verified",
+            "in_doubt",
+            "commit_decided",
+            "active",
+            "revocation_pending",
+            "revoked",
+            "expired",
+            "failed"
+          ]
+        },
+        "decision": {
+          "enum": [
+            "commit",
+            "abort"
+          ]
+        },
+        "commit_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "abort_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "contract",
+        "link_id",
+        "link_revision",
+        "grant_hash",
+        "lifecycle_state",
+        "decision",
+        "commit_id",
+        "abort_id"
+      ],
+      "additionalProperties": false
+    },
+    "revoke_request": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "const": "bostec.service-link.v1"
+        },
+        "operation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "link_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "link_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "grant_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "revocation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "expected_link_revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "reason_code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "attempt_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "contract",
+        "operation_id",
+        "link_id",
+        "link_revision",
+        "grant_hash",
+        "revocation_id",
+        "expected_link_revision",
+        "reason_code"
+      ],
+      "additionalProperties": false
+    },
+    "revoke_response": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "const": "bostec.service-link.v1"
+        },
+        "link_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "link_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "grant_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "lifecycle_state": {
+          "enum": [
+            "awaiting_approval",
+            "approved",
+            "prepared",
+            "verified",
+            "in_doubt",
+            "commit_decided",
+            "active",
+            "revocation_pending",
+            "revoked",
+            "expired",
+            "failed"
+          ]
+        },
+        "revocation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "local_business_revoked": {
+          "const": true
+        },
+        "local_sender_disabled": {
+          "const": true
+        }
+      },
+      "required": [
+        "contract",
+        "link_id",
+        "link_revision",
+        "grant_hash",
+        "lifecycle_state",
+        "revocation_id",
+        "local_business_revoked",
+        "local_sender_disabled"
+      ],
+      "additionalProperties": false
+    },
+    "rotate_request_request": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "const": "bostec.service-link.v1"
+        },
+        "operation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "link_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "link_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "grant_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "rotation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "direction_id": {
+          "enum": [
+            "initiator_to_responder",
+            "responder_to_initiator"
+          ]
+        },
+        "expected_current_credential_revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "rotation_phase": {
+          "const": "request"
+        },
+        "successor_credential_revision": {
+          "type": "null"
+        },
+        "requested_by_instance_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "requested_policy_revision": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "attempt_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "contract",
+        "operation_id",
+        "link_id",
+        "link_revision",
+        "grant_hash",
+        "rotation_id",
+        "direction_id",
+        "expected_current_credential_revision",
+        "rotation_phase",
+        "successor_credential_revision",
+        "requested_by_instance_id",
+        "requested_policy_revision"
+      ],
+      "additionalProperties": false
+    },
+    "rotate_offer_request": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "const": "bostec.service-link.v1"
+        },
+        "operation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "link_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "link_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "grant_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "rotation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "direction_id": {
+          "enum": [
+            "initiator_to_responder",
+            "responder_to_initiator"
+          ]
+        },
+        "expected_current_credential_revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "rotation_phase": {
+          "const": "offer"
+        },
+        "successor_credential_revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "offer_expires_at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+          "format": "date-time"
+        },
+        "credential_for_caller": {
+          "$ref": "#/$defs/directional_credential"
+        },
+        "attempt_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "contract",
+        "operation_id",
+        "link_id",
+        "link_revision",
+        "grant_hash",
+        "rotation_id",
+        "direction_id",
+        "expected_current_credential_revision",
+        "rotation_phase",
+        "successor_credential_revision",
+        "offer_expires_at",
+        "credential_for_caller"
+      ],
+      "additionalProperties": false
+    },
+    "rotate_verified_request": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "const": "bostec.service-link.v1"
+        },
+        "operation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "link_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "link_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "grant_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "rotation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "direction_id": {
+          "enum": [
+            "initiator_to_responder",
+            "responder_to_initiator"
+          ]
+        },
+        "expected_current_credential_revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "rotation_phase": {
+          "const": "verified"
+        },
+        "successor_credential_revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "successor_verification_receipt_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "attempt_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "contract",
+        "operation_id",
+        "link_id",
+        "link_revision",
+        "grant_hash",
+        "rotation_id",
+        "direction_id",
+        "expected_current_credential_revision",
+        "rotation_phase",
+        "successor_credential_revision",
+        "successor_verification_receipt_id"
+      ],
+      "additionalProperties": false
+    },
+    "rotate_switched_request": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "const": "bostec.service-link.v1"
+        },
+        "operation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "link_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "link_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "grant_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "rotation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "direction_id": {
+          "enum": [
+            "initiator_to_responder",
+            "responder_to_initiator"
+          ]
+        },
+        "expected_current_credential_revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "rotation_phase": {
+          "const": "switched"
+        },
+        "successor_credential_revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "activate_decision_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "successor_verification_receipt_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "caller_switch_revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "attempt_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "contract",
+        "operation_id",
+        "link_id",
+        "link_revision",
+        "grant_hash",
+        "rotation_id",
+        "direction_id",
+        "expected_current_credential_revision",
+        "rotation_phase",
+        "successor_credential_revision",
+        "activate_decision_id",
+        "successor_verification_receipt_id",
+        "caller_switch_revision"
+      ],
+      "additionalProperties": false
+    },
+    "rotate_abort_request": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "const": "bostec.service-link.v1"
+        },
+        "operation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "link_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "link_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "grant_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "rotation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "direction_id": {
+          "enum": [
+            "initiator_to_responder",
+            "responder_to_initiator"
+          ]
+        },
+        "expected_current_credential_revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "rotation_phase": {
+          "const": "abort"
+        },
+        "successor_credential_revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "reason_code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "attempt_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "contract",
+        "operation_id",
+        "link_id",
+        "link_revision",
+        "grant_hash",
+        "rotation_id",
+        "direction_id",
+        "expected_current_credential_revision",
+        "rotation_phase",
+        "successor_credential_revision",
+        "reason_code"
+      ],
+      "additionalProperties": false
+    },
+    "rotate_request": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/rotate_request_request"
+        },
+        {
+          "$ref": "#/$defs/rotate_offer_request"
+        },
+        {
+          "$ref": "#/$defs/rotate_verified_request"
+        },
+        {
+          "$ref": "#/$defs/rotate_switched_request"
+        },
+        {
+          "$ref": "#/$defs/rotate_abort_request"
+        }
+      ]
+    },
+    "rotate_response": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "const": "bostec.service-link.v1"
+        },
+        "link_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "link_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "grant_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "lifecycle_state": {
+          "enum": [
+            "awaiting_approval",
+            "approved",
+            "prepared",
+            "verified",
+            "in_doubt",
+            "commit_decided",
+            "active",
+            "revocation_pending",
+            "revoked",
+            "expired",
+            "failed"
+          ]
+        },
+        "rotation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "rotation_state": {
+          "enum": [
+            "requested",
+            "offered",
+            "prepared",
+            "activated",
+            "retiring",
+            "completed",
+            "aborted",
+            "recovery_pending"
+          ]
+        },
+        "current_credential_revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "successor_credential_revision": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "activate_decision_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "predecessor_retire_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "contract",
+        "link_id",
+        "link_revision",
+        "grant_hash",
+        "lifecycle_state",
+        "rotation_id",
+        "rotation_state",
+        "current_credential_revision",
+        "successor_credential_revision"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "x-contract-revision": "2026-10-04",
+  "x-normative-prose-sha256": "ab3a33e61a33cf86744a9cb1b58c24513ca5bb193bbc1566a2e16362866c7f77",
+  "x-permission-profiles": {
+    "common": {
+      "capability": "bostec.service-link.v1",
+      "scopes": [
+        "bostec.service-link.control",
+        "bostec.service-link.verify"
+      ],
+      "operations": [
+        {
+          "method": "POST",
+          "path": "/api/integrations/service-link/v1/links/{link_id}/verify",
+          "scope": "bostec.service-link.verify"
+        },
+        {
+          "method": "GET",
+          "path": "/api/integrations/service-link/v1/links/{link_id}/status",
+          "scope": "bostec.service-link.control"
+        },
+        {
+          "method": "POST",
+          "path": "/api/integrations/service-link/v1/links/{link_id}/ack",
+          "scope": "bostec.service-link.control"
+        },
+        {
+          "method": "POST",
+          "path": "/api/integrations/service-link/v1/links/{link_id}/commit",
+          "scope": "bostec.service-link.control"
+        },
+        {
+          "method": "POST",
+          "path": "/api/integrations/service-link/v1/links/{link_id}/abort",
+          "scope": "bostec.service-link.control"
+        },
+        {
+          "method": "POST",
+          "path": "/api/integrations/service-link/v1/links/{link_id}/revoke",
+          "scope": "bostec.service-link.control"
+        },
+        {
+          "method": "POST",
+          "path": "/api/integrations/service-link/v1/links/{link_id}/rotate",
+          "scope": "bostec.service-link.control"
+        }
+      ]
+    },
+    "rateldesk": [
+      {
+        "capability": "rateldesk.incident-create.v1",
+        "scopes": [
+          "rateldesk.incident-receipts.read",
+          "rateldesk.incident-targets.read",
+          "rateldesk.incidents.create"
+        ],
+        "operations": [
+          {
+            "method": "POST",
+            "path": "/api/v1/incidents/",
+            "scope": "rateldesk.incidents.create"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v1/integrations/netratel/capabilities",
+            "scope": "rateldesk.incident-receipts.read"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v1/integrations/netratel/incident-receipts/{key}",
+            "scope": "rateldesk.incident-receipts.read"
+          },
+          {
+            "method": "POST",
+            "path": "/api/v1/integrations/netratel/targets/validate",
+            "scope": "rateldesk.incident-targets.read"
+          }
+        ]
+      },
+      {
+        "capability": "rateldesk.orchestration.callback.v1",
+        "scopes": [
+          "rateldesk.orchestration.callback"
+        ],
+        "operations": [
+          {
+            "method": "POST",
+            "path": "/api/v1/orchestration/provider/callback",
+            "scope": "rateldesk.orchestration.callback"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v1/orchestration/provider/m2m/ping",
+            "scope": "rateldesk.orchestration.callback"
+          }
+        ]
+      },
+      {
+        "capability": "bostec.service-link.v1",
+        "scopes": [
+          "bostec.service-link.control",
+          "bostec.service-link.verify"
+        ],
+        "operations": [
+          {
+            "method": "POST",
+            "path": "/api/integrations/service-link/v1/links/{link_id}/verify",
+            "scope": "bostec.service-link.verify"
+          },
+          {
+            "method": "GET",
+            "path": "/api/integrations/service-link/v1/links/{link_id}/status",
+            "scope": "bostec.service-link.control"
+          },
+          {
+            "method": "POST",
+            "path": "/api/integrations/service-link/v1/links/{link_id}/ack",
+            "scope": "bostec.service-link.control"
+          },
+          {
+            "method": "POST",
+            "path": "/api/integrations/service-link/v1/links/{link_id}/commit",
+            "scope": "bostec.service-link.control"
+          },
+          {
+            "method": "POST",
+            "path": "/api/integrations/service-link/v1/links/{link_id}/abort",
+            "scope": "bostec.service-link.control"
+          },
+          {
+            "method": "POST",
+            "path": "/api/integrations/service-link/v1/links/{link_id}/revoke",
+            "scope": "bostec.service-link.control"
+          },
+          {
+            "method": "POST",
+            "path": "/api/integrations/service-link/v1/links/{link_id}/rotate",
+            "scope": "bostec.service-link.control"
+          }
+        ]
+      }
+    ],
+    "netratel": [
+      {
+        "capability": "netratel.orchestration.v1",
+        "scopes": [
+          "netratel.orchestration.invoke",
+          "netratel.orchestration.read"
+        ],
+        "operations": [
+          {
+            "method": "GET",
+            "path": "/internal/health",
+            "scope": "netratel.orchestration.read"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v1/system/m2m/ping",
+            "scope": "netratel.orchestration.read"
+          },
+          {
+            "method": "GET",
+            "path": "/internal/catalog/jobs",
+            "scope": "netratel.orchestration.read"
+          },
+          {
+            "method": "GET",
+            "path": "/internal/catalog/tenants",
+            "scope": "netratel.orchestration.read"
+          },
+          {
+            "method": "GET",
+            "path": "/internal/catalog/request-definitions",
+            "scope": "netratel.orchestration.read"
+          },
+          {
+            "method": "POST",
+            "path": "/internal/ingest",
+            "scope": "netratel.orchestration.invoke"
+          }
+        ]
+      },
+      {
+        "capability": "bostec.service-link.v1",
+        "scopes": [
+          "bostec.service-link.control",
+          "bostec.service-link.verify"
+        ],
+        "operations": [
+          {
+            "method": "POST",
+            "path": "/api/integrations/service-link/v1/links/{link_id}/verify",
+            "scope": "bostec.service-link.verify"
+          },
+          {
+            "method": "GET",
+            "path": "/api/integrations/service-link/v1/links/{link_id}/status",
+            "scope": "bostec.service-link.control"
+          },
+          {
+            "method": "POST",
+            "path": "/api/integrations/service-link/v1/links/{link_id}/ack",
+            "scope": "bostec.service-link.control"
+          },
+          {
+            "method": "POST",
+            "path": "/api/integrations/service-link/v1/links/{link_id}/commit",
+            "scope": "bostec.service-link.control"
+          },
+          {
+            "method": "POST",
+            "path": "/api/integrations/service-link/v1/links/{link_id}/abort",
+            "scope": "bostec.service-link.control"
+          },
+          {
+            "method": "POST",
+            "path": "/api/integrations/service-link/v1/links/{link_id}/revoke",
+            "scope": "bostec.service-link.control"
+          },
+          {
+            "method": "POST",
+            "path": "/api/integrations/service-link/v1/links/{link_id}/rotate",
+            "scope": "bostec.service-link.control"
+          }
+        ]
+      }
+    ]
+  },
+  "x-resource-constraints": {
+    "empty_or_null_means": "No standalone authority and never a wildcard. Guided callback request/task arrays may be empty only when every accepted execution has the exact approved durable link/peer/revision stamp and real request/execution acknowledgement; nonempty arrays further narrow that recorded set.",
+    "rateldesk.incident-create.v1": "organization_id and the explicitly enabled customer_ids bind source membership; current receiver supports one approved customer per source namespace.",
+    "rateldesk.orchestration.callback.v1": "organization_id must match the local organization. Manual clients require nonempty recorded local request_ids/task_ids. Guided clients require task OrchestrationLinkId/OrchestrationPeerInstanceId/OrchestrationLinkRevision equal the approved link and exact recorded external request/execution correlation; optional nonempty request_ids/task_ids/customer_ids further narrow that bound set. No unrelated task authority.",
+    "netratel.orchestration.v1": "tenant_id plus nonempty explicitly approved resource_ids and/or request_definition_ids, under current FlowExecutionAuthority; organization_id is null and customer_ids/request_ids/task_ids are empty in this frozen product profile. No unrelated tenant enumeration or unrestricted ingest."
+  },
+  "x-lifecycle-paths": [
+    {
+      "method": "POST",
+      "path": "/links/{link_id}/verify",
+      "scope": "bostec.service-link.verify"
+    },
+    {
+      "method": "GET",
+      "path": "/links/{link_id}/status",
+      "scope": "bostec.service-link.control"
+    },
+    {
+      "method": "POST",
+      "path": "/links/{link_id}/ack",
+      "scope": "bostec.service-link.control"
+    },
+    {
+      "method": "POST",
+      "path": "/links/{link_id}/commit",
+      "scope": "bostec.service-link.control"
+    },
+    {
+      "method": "POST",
+      "path": "/links/{link_id}/abort",
+      "scope": "bostec.service-link.control"
+    },
+    {
+      "method": "POST",
+      "path": "/links/{link_id}/revoke",
+      "scope": "bostec.service-link.control"
+    },
+    {
+      "method": "POST",
+      "path": "/links/{link_id}/rotate",
+      "scope": "bostec.service-link.control"
+    }
+  ],
+  "x-oauth-baseline": {
+    "grant_type": "client_credentials",
+    "token_endpoint_auth_method": "client_secret_post",
+    "encoding": "application/x-www-form-urlencoded",
+    "refresh_tokens": false
+  },
+  "x-hash": {
+    "contract": "bostec.service-link.hash.v1",
+    "algorithm": "SHA-256",
+    "encoding": "UTF-8 RFC8785 JCS, 64 lowercase hexadecimal",
+    "excluded_self_fields": [
+      "descriptor_hash",
+      "grant_hash"
+    ],
+    "scope_capability_set_order": "ordinal, duplicates rejected",
+    "grant_order": "direction_id ordinal",
+    "numeric_domain": "nonnegative safe integer; larger identifiers are strings",
+    "timestamp": "UTC whole seconds, YYYY-MM-DDTHH:mm:ssZ"
+  }
+}

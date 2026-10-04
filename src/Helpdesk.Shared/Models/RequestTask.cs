@@ -49,6 +49,9 @@ public class RequestTask : Ticket
     public int? HardTimeoutSeconds { get; set; }
     public string? TimeoutIncidentId { get; set; }
     public string? OrchestratorExecutionId { get; set; }
+    public string? OrchestrationLinkId { get; set; }
+    public string? OrchestrationPeerInstanceId { get; set; }
+    public long? OrchestrationLinkRevision { get; set; }
     public string? ResultJson { get; set; }
     public int Order { get; set; }
 }
