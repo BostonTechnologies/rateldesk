@@ -158,6 +158,16 @@ public sealed class IncidentReceiverTests
     public async Task Ordinary_create_and_keyed_replay_preserve_accepted_result_and_one_effect_set(bool postgres)
     {
         await using var h = await Harness.CreateAsync(postgres);
+        using var nonJsonRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/incidents/")
+            { Content = new StringContent("ordinary payload", Encoding.UTF8, "text/plain") };
+        h.Authorize(nonJsonRequest);
+        using var nonJson = await h.Client.SendAsync(nonJsonRequest);
+        Assert.Equal(HttpStatusCode.UnsupportedMediaType, nonJson.StatusCode);
+        using var emptyRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/incidents/");
+        h.Authorize(emptyRequest);
+        using var empty = await h.Client.SendAsync(emptyRequest);
+        Assert.Equal(HttpStatusCode.BadRequest, empty.StatusCode);
+        Assert.Equal(new Counts(0, 0, 0, 0, 0, 0, 0), await h.CountsAsync());
         using var ordinary = await h.CreateIncidentAsync(null);
         Assert.Equal(HttpStatusCode.Created, ordinary.StatusCode);
         Assert.False(JsonDocument.Parse(await ordinary.Content.ReadAsStringAsync()).RootElement.TryGetProperty("integrationReceipt", out _));

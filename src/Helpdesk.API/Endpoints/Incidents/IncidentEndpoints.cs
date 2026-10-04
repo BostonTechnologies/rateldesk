@@ -341,6 +341,8 @@ public static class IncidentEndpoints
                 if (dto is null) return IncidentReceiverContract.Problem(400, "invalid-incident-request");
                 return await IncidentReceiver.ExecuteCreateAsync(http.RequestServices, user, sourceId, key, dto, http, token);
             }
+            if (http.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpRequestBodyDetectionFeature>()?.CanHaveBody == false)
+                return Results.BadRequest();
             try { dto = await http.Request.ReadFromJsonAsync<CreateIncidentDto>(token); }
             catch (global::System.Text.Json.JsonException) { return Results.BadRequest(); }
             if (dto is null) return Results.BadRequest();
