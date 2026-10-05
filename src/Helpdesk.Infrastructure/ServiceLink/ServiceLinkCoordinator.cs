@@ -43,7 +43,7 @@ public sealed partial class ServiceLinkCoordinator(
     {
         Require(settings.Enabled && issuer.Enabled, "service-link-unavailable", "The deployment has not enabled its configured service issuer and reciprocal linking.", 503);
         Require(issuer.ApiBaseUrl.TrimEnd('/') == settings.ApiBaseUrl.TrimEnd('/') && issuer.WebBaseUrl.TrimEnd('/') == settings.WebBaseUrl.TrimEnd('/'), "service-link-configuration-invalid", "Issuer and link canonical addresses must agree.", 503);
-        return new ServiceLinkMetadata
+        return ServiceLinkPayloadNormalization.Metadata(new ServiceLinkMetadata
         {
             ProductVersion = BuildInfoProvider.FromAssembly(typeof(ServiceLinkCoordinator).Assembly, "runtime").Version,
             InstanceId = issuer.InstanceId, WebBaseUrl = settings.WebBaseUrl.TrimEnd('/'), ApiBaseUrl = settings.ApiBaseUrl.TrimEnd('/'), GatewayBaseUrl = settings.GatewayBaseUrl,
@@ -59,7 +59,7 @@ public sealed partial class ServiceLinkCoordinator(
                 new(ServiceLinkContract.Version, [ServiceLinkContract.ControlScope, ServiceLinkContract.VerifyScope],
                 [new("POST", ServiceLinkContract.EndpointPath + "/links/{link_id}/verify", ServiceLinkContract.VerifyScope), new("GET", ServiceLinkContract.EndpointPath + "/links/{link_id}/status", ServiceLinkContract.ControlScope), .. new[] { "ack", "commit", "abort", "revoke", "rotate" }.Select(x => new ServiceLinkResourceOperation("POST", ServiceLinkContract.EndpointPath + "/links/{link_id}/" + x, ServiceLinkContract.ControlScope))])
             ]
-        };
+        });
     }
 
     private async Task<string> Authorize(ClaimsPrincipal actor, string organization, CancellationToken ct)

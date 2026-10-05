@@ -25,9 +25,9 @@ public sealed record ServiceLinkMetadata
     [JsonRequired, JsonPropertyName("api_base_url")] public string ApiBaseUrl { get; init; } = "";
     [JsonRequired, JsonPropertyName("gateway_base_url")] public string? GatewayBaseUrl { get; init; }
     [JsonRequired, JsonPropertyName("oauth_issuer")] public string OauthIssuer { get; init; } = "";
-    [JsonRequired, JsonPropertyName("oauth_metadata_url")] public string OauthMetadataUrl { get; init; } = "";
+    [JsonRequired, JsonPropertyName("oauth_metadata_url")] public string? OauthMetadataUrl { get; init; } = "";
     [JsonRequired, JsonPropertyName("token_endpoint")] public string TokenEndpoint { get; init; } = "";
-    [JsonRequired, JsonPropertyName("jwks_uri")] public string JwksUri { get; init; } = "";
+    [JsonRequired, JsonPropertyName("jwks_uri")] public string? JwksUri { get; init; } = "";
     [JsonRequired, JsonPropertyName("audience")] public string Audience { get; init; } = "";
     [JsonRequired, JsonPropertyName("token_endpoint_auth_methods_supported")] public string[] TokenEndpointAuthMethodsSupported { get; init; } = ["client_secret_post"];
     [JsonRequired, JsonPropertyName("service_link_endpoint")] public string ServiceLinkEndpoint { get; init; } = "";

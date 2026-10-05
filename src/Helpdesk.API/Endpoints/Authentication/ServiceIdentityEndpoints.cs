@@ -70,9 +70,12 @@ public static class ServiceIdentityEndpoints
             catch (KeyNotFoundException) { return Results.NotFound(); }
             catch (DbUpdateException) { return Conflict("A concurrent credential change won; reload the registration."); }
         }).RequireRateLimiting(ServiceIdentityServiceCollectionExtensions.SensitiveRateLimiter);
-        group.MapPost("/{id:guid}/revoke", async (Guid id, IServicePrincipalRegistry registry, HttpContext http, CancellationToken ct) =>
+        group.MapPost("/{id:guid}/revoke", async (Guid id, IServicePrincipalRegistry registry, HelpdeskDbContext db, HttpContext http, CancellationToken ct) =>
         {
             NoStore(http);
+            var row = await db.Set<ServicePrincipalRegistration>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
+            if (row is null) return Results.NotFound();
+            if (row.LinkId is not null) return Conflict("Reciprocal clients must be unlinked through the coordinated link workflow.");
             try { await registry.RevokeAsync(id, ct); return Results.Ok(new { id, status = "revoked" }); }
             catch (ServiceClientConflictException ex) { return Conflict(ex.Message); }
             catch (KeyNotFoundException) { return Results.NotFound(); }

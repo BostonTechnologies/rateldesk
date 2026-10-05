@@ -16,7 +16,7 @@ public static class ServiceLinkValidation
     public static string Endpoint(string baseUrl, string path) => baseUrl.TrimEnd('/') + "/" + path.TrimStart('/');
     public static void Require(bool condition, string code, string message, int status = 400)
     { if (!condition) throw new ServiceLinkProtocolException(status, code, message); }
-    public static void Id(string value) => Require(value.Length is >= 16 and <= 128 && value.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_'), "invalid-identifier", "The protocol identifier is invalid.");
+    public static void Id(string value) => Require(value is { Length: >= 16 and <= 128 } && value.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_'), "invalid-identifier", "The protocol identifier is invalid.");
 
     public static ServiceLinkMetadata Metadata(ServiceLinkMetadata metadata, bool privateHttp, string? enteredWebBase = null)
     {
@@ -24,6 +24,8 @@ public static class ServiceLinkValidation
         Require(metadata.Product is "netratel" or "rateldesk" && metadata.InstanceId.Length is > 0 and <= 256 && !string.IsNullOrWhiteSpace(metadata.Audience), "invalid-metadata", "The peer metadata is incomplete.");
         Require(metadata.SourceInstanceId is null || Guid.TryParseExact(metadata.SourceInstanceId, "D", out var producer) && producer.ToString("D") == metadata.SourceInstanceId,
             "invalid-metadata", "The producer identity must use canonical GUID format.");
+        if (metadata.OauthMetadataUrl is null || metadata.JwksUri is null)
+            throw new ServiceLinkProtocolException(422, "upgrade-required", "The peer issuer must expose the OAuth metadata and signing keys required for managed service authentication.");
         foreach (var address in new[] { metadata.WebBaseUrl, metadata.ApiBaseUrl, metadata.OauthIssuer, metadata.OauthMetadataUrl, metadata.TokenEndpoint, metadata.JwksUri, metadata.ServiceLinkEndpoint, metadata.ApprovalEndpoint, metadata.CallbackEndpoint })
         {
             Require(Uri.TryCreate(address, UriKind.Absolute, out _), "invalid-metadata", "The peer advertises an invalid endpoint.");
@@ -39,16 +41,18 @@ public static class ServiceLinkValidation
         if (enteredWebBase is not null) Require(metadata.WebBaseUrl.TrimEnd('/') == enteredWebBase.TrimEnd('/'), "origin-mismatch", "The descriptor does not belong to the entered Web origin.");
         foreach (var profile in metadata.PermissionProfiles)
         {
+            if (profile is null) throw new ServiceLinkProtocolException(400, "invalid-profile", "The peer permission profile cannot be null.");
             Require(profile.Capability.Length > 0 && profile.Scopes.Length > 0 && profile.Operations.Length > 0, "invalid-profile", "The peer permission profile is incomplete.");
             Set(profile.Scopes);
-            Require(profile.Operations.All(x => x.Method is "GET" or "POST" && x.Path.StartsWith('/') && !x.Path.Contains('?') && profile.Scopes.Contains(x.Scope, StringComparer.Ordinal)), "invalid-profile", "The permission profile contains unsupported resource operations.");
+            Require(profile.Operations.All(x => x is not null && x.Method is "GET" or "POST" && x.Path.StartsWith('/') && !x.Path.Contains('?') && profile.Scopes.Contains(x.Scope, StringComparer.Ordinal)), "invalid-profile", "The permission profile contains unsupported resource operations.");
         }
-        return metadata;
+        return ServiceLinkPayloadNormalization.Metadata(metadata);
     }
 
     public static ServiceLinkGrant[] Grants(ServiceLinkGrant[] grants, ServiceLinkMetadata initiator, ServiceLinkMetadata responder, bool proposal = false)
     {
-        Require(grants.Length == 2 && grants.Select(x => x.DirectionId).Distinct(StringComparer.Ordinal).Count() == 2, "invalid-grant", "Exactly two independently approved directions are required.");
+        if (grants is null) throw new ServiceLinkProtocolException(400, "invalid-grant", "Exactly two independently approved directions are required.");
+        Require(grants.Length == 2 && grants.All(x => x is not null) && grants.Select(x => x.DirectionId).Distinct(StringComparer.Ordinal).Count() == 2, "invalid-grant", "Exactly two independently approved directions are required.");
         var normalized = grants.OrderBy(x => x.DirectionId, StringComparer.Ordinal).Select(g =>
         {
             var forward = g.DirectionId == ServiceLinkContract.InitiatorToResponder;
@@ -81,9 +85,23 @@ public static class ServiceLinkValidation
             }
             return g with { Scopes = scopes, Capabilities = capabilities };
         }).ToArray();
+        var forwardGrant = normalized.Single(g => g.DirectionId == ServiceLinkContract.InitiatorToResponder);
+        var reverseGrant = normalized.Single(g => g.DirectionId == ServiceLinkContract.ResponderToInitiator);
+        Require((proposal && (string.IsNullOrEmpty(forwardGrant.CallerTenantId) || string.IsNullOrEmpty(reverseGrant.TargetTenantId)) || forwardGrant.CallerTenantId == reverseGrant.TargetTenantId) &&
+            (proposal && (string.IsNullOrEmpty(forwardGrant.TargetTenantId) || string.IsNullOrEmpty(reverseGrant.CallerTenantId)) || forwardGrant.TargetTenantId == reverseGrant.CallerTenantId),
+            "tenant-pair-mismatch", "Both reciprocal directions must bind the same selected initiator and responder tenants.");
         if (!proposal && normalized.Any(g => g.TargetProduct == "netratel" && g.Scopes.Contains("netratel.orchestration.invoke", StringComparer.Ordinal)))
             Require(normalized.Any(g => g.TargetProduct == "rateldesk" && g.Scopes.Contains("rateldesk.orchestration.callback", StringComparer.Ordinal)), "callback-required", "Orchestration invocation requires the separately approved RatelDesk task callback direction before the link can activate.");
         return normalized;
+    }
+
+    public static void SelectedTenants(ServiceLinkGrant[] grants, string initiatorTenant, string responderTenant)
+    {
+        var forward = grants.Single(grant => grant.DirectionId == ServiceLinkContract.InitiatorToResponder);
+        var reverse = grants.Single(grant => grant.DirectionId == ServiceLinkContract.ResponderToInitiator);
+        Require(forward.CallerTenantId == initiatorTenant && reverse.TargetTenantId == initiatorTenant &&
+            forward.TargetTenantId == responderTenant && reverse.CallerTenantId == responderTenant,
+            "tenant-pair-mismatch", "The final reciprocal tenant pair differs from the retained initiator and selected responder consent.");
     }
 
     public static void Narrowed(ServiceLinkGrant ceiling, ServiceLinkGrant selected)
@@ -107,7 +125,8 @@ public static class ServiceLinkValidation
     }
     public static string[] Set(string[] values)
     {
-        Require(values.Length <= 256 && values.All(x => x.Length is > 0 and <= 256) && values.Distinct(StringComparer.Ordinal).Count() == values.Length, "invalid-set", "A protocol set contains duplicate, empty or oversized values.");
+        if (values is null) throw new ServiceLinkProtocolException(400, "invalid-set", "A protocol set cannot be null.");
+        Require(values.Length <= 256 && values.All(x => x is { Length: > 0 and <= 256 }) && values.Distinct(StringComparer.Ordinal).Count() == values.Length, "invalid-set", "A protocol set contains duplicate, null, empty or oversized values.");
         return values.Order(StringComparer.Ordinal).ToArray();
     }
     private static bool SameOrigin(string a, string b) => new Uri(a).GetLeftPart(UriPartial.Authority) == new Uri(b).GetLeftPart(UriPartial.Authority);

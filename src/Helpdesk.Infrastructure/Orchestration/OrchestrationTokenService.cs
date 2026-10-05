@@ -78,9 +78,10 @@ public sealed class OrchestrationTokenService(
             settings.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture),
             Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(settings.ClientSecret))));
         var cacheKey = $"orchestration_token::{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(cacheMaterial)))}";
-        if (useCache && _cache.TryGetValue(cacheKey, out string? cachedToken) && !string.IsNullOrWhiteSpace(cachedToken))
+        if (useCache && _cache.TryGetValue<CachedAccessToken>(cacheKey, out var cachedToken) && cachedToken is not null)
         {
-            return cachedToken;
+            if (cachedToken.ReuseUntilUtc > _timeProvider.GetUtcNow()) return cachedToken.Token;
+            _cache.Remove(cacheKey);
         }
 
         var client = _httpClientFactory.CreateClient("OrchestrationToken");
@@ -99,6 +100,7 @@ public sealed class OrchestrationTokenService(
         request.Content = new FormUrlEncodedContent(form);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(RequestTimeout);
+        var requestStartedAt = _timeProvider.GetUtcNow();
         HttpResponseMessage response;
         try
         {
@@ -161,20 +163,23 @@ public sealed class OrchestrationTokenService(
                     ? value
                     : 300;
                 var safetySeconds = Math.Min(30, Math.Max(1, expiresInSeconds / 5));
-                var cacheDuration = TimeSpan.FromSeconds(Math.Max(1, expiresInSeconds - safetySeconds));
+                var reuseUntil = requestStartedAt.AddSeconds(expiresInSeconds - safetySeconds);
+                var remaining = reuseUntil - _timeProvider.GetUtcNow();
 
-                if (useCache)
+                if (useCache && remaining > TimeSpan.Zero)
                 {
                     _cache.Set(
                         cacheKey,
-                        token,
-                        _timeProvider.GetUtcNow().Add(cacheDuration));
+                        new CachedAccessToken(token, reuseUntil),
+                        remaining);
                 }
 
                 return token;
             }
         }
     }
+
+    private sealed record CachedAccessToken(string Token, DateTimeOffset ReuseUntilUtc);
 
     private static async Task<string> ReadBoundedContentAsync(HttpContent content, CancellationToken cancellationToken)
     {

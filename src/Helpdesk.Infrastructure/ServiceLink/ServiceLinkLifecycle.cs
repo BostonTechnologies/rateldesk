@@ -59,9 +59,10 @@ public sealed partial class ServiceLinkCoordinator
         var existing = await db.Set<ServiceLinkOperation>().SingleOrDefaultAsync(x => x.LinkId == pathLinkId && x.OperationId == request.OperationId, ct);
         if (existing is not null)
         {
-            Require(!existing.Outbound && existing.Kind == kind && existing.RequestFingerprint == fingerprint, "operation-payload-conflict", "This durable operation identifier is already bound to a different body.", 409);
+            Require(!existing.Outbound && existing.Kind == kind && await LifecycleFingerprintMatches(a, existing, kind, request, ct), "operation-payload-conflict", "This durable operation identifier is already bound to a different body.", 409);
             return System.Text.Json.JsonDocument.Parse(existing.ResponseJson).RootElement.Clone();
         }
+        request = ServiceLinkPayloadNormalization.Lifecycle(request);
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         await Expire(a, ct);
         Dictionary<string, object?> response;
