@@ -67,7 +67,7 @@
                 </MudSelect>
             </MudItem>
             <MudItem xs="12">
-                <MudSelect @key="renderedScopeSelectionOwner" T="string" Label="NetRatel → RatelDesk permissions" MultiSelection="true" MultiSelectionTextFunc="SelectedScopeText" SelectedValues="@scopes" SelectedValuesChanged="@((IEnumerable<string>? values) => ScopesChanged(renderedScopeSelectionOwner, values))" Margin="Margin.Dense" Variant="Variant.Outlined">
+                <MudSelect @key="renderedScopeSelectionOwner" T="string" Label="NetRatel → RatelDesk permissions" MultiSelection="true" MultiSelectionTextFunc="SelectedScopeText" SelectedValues="@scopes" SelectedValuesChanged="@EventCallback.Factory.Create<IReadOnlyCollection<string>?>(this, values => ScopesChanged(renderedScopeSelectionOwner, values))" Margin="Margin.Dense" Variant="Variant.Outlined">
                     @foreach (var scope in InboundScopes)
                     {
                         <MudSelectItem Value="@scope.Key">@scope.Value</MudSelectItem>
