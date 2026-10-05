@@ -29,8 +29,11 @@ public sealed partial class ServiceLinkLifecycleTests
     {
         var businessPosts = 0;
         await using var peer = await NetRatelServiceLinkContractPeer.CreateAsync((app, remote) =>
-            app.MapPost("/internal/ingest", (HttpContext http) => AcknowledgeDispatchAsync(http, remote,
-                () => Interlocked.Increment(ref businessPosts))));
+        {
+            Func<HttpContext, Task<IResult>> handler = http => AcknowledgeDispatchAsync(http, remote,
+                () => Interlocked.Increment(ref businessPosts));
+            app.MapPost("/internal/ingest", (Delegate)handler);
+        });
         var gate = new DispatchTokenResponseGate();
         await using var local = await LocalAsync(postgres, configure: (services, _) =>
             services.AddHttpClient(ServiceLinkOutboundNetwork.TokenClientName)
