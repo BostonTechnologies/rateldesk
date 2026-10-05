@@ -29,9 +29,9 @@ public static class ServiceLinkValidation
         foreach (var address in new[] { metadata.WebBaseUrl, metadata.ApiBaseUrl, metadata.OauthIssuer, metadata.OauthMetadataUrl, metadata.TokenEndpoint, metadata.JwksUri, metadata.ServiceLinkEndpoint, metadata.ApprovalEndpoint, metadata.CallbackEndpoint })
         {
             Require(Uri.TryCreate(address, UriKind.Absolute, out _), "invalid-metadata", "The peer advertises an invalid endpoint.");
-            IntegrationEndpointPolicy.Validate(new Uri(address), "Advertised service endpoint", privateHttp);
+            IntegrationEndpointPolicy.ValidateServiceLink(new Uri(address), "Advertised service endpoint", privateHttp);
         }
-        if (metadata.GatewayBaseUrl is not null) IntegrationEndpointPolicy.Validate(new Uri(metadata.GatewayBaseUrl), "Gateway", privateHttp);
+        if (metadata.GatewayBaseUrl is not null) IntegrationEndpointPolicy.ValidateServiceLink(new Uri(metadata.GatewayBaseUrl), "Gateway", privateHttp);
         Require(metadata.ServiceLinkEndpoint == Endpoint(metadata.ApiBaseUrl, ServiceLinkContract.EndpointPath) &&
             metadata.ApprovalEndpoint == Endpoint(metadata.WebBaseUrl, "/account/integration-credentials/link/approve") &&
             metadata.CallbackEndpoint == Endpoint(metadata.WebBaseUrl, "/account/integration-credentials/link/callback"), "invalid-metadata", "The peer lifecycle and browser endpoints are not its fixed configured endpoints.");

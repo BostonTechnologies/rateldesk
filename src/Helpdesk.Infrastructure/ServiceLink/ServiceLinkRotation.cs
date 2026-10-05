@@ -29,6 +29,7 @@ public sealed partial class ServiceLinkCoordinator
             return await AdminStatus(a, ct);
         }
         Require(kind is "cancel" or "revoke", "operation-not-found", "This local lifecycle action is unsupported.");
+        if (kind == "cancel" && a.Decision == "abort") return await AdminStatus(a, ct);
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         if (a.Decision == "commit" || kind == "revoke")
         {
@@ -43,7 +44,12 @@ public sealed partial class ServiceLinkCoordinator
         {
             // A prepared responder cannot decide its coordinator's transaction. Retain narrow recovery authority.
             if (a.ProtectedOutboundCredential is null) { a.Decision = "abort"; a.AbortId ??= NewId(); a.LifecycleState = "expired"; await Disable(a, ct); PurgeEscrow(a); }
-            else { a.AbortId ??= NewId(); a.LifecycleState = "in_doubt"; if (a.InboundPrincipalId is not null) await registry.SetStatusAsync(a.InboundPrincipalId.Value, "in_doubt", ct); }
+            else
+            {
+                await JournalParticipantCancellation(a, ct);
+                a.LifecycleState = "in_doubt";
+                if (a.InboundPrincipalId is not null) await registry.SetStatusAsync(a.InboundPrincipalId.Value, "in_doubt", ct);
+            }
         }
         a.NextWorkAtUnixSeconds = Now; await Save(a, ct); await tx.CommitAsync(ct); return await AdminStatus(a, ct);
     }

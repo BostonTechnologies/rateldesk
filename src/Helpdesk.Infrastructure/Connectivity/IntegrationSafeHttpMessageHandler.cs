@@ -14,10 +14,27 @@ public static class IntegrationSafeHttpMessageHandler
     public static SocketsHttpHandler Create(bool allowPrivateHttp = false, Uri? protocolEndpoint = null)
         => CreateCore(allowPrivateHttp, protocolEndpoint, null);
 
+    public static SocketsHttpHandler CreateServiceLink(Func<bool>? currentAllowPrivateHttp = null, bool allowPrivateHttp = false)
+        => CreateServiceLinkCore(currentAllowPrivateHttp, allowPrivateHttp, null);
+
+    internal static SocketsHttpHandler CreateServiceLinkCore(
+        Func<bool>? currentAllowPrivateHttp,
+        bool allowPrivateHttp,
+        IntegrationConnectionHooks? hooks)
+    {
+        var handler = CreateCore(allowPrivateHttp, null, hooks, currentAllowPrivateHttp, serviceLink: true);
+        // An approved private HTTPS socket cannot survive opt-in removal.
+        handler.PooledConnectionLifetime = TimeSpan.Zero;
+        handler.PooledConnectionIdleTimeout = TimeSpan.Zero;
+        return handler;
+    }
+
     internal static SocketsHttpHandler CreateCore(
         bool allowPrivateHttp,
         Uri? protocolEndpoint,
-        IntegrationConnectionHooks? hooks)
+        IntegrationConnectionHooks? hooks,
+        Func<bool>? currentAllowPrivateHttp = null,
+        bool serviceLink = false)
     {
         var handler = new SocketsHttpHandler
         {
@@ -25,7 +42,7 @@ public static class IntegrationSafeHttpMessageHandler
             UseProxy = false,
             ConnectTimeout = TimeSpan.FromSeconds(10)
         };
-        handler.ConnectCallback = (context, cancellationToken) => ConnectAsync(context, cancellationToken, allowPrivateHttp, protocolEndpoint, hooks);
+        handler.ConnectCallback = (context, cancellationToken) => ConnectAsync(context, cancellationToken, allowPrivateHttp, protocolEndpoint, hooks, currentAllowPrivateHttp, serviceLink);
         return handler;
     }
 
@@ -82,16 +99,23 @@ public static class IntegrationSafeHttpMessageHandler
         CancellationToken cancellationToken,
         bool defaultAllowPrivateHttp,
         Uri? protocolEndpoint,
-        IntegrationConnectionHooks? hooks)
+        IntegrationConnectionHooks? hooks,
+        Func<bool>? currentAllowPrivateHttp,
+        bool serviceLink)
     {
         var request = context.InitialRequestMessage;
         var requestUri = request?.RequestUri
             ?? throw new HttpRequestException("The outbound integration request did not contain a URI.");
-        var allowPrivateHttp = defaultAllowPrivateHttp || request.Options.TryGetValue(AllowPrivateHttpOption, out var allowed) && allowed;
+        var allowPrivateHttp = currentAllowPrivateHttp is not null ? currentAllowPrivateHttp() :
+            defaultAllowPrivateHttp || request.Options.TryGetValue(AllowPrivateHttpOption, out var allowed) && allowed;
         if (protocolEndpoint is not null)
             IntegrationEndpointPolicy.ValidateSignalRRequest(protocolEndpoint, requestUri, allowPrivateHttp);
         var addresses = await ResolveAddressesAsync(context.DnsEndPoint.Host, cancellationToken, hooks);
-        if (protocolEndpoint is null)
+        // A reload during DNS resolution must also remove the old request's opt-in.
+        if (currentAllowPrivateHttp is not null) allowPrivateHttp = currentAllowPrivateHttp();
+        if (serviceLink)
+            IntegrationEndpointPolicy.ValidateServiceLinkResolvedAddresses(requestUri, addresses, "Service link endpoint", allowPrivateHttp);
+        else if (protocolEndpoint is null)
             IntegrationEndpointPolicy.ValidateResolvedAddresses(requestUri, addresses, "Outbound integration endpoint", allowPrivateHttp);
         else
             IntegrationEndpointPolicy.ValidateSignalRResolvedAddresses(protocolEndpoint, requestUri, addresses, "Netclaw SignalR endpoint", allowPrivateHttp);
@@ -99,6 +123,16 @@ public static class IntegrationSafeHttpMessageHandler
         SocketException? lastConnectionError = null;
         foreach (var address in addresses)
         {
+            if (currentAllowPrivateHttp is not null)
+            {
+                allowPrivateHttp = currentAllowPrivateHttp();
+                if (serviceLink)
+                    IntegrationEndpointPolicy.ValidateServiceLinkResolvedAddresses(requestUri, addresses, "Service link endpoint", allowPrivateHttp);
+                else if (protocolEndpoint is null)
+                    IntegrationEndpointPolicy.ValidateResolvedAddresses(requestUri, addresses, "Outbound integration endpoint", allowPrivateHttp);
+                else
+                    IntegrationEndpointPolicy.ValidateSignalRResolvedAddresses(protocolEndpoint, requestUri, addresses, "Netclaw SignalR endpoint", allowPrivateHttp);
+            }
             try
             {
                 return hooks is null

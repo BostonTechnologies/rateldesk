@@ -2,15 +2,17 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Helpdesk.Application.Orchestration;
-using Helpdesk.Infrastructure.Persistence.Connectivity;
+using Helpdesk.Infrastructure.ServiceLink;
 using Helpdesk.Shared.DTOs.Orchestration;
+using Microsoft.Extensions.Options;
 
 namespace Helpdesk.Infrastructure.Orchestration;
 
 public sealed class OrchestrationCatalogService(
     IHttpClientFactory httpClientFactory,
     IOrchestrationTokenService tokenService,
-    IOrchestrationConnectivityService connectivityService) : IOrchestrationCatalogService
+    IOrchestrationConnectivityService connectivityService,
+    IOptionsMonitor<ServiceLinkOptions>? currentLinkOptions = null) : IOrchestrationCatalogService
 {
     private const int MaximumResponseBytes = 1024 * 1024;
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(20);
@@ -43,7 +45,7 @@ public sealed class OrchestrationCatalogService(
             throw new InvalidOperationException("External orchestration connectivity is disabled.");
         }
 
-        var endpoint = BuildAbsoluteUri(settings.BaseUrl, BuildCatalogPath(settings.CatalogPath, "request-definitions"), settings.AllowPrivateHttp);
+        var endpoint = BuildAbsoluteUri(settings, BuildCatalogPath(settings.CatalogPath, "request-definitions"));
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
             Content = JsonContent.Create(requestPayload, options: WireJsonOptions)
@@ -51,7 +53,7 @@ public sealed class OrchestrationCatalogService(
 
         await AttachAuthHeaderAsync(settings, request, cancellationToken);
 
-        var client = _httpClientFactory.CreateClient("OrchestrationInternalApi");
+        var client = _httpClientFactory.CreateClient(settings.ServiceLink is null ? "OrchestrationInternalApi" : ServiceLinkOutboundNetwork.BusinessClientName);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(RequestTimeout);
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
@@ -95,7 +97,7 @@ public sealed class OrchestrationCatalogService(
             ? throw new InvalidOperationException("Request definition id is required.")
             : requestDefinitionId.Trim();
 
-        var endpoint = BuildAbsoluteUri(settings.BaseUrl, BuildCatalogPath(settings.CatalogPath, $"request-definitions/{normalizedRequestDefinitionId}/inputs/sync"), settings.AllowPrivateHttp);
+        var endpoint = BuildAbsoluteUri(settings, BuildCatalogPath(settings.CatalogPath, $"request-definitions/{normalizedRequestDefinitionId}/inputs/sync"));
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
             Content = JsonContent.Create(new
@@ -106,7 +108,7 @@ public sealed class OrchestrationCatalogService(
 
         await AttachAuthHeaderAsync(settings, request, cancellationToken);
 
-        var client = _httpClientFactory.CreateClient("OrchestrationInternalApi");
+        var client = _httpClientFactory.CreateClient(settings.ServiceLink is null ? "OrchestrationInternalApi" : ServiceLinkOutboundNetwork.BusinessClientName);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(RequestTimeout);
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
@@ -143,11 +145,11 @@ public sealed class OrchestrationCatalogService(
             return [];
         }
 
-        var endpoint = BuildAbsoluteUri(settings.BaseUrl, BuildCatalogPath(settings.CatalogPath, path), settings.AllowPrivateHttp);
+        var endpoint = BuildAbsoluteUri(settings, BuildCatalogPath(settings.CatalogPath, path));
         using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
         await AttachAuthHeaderAsync(settings, request, cancellationToken);
 
-        var client = _httpClientFactory.CreateClient("OrchestrationInternalApi");
+        var client = _httpClientFactory.CreateClient(settings.ServiceLink is null ? "OrchestrationInternalApi" : ServiceLinkOutboundNetwork.BusinessClientName);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(RequestTimeout);
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
@@ -216,21 +218,21 @@ public sealed class OrchestrationCatalogService(
         CancellationToken cancellationToken)
     {
         var accessToken = await _tokenService.GetAccessTokenAsync(settings, cancellationToken);
-        request.Options.Set(IntegrationSafeHttpMessageHandler.AllowPrivateHttpOption, settings.AllowPrivateHttp);
+        ServiceLinkOutboundNetwork.PrepareRequest(request, settings, currentLinkOptions);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
     }
 
-    private static Uri BuildAbsoluteUri(string? baseUrl, string path, bool allowPrivateHttp)
+    private Uri BuildAbsoluteUri(OrchestrationResolvedSettings settings, string path)
     {
+        var baseUrl = settings.BaseUrl;
         if (string.IsNullOrWhiteSpace(baseUrl))
         {
             throw new InvalidOperationException("External orchestration base URL is not configured.");
         }
 
         var uri = new Uri(new Uri(baseUrl, UriKind.Absolute), path);
-        if (!IntegrationEndpointPolicy.IsAllowed(uri, allowPrivateHttp))
-            throw new InvalidOperationException("The configured NetRatel endpoint is not allowed by the outbound integration policy.");
+        ServiceLinkOutboundNetwork.Validate(uri, "NetRatel endpoint", settings, currentLinkOptions);
         return uri;
     }
 

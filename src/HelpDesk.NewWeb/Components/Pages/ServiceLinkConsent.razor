@@ -6,6 +6,7 @@
 @using System.Text.Json
 @inject IHttpClientFactory HttpClientFactory
 @inject NavigationManager Navigation
+@implements IDisposable
 
 <PageTitle>NetRatel link approval</PageTitle>
 <MudPaper Class="helpdesk-content-surface pa-4" data-testid="service-link-consent-page">
@@ -15,7 +16,7 @@
         {
             <MudProgressLinear Indeterminate="true" />
         }
-        else if (error is not null || status is null)
+        else if (!IsConsentRoute || error is not null || status is null)
         {
             <MudAlert Severity="Severity.Warning" Dense="true">@(error ?? ResultMessage(Status))</MudAlert>
             <MudButton Href="/account/integration-credentials" Color="Color.Primary">Return to integration credentials</MudButton>
@@ -73,13 +74,13 @@
                     </MudGrid>
                     @if (RequestedOutboundScopes.Contains("netratel.orchestration.invoke"))
                     {
-                        <MudCheckBox T="bool" @bind-Value="outboundInvoke" Label="Allow RatelDesk to invoke NetRatel orchestration tasks" Dense="true" />
+                        <MudCheckBox T="bool" Value="outboundInvoke" ValueChanged="OutboundInvokeChanged" Label="Allow RatelDesk to invoke NetRatel orchestration tasks" Dense="true" />
                     }
                     @if (outboundInvoke && !scopes.Contains("rateldesk.orchestration.callback"))
                     {
                         <MudAlert Dense="true" Severity="Severity.Info">Task invocation requires the reverse task callback permission. Enable the requested callback permission or narrow orchestration access to read-only.</MudAlert>
                     }
-                    <label class="d-flex align-center my-3"><input type="checkbox" name="confirmed" value="true" required class="mr-2" />I approve these exact peer instances, selected organization/customer and permissions in both directions.</label>
+                    <label class="d-flex align-center my-3"><input type="checkbox" @bind="confirmed" name="confirmed" value="true" required class="mr-2" />I approve these exact peer instances, selected organization/customer and permissions in both directions.</label>
                     <MudButton ButtonType="ButtonType.Submit" Color="Color.Primary" Variant="Variant.Filled" Disabled="@(!CanApproveRemote)">Approve and return to NetRatel</MudButton>
                 </form>
             }
@@ -90,7 +91,7 @@
                     <AntiforgeryToken />
                     <input type="hidden" name="attemptId" value="@AttemptId" />
                     <input type="hidden" name="grantHash" value="@status.GrantHash" />
-                    <label class="d-flex align-center my-3"><input type="checkbox" name="confirmed" value="true" required class="mr-2" />I approve the exact displayed grants and NetRatel tenant selection.</label>
+                    <label class="d-flex align-center my-3"><input type="checkbox" @bind="confirmed" name="confirmed" value="true" required class="mr-2" />I approve the exact displayed grants and NetRatel tenant selection.</label>
                     <MudButton ButtonType="ButtonType.Submit" Color="Color.Primary" Variant="Variant.Filled">Approve and complete setup</MudButton>
                 </form>
             }
@@ -112,9 +113,12 @@
     private List<CustomerDto> customers = [];
     private string organizationId = "";
     private HashSet<string> customerIds = new(StringComparer.Ordinal), scopes = new(StringComparer.Ordinal);
-    private bool loading = true, outboundInvoke;
+    private bool loading = true, outboundInvoke, confirmed;
+    private long loadRevision;
     private string? error;
     private bool IsResponder => new Uri(Navigation.Uri).AbsolutePath.Contains("/respond/", StringComparison.Ordinal);
+    private bool IsConsentRoute => !string.IsNullOrEmpty(AttemptId) && string.Equals(new Uri(Navigation.Uri).AbsolutePath,
+        "/account/integration-credentials/link/" + (IsResponder ? "respond/" : "review/") + Uri.EscapeDataString(AttemptId), StringComparison.Ordinal);
     private IEnumerable<string> RequestedInboundScopes => status?.Descriptor.RequestedGrants.Where(grant => grant.TargetProduct == "rateldesk").SelectMany(grant => grant.Scopes).Distinct(StringComparer.Ordinal) ?? [];
     private IEnumerable<string> RequestedOutboundScopes => status?.Descriptor.RequestedGrants.Where(grant => grant.TargetProduct == "netratel").SelectMany(grant => grant.Scopes).Distinct(StringComparer.Ordinal) ?? [];
     private ServiceLinkGrant[] DisplayedGrants => status?.GrantSummary?.Grants ?? (status?.Descriptor.RequestedGrants ?? []).Select(grant => !IsResponder ? grant
@@ -128,29 +132,52 @@
 
     protected override async Task OnParametersSetAsync()
     {
-        loading = true; error = null;
-        if (string.IsNullOrEmpty(AttemptId)) { loading = false; return; }
+        var revision = ++loadRevision;
+        var attemptId = AttemptId;
+        var route = new Uri(Navigation.Uri).AbsolutePath;
+        var responder = IsResponder;
+        loading = true; error = null; status = null; confirmed = false;
+        organizationId = ""; customerIds.Clear(); scopes.Clear();
+        organizations = []; customers = []; outboundInvoke = false;
+        if (string.IsNullOrEmpty(attemptId) || !IsConsentRoute) { loading = false; return; }
+        bool IsCurrent() => revision == loadRevision && attemptId == AttemptId && route == new Uri(Navigation.Uri).AbsolutePath;
         try
         {
             var api = HttpClientFactory.CreateClient("HelpdeskApi");
-            status = await api.GetFromJsonAsync<ServiceLinkAdminStatus>("api/v1/admin/service-links/attempts/" + Uri.EscapeDataString(AttemptId));
-            if (IsResponder && status?.GrantSummary is null)
+            var loadedStatus = await api.GetFromJsonAsync<ServiceLinkAdminStatus>("api/v1/admin/service-links/attempts/" + Uri.EscapeDataString(attemptId));
+            if (!IsCurrent()) return;
+            if (loadedStatus is not null && (loadedStatus.AttemptId != attemptId || loadedStatus.Descriptor.AttemptId != attemptId))
+                throw new JsonException("The returned consent belongs to another attempt.");
+            List<OrganizationDto> loadedOrganizations = [];
+            List<CustomerDto> loadedCustomers = [];
+            if (responder && loadedStatus?.GrantSummary is null)
             {
                 var organizationTask = api.GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations");
                 var customerTask = api.GetFromJsonAsync<List<CustomerDto>>("api/v1/customers");
                 await Task.WhenAll(organizationTask, customerTask);
-                organizations = (organizationTask.Result ?? []).Where(organization => organization.IsEnabled).ToList();
-                customers = customerTask.Result ?? [];
+                if (!IsCurrent()) return;
+                loadedOrganizations = (organizationTask.Result ?? []).Where(organization => organization.IsEnabled).ToList();
+                loadedCustomers = customerTask.Result ?? [];
+            }
+            status = loadedStatus;
+            organizations = loadedOrganizations; customers = loadedCustomers;
+            if (responder && status?.GrantSummary is null)
+            {
                 scopes = RequestedInboundScopes.ToHashSet(StringComparer.Ordinal);
                 outboundInvoke = RequestedOutboundScopes.Contains("netratel.orchestration.invoke");
             }
         }
-        catch (Exception exception) when (exception is HttpRequestException or JsonException) { error = "The protected grant summary is unavailable or this attempt is no longer authorized. Refresh its stored status before proceeding."; }
-        finally { loading = false; }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException)
+        {
+            if (IsCurrent()) error = "The protected grant summary is unavailable or this attempt is no longer authorized. Refresh its stored status before proceeding.";
+        }
+        finally { if (IsCurrent()) loading = false; }
     }
-    private void OrganizationChanged(string value) { organizationId = value; customerIds.Clear(); }
-    private void CustomerChanged(string value) => customerIds = string.IsNullOrEmpty(value) ? [] : new HashSet<string>([value], StringComparer.Ordinal);
-    private void ScopesChanged(IEnumerable<string>? values) => scopes = values?.ToHashSet(StringComparer.Ordinal) ?? [];
+    private void OrganizationChanged(string value) { confirmed = false; organizationId = value; customerIds.Clear(); }
+    private void CustomerChanged(string value) { confirmed = false; customerIds = string.IsNullOrEmpty(value) ? [] : new HashSet<string>([value], StringComparer.Ordinal); }
+    private void ScopesChanged(IEnumerable<string>? values) { confirmed = false; scopes = values?.ToHashSet(StringComparer.Ordinal) ?? []; }
+    private void OutboundInvokeChanged(bool value) { confirmed = false; outboundInvoke = value; }
+    public void Dispose() => loadRevision++;
     private static string ResultMessage(string? code) => code switch
     {
         "upgrade-required" => "Upgrade required: the peer does not support the shared service-link protocol. Use manual credentials until a compatible NetRatel build is available.",

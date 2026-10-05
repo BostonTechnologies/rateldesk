@@ -30,6 +30,16 @@ public sealed partial class ServiceLinkCoordinator
     }
 
     private ServiceLinkLifecycleRequest Request(ServiceLinkAttempt a) => new() { OperationId = NewId(), AttemptId = a.AttemptId, LinkId = a.LinkId!, LinkRevision = a.LinkRevision, GrantHash = a.GrantHash! };
+    private async Task JournalParticipantCancellation(ServiceLinkAttempt a, CancellationToken ct)
+    {
+        // Deployed undecided responders used AbortId for a request, not a decision.
+        // Preserve that exact request identity in the existing encrypted journal
+        // before reserving AbortId for the coordinator's immutable decision.
+        var legacyRequestId = a.AbortId;
+        await OutboundOperation(a, "abort-request", "abort", Request(a) with
+        { AbortPhase = "request", AbortId = legacyRequestId ?? NewId(), ReasonCode = "participant-cancel" }, ct);
+        if (legacyRequestId is not null) { a.AbortId = null; await Save(a, ct); }
+    }
     private async Task<ServiceLinkOperation> OutboundOperation(ServiceLinkAttempt a, string kind, string route, ServiceLinkLifecycleRequest request, CancellationToken ct)
     {
         var existing = await db.Set<ServiceLinkOperation>().SingleOrDefaultAsync(x => x.LinkId == a.LinkId && x.Outbound && x.Kind == kind, ct);
@@ -98,11 +108,15 @@ public sealed partial class ServiceLinkCoordinator
         if (a.LifecycleState == "revocation_pending") { await DeliverRevocation(a, ct); return; }
         if (a.LifecycleState == "active")
         {
-            if (await ServiceLinkAuthority.InboundUsableAsync(db, a, clock, issuer, ct)) await ProgressRotations(a, ct);
+            if (await ServiceLinkAuthority.InboundUsableAsync(db, a, clock, issuer, settings, ct)) await ProgressRotations(a, ct);
             return;
         }
         if (a.InboundPrincipalId is null) return;
-        if (a.AbortId is not null && a.ProtectedOutboundCredential is not null)
+        if (a.Role == "responder" && a.Decision == "undecided" && a.AbortId is not null)
+            await JournalParticipantCancellation(a, ct);
+        var participantAbort = a.Role == "responder" && a.Decision == "undecided" &&
+            await db.Set<ServiceLinkOperation>().AnyAsync(x => x.LinkId == a.LinkId && x.Outbound && x.Kind == "abort-request", ct);
+        if ((a.AbortId is not null || participantAbort) && a.ProtectedOutboundCredential is not null)
         {
             if (a.Role == "initiator" && a.Decision == "abort")
             {
@@ -115,7 +129,6 @@ public sealed partial class ServiceLinkCoordinator
                 var abortResult = await SendOperation(a, "abort-request", "abort", Request(a) with { AbortPhase = "request", AbortId = a.AbortId, ReasonCode = "participant-cancel" }, ct);
                 if (String(abortResult, "decision") == "abort") { await Abort(a, Request(a) with { AbortPhase = "decision", AbortId = String(abortResult, "abort_id"), ReasonCode = "coordinator-abort" }, ct); await Save(a, ct); return; }
                 Require(String(abortResult, "decision") == "commit", "abort-recovery-pending", "The coordinator has not supplied a durable decision.", 409);
-                a.AbortId = null;
             }
         }
         if (a.Role == "responder" && a.Decision == "undecided" && a.ProtectedOutboundCredential is not null)

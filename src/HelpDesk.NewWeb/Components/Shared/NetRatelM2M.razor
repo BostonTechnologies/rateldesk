@@ -7,10 +7,10 @@
     <MudText Typo="Typo.subtitle1">NetRatel M2M</MudText>
     <MudText Typo="Typo.body2" Color="Color.Secondary">Create an organization-owned service connection with explicit customer grants.</MudText>
     <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap">
-        <MudButton Size="Size.Small" Variant="@(manual ? Variant.Outlined : Variant.Filled)" Color="Color.Primary" OnClick="ShowGuided" data-testid="netratel-guided-mode">Link NetRatel</MudButton>
+        <MudButton Size="Size.Small" Variant="@(manual ? Variant.Outlined : Variant.Filled)" Color="Color.Primary" OnClick="ShowGuided" Disabled="@(busy || loading || reveal is not null)" data-testid="netratel-guided-mode">Link NetRatel</MudButton>
         @if (AllowManualCreation)
         {
-            <MudButton Size="Size.Small" Variant="@(manual ? Variant.Filled : Variant.Outlined)" OnClick="ShowManual" data-testid="netratel-manual-mode">Manual credentials</MudButton>
+            <MudButton Size="Size.Small" Variant="@(manual ? Variant.Filled : Variant.Outlined)" OnClick="ShowManual" Disabled="@(busy || loading || reveal is not null)" data-testid="netratel-manual-mode">Manual credentials</MudButton>
         }
     </MudStack>
     @if (!string.IsNullOrEmpty(error))
@@ -21,9 +21,9 @@
     {
         <MudProgressLinear Indeterminate="true" />
     }
-    else if (reveal is not null)
+    else if (reveal is { } visibleReveal)
     {
-        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" data-testid="netratel-secret-reveal">
+        <MudAlert @key="visibleReveal" Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" data-testid="netratel-secret-reveal">
             <MudText Typo="Typo.subtitle2">Save this new client secret now</MudText>
             <MudText Typo="Typo.body2">This is its only display. Store it in your secret manager before leaving this screen.</MudText>
             <MudGrid Class="mt-1">
@@ -35,7 +35,7 @@
                 <MudItem xs="12" sm="6"><MudTextField Value="@string.Join(" ", reveal.Scopes)" Label="Approved scopes" ReadOnly="true" Margin="Margin.Dense" Variant="Variant.Outlined" /></MudItem>
                 <MudItem xs="12"><MudTextField Value="@reveal.DockerEnvironmentExample" Label="Docker environment example" ReadOnly="true" Lines="7" Margin="Margin.Dense" Variant="Variant.Outlined" /></MudItem>
             </MudGrid>
-            <MudButton Size="Size.Small" Color="Color.Primary" OnClick="ClearReveal">I have saved it</MudButton>
+            <MudButton Size="Size.Small" Color="Color.Primary" OnClick="@(() => ClearReveal(visibleReveal))">I have saved it</MudButton>
         </MudAlert>
     }
     else
@@ -122,7 +122,7 @@
                 <MudTextField @bind-Value="peerWebBaseUrl" name="peerWebBaseUrl" Label="NetRatel Web base URL" Required="true" Immediate="true" Margin="Margin.Dense" Variant="Variant.Outlined" Placeholder="https://netratel.example.com" />
                 <MudTextField @bind-Value="requestedPeerTenantId" name="requestedResponderTenantId" Label="Requested NetRatel tenant ID (optional)" Margin="Margin.Dense" Variant="Variant.Outlined" HelperText="The NetRatel administrator selects its authorized tenant. You will review that exact selection before final approval." />
                 <MudText Typo="Typo.caption" HtmlTag="p" Class="mt-2">Discovery → NetRatel administrator approval → review both grants → your final approval → authenticated checks in both directions.</MudText>
-                <MudButton Class="mt-2" ButtonType="ButtonType.Submit" Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(DeploymentManaged || LinkManaged || !CanStart)">Continue to NetRatel</MudButton>
+                <MudButton Class="mt-2" ButtonType="ButtonType.Submit" Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(busy || loading || reveal is not null || DeploymentManaged || LinkManaged || !CanStart)">Continue to NetRatel</MudButton>
             </form>
         }
     }
@@ -131,7 +131,7 @@
     {
         <MudExpansionPanels Dense="true">
             <MudExpansionPanel Text="Service clients and rotation">
-                <MudButton Size="Size.Small" OnClick="ReloadClientsAsync" Disabled="@busy">Refresh clients</MudButton>
+                <MudButton Size="Size.Small" OnClick="RefreshClientsAsync" Disabled="@(busy || loading)">Refresh clients</MudButton>
                 <MudTable Items="@clients" Dense="true" Breakpoint="Breakpoint.Sm" data-testid="netratel-service-client-list">
                     <HeaderContent><MudTh>Client</MudTh><MudTh>Approved boundary</MudTh><MudTh>Status / source</MudTh><MudTh>Actions</MudTh></HeaderContent>
                     <RowTemplate>
@@ -152,7 +152,7 @@
                                 @if (pendingActionClient == context.Id)
                                 {
                                     <MudText Typo="Typo.caption">@(pendingAction == "revoke" ? "Immediately revoke this inbound service?" : "Rotate this manual credential? Save its replacement before updating NetRatel.")</MudText>
-                                    <MudButton Size="Size.Small" OnClick="ClearPendingAction">Cancel</MudButton>
+                                    <MudButton Size="Size.Small" OnClick="CancelPendingAction" Disabled="@busy">Cancel</MudButton>
                                     <MudButton Size="Size.Small" Color="Color.Warning" Disabled="@busy" OnClick="() => ClientActionAsync(context)">Confirm</MudButton>
                                 }
                                 else
@@ -197,7 +197,7 @@
     private string callbackRequestIds = string.Empty, callbackTaskIds = string.Empty;
     private string? error, pendingAction;
     private Guid? pendingActionClient;
-    private bool manual, busy, loading = true, outboundInvoke = true;
+    private bool manual, busy, disposed, loading = true, outboundInvoke = true;
     private bool NeedsSource => scopes.Any(scope => scope.StartsWith("rateldesk.incident", StringComparison.Ordinal));
     private bool HasMapping => !string.IsNullOrWhiteSpace(organizationId) && scopes.Count > 0 && (!NeedsSource || customerIds.Count > 0);
     private bool CanStart => HasMapping && (!outboundInvoke || scopes.Contains("rateldesk.orchestration.callback")) && Uri.TryCreate(peerWebBaseUrl, UriKind.Absolute, out _);
@@ -230,11 +230,12 @@
         }
         finally { loading = false; }
     }
-    private void ShowGuided() { manual = false; scopes = new HashSet<string>(scopes, StringComparer.Ordinal) { "rateldesk.orchestration.callback" }; ClearReveal(); error = null; }
-    private void ShowManual() { manual = true; scopes = scopes.Where(scope => scope != "rateldesk.orchestration.callback").ToHashSet(StringComparer.Ordinal); ClearReveal(); error = null; }
-    private void ClearReveal() => reveal = null;
+    private void ShowGuided() { if (disposed || busy || loading || reveal is not null) return; manual = false; scopes = new HashSet<string>(scopes, StringComparer.Ordinal) { "rateldesk.orchestration.callback" }; error = null; }
+    private void ShowManual() { if (disposed || busy || loading || reveal is not null) return; manual = true; scopes = scopes.Where(scope => scope != "rateldesk.orchestration.callback").ToHashSet(StringComparer.Ordinal); error = null; }
+    private void ClearReveal(NetRatelServiceClientReveal expected) { if (!disposed && !busy && ReferenceEquals(reveal, expected)) reveal = null; }
     private void ClearPendingAction() { pendingActionClient = null; pendingAction = null; }
-    private void PrepareClientAction(Guid id, string action) { ClearReveal(); pendingActionClient = id; pendingAction = action; }
+    private void CancelPendingAction() { if (!disposed && !busy) ClearPendingAction(); }
+    private void PrepareClientAction(Guid id, string action) { if (disposed || busy || loading || reveal is not null) return; pendingActionClient = id; pendingAction = action; }
     private void OrganizationChanged(string value) { organizationId = value; customerIds.Clear(); }
     private void CustomerChanged(string value) => customerIds = string.IsNullOrEmpty(value) ? [] : new HashSet<string>([value], StringComparer.Ordinal);
     private void ScopesChanged(IEnumerable<string>? values) => scopes = values?.ToHashSet(StringComparer.Ordinal) ?? [];
@@ -246,13 +247,21 @@
     };
     private async Task ReloadClientsAsync()
     {
+        clients = []; ClearPendingAction();
         try { clients = await Api.GetFromJsonAsync<List<NetRatelServiceClientMetadata>>("api/v1/admin/service-clients") ?? []; }
-        catch (Exception exception) when (exception is HttpRequestException or JsonException) { error = "Service clients could not be loaded."; }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException) { error = "Service clients could not be loaded."; }
+    }
+    private async Task RefreshClientsAsync()
+    {
+        if (disposed || busy || loading || reveal is not null) return;
+        busy = true; error = null;
+        try { await ReloadClientsAsync(); }
+        finally { busy = false; }
     }
     private async Task CreateManualAsync()
     {
-        if (!CanCreateManual || busy) return;
-        busy = true; error = null; ClearReveal();
+        if (disposed || !CanCreateManual || busy || reveal is not null) return;
+        busy = true; error = null;
         try
         {
             using var response = await MutationApi.PostAsJsonAsync("api/v1/admin/service-clients", new
@@ -269,7 +278,10 @@
                 })
             });
             if (!response.IsSuccessStatusCode) { error = ServiceError(response.StatusCode); return; }
-            reveal = await response.Content.ReadFromJsonAsync<NetRatelServiceClientReveal>();
+            if (disposed) return;
+            var issued = await response.Content.ReadFromJsonAsync<NetRatelServiceClientReveal>();
+            if (disposed) return;
+            reveal = issued;
             if (reveal is null) error = "Creation was accepted, but the one-time reveal is unavailable. Revoke the client and create a replacement.";
             await ReloadClientsAsync();
         }
@@ -281,15 +293,23 @@
     }
     private async Task ClientActionAsync(NetRatelServiceClientMetadata client)
     {
-        if (client.ReadOnly || busy || pendingActionClient != client.Id) return;
-        busy = true; error = null; ClearReveal();
+        if (disposed || client.ReadOnly || busy || reveal is not null || pendingActionClient != client.Id) return;
+        var action = pendingAction;
+        if (action is not ("rotate" or "revoke")) return;
+        busy = true; error = null;
         try
         {
-            using var response = pendingAction == "rotate"
+            using var response = action == "rotate"
                 ? await MutationApi.PostAsJsonAsync($"api/v1/admin/service-clients/{client.Id:D}/rotate", new { ExpectedCredentialRevision = client.CredentialRevision })
                 : await MutationApi.PostAsync($"api/v1/admin/service-clients/{client.Id:D}/revoke", null);
             if (!response.IsSuccessStatusCode) { error = ServiceError(response.StatusCode); return; }
-            if (pendingAction == "rotate") reveal = await response.Content.ReadFromJsonAsync<NetRatelServiceClientReveal>();
+            if (disposed) return;
+            if (action == "rotate")
+            {
+                var issued = await response.Content.ReadFromJsonAsync<NetRatelServiceClientReveal>();
+                if (disposed) return;
+                reveal = issued;
+            }
             ClearPendingAction();
             await ReloadClientsAsync();
         }
@@ -304,5 +324,5 @@
     };
     private static string[] ParseIds(string value) => value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
         .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
-    public void Dispose() { reveal = null; }
+    public void Dispose() { disposed = true; reveal = null; ClearPendingAction(); }
 }

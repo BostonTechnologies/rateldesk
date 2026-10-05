@@ -22,7 +22,12 @@ public static class ServiceLinkEndpoints
         services.AddSingleton<IValidateOptions<ServiceLinkOptions>, ServiceLinkOptionsValidator>();
         services.AddScoped<ServiceLinkCoordinator>();
         services.AddHttpClient<ServiceLinkTransport>(client => client.Timeout = TimeSpan.FromSeconds(25))
-            .ConfigurePrimaryHttpMessageHandler(() => IntegrationSafeHttpMessageHandler.Create());
+            .ConfigurePrimaryHttpMessageHandler(provider => IntegrationSafeHttpMessageHandler.CreateServiceLink(
+                currentAllowPrivateHttp: () => provider.GetRequiredService<IOptionsMonitor<ServiceLinkOptions>>().CurrentValue.AllowPrivateHttp));
+        foreach (var clientName in new[] { ServiceLinkOutboundNetwork.TokenClientName, ServiceLinkOutboundNetwork.BusinessClientName })
+            services.AddHttpClient(clientName)
+                .ConfigurePrimaryHttpMessageHandler(provider => IntegrationSafeHttpMessageHandler.CreateServiceLink(
+                    currentAllowPrivateHttp: () => provider.GetRequiredService<IOptionsMonitor<ServiceLinkOptions>>().CurrentValue.AllowPrivateHttp));
         services.AddHostedService<ServiceLinkWorker>();
         return services;
     }
@@ -88,7 +93,7 @@ public static class ServiceLinkEndpoints
     private static Task<IResult> WithBody<TRequest, TResponse>(HttpContext http, Func<TRequest, Task<TResponse>> action, CancellationToken ct, string? lifecycleKind = null) =>
         Respond(http, async () =>
         {
-            var maximum = http.RequestServices.GetRequiredService<IOptions<ServiceLinkOptions>>().Value.MaximumPayloadBytes;
+            var maximum = http.RequestServices.GetRequiredService<IOptionsMonitor<ServiceLinkOptions>>().CurrentValue.MaximumPayloadBytes;
             if (!http.Request.HasJsonContentType() || http.Request.ContentLength > maximum)
                 throw new ServiceLinkProtocolException(400, "invalid-request", "A bounded JSON protocol body is required.");
             using var memory = new MemoryStream();

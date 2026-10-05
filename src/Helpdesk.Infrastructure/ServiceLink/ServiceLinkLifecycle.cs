@@ -25,7 +25,7 @@ public sealed partial class ServiceLinkCoordinator
     };
     private async Task<Dictionary<string, object?>> Status(ServiceLinkAttempt a, CancellationToken ct)
     {
-        var inbound = await ServiceLinkAuthority.InboundUsableAsync(db, a, clock, issuer, ct);
+        var inbound = await ServiceLinkAuthority.InboundUsableAsync(db, a, clock, issuer, settings, ct);
         var sender = SenderUsable(a, await providers.GetOrchestratorSettingsAsync(ct), inbound);
         var result = Common(a);
         result["coordinator_instance_id"] = Descriptor(a).InitiatorInstanceId; result["attempt_id"] = a.AttemptId;
@@ -154,19 +154,28 @@ public sealed partial class ServiceLinkCoordinator
     {
         Require(request.AttemptId == a.AttemptId && request.AbortId is not null && request.AbortPhase is "request" or "decision", "invalid-abort", "The exact attempt and abort phase are required.");
         Require(a.Role == "initiator" ? request.AbortPhase == "request" : request.AbortPhase == "decision", "abort-not-authorized", "Only the coordinator may decide this attempt.", 403);
+        if (a.Role == "responder" && a.Decision == "undecided" && a.AbortId is not null)
+            await JournalParticipantCancellation(a, ct);
         if (a.Decision != "commit")
         {
-            Require(a.AbortId is null || a.AbortId == request.AbortId, "abort-conflict", "A different abort decision already exists.", 409);
-            a.Decision = "abort"; a.AbortId = request.AbortId; a.LifecycleState = "expired"; await Disable(a, ct); PurgeEscrow(a);
+            if (a.Decision != "abort")
+            {
+                Require(a.AbortId is null || a.AbortId == request.AbortId, "abort-conflict", "A different abort decision already exists.", 409);
+                a.Decision = "abort"; a.AbortId = request.AbortId; a.LifecycleState = "expired"; await Disable(a, ct); PurgeEscrow(a);
+            }
+            else if (a.Role == "responder")
+                Require(a.AbortId == request.AbortId, "abort-conflict", "The coordinator's immutable abort decision changed.", 409);
         }
         var response = Common(a); response["decision"] = a.Decision; response["commit_id"] = a.CommitId; response["abort_id"] = a.AbortId; return response;
     }
     private async Task<Dictionary<string, object?>> Revoke(ServiceLinkAttempt a, ServiceLinkLifecycleRequest request, CancellationToken ct)
     {
         Require(request.ExpectedLinkRevision == a.LinkRevision && request.RevocationId is not null, "revocation-conflict", "The revocation must bind the current approved revision.", 409);
-        Require(a.RevocationId is null || a.RevocationId == request.RevocationId, "revocation-conflict", "A different revocation already exists.", 409);
-        a.RevocationId = request.RevocationId; a.LifecycleState = "revoked"; await Disable(a, ct); PurgeEscrow(a);
-        var response = Common(a); response["revocation_id"] = a.RevocationId; response["local_business_revoked"] = true; response["local_sender_disabled"] = true; return response;
+        var localConfirmationPending = a.LifecycleState == "revocation_pending" && !a.PeerRevocationAcknowledged;
+        a.RevocationId ??= request.RevocationId;
+        a.LifecycleState = localConfirmationPending ? "revocation_pending" : "revoked";
+        await Disable(a, ct); PurgeEscrow(a);
+        var response = Common(a); response["revocation_id"] = request.RevocationId; response["local_business_revoked"] = true; response["local_sender_disabled"] = true; return response;
     }
 
     private async Task ActivateInbound(ServiceLinkAttempt a, CancellationToken ct)

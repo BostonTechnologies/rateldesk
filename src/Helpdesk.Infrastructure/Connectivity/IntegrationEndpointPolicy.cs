@@ -9,6 +9,7 @@ namespace Helpdesk.Infrastructure.Persistence.Connectivity;
 /// </summary>
 public static class IntegrationEndpointPolicy
 {
+    private static readonly byte[] AwsIpv6MetadataAddress = IPAddress.Parse("fd00:ec2::254").GetAddressBytes();
     private static readonly string[] AllowedSignalRQueryKeys =
     [
         "negotiateVersion",
@@ -52,6 +53,28 @@ public static class IntegrationEndpointPolicy
         uri.Fragment.Length == 0 &&
         !IsRejectedHost(uri.Host) &&
         (uri.Scheme == "https" || (allowPrivateHttp && !IsPublicIp(uri.Host)));
+
+    // Reciprocal service links require the current deployment opt-in for
+    // private HTTPS as well as HTTP. Other integration policies retain their
+    // existing HTTPS and SignalR behavior.
+    public static void ValidateServiceLink(Uri uri, string fieldName, bool allowPrivateHttp = false)
+    {
+        Validate(uri, fieldName, allowPrivateHttp);
+        if (!allowPrivateHttp && IPAddress.TryParse(uri.Host, out var literal) && IsPrivateNetworkAddress(literal))
+            throw new ArgumentException($"{fieldName} targets a private address without the current deployment opt-in.", fieldName);
+    }
+
+    public static void ValidateServiceLinkResolvedAddresses(
+        Uri uri,
+        IReadOnlyCollection<IPAddress> addresses,
+        string fieldName,
+        bool allowPrivateHttp)
+    {
+        ValidateServiceLink(uri, fieldName, allowPrivateHttp);
+        ValidateResolvedAddressesCore(uri, addresses, fieldName, allowPrivateHttp);
+        if (!allowPrivateHttp && addresses.Any(IsPrivateNetworkAddress))
+            throw new ArgumentException($"{fieldName} resolved to a private address without the current deployment opt-in.", fieldName);
+    }
 
     public static void ValidateResolvedAddresses(
         Uri uri,
@@ -142,6 +165,7 @@ public static class IntegrationEndpointPolicy
     private static bool IsRejectedAddress(IPAddress address)
     {
         if (address.IsIPv4MappedToIPv6) address = address.MapToIPv4();
+        if (address.GetAddressBytes().AsSpan().SequenceEqual(AwsIpv6MetadataAddress)) return true;
         if (address.Equals(IPAddress.IPv6Any) || address.IsIPv6LinkLocal || address.IsIPv6Multicast || address.IsIPv6SiteLocal)
             return true;
         var bytes = address.GetAddressBytes();
