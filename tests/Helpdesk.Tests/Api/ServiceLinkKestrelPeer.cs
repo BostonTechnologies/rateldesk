@@ -16,6 +16,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Server.Kestrel.Transport.Sockets;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -34,6 +35,7 @@ internal sealed class ServiceLinkKestrelPeer : IAsyncDisposable
     private readonly Action<IServiceCollection, IConfiguration> configureServices;
     private readonly Action<WebApplication> mapEndpoints;
     private readonly Dictionary<string, string?> configuration;
+    private Socket? listenSocket;
     private PostgreSqlContainer? container;
     private WebApplication? app;
     public HttpClient Client { get; private set; } = null!;
@@ -49,9 +51,8 @@ internal sealed class ServiceLinkKestrelPeer : IAsyncDisposable
     {
         this.configureServices = configureServices;
         this.mapEndpoints = mapEndpoints;
-        using var reservation = new TcpListener(IPAddress.Loopback, 0);
-        reservation.Start();
-        BaseUrl = $"http://127.0.0.1:{((IPEndPoint)reservation.LocalEndpoint).Port}";
+        listenSocket = CreateListenSocket(0);
+        BaseUrl = $"http://127.0.0.1:{((IPEndPoint)listenSocket.LocalEndPoint!).Port}";
         configuration = new()
         {
             ["StorageOptions:RootPath"] = Path.Combine(root, "storage"),
@@ -79,31 +80,56 @@ internal sealed class ServiceLinkKestrelPeer : IAsyncDisposable
         Action<IServiceCollection, IConfiguration> configureServices, Action<WebApplication> mapEndpoints)
     {
         var peer = new ServiceLinkKestrelPeer(configureServices, mapEndpoints);
-        Directory.CreateDirectory(peer.root);
-        peer.configuration["Database:Provider"] = postgres ? "PostgreSql" : "Sqlite";
-        peer.configuration["Database:Sqlite:Path"] = Path.Combine(peer.root, "service-links.db");
-        if (postgres)
+        try
         {
-            peer.container = new PostgreSqlBuilder("postgres:16").Build();
-            await peer.container.StartAsync();
-            peer.configuration["ConnectionStrings:HelpdeskDb"] = peer.container.GetConnectionString();
+            Directory.CreateDirectory(peer.root);
+            peer.configuration["Database:Provider"] = postgres ? "PostgreSql" : "Sqlite";
+            peer.configuration["Database:Sqlite:Path"] = Path.Combine(peer.root, "service-links.db");
+            if (postgres)
+            {
+                peer.container = new PostgreSqlBuilder("postgres:16").Build();
+                await peer.container.StartAsync();
+                peer.configuration["ConnectionStrings:HelpdeskDb"] = peer.container.GetConnectionString();
+            }
+            await peer.StartAsync();
+            await using var scope = peer.Services.CreateAsyncScope();
+            var identity = scope.ServiceProvider.GetRequiredService<RatelDeskIdentityDbContext>();
+            await identity.Database.MigrateAsync();
+            identity.Users.Add(new ApplicationUser { Id = "owner", UserName = "owner", Email = "owner@example.test",
+                IsEnabled = true, IsInstanceAdministrator = true });
+            await identity.SaveChangesAsync();
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            await db.Database.MigrateAsync();
+            db.InstanceInitializations.Add(new() { InstanceId = peer.InstanceId, OperationId = Guid.NewGuid(),
+                SetupVersion = "service-link-contract-test", CompletedAtUtc = peer.Clock.GetUtcNow() });
+            db.Organizations.Add(new() { Id = peer.OrganizationId, Name = "Synthetic link organization", IsEnabled = true });
+            db.Customers.Add(new() { Id = peer.CustomerId, OrganizationId = peer.OrganizationId,
+                Name = "Synthetic link customer", Email = "customer@example.test", IsEnabled = true });
+            await db.SaveChangesAsync();
+            return peer;
         }
-        await peer.StartAsync();
-        await using var scope = peer.Services.CreateAsyncScope();
-        var identity = scope.ServiceProvider.GetRequiredService<RatelDeskIdentityDbContext>();
-        await identity.Database.MigrateAsync();
-        identity.Users.Add(new ApplicationUser { Id = "owner", UserName = "owner", Email = "owner@example.test",
-            IsEnabled = true, IsInstanceAdministrator = true });
-        await identity.SaveChangesAsync();
-        var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
-        await db.Database.MigrateAsync();
-        db.InstanceInitializations.Add(new() { InstanceId = peer.InstanceId, OperationId = Guid.NewGuid(),
-            SetupVersion = "service-link-contract-test", CompletedAtUtc = peer.Clock.GetUtcNow() });
-        db.Organizations.Add(new() { Id = peer.OrganizationId, Name = "Synthetic link organization", IsEnabled = true });
-        db.Customers.Add(new() { Id = peer.CustomerId, OrganizationId = peer.OrganizationId,
-            Name = "Synthetic link customer", Email = "customer@example.test", IsEnabled = true });
-        await db.SaveChangesAsync();
-        return peer;
+        catch
+        {
+            await peer.DisposeAsync();
+            throw;
+        }
+    }
+
+    private static Socket CreateListenSocket(int port)
+    {
+        var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        try
+        {
+            socket.Bind(new IPEndPoint(IPAddress.Loopback, port));
+            // Keep the allocated authority reserved until Kestrel owns this same socket.
+            socket.Listen(new SocketTransportOptions().Backlog);
+            return socket;
+        }
+        catch
+        {
+            socket.Dispose();
+            throw;
+        }
     }
 
     private async Task StartAsync()
@@ -111,6 +137,17 @@ internal sealed class ServiceLinkKestrelPeer : IAsyncDisposable
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Production" });
         builder.Logging.ClearProviders();
         builder.WebHost.UseUrls(BaseUrl);
+        var socket = listenSocket ?? throw new InvalidOperationException("Peer listener is not available.");
+        var expectedEndpoint = new IPEndPoint(IPAddress.Loopback, new Uri(BaseUrl).Port);
+        var socketClaimed = 0;
+        builder.Services.Configure<SocketTransportOptions>(options => options.CreateBoundListenSocket = endpoint =>
+        {
+            if (!expectedEndpoint.Equals(endpoint))
+                throw new InvalidOperationException("Peer listener authority changed.");
+            if (Interlocked.Exchange(ref socketClaimed, 1) != 0)
+                throw new InvalidOperationException("Peer listener was requested more than once.");
+            return socket;
+        });
         builder.Configuration.AddInMemoryCollection(configuration);
         builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(root, "keys")))
             .SetApplicationName("RatelDeskServiceLinkContractTests");
@@ -157,7 +194,10 @@ internal sealed class ServiceLinkKestrelPeer : IAsyncDisposable
     public async Task RestartAsync()
     {
         Client.Dispose();
-        await app!.DisposeAsync();
+        try { await app!.DisposeAsync(); }
+        finally { listenSocket?.Dispose(); listenSocket = null; }
+        // Restart uses the established authority once; an unavailable port remains a failure.
+        listenSocket = CreateListenSocket(new Uri(BaseUrl).Port);
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         await StartAsync();
     }
@@ -184,10 +224,16 @@ internal sealed class ServiceLinkKestrelPeer : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         Client?.Dispose();
-        if (app is not null) await app.DisposeAsync();
-        if (container is not null) await container.DisposeAsync();
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-        if (Directory.Exists(root)) Directory.Delete(root, true);
+        try { if (app is not null) await app.DisposeAsync(); }
+        finally
+        {
+            // Also covers failure before Kestrel accepts the socket or before database startup completes.
+            listenSocket?.Dispose();
+            listenSocket = null;
+            if (container is not null) await container.DisposeAsync();
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
     }
 
     private sealed class LifecycleAdminAuthentication(IOptionsMonitor<AuthenticationSchemeOptions> options,
