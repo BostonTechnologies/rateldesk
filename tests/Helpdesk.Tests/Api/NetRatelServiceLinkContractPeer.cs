@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Headers;
@@ -43,6 +44,9 @@ internal sealed class NetRatelServiceLinkContractPeer : IAsyncDisposable
     public string BrowserState { get; private set; } = "";
     private bool active;
     private bool revoked;
+    private volatile bool losePreparedAcknowledgementResponses;
+    private readonly ConcurrentQueue<string> preparedAcknowledgementOperations = new();
+    private readonly ConcurrentDictionary<string, string> preparedAcknowledgements = new(StringComparer.Ordinal);
     public string BaseUrl { get; }
     public string InstanceId { get; } = Guid.NewGuid().ToString("D");
     public string SourceInstanceId { get; } = Guid.NewGuid().ToString("D");
@@ -55,6 +59,12 @@ internal sealed class NetRatelServiceLinkContractPeer : IAsyncDisposable
     public bool LoseExchangeResponseOnce { get; set; }
     public bool LoseRotationOfferResponseOnce { get; set; }
     public bool HoldLifecycleStatus { get; set; }
+    public bool LosePreparedAcknowledgementResponses
+    {
+        get => losePreparedAcknowledgementResponses;
+        set => losePreparedAcknowledgementResponses = value;
+    }
+    public string[] PreparedAcknowledgementOperationIds => preparedAcknowledgementOperations.ToArray();
     public ServiceDirectionalCredential InboundCredential => inbound!;
     public ServiceDirectionalCredential OutboundCredential => outbound!;
     public bool HasOutboundCredential => outbound is not null;
@@ -397,9 +407,16 @@ internal sealed class NetRatelServiceLinkContractPeer : IAsyncDisposable
         protocol.MapPost("/links/{linkId}/ack", (string linkId, ServiceLinkLifecycleRequest request, HttpContext http) =>
         {
             if (!Authorize(http, ServiceLinkContract.ControlScope, linkId)) return Results.Unauthorized();
+            var acknowledgementId = ServiceLinkValidation.NewId();
+            if (request.AckPhase == "prepared")
+            {
+                preparedAcknowledgementOperations.Enqueue(request.OperationId);
+                acknowledgementId = preparedAcknowledgements.GetOrAdd(request.OperationId, acknowledgementId);
+                if (LosePreparedAcknowledgementResponses) http.Abort();
+            }
             return Results.Json(new { contract = ServiceLinkContract.Version, link_id = linkId, link_revision = 1,
                 grant_hash = GrantHash, lifecycle_state = active ? "active" : "prepared", acknowledged_phase = request.AckPhase,
-                acknowledgement_id = ServiceLinkValidation.NewId() });
+                acknowledgement_id = acknowledgementId });
         });
         protocol.MapPost("/links/{linkId}/commit", (string linkId, ServiceLinkLifecycleRequest request, HttpContext http) =>
         {

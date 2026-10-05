@@ -24,9 +24,10 @@
         else
         {
             <MudText Typo="Typo.body2">Review the canonical instances, selected tenants and each direction's exact permission boundary. Neither discovery nor a public health response grants business access.</MudText>
-            <ServiceLinkConsentDetails Initiator="@status.Descriptor.InitiatorEndpointSnapshot" Responder="@status.Descriptor.ResponderEndpointSnapshot" Grants="@(status.GrantSummary?.Grants ?? status.Descriptor.RequestedGrants)" />
+            <ServiceLinkConsentDetails Initiator="@status.Descriptor.InitiatorEndpointSnapshot" Responder="@status.Descriptor.ResponderEndpointSnapshot" Grants="DisplayedGrants" />
             @if (IsResponder && status.GrantSummary is null)
             {
+                <MudText Typo="Typo.caption">The receiver source namespace remains pending until this local consent is saved.</MudText>
                 <form method="post" action="/account/integration-credentials/link/respond" data-enhance="false">
                     <AntiforgeryToken />
                     <input type="hidden" name="attemptId" value="@AttemptId" />
@@ -116,6 +117,13 @@
     private bool IsResponder => new Uri(Navigation.Uri).AbsolutePath.Contains("/respond/", StringComparison.Ordinal);
     private IEnumerable<string> RequestedInboundScopes => status?.Descriptor.RequestedGrants.Where(grant => grant.TargetProduct == "rateldesk").SelectMany(grant => grant.Scopes).Distinct(StringComparer.Ordinal) ?? [];
     private IEnumerable<string> RequestedOutboundScopes => status?.Descriptor.RequestedGrants.Where(grant => grant.TargetProduct == "netratel").SelectMany(grant => grant.Scopes).Distinct(StringComparer.Ordinal) ?? [];
+    private ServiceLinkGrant[] DisplayedGrants => status?.GrantSummary?.Grants ?? (status?.Descriptor.RequestedGrants ?? []).Select(grant => !IsResponder ? grant
+        : grant.TargetProduct == "rateldesk" ? grant with
+        {
+            TargetTenantId = organizationId, Scopes = scopes.Order(StringComparer.Ordinal).ToArray(),
+            ResourceConstraints = grant.ResourceConstraints with { OrganizationId = string.IsNullOrEmpty(organizationId) ? null : organizationId, CustomerIds = customerIds.Order(StringComparer.Ordinal).ToArray() }
+        }
+        : grant with { CallerTenantId = organizationId, Scopes = RequestedOutboundScopes.Where(scope => scope != "netratel.orchestration.invoke" || outboundInvoke).Order(StringComparer.Ordinal).ToArray() }).ToArray();
     private bool CanApproveRemote => !string.IsNullOrWhiteSpace(organizationId) && scopes.Count > 0 && (!outboundInvoke || scopes.Contains("rateldesk.orchestration.callback")) && (!scopes.Any(scope => scope.StartsWith("rateldesk.incident", StringComparison.Ordinal)) || customerIds.Count == 1);
 
     protected override async Task OnParametersSetAsync()

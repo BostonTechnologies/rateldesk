@@ -216,6 +216,7 @@ public sealed record ServiceLinkRemoteApproveRequest(string AttemptId, string Lo
 public sealed record ServiceLinkCallbackRequest(string AttemptId, string PairingCode, string BrowserState,
     string ResponderInstanceId, string OauthIssuer, string SessionBinding);
 public sealed record ServiceLinkLocalApproveRequest(string GrantHash, string SessionBinding);
+public sealed record ServiceLinkContinueRequest(string SessionBinding);
 public sealed record ServiceLinkNavigation(string AttemptId, string NavigationUrl, string LifecycleState);
 public sealed record ServiceLinkAdminAction(string? ReasonCode = null, string? DirectionId = null);
 public sealed record ServiceLinkAdminStatus(string AttemptId, string? LinkId, long LinkRevision, string LifecycleState,

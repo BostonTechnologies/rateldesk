@@ -65,6 +65,9 @@ public static class ServiceLinkEndpoints
             Respond(http, () => links.AdminStatusAsync(attemptId, http.User, ct)));
         admin.MapPost("/start", (HttpContext http, ServiceLinkCoordinator links, CancellationToken ct) =>
             WithBody<ServiceLinkStartRequest, ServiceLinkNavigation>(http, body => links.StartAsync(body, http.User, ct), ct));
+        admin.MapPost("/attempts/{attemptId}/continue", (string attemptId, HttpContext http, ServiceLinkCoordinator links, CancellationToken ct) =>
+            WithBody<ServiceLinkContinueRequest, ServiceLinkNavigation>(http, body => links.ContinueAsync(attemptId, body, http.User, ct), ct))
+            .Accepts<ServiceLinkContinueRequest>("application/json");
         admin.MapPost("/remote-review", (HttpContext http, ServiceLinkCoordinator links, CancellationToken ct) =>
             WithBody<ServiceLinkRemoteReviewRequest, ServiceLinkRequestDescriptor>(http, body => links.RemoteReviewAsync(body, http.User, ct), ct));
         admin.MapPost("/remote-approve", (HttpContext http, ServiceLinkCoordinator links, CancellationToken ct) =>

@@ -26,7 +26,7 @@ using Xunit;
 namespace Helpdesk.Tests.Api;
 
 [Collection("Incident receiver")]
-public sealed class ServiceLinkLifecycleTests
+public sealed partial class ServiceLinkLifecycleTests
 {
     private const string SessionBinding = "synthetic-session-bound-to-the-authenticated-browser";
     [Theory]
@@ -967,7 +967,8 @@ public sealed class ServiceLinkLifecycleTests
         return start;
     }
 
-    private static Task<ServiceLinkKestrelPeer> LocalAsync(bool postgres, bool automaticRotation = false) => ServiceLinkKestrelPeer.CreateAsync(postgres,
+    private static Task<ServiceLinkKestrelPeer> LocalAsync(bool postgres, bool automaticRotation = false,
+        Microsoft.EntityFrameworkCore.Diagnostics.SaveChangesInterceptor? saveInterceptor = null) => ServiceLinkKestrelPeer.CreateAsync(postgres,
         (services, configuration) =>
         {
             configuration["ServiceLinks:AutomaticRotationEnabled"] = automaticRotation.ToString();
@@ -980,6 +981,8 @@ public sealed class ServiceLinkLifecycleTests
             services.AddSingleton<IBackgroundJobQueue, BackgroundJobQueue>();
             services.AddScoped<IIncidentReceiverAuthorization, IncidentReceiverAuthorization>();
             services.AddScoped<IncidentReceiver>();
+            if (saveInterceptor is not null)
+                services.AddDbContext<HelpdeskDbContext>(options => options.AddInterceptors(saveInterceptor));
         }, app =>
         {
             app.MapServiceIdentityEndpoints(); app.MapServiceLinkEndpoints(); app.MapIncidentReceiverEndpoints();

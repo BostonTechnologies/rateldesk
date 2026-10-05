@@ -35,7 +35,7 @@ public sealed partial class ServiceLinkCoordinator
         var existing = await db.Set<ServiceLinkOperation>().SingleOrDefaultAsync(x => x.LinkId == a.LinkId && x.Outbound && x.Kind == kind, ct);
         if (existing is not null) return existing;
         var operation = new ServiceLinkOperation { LinkId = a.LinkId!, OperationId = request.OperationId, Kind = kind, RequestFingerprint = ServiceLinkLifecycleProjection.Hash(route, request), ProtectedRequestJson = Protect(a, "operation/" + request.OperationId, Json(request)), Outbound = true, CreatedAtUnixSeconds = Now };
-        db.Set<ServiceLinkOperation>().Add(operation); await db.SaveChangesAsync(ct); return operation;
+        db.Set<ServiceLinkOperation>().Add(operation); await Save(a, ct); return operation;
     }
     private async Task<JsonElement> SendOperation(ServiceLinkAttempt a, string kind, string route, ServiceLinkLifecycleRequest request, CancellationToken ct, ServiceDirectionalCredential? candidate = null)
     {

@@ -6,6 +6,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Helpdesk.Shared.Auth;
+using Helpdesk.Shared.ServiceLink;
 using Microsoft.AspNetCore.DataProtection;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
@@ -86,6 +87,115 @@ public class WebAuthRoutesTests
         var response = await client.PostAsync("/local-login", form);
         Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
         Assert.Equal("/login?status=form-expired", response.Headers.Location?.OriginalString);
+    }
+
+    [Theory]
+    [InlineData("Local")]
+    [InlineData("Oidc")]
+    [InlineData("Hybrid")]
+    public async Task Signed_out_peer_approval_cleans_correlation_before_any_authentication_challenge(string mode)
+    {
+        var peerCalls = 0;
+        using var factory = CreateFactory(authenticationMode: mode, serviceLinkApi: (_, _) =>
+        {
+            Interlocked.Increment(ref peerCalls);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError));
+        });
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        using var response = await client.GetAsync("/account/integration-credentials/link/approve?initiator_web_base_url=https%3A%2F%2Fpeer.example.test&attempt_id=synthetic-attempt&browser_state=synthetic-private-correlation");
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        Assert.Equal("/login?status=service-link-sign-in-required", response.Headers.Location?.OriginalString);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+        Assert.Equal("no-referrer", Assert.Single(response.Headers.GetValues("Referrer-Policy")));
+        Assert.Equal(0, peerCalls);
+    }
+
+    [Fact]
+    public async Task Peer_approval_rejects_a_signed_in_non_administrator_before_descriptor_fetch()
+    {
+        var peerCalls = 0;
+        using var factory = CreateFactory(enableTestAuth: true, localAuthentication: true, serviceLinkApi: (_, _) =>
+        {
+            Interlocked.Increment(ref peerCalls);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError));
+        });
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "Technician");
+        using var response = await client.GetAsync("/account/integration-credentials/link/approve?browser_state=synthetic-private-correlation");
+        Assert.Equal("/account/integration-credentials/link/result?status=not-authorized", response.Headers.Location?.OriginalString);
+        Assert.Equal(0, peerCalls);
+    }
+
+    [Fact]
+    public async Task Continued_approval_reuses_the_original_protected_session_and_rendered_antiforgery_form()
+    {
+        const string attempt = "synthetic-awaiting-attempt";
+        const string originalNavigation = "https://peer.example.test/account/integration-credentials/link/approve?attempt_id=synthetic-awaiting-attempt&browser_state=synthetic-private-correlation";
+        var descriptor = new ServiceLinkRequestDescriptor
+        {
+            AttemptId = attempt,
+            InitiatorEndpointSnapshot = new() { Product = "rateldesk", InstanceId = "local-install", WebBaseUrl = "https://local.example.test" },
+            ResponderEndpointSnapshot = new() { Product = "netratel", InstanceId = "peer-install", WebBaseUrl = "https://peer.example.test", ApprovalEndpoint = "https://peer.example.test/account/integration-credentials/link/approve" }
+        };
+        var status = new ServiceLinkAdminStatus(attempt, null, 1, "awaiting_approval", "local-organization", "peer-install", null,
+            "undecided", null, null, descriptor, null, false, false, false, false, false, null, false, []);
+        string? originalBinding = null;
+        var starts = 0;
+        var continues = 0;
+        using var factory = CreateFactory(enableTestAuth: true, localAuthentication: true, serviceLinkApi: async (request, ct) =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (request.Method == HttpMethod.Post && path == "/api/v1/admin/service-links/start")
+            {
+                starts++;
+                var start = await request.Content!.ReadFromJsonAsync<ServiceLinkStartRequest>(ct);
+                originalBinding = start!.SessionBinding;
+                Assert.True(originalBinding.Length >= 32);
+                return new(HttpStatusCode.OK) { Content = JsonContent.Create(new ServiceLinkNavigation(attempt, originalNavigation, "awaiting_approval")) };
+            }
+            if (request.Method == HttpMethod.Post && path == $"/api/v1/admin/service-links/attempts/{attempt}/continue")
+            {
+                continues++;
+                var continuation = await request.Content!.ReadFromJsonAsync<ServiceLinkContinueRequest>(ct);
+                Assert.True(originalBinding is not null && continuation!.SessionBinding == originalBinding,
+                    "Continue must use the same protected browser-session binding as the original start.");
+                return new(HttpStatusCode.OK) { Content = JsonContent.Create(new ServiceLinkNavigation(attempt, originalNavigation, "awaiting_approval")) };
+            }
+            return new(HttpStatusCode.OK)
+            {
+                Content = path.EndsWith("/" + attempt, StringComparison.Ordinal) ? JsonContent.Create(status) : JsonContent.Create(new[] { status })
+            };
+        });
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "HelpdeskAdmin");
+        var review = $"/account/integration-credentials/link/review/{attempt}";
+        var initialHtml = await client.GetStringAsync(review);
+        using var initialForm = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["__RequestVerificationToken"] = ExtractFormToken(initialHtml), ["peerWebBaseUrl"] = "https://peer.example.test", ["localTenantId"] = "local-organization"
+        });
+        using var started = await client.PostAsync("/account/integration-credentials/link/start", initialForm);
+        Assert.Equal(originalNavigation, started.Headers.Location?.OriginalString);
+        Assert.True(started.Headers.TryGetValues("Set-Cookie", out var startedCookies) && startedCookies.Any(cookie => cookie.StartsWith("RatelDesk.ServiceLink=", StringComparison.Ordinal) && cookie.Contains("httponly", StringComparison.OrdinalIgnoreCase)), "Start must establish the protected HttpOnly link-session cookie.");
+
+        var html = await client.GetStringAsync(review);
+        var match = Regex.Match(html, "<form\\b[^>]*data-testid=\"netratel-resume-approval\"[^>]*>.*?</form>", RegexOptions.Singleline);
+        Assert.True(match.Success, "The awaiting initiator must render the compact approval continuation form.");
+        Assert.Equal(new[] { "__RequestVerificationToken", "attemptId" }, ReadNativeInputNames(match.Value).Order(StringComparer.Ordinal));
+        Assert.DoesNotContain("synthetic-private-correlation", html, StringComparison.Ordinal);
+        Assert.False(html.Contains(originalBinding!, StringComparison.Ordinal), "The protected browser-session binding must remain absent from rendered HTML.");
+
+        using var unprotected = await client.PostAsync("/account/integration-credentials/link/continue", new FormUrlEncodedContent(new Dictionary<string, string> { ["attemptId"] = attempt }));
+        Assert.Equal("/account/integration-credentials/link/result?status=form-expired", unprotected.Headers.Location?.OriginalString);
+        Assert.Equal(0, continues);
+
+        using var form = new FormUrlEncodedContent(new Dictionary<string, string> { ["__RequestVerificationToken"] = ExtractFormToken(match.Value), ["attemptId"] = attempt });
+        using var continued = await client.PostAsync("/account/integration-credentials/link/continue", form);
+        Assert.Equal(originalNavigation, continued.Headers.Location?.OriginalString);
+        Assert.True(continued.Headers.CacheControl?.NoStore);
+        Assert.Equal("no-referrer", Assert.Single(continued.Headers.GetValues("Referrer-Policy")));
+        Assert.Equal(1, starts);
+        Assert.Equal(1, continues);
     }
 
     [Fact]
@@ -566,7 +676,8 @@ public class WebAuthRoutesTests
         string? authenticationMode = null,
         bool omitAuthenticationMode = false,
         bool stubApi = true,
-        Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>>? loginApi = null)
+        Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>>? loginApi = null,
+        Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>>? serviceLinkApi = null)
     {
         return new WebApplicationFactory<TokenService>().WithWebHostBuilder(builder =>
         {
@@ -621,8 +732,8 @@ public class WebAuthRoutesTests
             {
                 if (stubApi)
                 {
-                    foreach (var clientName in new[] { "HelpdeskApi", "HelpdeskApiStreaming", "SystemApi", "SystemApiNoAuth" })
-                        services.AddHttpClient(clientName).ConfigurePrimaryHttpMessageHandler(() => new BrandingApiHandler(loginApi));
+                    foreach (var clientName in new[] { "HelpdeskApi", "HelpdeskApiStreaming", "SystemApi", "SystemApiNoAuth", "ServiceLinkApi" })
+                        services.AddHttpClient(clientName).ConfigurePrimaryHttpMessageHandler(() => new BrandingApiHandler(loginApi, serviceLinkApi));
                 }
 
                 services.PostConfigure<OpenIdConnectOptions>("Authentik", options =>
@@ -651,12 +762,15 @@ public class WebAuthRoutesTests
         });
     }
 
-    private sealed class BrandingApiHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>>? loginApi) : HttpMessageHandler
+    private sealed class BrandingApiHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>>? loginApi,
+        Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>>? serviceLinkApi) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             if (request.RequestUri?.AbsolutePath.StartsWith("/api/v1/local-auth/", StringComparison.Ordinal) == true && loginApi is not null)
                 return loginApi(request, cancellationToken);
+            if (request.RequestUri?.AbsolutePath.StartsWith("/api/v1/admin/service-links", StringComparison.Ordinal) == true && serviceLinkApi is not null)
+                return serviceLinkApi(request, cancellationToken);
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = request.RequestUri?.AbsolutePath == "/api/v1/setup/status"
@@ -752,6 +866,7 @@ public class WebAuthRoutesTests
 
             var claims = new List<Claim>
             {
+                new(ClaimTypes.NameIdentifier, "synthetic-web-auth-test-user"),
                 new(ClaimTypes.Name, "Test User"),
                 new(ClaimTypes.Role, role),
                 new("preferred_username", "test.user@example.com")

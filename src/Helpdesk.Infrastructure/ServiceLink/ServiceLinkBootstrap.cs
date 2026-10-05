@@ -51,6 +51,23 @@ public sealed partial class ServiceLinkCoordinator
         return new(attemptId, url, a.LifecycleState);
     }
 
+    public async Task<ServiceLinkNavigation> ContinueAsync(string attemptId, ServiceLinkContinueRequest request, ClaimsPrincipal actor, CancellationToken ct)
+    {
+        Id(attemptId); var a = await Attempt(attemptId, ct); var actorId = await Authorize(actor, a.LocalTenantId, ct);
+        Require(a.Role == "initiator" && a.LocalActorId == actorId && a.Decision == "undecided" && a.LifecycleState == "awaiting_approval" &&
+            a.ExpiresAtUnixSeconds > Now && a.ProtectedBrowserState is not null && request.SessionBinding is { Length: >= 32 and <= 256 } &&
+            Same(a.SessionBindingHash, Digest(request.SessionBinding)), "invalid-local-consent", "The original live initiating browser session is required to continue this approval.", 403);
+        var descriptor = Descriptor(a);
+        Require(descriptor.DescriptorHash == a.DescriptorHash && ServiceLinkCanonicalJson.HashObject(descriptor, "descriptor_hash") == a.DescriptorHash,
+            "descriptor-binding-mismatch", "The retained descriptor differs from its approved navigation.", 409);
+        Require(ServiceLinkCanonicalJson.HashObject(descriptor.InitiatorEndpointSnapshot, "product_version") == ServiceLinkCanonicalJson.HashObject(Metadata(), "product_version"),
+            "identity-configuration-drift", "Restore the approved local identity or start a new explicit consent ceremony.", 409);
+        var browserState = Unprotect(a, "browser-state", a.ProtectedBrowserState!);
+        var url = descriptor.ResponderEndpointSnapshot.ApprovalEndpoint + "?initiator_web_base_url=" + Uri.EscapeDataString(descriptor.InitiatorEndpointSnapshot.WebBaseUrl) +
+            "&attempt_id=" + Uri.EscapeDataString(a.AttemptId) + "&browser_state=" + Uri.EscapeDataString(browserState);
+        return new(a.AttemptId, url, a.LifecycleState);
+    }
+
     private static ServiceLinkGrant[] BuildProposal(ServiceLinkMetadata local, ServiceLinkMetadata peer, ServiceLinkStartRequest request, Guid source)
     {
         var remoteTenant = request.RequestedResponderTenantId ?? "";
