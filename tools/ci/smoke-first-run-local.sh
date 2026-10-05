@@ -283,6 +283,34 @@ for ticket_route in "incidents/$incident_id" "requests/$request_id" "changes/$ch
     "$api_base_url/api/v1/$ticket_route/timeline" | jq -e 'type == "array"' > /dev/null
 done
 docker compose "${compose_arguments[@]}" logs --no-color api > "$work_directory/api.log"
+
+# Only this disposable smoke enables service discovery, after real unattended setup.
+# Keep Web and API identities explicit and distinct; public request Host is not configuration.
+discovery_api_base_url="${api_base_url%/}"
+discovery_web_base_url="${web_base_url%/}"
+[[ "$discovery_api_base_url" != "$discovery_web_base_url" ]]
+discovery_instance_id="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+discovery_issuer="$discovery_api_base_url/services"
+discovery_audience="rateldesk.smoke.services"
+discovery_override="$work_directory/service-link-discovery.compose.json"
+jq -n \
+  --arg api "$discovery_api_base_url" --arg web "$discovery_web_base_url" \
+  --arg issuer "$discovery_issuer" --arg audience "$discovery_audience" \
+  --arg instance "$discovery_instance_id" \
+  '{services: {api: {environment: {
+    ServiceIdentity__Enabled: "true",
+    ServiceIdentity__Issuer: $issuer,
+    ServiceIdentity__Audience: $audience,
+    ServiceIdentity__ApiBaseUrl: $api,
+    ServiceIdentity__WebBaseUrl: $web,
+    ServiceIdentity__InstanceId: $instance,
+    ServiceIdentity__AllowPrivateHttp: "true",
+    ServiceLinks__Enabled: "true",
+    ServiceLinks__ApiBaseUrl: $api,
+    ServiceLinks__WebBaseUrl: $web,
+    ServiceLinks__AllowPrivateHttp: "true"
+  }}}}' > "$discovery_override"
+compose_arguments+=(-f "$discovery_override")
 docker compose "${compose_arguments[@]}" up --detach --no-deps --force-recreate api
 curl --retry 30 --retry-all-errors --retry-delay 2 --fail --silent --show-error \
   --cookie "$cookie_jar" "$api_base_url/api/v1/attachments/$attachment_id" > "$work_directory/restored.txt"
@@ -291,6 +319,44 @@ curl --fail --silent --show-error --cookie "$web_cookie_jar" \
   "$web_base_url/api/v1/auth/me" | jq -e '.isAuthenticated == true and .isHelpdeskAdmin == true' > /dev/null
 
 curl --fail --silent --show-error "$api_base_url/api/v1/setup/status" | jq -e '.state == "Ready"' > /dev/null
+
+# Exercise the real public Web pipeline, anonymously, against its configured API.
+metadata_path="/api/integrations/service-link/metadata"
+metadata_status="$(curl --fail --silent --show-error --dump-header "$work_directory/discovery.headers" \
+  --output "$work_directory/web-metadata.json" --write-out '%{http_code}' \
+  "$discovery_web_base_url$metadata_path")"
+[[ "$metadata_status" == "200" ]]
+grep -Eiq '^cache-control:.*no-store' "$work_directory/discovery.headers"
+jq -e \
+  --arg api "$discovery_api_base_url" --arg web "$discovery_web_base_url" \
+  --arg issuer "$discovery_issuer" --arg audience "$discovery_audience" \
+  --arg instance "$discovery_instance_id" \
+  '.contract == "bostec.service-link.v1" and .product == "rateldesk" and
+   (.product_version | type == "string" and length > 0) and
+   .instance_id == $instance and .api_base_url == $api and .web_base_url == $web and
+   .oauth_issuer == $issuer and .audience == $audience and
+   .oauth_metadata_url == ($api + "/.well-known/oauth-authorization-server") and
+   .token_endpoint == ($api + "/connect/token") and
+   .jwks_uri == ($api + "/.well-known/jwks.json") and
+   .service_link_endpoint == ($api + "/api/integrations/service-link/v1") and
+   .approval_endpoint == ($web + "/account/integration-credentials/link/approve") and
+   .callback_endpoint == ($web + "/account/integration-credentials/link/callback") and
+   (.supported_contracts | index("bostec.service-link.v1") != null)' \
+  "$work_directory/web-metadata.json" > /dev/null
+curl --fail --silent --show-error "$discovery_api_base_url$metadata_path" \
+  | jq -S . > "$work_directory/api-metadata.json"
+jq -S . "$work_directory/web-metadata.json" > "$work_directory/web-metadata.sorted.json"
+cmp "$work_directory/api-metadata.json" "$work_directory/web-metadata.sorted.json"
+
+# Match ASP.NET's case-insensitive route semantics without admitting a path prefix.
+curl --fail --silent --show-error "$discovery_web_base_url/API/INTEGRATIONS/SERVICE-LINK/METADATA" \
+  | jq -S . > "$work_directory/web-metadata.uppercase.json"
+cmp "$work_directory/api-metadata.json" "$work_directory/web-metadata.uppercase.json"
+for blocked_path in /api/integrations/unrelated-discovery "$metadata_path/extra" "$metadata_path/"; do
+  blocked_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+    "$discovery_web_base_url$blocked_path")"
+  [[ "$blocked_status" == "404" ]]
+done
 
 docker compose "${compose_arguments[@]}" exec -T api dotnet /app/Helpdesk.API.dll --setup-status > "$work_directory/setup-status.txt"
 grep -q 'Setup state: Ready' "$work_directory/setup-status.txt"
@@ -311,4 +377,4 @@ if grep -q 'Cannot load library libgssapi_krb5' "$work_directory/api.log"; then
   exit 1
 fi
 
-echo "First-run $setup_provider setup, local sign-in, core ticket CRUD, self-service request, and attachment smoke test passed."
+echo "First-run $setup_provider setup, local sign-in, core ticket CRUD, self-service request, attachment, and public Web discovery smoke test passed."

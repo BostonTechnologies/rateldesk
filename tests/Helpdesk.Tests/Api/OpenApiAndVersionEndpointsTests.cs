@@ -108,16 +108,21 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         }
 
         Assert.True(violations.Count == 0, string.Join(Environment.NewLine, violations));
-        // Release includes service issuer/client/link and legacy administration operations;
+        // Release includes service issuer/client/link, original-session continuation
+        // and legacy administration operations;
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(412, operationCount);
+        Assert.Equal(413, operationCount);
 #else
-        Assert.Equal(411, operationCount);
+        Assert.Equal(412, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
+        Assert.True(paths.TryGetProperty("/api/v1/admin/service-links/attempts/{attemptId}/continue", out var continuationPath),
+            "The original-session continuation route must be documented.");
+        Assert.True(continuationPath.TryGetProperty("post", out var continuationOperation));
+        Assert.True(continuationOperation.GetProperty("requestBody").GetProperty("content").TryGetProperty("application/json", out _));
         var receiverOperations = new[]
         {
             ("/api/v1/integrations/netratel/capabilities", "get"),

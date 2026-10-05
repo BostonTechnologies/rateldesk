@@ -81,6 +81,8 @@ public static class ServiceLinkCanonicalJson
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
         {
             PropertyNameCaseInsensitive = false,
+            NumberHandling = JsonNumberHandling.Strict,
+            RespectNullableAnnotations = true,
             UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
             MaxDepth = 32
         };

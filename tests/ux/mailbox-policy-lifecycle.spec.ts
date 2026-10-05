@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { expect, test } from '@playwright/test';
-import { waitForMailboxOrganizationSelection } from './mailbox-picker';
+import { selectMailboxOrganization } from './mailbox-picker';
 
 type Mailbox = { id: string; mailboxAddress: string; organizationId: string | null };
 type Worker = { deploymentPermitsIngestion: boolean; instanceRunning: boolean; state: string; blockedBy: string | null };
@@ -30,9 +30,7 @@ test('mailbox deployment policy: explicit false blocks worker and explicit true 
 
   await page.getByRole('button', { name: 'Add', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Tenant override' }).click();
-  await page.getByRole('combobox', { name: /^RatelDesk organization/ }).fill('Tenant A');
-  await page.getByRole('option', { name: /Tenant A/ }).click();
-  await waitForMailboxOrganizationSelection(page, 'Tenant A');
+  await selectMailboxOrganization(page, 'Tenant A');
   await page.getByRole('combobox', { name: 'Inbound provider' }).click();
   await page.getByRole('option', { name: 'IMAP', exact: true }).click();
   await page.getByLabel('Mailbox display name').fill('Policy fixture IMAP');

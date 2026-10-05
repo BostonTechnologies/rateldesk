@@ -6,6 +6,7 @@ import { assertNoHorizontalOverflow, authenticate, selectTheme } from './auth';
 test.use({ trace: 'off', screenshot: 'off' });
 
 test.beforeEach(async ({ page }, testInfo) => {
+  if (testInfo.title.startsWith('signed-out peer')) return;
   if (testInfo.title.startsWith('manual UI')) {
     const email = process.env.HELPDESK_E2E_LOCAL_EMAIL;
     const password = process.env.HELPDESK_E2E_LOCAL_PASSWORD;
@@ -73,6 +74,32 @@ test('a failed proof has a clean review page and a truthful manual compatibility
   expect(new URL(page.url()).searchParams.has('pairing_code')).toBe(false);
   expect(new URL(page.url()).searchParams.has('browser_state')).toBe(false);
   await expect(page.getByText('The link proof or browser session could not be verified. No approval was accepted through this page.', { exact: true })).toBeVisible();
+});
+
+test('signed-out peer approval discards correlation before ordinary sign-in', async ({ page }) => {
+  const approval = '/account/integration-credentials/link/approve?initiator_web_base_url=https%3A%2F%2Fnetratel.example.test&attempt_id=synthetic-attempt&browser_state=synthetic-private-correlation';
+  const rejected = await page.request.get(approval, { maxRedirects: 0 });
+  expect(rejected.status()).toBe(302);
+  expect(rejected.headers().location).toBe('/login?status=service-link-sign-in-required');
+  expect(rejected.headers()['cache-control']).toContain('no-store');
+  expect(rejected.headers()['referrer-policy']).toBe('no-referrer');
+  await page.goto(approval);
+  expect(new URL(page.url()).pathname).toBe('/login');
+  expect(new URL(page.url()).search).toBe('?status=service-link-sign-in-required');
+  await expect(page.getByText("Sign in here, then return to the initiating product's integration credentials and Continue the existing link.", { exact: true })).toBeVisible();
+  const login = page.getByTestId('local-login-form');
+  await expect(login).toHaveAttribute('data-interactive', 'true');
+  expect((await login.innerHTML()).includes('synthetic-private-correlation')).toBe(false);
+  const stored = await page.evaluate(() => Object.keys(localStorage).concat(Object.keys(sessionStorage)));
+  expect(stored.some(key => /service.?link|pairing|verifier|browser.?state/i.test(key))).toBe(false);
+  const email = process.env.HELPDESK_E2E_LOCAL_EMAIL;
+  const password = process.env.HELPDESK_E2E_LOCAL_PASSWORD;
+  if (!email || !password) throw new Error('The sign-in continuation journey requires the synthetic local administrator fixture. Run tools/ci/run-ux-local.sh.');
+  await login.getByLabel('Email', { exact: true }).fill(email);
+  await login.getByLabel('Password', { exact: true }).fill(password);
+  await login.getByRole('button', { name: /^Sign in to / }).click();
+  await expect(page.getByRole('heading', { name: 'Operations Dashboard' })).toBeVisible();
+  expect(new URL(page.url()).search).toBe('');
 });
 
 test('manual UI creates a live scoped client, hides its secret and revokes cached authorization', async ({ page, request }) => {

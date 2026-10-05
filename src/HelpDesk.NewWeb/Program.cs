@@ -8,6 +8,7 @@ using HelpDesk.NewWeb.Models;
 using HelpDesk.NewWeb.Services;
 using HelpDesk.NewWeb.Services.Search;
 using Helpdesk.Shared.Auth;
+using Helpdesk.Shared.ServiceLink;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.RateLimiting;
@@ -405,6 +406,7 @@ app.Use(async (ctx, next) =>
     }
 
     if (ctx.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase) &&
+        !string.Equals(path, ServiceLinkContract.MetadataPath, StringComparison.OrdinalIgnoreCase) &&
         !ctx.Request.Path.StartsWithSegments("/api/docs", StringComparison.OrdinalIgnoreCase) &&
         !ctx.Request.Path.StartsWithSegments("/api/openapi", StringComparison.OrdinalIgnoreCase) &&
         !ctx.Request.Path.StartsWithSegments("/api/v1", StringComparison.OrdinalIgnoreCase) &&

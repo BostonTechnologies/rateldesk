@@ -58,10 +58,35 @@ public static class ServiceLinkBrowserEndpoints
             catch (Exception exception) when (IsTransportFailure(exception, context)) { return Failure("needs-attention"); }
         }).RequireAuthorization(policy => policy.RequireRole(HelpdeskPermissions.HelpdeskAdmin));
 
+        app.MapPost(Root + "/continue", async (HttpContext context, IHttpClientFactory clients,
+            IAntiforgery antiforgery, IDataProtectionProvider protection, IConfiguration configuration) =>
+        {
+            ProtectResponse(context);
+            if (!await ValidFormAsync(context, antiforgery)) return Failure("form-expired");
+            var binding = GetSessionBinding(context, protection, configuration, create: false);
+            if (binding is null) return Failure("session-expired");
+            var form = await context.Request.ReadFormAsync(context.RequestAborted);
+            var attempt = Bounded(form["attemptId"].ToString(), 128);
+            try
+            {
+                using var response = await clients.CreateClient("ServiceLinkApi").PostAsJsonAsync(ApiRoot + "/attempts/" + Uri.EscapeDataString(attempt) + "/continue",
+                    new ServiceLinkContinueRequest(binding), context.RequestAborted);
+                if (!response.IsSuccessStatusCode) return Failure(await FailureCodeAsync(response, context.RequestAborted));
+                var navigation = await ReadBoundedAsync<ServiceLinkNavigation>(response, context.RequestAborted);
+                return navigation is null ? Failure("needs-attention") : await PinnedNavigationAsync(context, clients, navigation, responderApproval: true);
+            }
+            catch (Exception exception) when (IsTransportFailure(exception, context)) { return Failure("needs-attention"); }
+        }).RequireAuthorization(policy => policy.RequireRole(HelpdeskPermissions.HelpdeskAdmin));
+
         // Capture the correlation at the server, then remove it from the browser address before rendering consent.
         app.MapGet(Root + "/approve", async (HttpContext context, IHttpClientFactory clients) =>
         {
             ProtectResponse(context);
+            // Authentication challenges must never copy peer correlation into a login return URL.
+            if (context.User.Identity?.IsAuthenticated != true)
+                return Results.LocalRedirect("/login?status=service-link-sign-in-required");
+            if (!context.User.IsInRole(HelpdeskPermissions.HelpdeskAdmin))
+                return Failure("not-authorized");
             var query = context.Request.Query;
             if (!Single(query, "initiator_web_base_url", 2048, out var origin) ||
                 !Single(query, "attempt_id", 128, out var attempt) || !Single(query, "browser_state", 256, out var state))
@@ -74,7 +99,7 @@ public static class ServiceLinkBrowserEndpoints
                 return Results.LocalRedirect(Root + "/respond/" + Uri.EscapeDataString(attempt));
             }
             catch (Exception exception) when (IsTransportFailure(exception, context)) { return Failure("needs-attention"); }
-        }).RequireAuthorization(policy => policy.RequireRole(HelpdeskPermissions.HelpdeskAdmin));
+        }).AllowAnonymous();
 
         app.MapGet(Root + "/callback", async (HttpContext context, IHttpClientFactory clients,
             IDataProtectionProvider protection, IConfiguration configuration) =>

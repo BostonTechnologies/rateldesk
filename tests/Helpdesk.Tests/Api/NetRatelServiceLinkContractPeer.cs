@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Headers;
@@ -43,6 +44,9 @@ internal sealed class NetRatelServiceLinkContractPeer : IAsyncDisposable
     public string BrowserState { get; private set; } = "";
     private bool active;
     private bool revoked;
+    private volatile bool losePreparedAcknowledgementResponses;
+    private readonly ConcurrentQueue<string> preparedAcknowledgementOperations = new();
+    private readonly ConcurrentDictionary<string, string> preparedAcknowledgements = new(StringComparer.Ordinal);
     public string BaseUrl { get; }
     public string InstanceId { get; } = Guid.NewGuid().ToString("D");
     public string SourceInstanceId { get; } = Guid.NewGuid().ToString("D");
@@ -55,10 +59,19 @@ internal sealed class NetRatelServiceLinkContractPeer : IAsyncDisposable
     public bool LoseExchangeResponseOnce { get; set; }
     public bool LoseRotationOfferResponseOnce { get; set; }
     public bool HoldLifecycleStatus { get; set; }
+    public bool LosePreparedAcknowledgementResponses
+    {
+        get => losePreparedAcknowledgementResponses;
+        set => losePreparedAcknowledgementResponses = value;
+    }
+    public string[] PreparedAcknowledgementOperationIds => preparedAcknowledgementOperations.ToArray();
+    public string? InvalidMetadataMember { get; set; }
     public ServiceDirectionalCredential InboundCredential => inbound!;
     public ServiceDirectionalCredential OutboundCredential => outbound!;
     public bool HasOutboundCredential => outbound is not null;
     public ServiceLinkGrantSummary Summary => summary;
+    public ServiceLinkExchangeRequest InitiatorExchangeRequest => initiatorExchangeRequest
+        ?? throw new InvalidOperationException("The initial exchange request is required.");
     public ServiceLinkMetadata Metadata { get; }
 
     private NetRatelServiceLinkContractPeer()
@@ -129,7 +142,7 @@ internal sealed class NetRatelServiceLinkContractPeer : IAsyncDisposable
     }
 
     public ServiceLinkRequestDescriptor PrepareInitiator(ServiceLinkMetadata responder, string organizationId,
-        string customerId, DateTimeOffset now, bool includeCallback = true)
+        string customerId, DateTimeOffset now, bool includeCallback = true, bool mismatchInitiatorTenant = false)
     {
         initiatorRole = true; codeVerifier = ServiceLinkValidation.Proof(); BrowserState = ServiceLinkValidation.Proof();
         descriptor = new()
@@ -165,6 +178,16 @@ internal sealed class NetRatelServiceLinkContractPeer : IAsyncDisposable
                 }
             ]
         };
+        if (mismatchInitiatorTenant)
+        {
+            var foreignTenant = TenantId + "0";
+            descriptor = descriptor with { RequestedGrants = descriptor.RequestedGrants.Select(grant => grant with
+            {
+                CallerTenantId = grant.CallerProduct == "netratel" ? foreignTenant : grant.CallerTenantId,
+                TargetTenantId = grant.TargetProduct == "netratel" ? foreignTenant : grant.TargetTenantId,
+                ResourceConstraints = grant.TargetProduct == "netratel" ? grant.ResourceConstraints with { TenantId = foreignTenant } : grant.ResourceConstraints
+            }).ToArray() };
+        }
         descriptor = descriptor with { DescriptorHash = ServiceLinkCanonicalJson.HashObject(descriptor, "descriptor_hash") };
         return descriptor;
     }
@@ -199,13 +222,22 @@ internal sealed class NetRatelServiceLinkContractPeer : IAsyncDisposable
             pairingCode, codeVerifier!, descriptor.DescriptorHash, GrantHash, ServiceLinkValidation.NewId(), inbound);
     }
 
-    public Task<HttpResponseMessage> RepeatInitiatorExchangeAsync(bool changeBody = false, bool reorderJson = false, bool loseResponse = false)
+    public Task<HttpResponseMessage> RepeatInitiatorExchangeAsync(bool changeBody = false, bool reorderJson = false, bool loseResponse = false,
+        bool reorderCredentialScopes = false, bool changeCredentialSecret = false, bool quoteCredentialRevision = false)
     {
         var request = initiatorExchangeRequest ?? throw new InvalidOperationException("The initial exchange request is required.");
         if (changeBody) request = request with { InitiatorConsentId = ServiceLinkValidation.NewId() };
+        if (reorderCredentialScopes) request = request with { CredentialForResponder = request.CredentialForResponder with { Scopes = request.CredentialForResponder.Scopes.Reverse().ToArray() } };
+        if (changeCredentialSecret) request = request with { CredentialForResponder = request.CredentialForResponder with { ClientSecret = ServiceLinkValidation.Proof() } };
         var endpoint = descriptor.ResponderEndpointSnapshot.ServiceLinkEndpoint + "/attempts/" + descriptor.AttemptId + "/exchange";
         var message = new HttpRequestMessage(HttpMethod.Post, endpoint);
-        if (!reorderJson) message.Content = JsonContent.Create(request);
+        if (quoteCredentialRevision)
+        {
+            var node = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(request))!;
+            node["credential_for_responder"]!["credential_revision"] = request.CredentialForResponder.CredentialRevision.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            message.Content = new StringContent(node.ToJsonString(), System.Text.Encoding.UTF8, "application/json");
+        }
+        else if (!reorderJson) message.Content = JsonContent.Create(request);
         else
         {
             using var original = JsonDocument.Parse(JsonSerializer.Serialize(request));
@@ -312,7 +344,18 @@ internal sealed class NetRatelServiceLinkContractPeer : IAsyncDisposable
 
     private void Map()
     {
-        app.MapGet(ServiceLinkContract.MetadataPath, () => Results.Json(Metadata));
+        app.MapGet(ServiceLinkContract.MetadataPath, () =>
+        {
+            if (InvalidMetadataMember is null) return Results.Json<object>(Metadata);
+            var node = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(Metadata))!;
+            switch (InvalidMetadataMember)
+            {
+                case "profile": node["permission_profiles"]![0] = null; break;
+                case "operation": node["permission_profiles"]![0]!["operations"]![0] = null; break;
+                default: node[InvalidMetadataMember] = null; break;
+            }
+            return Results.Json<object>(node);
+        });
         app.MapGet("/.well-known/oauth-authorization-server", () => Results.Json(new
         {
             issuer = BaseUrl, token_endpoint = Metadata.TokenEndpoint, jwks_uri = Metadata.JwksUri,
@@ -397,9 +440,16 @@ internal sealed class NetRatelServiceLinkContractPeer : IAsyncDisposable
         protocol.MapPost("/links/{linkId}/ack", (string linkId, ServiceLinkLifecycleRequest request, HttpContext http) =>
         {
             if (!Authorize(http, ServiceLinkContract.ControlScope, linkId)) return Results.Unauthorized();
+            var acknowledgementId = ServiceLinkValidation.NewId();
+            if (request.AckPhase == "prepared")
+            {
+                preparedAcknowledgementOperations.Enqueue(request.OperationId);
+                acknowledgementId = preparedAcknowledgements.GetOrAdd(request.OperationId, acknowledgementId);
+                if (LosePreparedAcknowledgementResponses) http.Abort();
+            }
             return Results.Json(new { contract = ServiceLinkContract.Version, link_id = linkId, link_revision = 1,
                 grant_hash = GrantHash, lifecycle_state = active ? "active" : "prepared", acknowledged_phase = request.AckPhase,
-                acknowledgement_id = ServiceLinkValidation.NewId() });
+                acknowledgement_id = acknowledgementId });
         });
         protocol.MapPost("/links/{linkId}/commit", (string linkId, ServiceLinkLifecycleRequest request, HttpContext http) =>
         {

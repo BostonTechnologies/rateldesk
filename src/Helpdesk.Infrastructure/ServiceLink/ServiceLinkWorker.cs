@@ -34,17 +34,22 @@ public sealed partial class ServiceLinkCoordinator
     {
         var existing = await db.Set<ServiceLinkOperation>().SingleOrDefaultAsync(x => x.LinkId == a.LinkId && x.Outbound && x.Kind == kind, ct);
         if (existing is not null) return existing;
+        request = ServiceLinkPayloadNormalization.Lifecycle(request);
         var operation = new ServiceLinkOperation { LinkId = a.LinkId!, OperationId = request.OperationId, Kind = kind, RequestFingerprint = ServiceLinkLifecycleProjection.Hash(route, request), ProtectedRequestJson = Protect(a, "operation/" + request.OperationId, Json(request)), Outbound = true, CreatedAtUnixSeconds = Now };
-        db.Set<ServiceLinkOperation>().Add(operation); await db.SaveChangesAsync(ct); return operation;
+        db.Set<ServiceLinkOperation>().Add(operation); await Save(a, ct); return operation;
     }
     private async Task<JsonElement> SendOperation(ServiceLinkAttempt a, string kind, string route, ServiceLinkLifecycleRequest request, CancellationToken ct, ServiceDirectionalCredential? candidate = null)
     {
         var operation = await OutboundOperation(a, kind, route, request, ct);
         if (operation.Completed) return JsonDocument.Parse(operation.ResponseJson).RootElement.Clone();
         var durable = Read<ServiceLinkLifecycleRequest>(Unprotect(a, "operation/" + operation.OperationId, operation.ProtectedRequestJson!));
+        var normalizedFingerprint = ServiceLinkLifecycleProjection.Hash(route, durable);
+        var normalizeScopes = operation.RequestFingerprint == normalizedFingerprint;
+        Require(normalizeScopes || operation.RequestFingerprint == ServiceLinkLifecycleProjection.Hash(route, durable, false),
+            "operation-payload-conflict", "The protected durable request differs from its original operation fingerprint.", 409);
         var credential = candidate ?? Read<ServiceDirectionalCredential>(Unprotect(a, "outbound-credential", a.ProtectedOutboundCredential!));
         var token = await transport.TokenAsync(credential, route == "verify" ? ServiceLinkContract.VerifyScope : ServiceLinkContract.ControlScope, ct);
-        using var response = await transport.PostAsync<JsonDocument>(Endpoint(Peer(a).ServiceLinkEndpoint, "/links/" + a.LinkId + "/" + route), ServiceLinkLifecycleProjection.Build(route, durable), ct, token);
+        using var response = await transport.PostAsync<JsonDocument>(Endpoint(Peer(a).ServiceLinkEndpoint, "/links/" + a.LinkId + "/" + route), ServiceLinkLifecycleProjection.Build(route, durable, normalizeScopes), ct, token);
         var result = response.RootElement.Clone(); ValidatePeerResult(a, result);
         operation.ResponseJson = result.GetRawText(); operation.Completed = true;
         // Offer payloads are permanent candidate material only at the designated recipient; avoid retaining journal plaintext.
@@ -72,6 +77,7 @@ public sealed partial class ServiceLinkCoordinator
 
     public async Task WorkAsync(CancellationToken ct)
     {
+        await CleanupBootstrapEscrow(ct);
         await CleanupRotationEscrow(ct);
         if (!settings.Enabled) return;
         var ids = await db.Set<ServiceLinkAttempt>().AsNoTracking().Where(x => x.NextWorkAtUnixSeconds <= Now && x.LifecycleState != "failed" && x.LifecycleState != "expired" && x.LifecycleState != "revoked").OrderBy(x => x.NextWorkAtUnixSeconds).Select(x => x.AttemptId).Take(20).ToListAsync(ct);
@@ -130,14 +136,22 @@ public sealed partial class ServiceLinkCoordinator
         if (a.Role == "initiator" && a.ProtectedOutboundCredential is null)
         {
             Require(a.ExpiresAtUnixSeconds > Now && a.ProtectedInboundEscrow is not null, "handoff-unavailable", "The handoff expired; retain control-only recovery and request the coordinator decision.", 410);
+            var credentialForResponder = Read<ServiceDirectionalCredential>(Unprotect(a, "inbound-escrow", a.ProtectedInboundEscrow!));
+            if (!a.ExchangeDispatched)
+            {
+                credentialForResponder = ServiceLinkPayloadNormalization.Credential(credentialForResponder);
+                a.ProtectedInboundEscrow = Protect(a, "inbound-escrow", Json(credentialForResponder));
+            }
+            // An already dispatched legacy handoff must retain its original exact credential body.
             a.ExchangeDispatched = true; await Save(a, ct);
-            var request = new ServiceLinkExchangeRequest(ServiceLinkContract.Version, a.AttemptId, Unprotect(a, "pairing-code", a.ProtectedPairingCode!), Unprotect(a, "verifier", a.ProtectedVerifier!), a.DescriptorHash, a.GrantHash!, a.ConsentId!, Read<ServiceDirectionalCredential>(Unprotect(a, "inbound-escrow", a.ProtectedInboundEscrow)));
+            var request = new ServiceLinkExchangeRequest(ServiceLinkContract.Version, a.AttemptId, Unprotect(a, "pairing-code", a.ProtectedPairingCode!), Unprotect(a, "verifier", a.ProtectedVerifier!), a.DescriptorHash, a.GrantHash!, a.ConsentId!, credentialForResponder);
             var result = await transport.PostAsync<ServiceLinkExchangeResponse>(Endpoint(Peer(a).ServiceLinkEndpoint, "/attempts/" + a.AttemptId + "/exchange"), request, ct);
             Require(result.Contract == ServiceLinkContract.Version && result.AttemptId == a.AttemptId && result.LinkId == a.LinkId && result.LinkRevision == a.LinkRevision && result.GrantHash == a.GrantHash && result.LifecycleState == "prepared", "exchange-binding-mismatch", "The returned handoff differs from the approved attempt.");
             Credential(result.CredentialForInitiator, OutboundGrant(a), Peer(a));
             await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
-            a.ProtectedOutboundCredential = Protect(a, "outbound-credential", Json(result.CredentialForInitiator)); a.ExchangeResponseHash = ServiceLinkCanonicalJson.HashObject(result); a.LifecycleState = "prepared";
-            await StageOutbound(a, result.CredentialForInitiator, ct); await Save(a, ct); await tx.CommitAsync(ct); return;
+            var receivedCredential = ServiceLinkPayloadNormalization.Credential(result.CredentialForInitiator);
+            a.ProtectedOutboundCredential = Protect(a, "outbound-credential", Json(receivedCredential)); a.ExchangeResponseHash = ServiceLinkCanonicalJson.HashObject(result); a.LifecycleState = "prepared";
+            await StageOutbound(a, receivedCredential, ct); await Save(a, ct); await tx.CommitAsync(ct); return;
         }
         if (a.ProtectedOutboundCredential is null) return;
         if (!a.LocalPreparedAcknowledged)

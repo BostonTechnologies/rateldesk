@@ -26,7 +26,7 @@ using Xunit;
 namespace Helpdesk.Tests.Api;
 
 [Collection("Incident receiver")]
-public sealed class ServiceLinkLifecycleTests
+public sealed partial class ServiceLinkLifecycleTests
 {
     private const string SessionBinding = "synthetic-session-bound-to-the-authenticated-browser";
     [Theory]
@@ -629,7 +629,7 @@ public sealed class ServiceLinkLifecycleTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Administrator_revocation_of_linked_inbound_client_disables_cached_business_and_sender_across_restart(bool postgres)
+    public async Task Independent_registry_revocation_of_linked_inbound_client_disables_cached_business_and_sender_across_restart(bool postgres)
     {
         await using var peer = await NetRatelServiceLinkContractPeer.CreateAsync();
         await using var local = await LocalAsync(postgres);
@@ -653,9 +653,8 @@ public sealed class ServiceLinkLifecycleTests
         Assert.NotEmpty(await tokenService.GetAccessTokenAsync(priorSettings));
         var acquisitionsBeforeRevocation = peer.TokenAcquisitions;
 
-        using (var revoked = await local.AdminAsync(HttpMethod.Post,
-                   "/api/v1/admin/service-clients/" + principalId.ToString("D") + "/revoke"))
-            Assert.True(revoked.IsSuccessStatusCode, await revoked.Content.ReadAsStringAsync());
+        await using (var revocation = local.Services.CreateAsyncScope())
+            await revocation.ServiceProvider.GetRequiredService<IServicePrincipalRegistry>().RevokeAsync(principalId);
         using (var cachedBusiness = await CapabilitiesAsync(local, peer, token))
             Assert.True(cachedBusiness.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden);
         await Assert.ThrowsAsync<InvalidOperationException>(() => tokenService.GetAccessTokenAsync(priorSettings));
@@ -967,7 +966,8 @@ public sealed class ServiceLinkLifecycleTests
         return start;
     }
 
-    private static Task<ServiceLinkKestrelPeer> LocalAsync(bool postgres, bool automaticRotation = false) => ServiceLinkKestrelPeer.CreateAsync(postgres,
+    private static Task<ServiceLinkKestrelPeer> LocalAsync(bool postgres, bool automaticRotation = false,
+        Microsoft.EntityFrameworkCore.Diagnostics.SaveChangesInterceptor? saveInterceptor = null) => ServiceLinkKestrelPeer.CreateAsync(postgres,
         (services, configuration) =>
         {
             configuration["ServiceLinks:AutomaticRotationEnabled"] = automaticRotation.ToString();
@@ -980,6 +980,8 @@ public sealed class ServiceLinkLifecycleTests
             services.AddSingleton<IBackgroundJobQueue, BackgroundJobQueue>();
             services.AddScoped<IIncidentReceiverAuthorization, IncidentReceiverAuthorization>();
             services.AddScoped<IncidentReceiver>();
+            if (saveInterceptor is not null)
+                services.AddDbContext<HelpdeskDbContext>(options => options.AddInterceptors(saveInterceptor));
         }, app =>
         {
             app.MapServiceIdentityEndpoints(); app.MapServiceLinkEndpoints(); app.MapIncidentReceiverEndpoints();

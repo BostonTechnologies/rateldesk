@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { expect, test, type Page } from '@playwright/test';
-import { waitForMailboxOrganizationSelection } from './mailbox-picker';
+import { selectMailboxOrganization } from './mailbox-picker';
 
 type Mailbox = { id: string; organizationId: string | null; mailboxAddress: string };
 type Incident = { id: string; subject: string };
@@ -33,9 +33,7 @@ test('mailbox activation boundary: published worker keeps arrivals after the fir
   await expect(page.getByText('Instance paused', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Add', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Tenant override' }).click();
-  await page.getByRole('combobox', { name: /^RatelDesk organization/ }).fill('Tenant A');
-  await page.getByRole('option', { name: /Tenant A/ }).click();
-  await waitForMailboxOrganizationSelection(page, 'Tenant A');
+  await selectMailboxOrganization(page, 'Tenant A');
   await page.getByRole('combobox', { name: 'Inbound provider' }).click();
   await page.getByRole('option', { name: 'IMAP', exact: true }).click();
   await page.getByLabel('Mailbox display name').fill('Activation boundary support');

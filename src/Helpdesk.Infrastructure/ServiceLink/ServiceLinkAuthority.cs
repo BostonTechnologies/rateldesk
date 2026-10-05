@@ -58,7 +58,7 @@ public static class ServiceLinkAuthority
             if (summary.Contract != ServiceLinkContract.Version || summary.AttemptId != current.AttemptId ||
                 summary.LinkId != current.LinkId || summary.ProposedLinkRevision != current.LinkRevision ||
                 summary.DescriptorHash != current.DescriptorHash ||
-                ServiceLinkCanonicalJson.HashObject(summary) != current.GrantHash || summary.Grants is not { Length: 2 } ||
+                !ServiceLinkPayloadNormalization.SummaryHashMatches(summary, current.GrantHash!) || summary.Grants is not { Length: 2 } ||
                 !LocalIdentityMatches(summary, current.Role, currentIdentity)) return false;
             var direction = current.Role == "initiator" ? ServiceLinkContract.ResponderToInitiator : ServiceLinkContract.InitiatorToResponder;
             var matches = summary.Grants.Where(x => x is not null && x.DirectionId == direction).ToArray();
