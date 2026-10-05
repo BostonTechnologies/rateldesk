@@ -40,6 +40,7 @@
     }
     else
     {
+        var renderedScopeSelectionOwner = scopeSelectionOwner;
         @if (!manual && DeploymentManaged)
         {
             <MudAlert Dense="true" Severity="Severity.Info" Variant="Variant.Outlined">The outbound profile belongs to deployment configuration. Automated linking cannot replace it. Use Manual credentials and the advanced outbound settings to configure the approved values in your deployment.</MudAlert>
@@ -66,7 +67,7 @@
                 </MudSelect>
             </MudItem>
             <MudItem xs="12">
-                <MudSelect T="string" Label="NetRatel → RatelDesk permissions" MultiSelection="true" MultiSelectionTextFunc="SelectedScopeText" SelectedValues="@scopes" SelectedValuesChanged="ScopesChanged" Margin="Margin.Dense" Variant="Variant.Outlined">
+                <MudSelect @key="renderedScopeSelectionOwner" T="string" Label="NetRatel → RatelDesk permissions" MultiSelection="true" MultiSelectionTextFunc="SelectedScopeText" SelectedValues="@scopes" SelectedValuesChanged="@(EventCallback.Factory.Create<IReadOnlyCollection<string>?>(this, values => ScopesChanged(renderedScopeSelectionOwner, values)))" Margin="Margin.Dense" Variant="Variant.Outlined">
                     @foreach (var scope in InboundScopes)
                     {
                         <MudSelectItem Value="@scope.Key">@scope.Value</MudSelectItem>
@@ -191,6 +192,7 @@
     private List<NetRatelServiceClientMetadata> clients = [];
     private HashSet<string> customerIds = new(StringComparer.Ordinal);
     private HashSet<string> scopes = new(InboundScopes.Keys, StringComparer.Ordinal);
+    private object scopeSelectionOwner = new();
     private NetRatelServiceClientReveal? reveal;
     private string organizationId = string.Empty, name = string.Empty, peerInstanceId = string.Empty, peerTenantId = string.Empty;
     private string sourceInstanceId = string.Empty, peerWebBaseUrl = string.Empty, requestedPeerTenantId = string.Empty;
@@ -230,15 +232,19 @@
         }
         finally { loading = false; }
     }
-    private void ShowGuided() { if (disposed || busy || loading || reveal is not null) return; manual = false; scopes = new HashSet<string>(scopes, StringComparer.Ordinal) { "rateldesk.orchestration.callback" }; error = null; }
-    private void ShowManual() { if (disposed || busy || loading || reveal is not null) return; manual = true; scopes = scopes.Where(scope => scope != "rateldesk.orchestration.callback").ToHashSet(StringComparer.Ordinal); error = null; }
+    private void ShowGuided() { if (disposed || busy || loading || reveal is not null || !manual) return; manual = false; scopeSelectionOwner = new(); scopes = new HashSet<string>(scopes, StringComparer.Ordinal) { "rateldesk.orchestration.callback" }; error = null; }
+    private void ShowManual() { if (disposed || busy || loading || reveal is not null || manual) return; manual = true; scopeSelectionOwner = new(); scopes = scopes.Where(scope => scope != "rateldesk.orchestration.callback").ToHashSet(StringComparer.Ordinal); error = null; }
     private void ClearReveal(NetRatelServiceClientReveal expected) { if (!disposed && !busy && ReferenceEquals(reveal, expected)) reveal = null; }
     private void ClearPendingAction() { pendingActionClient = null; pendingAction = null; }
     private void CancelPendingAction() { if (!disposed && !busy) ClearPendingAction(); }
     private void PrepareClientAction(Guid id, string action) { if (disposed || busy || loading || reveal is not null) return; pendingActionClient = id; pendingAction = action; }
     private void OrganizationChanged(string value) { organizationId = value; customerIds.Clear(); }
     private void CustomerChanged(string value) => customerIds = string.IsNullOrEmpty(value) ? [] : new HashSet<string>([value], StringComparer.Ordinal);
-    private void ScopesChanged(IEnumerable<string>? values) => scopes = values?.ToHashSet(StringComparer.Ordinal) ?? [];
+    private void ScopesChanged(object expectedSelectionOwner, IEnumerable<string>? values)
+    {
+        if (disposed || busy || loading || reveal is not null || !ReferenceEquals(scopeSelectionOwner, expectedSelectionOwner)) return;
+        scopes = values?.ToHashSet(StringComparer.Ordinal) ?? [];
+    }
     private static string SelectedScopeText(IReadOnlyList<string> selected) => $"{selected.Count} selected permissions";
     private static string ScopeLabel(string scope) => scope switch
     {

@@ -16,6 +16,7 @@ using Microsoft.AspNetCore.Components.Web.HtmlRendering;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
+using MudBlazor;
 using MudBlazor.Services;
 using NSubstitute;
 using ConsentPage = NewWeb::HelpDesk.NewWeb.Components.Pages.ServiceLinkConsent;
@@ -308,7 +309,8 @@ public sealed class ServiceLinkConsentPageTests
         var issued = new ClientReveal(client with { CredentialRevision = action == "rotate" ? 2 : 1 }, "synthetic-unit-disposal-secret",
             "https://rd.example.test", "https://rd.example.test/connect/token", "rateldesk.service", client.Scopes, "Synthetic fixture only");
         using var api = new ConsentApi(Status(withSummary: false)) { Clients = action == "rotate" ? [client] : [] };
-        await using var services = Services(api, responder: false);
+        var selectors = new PermissionSelectorCapture();
+        await using var services = Services(api, responder: false, selectors);
         await using var renderer = new ConsentRenderer(services, services.GetRequiredService<ILoggerFactory>());
         var reference = new M2MReference();
         var view = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderAsync<M2MHarness>(
@@ -325,7 +327,7 @@ public sealed class ServiceLinkConsentPageTests
             await EventAsync("ShowManual");
             await EventAsync("OrganizationChanged", "organization-a");
             await EventAsync("CustomerChanged", "customer-a");
-            await EventAsync("ScopesChanged", (object)client.Scopes);
+            await renderer.Dispatcher.InvokeAsync(() => selectors.Current.SelectedValuesChanged.InvokeAsync(client.Scopes));
             await renderer.Dispatcher.InvokeAsync(() => ((IHandleEvent)panel).HandleEventAsync(new EventCallbackWorkItem((Action)(() =>
             {
                 foreach (var draft in new Dictionary<string, string>
@@ -390,6 +392,146 @@ public sealed class ServiceLinkConsentPageTests
         Assert.Null(typeof(M2MPanel).GetField("pendingActionClient", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(panel));
     }
 
+    [Fact]
+    public async Task Retired_guided_and_manual_permission_selectors_cannot_change_the_current_manual_grant()
+    {
+        using var api = new ConsentApi(Status(withSummary: false));
+        var selectors = new PermissionSelectorCapture();
+        await using var services = Services(api, responder: false, selectors);
+        await using var renderer = new ConsentRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        var reference = new M2MReference();
+        var view = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderAsync<M2MHarness>(
+            ParameterView.FromDictionary(new Dictionary<string, object?> { [nameof(M2MHarness.Reference)] = reference })));
+        var panel = reference.Panel!;
+        var guidedSelector = selectors.Current;
+        var retiredGuidedSelection = guidedSelector.SelectedValuesChanged;
+
+        await M2MEventAsync(renderer, panel, "ShowManual");
+        await SetValidManualDraftAsync(renderer, panel);
+        var manualSelector = selectors.Current;
+        var retiredManualSelection = manualSelector.SelectedValuesChanged;
+        Assert.NotSame(guidedSelector, manualSelector);
+        Assert.Equal(ManualIncidentScopes, CurrentScopes(panel));
+        Assert.DoesNotContain(" disabled", ManualCreateButton(await renderer.Dispatcher.InvokeAsync(view.ToHtmlString)));
+
+        await renderer.Dispatcher.InvokeAsync(() => retiredGuidedSelection.InvokeAsync(CallbackScopes));
+        Assert.Equal(ManualIncidentScopes, CurrentScopes(panel));
+        Assert.DoesNotContain(" disabled", ManualCreateButton(await renderer.Dispatcher.InvokeAsync(view.ToHtmlString)));
+        Assert.Equal("Synthetic manual grant", DraftField(panel, "name"));
+        Assert.Equal("synthetic-nr", DraftField(panel, "peerInstanceId"));
+        Assert.Equal("17", DraftField(panel, "peerTenantId"));
+        Assert.Equal("00000000-0000-0000-0000-000000000117", DraftField(panel, "sourceInstanceId"));
+
+        await M2MEventAsync(renderer, panel, "ShowGuided");
+        await M2MEventAsync(renderer, panel, "ShowManual");
+        Assert.NotSame(manualSelector, selectors.Current);
+        await renderer.Dispatcher.InvokeAsync(() => retiredManualSelection.InvokeAsync(CallbackScopes));
+        Assert.Equal(ManualIncidentScopes, CurrentScopes(panel));
+        Assert.DoesNotContain(" disabled", ManualCreateButton(await renderer.Dispatcher.InvokeAsync(view.ToHtmlString)));
+    }
+
+    [Fact]
+    public async Task Retired_manual_and_guided_permission_selectors_cannot_remove_the_current_guided_callback_grant()
+    {
+        using var api = new ConsentApi(Status(withSummary: false));
+        var selectors = new PermissionSelectorCapture();
+        await using var services = Services(api, responder: false, selectors);
+        await using var renderer = new ConsentRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        var reference = new M2MReference();
+        var view = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderAsync<M2MHarness>(
+            ParameterView.FromDictionary(new Dictionary<string, object?> { [nameof(M2MHarness.Reference)] = reference })));
+        var panel = reference.Panel!;
+        await M2MEventAsync(renderer, panel, "ShowManual");
+        await SetValidManualDraftAsync(renderer, panel);
+        var retiredManualSelection = selectors.Current.SelectedValuesChanged;
+        await M2MEventAsync(renderer, panel, "ShowGuided");
+        var guidedSelector = selectors.Current;
+        var retiredGuidedSelection = guidedSelector.SelectedValuesChanged;
+
+        await renderer.Dispatcher.InvokeAsync(() => retiredManualSelection.InvokeAsync(ManualIncidentScopes));
+        Assert.Equal(CallbackScopes, CurrentScopes(panel));
+        Assert.DoesNotContain(" disabled", GuidedContinueButton(await renderer.Dispatcher.InvokeAsync(view.ToHtmlString)));
+
+        await M2MEventAsync(renderer, panel, "ShowManual");
+        await M2MEventAsync(renderer, panel, "ShowGuided");
+        Assert.NotSame(guidedSelector, selectors.Current);
+        await renderer.Dispatcher.InvokeAsync(() => retiredGuidedSelection.InvokeAsync(ManualIncidentScopes));
+        Assert.Equal(CallbackScopes, CurrentScopes(panel));
+        Assert.DoesNotContain(" disabled", GuidedContinueButton(await renderer.Dispatcher.InvokeAsync(view.ToHtmlString)));
+    }
+
+    [Fact]
+    public async Task Current_manual_permission_selector_preserves_chosen_callbacks_and_requires_recorded_request_and_task_ids()
+    {
+        using var api = new ConsentApi(Status(withSummary: false));
+        var selectors = new PermissionSelectorCapture();
+        await using var services = Services(api, responder: false, selectors);
+        await using var renderer = new ConsentRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        var reference = new M2MReference();
+        var view = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderAsync<M2MHarness>(
+            ParameterView.FromDictionary(new Dictionary<string, object?> { [nameof(M2MHarness.Reference)] = reference })));
+        var panel = reference.Panel!;
+        await M2MEventAsync(renderer, panel, "ShowManual");
+        await SetValidManualDraftAsync(renderer, panel);
+        var manualSelector = selectors.Current;
+        await renderer.Dispatcher.InvokeAsync(() => manualSelector.SelectedValuesChanged.InvokeAsync(CallbackScopes));
+        Assert.Equal(CallbackScopes, CurrentScopes(panel));
+        var callbackHtml = await renderer.Dispatcher.InvokeAsync(view.ToHtmlString);
+        Assert.Contains("Approved callback request IDs", VisibleText(callbackHtml));
+        Assert.Contains("Approved callback task IDs", VisibleText(callbackHtml));
+        Assert.Contains(" disabled", ManualCreateButton(callbackHtml));
+
+        await M2MEventAsync(renderer, panel, "ShowManual");
+        Assert.Same(manualSelector, selectors.Current);
+        Assert.Equal(CallbackScopes, CurrentScopes(panel));
+        Assert.Contains(" disabled", ManualCreateButton(await renderer.Dispatcher.InvokeAsync(view.ToHtmlString)));
+        await SetM2MDraftAsync(renderer, panel, new()
+        {
+            ["callbackRequestIds"] = "00000000-0000-0000-0000-000000000221"
+        });
+        Assert.Contains(" disabled", ManualCreateButton(await renderer.Dispatcher.InvokeAsync(view.ToHtmlString)));
+        await SetM2MDraftAsync(renderer, panel, new()
+        {
+            ["callbackTaskIds"] = "00000000-0000-0000-0000-000000000222"
+        });
+        Assert.Equal(CallbackScopes, CurrentScopes(panel));
+        Assert.DoesNotContain(" disabled", ManualCreateButton(await renderer.Dispatcher.InvokeAsync(view.ToHtmlString)));
+    }
+
+    private static readonly string[] ManualIncidentScopes =
+        ["rateldesk.incident-receipts.read", "rateldesk.incident-targets.read", "rateldesk.incidents.create"];
+    private static string[] CallbackScopes => [.. ManualIncidentScopes, "rateldesk.orchestration.callback"];
+    private static string[] CurrentScopes(M2MPanel panel) => ((IEnumerable<string>)typeof(M2MPanel)
+        .GetField("scopes", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(panel)!).Order(StringComparer.Ordinal).ToArray();
+    private static string DraftField(M2MPanel panel, string name) => (string)typeof(M2MPanel)
+        .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(panel)!;
+    private static string ManualCreateButton(string html) => ButtonWithText(html, "Create and reveal service client");
+    private static string GuidedContinueButton(string html) => ButtonWithText(html, "Continue to NetRatel");
+    private static string ButtonWithText(string html, string text) => Assert.Single(Regex.Matches(html,
+        @"<button\b[^>]*>[\s\S]*?</button>").Cast<Match>(), match => match.Value.Contains(text, StringComparison.Ordinal)).Value;
+    private static Task M2MEventAsync(ConsentRenderer renderer, M2MPanel panel, string method, params object[] values)
+    {
+        var target = typeof(M2MPanel).GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)!;
+        return renderer.Dispatcher.InvokeAsync(() => ((IHandleEvent)panel).HandleEventAsync(new EventCallbackWorkItem(
+            (Func<Task>)(() => target.Invoke(panel, values) as Task ?? Task.CompletedTask)), null));
+    }
+    private static async Task SetValidManualDraftAsync(ConsentRenderer renderer, M2MPanel panel)
+    {
+        await M2MEventAsync(renderer, panel, "OrganizationChanged", "organization-a");
+        await M2MEventAsync(renderer, panel, "CustomerChanged", "customer-a");
+        await SetM2MDraftAsync(renderer, panel, new()
+        {
+            ["name"] = "Synthetic manual grant", ["peerInstanceId"] = "synthetic-nr", ["peerTenantId"] = "17",
+            ["sourceInstanceId"] = "00000000-0000-0000-0000-000000000117", ["peerWebBaseUrl"] = "https://nr.example.test"
+        });
+    }
+    private static Task SetM2MDraftAsync(ConsentRenderer renderer, M2MPanel panel, Dictionary<string, string> values) =>
+        renderer.Dispatcher.InvokeAsync(() => ((IHandleEvent)panel).HandleEventAsync(new EventCallbackWorkItem((Action)(() =>
+        {
+            foreach (var value in values)
+                typeof(M2MPanel).GetField(value.Key, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(panel, value.Value);
+        })), null));
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]
@@ -447,7 +589,7 @@ public sealed class ServiceLinkConsentPageTests
             "undecided", null, null, descriptor, withSummary ? new() { Grants = grants } : null, false, false, false, false, false, null, false, []);
     }
 
-    private static ServiceProvider Services(ConsentApi api, bool responder)
+    private static ServiceProvider Services(ConsentApi api, bool responder, PermissionSelectorCapture? selectors = null)
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -456,6 +598,7 @@ public sealed class ServiceLinkConsentPageTests
         services.AddSingleton<NavigationManager>(new ConsentNavigation(responder));
         services.AddSingleton(Substitute.For<IJSRuntime>());
         services.AddSingleton<AntiforgeryStateProvider>(new UnitAntiforgeryState());
+        if (selectors is not null) services.AddSingleton<IComponentActivator>(selectors);
         return services.BuildServiceProvider();
     }
 
@@ -502,6 +645,17 @@ public sealed class ServiceLinkConsentPageTests
             var root = BeginRenderingComponent(typeof(T), parameters);
             await root.QuiescenceTask;
             return root;
+        }
+    }
+    private sealed class PermissionSelectorCapture : IComponentActivator
+    {
+        private readonly List<MudSelect<string>> selectors = [];
+        public MudSelect<string> Current => selectors.Last(selector => selector.Label == "NetRatel → RatelDesk permissions");
+        public IComponent CreateInstance(Type componentType)
+        {
+            var component = (IComponent)Activator.CreateInstance(componentType)!;
+            if (component is MudSelect<string> selector) selectors.Add(selector);
+            return component;
         }
     }
     public sealed class PageReference { public ConsentPage? Page { get; set; } }

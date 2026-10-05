@@ -23,7 +23,7 @@ docker ps --format 'table {{.Names}}\t{{.Image}}'
 docker exec rateldesk-api-1 dotnet /app/Helpdesk.API.dll --show-setup-code
 ```
 
-If already inside the API container, run `dotnet /app/Helpdesk.API.dll --show-setup-code`. Choose `sh` when opening a container terminal: the Alpine image has `sh`, and does not require Bash. The command reads the current code without rotating it. It supports custom `Bootstrap__StateDirectory` values and deployment-supplied `Bootstrap__SetupCode` values, so no hard-coded file path is needed. `--show-setup-code` and `--setup-status` are available from rc.5 onward.
+If already inside the API container, run `dotnet /app/Helpdesk.API.dll --show-setup-code`. Choose `sh` when opening a container terminal: the API image provides `sh` and does not require Bash. The command reads the current code without rotating it. It supports custom `Bootstrap__StateDirectory` values and deployment-supplied `Bootstrap__SetupCode` values, so no hard-coded file path is needed. `--show-setup-code` and `--setup-status` are available from rc.5 onward.
 
 For a native .NET deployment, run the same switches with the published API assembly path and its deployment environment. Use absolute bootstrap, data, and key-ring paths if the service normally runs from a different working directory than its assembly. Operator commands resolve relative file paths from the API assembly directory and honor `DOTNET_CONTENTROOT` / `ASPNETCORE_CONTENTROOT` for mounted appsettings.
 
