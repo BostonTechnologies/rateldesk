@@ -1,14 +1,17 @@
 # 1) Runtime
-FROM mcr.microsoft.com/dotnet/aspnet:10.0.12-alpine3.23 AS base
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.12-noble AS base
 WORKDIR /app
 ENV ASPNETCORE_URLS=http://+:8222
-# Npgsql needs GSS support; TimeZoneInfo needs the IANA database for non-UTC setup.
-RUN apk add --no-cache icu-libs krb5-libs tzdata
+# Keep GSS authentication and IANA time zones on the supported glibc runtime.
+# The Alpine legacy hostname resolver can corrupt allocations during concurrent GSS negotiation.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libgssapi-krb5-2 libicu74 tzdata wget \
+ && rm -rf /var/lib/apt/lists/*
 ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=0
 EXPOSE 8222 8222
 
 # 2) Build
-FROM mcr.microsoft.com/dotnet/sdk:10.0.401-alpine3.23 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0.401-noble AS build
 WORKDIR /src
 ARG BUILD_CONFIGURATION=Release
 ARG VERSION=0.0.0-local
