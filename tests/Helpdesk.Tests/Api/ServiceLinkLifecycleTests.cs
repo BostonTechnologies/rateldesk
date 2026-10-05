@@ -967,7 +967,8 @@ public sealed partial class ServiceLinkLifecycleTests
     }
 
     private static Task<ServiceLinkKestrelPeer> LocalAsync(bool postgres, bool automaticRotation = false,
-        Microsoft.EntityFrameworkCore.Diagnostics.SaveChangesInterceptor? saveInterceptor = null) => ServiceLinkKestrelPeer.CreateAsync(postgres,
+        Microsoft.EntityFrameworkCore.Diagnostics.SaveChangesInterceptor? saveInterceptor = null,
+        Action<IServiceCollection, IConfiguration>? configure = null) => ServiceLinkKestrelPeer.CreateAsync(postgres,
         (services, configuration) =>
         {
             configuration["ServiceLinks:AutomaticRotationEnabled"] = automaticRotation.ToString();
@@ -982,6 +983,7 @@ public sealed partial class ServiceLinkLifecycleTests
             services.AddScoped<IncidentReceiver>();
             if (saveInterceptor is not null)
                 services.AddDbContext<HelpdeskDbContext>(options => options.AddInterceptors(saveInterceptor));
+            configure?.Invoke(services, configuration);
         }, app =>
         {
             app.MapServiceIdentityEndpoints(); app.MapServiceLinkEndpoints(); app.MapIncidentReceiverEndpoints();

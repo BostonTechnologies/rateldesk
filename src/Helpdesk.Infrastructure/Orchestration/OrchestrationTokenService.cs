@@ -28,18 +28,7 @@ public sealed class OrchestrationTokenService(
         CancellationToken cancellationToken = default,
         bool useCache = true)
     {
-        if (settings.ServiceLink is not null && !settings.Enabled)
-            throw new InvalidOperationException("The service-link business sender is disabled.");
-        if (settings.Source == "database" && (settings.Revision > 0 || settings.ServiceLink is not null))
-        {
-            if (scopes is null) throw new InvalidOperationException("Durable provider authority is unavailable.");
-            await using var scope = scopes.CreateAsyncScope();
-            var current = await scope.ServiceProvider.GetRequiredService<IIntegrationProviderSettingsService>()
-                .GetResolvedOrchestratorSettingsAsync(cancellationToken);
-            if (!current.Enabled || current.SecretUnavailable || current.Revision != settings.Revision ||
-                current.ProfileFingerprint != settings.ProfileFingerprint || current.ServiceLink != settings.ServiceLink)
-                throw new InvalidOperationException("The provider changed or was disabled. Resolve its current settings before dispatching.");
-        }
+        await RequireCurrentProviderAsync(settings, cancellationToken);
         var tokenEndpoint = settings.TokenEndpoint
             ?? (string.IsNullOrWhiteSpace(settings.Authority) ? null : $"{settings.Authority.TrimEnd('/')}/connect/token");
         if (string.IsNullOrWhiteSpace(tokenEndpoint))
@@ -153,6 +142,10 @@ public sealed class OrchestrationTokenService(
                 if (string.IsNullOrWhiteSpace(token))
                     throw new InvalidOperationException("Token response returned an empty access_token.");
 
+                // Local unlink or a provider change can complete while token HTTP is awaiting its body.
+                // Observe that committed authority before caching or releasing a business token.
+                await RequireCurrentProviderAsync(settings, cancellationToken);
+
                 var expiresInSeconds = doc.RootElement.TryGetProperty("expires_in", out var expiresElement) &&
                                        expiresElement.TryGetInt32(out var value) && value > 0
                     ? value
@@ -171,6 +164,22 @@ public sealed class OrchestrationTokenService(
 
                 return token;
             }
+        }
+    }
+
+    private async Task RequireCurrentProviderAsync(OrchestrationResolvedSettings settings, CancellationToken cancellationToken)
+    {
+        if (settings.ServiceLink is not null && !settings.Enabled)
+            throw new InvalidOperationException("The service-link business sender is disabled.");
+        if (settings.Source == "database" && (settings.Revision > 0 || settings.ServiceLink is not null))
+        {
+            if (scopes is null) throw new InvalidOperationException("Durable provider authority is unavailable.");
+            await using var scope = scopes.CreateAsyncScope();
+            var current = await scope.ServiceProvider.GetRequiredService<IIntegrationProviderSettingsService>()
+                .GetResolvedOrchestratorSettingsAsync(cancellationToken);
+            if (!current.Enabled || current.SecretUnavailable || current.Revision != settings.Revision ||
+                current.ProfileFingerprint != settings.ProfileFingerprint || current.ServiceLink != settings.ServiceLink)
+                throw new InvalidOperationException("The provider changed or was disabled. Resolve its current settings before dispatching.");
         }
     }
 

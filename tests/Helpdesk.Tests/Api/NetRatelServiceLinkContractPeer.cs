@@ -101,13 +101,14 @@ internal sealed class NetRatelServiceLinkContractPeer : IAsyncDisposable
         };
     }
 
-    public static async Task<NetRatelServiceLinkContractPeer> CreateAsync()
+    public static async Task<NetRatelServiceLinkContractPeer> CreateAsync(
+        Action<WebApplication, NetRatelServiceLinkContractPeer>? configure = null)
     {
         var peer = new NetRatelServiceLinkContractPeer();
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders(); builder.WebHost.UseUrls(peer.BaseUrl);
         peer.app = builder.Build();
-        peer.Map(); await peer.app.StartAsync();
+        peer.Map(); configure?.Invoke(peer.app, peer); await peer.app.StartAsync();
         return peer;
     }
 
@@ -561,7 +562,7 @@ internal sealed class NetRatelServiceLinkContractPeer : IAsyncDisposable
         ["scope"] = ServiceLinkContract.VerifyScope + " " + ServiceLinkContract.ControlScope
     });
 
-    private bool Authorize(HttpContext http, string scope, string linkId)
+    internal bool Authorize(HttpContext http, string scope, string linkId)
     {
         var header = http.Request.Headers.Authorization.ToString();
         if (!header.StartsWith("Bearer ", StringComparison.Ordinal) || inbound is null || summary.LinkId != linkId) return false;
