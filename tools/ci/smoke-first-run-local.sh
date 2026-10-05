@@ -55,7 +55,17 @@ if grep -Fq "$setup_code" "$work_directory/setup-status.txt"; then
   exit 1
 fi
 # Check the shipped runtime, not only the SDK/test-runner environment.
-docker compose "${compose_arguments[@]}" exec -T api sh -c 'test -r /usr/lib/libgssapi_krb5.so.2 && test -r /usr/share/zoneinfo/Africa/Johannesburg'
+docker compose "${compose_arguments[@]}" exec -T api sh -c '
+  set -eu
+  set -- /usr/lib/*-linux-gnu/libgssapi_krb5.so.2
+  test "$#" -eq 1
+  test -r "$1"
+  gssapi_dependencies="$(LC_ALL=C ldd "$1")"
+  case "$gssapi_dependencies" in
+    *"not found"*) exit 1 ;;
+  esac
+  test -r /usr/share/zoneinfo/Africa/Johannesburg
+'
 password="Smoke-$(openssl rand -hex 24)"
 
 session_payload="$(jq -nc --arg setupCode "$setup_code" '{setupCode: $setupCode}')"
@@ -88,7 +98,7 @@ curl --fail --silent --show-error \
   --data "$storage_payload" \
   "$api_base_url/api/v1/setup/storage" | jq -e '.state == "Configuring"' > /dev/null
 
-# Exercise a real IANA zone in the Alpine runtime, not only Ubuntu-hosted browser tests or UTC.
+# Exercise a real IANA zone in the shipped runtime, not only hosted browser tests or UTC.
 initialize_payload="$(jq -nc --arg password "$password" '{email: "admin@example.test", displayName: "RC4 Test Administrator", password: $password, organizationName: "RC4 Test Organization", applicationName: "RatelDesk RC4", applicationUrl: "http://127.0.0.1:8111", timeZoneId: "Africa/Johannesburg"}')"
 # A rejected field must be actionable, leave setup incomplete, and allow correction with the same session.
 invalid_payload="$(jq -c '.timeZoneId = "Invalid/TimeZone"' <<< "$initialize_payload")"
