@@ -93,6 +93,34 @@ public sealed class OrchestrationInternalClientTests
     }
 
     [Theory]
+    [InlineData("corr-1")]
+    [InlineData("")]
+    public async Task Ingest_preserves_submitted_correlation_in_body_and_optional_header(string correlation)
+    {
+        string? transmittedCorrelation = null;
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.Headers.TryGetValues("X-Correlation-Id", out var values))
+                transmittedCorrelation = Assert.Single(values);
+            Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
+            Assert.Equal("token", request.Headers.Authorization?.Parameter);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"executionId":"99","status":"Accepted"}""")
+            };
+        });
+        var submitted = Request();
+        submitted.CorrelationId = correlation;
+
+        var result = await Client(handler).IngestAsync(Settings(), submitted);
+
+        Assert.Equal("99", result.ExecutionId);
+        using var body = JsonDocument.Parse(Assert.Single(handler.RequestBodies));
+        Assert.Equal(correlation, body.RootElement.GetProperty("CorrelationId").GetString());
+        Assert.Equal(correlation.Length == 0 ? null : correlation, transmittedCorrelation);
+    }
+
+    [Theory]
     [InlineData("Accepted", OrchestrationSubmissionDisposition.Admitted, OrchestrationExecutionOutcome.Processing)]
     [InlineData("Processing", OrchestrationSubmissionDisposition.Admitted, OrchestrationExecutionOutcome.Processing)]
     [InlineData("Completed", OrchestrationSubmissionDisposition.Existing, OrchestrationExecutionOutcome.Completed)]

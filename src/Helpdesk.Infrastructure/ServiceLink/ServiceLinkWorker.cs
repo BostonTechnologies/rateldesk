@@ -78,8 +78,13 @@ public sealed partial class ServiceLinkCoordinator
         for (var retry = 0; ; retry++)
         {
             try { await Progress(a, ct); return a; }
-            catch (DbUpdateConcurrencyException) when (retry < 3)
+            catch (Exception error) when (retry < 3 &&
+                (error is DbUpdateConcurrencyException || !ct.IsCancellationRequested && ServiceLinkDatabaseConflict.IsAbortedTransaction(error)))
             {
+                // Progress uses the existing protected handoff and durable operation journals.
+                // Only a known database abort may replay that recovery; an unknown commit,
+                // transport failure, or arbitrary transient error must leave this scope.
+                if (db.Database.CurrentTransaction is not null || System.Transactions.Transaction.Current is not null) throw;
                 var attemptId = a.AttemptId; db.ChangeTracker.Clear(); a = await Attempt(attemptId, ct);
             }
         }

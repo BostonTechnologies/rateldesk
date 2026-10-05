@@ -46,6 +46,7 @@ internal sealed class NetRatelServiceLinkContractPeer : IAsyncDisposable
     private bool revoked;
     private volatile bool losePreparedAcknowledgementResponses;
     private readonly ConcurrentQueue<string> preparedAcknowledgementOperations = new();
+    private readonly ConcurrentQueue<string> exchangeRequestFingerprints = new();
     private readonly ConcurrentDictionary<string, string> preparedAcknowledgements = new(StringComparer.Ordinal);
     public string BaseUrl { get; }
     public string InstanceId { get; } = Guid.NewGuid().ToString("D");
@@ -65,6 +66,7 @@ internal sealed class NetRatelServiceLinkContractPeer : IAsyncDisposable
         set => losePreparedAcknowledgementResponses = value;
     }
     public string[] PreparedAcknowledgementOperationIds => preparedAcknowledgementOperations.ToArray();
+    public string[] ExchangeRequestFingerprints => exchangeRequestFingerprints.ToArray();
     public string? InvalidMetadataMember { get; set; }
     public ServiceDirectionalCredential InboundCredential => inbound!;
     public ServiceDirectionalCredential OutboundCredential => outbound!;
@@ -394,6 +396,7 @@ internal sealed class NetRatelServiceLinkContractPeer : IAsyncDisposable
         {
             if (!Proof(request, attemptId) || request.GrantHash != GrantHash) return Results.Unauthorized();
             var fingerprint = ServiceLinkCanonicalJson.HashObject(request);
+            exchangeRequestFingerprints.Enqueue(fingerprint);
             if (exchangeFingerprint is not null)
                 return fingerprint == exchangeFingerprint ? Results.Json(exchangeResponse) : Results.Conflict();
             var reverse = summary.Grants.Single(x => x.DirectionId == ServiceLinkContract.ResponderToInitiator);

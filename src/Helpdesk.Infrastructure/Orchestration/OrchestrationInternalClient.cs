@@ -88,6 +88,8 @@ public sealed class OrchestrationInternalClient(
                 options: new JsonSerializerOptions(JsonSerializerDefaults.General))
         };
 
+        if (!string.IsNullOrEmpty(requestPayload.CorrelationId))
+            request.Headers.Add("X-Correlation-Id", requestPayload.CorrelationId);
         await AttachAuthHeaderAsync(settings, request, cancellationToken);
 
         var client = _httpClientFactory.CreateClient(settings.ServiceLink is null ? "OrchestrationInternalApi" : ServiceLinkOutboundNetwork.BusinessClientName);
