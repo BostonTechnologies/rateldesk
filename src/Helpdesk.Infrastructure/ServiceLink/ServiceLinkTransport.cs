@@ -14,9 +14,9 @@ public sealed class ServiceLinkProtocolException(int statusCode, string code, st
 }
 
 /// <summary>Every exchange uses the approved immutable destination and the existing connection-time DNS policy.</summary>
-public sealed class ServiceLinkTransport(HttpClient client, IOptions<ServiceLinkOptions> options)
+public sealed class ServiceLinkTransport(HttpClient client, IOptions<ServiceLinkOptions> options, IOptionsMonitor<ServiceLinkOptions>? currentOptions = null)
 {
-    private readonly ServiceLinkOptions settings = options.Value;
+    private ServiceLinkOptions Settings => currentOptions?.CurrentValue ?? options.Value;
 
     public async Task<T> GetAsync<T>(string endpoint, CancellationToken ct, string? bearer = null)
     {
@@ -50,7 +50,8 @@ public sealed class ServiceLinkTransport(HttpClient client, IOptions<ServiceLink
     private HttpRequestMessage Message(HttpMethod method, string endpoint, string? bearer = null)
     {
         if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri)) throw new ServiceLinkProtocolException(400, "invalid-endpoint", "The endpoint is not absolute.");
-        IntegrationEndpointPolicy.Validate(uri, "Service link endpoint", settings.AllowPrivateHttp);
+        var settings = Settings;
+        IntegrationEndpointPolicy.ValidateServiceLink(uri, "Service link endpoint", settings.AllowPrivateHttp);
         var message = new HttpRequestMessage(method, uri);
         message.Options.Set(IntegrationSafeHttpMessageHandler.AllowPrivateHttpOption, settings.AllowPrivateHttp);
         if (bearer is not null) message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
@@ -60,6 +61,7 @@ public sealed class ServiceLinkTransport(HttpClient client, IOptions<ServiceLink
 
     private async Task<T> SendAsync<T>(HttpRequestMessage message, CancellationToken ct)
     {
+        var settings = Settings;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromSeconds(20));
         using var response = await client.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, timeout.Token);

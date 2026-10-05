@@ -1,5 +1,6 @@
 using System.Threading.RateLimiting;
 using Helpdesk.Infrastructure.ServiceIdentity;
+using Helpdesk.Infrastructure.ServiceLink;
 using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
@@ -18,6 +19,11 @@ public static class ServiceIdentityServiceCollectionExtensions
     public static IServiceCollection AddRatelDeskServiceIdentity(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddOptions<ServiceIdentityOptions>().Bind(configuration.GetSection(ServiceIdentityOptions.SectionName)).ValidateOnStart();
+        // Normalize both flags on every options creation, including reload.
+        bool AllowPrivateHttp() => configuration.GetValue<bool>("ServiceIdentity:AllowPrivateHttp") ||
+            configuration.GetValue<bool>("ServiceLinks:AllowPrivateHttp");
+        services.PostConfigure<ServiceIdentityOptions>(value => value.AllowPrivateHttp = AllowPrivateHttp());
+        services.PostConfigure<ServiceLinkOptions>(value => value.AllowPrivateHttp = AllowPrivateHttp());
         services.AddSingleton<IValidateOptions<ServiceIdentityOptions>, ServiceIdentityOptionsValidator>();
         services.AddScoped<IServicePrincipalRegistry, ServicePrincipalRegistry>();
         services.AddScoped<ServiceSigningKeyStore>();

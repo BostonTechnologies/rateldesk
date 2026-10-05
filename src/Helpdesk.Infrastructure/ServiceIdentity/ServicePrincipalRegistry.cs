@@ -50,7 +50,7 @@ public interface IServicePrincipalRegistry
 
 /// <summary>Every token grant and authenticated request reads durable authority, including on other replicas.</summary>
 public sealed class ServicePrincipalRegistry(HelpdeskDbContext db, IOptionsMonitor<ServiceIdentityOptions> options,
-    TimeProvider time) : IServicePrincipalRegistry
+    TimeProvider time, IOptionsMonitor<ServiceLinkOptions>? linkingOptions = null) : IServicePrincipalRegistry
 {
     public static bool IsValidClientId(string value) => Regex.IsMatch(value, "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", RegexOptions.CultureInvariant);
     public static string[] ReadArray(string value) => JsonSerializer.Deserialize<string[]>(value) ?? [];
@@ -165,6 +165,8 @@ public sealed class ServicePrincipalRegistry(HelpdeskDbContext db, IOptionsMonit
         var currentOptions = options.CurrentValue;
         if (!currentOptions.Enabled) return false;
         if (row.LinkId is null) return true;
+        var currentLinking = linkingOptions?.CurrentValue;
+        if (currentLinking is null || !currentLinking.Enabled) return false;
         var attempt = await db.Set<ServiceLinkAttempt>().AsNoTracking().SingleOrDefaultAsync(x => x.LinkId == row.LinkId && x.AttemptId == row.AttemptId &&
             x.LinkRevision == row.LinkRevision && x.GrantHash == row.GrantHash && x.InboundPrincipalId == row.Id &&
             x.LocalTenantId == row.OrganizationId && x.PeerInstanceId == row.PeerInstanceId && x.PeerTenantId == row.PeerTenantId, ct);
@@ -175,7 +177,7 @@ public sealed class ServicePrincipalRegistry(HelpdeskDbContext db, IOptionsMonit
             if (summary.Contract != Helpdesk.Shared.ServiceLink.ServiceLinkContract.Version || summary.AttemptId != attempt.AttemptId ||
                 summary.LinkId != attempt.LinkId || summary.ProposedLinkRevision != attempt.LinkRevision || summary.DescriptorHash != attempt.DescriptorHash ||
                 Helpdesk.Shared.ServiceLink.ServiceLinkCanonicalJson.HashObject(summary) != attempt.GrantHash) return false;
-            return ServiceLinkAuthority.LocalIdentityMatches(summary, attempt.Role, currentOptions);
+            return ServiceLinkAuthority.LocalIdentityMatches(summary, attempt.Role, currentOptions, currentLinking);
         }
         catch (JsonException) { return false; }
     }

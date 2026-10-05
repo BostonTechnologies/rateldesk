@@ -69,7 +69,7 @@ public sealed class ServiceIdentityHttpTests
     [InlineData(true)]
     public async Task Pending_reciprocal_identity_cannot_obtain_or_use_business_authority(bool postgres)
     {
-        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true);
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true, serviceLinks: true);
         CreatedServiceClient pending;
         await using (var scope = h.App.Services.CreateAsyncScope())
         {

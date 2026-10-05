@@ -3,9 +3,10 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Helpdesk.Application.Orchestration;
-using Helpdesk.Infrastructure.Persistence.Connectivity;
+using Helpdesk.Infrastructure.ServiceLink;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace Helpdesk.Infrastructure.Orchestration;
 
@@ -13,7 +14,8 @@ public sealed class OrchestrationTokenService(
     IHttpClientFactory httpClientFactory,
     IMemoryCache cache,
     TimeProvider? timeProvider = null,
-    IServiceScopeFactory? scopes = null) : IOrchestrationTokenService
+    IServiceScopeFactory? scopes = null,
+    IOptionsMonitor<ServiceLinkOptions>? currentLinkOptions = null) : IOrchestrationTokenService
 {
     private const int MaximumResponseBytes = 256 * 1024;
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(20);
@@ -47,14 +49,7 @@ public sealed class OrchestrationTokenService(
 
         if (!Uri.TryCreate(tokenEndpoint, UriKind.Absolute, out var tokenUri))
             throw new InvalidOperationException("External orchestration token endpoint is not a valid absolute URL.");
-        try
-        {
-            IntegrationEndpointPolicy.Validate(tokenUri, "TokenEndpoint", settings.AllowPrivateHttp);
-        }
-        catch (ArgumentException)
-        {
-            throw new InvalidOperationException("The external orchestration token endpoint is not allowed by the outbound integration policy.");
-        }
+        ServiceLinkOutboundNetwork.Validate(tokenUri, "TokenEndpoint", settings, currentLinkOptions);
 
         if (string.IsNullOrWhiteSpace(settings.ClientId) || string.IsNullOrWhiteSpace(settings.ClientSecret))
         {
@@ -84,9 +79,9 @@ public sealed class OrchestrationTokenService(
             _cache.Remove(cacheKey);
         }
 
-        var client = _httpClientFactory.CreateClient("OrchestrationToken");
+        var client = _httpClientFactory.CreateClient(settings.ServiceLink is null ? "OrchestrationToken" : ServiceLinkOutboundNetwork.TokenClientName);
         using var request = new HttpRequestMessage(HttpMethod.Post, tokenEndpoint);
-        request.Options.Set(IntegrationSafeHttpMessageHandler.AllowPrivateHttpOption, settings.AllowPrivateHttp);
+        ServiceLinkOutboundNetwork.PrepareRequest(request, settings, currentLinkOptions);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var form = new Dictionary<string, string>

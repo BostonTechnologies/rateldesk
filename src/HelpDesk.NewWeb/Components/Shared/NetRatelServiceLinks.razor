@@ -105,10 +105,16 @@
     protected override async Task OnInitializedAsync() => await RefreshAsync();
     private async Task RefreshAsync()
     {
+        if (busy) return;
         busy = true; error = null;
-        try { links = await HttpClientFactory.CreateClient("HelpdeskApi").GetFromJsonAsync<List<ServiceLinkAdminStatus>>("api/v1/admin/service-links") ?? []; }
-        catch (Exception exception) when (exception is HttpRequestException or JsonException) { error = "Reciprocal connection status is unavailable. Refresh to retry."; }
+        try { await ReadLinksAsync(); }
         finally { busy = false; }
+    }
+    private async Task ReadLinksAsync()
+    {
+        links = []; ClearPending();
+        try { links = await HttpClientFactory.CreateClient("HelpdeskApi").GetFromJsonAsync<List<ServiceLinkAdminStatus>>("api/v1/admin/service-links") ?? []; }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException) { error = "Reciprocal connection status is unavailable. Refresh to retry."; }
     }
     private void ClearPending() { pendingLinkId = null; pendingRotationDirection = null; }
     private void PrepareDisconnect(ServiceLinkAdminStatus link) { pendingLinkId = Identifier(link); pendingRotationDirection = null; }
@@ -122,12 +128,15 @@
         {
             using var response = await HttpClientFactory.CreateClient("ServiceLinkApi").PostAsJsonAsync(
                 $"api/v1/admin/service-links/{(link.LinkId is null ? "attempts" : "links")}/{Uri.EscapeDataString(Identifier(link))}/{action}", new ServiceLinkAdminAction("administrator-request", directionId));
-            if (!response.IsSuccessStatusCode) { error = "The lifecycle operation could not be confirmed. Refresh the durable state before retrying."; return; }
-            ClearPending();
+            if (!response.IsSuccessStatusCode) error = "The lifecycle operation could not be confirmed. Refresh the durable state before retrying.";
+            else ClearPending();
         }
-        catch (HttpRequestException) { error = "The lifecycle operation could not be confirmed. The current durable connection status remains authoritative."; }
-        finally { busy = false; }
-        if (error is null) await RefreshAsync();
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException) { error = "The lifecycle operation could not be confirmed. The current durable connection status remains authoritative."; }
+        finally
+        {
+            try { await ReadLinksAsync(); }
+            finally { busy = false; }
+        }
     }
     private static bool IsConnected(ServiceLinkAdminStatus link) => link.LifecycleState == "active" && link.LocalInboundActive && link.LocalBusinessSenderEnabled && link.PeerActiveAcknowledged;
     private static bool CanContinueApproval(ServiceLinkAdminStatus link) => link.Decision == "undecided" && link.LifecycleState == "awaiting_approval" && link.Descriptor.InitiatorEndpointSnapshot.Product == "rateldesk";

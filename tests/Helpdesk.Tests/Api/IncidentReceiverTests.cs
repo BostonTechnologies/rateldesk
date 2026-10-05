@@ -494,6 +494,7 @@ public sealed class IncidentReceiverTests
         private string connectionString = string.Empty;
         private bool postgres;
         private bool serviceIdentity;
+        private bool serviceLinks;
         private readonly ECDsa callbackSigningKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         public WebApplication App => apps[0];
         public HttpClient Client => clients[0];
@@ -508,10 +509,10 @@ public sealed class IncidentReceiverTests
         public string Token { get; private set; } = string.Empty;
         public CommitFault Fault { get; } = new();
 
-        public static async Task<Harness> CreateAsync(bool postgres, bool serviceIdentity = false)
+        public static async Task<Harness> CreateAsync(bool postgres, bool serviceIdentity = false, bool serviceLinks = false)
         {
             Npgsql.NpgsqlConnection.GlobalTypeMapper.EnableDynamicJson();
-            var h = new Harness { postgres = postgres, serviceIdentity = serviceIdentity };
+            var h = new Harness { postgres = postgres, serviceIdentity = serviceIdentity, serviceLinks = serviceLinks };
             Directory.CreateDirectory(h.root);
             if (postgres)
             {
@@ -570,6 +571,9 @@ public sealed class IncidentReceiverTests
             builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ServiceIdentity:Enabled"] = serviceIdentity.ToString(),
+                ["ServiceLinks:Enabled"] = serviceLinks.ToString(),
+                ["ServiceLinks:ApiBaseUrl"] = "https://receiver.example.test",
+                ["ServiceLinks:WebBaseUrl"] = "https://receiver-web.example.test",
                 ["ServiceIdentity:Issuer"] = "https://receiver.example.test/services",
                 ["ServiceIdentity:ApiBaseUrl"] = "https://receiver.example.test",
                 ["ServiceIdentity:WebBaseUrl"] = "https://receiver-web.example.test",
@@ -579,6 +583,7 @@ public sealed class IncidentReceiverTests
             builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(root, "keys"))).SetApplicationName("ReceiverTests");
             builder.Services.AddHelpdeskInfrastructure(builder.Configuration);
             builder.Services.AddRatelDeskServiceIdentity(builder.Configuration);
+            builder.Services.AddOptions<Helpdesk.Infrastructure.ServiceLink.ServiceLinkOptions>().Bind(builder.Configuration.GetSection("ServiceLinks"));
             builder.Services.RemoveAll<IHostedService>();
             builder.Services.AddDbContext<HelpdeskDbContext>(options => options.AddInterceptors(Fault));
             builder.Services.AddSingleton<ITicketRefGeneratorService, TicketRefGeneratorService>();
