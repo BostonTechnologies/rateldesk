@@ -1,6 +1,17 @@
 # Releases
 
-RatelDesk has one repository-owned release line. The root `Directory.Build.props` is the source of truth: maintainers update `VersionPrefix` when preparing the next release. All application projects inherit that value. `VersionSuffix` creates prereleases without changing the release line. The current planned test release is `0.1.1-beta.9`; earlier prereleases remain immutable.
+RatelDesk has one repository-owned release line. The root `Directory.Build.props` is the source of truth for `VersionPrefix` and `VersionSuffix`. Applications and release outputs inherit those values. Prereleases remain immutable.
+
+## 0.1.1-beta.13 — reciprocal link recovery
+
+Background workers leave live attempts awaiting administrator consent untouched,
+preserving the original approval's concurrency revision. Expired unused attempts
+still abort and purge temporary pairing material.
+
+Link recovery reuses short-lived verification and control tokens for the exact
+approved peer, tenant, scope and credential revision. It checks current durable
+authority on each use and retains the existing rate limits, finite recovery
+permissions and rotation deadlines.
 
 ## 0.1.1-beta.9 — service credentials and reciprocal NetRatel linking
 

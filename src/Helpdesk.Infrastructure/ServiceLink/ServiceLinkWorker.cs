@@ -58,7 +58,8 @@ public sealed partial class ServiceLinkCoordinator
         Require(normalizeScopes || operation.RequestFingerprint == ServiceLinkLifecycleProjection.Hash(route, durable, false),
             "operation-payload-conflict", "The protected durable request differs from its original operation fingerprint.", 409);
         var credential = candidate ?? Read<ServiceDirectionalCredential>(Unprotect(a, "outbound-credential", a.ProtectedOutboundCredential!));
-        var token = await transport.TokenAsync(credential, route == "verify" ? ServiceLinkContract.VerifyScope : ServiceLinkContract.ControlScope, ct);
+        var token = await ProtocolToken(a, route == "verify" ? ServiceLinkContract.VerifyScope : ServiceLinkContract.ControlScope,
+            route, durable, credential, ct, candidate is not null);
         using var response = await transport.PostAsync<JsonDocument>(Endpoint(Peer(a).ServiceLinkEndpoint, "/links/" + a.LinkId + "/" + route), ServiceLinkLifecycleProjection.Build(route, durable, normalizeScopes), ct, token);
         var result = response.RootElement.Clone(); ValidatePeerResult(a, result);
         operation.ResponseJson = result.GetRawText(); operation.Completed = true;
@@ -95,10 +96,21 @@ public sealed partial class ServiceLinkCoordinator
         await CleanupBootstrapEscrow(ct);
         await CleanupRotationEscrow(ct);
         if (!settings.Enabled) return;
-        var ids = await db.Set<ServiceLinkAttempt>().AsNoTracking().Where(x => x.NextWorkAtUnixSeconds <= Now && x.LifecycleState != "failed" && x.LifecycleState != "expired" && x.LifecycleState != "revoked").OrderBy(x => x.NextWorkAtUnixSeconds).Select(x => x.AttemptId).Take(20).ToListAsync(ct);
+        // Live attempts without a local principal are waiting for human consent,
+        // not background work. Scheduling a no-op would still increment their
+        // optimistic revision and race the original approval/callback scope.
+        // Expired attempts remain eligible for the existing abort and escrow cleanup.
+        var ids = await db.Set<ServiceLinkAttempt>().AsNoTracking().Where(x => x.NextWorkAtUnixSeconds <= Now && x.LifecycleState != "failed" && x.LifecycleState != "expired" && x.LifecycleState != "revoked" &&
+            !(x.Decision == "undecided" && x.InboundPrincipalId == null &&
+              (x.LifecycleState == "awaiting_approval" || x.LifecycleState == "approved") && x.ExpiresAtUnixSeconds > Now))
+            .OrderBy(x => x.NextWorkAtUnixSeconds).Select(x => x.AttemptId).Take(20).ToListAsync(ct);
         foreach (var id in ids)
         {
             db.ChangeTracker.Clear(); var a = await Attempt(id, ct);
+            // Recheck after loading: a concurrent local action may have changed
+            // the state since the bounded candidate query.
+            if (a.Decision == "undecided" && a.InboundPrincipalId is null &&
+                (a.LifecycleState is "awaiting_approval" or "approved") && a.ExpiresAtUnixSeconds > Now) continue;
             try { a = await ProgressWithRetry(a, ct); a.LastErrorCode = null; }
             catch (Exception e) when (e is HttpRequestException or ServiceLinkProtocolException or TaskCanceledException)
             { a.LastErrorCode = e is ServiceLinkProtocolException protocol ? protocol.Code : "peer-unavailable"; }
@@ -139,7 +151,7 @@ public sealed partial class ServiceLinkCoordinator
         if (a.Role == "responder" && a.Decision == "undecided" && a.ProtectedOutboundCredential is not null)
         {
             var recoveryCredential = Read<ServiceDirectionalCredential>(Unprotect(a, "outbound-credential", a.ProtectedOutboundCredential));
-            var recoveryToken = await transport.TokenAsync(recoveryCredential, ServiceLinkContract.ControlScope, ct);
+            var recoveryToken = await ProtocolToken(a, ServiceLinkContract.ControlScope, "status", null, recoveryCredential, ct);
             using var recoveryStatus = await transport.GetAsync<JsonDocument>(Endpoint(Peer(a).ServiceLinkEndpoint, "/links/" + a.LinkId + "/status"), ct, recoveryToken);
             var decision = recoveryStatus.RootElement; ValidatePeerResult(a, decision);
             Require(String(decision, "descriptor_hash") == a.DescriptorHash && String(decision, "attempt_id") == a.AttemptId && String(decision, "coordinator_instance_id") == Descriptor(a).InitiatorInstanceId, "peer-lifecycle-binding-mismatch", "The recovery decision belongs to another attempt.");
@@ -191,7 +203,7 @@ public sealed partial class ServiceLinkCoordinator
         if (a.Decision == "undecided")
         {
             var outbound = Read<ServiceDirectionalCredential>(Unprotect(a, "outbound-credential", a.ProtectedOutboundCredential));
-            var token = await transport.TokenAsync(outbound, ServiceLinkContract.ControlScope, ct);
+            var token = await ProtocolToken(a, ServiceLinkContract.ControlScope, "status", null, outbound, ct);
             using var peerStatus = await transport.GetAsync<JsonDocument>(Endpoint(Peer(a).ServiceLinkEndpoint, "/links/" + a.LinkId + "/status"), ct, token);
             var status = peerStatus.RootElement; ValidatePeerResult(a, status);
             Require(String(status, "descriptor_hash") == a.DescriptorHash && String(status, "attempt_id") == a.AttemptId && String(status, "coordinator_instance_id") == Descriptor(a).InitiatorInstanceId, "peer-lifecycle-binding-mismatch", "The coordinator's stored decision binding differs.");
