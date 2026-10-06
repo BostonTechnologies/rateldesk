@@ -11,6 +11,7 @@ using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.DependencyInjection;
 using static Helpdesk.Infrastructure.ServiceLink.ServiceLinkValidation;
 
 namespace Helpdesk.Infrastructure.ServiceLink;
@@ -20,7 +21,8 @@ public sealed partial class ServiceLinkCoordinator(
     IIntegrationProviderSettingsService providers, ServiceLinkTransport transport, IDataProtectionProvider protection,
     IOptions<ServiceLinkOptions> options, IOptionsMonitor<ServiceIdentityOptions> identityOptions, TimeProvider clock,
     ServiceLinkProtocolTokenCache protocolTokens,
-    IOptionsMonitor<ServiceLinkOptions>? currentOptions = null)
+    IOptionsMonitor<ServiceLinkOptions>? currentOptions = null,
+    IServiceScopeFactory? scopes = null)
 {
     private ServiceLinkOptions settings => currentOptions?.CurrentValue ?? options.Value;
     private ServiceIdentityOptions issuer => identityOptions.CurrentValue;

@@ -3,6 +3,8 @@ using System.Security.Claims;
 using Helpdesk.Infrastructure.ServiceIdentity;
 using Helpdesk.Shared.ServiceLink;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 using static Helpdesk.Infrastructure.ServiceLink.ServiceLinkValidation;
 
 namespace Helpdesk.Infrastructure.ServiceLink;
@@ -40,7 +42,65 @@ public sealed partial class ServiceLinkCoordinator
     public async Task<object> StatusAsync(string linkId, ClaimsPrincipal caller, CancellationToken ct)
     { var (a, _) = await Bound(linkId, caller, ServiceLinkContract.ControlScope, ct); await Expire(a, ct); return await Status(a, ct); }
 
-    public async Task<object> LifecycleAsync(string pathLinkId, string kind, ServiceLinkLifecycleRequest request, ClaimsPrincipal caller, CancellationToken ct)
+    public Task<object> LifecycleAsync(string pathLinkId, string kind, ServiceLinkLifecycleRequest request, ClaimsPrincipal caller, CancellationToken ct) =>
+        RetrySerializableLifecycle(coordinator => coordinator.LifecycleOnceAsync(pathLinkId, kind, request, caller, ct), ct);
+
+    private bool HasDatabaseTransaction => db.Database.CurrentTransaction is not null;
+
+    private async Task<object> RetrySerializableLifecycle(Func<ServiceLinkCoordinator, Task<object>> action, CancellationToken ct)
+    {
+        // Only this local recipient operation is retried. Never wrap worker,
+        // administrator, exchange or peer HTTP commands with this boundary.
+        if (scopes is null || HasDatabaseTransaction || System.Transactions.Transaction.Current is not null)
+            return await action(this);
+        AsyncServiceScope? attemptScope = null;
+        var coordinator = this;
+        try
+        {
+            for (var retry = 0; ; retry++)
+            {
+                ct.ThrowIfCancellationRequested();
+                // Even the first attempt uses a complete fresh scope, so caller
+                // tracking cannot enter this atomic recipient operation.
+                attemptScope = scopes.CreateAsyncScope();
+                coordinator = attemptScope.Value.ServiceProvider.GetRequiredService<ServiceLinkCoordinator>();
+                try { return await action(coordinator); }
+                catch (Exception error) when (retry < 3 && !ct.IsCancellationRequested &&
+                    !coordinator.HasDatabaseTransaction && System.Transactions.Transaction.Current is null &&
+                    IsSerializationFailure(error))
+                {
+                    // LifecycleOnce's Serializable transaction has rolled back
+                    // and disposed. Drop ALL failed scoped state before rereading
+                    // the same request/operation and current authority next time.
+                    var failed = attemptScope.Value;
+                    attemptScope = null;
+                    await failed.DisposeAsync();
+                }
+            }
+        }
+        finally
+        {
+            if (attemptScope is { } final) await final.DisposeAsync();
+        }
+    }
+
+    private static bool IsSerializationFailure(Exception error)
+    {
+        // Only a genuine PostgreSQL 40001 through these known EF wrappers proves
+        // this transaction aborted. Business, unique/constraint, auth, cancellation,
+        // optimistic-fence and deadlock failures retain their existing behavior.
+        for (var depth = 0; depth < 4; depth++)
+        {
+            if (error is PostgresException postgres)
+                return postgres.SqlState == PostgresErrorCodes.SerializationFailure;
+            if (error is not (InvalidOperationException or DbUpdateException) || error.InnerException is null)
+                return false;
+            error = error.InnerException;
+        }
+        return false;
+    }
+
+    private async Task<object> LifecycleOnceAsync(string pathLinkId, string kind, ServiceLinkLifecycleRequest request, ClaimsPrincipal caller, CancellationToken ct)
     {
         var (a, principal) = await Bound(pathLinkId, caller, kind == "verify" ? ServiceLinkContract.VerifyScope : ServiceLinkContract.ControlScope, ct);
         Id(request.OperationId);
