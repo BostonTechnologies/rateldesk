@@ -30,7 +30,7 @@
     <PackageReference Include="Gotho.BlazorPdf.MudBlazor" Version="2.2.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.12" />
     <PackageReference Include="MudBlazor" Version="9.11.0" />
-    <PackageReference Include="Scalar.AspNetCore" Version="2.17.12" />
+    <PackageReference Include="Scalar.AspNetCore" Version="2.17.13" />
     <PackageReference Include="Extensions.MudBlazor.StaticInput" Version="4.1.0" />
     <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
   </ItemGroup>
