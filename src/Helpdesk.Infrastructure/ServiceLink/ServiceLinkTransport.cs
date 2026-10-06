@@ -13,10 +13,12 @@ public sealed class ServiceLinkProtocolException(int statusCode, string code, st
     public string Code { get; } = code;
 }
 
+public sealed record ServiceLinkAccessToken(string AccessToken, int ExpiresIn);
+
 /// <summary>Every exchange uses the approved immutable destination and the existing connection-time DNS policy.</summary>
-public sealed class ServiceLinkTransport(HttpClient client, IOptions<ServiceLinkOptions> options)
+public sealed class ServiceLinkTransport(HttpClient client, IOptions<ServiceLinkOptions> options, IOptionsMonitor<ServiceLinkOptions>? currentOptions = null)
 {
-    private readonly ServiceLinkOptions settings = options.Value;
+    private ServiceLinkOptions Settings => currentOptions?.CurrentValue ?? options.Value;
 
     public async Task<T> GetAsync<T>(string endpoint, CancellationToken ct, string? bearer = null)
     {
@@ -31,7 +33,15 @@ public sealed class ServiceLinkTransport(HttpClient client, IOptions<ServiceLink
         return await SendAsync<T>(message, ct);
     }
 
-    public async Task<string> TokenAsync(ServiceDirectionalCredential credential, string scopes, CancellationToken ct)
+    public async Task<string> TokenAsync(ServiceDirectionalCredential credential, string scopes, CancellationToken ct) =>
+        (await AcquireTokenAsync(credential, scopes, ct)).AccessToken;
+
+    public void ValidateTokenEndpoint(ServiceDirectionalCredential credential)
+    {
+        using var request = Message(HttpMethod.Post, credential.TokenEndpoint);
+    }
+
+    public async Task<ServiceLinkAccessToken> AcquireTokenAsync(ServiceDirectionalCredential credential, string scopes, CancellationToken ct)
     {
         if (credential.TokenEndpointAuthMethod != "client_secret_post") throw new ServiceLinkProtocolException(422, "unsupported-client-authentication", "The approved peer authentication method is unsupported.");
         using var message = Message(HttpMethod.Post, credential.TokenEndpoint);
@@ -40,17 +50,34 @@ public sealed class ServiceLinkTransport(HttpClient client, IOptions<ServiceLink
             ["grant_type"] = "client_credentials", ["client_id"] = credential.ClientId,
             ["client_secret"] = credential.ClientSecret, ["scope"] = scopes
         });
-        using var result = await SendAsync<JsonDocument>(message, ct);
-        var token = result.RootElement.GetProperty("access_token").GetString();
-        if (string.IsNullOrEmpty(token) || token.Length > 32768 || result.RootElement.GetProperty("token_type").GetString()?.Equals("Bearer", StringComparison.OrdinalIgnoreCase) != true)
+        using var result = await ReadTokenResponseAsync(message, ct);
+        var root = result.RootElement;
+        if (root.ValueKind != JsonValueKind.Object ||
+            !root.TryGetProperty("access_token", out var tokenValue) || tokenValue.ValueKind != JsonValueKind.String ||
+            !root.TryGetProperty("token_type", out var typeValue) || typeValue.ValueKind != JsonValueKind.String ||
+            !root.TryGetProperty("expires_in", out var expiryValue) || expiryValue.ValueKind != JsonValueKind.Number ||
+            !expiryValue.TryGetInt32(out var expiresIn) || expiresIn is < 1 or > 900)
             throw new ServiceLinkProtocolException(422, "invalid-token-response", "The peer returned an invalid service token response.");
-        return token;
+        var token = tokenValue.GetString();
+        if (string.IsNullOrEmpty(token) || token.Length > 32768 || typeValue.GetString()?.Equals("Bearer", StringComparison.OrdinalIgnoreCase) != true)
+            throw new ServiceLinkProtocolException(422, "invalid-token-response", "The peer returned an invalid service token response.");
+        return new(token, expiresIn);
+    }
+
+    private async Task<JsonDocument> ReadTokenResponseAsync(HttpRequestMessage message, CancellationToken ct)
+    {
+        try { return await SendAsync<JsonDocument>(message, ct); }
+        catch (Exception error) when (error is JsonException or DecoderFallbackException)
+        {
+            throw new ServiceLinkProtocolException(422, "invalid-token-response", "The peer returned an invalid service token response.");
+        }
     }
 
     private HttpRequestMessage Message(HttpMethod method, string endpoint, string? bearer = null)
     {
         if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri)) throw new ServiceLinkProtocolException(400, "invalid-endpoint", "The endpoint is not absolute.");
-        IntegrationEndpointPolicy.Validate(uri, "Service link endpoint", settings.AllowPrivateHttp);
+        var settings = Settings;
+        IntegrationEndpointPolicy.ValidateServiceLink(uri, "Service link endpoint", settings.AllowPrivateHttp);
         var message = new HttpRequestMessage(method, uri);
         message.Options.Set(IntegrationSafeHttpMessageHandler.AllowPrivateHttpOption, settings.AllowPrivateHttp);
         if (bearer is not null) message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
@@ -60,6 +87,7 @@ public sealed class ServiceLinkTransport(HttpClient client, IOptions<ServiceLink
 
     private async Task<T> SendAsync<T>(HttpRequestMessage message, CancellationToken ct)
     {
+        var settings = Settings;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromSeconds(20));
         using var response = await client.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, timeout.Token);

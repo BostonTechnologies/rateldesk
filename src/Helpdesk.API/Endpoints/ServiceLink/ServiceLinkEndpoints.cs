@@ -21,8 +21,14 @@ public static class ServiceLinkEndpoints
         services.AddOptions<ServiceLinkOptions>().Bind(configuration.GetSection(ServiceLinkOptions.SectionName)).ValidateOnStart();
         services.AddSingleton<IValidateOptions<ServiceLinkOptions>, ServiceLinkOptionsValidator>();
         services.AddScoped<ServiceLinkCoordinator>();
+        services.AddScoped<ServiceLinkProtocolTokenCache>();
         services.AddHttpClient<ServiceLinkTransport>(client => client.Timeout = TimeSpan.FromSeconds(25))
-            .ConfigurePrimaryHttpMessageHandler(() => IntegrationSafeHttpMessageHandler.Create());
+            .ConfigurePrimaryHttpMessageHandler(provider => IntegrationSafeHttpMessageHandler.CreateServiceLink(
+                currentAllowPrivateHttp: () => provider.GetRequiredService<IOptionsMonitor<ServiceLinkOptions>>().CurrentValue.AllowPrivateHttp));
+        foreach (var clientName in new[] { ServiceLinkOutboundNetwork.TokenClientName, ServiceLinkOutboundNetwork.BusinessClientName })
+            services.AddHttpClient(clientName)
+                .ConfigurePrimaryHttpMessageHandler(provider => IntegrationSafeHttpMessageHandler.CreateServiceLink(
+                    currentAllowPrivateHttp: () => provider.GetRequiredService<IOptionsMonitor<ServiceLinkOptions>>().CurrentValue.AllowPrivateHttp));
         services.AddHostedService<ServiceLinkWorker>();
         return services;
     }
@@ -65,6 +71,9 @@ public static class ServiceLinkEndpoints
             Respond(http, () => links.AdminStatusAsync(attemptId, http.User, ct)));
         admin.MapPost("/start", (HttpContext http, ServiceLinkCoordinator links, CancellationToken ct) =>
             WithBody<ServiceLinkStartRequest, ServiceLinkNavigation>(http, body => links.StartAsync(body, http.User, ct), ct));
+        admin.MapPost("/attempts/{attemptId}/continue", (string attemptId, HttpContext http, ServiceLinkCoordinator links, CancellationToken ct) =>
+            WithBody<ServiceLinkContinueRequest, ServiceLinkNavigation>(http, body => links.ContinueAsync(attemptId, body, http.User, ct), ct))
+            .Accepts<ServiceLinkContinueRequest>("application/json");
         admin.MapPost("/remote-review", (HttpContext http, ServiceLinkCoordinator links, CancellationToken ct) =>
             WithBody<ServiceLinkRemoteReviewRequest, ServiceLinkRequestDescriptor>(http, body => links.RemoteReviewAsync(body, http.User, ct), ct));
         admin.MapPost("/remote-approve", (HttpContext http, ServiceLinkCoordinator links, CancellationToken ct) =>
@@ -85,7 +94,7 @@ public static class ServiceLinkEndpoints
     private static Task<IResult> WithBody<TRequest, TResponse>(HttpContext http, Func<TRequest, Task<TResponse>> action, CancellationToken ct, string? lifecycleKind = null) =>
         Respond(http, async () =>
         {
-            var maximum = http.RequestServices.GetRequiredService<IOptions<ServiceLinkOptions>>().Value.MaximumPayloadBytes;
+            var maximum = http.RequestServices.GetRequiredService<IOptionsMonitor<ServiceLinkOptions>>().CurrentValue.MaximumPayloadBytes;
             if (!http.Request.HasJsonContentType() || http.Request.ContentLength > maximum)
                 throw new ServiceLinkProtocolException(400, "invalid-request", "A bounded JSON protocol body is required.");
             using var memory = new MemoryStream();
@@ -116,7 +125,8 @@ public static class ServiceLinkEndpoints
         { return Results.Problem(statusCode: error.StatusCode, title: error.Message, extensions: new Dictionary<string, object?> { ["code"] = error.Code }); }
         catch (Exception error) when (error is JsonException or DecoderFallbackException or ArgumentException or FormatException)
         { return Results.Problem(statusCode: 400, title: "The service-link request is invalid.", extensions: new Dictionary<string, object?> { ["code"] = "invalid-request" }); }
-        catch (Exception error) when (error is DbUpdateException or ServiceClientConflictException or IntegrationProviderConfigurationConflictException)
+        catch (Exception error) when (error is DbUpdateException or ServiceClientConflictException or IntegrationProviderConfigurationConflictException ||
+            ServiceLinkDatabaseConflict.IsAbortedTransaction(error))
         { return Results.Problem(statusCode: 409, title: "The durable registration or profile changed. Refresh the current state.", extensions: new Dictionary<string, object?> { ["code"] = "service-link-conflict" }); }
         catch (CryptographicException)
         { return Results.Problem(statusCode: 503, title: "The protected link state is unavailable. Restore the shared key ring.", extensions: new Dictionary<string, object?> { ["code"] = "protected-state-unavailable" }); }

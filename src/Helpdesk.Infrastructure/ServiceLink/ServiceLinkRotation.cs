@@ -29,6 +29,7 @@ public sealed partial class ServiceLinkCoordinator
             return await AdminStatus(a, ct);
         }
         Require(kind is "cancel" or "revoke", "operation-not-found", "This local lifecycle action is unsupported.");
+        if (kind == "cancel" && a.Decision == "abort") return await AdminStatus(a, ct);
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         if (a.Decision == "commit" || kind == "revoke")
         {
@@ -43,7 +44,12 @@ public sealed partial class ServiceLinkCoordinator
         {
             // A prepared responder cannot decide its coordinator's transaction. Retain narrow recovery authority.
             if (a.ProtectedOutboundCredential is null) { a.Decision = "abort"; a.AbortId ??= NewId(); a.LifecycleState = "expired"; await Disable(a, ct); PurgeEscrow(a); }
-            else { a.AbortId ??= NewId(); a.LifecycleState = "in_doubt"; if (a.InboundPrincipalId is not null) await registry.SetStatusAsync(a.InboundPrincipalId.Value, "in_doubt", ct); }
+            else
+            {
+                await JournalParticipantCancellation(a, ct);
+                a.LifecycleState = "in_doubt";
+                if (a.InboundPrincipalId is not null) await registry.SetStatusAsync(a.InboundPrincipalId.Value, "in_doubt", ct);
+            }
         }
         a.NextWorkAtUnixSeconds = Now; await Save(a, ct); await tx.CommitAsync(ct); return await AdminStatus(a, ct);
     }
@@ -89,15 +95,18 @@ public sealed partial class ServiceLinkCoordinator
                 rotation = await BeginIssuerRotation(a, request.RotationId!, request.ExpectedCurrentCredentialRevision, ct); break;
             case "offer":
                 Require(request.DirectionId == OutboundGrant(a).DirectionId && request.CredentialForCaller is not null && request.SuccessorCredentialRevision > request.ExpectedCurrentCredentialRevision && request.OfferExpiresAt is not null, "rotation-not-authorized", "Only the approved directional issuer may offer this successor.", 403);
-                var candidate = request.CredentialForCaller!; Credential(candidate, OutboundGrant(a), Peer(a));
+                var candidate = ServiceLinkPayloadNormalization.Credential(request.CredentialForCaller!); Credential(candidate, OutboundGrant(a), Peer(a));
                 var expiry = ServiceLinkCanonicalJson.ParseWholeSecondUtcTimestamp(request.OfferExpiresAt!).ToUnixTimeSeconds();
                 Require(candidate.CredentialRevision == request.SuccessorCredentialRevision && expiry > Now && expiry <= Now + settings.RotationOfferLifetimeSeconds, "invalid-rotation-offer", "The successor offer has an invalid fixed expiry/revision.");
                 var current = Read<ServiceDirectionalCredential>(Unprotect(a, "outbound-credential", a.ProtectedOutboundCredential!));
                 Require(current.ClientId == candidate.ClientId && current.CredentialRevision == request.ExpectedCurrentCredentialRevision, "credential-revision-conflict", "The offer does not succeed the working logical client.", 409);
                 if (rotation is null) { rotation = new() { RotationId = request.RotationId!, LinkId = a.LinkId!, DirectionId = request.DirectionId!, ActiveRotationKey = Digest(a.LinkId + "/" + request.DirectionId + "/" + current.CredentialRevision), IsIssuer = false, ExpectedCurrentCredentialRevision = current.CredentialRevision, CreatedAtUnixSeconds = Now }; db.Set<ServiceLinkRotation>().Add(rotation); }
                 Require(!rotation.IsIssuer && rotation.ExpectedCurrentCredentialRevision == current.CredentialRevision && (rotation.SuccessorCredentialRevision is null || rotation.SuccessorCredentialRevision == candidate.CredentialRevision), "rotation-conflict", "The existing pending successor binding changed.", 409);
-                if (rotation.ProtectedCandidate is not null) Require(ServiceLinkCanonicalJson.HashObject(Read<ServiceDirectionalCredential>(Unprotect(a, "rotation-candidate/" + rotation.RotationId, rotation.ProtectedCandidate))) == ServiceLinkCanonicalJson.HashObject(candidate), "rotation-payload-conflict", "The successor offer body changed.", 409);
-                rotation.ProtectedCandidate = Protect(a, "rotation-candidate/" + rotation.RotationId, Json(candidate)); rotation.SuccessorCredentialRevision = candidate.CredentialRevision; rotation.OfferExpiresAtUnixSeconds = expiry; rotation.RotationState = "prepared"; break;
+                if (rotation.ProtectedCandidate is not null) Require(ServiceLinkCanonicalJson.HashObject(ServiceLinkPayloadNormalization.Credential(Read<ServiceDirectionalCredential>(Unprotect(a, "rotation-candidate/" + rotation.RotationId, rotation.ProtectedCandidate)))) == ServiceLinkCanonicalJson.HashObject(candidate), "rotation-payload-conflict", "The successor offer body changed.", 409);
+                Require(rotation.OfferExpiresAtUnixSeconds is null || rotation.OfferExpiresAtUnixSeconds == expiry,
+                    "rotation-payload-conflict", "A retry cannot change the fixed successor offer deadline.", 409);
+                rotation.ProtectedCandidate ??= Protect(a, "rotation-candidate/" + rotation.RotationId, Json(candidate));
+                rotation.SuccessorCredentialRevision = candidate.CredentialRevision; rotation.OfferExpiresAtUnixSeconds = expiry; rotation.RotationState = "prepared"; break;
             case "verified":
                 Require(rotation is not null && rotation.IsIssuer && rotation.DirectionId == InboundGrant(a).DirectionId && rotation.SuccessorCredentialRevision == request.SuccessorCredentialRevision && rotation.ExpectedCurrentCredentialRevision == request.ExpectedCurrentCredentialRevision && request.SuccessorVerificationReceiptId is not null, "rotation-not-authorized", "The successor verification does not belong to this issuer's rotation.", 403);
                 var receipt = await db.Set<ServiceLinkVerificationReceipt>().SingleOrDefaultAsync(x => x.VerificationReceiptId == request.SuccessorVerificationReceiptId && x.LinkId == a.LinkId && x.RotationId == rotation!.RotationId && x.ServicePrincipalId == a.InboundPrincipalId && x.CredentialRevision == rotation.SuccessorCredentialRevision, ct);

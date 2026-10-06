@@ -18,9 +18,11 @@ namespace Helpdesk.Infrastructure.ServiceLink;
 public sealed partial class ServiceLinkCoordinator(
     HelpdeskDbContext db, IServicePrincipalRegistry registry, ICurrentUserAccessService accessService,
     IIntegrationProviderSettingsService providers, ServiceLinkTransport transport, IDataProtectionProvider protection,
-    IOptions<ServiceLinkOptions> options, IOptionsMonitor<ServiceIdentityOptions> identityOptions, TimeProvider clock)
+    IOptions<ServiceLinkOptions> options, IOptionsMonitor<ServiceIdentityOptions> identityOptions, TimeProvider clock,
+    ServiceLinkProtocolTokenCache protocolTokens,
+    IOptionsMonitor<ServiceLinkOptions>? currentOptions = null)
 {
-    private readonly ServiceLinkOptions settings = options.Value;
+    private ServiceLinkOptions settings => currentOptions?.CurrentValue ?? options.Value;
     private ServiceIdentityOptions issuer => identityOptions.CurrentValue;
     private long Now => clock.GetUtcNow().ToUnixTimeSeconds();
     private static string Json<T>(T value) => JsonSerializer.Serialize(value);
@@ -41,9 +43,11 @@ public sealed partial class ServiceLinkCoordinator(
 
     public ServiceLinkMetadata Metadata()
     {
+        var settings = this.settings;
+        var issuer = this.issuer;
         Require(settings.Enabled && issuer.Enabled, "service-link-unavailable", "The deployment has not enabled its configured service issuer and reciprocal linking.", 503);
         Require(issuer.ApiBaseUrl.TrimEnd('/') == settings.ApiBaseUrl.TrimEnd('/') && issuer.WebBaseUrl.TrimEnd('/') == settings.WebBaseUrl.TrimEnd('/'), "service-link-configuration-invalid", "Issuer and link canonical addresses must agree.", 503);
-        return new ServiceLinkMetadata
+        return ServiceLinkPayloadNormalization.Metadata(new ServiceLinkMetadata
         {
             ProductVersion = BuildInfoProvider.FromAssembly(typeof(ServiceLinkCoordinator).Assembly, "runtime").Version,
             InstanceId = issuer.InstanceId, WebBaseUrl = settings.WebBaseUrl.TrimEnd('/'), ApiBaseUrl = settings.ApiBaseUrl.TrimEnd('/'), GatewayBaseUrl = settings.GatewayBaseUrl,
@@ -59,7 +63,7 @@ public sealed partial class ServiceLinkCoordinator(
                 new(ServiceLinkContract.Version, [ServiceLinkContract.ControlScope, ServiceLinkContract.VerifyScope],
                 [new("POST", ServiceLinkContract.EndpointPath + "/links/{link_id}/verify", ServiceLinkContract.VerifyScope), new("GET", ServiceLinkContract.EndpointPath + "/links/{link_id}/status", ServiceLinkContract.ControlScope), .. new[] { "ack", "commit", "abort", "revoke", "rotate" }.Select(x => new ServiceLinkResourceOperation("POST", ServiceLinkContract.EndpointPath + "/links/{link_id}/" + x, ServiceLinkContract.ControlScope))])
             ]
-        };
+        });
     }
 
     private async Task<string> Authorize(ClaimsPrincipal actor, string organization, CancellationToken ct)
@@ -113,7 +117,9 @@ public sealed partial class ServiceLinkCoordinator(
 
     private async Task<ServiceLinkAdminStatus> AdminStatus(ServiceLinkAttempt a, CancellationToken ct)
     {
-        var inbound = await ServiceLinkAuthority.InboundUsableAsync(db, a, clock, issuer, ct);
+        var settings = this.settings;
+        var issuer = this.issuer;
+        var inbound = await ServiceLinkAuthority.InboundUsableAsync(db, a, clock, issuer, settings, ct);
         var provider = await providers.GetOrchestratorSettingsAsync(ct);
         var sender = SenderUsable(a, provider, inbound);
         return new(a.AttemptId, a.LinkId, a.LinkRevision, a.LifecycleState,

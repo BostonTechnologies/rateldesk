@@ -10,16 +10,19 @@ namespace Helpdesk.Infrastructure.ServiceLink;
 public static class ServiceLinkAuthority
 {
     /// <summary>A live issuer configuration cannot silently replace an identity approved in an immutable grant.</summary>
-    public static bool LocalIdentityMatches(ServiceLinkGrantSummary summary, string role, ServiceIdentityOptions currentOptions)
+    public static bool LocalIdentityMatches(ServiceLinkGrantSummary summary, string role, ServiceIdentityOptions currentOptions, ServiceLinkOptions currentLinking)
     {
-        if (summary is null || currentOptions is null || !currentOptions.Enabled || role is not ("initiator" or "responder") ||
-            new[] { currentOptions.Issuer, currentOptions.Audience, currentOptions.InstanceId, currentOptions.WebBaseUrl, currentOptions.ApiBaseUrl }.Any(string.IsNullOrWhiteSpace)) return false;
+        if (summary is null || currentOptions is null || currentLinking is null || !currentOptions.Enabled || !currentLinking.Enabled || role is not ("initiator" or "responder") ||
+            new[] { currentOptions.Issuer, currentOptions.Audience, currentOptions.InstanceId, currentOptions.WebBaseUrl, currentOptions.ApiBaseUrl,
+                currentLinking.WebBaseUrl, currentLinking.ApiBaseUrl }.Any(string.IsNullOrWhiteSpace)) return false;
         var local = role == "initiator" ? summary.InitiatorEndpointSnapshot : summary.ResponderEndpointSnapshot;
         var localInstance = role == "initiator" ? summary.InitiatorInstanceId : summary.ResponderInstanceId;
         if (local is null || local.Contract != ServiceLinkContract.Version || local.Product != "rateldesk" ||
             local.InstanceId != localInstance || local.InstanceId != currentOptions.InstanceId ||
             local.OauthIssuer != currentOptions.Issuer || local.Audience != currentOptions.Audience ||
             local.WebBaseUrl != currentOptions.WebBaseUrl.TrimEnd('/') || local.ApiBaseUrl != currentOptions.ApiBaseUrl.TrimEnd('/') ||
+            local.WebBaseUrl != currentLinking.WebBaseUrl.TrimEnd('/') || local.ApiBaseUrl != currentLinking.ApiBaseUrl.TrimEnd('/') ||
+            local.GatewayBaseUrl != currentLinking.GatewayBaseUrl ||
             local.TokenEndpoint != ServiceLinkValidation.Endpoint(currentOptions.ApiBaseUrl, "/connect/token") ||
             local.OauthMetadataUrl != ServiceLinkValidation.Endpoint(currentOptions.ApiBaseUrl, "/.well-known/oauth-authorization-server") ||
             local.JwksUri != ServiceLinkValidation.Endpoint(currentOptions.ApiBaseUrl, "/.well-known/jwks.json") ||
@@ -32,9 +35,9 @@ public static class ServiceLinkAuthority
     }
 
     public static async Task<bool> InboundUsableAsync(HelpdeskDbContext db, ServiceLinkAttempt attempt,
-        TimeProvider clock, ServiceIdentityOptions currentIdentity, CancellationToken ct)
+        TimeProvider clock, ServiceIdentityOptions currentIdentity, ServiceLinkOptions currentLinking, CancellationToken ct)
     {
-        if (!currentIdentity.Enabled) return false;
+        if (!currentIdentity.Enabled || !currentLinking.Enabled) return false;
         var current = await db.Set<ServiceLinkAttempt>().AsNoTracking().SingleOrDefaultAsync(x =>
             x.AttemptId == attempt.AttemptId && x.LinkId == attempt.LinkId && x.LinkRevision == attempt.LinkRevision, ct);
         if (current is null || current.Decision != "commit" || !current.LocalInboundActive ||
@@ -58,8 +61,8 @@ public static class ServiceLinkAuthority
             if (summary.Contract != ServiceLinkContract.Version || summary.AttemptId != current.AttemptId ||
                 summary.LinkId != current.LinkId || summary.ProposedLinkRevision != current.LinkRevision ||
                 summary.DescriptorHash != current.DescriptorHash ||
-                ServiceLinkCanonicalJson.HashObject(summary) != current.GrantHash || summary.Grants is not { Length: 2 } ||
-                !LocalIdentityMatches(summary, current.Role, currentIdentity)) return false;
+                !ServiceLinkPayloadNormalization.SummaryHashMatches(summary, current.GrantHash!) || summary.Grants is not { Length: 2 } ||
+                !LocalIdentityMatches(summary, current.Role, currentIdentity, currentLinking)) return false;
             var direction = current.Role == "initiator" ? ServiceLinkContract.ResponderToInitiator : ServiceLinkContract.InitiatorToResponder;
             var matches = summary.Grants.Where(x => x is not null && x.DirectionId == direction).ToArray();
             if (matches.Length != 1) return false;

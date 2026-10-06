@@ -3,9 +3,10 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Helpdesk.Application.Orchestration;
-using Helpdesk.Infrastructure.Persistence.Connectivity;
+using Helpdesk.Infrastructure.ServiceLink;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace Helpdesk.Infrastructure.Orchestration;
 
@@ -13,7 +14,8 @@ public sealed class OrchestrationTokenService(
     IHttpClientFactory httpClientFactory,
     IMemoryCache cache,
     TimeProvider? timeProvider = null,
-    IServiceScopeFactory? scopes = null) : IOrchestrationTokenService
+    IServiceScopeFactory? scopes = null,
+    IOptionsMonitor<ServiceLinkOptions>? currentLinkOptions = null) : IOrchestrationTokenService
 {
     private const int MaximumResponseBytes = 256 * 1024;
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(20);
@@ -26,18 +28,7 @@ public sealed class OrchestrationTokenService(
         CancellationToken cancellationToken = default,
         bool useCache = true)
     {
-        if (settings.ServiceLink is not null && !settings.Enabled)
-            throw new InvalidOperationException("The service-link business sender is disabled.");
-        if (settings.Source == "database" && (settings.Revision > 0 || settings.ServiceLink is not null))
-        {
-            if (scopes is null) throw new InvalidOperationException("Durable provider authority is unavailable.");
-            await using var scope = scopes.CreateAsyncScope();
-            var current = await scope.ServiceProvider.GetRequiredService<IIntegrationProviderSettingsService>()
-                .GetResolvedOrchestratorSettingsAsync(cancellationToken);
-            if (!current.Enabled || current.SecretUnavailable || current.Revision != settings.Revision ||
-                current.ProfileFingerprint != settings.ProfileFingerprint || current.ServiceLink != settings.ServiceLink)
-                throw new InvalidOperationException("The provider changed or was disabled. Resolve its current settings before dispatching.");
-        }
+        await RequireCurrentProviderAsync(settings, cancellationToken);
         var tokenEndpoint = settings.TokenEndpoint
             ?? (string.IsNullOrWhiteSpace(settings.Authority) ? null : $"{settings.Authority.TrimEnd('/')}/connect/token");
         if (string.IsNullOrWhiteSpace(tokenEndpoint))
@@ -47,14 +38,7 @@ public sealed class OrchestrationTokenService(
 
         if (!Uri.TryCreate(tokenEndpoint, UriKind.Absolute, out var tokenUri))
             throw new InvalidOperationException("External orchestration token endpoint is not a valid absolute URL.");
-        try
-        {
-            IntegrationEndpointPolicy.Validate(tokenUri, "TokenEndpoint", settings.AllowPrivateHttp);
-        }
-        catch (ArgumentException)
-        {
-            throw new InvalidOperationException("The external orchestration token endpoint is not allowed by the outbound integration policy.");
-        }
+        ServiceLinkOutboundNetwork.Validate(tokenUri, "TokenEndpoint", settings, currentLinkOptions);
 
         if (string.IsNullOrWhiteSpace(settings.ClientId) || string.IsNullOrWhiteSpace(settings.ClientSecret))
         {
@@ -78,14 +62,15 @@ public sealed class OrchestrationTokenService(
             settings.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture),
             Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(settings.ClientSecret))));
         var cacheKey = $"orchestration_token::{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(cacheMaterial)))}";
-        if (useCache && _cache.TryGetValue(cacheKey, out string? cachedToken) && !string.IsNullOrWhiteSpace(cachedToken))
+        if (useCache && _cache.TryGetValue<CachedAccessToken>(cacheKey, out var cachedToken) && cachedToken is not null)
         {
-            return cachedToken;
+            if (cachedToken.ReuseUntilUtc > _timeProvider.GetUtcNow()) return cachedToken.Token;
+            _cache.Remove(cacheKey);
         }
 
-        var client = _httpClientFactory.CreateClient("OrchestrationToken");
+        var client = _httpClientFactory.CreateClient(settings.ServiceLink is null ? "OrchestrationToken" : ServiceLinkOutboundNetwork.TokenClientName);
         using var request = new HttpRequestMessage(HttpMethod.Post, tokenEndpoint);
-        request.Options.Set(IntegrationSafeHttpMessageHandler.AllowPrivateHttpOption, settings.AllowPrivateHttp);
+        ServiceLinkOutboundNetwork.PrepareRequest(request, settings, currentLinkOptions);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var form = new Dictionary<string, string>
@@ -99,6 +84,7 @@ public sealed class OrchestrationTokenService(
         request.Content = new FormUrlEncodedContent(form);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(RequestTimeout);
+        var requestStartedAt = _timeProvider.GetUtcNow();
         HttpResponseMessage response;
         try
         {
@@ -156,25 +142,48 @@ public sealed class OrchestrationTokenService(
                 if (string.IsNullOrWhiteSpace(token))
                     throw new InvalidOperationException("Token response returned an empty access_token.");
 
+                // Local unlink or a provider change can complete while token HTTP is awaiting its body.
+                // Observe that committed authority before caching or releasing a business token.
+                await RequireCurrentProviderAsync(settings, cancellationToken);
+
                 var expiresInSeconds = doc.RootElement.TryGetProperty("expires_in", out var expiresElement) &&
                                        expiresElement.TryGetInt32(out var value) && value > 0
                     ? value
                     : 300;
                 var safetySeconds = Math.Min(30, Math.Max(1, expiresInSeconds / 5));
-                var cacheDuration = TimeSpan.FromSeconds(Math.Max(1, expiresInSeconds - safetySeconds));
+                var reuseUntil = requestStartedAt.AddSeconds(expiresInSeconds - safetySeconds);
+                var remaining = reuseUntil - _timeProvider.GetUtcNow();
 
-                if (useCache)
+                if (useCache && remaining > TimeSpan.Zero)
                 {
                     _cache.Set(
                         cacheKey,
-                        token,
-                        _timeProvider.GetUtcNow().Add(cacheDuration));
+                        new CachedAccessToken(token, reuseUntil),
+                        remaining);
                 }
 
                 return token;
             }
         }
     }
+
+    private async Task RequireCurrentProviderAsync(OrchestrationResolvedSettings settings, CancellationToken cancellationToken)
+    {
+        if (settings.ServiceLink is not null && !settings.Enabled)
+            throw new InvalidOperationException("The service-link business sender is disabled.");
+        if (settings.Source == "database" && (settings.Revision > 0 || settings.ServiceLink is not null))
+        {
+            if (scopes is null) throw new InvalidOperationException("Durable provider authority is unavailable.");
+            await using var scope = scopes.CreateAsyncScope();
+            var current = await scope.ServiceProvider.GetRequiredService<IIntegrationProviderSettingsService>()
+                .GetResolvedOrchestratorSettingsAsync(cancellationToken);
+            if (!current.Enabled || current.SecretUnavailable || current.Revision != settings.Revision ||
+                current.ProfileFingerprint != settings.ProfileFingerprint || current.ServiceLink != settings.ServiceLink)
+                throw new InvalidOperationException("The provider changed or was disabled. Resolve its current settings before dispatching.");
+        }
+    }
+
+    private sealed record CachedAccessToken(string Token, DateTimeOffset ReuseUntilUtc);
 
     private static async Task<string> ReadBoundedContentAsync(HttpContent content, CancellationToken cancellationToken)
     {

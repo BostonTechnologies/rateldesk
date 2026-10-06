@@ -1,3 +1,5 @@
+using Helpdesk.API.Authentication;
+using Helpdesk.API.Endpoints.ServiceLink;
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Application.AiAssistant.Chat;
 using Helpdesk.Infrastructure.AiAssistant.Chat;
@@ -165,12 +167,16 @@ public sealed class IntegrationProviderSettingsTests
         await settings.SetLinkedOrchestratorSenderEnabledAsync("approved-link", 1, staged.Revision, true);
         await RecordApprovedSenderAuthorityAsync(fixture);
         var snapshot = await settings.GetResolvedOrchestratorSettingsAsync();
-        using var provider = new ServiceCollection().AddSingleton<IIntegrationProviderSettingsService>(settings).BuildServiceProvider();
+        using var provider = new ServiceCollection().AddSingleton<IIntegrationProviderSettingsService>(settings)
+            .AddSingleton(fixture.IdentityOptions).AddSingleton(fixture.LinkOptions).BuildServiceProvider();
         var factory = Substitute.For<IHttpClientFactory>();
         var handler = new StaticTokenHandler();
-        factory.CreateClient("OrchestrationToken").Returns(new HttpClient(handler));
+        using var http = new HttpClient(handler);
+        factory.CreateClient("OrchestrationToken").Returns(http);
+        factory.CreateClient(ServiceLinkOutboundNetwork.TokenClientName).Returns(http);
         using var memory = new MemoryCache(new MemoryCacheOptions());
-        var tokens = new OrchestrationTokenService(factory, memory, scopes: provider.GetRequiredService<IServiceScopeFactory>());
+        var tokens = new OrchestrationTokenService(factory, memory, scopes: provider.GetRequiredService<IServiceScopeFactory>(),
+            currentLinkOptions: provider.GetRequiredService<IOptionsMonitor<ServiceLinkOptions>>());
         Assert.Equal("synthetic-access-token", await tokens.GetAccessTokenAsync(snapshot));
         Assert.Equal("synthetic-access-token", await tokens.GetAccessTokenAsync(snapshot));
         Assert.Equal(1, handler.Requests);
@@ -263,12 +269,16 @@ public sealed class IntegrationProviderSettingsTests
         await RecordApprovedSenderAuthorityAsync(fixture);
         var snapshot = await settings.GetResolvedOrchestratorSettingsAsync();
         Assert.True(snapshot.Enabled);
-        using var provider = new ServiceCollection().AddSingleton<IIntegrationProviderSettingsService>(settings).BuildServiceProvider();
+        using var provider = new ServiceCollection().AddSingleton<IIntegrationProviderSettingsService>(settings)
+            .AddSingleton(fixture.IdentityOptions).AddSingleton(fixture.LinkOptions).BuildServiceProvider();
         var factory = Substitute.For<IHttpClientFactory>();
         var handler = new StaticTokenHandler();
-        factory.CreateClient("OrchestrationToken").Returns(new HttpClient(handler));
+        using var http = new HttpClient(handler);
+        factory.CreateClient("OrchestrationToken").Returns(http);
+        factory.CreateClient(ServiceLinkOutboundNetwork.TokenClientName).Returns(http);
         using var memory = new MemoryCache(new MemoryCacheOptions());
-        var tokens = new OrchestrationTokenService(factory, memory, scopes: provider.GetRequiredService<IServiceScopeFactory>());
+        var tokens = new OrchestrationTokenService(factory, memory, scopes: provider.GetRequiredService<IServiceScopeFactory>(),
+            currentLinkOptions: provider.GetRequiredService<IOptionsMonitor<ServiceLinkOptions>>());
         await tokens.GetAccessTokenAsync(snapshot);
         Assert.Equal(1, handler.Requests);
 
@@ -334,14 +344,19 @@ public sealed class IntegrationProviderSettingsTests
         await RecordApprovedSenderAuthorityAsync(fixture);
         var snapshot = await settings.GetResolvedOrchestratorSettingsAsync();
         Assert.True(snapshot.Enabled);
-        using var provider = new ServiceCollection().AddSingleton<IIntegrationProviderSettingsService>(settings).BuildServiceProvider();
+        using var provider = new ServiceCollection().AddSingleton<IIntegrationProviderSettingsService>(settings)
+            .AddSingleton(fixture.IdentityOptions).AddSingleton(fixture.LinkOptions).BuildServiceProvider();
         var factory = Substitute.For<IHttpClientFactory>();
         var handler = new StaticTokenHandler();
-        factory.CreateClient("OrchestrationToken").Returns(new HttpClient(handler));
+        using var http = new HttpClient(handler);
+        factory.CreateClient("OrchestrationToken").Returns(http);
+        factory.CreateClient(ServiceLinkOutboundNetwork.TokenClientName).Returns(http);
         using var memory = new MemoryCache(new MemoryCacheOptions());
-        var tokens = new OrchestrationTokenService(factory, memory, scopes: provider.GetRequiredService<IServiceScopeFactory>());
+        var tokens = new OrchestrationTokenService(factory, memory, scopes: provider.GetRequiredService<IServiceScopeFactory>(),
+            currentLinkOptions: provider.GetRequiredService<IOptionsMonitor<ServiceLinkOptions>>());
         await tokens.GetAccessTokenAsync(snapshot);
         fixture.Configuration[$"ServiceIdentity:{field}"] = changedValue;
+        fixture.Configuration.Reload();
 
         var current = await settings.GetResolvedOrchestratorSettingsAsync();
         Assert.False(current.Enabled);
@@ -387,12 +402,16 @@ public sealed class IntegrationProviderSettingsTests
             ExpectedRevision = 0, Enabled = true, BaseUrl = "https://original.example.test",
             ClientId = "manual-outbound", ClientSecret = "synthetic-original-secret"
         });
-        using var provider = new ServiceCollection().AddSingleton<IIntegrationProviderSettingsService>(settings).BuildServiceProvider();
+        using var provider = new ServiceCollection().AddSingleton<IIntegrationProviderSettingsService>(settings)
+            .AddSingleton(fixture.IdentityOptions).AddSingleton(fixture.LinkOptions).BuildServiceProvider();
         var factory = Substitute.For<IHttpClientFactory>();
         var handler = new StaticTokenHandler();
-        factory.CreateClient("OrchestrationToken").Returns(new HttpClient(handler));
+        using var http = new HttpClient(handler);
+        factory.CreateClient("OrchestrationToken").Returns(http);
+        factory.CreateClient(ServiceLinkOutboundNetwork.TokenClientName).Returns(http);
         using var memory = new MemoryCache(new MemoryCacheOptions());
-        var tokens = new OrchestrationTokenService(factory, memory, scopes: provider.GetRequiredService<IServiceScopeFactory>());
+        var tokens = new OrchestrationTokenService(factory, memory, scopes: provider.GetRequiredService<IServiceScopeFactory>(),
+            currentLinkOptions: provider.GetRequiredService<IOptionsMonitor<ServiceLinkOptions>>());
         var original = await settings.GetResolvedOrchestratorSettingsAsync();
         await tokens.GetAccessTokenAsync(original);
         await settings.UpdateOrchestratorSettingsAsync(new UpdateOrchestrationConnectivitySettingsDto
@@ -801,14 +820,18 @@ public sealed class IntegrationProviderSettingsTests
                 .AddInterceptors(interceptor)
                 .Options;
             await using var serviceDb = new HelpdeskDbContext(interceptedOptions, tenant, new HttpContextAccessor());
+            var configuration = new ConfigurationBuilder().AddInMemoryCollection().Build();
+            using var currentOptions = CreateCurrentOptions(configuration);
             var service = new IntegrationProviderSettingsService(
                 serviceDb,
-                new ConfigurationBuilder().AddInMemoryCollection().Build(),
+                configuration,
                 new IntegrationProviderSecretProtector(new EphemeralDataProtectionProvider(NullLoggerFactory.Instance)),
                 Options.Create(new AiAssistantChatOptions()),
                 new DatabaseOptions { Provider = "PostgreSql" },
                 TimeProvider.System,
-                NullLogger<IntegrationProviderSettingsService>.Instance);
+                NullLogger<IntegrationProviderSettingsService>.Instance,
+                currentIdentityOptions: currentOptions.GetRequiredService<IOptionsMonitor<ServiceIdentityOptions>>(),
+                currentLinkOptions: currentOptions.GetRequiredService<IOptionsMonitor<ServiceLinkOptions>>());
 
             var exception = await Assert.ThrowsAsync<IntegrationProviderConfigurationConflictException>(() =>
                 service.ResolveNetclawPairingTargetAsync(new UpdateNetclawConnectivitySettingsDto
@@ -874,8 +897,9 @@ public sealed class IntegrationProviderSettingsTests
             await using var secondDb = new HelpdeskDbContext(options, tenant, new HttpContextAccessor());
             var configuration = new ConfigurationBuilder().AddInMemoryCollection().Build();
             var protection = new EphemeralDataProtectionProvider(NullLoggerFactory.Instance);
-            var first = CreateService(firstDb, configuration, protection);
-            var second = CreateService(secondDb, configuration, protection);
+            using var currentOptions = CreateCurrentOptions(configuration);
+            var first = CreateService(firstDb, configuration, protection, currentOptions);
+            var second = CreateService(secondDb, configuration, protection, currentOptions);
             var request = new UpdateOrchestrationConnectivitySettingsDto
             {
                 ExpectedRevision = 0,
@@ -1380,10 +1404,11 @@ public sealed class IntegrationProviderSettingsTests
             var protection = new EphemeralDataProtectionProvider(NullLoggerFactory.Instance);
             var runtime = new AiAssistantChatRuntimeState(Options.Create(new AiAssistantChatOptions()));
             var transport = new BlockingRuntimeTransport(runtime);
+            using var currentOptions = CreateCurrentOptions(configuration);
             await using var firstDb = new HelpdeskDbContext(options, tenant, new HttpContextAccessor());
             await using var secondDb = new HelpdeskDbContext(options, tenant, new HttpContextAccessor());
-            var first = CreateService(firstDb, configuration, protection, transport, runtime);
-            var second = CreateService(secondDb, configuration, protection, transport, runtime);
+            var first = CreateService(firstDb, configuration, protection, currentOptions, transport, runtime);
+            var second = CreateService(secondDb, configuration, protection, currentOptions, transport, runtime);
 
             var older = first.UpdateNetclawSettingsAsync(new UpdateNetclawConnectivitySettingsDto
             {
@@ -1415,10 +1440,19 @@ public sealed class IntegrationProviderSettingsTests
         }
     }
 
+    private static ServiceProvider CreateCurrentOptions(IConfiguration configuration)
+    {
+        var services = new ServiceCollection();
+        services.AddRatelDeskServiceIdentity(configuration);
+        services.AddServiceLinkProtocol(configuration);
+        return services.BuildServiceProvider();
+    }
+
     private static IntegrationProviderSettingsService CreateService(
         HelpdeskDbContext db,
         IConfiguration configuration,
         IDataProtectionProvider protectionProvider,
+        ServiceProvider currentOptions,
         IAiAssistantChatTransport? chatRuntime = null,
         IAiAssistantChatRuntimeState? runtimeState = null)
         => new(
@@ -1430,7 +1464,9 @@ public sealed class IntegrationProviderSettingsTests
             TimeProvider.System,
             NullLogger<IntegrationProviderSettingsService>.Instance,
             chatRuntime,
-            runtimeState);
+            runtimeState,
+            currentOptions.GetRequiredService<IOptionsMonitor<ServiceIdentityOptions>>(),
+            currentOptions.GetRequiredService<IOptionsMonitor<ServiceLinkOptions>>());
 
     private sealed class AdvanceProfileRevisionBeforeSecondReadInterceptor(
         Func<CancellationToken, Task> advanceProfileRevision) : DbCommandInterceptor
@@ -1484,19 +1520,25 @@ public sealed class IntegrationProviderSettingsTests
     private sealed class Fixture : IAsyncDisposable
     {
         private readonly SqliteConnection connection;
+        private readonly ServiceProvider currentOptions;
+        private readonly List<ServiceProvider> alternateOptions = [];
         public HelpdeskDbContext Db { get; }
         public IOptions<AiAssistantChatOptions> ChatOptions { get; } = Options.Create(new AiAssistantChatOptions());
-        public IConfiguration Configuration { get; } = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        public IConfigurationRoot Configuration { get; } = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
-            ["ServiceIdentity:Enabled"] = "true", ["ServiceIdentity:Issuer"] = "https://issuer.local.example.test",
+            ["ServiceIdentity:Enabled"] = "true", ["ServiceLinks:Enabled"] = "true", ["ServiceIdentity:Issuer"] = "https://issuer.local.example.test",
             ["ServiceIdentity:Audience"] = "rateldesk.services", ["ServiceIdentity:InstanceId"] = "local-instance",
-            ["ServiceIdentity:ApiBaseUrl"] = "https://api.local.example.test", ["ServiceIdentity:WebBaseUrl"] = "https://local.example.test"
+            ["ServiceIdentity:ApiBaseUrl"] = "https://api.local.example.test", ["ServiceIdentity:WebBaseUrl"] = "https://local.example.test",
+            ["ServiceLinks:ApiBaseUrl"] = "https://api.local.example.test", ["ServiceLinks:WebBaseUrl"] = "https://local.example.test"
         }).Build();
+        public IOptionsMonitor<ServiceIdentityOptions> IdentityOptions => currentOptions.GetRequiredService<IOptionsMonitor<ServiceIdentityOptions>>();
+        public IOptionsMonitor<ServiceLinkOptions> LinkOptions => currentOptions.GetRequiredService<IOptionsMonitor<ServiceLinkOptions>>();
 
         private Fixture(SqliteConnection connection, HelpdeskDbContext db)
         {
             this.connection = connection;
             Db = db;
+            currentOptions = CreateCurrentOptions(Configuration);
         }
 
         public static async Task<Fixture> CreateAsync()
@@ -1514,17 +1556,30 @@ public sealed class IntegrationProviderSettingsTests
         public IntegrationProviderSettingsService CreateService(
             IConfiguration? configuration = null,
             IDataProtectionProvider? protectionProvider = null)
-            => new(
+        {
+            var serviceConfiguration = configuration ?? Configuration;
+            var serviceOptions = currentOptions;
+            if (!ReferenceEquals(serviceConfiguration, Configuration))
+            {
+                serviceOptions = CreateCurrentOptions(serviceConfiguration);
+                alternateOptions.Add(serviceOptions);
+            }
+            return new(
                 Db,
-                configuration ?? Configuration,
+                serviceConfiguration,
                 new IntegrationProviderSecretProtector(protectionProvider ?? new EphemeralDataProtectionProvider(NullLoggerFactory.Instance)),
                 ChatOptions,
                 new DatabaseOptions { Provider = "Sqlite" },
                 TimeProvider.System,
-                NullLogger<IntegrationProviderSettingsService>.Instance);
+                NullLogger<IntegrationProviderSettingsService>.Instance,
+                currentIdentityOptions: serviceOptions.GetRequiredService<IOptionsMonitor<ServiceIdentityOptions>>(),
+                currentLinkOptions: serviceOptions.GetRequiredService<IOptionsMonitor<ServiceLinkOptions>>());
+        }
 
         public async ValueTask DisposeAsync()
         {
+            foreach (var options in alternateOptions) options.Dispose();
+            currentOptions.Dispose();
             await Db.DisposeAsync();
             await connection.DisposeAsync();
         }

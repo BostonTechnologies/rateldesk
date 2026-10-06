@@ -30,9 +30,9 @@ public sealed class ServiceLinkOptionsValidator(IOptions<ServiceIdentityOptions>
         if (!options.Enabled) return ValidateOptionsResult.Success;
         try
         {
-            IntegrationEndpointPolicy.Validate(new Uri(options.WebBaseUrl, UriKind.Absolute), nameof(options.WebBaseUrl), options.AllowPrivateHttp);
-            IntegrationEndpointPolicy.Validate(new Uri(options.ApiBaseUrl, UriKind.Absolute), nameof(options.ApiBaseUrl), options.AllowPrivateHttp);
-            if (options.GatewayBaseUrl is not null) IntegrationEndpointPolicy.Validate(new Uri(options.GatewayBaseUrl, UriKind.Absolute), nameof(options.GatewayBaseUrl), options.AllowPrivateHttp);
+            IntegrationEndpointPolicy.ValidateServiceLink(new Uri(options.WebBaseUrl, UriKind.Absolute), nameof(options.WebBaseUrl), options.AllowPrivateHttp);
+            IntegrationEndpointPolicy.ValidateServiceLink(new Uri(options.ApiBaseUrl, UriKind.Absolute), nameof(options.ApiBaseUrl), options.AllowPrivateHttp);
+            if (options.GatewayBaseUrl is not null) IntegrationEndpointPolicy.ValidateServiceLink(new Uri(options.GatewayBaseUrl, UriKind.Absolute), nameof(options.GatewayBaseUrl), options.AllowPrivateHttp);
         }
         catch (Exception e) when (e is ArgumentException or UriFormatException) { return ValidateOptionsResult.Fail(e.Message); }
         if (options.BootstrapLifetimeSeconds is < 120 or > 3600 || options.TerminalControlRecoverySeconds is < 60 or > 86400 ||

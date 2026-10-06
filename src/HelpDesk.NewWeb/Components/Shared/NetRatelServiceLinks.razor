@@ -49,7 +49,18 @@
                     <MudButton Size="Size.Small" Href="@($"/account/integration-credentials/link/review/{Uri.EscapeDataString(link.AttemptId)}")">Review exact grants</MudButton>
                     @if (link.LifecycleState is not ("revoked" or "expired" or "failed"))
                     {
-                        <MudButton Size="Size.Small" Disabled="@busy" OnClick='@(() => ActionAsync(link, "resume"))'>Resume</MudButton>
+                        @if (CanContinueApproval(link))
+                        {
+                            <form method="post" action="/account/integration-credentials/link/continue" data-enhance="false" data-testid="netratel-resume-approval">
+                                <AntiforgeryToken />
+                                <input type="hidden" name="attemptId" value="@link.AttemptId" />
+                                <MudButton ButtonType="ButtonType.Submit" Size="Size.Small" Disabled="busy">Continue NetRatel approval</MudButton>
+                            </form>
+                        }
+                        else
+                        {
+                            <MudButton Size="Size.Small" Disabled="@busy" OnClick='@(() => ActionAsync(link, "resume"))'>Resume</MudButton>
+                        }
                         @if (pendingLinkId == Identifier(link) && pendingRotationDirection is null)
                         {
                             <MudText Typo="Typo.caption">Disable both directions and request peer revocation?</MudText>
@@ -94,10 +105,16 @@
     protected override async Task OnInitializedAsync() => await RefreshAsync();
     private async Task RefreshAsync()
     {
+        if (busy) return;
         busy = true; error = null;
-        try { links = await HttpClientFactory.CreateClient("HelpdeskApi").GetFromJsonAsync<List<ServiceLinkAdminStatus>>("api/v1/admin/service-links") ?? []; }
-        catch (Exception exception) when (exception is HttpRequestException or JsonException) { error = "Reciprocal connection status is unavailable. Refresh to retry."; }
+        try { await ReadLinksAsync(); }
         finally { busy = false; }
+    }
+    private async Task ReadLinksAsync()
+    {
+        links = []; ClearPending();
+        try { links = await HttpClientFactory.CreateClient("HelpdeskApi").GetFromJsonAsync<List<ServiceLinkAdminStatus>>("api/v1/admin/service-links") ?? []; }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException) { error = "Reciprocal connection status is unavailable. Refresh to retry."; }
     }
     private void ClearPending() { pendingLinkId = null; pendingRotationDirection = null; }
     private void PrepareDisconnect(ServiceLinkAdminStatus link) { pendingLinkId = Identifier(link); pendingRotationDirection = null; }
@@ -111,14 +128,18 @@
         {
             using var response = await HttpClientFactory.CreateClient("ServiceLinkApi").PostAsJsonAsync(
                 $"api/v1/admin/service-links/{(link.LinkId is null ? "attempts" : "links")}/{Uri.EscapeDataString(Identifier(link))}/{action}", new ServiceLinkAdminAction("administrator-request", directionId));
-            if (!response.IsSuccessStatusCode) { error = "The lifecycle operation could not be confirmed. Refresh the durable state before retrying."; return; }
-            ClearPending();
+            if (!response.IsSuccessStatusCode) error = "The lifecycle operation could not be confirmed. Refresh the durable state before retrying.";
+            else ClearPending();
         }
-        catch (HttpRequestException) { error = "The lifecycle operation could not be confirmed. The current durable connection status remains authoritative."; }
-        finally { busy = false; }
-        if (error is null) await RefreshAsync();
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException) { error = "The lifecycle operation could not be confirmed. The current durable connection status remains authoritative."; }
+        finally
+        {
+            try { await ReadLinksAsync(); }
+            finally { busy = false; }
+        }
     }
     private static bool IsConnected(ServiceLinkAdminStatus link) => link.LifecycleState == "active" && link.LocalInboundActive && link.LocalBusinessSenderEnabled && link.PeerActiveAcknowledged;
+    private static bool CanContinueApproval(ServiceLinkAdminStatus link) => link.Decision == "undecided" && link.LifecycleState == "awaiting_approval" && link.Descriptor.InitiatorEndpointSnapshot.Product == "rateldesk";
     private static string StatusLabel(ServiceLinkAdminStatus link) => link.LastErrorCode is "upgrade-required" or "service-link-unsupported" or "unsupported-contract" ? "Upgrade required" : IsConnected(link) ? "Connected" : link.LifecycleState switch
     {
         "awaiting_approval" or "approved" => "Awaiting approval",

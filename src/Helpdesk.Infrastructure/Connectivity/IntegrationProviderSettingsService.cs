@@ -39,6 +39,8 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
     private readonly AiAssistantChatOptions deploymentNetclaw;
     private readonly bool orchestratorManagedByDeployment;
     private readonly bool netclawManagedByDeployment;
+    private readonly IOptionsMonitor<ServiceIdentityOptions>? currentIdentityOptions;
+    private readonly IOptionsMonitor<ServiceLinkOptions>? currentLinkOptions;
 
     public IntegrationProviderSettingsService(
         HelpdeskDbContext db,
@@ -49,7 +51,9 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
         TimeProvider clock,
         ILogger<IntegrationProviderSettingsService> logger,
         IAiAssistantChatTransport? chatRuntime = null,
-        IAiAssistantChatRuntimeState? runtimeState = null)
+        IAiAssistantChatRuntimeState? runtimeState = null,
+        IOptionsMonitor<ServiceIdentityOptions>? currentIdentityOptions = null,
+        IOptionsMonitor<ServiceLinkOptions>? currentLinkOptions = null)
     {
         this.db = db;
         this.configuration = configuration;
@@ -58,6 +62,8 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
         this.clock = clock;
         this.logger = logger;
         this.chatRuntime = chatRuntime;
+        this.currentIdentityOptions = currentIdentityOptions;
+        this.currentLinkOptions = currentLinkOptions;
         runtimeConfiguration = runtimeState ?? new AiAssistantChatRuntimeState(chatOptions);
         IntegrationConfigurationAliases.LogCompatibilityWarnings(configuration, logger);
         deploymentOrchestrator = IntegrationConfigurationAliases.ReadOrchestrator(configuration);
@@ -106,20 +112,14 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
     {
         if (stored.LinkId is null) return stored.Enabled;
         if (!stored.Enabled || !stored.ManagedSenderEnabled) return false;
-        var currentIdentity = new ServiceIdentityOptions();
-        try
-        {
-            configuration.GetSection(ServiceIdentityOptions.SectionName).Bind(currentIdentity);
-        }
-        catch (InvalidOperationException)
-        {
-            return false;
-        }
+        var currentIdentity = currentIdentityOptions?.CurrentValue;
+        var currentLinking = currentLinkOptions?.CurrentValue;
+        if (currentIdentity is null || currentLinking is null) return false;
         var attempt = await db.Set<ServiceLinkAttempt>().AsNoTracking().SingleOrDefaultAsync(x => x.LinkId == stored.LinkId &&
             x.LinkRevision == stored.LinkRevision && x.GrantHash == stored.GrantHash && x.LocalTenantId == stored.LocalTenantId &&
             x.PeerTenantId == stored.PeerTenantId && x.PeerInstanceId == stored.PeerInstanceId && x.Decision == "commit" &&
             x.LifecycleState == "active" && x.LocalInboundActive && x.LocalBusinessSenderEnabled && x.PeerActiveAcknowledged, ct);
-        return attempt is not null && await ServiceLinkAuthority.InboundUsableAsync(db, attempt, clock, currentIdentity, ct);
+        return attempt is not null && await ServiceLinkAuthority.InboundUsableAsync(db, attempt, clock, currentIdentity, currentLinking, ct);
     }
 
     public async Task<OrchestrationResolvedSettings> ResolveOrchestratorDraftAsync(
@@ -983,7 +983,8 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
             Scope = scope,
             ClientId = clientId,
             ClientSecret = Normalize(secret),
-            AllowPrivateHttp = options?.AllowPrivateHttp ?? stored?.AllowPrivateHttp ?? false,
+            AllowPrivateHttp = stored?.LinkId is not null ? currentLinkOptions?.CurrentValue.AllowPrivateHttp == true :
+                options?.AllowPrivateHttp ?? stored?.AllowPrivateHttp ?? false,
             RemoteSystemName = Normalize(options?.ProviderName ?? stored?.RemoteSystemName) ?? "NetRatel orchestrator",
             HealthPath = NormalizePath(options?.HealthPath ?? stored?.HealthPath, "/internal/health"),
             IngestPath = NormalizePath(options?.IngestPath ?? stored?.IngestPath, "/internal/ingest"),

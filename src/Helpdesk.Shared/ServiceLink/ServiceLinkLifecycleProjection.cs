@@ -11,7 +11,7 @@ namespace Helpdesk.Shared.ServiceLink;
 /// </summary>
 public static class ServiceLinkLifecycleProjection
 {
-    public static Dictionary<string, object?> Build(string kind, ServiceLinkLifecycleRequest request)
+    public static Dictionary<string, object?> Build(string kind, ServiceLinkLifecycleRequest request, bool normalizeCredentialScopes = true)
     {
         ArgumentNullException.ThrowIfNull(request);
         var payload = new Dictionary<string, object?>(StringComparer.Ordinal)
@@ -60,7 +60,7 @@ public static class ServiceLinkLifecycleProjection
                 payload["direction_id"] = request.DirectionId;
                 payload["expected_current_credential_revision"] = request.ExpectedCurrentCredentialRevision;
                 payload["successor_credential_revision"] = request.SuccessorCredentialRevision;
-                AddRotationPhase(payload, request);
+                AddRotationPhase(payload, request, normalizeCredentialScopes);
                 break;
             default:
                 throw new JsonException("Unsupported service-link lifecycle operation.");
@@ -74,10 +74,10 @@ public static class ServiceLinkLifecycleProjection
         return payload;
     }
 
-    public static string Hash(string kind, ServiceLinkLifecycleRequest request) =>
-        ServiceLinkCanonicalJson.HashObject(Build(kind, request));
+    public static string Hash(string kind, ServiceLinkLifecycleRequest request, bool normalizeCredentialScopes = true) =>
+        ServiceLinkCanonicalJson.HashObject(Build(kind, request, normalizeCredentialScopes));
 
-    private static void AddRotationPhase(Dictionary<string, object?> payload, ServiceLinkLifecycleRequest request)
+    private static void AddRotationPhase(Dictionary<string, object?> payload, ServiceLinkLifecycleRequest request, bool normalizeCredentialScopes)
     {
         switch (request.RotationPhase)
         {
@@ -87,7 +87,8 @@ public static class ServiceLinkLifecycleProjection
                 break;
             case "offer":
                 payload["offer_expires_at"] = request.OfferExpiresAt;
-                payload["credential_for_caller"] = request.CredentialForCaller;
+                payload["credential_for_caller"] = normalizeCredentialScopes && request.CredentialForCaller is not null
+                    ? ServiceLinkPayloadNormalization.Credential(request.CredentialForCaller) : request.CredentialForCaller;
                 break;
             case "verified":
                 payload["successor_verification_receipt_id"] = request.SuccessorVerificationReceiptId;

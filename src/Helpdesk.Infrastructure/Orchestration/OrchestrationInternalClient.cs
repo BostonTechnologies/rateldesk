@@ -3,16 +3,18 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Helpdesk.Application.Orchestration;
-using Helpdesk.Infrastructure.Persistence.Connectivity;
+using Helpdesk.Infrastructure.ServiceLink;
 using Helpdesk.Shared.DTOs.Orchestration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Helpdesk.Infrastructure.Orchestration;
 
 public sealed class OrchestrationInternalClient(
     IHttpClientFactory httpClientFactory,
     IOrchestrationTokenService tokenService,
-    ILogger<OrchestrationInternalClient> logger) : IOrchestrationInternalClient, IOrchestrationProtectedDiagnosticsClient
+    ILogger<OrchestrationInternalClient> logger,
+    IOptionsMonitor<ServiceLinkOptions>? currentLinkOptions = null) : IOrchestrationInternalClient, IOrchestrationProtectedDiagnosticsClient
 {
     private const int MaximumResponseBytes = 1024 * 1024;
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(20);
@@ -25,11 +27,11 @@ public sealed class OrchestrationInternalClient(
         CancellationToken cancellationToken = default,
         bool useTokenCache = true)
     {
-        var endpoint = BuildAbsoluteUri(settings.BaseUrl, settings.HealthPath, settings.AllowPrivateHttp);
+        var endpoint = BuildAbsoluteUri(settings, settings.HealthPath);
         using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
         await AttachAuthHeaderAsync(settings, request, cancellationToken, useTokenCache);
 
-        var client = _httpClientFactory.CreateClient("OrchestrationInternalApi");
+        var client = _httpClientFactory.CreateClient(settings.ServiceLink is null ? "OrchestrationInternalApi" : ServiceLinkOutboundNetwork.BusinessClientName);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(RequestTimeout);
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
@@ -52,10 +54,10 @@ public sealed class OrchestrationInternalClient(
         CancellationToken cancellationToken = default,
         bool useTokenCache = true)
     {
-        var endpoint = BuildAbsoluteUri(settings.BaseUrl, "/api/v1/system/m2m/ping", settings.AllowPrivateHttp);
+        var endpoint = BuildAbsoluteUri(settings, "/api/v1/system/m2m/ping");
         using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
         await AttachAuthHeaderAsync(settings, request, cancellationToken, useTokenCache);
-        var client = _httpClientFactory.CreateClient("OrchestrationInternalApi");
+        var client = _httpClientFactory.CreateClient(settings.ServiceLink is null ? "OrchestrationInternalApi" : ServiceLinkOutboundNetwork.BusinessClientName);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(RequestTimeout);
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
@@ -78,7 +80,7 @@ public sealed class OrchestrationInternalClient(
         OrchestrationIngestRequest requestPayload,
         CancellationToken cancellationToken = default)
     {
-        var endpoint = BuildAbsoluteUri(settings.BaseUrl, settings.IngestPath, settings.AllowPrivateHttp);
+        var endpoint = BuildAbsoluteUri(settings, settings.IngestPath);
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
             Content = JsonContent.Create(
@@ -86,9 +88,11 @@ public sealed class OrchestrationInternalClient(
                 options: new JsonSerializerOptions(JsonSerializerDefaults.General))
         };
 
+        if (!string.IsNullOrEmpty(requestPayload.CorrelationId))
+            request.Headers.Add("X-Correlation-Id", requestPayload.CorrelationId);
         await AttachAuthHeaderAsync(settings, request, cancellationToken);
 
-        var client = _httpClientFactory.CreateClient("OrchestrationInternalApi");
+        var client = _httpClientFactory.CreateClient(settings.ServiceLink is null ? "OrchestrationInternalApi" : ServiceLinkOutboundNetwork.BusinessClientName);
         var sendStarted = false;
         try
         {
@@ -290,21 +294,21 @@ public sealed class OrchestrationInternalClient(
         bool useTokenCache = true)
     {
         var accessToken = await _tokenService.GetAccessTokenAsync(settings, cancellationToken, useTokenCache);
-        request.Options.Set(IntegrationSafeHttpMessageHandler.AllowPrivateHttpOption, settings.AllowPrivateHttp);
+        ServiceLinkOutboundNetwork.PrepareRequest(request, settings, currentLinkOptions);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
     }
 
-    private static Uri BuildAbsoluteUri(string? baseUrl, string path, bool allowPrivateHttp)
+    private Uri BuildAbsoluteUri(OrchestrationResolvedSettings settings, string path)
     {
+        var baseUrl = settings.BaseUrl;
         if (string.IsNullOrWhiteSpace(baseUrl))
         {
             throw new InvalidOperationException("External orchestration base URL is not configured.");
         }
 
         var uri = new Uri(new Uri(baseUrl, UriKind.Absolute), path);
-        if (!IntegrationEndpointPolicy.IsAllowed(uri, allowPrivateHttp))
-            throw new InvalidOperationException("The configured NetRatel endpoint is not allowed by the outbound integration policy.");
+        ServiceLinkOutboundNetwork.Validate(uri, "NetRatel endpoint", settings, currentLinkOptions);
         return uri;
     }
 

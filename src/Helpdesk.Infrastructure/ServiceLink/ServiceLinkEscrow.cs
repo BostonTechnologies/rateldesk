@@ -6,6 +6,30 @@ namespace Helpdesk.Infrastructure.ServiceLink;
 
 public sealed partial class ServiceLinkCoordinator
 {
+    private async Task CleanupBootstrapEscrow(CancellationToken ct)
+    {
+        var ids = await db.Set<ServiceLinkAttempt>().AsNoTracking().Where(a => a.ExpiresAtUnixSeconds <= Now &&
+                (a.ProtectedInboundEscrow != null || a.ProtectedExchangeResponse != null ||
+                 a.ProtectedPairingCode != null || a.ProtectedVerifier != null || a.ProtectedBrowserState != null))
+            .OrderBy(a => a.ExpiresAtUnixSeconds).ThenBy(a => a.AttemptId)
+            .Select(a => a.AttemptId).Take(20).ToListAsync(ct);
+        foreach (var id in ids)
+        {
+            for (var retry = 0; ; retry++)
+            {
+                db.ChangeTracker.Clear();
+                var attempt = await Attempt(id, ct);
+                if (attempt.ExpiresAtUnixSeconds > Now) break;
+                // Sweep only temporary bootstrap material. A retained commit or
+                // in-doubt decision and permanent recovery credential stay intact.
+                PurgeEscrow(attempt);
+                try { await Save(attempt, ct); break; }
+                catch (DbUpdateConcurrencyException) when (retry < 3) { }
+            }
+        }
+        db.ChangeTracker.Clear();
+    }
+
     // This is disposal of temporary handoff material, independent of business authority or peer availability.
     // Permanent outbound credentials remain available only for the existing finite terminal-control recovery.
     private async Task PurgeTerminalRotationEscrow(ServiceLinkAttempt a, CancellationToken ct)

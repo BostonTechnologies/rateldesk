@@ -25,9 +25,9 @@ public sealed record ServiceLinkMetadata
     [JsonRequired, JsonPropertyName("api_base_url")] public string ApiBaseUrl { get; init; } = "";
     [JsonRequired, JsonPropertyName("gateway_base_url")] public string? GatewayBaseUrl { get; init; }
     [JsonRequired, JsonPropertyName("oauth_issuer")] public string OauthIssuer { get; init; } = "";
-    [JsonRequired, JsonPropertyName("oauth_metadata_url")] public string OauthMetadataUrl { get; init; } = "";
+    [JsonRequired, JsonPropertyName("oauth_metadata_url")] public string? OauthMetadataUrl { get; init; } = "";
     [JsonRequired, JsonPropertyName("token_endpoint")] public string TokenEndpoint { get; init; } = "";
-    [JsonRequired, JsonPropertyName("jwks_uri")] public string JwksUri { get; init; } = "";
+    [JsonRequired, JsonPropertyName("jwks_uri")] public string? JwksUri { get; init; } = "";
     [JsonRequired, JsonPropertyName("audience")] public string Audience { get; init; } = "";
     [JsonRequired, JsonPropertyName("token_endpoint_auth_methods_supported")] public string[] TokenEndpointAuthMethodsSupported { get; init; } = ["client_secret_post"];
     [JsonRequired, JsonPropertyName("service_link_endpoint")] public string ServiceLinkEndpoint { get; init; } = "";
@@ -216,6 +216,7 @@ public sealed record ServiceLinkRemoteApproveRequest(string AttemptId, string Lo
 public sealed record ServiceLinkCallbackRequest(string AttemptId, string PairingCode, string BrowserState,
     string ResponderInstanceId, string OauthIssuer, string SessionBinding);
 public sealed record ServiceLinkLocalApproveRequest(string GrantHash, string SessionBinding);
+public sealed record ServiceLinkContinueRequest(string SessionBinding);
 public sealed record ServiceLinkNavigation(string AttemptId, string NavigationUrl, string LifecycleState);
 public sealed record ServiceLinkAdminAction(string? ReasonCode = null, string? DirectionId = null);
 public sealed record ServiceLinkAdminStatus(string AttemptId, string? LinkId, long LinkRevision, string LifecycleState,
