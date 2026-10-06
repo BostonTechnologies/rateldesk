@@ -1,10 +1,217 @@
 # RatelDesk beta.4 integration progress
 
-This ledger tracks the beta.4 integration candidate. It distinguishes work that
-is implemented, validated, ready to merge, merged, and released. The candidate
-must remain unpublished until the human merge and release gates are satisfied.
+This ledger preserves the beta.4 baseline and dated implementation evidence.
+The current reconciliation below supersedes historical draft, unmerged and
+blanket unrun descriptions. Original source pins and results remain historical.
 
-## Baseline
+## Current reconciliation — 6 October 2026
+
+The refreshed baseline main is `af71b9f9ae47bf75ea44f9fb486bd5c812d34910`, source version
+`0.1.1-beta.13`. All 17 normal main jobs succeeded in
+[PR validation](https://github.com/BostonTechnologies/RatelDesk/actions/runs/37425893341)
+and [managed PostgreSQL](https://github.com/BostonTechnologies/RatelDesk/actions/runs/37425893349).
+The latest observed published prerelease is
+[RatelDesk-0.1.1-beta.13](https://github.com/BostonTechnologies/RatelDesk/releases/tag/RatelDesk-0.1.1-beta.13),
+source `af71b9f9ae47bf75ea44f9fb486bd5c812d34910`. The existing owner's separate
+[beta.13 release continuation](https://github.com/BostonTechnologies/RatelDesk/actions/runs/37428393499)
+succeeded and the release was published on 6 October at 10:05:04 SAST
+(08:05:04 UTC). It includes #131, but predates the #122 dependency merge and
+the focused #128 worker correction below. The actual peer receipts remain
+pinned to published beta.12 source `3cd63a776df67bd98d7efb81a330b2d0c57ad1f1`
+and its exact image digests; no beta.13 reciprocal acceptance is claimed.
+This reconciliation does not start a release or deployment.
+
+### Merged source and historical evidence
+
+[PR #94](https://github.com/BostonTechnologies/RatelDesk/pull/94) became
+non-draft on 27 September at 10:55:14 UTC and merged at 10:55:22 UTC:
+final head `48d475a9ac6a3d92188ec45b6e831b07a3c8926b`, merge
+`e87d9342069931d8da26125b857960fbeee97b3a`. It is an ancestor of current
+main, with no unique unmerged head commits. Its retained branch and older
+comments are not evidence that implementation remains unmerged. Final-head
+[validation 36311046479](https://github.com/BostonTechnologies/RatelDesk/actions/runs/36311046479)
+passed all 15 jobs; [managed PostgreSQL 36311046548](https://github.com/BostonTechnologies/RatelDesk/actions/runs/36311046548)
+also succeeded. These results remain pinned to that historical head.
+
+| PR | Merged behavior | Merge SHA |
+| --- | --- | --- |
+| #94 | Beta.4 hub, configuration, account credentials, CLI/MCP and validation | `e87d9342069931d8da26125b857960fbeee97b3a` |
+| #95 | Netclaw pairing and published asset refinements | `0ee090e32085ee672477c60b8e21c9e4571c5174` |
+| #98 | Netclaw onboarding and post-merge validation corrections | `57ef3ef4d5a820abcb697654abc8efbcdd2bd1e9` |
+| #100 | Two-input Netclaw Pair & connect | `053c244fa5e3b66fee90198a18e9e44d52fbbf26` |
+| #120 | Service M2M identities and reciprocal linking | `006381c6f78ac1d37965f52ddc28bff002753055` |
+| #123 | Web discovery, sign-in continuation and journal concurrency | `bb478fbabee119015c2e2d639c7530cf4db7b030` |
+| #125 | Cancellation/unlink convergence and current authority | `94199b2bef5ea94627ed0c07d2820983f41b60fe` |
+| #127 | Noble PostgreSQL runtime and credential-mode callback ownership | `372d7b59c1c648e147fd1cb6b2724db6c803d6ae` |
+| #129 | Verified serialization-abort recovery and orchestration correlation | `27543c00c0bfab0e6bafe93f5f37d7207d51fb5f` |
+| #130 | Reject late tokens after sender authority changes | `3cd63a776df67bd98d7efb81a330b2d0c57ad1f1` |
+| #131 | Preserve live human-consent waits and bounded protocol token reuse | `af71b9f9ae47bf75ea44f9fb486bd5c812d34910` |
+
+The specific [#85 G4 receipt](https://github.com/BostonTechnologies/RatelDesk/issues/85#issuecomment-5854186952)
+proves SQLite two-context 2/2 and actual paused saved-test endpoints on
+SQLite/PostgreSQL 4/4. The [#86 protected-operation receipt](https://github.com/BostonTechnologies/RatelDesk/issues/86#issuecomment-5854187166)
+and [#93 receipt](https://github.com/BostonTechnologies/RatelDesk/issues/93#issuecomment-5854187405)
+identify product `c21b63af7241d7261c137ef910c05da3d98999af` and runner
+`595892d220c4e3536450484dddb7a1feabd3fdf2`: actual local Release-published
+API/Web/HTTP MCP, PostgreSQL16 and manifest-matched extracted Linux x64
+CLI/stdio archives passed protected reads, scoped write denials without
+mutation and post-revocation denials. The cross-organization tenant projection
+regression failed 2/2 before correction and its class passed 19/19 afterward.
+These local-stack operations supersede their early blanket unrun status;
+they do not establish unchanged upstream product interoperability. Retained
+browser evidence includes setup 1/1, PostgreSQL UX 32/32 and AI Assistant
+14/14 at `c21b63a`, plus #94 final-head hosted Playwright artifact `10929042895`
+at `48d475a9ac6a3d92188ec45b6e831b07a3c8926b`.
+
+### Actual peer evidence and remaining ownership
+
+The existing NetRatel #164/#166 continuation is owned by its PR author;
+no assignee or accessible continuation agent
+or acceptance environment is identified in this workspace. Its current head is
+`d5bfa08550bd303e2d5d1388ed71336404c45fbc`, pushed on 6 October at 10:06:45
+SAST (08:06:45 UTC). The owner started normal run `37433948570` against the
+published beta.13 peer at `af71b9f9ae47bf75ea44f9fb486bd5c812d34910`;
+the [service-link guide](../integrations/netratel-service-link.md) records its
+exact API/Web image digests. At 10:18 SAST (08:18 UTC), source-Compose and both
+extracted local-first bundle jobs had failed before preparing actual owner
+images or reaching owner-browser acceptance; general tests were still running.
+The source smoke timed out waiting for its credential-selector option
+`credential-permission-1-telemetry.read` before reciprocal owner acceptance.
+This is not an accepted final suite. Its final results are linked from #89.
+NetRatel beta.1 is not observed published.
+Reuse this active owner's results; its acceptance environment is not exposed
+in this workspace.
+
+At the previously reviewed head `19f27f28bce127a2fdaa264ae28d570b94498d23`,
+the reported private run against
+published RatelDesk beta.12 was 25 passed, 1 failed, 0 skipped: automatic
+rotation's initial remote approval returned HTTP 409 before rotation began.
+That peer lacks #131; the result does not prove a rotation defect.
+
+The later NetRatel hosted run `37406559519`
+at test-merge `3cb76bf926973e1471a734158f39a8851abb5ee0` contains actual
+native execution/callback/replay receipts for both initiating roles and one
+NetRatel-issuer background rotation receipt. Its overall conclusion is failure;
+the general acceptance job was cancelled, final guards were not completed,
+and the Web-owner job was skipped after a Compose startup failure. Successful
+individual receipts are useful evidence, not a successful final reciprocal
+suite. Exact receipt artifact identities and limitations are retained in the
+[service-link guide](../integrations/netratel-service-link.md); the current
+[#89 receipt](https://github.com/BostonTechnologies/RatelDesk/issues/89) supplies
+the external continuation and artifact URLs.
+
+One owner must repeat the unchanged approval case against the intended
+corrected published pair, then run the existing full reciprocal suite once
+with its actual native execution and no-mock guards. Map discovery through
+the real Web origin, Local/OIDC/Hybrid continuation and redaction, both-role
+cancellation/unlink with loss/duplicates/restart, runtime architectures and
+credential-mode ownership, verified database-abort recovery and persisted
+worker scheduling to their original issue criteria. A source-built candidate
+can prove a correction; it cannot substitute for required published-peer
+acceptance. The original `cc58661bff496825d68de4db9ec53da92de45942` outbound
+M2M contract remains supported and its real catalog/payload/ingest/execution/
+callback/uncertain-outcome coverage must remain explicit alongside
+`bostec.service-link.v1`.
+
+For #90, no authorized unchanged daemon/device, exact version or endpoint,
+or operator owner was found; the issue has no assignee. Required input is a
+real Netclaw daemon with reachable canonical `/hub/session`, an operator who
+can obtain its single-use pairing code/device and message/approval policy,
+and disposable RatelDesk PostgreSQL. Pair/save, authenticated session/message/
+approval, reconnect/restart, runtime changes and same-provider continuation/
+different-provider isolation must be exercised there. Repository Kestrel
+fixtures and health probes remain regression evidence only.
+
+### Issue disposition
+
+| Issue | Completed scope and evidence | Disposition / exact remaining criterion |
+| --- | --- | --- |
+| #83 | Repository children merged through #94 and later follow-ups | Open; close last after #89/#90 actual acceptance |
+| #84 | Original baseline, architecture, source pins and dated receipts preserved | Repository scope complete with this reconciliation; final merge/validation and completed closure receipt are tracked on [#84](https://github.com/BostonTechnologies/RatelDesk/issues/84) |
+| #85 | Canonical aliases, precedence, protected profiles, revision/runtime application; G4 receipt | Closed completed; external acceptance belongs to #89/#90 |
+| #86 | Guided credential lifecycle and tenant projection; actual local protected operations | Closed completed; existing authority boundaries retained |
+| #87 | Isolated/pinned CLI/stdio processes and extracted archive operations | Closed completed; later receipts supersede early unrun comment |
+| #88 | Purpose/resource/current-authority delegation and HTTP MCP denial/revocation | Closed completed; caller-bound design retained |
+| #89 | Legacy adapter plus later service-link/current-authority/correlation improvements | Open; final exact real peer suite and explicit supported legacy-path acceptance |
+| #90 | #94/#95/#98/#100 options, pairing, diagnostics/runtime and ownership | Open; authorized real daemon/device/version/endpoint/operator above |
+| #91 | Hub destinations, compatible routes, credential discovery and responsive/browser evidence | Closed completed |
+| #92 | Current canonical guides, examples and historical release notes | Repository scope complete with this reconciliation; final merge/validation and completed closure receipt are tracked on [#92](https://github.com/BostonTechnologies/RatelDesk/issues/92) |
+| #93 | Build/security/migrations/UX, nonpublishing rehearsal, protected archives, final review and non-draft merged handoff | Repository scope complete with this reconciliation; final merge/validation and completed closure receipt are tracked on [#93](https://github.com/BostonTechnologies/RatelDesk/issues/93); original interoperability scope was "where available", #89/#90 and epic remain open |
+| #114 | Coordinated #113/#115 and #104/#102/#74/#73 plus #122 merged; Kiota seven packages remain 2.1.2 | Closed completed after signed merge `5766c33dce02be141d060b45d3e135eb37ee1558` and all 17 successful post-merge jobs; #35/#51 remain separate exclusions |
+| #121 | #123 implemented and published in beta.10 | Open; actual final published pair Web/browser/Local/OIDC/Hybrid and concurrent restart acceptance |
+| #124 | #125 implemented and published in beta.11 | Open; actual both-role cancellation/unlink, duplicates, lost acknowledgement, restart and permanent revocation |
+| #126 | #127 implemented and published in beta.11 | Open; final published API PostgreSQL architecture/runtime and credential-mode reciprocal acceptance; earlier browser flake has no proven callback-source cause |
+| #128 | #129 implemented and published in beta.12; demonstrated worker follow-up corrected below | Actual published-peer closeout remains pending; existing beta.13 release source predates this follow-up |
+
+### Focused #128 worker follow-up
+
+The reviewed path reproduced using the existing real PostgreSQL competing-write
+fixture and actual `WorkAsync`: a verified `40001` stage abort rolled back and
+reloaded the durable attempt; its next peer request returned HTTP 503 or lost
+the response. Both regressions failed before correction because a fresh context
+read `LastErrorCode = null`, rather than `peer-operation-failed` or
+`peer-unavailable`. The awaited assignment never returned the replacement
+attempt to the worker after that peer failure.
+
+The handled-error catch now resolves `Attempt(id, ct)` before setting the error.
+EF tracking identity resolution returns the retry-owned instance and retains
+pending tracked changes; the correction does not attach a stale object, clear
+the tracker again or overwrite concurrent durable state. Serializable isolation,
+four total attempts, narrow abort classification, transport/caller cancellation,
+exact replay identity, fixed deadlines and live human-consent exclusion are
+unchanged.
+
+The same two actual PostgreSQL regressions passed after correction: 2 passed,
+0 failed, 0 skipped, 39 seconds. They read error and correctly advanced due time
+through a fresh context, require no failed open transaction or partial profile,
+preserve attempt/link/consent/payload and protected principal/secret material,
+require disabled business authority with no additional journal/verification/
+rotation, then restart, reject premature polling and recover the identical
+handoff to prepared at the scheduled tick. Related existing tests passed 92/92,
+0 skipped, in 2m40s: abort/retry/four-attempt exhaustion, worker consent,
+journal concurrency/replay, conflict classification, ordinary OAuth/restart,
+canceled consent and protocol-token reuse/cancellation/current authority.
+These focused runs used Debug and the repository's synthetic HTTP contract
+peer with actual PostgreSQL; they do not establish real NetRatel acceptance.
+Independent source/evidence review found no remaining concrete finding.
+The final corrected source with #122's integrated dependency tree passed Release
+solution restore/build (0 errors, 21 existing warnings) and the complete local
+suite: 2,073 passed, 0 failed, 6 existing environment-gated skips, 29m36s. Both
+new PostgreSQL regression variants passed in that Release run.
+Slopwatch 0.4.2 analyzed both changed .NET files with no baseline suppression:
+2 files, 0 findings. Normal final candidate validation is recorded in its PR.
+
+### Maintenance boundary
+
+Existing [PR #122](https://github.com/BostonTechnologies/RatelDesk/pull/122)
+contains only MessagePack 3.1.10→3.1.11 and Scalar.AspNetCore 2.17.12→2.17.13.
+Its old checks used an older base. GitHub's normal non-destructive update
+preserved the signed dependency commit and integrated current main at head
+`31858d7c4ae990e7c046c5c25b84dc78013cd600`; its tree is
+`277d4fc7729f4a893054e14ec16421a3f2abf8f8`. Fresh candidate validation is
+[37430682373](https://github.com/BostonTechnologies/RatelDesk/actions/runs/37430682373)
+and [37430682651](https://github.com/BostonTechnologies/RatelDesk/actions/runs/37430682651).
+All 17 final candidate jobs completed successfully, and the exact head received
+approval review `5425332714`. The normal merge is
+`5766c33dce02be141d060b45d3e135eb37ee1558`, with a verified GitHub signature
+and tree identical to the tested candidate. Normal post-merge validation is
+[37432601661](https://github.com/BostonTechnologies/RatelDesk/actions/runs/37432601661)
+and [37432601642](https://github.com/BostonTechnologies/RatelDesk/actions/runs/37432601642);
+both workflows completed successfully on that exact merge, with all 17 jobs
+successful. [#114 was closed completed with its receipt](https://github.com/BostonTechnologies/RatelDesk/issues/114#issuecomment-6012198623).
+The exact integrated tree passed restore, Release solution build (0 errors,
+21 existing warnings) and the existing runtime OpenAPI/Web route filter:
+43 passed, 0 failed, 0 skipped. No package-text assertion tests or other
+dependency upgrades were added.
+
+[PR #35](https://github.com/BostonTechnologies/RatelDesk/pull/35) remains
+separately deferred: ImageSharp 4.1.2 fails its Six Labors license target
+(job `110569922875`, run `36921956384`); main's active CAPTCHA renderer
+remains on 3.1.12. No license bypass, renderer replacement or purchase is part
+of this closeout. [#51](https://github.com/BostonTechnologies/RatelDesk/issues/51)
+remains separate warning cleanup.
+
+## Historical beta.4 baseline
 
 - Repository: `BostonTechnologies/RatelDesk`
 - Starting branch: `feat/beta4-integration-hub`
@@ -29,7 +236,7 @@ must remain unpublished until the human merge and release gates are satisfied.
 - B4-08: [#92](https://github.com/BostonTechnologies/RatelDesk/issues/92)
 - B4-09: [#93](https://github.com/BostonTechnologies/RatelDesk/issues/93)
 
-## Work breakdown
+## Historical beta.4 work breakdown
 
 | Task | Scope | Status | Evidence |
 | --- | --- | --- | --- |
@@ -248,7 +455,7 @@ ingest/ticket journey remain separate external interoperability gates.
   resolved addresses, disables redirects, and validates DNS results at socket
   connection time.
 
-## Release-state checklist
+## Historical beta.4 release-state checklist
 
 - [x] Epic and child issues searched/reused or created with real relationships
 - [x] Implementation complete for the repository-scoped beta.4 surfaces and reviewed locally

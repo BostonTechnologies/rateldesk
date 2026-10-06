@@ -20,6 +20,27 @@ For production, use one dedicated NetClaw deployment, RatelDesk account, MCP
 credential, and organization scope for each tenant. A NetClaw deployment or
 credential for one tenant must not be used to reach another tenant.
 
+## Current implementation — 6 October 2026
+
+The Integration hub is merged in
+[PR #94](https://github.com/BostonTechnologies/RatelDesk/pull/94); the pairing,
+historical-session ownership and two-input **Pair & connect** refinements are
+merged in [#95](https://github.com/BostonTechnologies/RatelDesk/pull/95),
+[#98](https://github.com/BostonTechnologies/RatelDesk/pull/98) and
+[#100](https://github.com/BostonTechnologies/RatelDesk/pull/100). Earlier
+beta.4/beta.6 candidate wording describes those historical review stages.
+Use the setup below for current source. DB-managed profiles apply at runtime;
+deployment-managed profiles remain read-only in the hub.
+
+Repository validation and local-stack CLI/stdio/HTTP MCP protected operations
+using locally published Release builds are recorded in the
+[reconciliation ledger](implementation/beta4-integration-progress.md).
+[#90](https://github.com/BostonTechnologies/RatelDesk/issues/90) still requires
+an authorized real NetClaw daemon/device, its exact version and endpoint, and
+pairing, authenticated session/message/approval, reconnect/restart, profile
+reconfiguration and same-provider/different-provider ownership evidence.
+Those MCP receipts do not prove a real NetClaw chat journey.
+
 ## Before you begin
 
 You need a working RatelDesk instance, a NetClaw daemon, and an operator who
@@ -49,7 +70,8 @@ internal host name into tracked configuration or support tickets.
 ## Connect RatelDesk to NetClaw for ticket chat
 
 For an administrator-managed profile, open **Admin → Automation → Integration
-→ Netclaw** (`/admin/automation/integration/netclaw`). Start the NetClaw pairing
+hub → Netclaw AI harness** (`/admin/automation/integration/netclaw`). Start the
+NetClaw pairing
 flow with `netclaw daemon pair`, then enter the daemon address and one-time
 pairing code it prints. The page asks for a **Netclaw address** and **Pairing
 code**. The code is single-use; use the expiry printed by Netclaw. Choose
@@ -185,7 +207,7 @@ long-lived connections to `/hub/session`. Configure the daemon's non-local
 exposure mode and trusted proxy addresses as NetClaw requires. For a tailnet or
 tunnel, use the endpoint and exposure mode documented by that provider.
 
-After restarting the API service, open an authorized incident, request, or
+After the profile has applied, open an authorized incident, request, or
 change and select **AI Assistant**. Send a harmless test prompt, then refresh
 or reconnect the browser and confirm the saved conversation recovers. A failed
 or silent transport is not a reason to resend a message: use the ticket UI's
@@ -199,11 +221,14 @@ not substitute for live external acceptance.
 ### Rotate or revoke the chat device
 
 Rotate the paired device token using the current NetClaw device-management
-flow. Put the replacement directly into the RatelDesk API secret store, restart
-only the API service, and verify one harmless ticket conversation before
-retiring the old token. If an API host is lost, an employee leaves, or the
-tenant relationship ends, revoke the paired device in NetClaw and remove the
-RatelDesk runtime secret. Revocation prevents later connections; it does not
+flow. For a DB-managed profile, use **Edit / Re-pair** or the advanced manual
+token controls to save and apply the replacement at runtime. For a
+deployment-managed profile, replace the API service's injected secret and
+restart that service according to the deployment's configuration
+mechanism. Verify one harmless ticket conversation before retiring the old
+token. If an API host is lost, an employee leaves, or the tenant relationship
+ends, revoke the paired device in NetClaw and clear its saved paired-device
+token or deployment secret. Revocation prevents later connections; it does not
 make an already admitted remote action disappear.
 
 ## Connect NetClaw to RatelDesk with HTTP MCP
@@ -232,7 +257,8 @@ or data-protection key ring to the MCP container.
 ### Create the RatelDesk credential
 
 Sign in as the account that should own the NetClaw integration, complete any
-configured MFA, and open **Account → Integration credentials**.
+configured MFA, and open **Account → Integration credentials**
+(`/account/integration-credentials`).
 
 1. Create a credential named for this NetClaw tenant and purpose.
 2. Select **HTTP MCP** as the purpose.

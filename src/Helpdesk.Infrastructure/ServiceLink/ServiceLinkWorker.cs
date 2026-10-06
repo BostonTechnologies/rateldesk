@@ -113,7 +113,13 @@ public sealed partial class ServiceLinkCoordinator
                 (a.LifecycleState is "awaiting_approval" or "approved") && a.ExpiresAtUnixSeconds > Now) continue;
             try { a = await ProgressWithRetry(a, ct); a.LastErrorCode = null; }
             catch (Exception e) when (e is HttpRequestException or ServiceLinkProtocolException or TaskCanceledException)
-            { a.LastErrorCode = e is ServiceLinkProtocolException protocol ? protocol.Code : "peer-unavailable"; }
+            {
+                // A database retry may have replaced the tracked attempt before
+                // the peer failed, preventing the awaited assignment above.
+                // Resolve that instance without discarding its pending changes.
+                a = await Attempt(id, ct);
+                a.LastErrorCode = e is ServiceLinkProtocolException protocol ? protocol.Code : "peer-unavailable";
+            }
             a.NextWorkAtUnixSeconds = Now + settings.WorkerIntervalSeconds; await Save(a, ct);
         }
     }

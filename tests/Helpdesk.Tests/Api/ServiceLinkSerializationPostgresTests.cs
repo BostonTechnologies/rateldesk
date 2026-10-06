@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Infrastructure.Persistence.Connectivity;
 using Helpdesk.Infrastructure.Persistence;
@@ -8,6 +9,8 @@ using Helpdesk.Infrastructure.ServiceIdentity;
 using Helpdesk.Infrastructure.ServiceLink;
 using Helpdesk.Shared.DTOs.Orchestration;
 using Helpdesk.Shared.ServiceLink;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
@@ -19,6 +22,156 @@ namespace Helpdesk.Tests.Api;
 
 public sealed partial class ServiceLinkLifecycleTests
 {
+    [Theory]
+    [InlineData(false, "peer-operation-failed")]
+    [InlineData(true, "peer-unavailable")]
+    public async Task Postgres_worker_persists_peer_error_after_serialization_reload_and_recovers_on_schedule_after_restart(
+        bool loseResponse, string errorCode)
+    {
+        var race = new StagedProfileSerializationRace(1);
+        var exchangeRequests = new ConcurrentQueue<ServiceLinkExchangeRequest>();
+        await using var peer = await NetRatelServiceLinkContractPeer.CreateAsync((app, _) => app.Use(async (http, next) =>
+        {
+            if (http.Request.Path.Value?.EndsWith("/exchange", StringComparison.Ordinal) == true)
+            {
+                http.Request.EnableBuffering();
+                var request = await http.Request.ReadFromJsonAsync<ServiceLinkExchangeRequest>(ServiceLinkCanonicalJson.Json);
+                exchangeRequests.Enqueue(request ?? throw new InvalidOperationException("Missing exchange request."));
+                http.Request.Body.Position = 0;
+                if (exchangeRequests.Count == 2)
+                {
+                    // The first exchange succeeds, then the real PostgreSQL stage aborts.
+                    // Its replay reaches the same peer over HTTP and fails before staging.
+                    if (loseResponse) http.Abort();
+                    else http.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                    return;
+                }
+            }
+            await next();
+        }));
+        await using var local = await LocalAsync(postgres: true, saveInterceptor: race);
+        await using (var emptyProfile = local.Services.CreateAsyncScope())
+            await emptyProfile.ServiceProvider.GetRequiredService<IIntegrationProviderSettingsService>()
+                .UpdateOrchestratorSettingsAsync(new UpdateOrchestrationConnectivitySettingsDto { ExpectedRevision = 0, Enabled = false });
+        var start = await StartAsync(local, peer);
+        var callback = await peer.ApproveAsync(local.BaseUrl, start.AttemptId, BrowserState(start), SessionBinding);
+        using (var review = await local.AdminAsync(HttpMethod.Post, "/api/v1/admin/service-links/callback", callback))
+            Assert.Equal(HttpStatusCode.OK, review.StatusCode);
+        using (var approval = await local.AdminAsync(HttpMethod.Post,
+                   "/api/v1/admin/service-links/attempts/" + start.AttemptId + "/approve",
+                   new ServiceLinkLocalApproveRequest(peer.GrantHash, SessionBinding)))
+            Assert.Equal(HttpStatusCode.OK, approval.StatusCode);
+
+        ServiceLinkAttempt originalAttempt;
+        string originalPrincipal, originalSecret;
+        await using (var approved = local.Services.CreateAsyncScope())
+        {
+            var db = approved.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            originalAttempt = await db.Set<ServiceLinkAttempt>().AsNoTracking().SingleAsync();
+            originalPrincipal = JsonSerializer.Serialize(Assert.Single(await db.Set<ServicePrincipalRegistration>().AsNoTracking().ToListAsync()));
+            originalSecret = JsonSerializer.Serialize(Assert.Single(await db.Set<ServicePrincipalSecret>().AsNoTracking().ToListAsync()));
+        }
+        race.Arm();
+        var interval = local.Services.GetRequiredService<IOptionsMonitor<ServiceLinkOptions>>().CurrentValue.WorkerIntervalSeconds;
+        var expectedNextWorkAt = local.Clock.GetUtcNow().ToUnixTimeSeconds() + interval;
+        await using (var work = local.Services.CreateAsyncScope())
+        {
+            var db = work.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            await work.ServiceProvider.GetRequiredService<ServiceLinkCoordinator>().WorkAsync(CancellationToken.None);
+            Assert.Null(db.Database.CurrentTransaction);
+            Assert.Equal([PostgresErrorCodes.SerializationFailure], race.AbortedSaveSqlStates);
+            Assert.Single(race.StagedTransactionIds);
+            Assert.Equal(2, exchangeRequests.Count);
+            // A separate scope reads persisted scheduling, independently of EF's tracker.
+            await using var fresh = local.Services.CreateAsyncScope();
+            var durable = await fresh.ServiceProvider.GetRequiredService<HelpdeskDbContext>()
+                .Set<ServiceLinkAttempt>().AsNoTracking().SingleAsync();
+            Assert.Equal(errorCode, durable.LastErrorCode);
+            Assert.Equal(expectedNextWorkAt, durable.NextWorkAtUnixSeconds);
+            var tracked = Assert.Single(db.ChangeTracker.Entries<ServiceLinkAttempt>());
+            Assert.Equal(EntityState.Unchanged, tracked.State);
+            Assert.Equal(durable.Revision, tracked.Entity.Revision);
+            Assert.Equal(durable.LastErrorCode, tracked.Entity.LastErrorCode);
+            Assert.Equal(durable.NextWorkAtUnixSeconds, tracked.Entity.NextWorkAtUnixSeconds);
+        }
+        var dispatched = await AssertRecoveryAuthorityAsync("approved");
+        Assert.True(dispatched.ExchangeDispatched);
+        Assert.Null(dispatched.ProtectedOutboundCredential);
+        await using (var rolledBack = local.Services.CreateAsyncScope())
+        {
+            var profile = await rolledBack.ServiceProvider.GetRequiredService<HelpdeskDbContext>()
+                .M2MConnectivitySettings.AsNoTracking().SingleAsync();
+            Assert.Equal(2, profile.Revision); // Only the competing writer committed.
+            Assert.Null(profile.LinkId);
+            Assert.True(string.IsNullOrEmpty(profile.ProtectedClientSecret));
+            Assert.False(profile.Enabled);
+        }
+
+        await local.RestartAsync();
+        await using (var notDue = local.Services.CreateAsyncScope())
+            await notDue.ServiceProvider.GetRequiredService<ServiceLinkCoordinator>().WorkAsync(CancellationToken.None);
+        Assert.Equal(2, exchangeRequests.Count);
+        local.Clock.Advance(TimeSpan.FromSeconds(interval));
+        await using (var recovery = local.Services.CreateAsyncScope())
+        {
+            await recovery.ServiceProvider.GetRequiredService<ServiceLinkCoordinator>().WorkAsync(CancellationToken.None);
+            Assert.Null(recovery.ServiceProvider.GetRequiredService<HelpdeskDbContext>().Database.CurrentTransaction);
+        }
+        var prepared = await AssertRecoveryAuthorityAsync("prepared");
+        Assert.NotNull(prepared.ProtectedOutboundCredential);
+        Assert.Null(prepared.LastErrorCode);
+        Assert.Equal(expectedNextWorkAt + interval, prepared.NextWorkAtUnixSeconds);
+        Assert.Equal(3, exchangeRequests.Count);
+        Assert.Single(exchangeRequests.Select(request => ServiceLinkCanonicalJson.HashObject(request)).Distinct(StringComparer.Ordinal));
+        Assert.All(exchangeRequests, request =>
+        {
+            Assert.Equal(originalAttempt.AttemptId, request.AttemptId);
+            Assert.Equal(originalAttempt.ConsentId, request.InitiatorConsentId);
+        });
+        Assert.Equal(2, peer.ExchangeRequestFingerprints.Length);
+        Assert.Single(peer.ExchangeRequestFingerprints.Distinct(StringComparer.Ordinal));
+        Assert.Equal(2, race.StagedTransactionIds.Length);
+        Assert.Equal(2, race.StagedTransactionIds.Distinct().Count());
+        Assert.Equal([PostgresErrorCodes.SerializationFailure], race.AbortedSaveSqlStates);
+        await using var final = local.Services.CreateAsyncScope();
+        var staged = await final.ServiceProvider.GetRequiredService<HelpdeskDbContext>().M2MConnectivitySettings.AsNoTracking().SingleAsync();
+        Assert.Equal(peer.LinkId, staged.LinkId);
+        Assert.Equal(3, staged.Revision);
+        Assert.Equal(staged.Revision, prepared.OutboundProfileRevision);
+        Assert.False(staged.Enabled);
+        Assert.False(staged.ManagedSenderEnabled);
+        var resolved = await final.ServiceProvider.GetRequiredService<IIntegrationProviderSettingsService>().GetResolvedOrchestratorSettingsAsync();
+        Assert.Equal(peer.InboundCredential.ClientId, resolved.ClientId);
+        Assert.Equal(peer.InboundCredential.ClientSecret, resolved.ClientSecret);
+
+        async Task<ServiceLinkAttempt> AssertRecoveryAuthorityAsync(string state)
+        {
+            await using var scope = local.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            var attempt = await db.Set<ServiceLinkAttempt>().AsNoTracking().SingleAsync();
+            Assert.Equal(state, attempt.LifecycleState);
+            Assert.Equal(originalAttempt.AttemptId, attempt.AttemptId);
+            Assert.Equal(originalAttempt.LinkId, attempt.LinkId);
+            Assert.Equal(originalAttempt.LinkRevision, attempt.LinkRevision);
+            Assert.Equal(originalAttempt.ConsentId, attempt.ConsentId);
+            Assert.Equal(originalAttempt.DescriptorHash, attempt.DescriptorHash);
+            Assert.Equal(originalAttempt.GrantHash, attempt.GrantHash);
+            Assert.Equal(originalAttempt.ExpiresAtUnixSeconds, attempt.ExpiresAtUnixSeconds);
+            Assert.Equal(originalAttempt.InboundPrincipalId, attempt.InboundPrincipalId);
+            Assert.Equal("undecided", attempt.Decision);
+            Assert.False(attempt.LocalPreparedAcknowledged);
+            Assert.False(attempt.LocalInboundActive);
+            Assert.False(attempt.LocalBusinessSenderEnabled);
+            Assert.Equal(originalPrincipal, JsonSerializer.Serialize(Assert.Single(await db.Set<ServicePrincipalRegistration>().AsNoTracking().ToListAsync())));
+            Assert.Equal(originalSecret, JsonSerializer.Serialize(Assert.Single(await db.Set<ServicePrincipalSecret>().AsNoTracking().ToListAsync())));
+            Assert.False(Assert.Single(await db.IncidentReceiverPrincipalBindings.AsNoTracking().ToListAsync()).IsEnabled);
+            Assert.Equal(0, await db.Set<ServiceLinkOperation>().CountAsync());
+            Assert.Equal(0, await db.Set<ServiceLinkVerificationReceipt>().CountAsync());
+            Assert.Equal(0, await db.Set<ServiceLinkRotation>().CountAsync());
+            return attempt;
+        }
+    }
+
     [Theory]
     [InlineData(1, false)]
     [InlineData(4, false)]

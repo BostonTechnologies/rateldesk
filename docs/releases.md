@@ -2,6 +2,38 @@
 
 RatelDesk has one repository-owned release line. The root `Directory.Build.props` is the source of truth for `VersionPrefix` and `VersionSuffix`. Applications and release outputs inherit those values. Prereleases remain immutable.
 
+## Current reconciliation — 6 October 2026
+
+The reviewed baseline is `af71b9f9ae47bf75ea44f9fb486bd5c812d34910` and its
+source version is `0.1.1-beta.13`. The latest observed published release at this
+reconciliation is
+[RatelDesk-0.1.1-beta.13](https://github.com/BostonTechnologies/RatelDesk/releases/tag/RatelDesk-0.1.1-beta.13),
+from that exact source, published on 6 October at 10:05:04 SAST (08:05:04 UTC)
+after [release run 37428393499](https://github.com/BostonTechnologies/RatelDesk/actions/runs/37428393499)
+succeeded. It contains #131, but predates the #122 dependency merge and
+focused #128 worker correction. The earlier real-peer receipts remain pinned
+to beta.12 source `3cd63a776df67bd98d7efb81a330b2d0c57ad1f1` and its recorded
+digests; beta.13 publication does not establish new interoperability acceptance.
+Deploy only the exact artifact tag or digest verified for the intended release.
+
+The historical beta.4 and beta.6 candidate sections below retain their
+original review context. Their implementation subsequently merged: #94
+(`e87d9342069931d8da26125b857960fbeee97b3a`), and Netclaw refinements
+#95/#98/#100. Service linking and its follow-ups merged through #120, #123,
+#125, #127, #129, #130 and #131. Earlier candidate/draft wording no longer
+describes that source's merge status. The
+[reconciliation ledger](implementation/beta4-integration-progress.md)
+preserves exact source pins, repository validation and protected-operation
+receipts, alongside separately pending real NetRatel and NetClaw acceptance.
+This reconciliation records the existing owner's publication; it starts no
+release or deployment.
+
+The ImageSharp 4.1.2 upgrade in
+[#35](https://github.com/BostonTechnologies/RatelDesk/pull/35) remains separately
+deferred for its required Six Labors license. Main's active CAPTCHA renderer
+still uses ImageSharp 3.1.12; [#51](https://github.com/BostonTechnologies/RatelDesk/issues/51)
+remains separate warning cleanup.
+
 ## 0.1.1-beta.13 — reciprocal link recovery
 
 Background workers leave live attempts awaiting administrator consent untouched,

@@ -4,6 +4,29 @@ RatelDesk's NetRatel integration is an outbound, administrator-managed
 provider connection. It is separate from account-issued `rdk_` credentials,
 reverse HTTP MCP delegation, and inbound callback authentication.
 
+## Current implementation — 6 October 2026
+
+The Integration hub and outbound adapter are merged through
+[PR #94](https://github.com/BostonTechnologies/RatelDesk/pull/94)
+(`e87d9342069931d8da26125b857960fbeee97b3a`). The old beta.4 draft status is
+historical. Current navigation is **Admin → Automation → Integration hub**
+at `/admin/automation/integration`, then **NetRatel orchestrator** at
+`/admin/automation/integration/orchestrator`. `/admin/integrations`,
+`/admin/orchestration/orchestration` and `/settings/connectivity` remain
+compatible routes.
+
+The outbound contract pinned below remains the supported legacy path. Later
+merged work adds reciprocal service linking, current-authority checks and
+durable execution/callback correlation; it does not replace the legacy
+configuration with account credentials. See the
+[service-link guide](netratel-service-link.md) for its separate deployment
+settings and exact peer acceptance record. Token, health and identity probes
+alone do not prove scoped catalogue mapping, ingest, actual execution,
+callbacks or uncertain-outcome recovery. Those real-peer criteria remain
+tracked in [#89](https://github.com/BostonTechnologies/RatelDesk/issues/89).
+The [reconciliation ledger](../implementation/beta4-integration-progress.md)
+retains dated source pins and validation receipts.
+
 The **NetRatel M2M** option at `/account/integration-credentials` adds dedicated
 service identities and the guided reciprocal consent flow. Its issuer/link
 Options, exact narrow profiles, manual provisioning and later two-product
@@ -87,8 +110,9 @@ until those checks are run against the unchanged target.
 
 ## Configure through the Integration hub
 
-An administrator can open **Administration → Integration hub → NetRatel
-orchestrator**. The page stores the client secret protected at rest, displays
+An administrator can open **Admin → Automation → Integration hub → NetRatel
+orchestrator** (`/admin/automation/integration/orchestrator`). The page stores
+the client secret protected at rest, displays
 only redacted metadata, uses optimistic revision checks, and records the last
 apply and test result without recording the secret. A successful test performs
 health and authenticated identity probes.

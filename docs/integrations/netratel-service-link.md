@@ -4,6 +4,97 @@ The pinned product contract is [bostec.service-link.v1](../contracts/bostec-serv
 
 The incident receiver remains [rateldesk.incident-create.v1](../contracts/rateldesk-incident-create.v1.json). Its semantic document and existing fixture digest are preserved from #116. Adding the service authentication path does not change incident fingerprinting, headers, receipts, retention or replay ownership. Runtime capability metadata adds `oauth_client_credentials` only when that authenticated path and current source grants actually work.
 
+## Current implementation — 6 October 2026
+
+RatelDesk's reciprocal linking implementation is merged. The base is
+[PR #120](https://github.com/BostonTechnologies/RatelDesk/pull/120)
+(`006381c6f78ac1d37965f52ddc28bff002753055`), followed by discovery/sign-in
+continuation (#123), cancellation/unlink convergence (#125), PostgreSQL
+runtime and credential-mode ownership (#127), serialization recovery and
+orchestration correlation (#129), current sender authority (#130), and
+human-consent/bounded protocol-token recovery (#131). The reviewed source is
+`af71b9f9ae47bf75ea44f9fb486bd5c812d34910`, with source version
+`0.1.1-beta.13`. That exact source is now published as
+[RatelDesk-0.1.1-beta.13](https://github.com/BostonTechnologies/RatelDesk/releases/tag/RatelDesk-0.1.1-beta.13):
+the existing owner's [release run 37428393499](https://github.com/BostonTechnologies/RatelDesk/actions/runs/37428393499)
+succeeded, and publication occurred on 6 October at 10:05:04 SAST
+(08:05:04 UTC). Beta.13 includes #131 but predates the #122 dependency merge
+and the focused #128 worker correction. Publication supplies no new
+two-product acceptance result.
+
+The interoperability receipts below used published
+[RatelDesk-0.1.1-beta.12](https://github.com/BostonTechnologies/RatelDesk/releases/tag/RatelDesk-0.1.1-beta.12),
+source `3cd63a776df67bd98d7efb81a330b2d0c57ad1f1`, which predates #131;
+their tested build identities remain unchanged.
+
+The existing continuation owner has advanced NetRatel PR #166 to
+`d5bfa08550bd303e2d5d1388ed71336404c45fbc`, pushed on 6 October at 10:06:45
+SAST (08:06:45 UTC). The owner started normal run `37433948570` against
+published RatelDesk beta.13 source `af71b9f9ae47bf75ea44f9fb486bd5c812d34910`
+and these intended peer images:
+
+| Product | Beta.13 immutable image digest |
+| --- | --- |
+| RatelDesk API | `ghcr.io/bostontechnologies/rateldesk-api@sha256:659f72d941ccaa78131858b81cfcab9a7f34ba4136bc85159487278d63b16f5b` |
+| RatelDesk Web | `ghcr.io/bostontechnologies/rateldesk-web@sha256:ecc57b4a4c2416713005a68c1a065a01b9ab2c1ed2c18aa8c3ebaa577a705354` |
+
+At 10:18 SAST (08:18 UTC), source-Compose and both extracted local-first
+bundle jobs had failed before preparing actual owner images or reaching
+owner-browser acceptance; general tests were still running. This is not an
+accepted final suite. The source smoke timed out waiting for its credential
+selector option `credential-permission-1-telemetry.read`, before reciprocal
+owner acceptance. Final results and the owner's next checkpoint are linked
+from #89. Its test environment is not exposed in this workspace; reuse that
+continuation's immutable results through
+[RatelDesk #89](https://github.com/BostonTechnologies/RatelDesk/issues/89).
+NetRatel beta.1 is not observed published.
+
+At NetRatel PR #166
+head `19f27f28bce127a2fdaa264ae28d570b94498d23`, the PR's reported real reciprocal
+suite against that published beta.12 peer was **25 passed, 1 failed, 0 skipped**.
+The remaining automatic-rotation case stopped at initial
+remote approval with HTTP 409 `service-link-conflict`, before rotation began;
+the reported full acceptance guards rejected the run. Separately, native
+receipts in hosted run 37406559519
+at candidate merge source `3cb76bf926973e1471a734158f39a8851abb5ee0` prove both
+initiating roles' real execution, callback and replay against beta.12. A
+NetRatel-issuer automatic-policy rotation also completed with four lost
+responses/restarts and fixed predecessor retirement; its historical-age input
+is a fixture, not an elapsed-time soak. That hosted run failed overall and
+supplies no complete accepted suite; its Web
+owner acceptance was skipped after an earlier Compose failure. There is no
+accepted post-#131 pair in this receipt. Repeat that unchanged approval case
+against the intended
+corrected peer before treating rotation or the full sequence as accepted.
+
+The partial receipts are retained in
+artifact 11387929385.
+They identify reviewed NetRatel source `19f27f28bce127a2fdaa264ae28d570b94498d23`,
+test-merge source `3cb76bf926973e1471a734158f39a8851abb5ee0`, native client
+assembly SHA256 `2364f5f09d23437c119cd1675a107973d4fe65ce46f82d3360678bc2a51ede6a`,
+and published beta.12 images. External source, run and artifact links are
+retained in [RatelDesk #89](https://github.com/BostonTechnologies/RatelDesk/issues/89):
+
+| Product | Immutable image digest |
+| --- | --- |
+| RatelDesk API | `ghcr.io/bostontechnologies/rateldesk-api@sha256:c32f3537a5c3834224a9c07c47423335c1448cfc9607f2fcfd66924b17525e0b` |
+| RatelDesk Web | `ghcr.io/bostontechnologies/rateldesk-web@sha256:baa433421994c6b739dba17aa887cc74a70828b0f9f91462d5ff9c50e22b2980` |
+| RatelDesk HTTP MCP | `ghcr.io/bostontechnologies/rateldesk-mcp-http@sha256:44cd5142e711caf3ca2a35bba7cf45c5e8236e40d9e57e010d26b80693216958` |
+
+This supersedes earlier descriptions of the RatelDesk implementation as
+unmerged. It does not mark the sequence below as accepted against the final
+published pair. Use the existing
+NetRatel PR #166 continuation, coordinated through
+[RatelDesk #89](https://github.com/BostonTechnologies/RatelDesk/issues/89)
+for shared two-product acceptance; record the exact peer SHA, tag and image
+digests for each result. The
+[reconciliation ledger](../implementation/beta4-integration-progress.md)
+maps that evidence to #89, #121, #124, #126 and #128 and records any remaining
+publication or acceptance prerequisite. Synthetic fixtures and source-built
+candidate runs do not establish published-peer acceptance. The supported
+[legacy outbound M2M path](netratel-orchestrator.md) and legacy callback
+upgrade case remain separate acceptance requirements.
+
 This document records a reproducible acceptance sequence for the later NetRatel continuation. The fixtures establish serialization and hashing conformance. They do not establish that a deployed NetRatel build implements reciprocal linking or prove real two-product compatibility. Execute the following against the published RatelDesk release and the compatible updated NetRatel candidate; retain the actual immutable build identities and results in that continuation's evidence.
 
 If peer approval reaches a signed-out RatelDesk browser, the Web endpoint removes ceremony correlation before showing ordinary sign-in. After signing in, return to the initiating product's integration credentials in the original browser session and select **Continue peer approval** (or **Continue NetRatel approval** when RatelDesk initiated). This explicit, antiforgery-protected continuation reopens the same live attempt and its pinned peer approval address; it does not create another attempt, approve a grant, or copy proof values into a login return URL or browser storage. Expired attempts or a different initiating actor/session require new setup. Once consent has completed, the separate **Resume** action reconciles the existing lifecycle decision.
