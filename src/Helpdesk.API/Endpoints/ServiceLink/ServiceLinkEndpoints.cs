@@ -21,6 +21,7 @@ public static class ServiceLinkEndpoints
         services.AddOptions<ServiceLinkOptions>().Bind(configuration.GetSection(ServiceLinkOptions.SectionName)).ValidateOnStart();
         services.AddSingleton<IValidateOptions<ServiceLinkOptions>, ServiceLinkOptionsValidator>();
         services.AddScoped<ServiceLinkCoordinator>();
+        services.AddScoped<ServiceLinkProtocolTokenCache>();
         services.AddHttpClient<ServiceLinkTransport>(client => client.Timeout = TimeSpan.FromSeconds(25))
             .ConfigurePrimaryHttpMessageHandler(provider => IntegrationSafeHttpMessageHandler.CreateServiceLink(
                 currentAllowPrivateHttp: () => provider.GetRequiredService<IOptionsMonitor<ServiceLinkOptions>>().CurrentValue.AllowPrivateHttp));

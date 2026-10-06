@@ -19,6 +19,7 @@ public sealed partial class ServiceLinkCoordinator(
     HelpdeskDbContext db, IServicePrincipalRegistry registry, ICurrentUserAccessService accessService,
     IIntegrationProviderSettingsService providers, ServiceLinkTransport transport, IDataProtectionProvider protection,
     IOptions<ServiceLinkOptions> options, IOptionsMonitor<ServiceIdentityOptions> identityOptions, TimeProvider clock,
+    ServiceLinkProtocolTokenCache protocolTokens,
     IOptionsMonitor<ServiceLinkOptions>? currentOptions = null)
 {
     private ServiceLinkOptions settings => currentOptions?.CurrentValue ?? options.Value;

@@ -108,7 +108,7 @@ public sealed class ServiceLinkDynamicNetworkPolicyTests
         using var provider = Services(configuration);
         var coordinator = new ServiceLinkCoordinator(null!, null!, null!, null!, null!, null!,
             provider.GetRequiredService<IOptions<ServiceLinkOptions>>(),
-            provider.GetRequiredService<IOptionsMonitor<ServiceIdentityOptions>>(), TimeProvider.System,
+            provider.GetRequiredService<IOptionsMonitor<ServiceIdentityOptions>>(), TimeProvider.System, null!,
             provider.GetRequiredService<IOptionsMonitor<ServiceLinkOptions>>());
         Assert.Equal("rd-network-policy", coordinator.Metadata().InstanceId);
         configuration["ServiceLinks:Enabled"] = "false";
