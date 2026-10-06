@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Data;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -13,6 +14,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Npgsql;
@@ -296,6 +298,224 @@ public sealed partial class ServiceLinkLifecycleTests
         Assert.Equal(peer.InboundCredential.ClientSecret, resolved.ClientSecret);
         Assert.False(resolved.Enabled);
         Assert.Equal(0, await finalDb.Set<ServiceLinkOperation>().CountAsync());
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(4)]
+    public async Task Postgres_verified_rotation_retries_fresh_atomic_operations_and_preserves_rollback_and_exact_replay(int abortCount)
+    {
+        var race = new RecipientActivationSerializationRace(abortCount);
+        await using var peer = await NetRatelServiceLinkContractPeer.CreateAsync();
+        await using var local = await LocalAsync(postgres: true, saveInterceptor: race);
+        var start = await ActivateInitiatorAsync(local, peer);
+        using (var requested = await local.AdminAsync(HttpMethod.Post,
+                   "/api/v1/admin/service-links/links/" + peer.LinkId + "/rotate",
+                   new ServiceLinkAdminAction(DirectionId: ServiceLinkContract.ResponderToInitiator)))
+            Assert.Equal(HttpStatusCode.OK, requested.StatusCode);
+        using (var offered = await ResumeAsync(local, peer.LinkId))
+            Assert.Equal(HttpStatusCode.OK, offered.StatusCode);
+        var candidate = peer.RotationCandidate;
+        // Reuse the existing rotation fixture restart boundary before candidate
+        // controls, retaining the durable link and unchanged production rate limit.
+        await local.RestartAsync();
+        var verifyToken = await TokenAsync(candidate, ServiceIdentityScopes.Verify);
+        ServiceLinkRotation originalRotation;
+        ServicePrincipalRegistration originalPrincipal;
+        string originalAttempt, originalSecrets;
+        int receiptsBefore, journalsBefore;
+        await using (var before = local.Services.CreateAsyncScope())
+        {
+            var db = before.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            originalRotation = Assert.Single(await db.Set<ServiceLinkRotation>().AsNoTracking().ToListAsync());
+            originalPrincipal = Assert.Single(await db.Set<ServicePrincipalRegistration>().AsNoTracking().ToListAsync());
+            Assert.True(originalRotation.IsIssuer);
+            Assert.Null(originalRotation.ActivateDecisionId);
+            Assert.Equal(1, originalPrincipal.CurrentCredentialRevision);
+            originalAttempt = JsonSerializer.Serialize(Assert.Single(await db.Set<ServiceLinkAttempt>().AsNoTracking().ToListAsync()));
+            originalSecrets = JsonSerializer.Serialize(await db.Set<ServicePrincipalSecret>().AsNoTracking()
+                .OrderBy(secret => secret.CredentialRevision).ToListAsync());
+            receiptsBefore = await db.Set<ServiceLinkVerificationReceipt>().CountAsync();
+        }
+        var probe = new ServiceLinkLifecycleRequest
+        {
+            OperationId = ServiceLinkValidation.NewId(), AttemptId = start.AttemptId,
+            LinkId = peer.LinkId, LinkRevision = 1, GrantHash = peer.GrantHash,
+            DirectionId = originalRotation.DirectionId, CredentialRevision = candidate.CredentialRevision,
+            RotationId = originalRotation.RotationId
+        };
+        string receiptId;
+        using (var verified = await local.ServiceAsync(HttpMethod.Post,
+                   ServiceLinkContract.EndpointPath + "/links/" + peer.LinkId + "/verify", verifyToken, probe))
+        {
+            Assert.Equal(HttpStatusCode.OK, verified.StatusCode);
+            receiptId = (await verified.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("verification_receipt_id").GetString()!;
+        }
+        await using (var beforeActivation = local.Services.CreateAsyncScope())
+        {
+            var db = beforeActivation.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            Assert.Equal(receiptsBefore + 1, await db.Set<ServiceLinkVerificationReceipt>().CountAsync());
+            journalsBefore = await db.Set<ServiceLinkOperation>().CountAsync();
+            // Capture after the genuine probe, before any activation attempt.
+            originalAttempt = JsonSerializer.Serialize(Assert.Single(await db.Set<ServiceLinkAttempt>().AsNoTracking().ToListAsync()));
+            originalRotation = Assert.Single(await db.Set<ServiceLinkRotation>().AsNoTracking().ToListAsync());
+        }
+        var request = new ServiceLinkLifecycleRequest
+        {
+            OperationId = ServiceLinkValidation.NewId(), LinkId = peer.LinkId,
+            LinkRevision = 1, GrantHash = peer.GrantHash,
+            RotationId = originalRotation.RotationId, RotationPhase = "verified",
+            DirectionId = originalRotation.DirectionId,
+            ExpectedCurrentCredentialRevision = originalRotation.ExpectedCurrentCredentialRevision,
+            SuccessorCredentialRevision = candidate.CredentialRevision,
+            SuccessorVerificationReceiptId = receiptId
+        };
+        var control = await TokenAsync(candidate, ServiceIdentityScopes.Control);
+        var route = ServiceLinkContract.EndpointPath + "/links/" + peer.LinkId + "/rotate";
+        race.Arm(originalPrincipal.Id, candidate.CredentialRevision);
+        string completedResponse;
+        using (var response = await local.ServiceAsync(HttpMethod.Post, route, control, request))
+        {
+            Assert.Equal(abortCount == 1 ? HttpStatusCode.OK : HttpStatusCode.Conflict, response.StatusCode);
+            Assert.True(response.Headers.CacheControl?.NoStore == true);
+            if (abortCount == 4)
+            {
+                Assert.Equal("service-link-conflict", (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+                await using var rolledBack = local.Services.CreateAsyncScope();
+                var db = rolledBack.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+                Assert.Equal(originalAttempt, JsonSerializer.Serialize(Assert.Single(await db.Set<ServiceLinkAttempt>().AsNoTracking().ToListAsync())));
+                var rotation = Assert.Single(await db.Set<ServiceLinkRotation>().AsNoTracking().ToListAsync());
+                Assert.Equal(JsonSerializer.Serialize(originalRotation), JsonSerializer.Serialize(rotation));
+                Assert.Null(rotation.ActivateDecisionId);
+                var principal = Assert.Single(await db.Set<ServicePrincipalRegistration>().AsNoTracking().ToListAsync());
+                Assert.Equal(1, principal.CurrentCredentialRevision);
+                Assert.Equal(originalPrincipal.Version + 4, principal.Version); // Only the independent writer committed.
+                // Normalize only the independent counter in this detached read snapshot.
+                principal.Version = originalPrincipal.Version;
+                Assert.Equal(JsonSerializer.Serialize(originalPrincipal), JsonSerializer.Serialize(principal));
+                Assert.Equal(originalSecrets, JsonSerializer.Serialize(await db.Set<ServicePrincipalSecret>().AsNoTracking()
+                    .OrderBy(secret => secret.CredentialRevision).ToListAsync()));
+                Assert.Equal(receiptsBefore + 1, await db.Set<ServiceLinkVerificationReceipt>().CountAsync());
+                Assert.Equal(journalsBefore, await db.Set<ServiceLinkOperation>().CountAsync());
+                Assert.False(await db.Set<ServiceLinkOperation>().AnyAsync(operation => operation.OperationId == request.OperationId));
+            }
+            completedResponse = abortCount == 1 ? await response.Content.ReadAsStringAsync() : "";
+        }
+        Assert.Equal(abortCount, race.AbortedSaveSqlStates.Length);
+        Assert.All(race.AbortedSaveSqlStates, state => Assert.Equal(PostgresErrorCodes.SerializationFailure, state));
+        Assert.Equal(abortCount == 1 ? 2 : 4, race.ContextIds.Length);
+        Assert.Equal(race.ContextIds.Length, race.ContextIds.Distinct().Count());
+        Assert.Equal(race.TransactionIds.Length, race.TransactionIds.Distinct().Count());
+        Assert.All(race.FailedSaves, error => Assert.True(ServiceLinkDatabaseConflict.IsAbortedTransaction(error)));
+        if (abortCount == 4)
+        {
+            // A new HTTP scope carries the SAME canonical request and operation.
+            // It can commit only after the bounded original request failed honestly.
+            using var recovery = await local.ServiceAsync(HttpMethod.Post, route, control, request);
+            Assert.Equal(HttpStatusCode.OK, recovery.StatusCode);
+            completedResponse = await recovery.Content.ReadAsStringAsync();
+            Assert.Equal(5, race.ContextIds.Length);
+            Assert.Equal(5, race.ContextIds.Distinct().Count());
+        }
+        await using (var committed = local.Services.CreateAsyncScope())
+        {
+            var db = committed.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            var rotation = Assert.Single(await db.Set<ServiceLinkRotation>().AsNoTracking().ToListAsync());
+            Assert.Equal("activated", rotation.RotationState);
+            Assert.NotNull(rotation.ActivateDecisionId);
+            Assert.Equal(receiptId, rotation.SuccessorVerificationReceiptId);
+            Assert.Null(rotation.CallerSwitchRevision);
+            var principal = Assert.Single(await db.Set<ServicePrincipalRegistration>().AsNoTracking().ToListAsync());
+            Assert.Equal(candidate.CredentialRevision, principal.CurrentCredentialRevision);
+            Assert.Equal(originalPrincipal.Version + abortCount + 1, principal.Version);
+            var successor = await db.Set<ServicePrincipalSecret>().AsNoTracking().SingleAsync(secret =>
+                secret.ServicePrincipalId == originalPrincipal.Id && secret.CredentialRevision == candidate.CredentialRevision);
+            Assert.Equal("active", successor.Status);
+            Assert.Equal(receiptsBefore + 1, await db.Set<ServiceLinkVerificationReceipt>().CountAsync());
+            Assert.Equal(journalsBefore + 1, await db.Set<ServiceLinkOperation>().CountAsync());
+            var operation = await db.Set<ServiceLinkOperation>().AsNoTracking().SingleAsync(item => item.OperationId == request.OperationId);
+            Assert.False(operation.Outbound);
+            Assert.Equal("rotate", operation.Kind);
+            Assert.True(operation.Completed);
+            Assert.Equal(ServiceLinkLifecycleProjection.Hash("rotate", request), operation.RequestFingerprint);
+            Assert.Equal(ServiceLinkCanonicalJson.Canonicalize(completedResponse), ServiceLinkCanonicalJson.Canonicalize(operation.ResponseJson));
+            Assert.Null(db.Database.CurrentTransaction);
+        }
+        var saves = race.ContextIds.Length;
+        using (var replay = await local.ServiceAsync(HttpMethod.Post, route, control, request))
+        {
+            Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+            Assert.Equal(ServiceLinkCanonicalJson.Canonicalize(completedResponse),
+                ServiceLinkCanonicalJson.Canonicalize(await replay.Content.ReadAsStringAsync()));
+        }
+        using (var changed = await local.ServiceAsync(HttpMethod.Post, route, control,
+                   request with { SuccessorVerificationReceiptId = ServiceLinkValidation.NewId() }))
+        {
+            Assert.Equal(HttpStatusCode.Conflict, changed.StatusCode);
+            Assert.Equal("operation-payload-conflict", (await changed.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        }
+        Assert.Equal(saves, race.ContextIds.Length); // Neither replay nor a business conflict enters a save/retry.
+        await using var final = local.Services.CreateAsyncScope();
+        Assert.Equal(journalsBefore + 1, await final.ServiceProvider.GetRequiredService<HelpdeskDbContext>()
+            .Set<ServiceLinkOperation>().CountAsync());
+    }
+
+    private sealed class RecipientActivationSerializationRace(int abortLimit) : SaveChangesInterceptor
+    {
+        private Guid principalId;
+        private long successorRevision;
+        private int attempts;
+        private readonly ConcurrentQueue<Guid> contextIds = new();
+        private readonly ConcurrentQueue<Guid> transactionIds = new();
+        private readonly ConcurrentQueue<string> sqlStates = new();
+        private readonly ConcurrentQueue<Exception> failedSaves = new();
+        public Guid[] ContextIds => contextIds.ToArray();
+        public Guid[] TransactionIds => transactionIds.ToArray();
+        public string[] AbortedSaveSqlStates => sqlStates.ToArray();
+        public Exception[] FailedSaves => failedSaves.ToArray();
+        public void Arm(Guid id, long revision) { principalId = id; successorRevision = revision; }
+        private bool Eligible(DbContext db) => principalId != Guid.Empty && db.ChangeTracker.Entries<ServicePrincipalSecret>()
+            .Any(entry => entry.State == EntityState.Modified && entry.Entity.ServicePrincipalId == principalId &&
+                entry.Entity.CredentialRevision == successorRevision && entry.Entity.Status == "active");
+
+        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData,
+            InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            if (eventData.Context is not { } db || !Eligible(db)) return result;
+            Assert.Equal("Npgsql.EntityFrameworkCore.PostgreSQL", db.Database.ProviderName);
+            contextIds.Enqueue(db.ContextId.InstanceId);
+            var transaction = Assert.IsType<NpgsqlTransaction>(db.Database.CurrentTransaction!.GetDbTransaction());
+            Assert.Equal(IsolationLevel.Serializable, transaction.IsolationLevel);
+            transactionIds.Enqueue(db.Database.CurrentTransaction.TransactionId);
+            if (Interlocked.Increment(ref attempts) > abortLimit) return result;
+            // Establish a real Serializable snapshot, then let a separate
+            // committed writer change ONLY this principal's concurrency counter.
+            await using (var snapshot = new NpgsqlCommand("SELECT \"Version\" FROM \"ServicePrincipalRegistrations\" WHERE \"Id\" = @id",
+                (NpgsqlConnection)db.Database.GetDbConnection(), transaction) { CommandTimeout = 5 })
+            {
+                snapshot.Parameters.AddWithValue("id", principalId);
+                Assert.NotNull(await snapshot.ExecuteScalarAsync(cancellationToken));
+            }
+            await using var writer = new NpgsqlConnection(db.Database.GetConnectionString());
+            await writer.OpenAsync(cancellationToken);
+            await using var update = new NpgsqlCommand(
+                "UPDATE \"ServicePrincipalRegistrations\" SET \"Version\" = \"Version\" + 1 WHERE \"Id\" = @id", writer)
+                { CommandTimeout = 5 };
+            update.Parameters.AddWithValue("id", principalId);
+            Assert.Equal(1, await update.ExecuteNonQueryAsync(cancellationToken));
+            return result; // PostgreSQL itself raises 40001; no exception is fabricated or suppressed.
+        }
+
+        public override Task SaveChangesFailedAsync(DbContextErrorEventData eventData, CancellationToken cancellationToken = default)
+        {
+            if (eventData.Context is { } db && Eligible(db))
+            {
+                failedSaves.Enqueue(eventData.Exception);
+                for (Exception? error = eventData.Exception; error is not null; error = error.InnerException)
+                    if (error is PostgresException postgres) { sqlStates.Enqueue(postgres.SqlState); break; }
+            }
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class StagedProfileSerializationRace(int abortLimit) : SaveChangesInterceptor
