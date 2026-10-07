@@ -125,7 +125,7 @@
                     <input type="hidden" name="outboundScopes" value="@ServiceLinkContract.ControlScope" />
                     <input type="hidden" name="outboundScopes" value="@ServiceLinkContract.VerifyScope" />
                 }
-                <MudCheckBox T="bool" Value="outboundInvoke" ValueChanged="RunTasksChanged" Label="Also run approved tasks (optional)" Dense="true" />
+                <MudCheckBox @key="renderedScopeSelectionOwner" T="bool" Value="outboundInvoke" ValueChanged="@(EventCallback.Factory.Create<bool>(this, value => RunTasksChanged(renderedScopeSelectionOwner, value)))" Label="Also run approved tasks (optional)" Dense="true" Disabled="@(busy || loading || reveal is not null)" />
                 @if (outboundInvoke && !scopes.Contains("rateldesk.orchestration.callback"))
                 {
                     <MudAlert Dense="true" Severity="Severity.Info">Task invocation requires the reverse task callback permission so recorded executions can complete. Enable Task callbacks or choose read-only orchestration access.</MudAlert>
@@ -251,8 +251,9 @@
     private void ClearPendingAction() { pendingActionClient = null; pendingAction = null; }
     private void CancelPendingAction() { if (!disposed && !busy) ClearPendingAction(); }
     private void PrepareClientAction(Guid id, string action) { if (disposed || busy || loading || reveal is not null) return; pendingActionClient = id; pendingAction = action; }
-    private void RunTasksChanged(bool value)
+    private void RunTasksChanged(object expectedSelectionOwner, bool value)
     {
+        if (disposed || busy || loading || manual || reveal is not null || !ReferenceEquals(scopeSelectionOwner, expectedSelectionOwner)) return;
         outboundInvoke = value;
         if (value) scopes.Add("rateldesk.orchestration.callback"); else scopes.Remove("rateldesk.orchestration.callback");
     }
