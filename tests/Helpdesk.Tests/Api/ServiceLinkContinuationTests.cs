@@ -8,6 +8,7 @@ using Helpdesk.Infrastructure.ServiceLink;
 using Helpdesk.Shared.ServiceLink;
 using Helpdesk.Shared.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Xunit;
@@ -60,15 +61,22 @@ public sealed partial class ServiceLinkLifecycleTests
         }
         Assert.Equal(before, await ContinuationStateAsync(local));
 
-        var settings = local.Services.GetRequiredService<IOptionsMonitor<ServiceIdentityOptions>>().CurrentValue;
-        var originalAudience = settings.Audience;
+        var configuration = local.Services.GetRequiredService<IConfiguration>();
+        var optionsCache = local.Services.GetRequiredService<IOptionsMonitorCache<ServiceIdentityOptions>>();
+        var originalAudience = configuration["ServiceIdentity:Audience"];
         try
         {
-            settings.Audience = originalAudience + ".changed";
+            // Exercise the deployment setting consumed by the managed public-settings resolver.
+            configuration["ServiceIdentity:Audience"] = originalAudience + ".changed";
+            optionsCache.Clear();
             using var drifted = await ContinueResponseAsync(local, start.AttemptId, SessionBinding);
             await AssertContinuationDeniedAsync(drifted, HttpStatusCode.Conflict, start);
         }
-        finally { settings.Audience = originalAudience; }
+        finally
+        {
+            configuration["ServiceIdentity:Audience"] = originalAudience;
+            optionsCache.Clear();
+        }
         Assert.Equal(before, await ContinuationStateAsync(local));
         Assert.Equal(0, before.Principals);
         Assert.Equal(0, before.Secrets);

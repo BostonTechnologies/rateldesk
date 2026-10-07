@@ -723,12 +723,18 @@ public sealed partial class ServiceLinkLifecycleTests
             await local.RestartAsync();
             var configuration = local.Services.GetRequiredService<IConfiguration>();
             var cache = local.Services.GetRequiredService<IOptionsMonitorCache<ServiceIdentityOptions>>();
+            var linkingCache = local.Services.GetRequiredService<IOptionsMonitorCache<ServiceLinkOptions>>();
             var key = "ServiceIdentity:" + change.Key;
             var original = configuration[key];
+            var linkingKey = change.Key is "ApiBaseUrl" or "WebBaseUrl" ? "ServiceLinks:" + change.Key : null;
+            var originalLinking = linkingKey is null ? null : configuration[linkingKey];
             try
             {
                 configuration[key] = change.Value;
+                // Address drift remains a coherent installation profile, so its pinned grant must reject it.
+                if (linkingKey is not null) configuration[linkingKey] = change.Value;
                 cache.Clear();
+                linkingCache.Clear();
                 using (var cachedBusiness = await CapabilitiesAsync(local, peer, businessToken))
                     Assert.Equal(HttpStatusCode.Unauthorized, cachedBusiness.StatusCode);
                 using (var cachedControl = await local.ServiceAsync(HttpMethod.Get,
@@ -737,15 +743,29 @@ public sealed partial class ServiceLinkLifecycleTests
                 foreach (var scope in new[] { ServiceIdentityScopes.IncidentReceipts, ServiceIdentityScopes.Control })
                 {
                     using var issuance = await TokenResponseAsync(credential, scope);
-                    Assert.Equal(change.Key == "Enabled" ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.Unauthorized,
+                    // A disabled issuer or conflict with its immutable signing identity is deployment unavailability.
+                    var unavailable = change.Key is "Enabled" or "Issuer";
+                    Assert.Equal(unavailable ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.Unauthorized,
                         issuance.StatusCode);
+                    if (unavailable)
+                    {
+                        var error = await issuance.Content.ReadFromJsonAsync<JsonElement>();
+                        Assert.Equal("temporarily_unavailable", error.GetProperty("error").GetString());
+                    }
                 }
-                Assert.Equal(peer.GrantHash, (await StatusAsync(local, start.AttemptId)).GrantHash);
+                // Read the durable grant even when an unavailable installation cannot serve its admin projection.
+                await using var retained = local.Services.CreateAsyncScope();
+                var db = retained.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+                Assert.Equal(peer.GrantHash, (await db.Set<ServiceLinkAttempt>().AsNoTracking()
+                    .SingleAsync(attempt => attempt.AttemptId == start.AttemptId)).GrantHash);
+                if (change.Key != "Issuer") Assert.Equal(peer.GrantHash, (await StatusAsync(local, start.AttemptId)).GrantHash);
             }
             finally
             {
                 configuration[key] = original;
+                if (linkingKey is not null) configuration[linkingKey] = originalLinking;
                 cache.Clear();
+                linkingCache.Clear();
             }
             using (var restoredBusiness = await CapabilitiesAsync(local, peer, businessToken))
                 Assert.Equal(HttpStatusCode.OK, restoredBusiness.StatusCode);
@@ -754,6 +774,7 @@ public sealed partial class ServiceLinkLifecycleTests
                 Assert.Equal(HttpStatusCode.OK, restoredControl.StatusCode);
             _ = await TokenAsync(credential, ServiceIdentityScopes.IncidentReceipts);
             _ = await TokenAsync(credential, ServiceIdentityScopes.Control);
+            Assert.Equal(peer.GrantHash, (await StatusAsync(local, start.AttemptId)).GrantHash);
         }
         Assert.Equal(peer.GrantHash, (await StatusAsync(local, start.AttemptId)).GrantHash);
     }
