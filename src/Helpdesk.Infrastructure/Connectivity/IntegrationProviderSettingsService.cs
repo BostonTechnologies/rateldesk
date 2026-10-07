@@ -39,6 +39,7 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
     private readonly AiAssistantChatOptions deploymentNetclaw;
     private readonly bool orchestratorManagedByDeployment;
     private readonly bool netclawManagedByDeployment;
+    private readonly IServicePublicSettingsResolver? publicSettings;
     private readonly IOptionsMonitor<ServiceIdentityOptions>? currentIdentityOptions;
     private readonly IOptionsMonitor<ServiceLinkOptions>? currentLinkOptions;
 
@@ -53,7 +54,8 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
         IAiAssistantChatTransport? chatRuntime = null,
         IAiAssistantChatRuntimeState? runtimeState = null,
         IOptionsMonitor<ServiceIdentityOptions>? currentIdentityOptions = null,
-        IOptionsMonitor<ServiceLinkOptions>? currentLinkOptions = null)
+        IOptionsMonitor<ServiceLinkOptions>? currentLinkOptions = null,
+        IServicePublicSettingsResolver? publicSettings = null)
     {
         this.db = db;
         this.configuration = configuration;
@@ -62,6 +64,7 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
         this.clock = clock;
         this.logger = logger;
         this.chatRuntime = chatRuntime;
+        this.publicSettings = publicSettings;
         this.currentIdentityOptions = currentIdentityOptions;
         this.currentLinkOptions = currentLinkOptions;
         runtimeConfiguration = runtimeState ?? new AiAssistantChatRuntimeState(chatOptions);
@@ -112,8 +115,9 @@ public sealed class IntegrationProviderSettingsService : IIntegrationProviderSet
     {
         if (stored.LinkId is null) return stored.Enabled;
         if (!stored.Enabled || !stored.ManagedSenderEnabled) return false;
-        var currentIdentity = currentIdentityOptions?.CurrentValue;
-        var currentLinking = currentLinkOptions?.CurrentValue;
+        var effective = publicSettings is null ? null : await publicSettings.ResolveAsync(ct);
+        var currentIdentity = effective?.Identity ?? currentIdentityOptions?.CurrentValue;
+        var currentLinking = effective?.Linking ?? currentLinkOptions?.CurrentValue;
         if (currentIdentity is null || currentLinking is null) return false;
         var attempt = await db.Set<ServiceLinkAttempt>().AsNoTracking().SingleOrDefaultAsync(x => x.LinkId == stored.LinkId &&
             x.LinkRevision == stored.LinkRevision && x.GrantHash == stored.GrantHash && x.LocalTenantId == stored.LocalTenantId &&

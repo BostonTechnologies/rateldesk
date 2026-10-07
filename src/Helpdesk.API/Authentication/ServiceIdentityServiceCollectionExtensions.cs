@@ -28,6 +28,7 @@ public static class ServiceIdentityServiceCollectionExtensions
         services.AddScoped<IServicePrincipalRegistry, ServicePrincipalRegistry>();
         services.AddScoped<ServiceSigningKeyStore>();
         services.AddScoped<ServiceAccessTokenService>();
+        services.AddScoped<IServicePublicSettingsResolver, ServicePublicSettingsResolver>();
         services.AddAuthentication().AddScheme<AuthenticationSchemeOptions, ServiceIdentityAuthenticationHandler>(ServiceIdentityAuthenticationHandler.SchemeName, _ => { });
         services.AddScoped<IAuthorizationHandler, ServiceClientManagementHandler>();
         services.AddAuthorization(o =>

@@ -65,6 +65,14 @@ public static class ServiceIdentityModelConfiguration
 {
     public static void ConfigureServiceIdentityModel(this ModelBuilder model)
     {
+        model.Entity<ServiceIdentityConfiguration>(e =>
+        {
+            e.ToTable("ServiceIdentityConfigurations"); e.HasKey(row => row.Id);
+            e.Property(row => row.Id).ValueGeneratedNever();
+            e.Property(row => row.Revision).IsConcurrencyToken();
+            foreach (var field in new[] { nameof(ServiceIdentityConfiguration.WebBaseUrl), nameof(ServiceIdentityConfiguration.ApiBaseUrl), nameof(ServiceIdentityConfiguration.Issuer) }) e.Property(field).HasMaxLength(2048);
+            foreach (var field in new[] { nameof(ServiceIdentityConfiguration.Audience), nameof(ServiceIdentityConfiguration.InstanceId), nameof(ServiceIdentityConfiguration.UpdatedBy) }) e.Property(field).HasMaxLength(256);
+        });
         model.Entity<ServicePrincipalRegistration>(e =>
         {
             e.ToTable("ServicePrincipalRegistrations", t => t.HasCheckConstraint("CK_ServicePrincipal_Status", "\"Status\" IN ('pending','prepared','verified','in_doubt','active','revoked','expired','failed')"));

@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Infrastructure.ServiceLink;
+using Helpdesk.Infrastructure.ServiceIdentity;
 using Helpdesk.Shared.DTOs.Orchestration;
 using Microsoft.Extensions.Options;
 
@@ -12,7 +13,7 @@ public sealed class OrchestrationCatalogService(
     IHttpClientFactory httpClientFactory,
     IOrchestrationTokenService tokenService,
     IOrchestrationConnectivityService connectivityService,
-    IOptionsMonitor<ServiceLinkOptions>? currentLinkOptions = null) : IOrchestrationCatalogService
+    IOptionsMonitor<ServiceLinkOptions>? currentLinkOptions = null, IServicePublicSettingsResolver? publicSettings = null) : IOrchestrationCatalogService
 {
     private const int MaximumResponseBytes = 1024 * 1024;
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(20);
@@ -45,7 +46,7 @@ public sealed class OrchestrationCatalogService(
             throw new InvalidOperationException("External orchestration connectivity is disabled.");
         }
 
-        var endpoint = BuildAbsoluteUri(settings, BuildCatalogPath(settings.CatalogPath, "request-definitions"));
+        var endpoint = await BuildAbsoluteUriAsync(settings, BuildCatalogPath(settings.CatalogPath, "request-definitions"), cancellationToken);
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
             Content = JsonContent.Create(requestPayload, options: WireJsonOptions)
@@ -97,7 +98,7 @@ public sealed class OrchestrationCatalogService(
             ? throw new InvalidOperationException("Request definition id is required.")
             : requestDefinitionId.Trim();
 
-        var endpoint = BuildAbsoluteUri(settings, BuildCatalogPath(settings.CatalogPath, $"request-definitions/{normalizedRequestDefinitionId}/inputs/sync"));
+        var endpoint = await BuildAbsoluteUriAsync(settings, BuildCatalogPath(settings.CatalogPath, $"request-definitions/{normalizedRequestDefinitionId}/inputs/sync"), cancellationToken);
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
             Content = JsonContent.Create(new
@@ -145,7 +146,7 @@ public sealed class OrchestrationCatalogService(
             return [];
         }
 
-        var endpoint = BuildAbsoluteUri(settings, BuildCatalogPath(settings.CatalogPath, path));
+        var endpoint = await BuildAbsoluteUriAsync(settings, BuildCatalogPath(settings.CatalogPath, path), cancellationToken);
         using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
         await AttachAuthHeaderAsync(settings, request, cancellationToken);
 
@@ -218,12 +219,12 @@ public sealed class OrchestrationCatalogService(
         CancellationToken cancellationToken)
     {
         var accessToken = await _tokenService.GetAccessTokenAsync(settings, cancellationToken);
-        ServiceLinkOutboundNetwork.PrepareRequest(request, settings, currentLinkOptions);
+        ServiceLinkOutboundNetwork.PrepareRequest(request, settings, currentLinkOptions, publicSettings is null || settings.ServiceLink is null ? null : (await publicSettings.ResolveAsync(cancellationToken)).Linking);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
     }
 
-    private Uri BuildAbsoluteUri(OrchestrationResolvedSettings settings, string path)
+    private async Task<Uri> BuildAbsoluteUriAsync(OrchestrationResolvedSettings settings, string path, CancellationToken cancellationToken)
     {
         var baseUrl = settings.BaseUrl;
         if (string.IsNullOrWhiteSpace(baseUrl))
@@ -232,7 +233,7 @@ public sealed class OrchestrationCatalogService(
         }
 
         var uri = new Uri(new Uri(baseUrl, UriKind.Absolute), path);
-        ServiceLinkOutboundNetwork.Validate(uri, "NetRatel endpoint", settings, currentLinkOptions);
+        ServiceLinkOutboundNetwork.Validate(uri, "NetRatel endpoint", settings, currentLinkOptions, publicSettings is null || settings.ServiceLink is null ? null : (await publicSettings.ResolveAsync(cancellationToken)).Linking);
         return uri;
     }
 

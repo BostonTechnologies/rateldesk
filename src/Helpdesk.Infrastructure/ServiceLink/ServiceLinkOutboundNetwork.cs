@@ -11,12 +11,12 @@ public static class ServiceLinkOutboundNetwork
     public const string BusinessClientName = "ServiceLinkOrchestrationInternalApi";
 
     public static bool Validate(Uri uri, string fieldName, OrchestrationResolvedSettings settings,
-        IOptionsMonitor<ServiceLinkOptions>? currentOptions)
+        IOptionsMonitor<ServiceLinkOptions>? currentOptions, ServiceLinkOptions? resolvedOptions = null)
     {
         var allowPrivateHttp = settings.AllowPrivateHttp;
         if (settings.ServiceLink is not null)
         {
-            var linking = currentOptions?.CurrentValue;
+            var linking = resolvedOptions ?? currentOptions?.CurrentValue;
             if (linking?.Enabled != true)
                 throw new InvalidOperationException("The current service-link business sender is unavailable.");
             allowPrivateHttp = linking.AllowPrivateHttp;
@@ -34,10 +34,10 @@ public static class ServiceLinkOutboundNetwork
     }
 
     public static void PrepareRequest(HttpRequestMessage request, OrchestrationResolvedSettings settings,
-        IOptionsMonitor<ServiceLinkOptions>? currentOptions)
+        IOptionsMonitor<ServiceLinkOptions>? currentOptions, ServiceLinkOptions? resolvedOptions = null)
     {
         var uri = request.RequestUri ?? throw new InvalidOperationException("The NetRatel request has no absolute endpoint.");
-        var allowPrivateHttp = Validate(uri, "NetRatel endpoint", settings, currentOptions);
+        var allowPrivateHttp = Validate(uri, "NetRatel endpoint", settings, currentOptions, resolvedOptions);
         request.Options.Set(IntegrationSafeHttpMessageHandler.AllowPrivateHttpOption, allowPrivateHttp);
     }
 }

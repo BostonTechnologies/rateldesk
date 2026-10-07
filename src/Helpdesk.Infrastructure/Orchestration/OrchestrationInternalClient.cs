@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Infrastructure.ServiceLink;
+using Helpdesk.Infrastructure.ServiceIdentity;
 using Helpdesk.Shared.DTOs.Orchestration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -14,7 +15,7 @@ public sealed class OrchestrationInternalClient(
     IHttpClientFactory httpClientFactory,
     IOrchestrationTokenService tokenService,
     ILogger<OrchestrationInternalClient> logger,
-    IOptionsMonitor<ServiceLinkOptions>? currentLinkOptions = null) : IOrchestrationInternalClient, IOrchestrationProtectedDiagnosticsClient
+    IOptionsMonitor<ServiceLinkOptions>? currentLinkOptions = null, IServicePublicSettingsResolver? publicSettings = null) : IOrchestrationInternalClient, IOrchestrationProtectedDiagnosticsClient
 {
     private const int MaximumResponseBytes = 1024 * 1024;
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(20);
@@ -27,7 +28,7 @@ public sealed class OrchestrationInternalClient(
         CancellationToken cancellationToken = default,
         bool useTokenCache = true)
     {
-        var endpoint = BuildAbsoluteUri(settings, settings.HealthPath);
+        var endpoint = await BuildAbsoluteUriAsync(settings, settings.HealthPath, cancellationToken);
         using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
         await AttachAuthHeaderAsync(settings, request, cancellationToken, useTokenCache);
 
@@ -54,7 +55,7 @@ public sealed class OrchestrationInternalClient(
         CancellationToken cancellationToken = default,
         bool useTokenCache = true)
     {
-        var endpoint = BuildAbsoluteUri(settings, "/api/v1/system/m2m/ping");
+        var endpoint = await BuildAbsoluteUriAsync(settings, "/api/v1/system/m2m/ping", cancellationToken);
         using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
         await AttachAuthHeaderAsync(settings, request, cancellationToken, useTokenCache);
         var client = _httpClientFactory.CreateClient(settings.ServiceLink is null ? "OrchestrationInternalApi" : ServiceLinkOutboundNetwork.BusinessClientName);
@@ -80,7 +81,7 @@ public sealed class OrchestrationInternalClient(
         OrchestrationIngestRequest requestPayload,
         CancellationToken cancellationToken = default)
     {
-        var endpoint = BuildAbsoluteUri(settings, settings.IngestPath);
+        var endpoint = await BuildAbsoluteUriAsync(settings, settings.IngestPath, cancellationToken);
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
             Content = JsonContent.Create(
@@ -294,12 +295,12 @@ public sealed class OrchestrationInternalClient(
         bool useTokenCache = true)
     {
         var accessToken = await _tokenService.GetAccessTokenAsync(settings, cancellationToken, useTokenCache);
-        ServiceLinkOutboundNetwork.PrepareRequest(request, settings, currentLinkOptions);
+        ServiceLinkOutboundNetwork.PrepareRequest(request, settings, currentLinkOptions, publicSettings is null || settings.ServiceLink is null ? null : (await publicSettings.ResolveAsync(cancellationToken)).Linking);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
     }
 
-    private Uri BuildAbsoluteUri(OrchestrationResolvedSettings settings, string path)
+    private async Task<Uri> BuildAbsoluteUriAsync(OrchestrationResolvedSettings settings, string path, CancellationToken cancellationToken)
     {
         var baseUrl = settings.BaseUrl;
         if (string.IsNullOrWhiteSpace(baseUrl))
@@ -308,7 +309,7 @@ public sealed class OrchestrationInternalClient(
         }
 
         var uri = new Uri(new Uri(baseUrl, UriKind.Absolute), path);
-        ServiceLinkOutboundNetwork.Validate(uri, "NetRatel endpoint", settings, currentLinkOptions);
+        ServiceLinkOutboundNetwork.Validate(uri, "NetRatel endpoint", settings, currentLinkOptions, publicSettings is null || settings.ServiceLink is null ? null : (await publicSettings.ResolveAsync(cancellationToken)).Linking);
         return uri;
     }
 

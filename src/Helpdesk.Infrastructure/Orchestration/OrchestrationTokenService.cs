@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Infrastructure.ServiceLink;
+using Helpdesk.Infrastructure.ServiceIdentity;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -38,7 +39,7 @@ public sealed class OrchestrationTokenService(
 
         if (!Uri.TryCreate(tokenEndpoint, UriKind.Absolute, out var tokenUri))
             throw new InvalidOperationException("External orchestration token endpoint is not a valid absolute URL.");
-        ServiceLinkOutboundNetwork.Validate(tokenUri, "TokenEndpoint", settings, currentLinkOptions);
+        ServiceLinkOutboundNetwork.Validate(tokenUri, "TokenEndpoint", settings, currentLinkOptions, settings.ServiceLink is null ? null : await CurrentLinksAsync(cancellationToken));
 
         if (string.IsNullOrWhiteSpace(settings.ClientId) || string.IsNullOrWhiteSpace(settings.ClientSecret))
         {
@@ -70,7 +71,7 @@ public sealed class OrchestrationTokenService(
 
         var client = _httpClientFactory.CreateClient(settings.ServiceLink is null ? "OrchestrationToken" : ServiceLinkOutboundNetwork.TokenClientName);
         using var request = new HttpRequestMessage(HttpMethod.Post, tokenEndpoint);
-        ServiceLinkOutboundNetwork.PrepareRequest(request, settings, currentLinkOptions);
+        ServiceLinkOutboundNetwork.PrepareRequest(request, settings, currentLinkOptions, settings.ServiceLink is null ? null : await CurrentLinksAsync(cancellationToken));
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var form = new Dictionary<string, string>
@@ -165,6 +166,14 @@ public sealed class OrchestrationTokenService(
                 return token;
             }
         }
+    }
+
+    private async Task<ServiceLinkOptions?> CurrentLinksAsync(CancellationToken cancellationToken)
+    {
+        if (scopes is null) return null;
+        await using var scope = scopes.CreateAsyncScope();
+        var settings = scope.ServiceProvider.GetService<IServicePublicSettingsResolver>();
+        return settings is null ? null : (await settings.ResolveAsync(cancellationToken)).Linking;
     }
 
     private async Task RequireCurrentProviderAsync(OrchestrationResolvedSettings settings, CancellationToken cancellationToken)

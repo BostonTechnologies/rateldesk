@@ -2,10 +2,10 @@ using System.Security.Claims;
 using Helpdesk.API.Authentication;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.ServiceIdentity;
+using Helpdesk.Shared.ServiceIdentity;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 
 namespace Helpdesk.API.Endpoints.Authentication;
 
@@ -15,9 +15,9 @@ public static class ServiceIdentityEndpoints
 {
     public static void MapServiceIdentityEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/.well-known/oauth-authorization-server", (IOptionsMonitor<ServiceIdentityOptions> options, HttpContext http) =>
+        app.MapGet("/.well-known/oauth-authorization-server", async (IServicePublicSettingsResolver options, HttpContext http, CancellationToken ct) =>
         {
-            var settings = options.CurrentValue;
+            var settings = (await options.ResolveAsync(ct)).Identity;
             NoStore(http);
             if (!settings.Enabled) return Results.NotFound();
             return Results.Ok(new { issuer = settings.Issuer, token_endpoint = settings.ApiBaseUrl.TrimEnd('/') + "/connect/token",
@@ -25,9 +25,9 @@ public static class ServiceIdentityEndpoints
                 token_endpoint_auth_methods_supported = new[] { "client_secret_post" }, scopes_supported = ServiceIdentityScopes.All,
                 token_endpoint_auth_signing_alg_values_supported = Array.Empty<string>() });
         }).AllowAnonymous().WithTags("Service Identity");
-        app.MapGet("/.well-known/jwks.json", async (ServiceSigningKeyStore keys, IOptionsMonitor<ServiceIdentityOptions> options, HttpContext http, CancellationToken ct) =>
+        app.MapGet("/.well-known/jwks.json", async (ServiceSigningKeyStore keys, IServicePublicSettingsResolver options, HttpContext http, CancellationToken ct) =>
         {
-            if (!options.CurrentValue.Enabled) return Results.NotFound();
+            if (!(await options.ResolveAsync(ct)).Identity.Enabled) return Results.NotFound();
             http.Response.Headers.CacheControl = "public,max-age=60,must-revalidate";
             try { return Results.Ok(await keys.GetJwksAsync(ct)); }
             catch (ServiceSigningKeyUnavailableException) { NoStore(http); return Results.Problem(statusCode: 503, title: "Service signing key unavailable"); }
@@ -36,6 +36,24 @@ public static class ServiceIdentityEndpoints
             .RequireRateLimiting(ServiceIdentityServiceCollectionExtensions.SensitiveRateLimiter);
 
         var group = app.MapGroup("/api/v1/admin/service-clients").RequireAuthorization(ServiceIdentityServiceCollectionExtensions.ManagementPolicy).WithTags("Service Clients");
+        group.MapGet("/public-settings", async (IServicePublicSettingsResolver settings, HttpContext http, CancellationToken ct) =>
+        {
+            NoStore(http);
+            try { return Results.Ok((await settings.ResolveAsync(ct)).ToDto()); }
+            catch (ArgumentException exception) { return Results.Problem(statusCode: 503, title: exception.Message); }
+            catch (ServiceClientConflictException exception) { return Conflict(exception.Message); }
+        });
+        group.MapPut("/public-settings", async ([FromBody] ServicePublicSettingsUpdate update, IServicePublicSettingsResolver settings,
+            IIntegrationCredentialOwnerResolver owners, HttpContext http, CancellationToken ct) =>
+        {
+            NoStore(http);
+            var owner = await owners.ResolveAsync(http.User, ct);
+            if (owner is null) return Results.Forbid();
+            try { return Results.Ok((await settings.UpdateAsync(update, owner.UserId, ct)).ToDto()); }
+            catch (ArgumentException exception) { return Results.BadRequest(new { code = "invalid-service-settings", error = exception.Message }); }
+            catch (ServiceClientConflictException exception) { return Conflict(exception.Message); }
+            catch (DbUpdateException) { return Conflict("Connection setup changed. Reload and review the current settings."); }
+        });
         group.MapGet("/", async (IServicePrincipalRegistry registry, HttpContext http, CancellationToken ct) =>
         {
             NoStore(http);
@@ -43,7 +61,7 @@ public static class ServiceIdentityEndpoints
             catch (ServiceClientConflictException ex) { return Conflict(ex.Message); }
         });
         group.MapPost("/", async ([FromBody] ServiceClientCreateRequest request, IServicePrincipalRegistry registry, IIntegrationCredentialOwnerResolver owners,
-            ClaimsPrincipal principal, IOptionsMonitor<ServiceIdentityOptions> options, HttpContext http, CancellationToken ct) =>
+            ClaimsPrincipal principal, IServicePublicSettingsResolver options, HttpContext http, CancellationToken ct) =>
         {
             NoStore(http);
             // Link clients are created solely by the bound consent state machine, never by a manual body.
@@ -53,7 +71,7 @@ public static class ServiceIdentityEndpoints
                 var owner = await owners.ResolveAsync(principal, ct);
                 if (owner is null) return Results.Forbid();
                 var created = await registry.CreateAsync(request, owner.UserId, ct: ct);
-                return Results.Created($"/api/v1/admin/service-clients/{created.Principal.Id:D}", Reveal(created, options.CurrentValue));
+                return Results.Created($"/api/v1/admin/service-clients/{created.Principal.Id:D}", Reveal(created, (await options.ResolveAsync(ct)).Identity));
             }
             catch (ArgumentException ex) { return Results.BadRequest(new { code = "invalid-client-request", error = ex.Message }); }
             catch (ServiceClientConflictException ex) { return Conflict(ex.Message); }
@@ -62,10 +80,10 @@ public static class ServiceIdentityEndpoints
             catch (InvalidOperationException ex) { return Results.Problem(statusCode: 503, title: ex.Message); }
         }).RequireRateLimiting(ServiceIdentityServiceCollectionExtensions.SensitiveRateLimiter);
         group.MapPost("/{id:guid}/rotate", async (Guid id, [FromBody] RotateServiceClientRequest request, IServicePrincipalRegistry registry,
-            IOptionsMonitor<ServiceIdentityOptions> options, HttpContext http, CancellationToken ct) =>
+            IServicePublicSettingsResolver options, HttpContext http, CancellationToken ct) =>
         {
             NoStore(http);
-            try { return Results.Ok(Reveal(await registry.RotateAsync(id, request.ExpectedCredentialRevision, ct), options.CurrentValue)); }
+            try { return Results.Ok(Reveal(await registry.RotateAsync(id, request.ExpectedCredentialRevision, ct), (await options.ResolveAsync(ct)).Identity)); }
             catch (ServiceClientConflictException ex) { return Conflict(ex.Message); }
             catch (KeyNotFoundException) { return Results.NotFound(); }
             catch (DbUpdateException) { return Conflict("A concurrent credential change won; reload the registration."); }
@@ -91,10 +109,15 @@ public static class ServiceIdentityEndpoints
     }
 
     private static async Task<IResult> IssueTokenAsync(HttpContext http, IServicePrincipalRegistry registry, ServiceAccessTokenService tokens,
-        IOptionsMonitor<ServiceIdentityOptions> options, CancellationToken ct)
+        IServicePublicSettingsResolver options, CancellationToken ct)
     {
         NoStore(http);
-        if (!options.CurrentValue.Enabled) return Results.Json(new { error = "temporarily_unavailable" }, statusCode: 503);
+        try
+        {
+            if (!(await options.ResolveAsync(ct)).Identity.Enabled) return Results.Json(new { error = "temporarily_unavailable" }, statusCode: 503);
+        }
+        catch (Exception exception) when (exception is ArgumentException or ServiceClientConflictException)
+        { return Results.Json(new { error = "temporarily_unavailable" }, statusCode: 503); }
         if (!string.Equals(http.Request.ContentType?.Split(';', 2)[0].Trim(), "application/x-www-form-urlencoded", StringComparison.OrdinalIgnoreCase) || http.Request.ContentLength > 8192 || http.Request.Headers.Authorization.Count > 0) return Results.BadRequest(new { error = "invalid_request" });
         var feature = http.Features.Get<IHttpMaxRequestBodySizeFeature>();
         if (feature is { IsReadOnly: false }) feature.MaxRequestBodySize = 8192;
