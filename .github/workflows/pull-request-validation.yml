@@ -38,10 +38,16 @@ jobs:
       - name: Install repository validation dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes ripgrep
+          sudo apt-get install --yes ripgrep jq
 
       - name: Reject private references and secret-bearing files
         run: tools/ci/check-public-disclosure.sh
+
+      - name: Verify release helper integrity without publication
+        run: |
+          python3 tools/release/test-validate-stable-promotion.py
+          tools/release/test-promote-stable-images.sh
+          tools/release/test-publish-release-assets.sh
 
       - name: Scan for secrets
         run: >-
@@ -345,11 +351,6 @@ jobs:
       - name: Check out triggering commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Test stable-promotion validation helper without registry writes
-        run: |
-          python3 tools/release/test-validate-stable-promotion.py
-          tools/release/test-promote-stable-images.sh
-
       - name: Set up .NET SDK from global.json
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
@@ -372,9 +373,6 @@ jobs:
 
       - name: Execute extracted Linux x64 archives
         run: tools/release/test-executable-archives.sh release-assets linux-x64
-
-      - name: Test release asset upload and state preservation
-        run: tools/release/test-publish-release-assets.sh
 
       - name: Upload release rehearsal assets
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
