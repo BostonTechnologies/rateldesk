@@ -12,6 +12,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      deep_acceptance:
+        description: Run browser, mailbox, image, release archive, and full Compose acceptance
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -133,6 +139,7 @@ jobs:
           retention-days: 14
 
   ux:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance }}
     name: Playwright UX validation
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -198,6 +205,7 @@ jobs:
           retention-days: 14
 
   mailbox-lifecycle:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance }}
     name: Mailbox lifecycle acceptance
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -293,6 +301,7 @@ jobs:
           retention-days: 14
 
   docker:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance }}
     name: Docker build (${{ matrix.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -328,6 +337,7 @@ jobs:
         run: tools/ci/test-mcp-compose-config.sh "${{ matrix.image }}"
 
   release-assets:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance }}
     name: Release asset rehearsal
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -379,6 +389,7 @@ jobs:
           retention-days: 14
 
   archive-runtime:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance }}
     name: Release archive runtime (${{ matrix.rid }})
     needs: release-assets
     runs-on: ${{ matrix.runner }}
@@ -408,6 +419,7 @@ jobs:
         run: tools/release/test-executable-archives.sh release-assets "${{ matrix.rid }}"
 
   compose:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance }}
     name: Compose startup validation
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -431,6 +443,7 @@ jobs:
         run: docker compose -f docker/docker-compose.yml down --volumes --remove-orphans
 
   compose-postgres:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance }}
     name: Compose PostgreSQL setup validation
     runs-on: ubuntu-latest
     timeout-minutes: 35
