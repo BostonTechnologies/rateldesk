@@ -102,6 +102,10 @@ public sealed partial class ServiceLinkCoordinator
 
     private async Task<object> LifecycleOnceAsync(string pathLinkId, string kind, ServiceLinkLifecycleRequest request, ClaimsPrincipal caller, CancellationToken ct)
     {
+        // Current authority, the tracked link and the durable replay decision must
+        // share the recipient's Serializable snapshot. Caller transactions remain owned by callers.
+        await using var ownedTransaction = db.Database.CurrentTransaction is null && System.Transactions.Transaction.Current is null
+            ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct) : null;
         var (a, principal) = await Bound(pathLinkId, caller, kind == "verify" ? ServiceLinkContract.VerifyScope : ServiceLinkContract.ControlScope, ct);
         Id(request.OperationId);
         Require(request.Contract == ServiceLinkContract.Version && request.LinkId == pathLinkId && request.LinkRevision == a.LinkRevision && request.GrantHash == a.GrantHash &&
@@ -120,10 +124,11 @@ public sealed partial class ServiceLinkCoordinator
         if (existing is not null)
         {
             Require(!existing.Outbound && existing.Kind == kind && await LifecycleFingerprintMatches(a, existing, kind, request, ct), "operation-payload-conflict", "This durable operation identifier is already bound to a different body.", 409);
-            return System.Text.Json.JsonDocument.Parse(existing.ResponseJson).RootElement.Clone();
+            var replay = System.Text.Json.JsonDocument.Parse(existing.ResponseJson).RootElement.Clone();
+            if (ownedTransaction is not null) await ownedTransaction.CommitAsync(ct);
+            return replay;
         }
         request = ServiceLinkPayloadNormalization.Lifecycle(request);
-        await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         await Expire(a, ct);
         Dictionary<string, object?> response;
         switch (kind)
@@ -137,7 +142,7 @@ public sealed partial class ServiceLinkCoordinator
             default: throw new ServiceLinkProtocolException(404, "operation-not-found", "The lifecycle operation is unsupported.");
         }
         db.Set<ServiceLinkOperation>().Add(new ServiceLinkOperation { LinkId = pathLinkId, OperationId = request.OperationId, Kind = kind, RequestFingerprint = fingerprint, ResponseJson = Json(response), Completed = true, CreatedAtUnixSeconds = Now });
-        await Save(a, ct); await tx.CommitAsync(ct); return response;
+        await Save(a, ct); if (ownedTransaction is not null) await ownedTransaction.CommitAsync(ct); return response;
     }
 
     private static void ValidateFields(string kind, ServiceLinkLifecycleRequest request)
