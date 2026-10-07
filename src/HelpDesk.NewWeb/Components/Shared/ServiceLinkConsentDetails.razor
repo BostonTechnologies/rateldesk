@@ -1,5 +1,12 @@
 @using Helpdesk.Shared.ServiceLink
 
+<MudStack Spacing="1">
+    <MudText Typo="Typo.subtitle2">@ProductLabel(Initiator.Product) · @CanonicalHost(Initiator.WebBaseUrl) ↔ @ProductLabel(Responder.Product) · @CanonicalHost(Responder.WebBaseUrl)</MudText>
+    <MudText Typo="Typo.body2">Create helpdesk incidents from monitoring alerts in the approved organization and customer. Credentials are stored securely by the services.</MudText>
+    @if (Grants.Any(grant => grant.Scopes.Contains("netratel.orchestration.invoke")))
+    { <MudText Typo="Typo.body2">Also run the explicitly approved tasks on the selected NetRatel clients.</MudText> }
+</MudStack>
+<MudExpansionPanels Elevation="0"><MudExpansionPanel Text="Permission and connection details">
 <MudStack Spacing="2" data-testid="service-link-consent-details">
     <MudGrid Spacing="2">
         @foreach (var peer in new[] { Initiator, Responder })
@@ -46,11 +53,13 @@
         </MudPaper>
     }
 </MudStack>
+</MudExpansionPanel></MudExpansionPanels>
 
 @code {
     [Parameter, EditorRequired] public ServiceLinkMetadata Initiator { get; set; } = new();
     [Parameter, EditorRequired] public ServiceLinkMetadata Responder { get; set; } = new();
     [Parameter, EditorRequired] public ServiceLinkGrant[] Grants { get; set; } = [];
+    private static string ProductLabel(string value) => value == "netratel" ? "NetRatel" : "RatelDesk";
     private static string CanonicalHost(string value) => Uri.TryCreate(value, UriKind.Absolute, out var uri) ? uri.Authority : "Unverified origin";
     private static string Display(string value) => string.IsNullOrWhiteSpace(value) ? "Awaiting explicit selection" : value;
     private static string DisplaySet(IEnumerable<string> values) => values.Any() ? string.Join(", ", values) : "None granted";
