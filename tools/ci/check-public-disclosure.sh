@@ -33,6 +33,8 @@ disallowed_matches=$(rg -n -i -e "$blocked_text" \
     -e 's#orgs/BostonTechnologies/packages/container##g' \
     -e 's#BostonTechnologies/RatelDesk##g' \
     -e 's#bostec\.service-link\.hash\.v1##g' \
+    -e 's#\(^\|[^[:alnum:]_.-]\)bostec\.service-link\.incident-only\.v1\($\|[^[:alnum:]_.-]\)#\1\2#g' \
+    -e 's#\(^\|[^[:alnum:]_.-]\)bostec-service-link\.incident-only\.v1\(\.fixtures\.json\|\.SHA256SUMS\|\.json\|\.md\)\{0,1\}\($\|[^[:alnum:]_.-]\)#\1\3#g' \
     -e 's#bostec\.service-link\.v1##g' \
     -e 's#bostec\.service-link\.control##g' \
     -e 's#bostec\.service-link\.verify##g' \
@@ -57,6 +59,8 @@ while IFS= read -r candidate_file; do
 
   if strings -a "$candidate_file" | sed \
       -e 's#bostec\.service-link\.hash\.v1##g' \
+      -e 's#\(^\|[^[:alnum:]_.-]\)bostec\.service-link\.incident-only\.v1\($\|[^[:alnum:]_.-]\)#\1\2#g' \
+      -e 's#\(^\|[^[:alnum:]_.-]\)bostec-service-link\.incident-only\.v1\(\.fixtures\.json\|\.SHA256SUMS\|\.json\|\.md\)\{0,1\}\($\|[^[:alnum:]_.-]\)#\1\3#g' \
       -e 's#bostec\.service-link\.v1##g' \
       -e 's#bostec\.service-link\.control##g' \
       -e 's#bostec\.service-link\.verify##g' \
