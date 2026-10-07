@@ -539,13 +539,13 @@ public sealed partial class ServiceLinkLifecycleTests
         string completedResponse;
         using (var response = await local.ServiceAsync(HttpMethod.Post, route, control, request))
         {
+            Assert.Equal(1, race.Interleavings);
+            Assert.Equal(beforeAttempt.Revision, race.WorkerRevisionBefore);
+            Assert.Equal(beforeAttempt.Revision + 2, race.WorkerRevisionAfter);
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             Assert.True(response.Headers.CacheControl?.NoStore == true);
             completedResponse = await response.Content.ReadAsStringAsync();
         }
-        Assert.Equal(1, race.Interleavings);
-        Assert.Equal(beforeAttempt.Revision, race.WorkerRevisionBefore);
-        Assert.Equal(beforeAttempt.Revision + 2, race.WorkerRevisionAfter);
         Assert.Equal(2, race.RecipientContextIds.Length);
         Assert.Equal(2, race.RecipientContextIds.Distinct().Count());
         Assert.DoesNotContain(race.WorkerContextId, race.RecipientContextIds);
