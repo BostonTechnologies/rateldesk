@@ -545,7 +545,7 @@ public sealed partial class ServiceLinkLifecycleTests
         }
         Assert.Equal(1, race.Interleavings);
         Assert.Equal(beforeAttempt.Revision, race.WorkerRevisionBefore);
-        Assert.Equal(beforeAttempt.Revision + 1, race.WorkerRevisionAfter);
+        Assert.Equal(beforeAttempt.Revision + 2, race.WorkerRevisionAfter);
         Assert.Equal(2, race.RecipientContextIds.Length);
         Assert.Equal(2, race.RecipientContextIds.Distinct().Count());
         Assert.DoesNotContain(race.WorkerContextId, race.RecipientContextIds);
@@ -560,13 +560,13 @@ public sealed partial class ServiceLinkLifecycleTests
             var attempt = Assert.Single(await db.Set<ServiceLinkAttempt>().AsNoTracking().ToListAsync());
             var rotation = Assert.Single(await db.Set<ServiceLinkRotation>().AsNoTracking().ToListAsync());
             var principal = Assert.Single(await db.Set<ServicePrincipalRegistration>().AsNoTracking().ToListAsync());
-            Assert.Equal(beforeAttempt.Revision + 2, attempt.Revision); // Worker schedule and the one committed activation.
+            Assert.Equal(beforeAttempt.Revision + 3, attempt.Revision); // Worker rotation progress/schedule and the one committed activation.
             Assert.Equal(race.WorkerNextWorkAt, attempt.NextWorkAtUnixSeconds);
             Assert.Equal(beforeAttempt.LinkRevision, attempt.LinkRevision);
             Assert.Equal(beforeAttempt.GrantHash, attempt.GrantHash);
             Assert.Equal(beforeAttempt.InboundPrincipalId, attempt.InboundPrincipalId);
             Assert.Equal(beforeRotation.RotationId, rotation.RotationId);
-            Assert.Equal(beforeRotation.Revision + 1, rotation.Revision);
+            Assert.Equal(beforeRotation.Revision + 2, rotation.Revision); // Worker progress and the one committed activation.
             Assert.Equal("activated", rotation.RotationState);
             Assert.NotNull(rotation.ActivateDecisionId);
             Assert.Equal(receiptId, rotation.SuccessorVerificationReceiptId);
@@ -667,7 +667,7 @@ public sealed partial class ServiceLinkLifecycleTests
                 .SingleAsync(attempt => attempt.AttemptId == attemptId, cancellationToken);
             WorkerRevisionAfter = committed.Revision;
             WorkerNextWorkAt = committed.NextWorkAtUnixSeconds;
-            Assert.Equal(WorkerRevisionBefore + 1, WorkerRevisionAfter);
+            Assert.Equal(WorkerRevisionBefore + 2, WorkerRevisionAfter);
             Assert.Null(workerDb.Database.CurrentTransaction);
             return result;
         }
