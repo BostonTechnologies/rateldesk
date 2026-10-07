@@ -11,6 +11,7 @@ public sealed partial class ServiceLinkCoordinator
 {
     public async Task<ServiceLinkAdminStatus> AdminActionAsync(string identifier, string kind, ServiceLinkAdminAction request, ClaimsPrincipal actor, CancellationToken ct)
     {
+        await RefreshSettingsAsync(ct);
         var a = await db.Set<ServiceLinkAttempt>().SingleOrDefaultAsync(x => x.LinkId == identifier || x.AttemptId == identifier, ct) ?? throw new ServiceLinkProtocolException(404, "link-not-found", "The attempt or link does not exist.");
         await AuthorizeAttempt(a, actor, ct);
         if (kind == "resume") { a = await ProgressWithRetry(a, ct); return await AdminStatus(a, ct); }
@@ -204,7 +205,7 @@ public sealed partial class ServiceLinkCoordinator
                 {
                     await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
                     a.ProtectedOutboundCredential = Protect(a, "outbound-credential", Json(candidate)); await StageOutbound(a, candidate, ct);
-                    a.OutboundProfileRevision = (await providers.SetLinkedOrchestratorSenderEnabledAsync(a.LinkId!, a.LinkRevision, a.OutboundProfileRevision!.Value, true, ct)).Revision;
+                    if (!IncidentOnlyGrant(OutboundGrant(a))) a.OutboundProfileRevision = (await providers.SetLinkedOrchestratorSenderEnabledAsync(a.LinkId!, a.LinkRevision, a.OutboundProfileRevision!.Value, true, ct)).Revision;
                     r.CallerSwitchRevision = a.OutboundProfileRevision; await Save(a, ct); await tx.CommitAsync(ct);
                 }
                 else

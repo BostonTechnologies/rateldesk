@@ -22,10 +22,16 @@ public sealed partial class ServiceLinkCoordinator(
     IOptions<ServiceLinkOptions> options, IOptionsMonitor<ServiceIdentityOptions> identityOptions, TimeProvider clock,
     ServiceLinkProtocolTokenCache protocolTokens,
     IOptionsMonitor<ServiceLinkOptions>? currentOptions = null,
-    IServiceScopeFactory? scopes = null)
+    IServiceScopeFactory? scopes = null,
+    IServicePublicSettingsResolver? publicSettings = null)
 {
-    private ServiceLinkOptions settings => currentOptions?.CurrentValue ?? options.Value;
-    private ServiceIdentityOptions issuer => identityOptions.CurrentValue;
+    private ServicePublicSettingsEffective? _publicSettings;
+    private ServiceLinkOptions settings => _publicSettings?.Linking ?? currentOptions?.CurrentValue ?? options.Value;
+    private ServiceIdentityOptions issuer => _publicSettings?.Identity ?? identityOptions.CurrentValue;
+    public async Task RefreshSettingsAsync(CancellationToken ct)
+    {
+        if (publicSettings is not null) _publicSettings = await publicSettings.ResolveAsync(ct);
+    }
     private long Now => clock.GetUtcNow().ToUnixTimeSeconds();
     private static string Json<T>(T value) => JsonSerializer.Serialize(value);
     private static T Read<T>(string value) => ServiceLinkCanonicalJson.Deserialize<T>(value);
@@ -62,6 +68,8 @@ public sealed partial class ServiceLinkCoordinator(
                 new("rateldesk.incident-create.v1", [ServiceIdentityScopes.IncidentReceipts, ServiceIdentityScopes.IncidentTargets, ServiceIdentityScopes.IncidentCreate],
                 [new("POST", "/api/v1/incidents/", ServiceIdentityScopes.IncidentCreate), new("GET", "/api/v1/integrations/netratel/capabilities", ServiceIdentityScopes.IncidentReceipts), new("GET", "/api/v1/integrations/netratel/incident-receipts/{key}", ServiceIdentityScopes.IncidentReceipts), new("POST", "/api/v1/integrations/netratel/targets/validate", ServiceIdentityScopes.IncidentTargets)]),
                 new("rateldesk.orchestration.callback.v1", [ServiceIdentityScopes.Callback], [new("POST", "/api/v1/orchestration/provider/callback", ServiceIdentityScopes.Callback), new("GET", "/api/v1/orchestration/provider/m2m/ping", ServiceIdentityScopes.Callback)]),
+                new(ServiceLinkContract.IncidentOnlyCapability, [ServiceLinkContract.ControlScope, ServiceLinkContract.VerifyScope],
+                [new("POST", ServiceLinkContract.EndpointPath + "/links/{link_id}/verify", ServiceLinkContract.VerifyScope), new("GET", ServiceLinkContract.EndpointPath + "/links/{link_id}/status", ServiceLinkContract.ControlScope)]),
                 new(ServiceLinkContract.Version, [ServiceLinkContract.ControlScope, ServiceLinkContract.VerifyScope],
                 [new("POST", ServiceLinkContract.EndpointPath + "/links/{link_id}/verify", ServiceLinkContract.VerifyScope), new("GET", ServiceLinkContract.EndpointPath + "/links/{link_id}/status", ServiceLinkContract.ControlScope), .. new[] { "ack", "commit", "abort", "revoke", "rotate" }.Select(x => new ServiceLinkResourceOperation("POST", ServiceLinkContract.EndpointPath + "/links/{link_id}/" + x, ServiceLinkContract.ControlScope))])
             ]
@@ -124,20 +132,28 @@ public sealed partial class ServiceLinkCoordinator(
         var inbound = await ServiceLinkAuthority.InboundUsableAsync(db, a, clock, issuer, settings, ct);
         var provider = await providers.GetOrchestratorSettingsAsync(ct);
         var sender = SenderUsable(a, provider, inbound);
+        var customerIds = a.GrantSummaryJson is null ? Array.Empty<string>() : InboundGrant(a).ResourceConstraints.CustomerIds;
         return new(a.AttemptId, a.LinkId, a.LinkRevision, a.LifecycleState,
             a.LocalTenantId, a.PeerInstanceId, a.PeerTenantId, a.Decision, a.CommitId, a.GrantHash, Descriptor(a), a.GrantSummaryJson is null ? null : Summary(a),
             a.InboundPrincipalId is not null, a.ProtectedOutboundCredential is not null, inbound, sender, a.PeerActiveAcknowledged, EffectiveError(a, inbound, sender),
             provider.ManagedByDeployment, await RotationSummaries(a, ct))
-            { AutomaticRotationEnabled = settings.AutomaticRotationEnabled, RotationAgeDays = settings.RotationAgeDays, RotationOverlapSeconds = settings.RotationOverlapSeconds };
+            { LocalTenantName = await db.Organizations.IgnoreQueryFilters().AsNoTracking().Where(o => o.Id == a.LocalTenantId).Select(o => o.Name).SingleOrDefaultAsync(ct),
+                LocalCustomerName = a.GrantSummaryJson is null ? null : await db.Customers.IgnoreQueryFilters().AsNoTracking()
+                    .Where(c => customerIds.Contains(c.Id) && c.OrganizationId == a.LocalTenantId)
+                    .Select(c => c.Name).SingleOrDefaultAsync(ct),
+                AutomaticRotationEnabled = settings.AutomaticRotationEnabled, RotationAgeDays = settings.RotationAgeDays, RotationOverlapSeconds = settings.RotationOverlapSeconds };
     }
     private static bool SenderUsable(ServiceLinkAttempt a, Helpdesk.Shared.DTOs.Orchestration.OrchestrationConnectivitySettingsDto provider, bool inbound) =>
         inbound && a.LocalBusinessSenderEnabled && a.PeerActiveAcknowledged && provider.Enabled && provider.ManagedSenderEnabled && provider.LinkId == a.LinkId &&
         provider.LinkRevision == a.LinkRevision && provider.LocalTenantId == a.LocalTenantId && provider.PeerInstanceId == a.PeerInstanceId && provider.PeerTenantId == a.PeerTenantId;
+    private static bool ControlOnlyOutbound(ServiceLinkAttempt a) => a.GrantSummaryJson is not null &&
+        IncidentOnlyGrant(Summary(a).Grants.Single(g => g.DirectionId ==
+            (a.Role == "initiator" ? ServiceLinkContract.InitiatorToResponder : ServiceLinkContract.ResponderToInitiator)));
     private static string? EffectiveError(ServiceLinkAttempt a, bool inbound, bool sender) => a.LastErrorCode ??
-        (a.Decision == "commit" && a.LifecycleState == "active" && (!inbound || !sender) ? "grant-unavailable" : null);
+        (a.Decision == "commit" && a.LifecycleState == "active" && (!inbound || !sender && !ControlOnlyOutbound(a)) ? "grant-unavailable" : null);
 
     public async Task<ServiceLinkAdminStatus> AdminStatusAsync(string attemptId, ClaimsPrincipal actor, CancellationToken ct)
-    { var a = await Attempt(attemptId, ct); await AuthorizeAttempt(a, actor, ct); return await AdminStatus(a, ct); }
+    { await RefreshSettingsAsync(ct); var a = await Attempt(attemptId, ct); await AuthorizeAttempt(a, actor, ct); return await AdminStatus(a, ct); }
     private async Task AuthorizeAttempt(ServiceLinkAttempt a, ClaimsPrincipal actor, CancellationToken ct)
     {
         if (!string.IsNullOrEmpty(a.LocalTenantId)) { await Authorize(actor, a.LocalTenantId, ct); return; }
@@ -146,6 +162,7 @@ public sealed partial class ServiceLinkCoordinator(
     }
     public async Task<ServiceLinkAdminStatus[]> AdminListAsync(ClaimsPrincipal actor, CancellationToken ct)
     {
+        await RefreshSettingsAsync(ct);
         var access = await accessService.ResolveAsync(actor, ct);
         Require(actor.FindFirst("integration_credential_id") is null && actor.FindFirst(ServiceIdentityClaims.PrincipalId) is null && (access.IsHelpdeskAdmin || access.ManagedOrganizationIds.Count > 0), "administrator-required", "Administrator authority is required.", 403);
         var all = await db.Set<ServiceLinkAttempt>().Where(x => access.IsHelpdeskAdmin || access.ManagedOrganizationIds.Contains(x.LocalTenantId)).OrderByDescending(x => x.CreatedAtUnixSeconds).Take(100).ToListAsync(ct);

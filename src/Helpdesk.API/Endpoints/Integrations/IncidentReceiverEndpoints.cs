@@ -28,7 +28,10 @@ public static class IncidentReceiverEndpoints
             if (approved is null) return IncidentReceiverContract.Problem(403, "source-not-authorized");
             var receiverId = await receiver.ReceiverIdAsync(ct);
             if (receiverId is null) return IncidentReceiverContract.Problem(503, "receiver-not-initialized");
-            var configured = options.Value.PublicApiBaseUrl;
+            var publicSettings = http.RequestServices.GetService<IServicePublicSettingsResolver>();
+            var effective = publicSettings is null ? null : await publicSettings.ResolveAsync(ct);
+            // A configured receiver path prefix keeps its existing meaning. Managed setup supplies the API only when it is absent.
+            var configured = string.IsNullOrWhiteSpace(options.Value.PublicApiBaseUrl) ? effective?.Identity.ApiBaseUrl : options.Value.PublicApiBaseUrl;
             if (!Uri.TryCreate(configured, UriKind.Absolute, out var api) || api.Scheme is not ("https" or "http") ||
                 api.UserInfo.Length != 0 || api.Query.Length != 0 || api.Fragment.Length != 0)
                 return IncidentReceiverContract.Problem(503, "receiver-api-url-not-configured");
@@ -37,6 +40,7 @@ public static class IncidentReceiverEndpoints
             {
                 contractVersion = IncidentReceiverContract.Version, receiverInstanceId = receiverId.Value.ToString("D"),
                 sourceInstanceId = sourceId.ToString("D"), sourceNamespaceId = approved.Source.SourceNamespaceId.ToString("D"),
+                organizationName = approved.Organization.Name, customerName = approved.Customer.Name,
                 createEndpoint = apiBase + "/api/v1/incidents/",
                 receiptEndpointTemplate = apiBase + "/api/v1/integrations/netratel/incident-receipts/{key}",
                 targetValidationEndpoint = apiBase + "/api/v1/integrations/netratel/targets/validate",
@@ -45,7 +49,7 @@ public static class IncidentReceiverEndpoints
                 minimumReceiptRetentionSeconds = 7776000, maximumAutomaticReplaySeconds = 2592000,
                 receiptEvictionEnabled = false, atomicIncidentReceiptAndEffects = true,
                 supportsReceiptLookup = true, supportsSafeSameKeyReplay = true,
-                authenticationModes = http.RequestServices.GetService<IOptions<ServiceIdentityOptions>>()?.Value.Enabled == true
+                authenticationModes = (effective?.Identity.Enabled ?? http.RequestServices.GetService<IOptions<ServiceIdentityOptions>>()?.Value.Enabled) == true
                     ? new[] { "api_bearer", "oauth_client_credentials" } : new[] { "api_bearer" }
             });
         });

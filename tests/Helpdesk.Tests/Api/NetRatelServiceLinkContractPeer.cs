@@ -97,7 +97,10 @@ internal sealed class NetRatelServiceLinkContractPeer : IAsyncDisposable
                  new("GET", "/internal/catalog/jobs", "netratel.orchestration.read"),
                  new("GET", "/internal/catalog/tenants", "netratel.orchestration.read"),
                  new("GET", "/internal/catalog/request-definitions", "netratel.orchestration.read"),
-                 new("POST", "/internal/ingest", "netratel.orchestration.invoke")])]
+                 new("POST", "/internal/ingest", "netratel.orchestration.invoke")]),
+                new(ServiceLinkContract.IncidentOnlyCapability, [ServiceLinkContract.ControlScope, ServiceLinkContract.VerifyScope],
+                [new("POST", ServiceLinkContract.EndpointPath + "/links/{link_id}/verify", ServiceLinkContract.VerifyScope),
+                 new("GET", ServiceLinkContract.EndpointPath + "/links/{link_id}/status", ServiceLinkContract.ControlScope)])]
         };
     }
 
@@ -127,7 +130,7 @@ internal sealed class NetRatelServiceLinkContractPeer : IAsyncDisposable
             CallerTenantId = grant.CallerProduct == "netratel" ? TenantId : grant.CallerTenantId,
             TargetTenantId = grant.TargetProduct == "netratel" ? TenantId : grant.TargetTenantId,
             ResourceConstraints = grant.TargetProduct == "netratel"
-                ? grant.ResourceConstraints with { TenantId = TenantId, RequestDefinitionIds = ["synthetic-request-definition"] }
+                ? grant.ResourceConstraints with { TenantId = TenantId, RequestDefinitionIds = ServiceLinkValidation.IncidentOnlyGrant(grant) ? [] : ["synthetic-request-definition"] }
                 : grant.ResourceConstraints
         }).ToArray();
         grants = ServiceLinkValidation.Grants(grants, descriptor.InitiatorEndpointSnapshot, Metadata);

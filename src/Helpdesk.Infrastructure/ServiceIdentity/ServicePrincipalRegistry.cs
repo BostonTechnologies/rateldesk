@@ -50,8 +50,10 @@ public interface IServicePrincipalRegistry
 
 /// <summary>Every token grant and authenticated request reads durable authority, including on other replicas.</summary>
 public sealed class ServicePrincipalRegistry(HelpdeskDbContext db, IOptionsMonitor<ServiceIdentityOptions> options,
-    TimeProvider time, IOptionsMonitor<ServiceLinkOptions>? linkingOptions = null) : IServicePrincipalRegistry
+    TimeProvider time, IOptionsMonitor<ServiceLinkOptions>? linkingOptions = null, IServicePublicSettingsResolver? publicSettings = null) : IServicePrincipalRegistry
 {
+    private async Task<ServiceIdentityOptions> SettingsAsync(CancellationToken ct) => publicSettings is null ? options.CurrentValue : (await publicSettings.ResolveAsync(ct)).Identity;
+
     public static bool IsValidClientId(string value) => Regex.IsMatch(value, "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", RegexOptions.CultureInvariant);
     public static string[] ReadArray(string value) => JsonSerializer.Deserialize<string[]>(value) ?? [];
     public static bool IsMachinePrincipal(ClaimsPrincipal principal) => principal.HasClaim("auth_mode", "service") && principal.HasClaim("token_use", ServiceIdentityClaims.Purpose);
@@ -60,7 +62,7 @@ public sealed class ServicePrincipalRegistry(HelpdeskDbContext db, IOptionsMonit
 
     public async Task<CreatedServiceClient> CreateAsync(ServiceClientCreateRequest request, string actorId, bool pending = false, CancellationToken ct = default)
     {
-        if (!options.CurrentValue.Enabled) throw new InvalidOperationException("The service issuer is not configured.");
+        if (!(await SettingsAsync(ct)).Enabled) throw new InvalidOperationException("The service issuer is not configured.");
         ValidateRequest(request);
         if (string.IsNullOrWhiteSpace(actorId)) throw new ArgumentException("An approving administrator is required.");
         var clientId = request.ClientId ?? $"rdsvc_{Guid.NewGuid():N}";
@@ -91,7 +93,7 @@ public sealed class ServicePrincipalRegistry(HelpdeskDbContext db, IOptionsMonit
 
     public async Task<AuthenticatedServiceClient?> AuthenticateClientAsync(string clientId, string secret, CancellationToken ct = default)
     {
-        if (!options.CurrentValue.Enabled || !IsValidClientId(clientId) || secret.Length is < 32 or > 1024) return null;
+        if (!(await SettingsAsync(ct)).Enabled || !IsValidClientId(clientId) || secret.Length is < 32 or > 1024) return null;
         await EnsureDeploymentClientsAsync(ct);
         var registration = await db.Set<ServicePrincipalRegistration>().AsNoTracking().SingleOrDefaultAsync(x => x.NormalizedClientId == clientId.ToUpperInvariant(), ct);
         if (registration is null || !await RegistrationEnabledAsync(registration, ct) || !await LocalIdentityCurrentAsync(registration, ct)) return null;
@@ -162,10 +164,11 @@ public sealed class ServicePrincipalRegistry(HelpdeskDbContext db, IOptionsMonit
 
     private async Task<bool> LocalIdentityCurrentAsync(ServicePrincipalRegistration row, CancellationToken ct)
     {
-        var currentOptions = options.CurrentValue;
+        var effective = publicSettings is null ? null : await publicSettings.ResolveAsync(ct);
+        var currentOptions = effective?.Identity ?? options.CurrentValue;
         if (!currentOptions.Enabled) return false;
         if (row.LinkId is null) return true;
-        var currentLinking = linkingOptions?.CurrentValue;
+        var currentLinking = effective?.Linking ?? linkingOptions?.CurrentValue;
         if (currentLinking is null || !currentLinking.Enabled) return false;
         var attempt = await db.Set<ServiceLinkAttempt>().AsNoTracking().SingleOrDefaultAsync(x => x.LinkId == row.LinkId && x.AttemptId == row.AttemptId &&
             x.LinkRevision == row.LinkRevision && x.GrantHash == row.GrantHash && x.InboundPrincipalId == row.Id &&
@@ -189,6 +192,7 @@ public sealed class ServicePrincipalRegistry(HelpdeskDbContext db, IOptionsMonit
         if (status is not ("pending" or "prepared" or "verified" or "in_doubt" or "active" or "revoked" or "expired" or "failed")) throw new ArgumentException("Unsupported registration state.");
         var row = await ManagedAsync(id, ct);
         if (row.Status == "revoked" && status != "revoked") throw new ServiceClientConflictException("Revoked registrations cannot be reopened.");
+        if (status == "active" && !(await SettingsAsync(ct)).Enabled) throw new ServiceClientConflictException("Service connections are disabled.");
         if (status == "active" && !await MappingEnabledAsync(row.OrganizationId, ReadArray(row.CustomerIdsJson), ct)) throw new ServiceClientConflictException("The approved mapping is disabled.");
         row.Status = status;
         row.Version++;
@@ -229,6 +233,7 @@ public sealed class ServicePrincipalRegistry(HelpdeskDbContext db, IOptionsMonit
 
     public async Task<CreatedServiceClient> CreateSuccessorAsync(Guid id, long expectedRevision, CancellationToken ct = default)
     {
+        if (!(await SettingsAsync(ct)).Enabled) throw new ServiceClientConflictException("Service connections are disabled.");
         var row = await ManagedAsync(id, ct);
         if (row.Status != "active" || row.CurrentCredentialRevision != expectedRevision) throw new ServiceClientConflictException("The credential revision or registration state changed.");
         if (await db.Set<ServicePrincipalSecret>().AnyAsync(x => x.ServicePrincipalId == id && x.CredentialRevision > expectedRevision && x.Status == "pending", ct)) throw new ServiceClientConflictException("A successor credential is already pending.");
@@ -242,6 +247,7 @@ public sealed class ServicePrincipalRegistry(HelpdeskDbContext db, IOptionsMonit
 
     public async Task ActivateSuccessorAsync(Guid id, long revision, CancellationToken ct = default)
     {
+        if (!(await SettingsAsync(ct)).Enabled) throw new ServiceClientConflictException("Service connections are disabled.");
         var row = await ManagedAsync(id, ct);
         var successor = await db.Set<ServicePrincipalSecret>().SingleAsync(x => x.ServicePrincipalId == id && x.CredentialRevision == revision, ct);
         if (row.Status != "active" || successor.Status == "revoked" || revision < row.CurrentCredentialRevision) throw new ServiceClientConflictException("The successor cannot be activated.");
@@ -276,7 +282,7 @@ public sealed class ServicePrincipalRegistry(HelpdeskDbContext db, IOptionsMonit
 
     public async Task<IReadOnlyList<ServiceClientMetadata>> ListAsync(CancellationToken ct = default)
     {
-        if (options.CurrentValue.Enabled) await EnsureDeploymentClientsAsync(ct);
+        if ((await SettingsAsync(ct)).Enabled) await EnsureDeploymentClientsAsync(ct);
         var rows = await db.Set<ServicePrincipalRegistration>().AsNoTracking().ToListAsync(ct);
         var secrets = await db.Set<ServicePrincipalSecret>().AsNoTracking().ToListAsync(ct);
         return rows.OrderByDescending(x => x.CreatedAtUtc).Select(x => Metadata(x, secrets.Single(s => s.ServicePrincipalId == x.Id && s.CredentialRevision == x.CurrentCredentialRevision).ExpiresAtUtc)).ToArray();

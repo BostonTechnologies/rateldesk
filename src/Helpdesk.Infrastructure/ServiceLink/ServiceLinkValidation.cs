@@ -49,6 +49,18 @@ public static class ServiceLinkValidation
         return ServiceLinkPayloadNormalization.Metadata(metadata);
     }
 
+    public static bool ControlOnlyScopes(string[] scopes) => scopes is { Length: 2 } &&
+        scopes.Contains(ServiceLinkContract.ControlScope, StringComparer.Ordinal) &&
+        scopes.Contains(ServiceLinkContract.VerifyScope, StringComparer.Ordinal);
+
+    public static bool IncidentOnlyGrant(ServiceLinkGrant grant) => grant.TargetProduct == "netratel" &&
+        grant.Capabilities is [ServiceLinkContract.IncidentOnlyCapability] && ControlOnlyScopes(grant.Scopes) &&
+        grant.ResourceConstraints.ResourceIds.Length == 0 && grant.ResourceConstraints.RequestDefinitionIds.Length == 0;
+
+    public static void RequireIncidentOnlySupport(ServiceLinkMetadata local, ServiceLinkMetadata peer) =>
+        Require(new[] { local, peer }.All(m => m.PermissionProfiles.Any(p => p.Capability == ServiceLinkContract.IncidentOnlyCapability && ControlOnlyScopes(p.Scopes))),
+            "upgrade-required", "Upgrade both products to support incident-only connections before approving this relationship.", 422);
+
     public static ServiceLinkGrant[] Grants(ServiceLinkGrant[] grants, ServiceLinkMetadata initiator, ServiceLinkMetadata responder, bool proposal = false)
     {
         if (grants is null) throw new ServiceLinkProtocolException(400, "invalid-grant", "Exactly two independently approved directions are required.");
@@ -64,6 +76,7 @@ public static class ServiceLinkValidation
                 "grant-binding-mismatch", "The grant differs from its approved endpoint identity.");
             Require((proposal || !string.IsNullOrWhiteSpace(g.CallerTenantId) && !string.IsNullOrWhiteSpace(g.TargetTenantId)) && g.Scopes.Length > 0 && g.Capabilities.Length > 0, "invalid-grant", "The grant requires explicit tenant and capability boundaries.");
             var scopes = Set(g.Scopes); var capabilities = Set(g.Capabilities);
+            if (capabilities.Contains(ServiceLinkContract.IncidentOnlyCapability, StringComparer.Ordinal)) RequireIncidentOnlySupport(initiator, responder);
             Require(capabilities.All(c => target.PermissionProfiles.Any(p => p.Capability == c)) && scopes.All(s => target.PermissionProfiles.Any(p => capabilities.Contains(p.Capability, StringComparer.Ordinal) && p.Scopes.Contains(s, StringComparer.Ordinal))), "unsupported-grant", "A requested scope or capability is not supported by the approved peer profile.");
             var constraints = g.ResourceConstraints;
             foreach (var set in new[] { constraints.CustomerIds, constraints.RequestIds, constraints.TaskIds, constraints.ResourceIds, constraints.RequestDefinitionIds }) Set(set);
@@ -80,11 +93,28 @@ public static class ServiceLinkValidation
             else
             {
                 Require(constraints.OrganizationId is null && constraints.CustomerIds.Length == 0 && constraints.TaskIds.Length == 0 && constraints.RequestIds.Length == 0 && constraints.TenantId == (string.IsNullOrEmpty(g.TargetTenantId) ? null : g.TargetTenantId), "invalid-resource-constraints", "NetRatel requires its exact tenant/resource boundary.");
-                Require(proposal || constraints.ResourceIds.Length > 0 || constraints.RequestDefinitionIds.Length > 0, "invalid-resource-constraints", "The final NetRatel grant must select explicit authorized resources or request definitions.");
+                if (capabilities.Contains(ServiceLinkContract.IncidentOnlyCapability, StringComparer.Ordinal))
+                {
+                    RequireIncidentOnlySupport(initiator, responder);
+                    Require(IncidentOnlyGrant(g), "invalid-resource-constraints", "An incident-only reverse direction permits only connection verification/control and no business resources.");
+                }
+                else
+                    Require(proposal || constraints.ResourceIds.Length > 0 || constraints.RequestDefinitionIds.Length > 0, "invalid-resource-constraints", "The final NetRatel grant must select explicit authorized resources or request definitions.");
                 Require(g.SourceInstanceId is null && g.SourceNamespaceId is null, "invalid-source-grant", "This outbound grant does not own the incident producer namespace.");
             }
             return g with { Scopes = scopes, Capabilities = capabilities };
         }).ToArray();
+        if (normalized.Any(g => g.Capabilities.Contains(ServiceLinkContract.IncidentOnlyCapability, StringComparer.Ordinal)))
+        {
+            var control = normalized.SingleOrDefault(g => g.TargetProduct == "netratel");
+            var incidents = normalized.SingleOrDefault(g => g.TargetProduct == "rateldesk");
+            Require(control is not null && IncidentOnlyGrant(control) && incidents is not null &&
+                !incidents.Capabilities.Contains(ServiceLinkContract.IncidentOnlyCapability, StringComparer.Ordinal) &&
+                incidents.Scopes.Length == 3 && incidents.Scopes.Contains("rateldesk.incidents.create", StringComparer.Ordinal) &&
+                incidents.Scopes.Contains("rateldesk.incident-receipts.read", StringComparer.Ordinal) &&
+                incidents.Scopes.Contains("rateldesk.incident-targets.read", StringComparer.Ordinal),
+                "invalid-incident-only-grant", "Incident-only connections authorize incident creation and exact connection control. Approve task access separately.");
+        }
         var forwardGrant = normalized.Single(g => g.DirectionId == ServiceLinkContract.InitiatorToResponder);
         var reverseGrant = normalized.Single(g => g.DirectionId == ServiceLinkContract.ResponderToInitiator);
         Require((proposal && (string.IsNullOrEmpty(forwardGrant.CallerTenantId) || string.IsNullOrEmpty(reverseGrant.TargetTenantId)) || forwardGrant.CallerTenantId == reverseGrant.TargetTenantId) &&
