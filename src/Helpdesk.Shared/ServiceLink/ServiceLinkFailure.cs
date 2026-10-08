@@ -29,7 +29,7 @@ public sealed record ServiceLinkFailure(string Code, string Stage, string? Corre
         "network-policy-rejected" or "peer-unavailable" or "peer-timeout" or "unsupported-peer" or
         "invalid-organization" or "invalid-tenant" or "approval-required" or "not-authorized" or "expired" or "session-expired" or "form-expired" or
         "invalid-proof" or "upgrade-required" or "deployment-managed" or "profile-occupied" or
-        "source-unavailable" or "service-unavailable" or "callback-required" or "grant-unavailable" or
+        "source-unavailable" or "service-unavailable" or "rate-limited" or "callback-required" or "grant-unavailable" or
         "service-link-conflict" or "relationship-already-exists" or "protected-state-unavailable" or "invalid-request" or "needs-attention" => code,
         "organization-disabled" or "organization-required" => "invalid-organization",
         "administrator-required" or "actor-mismatch" or "actor-session-mismatch" => "not-authorized",
@@ -44,7 +44,7 @@ public sealed record ServiceLinkFailure(string Code, string Stage, string? Corre
         "peer-operation-failed" => "peer-unavailable",
         _ => statusCode switch
         {
-            401 or 403 => "not-authorized", 404 or 410 => "expired", 409 => "needs-attention",
+            401 or 403 => "not-authorized", 404 or 410 => "expired", 409 => "needs-attention", 429 => "rate-limited",
             502 => "peer-unavailable", 504 => "peer-timeout", 503 => "service-unavailable", _ => "invalid-request"
         }
     };
@@ -88,6 +88,7 @@ public sealed record ServiceLinkFailure(string Code, string Stage, string? Corre
         "network-policy-rejected" => "The peer address was blocked by this installation's network policy. Check the address and ask an administrator to review the permitted network configuration before retrying.",
         "peer-unavailable" => "The peer could not complete the request. Check the peer address and availability, then retry.",
         "peer-timeout" => "The peer request timed out. Check connectivity and retry the operation.",
+        "rate-limited" => "Connection requests are temporarily limited. Wait one minute, then retry the same action. Existing setup state is retained.",
         "invalid-organization" => "The selected organization is unavailable. Select an enabled organization you administer. Cancel an old unapproved setup with an invalid organization and start a fresh setup.",
         "invalid-tenant" => "The selected tenant is unavailable. Select a current tenant you administer and start a fresh setup.",
         "approval-required" => "This setup still needs explicit approval. Reopen it from the connection list and review its exact grants.",

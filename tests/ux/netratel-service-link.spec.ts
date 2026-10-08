@@ -32,11 +32,27 @@ test('NetRatel service mode requires explicit grants and fits mobile light/dark 
   await page.goto('/account/integration-credentials');
   await expect(page.getByTestId('integration-credentials-page')).toHaveAttribute('data-interactive', 'true');
   await expect(page.getByRole('tab', { name: 'System connections', exact: true })).toHaveAttribute('aria-selected', 'true');
-  await page.getByRole('tab', { name: 'API & MCP credentials', exact: true }).click();
-  await expect(page.getByTestId('integration-credential-create')).toBeVisible();
-  await expect(page.getByTestId('netratel-service-link-list')).not.toBeVisible();
-  await page.getByRole('tab', { name: 'System connections', exact: true }).click();
-  await expect(page.getByTestId('integration-credential-create')).not.toBeVisible();
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.getByRole('tab', { name: 'API & MCP credentials', exact: true }).click();
+    await expect(page.getByTestId('integration-credential-create')).toBeVisible();
+    await expect(page.getByTestId('netratel-service-link-list')).not.toBeVisible();
+    await page.getByRole('tab', { name: 'System connections', exact: true }).click();
+    await expect(page.getByTestId('integration-credential-create')).not.toBeVisible();
+    const labelsFit = await page.getByTestId('integration-credential-tabs').getByRole('tab').evaluateAll(tabs => tabs.every(tab => {
+      const bounds = tab.getBoundingClientRect();
+      const walker = document.createTreeWalker(tab, NodeFilter.SHOW_TEXT);
+      const content = [...tab.querySelectorAll('svg')].map(icon => icon.getBoundingClientRect());
+      while (walker.nextNode()) {
+        if (!walker.currentNode.textContent?.trim()) continue;
+        const range = document.createRange();
+        range.selectNodeContents(walker.currentNode);
+        content.push(range.getBoundingClientRect());
+      }
+      return content.length > 0 && content.every(rect => rect.left >= bounds.left - 1 && rect.right <= bounds.right + 1) && bounds.left >= -1 && bounds.right <= innerWidth + 1;
+    }));
+    expect(labelsFit, 'both tab labels and icons must fit their visible tab at desktop and narrow widths').toBe(true);
+  }
   await page.getByRole('button', { name: 'Connect NetRatel', exact: true }).click();
   await expect(page.getByTestId('netratel-m2m-form')).toBeVisible();
   await expect(page.getByTestId('netratel-service-link-list')).toHaveCount(0);
