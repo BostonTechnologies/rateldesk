@@ -31,13 +31,10 @@ test.afterEach(async ({ page }) => {
 test('NetRatel service mode requires explicit grants and fits mobile light/dark layouts', async ({ page }, testInfo) => {
   await page.goto('/account/integration-credentials');
   await expect(page.getByTestId('integration-credentials-page')).toHaveAttribute('data-interactive', 'true');
-  await page.getByRole('button', { name: 'Create credential', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Purpose', exact: true }).click();
-  await page.getByRole('option', { name: 'NetRatel M2M', exact: true }).click();
+  await page.getByRole('button', { name: 'Connect NetRatel', exact: true }).click();
   await expect(page.getByTestId('netratel-m2m-form')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Continue to NetRatel', exact: true })).toBeDisabled();
-  await expect(page.locator('input[aria-label="Local organization"]')).toHaveValue('');
-  await expect(page.locator('input[aria-label="Approved incident customer"]')).toBeDisabled();
+  await expect(page.getByTestId('netratel-link-start').getByRole('button', { name: 'Connect NetRatel', exact: true })).toBeDisabled();
+  await expect(page.getByTestId('netratel-link-start').locator('input[name="requestedResponderTenantId"]')).toHaveValue('');
   await page.getByTestId('netratel-manual-mode').click();
   await expect(page.getByRole('combobox', { name: 'NetRatel → RatelDesk permissions', exact: true })).toHaveValue('3 selected permissions');
   await expect(page.getByLabel('Verified NetRatel instance ID', { exact: true })).toBeVisible();
@@ -55,7 +52,8 @@ test('NetRatel service mode requires explicit grants and fits mobile light/dark 
   }
   await page.getByTestId('netratel-guided-mode').click();
   await expect(page.getByTestId('netratel-guided-mode')).toBeEnabled();
-  await expect(page.getByText('Discovery → NetRatel administrator approval → review both grants → your final approval → authenticated checks in both directions.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Create helpdesk incidents from monitoring alerts. Sign in at NetRatel and approve the connection; you return here automatically.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Connections enabled locally. Peer approval and verification are still required.', { exact: true })).toBeVisible();
   await expect(page.getByTestId('netratel-link-start').locator('input[name="__RequestVerificationToken"]')).toHaveCount(1);
   const stored = await page.evaluate(() => Object.keys(localStorage).concat(Object.keys(sessionStorage)));
   expect(stored.some(key => /service.?link|pairing|verifier|browser.?state/i.test(key))).toBe(false);
@@ -63,30 +61,31 @@ test('NetRatel service mode requires explicit grants and fits mobile light/dark 
 });
 
 test('a failed proof has a clean review page and a truthful manual compatibility path', async ({ page }) => {
-  const response = await page.goto('/account/integration-credentials/link/result?status=upgrade-required');
+  const response = await page.goto('/account/integration-credentials/link/result?status=upgrade-required&stage=start&correlationId=0123456789abcdef0123456789abcdef');
   expect(response?.headers()['cache-control']).toContain('no-store');
   expect(response?.headers()['referrer-policy']).toBe('no-referrer');
-  await expect(page.getByText('Upgrade required: the peer does not support the shared service-link protocol. Use manual credentials until a compatible NetRatel build is available.', { exact: true })).toBeVisible();
+  await expect(page.getByText(/The peer does not support the required connection contract/)).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Correct setup and retry', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Resume/ })).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Manual outbound settings', exact: true })).toBeVisible();
   await assertNoHorizontalOverflow(page);
   await page.goto('/account/integration-credentials/link/callback?attempt_id=synthetic-attempt&pairing_code=synthetic-proof&browser_state=synthetic-state&responder_instance_id=synthetic-peer&oauth_issuer=https%3A%2F%2Fnetratel.example.invalid');
   expect(new URL(page.url()).pathname).toBe('/account/integration-credentials/link/result');
   expect(new URL(page.url()).searchParams.has('pairing_code')).toBe(false);
   expect(new URL(page.url()).searchParams.has('browser_state')).toBe(false);
-  await expect(page.getByText('The link proof or browser session could not be verified. No approval was accepted through this page.', { exact: true })).toBeVisible();
+  await expect(page.getByText(/The approval session is no longer valid/)).toBeVisible();
 });
 
 test('signed-out peer approval discards correlation before ordinary sign-in', async ({ page }) => {
   const approval = '/account/integration-credentials/link/approve?initiator_web_base_url=https%3A%2F%2Fnetratel.example.test&attempt_id=synthetic-attempt&browser_state=synthetic-private-correlation';
   const rejected = await page.request.get(approval, { maxRedirects: 0 });
   expect(rejected.status()).toBe(302);
-  expect(rejected.headers().location).toBe('/login?status=service-link-sign-in-required');
+  expect(rejected.headers().location).toBe('/login?ReturnUrl=%2Faccount%2Fintegration-credentials%2Flink%2Fresume-sign-in');
   expect(rejected.headers()['cache-control']).toContain('no-store');
   expect(rejected.headers()['referrer-policy']).toBe('no-referrer');
   await page.goto(approval);
   expect(new URL(page.url()).pathname).toBe('/login');
-  expect(new URL(page.url()).search).toBe('?status=service-link-sign-in-required');
-  await expect(page.getByText("Sign in here, then return to the initiating product's integration credentials and Continue the existing link.", { exact: true })).toBeVisible();
+  expect(new URL(page.url()).searchParams.get('ReturnUrl')).toBe('/account/integration-credentials/link/resume-sign-in');
   const login = page.getByTestId('local-login-form');
   await expect(login).toHaveAttribute('data-interactive', 'true');
   expect((await login.innerHTML()).includes('synthetic-private-correlation')).toBe(false);
@@ -98,8 +97,9 @@ test('signed-out peer approval discards correlation before ordinary sign-in', as
   await login.getByLabel('Email', { exact: true }).fill(email);
   await login.getByLabel('Password', { exact: true }).fill(password);
   await login.getByRole('button', { name: /^Sign in to / }).click();
-  await expect(page.getByRole('heading', { name: 'Operations Dashboard' })).toBeVisible();
-  expect(new URL(page.url()).search).toBe('');
+  await expect(page.getByTestId('service-link-consent-page')).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe('/account/integration-credentials/link/result');
+  expect(new URL(page.url()).searchParams.has('browser_state')).toBe(false);
 });
 
 test('manual UI creates a live scoped client, hides its secret and revokes cached authorization', async ({ page, request }) => {

@@ -118,7 +118,7 @@ public sealed class ServiceLinkConsentPageTests
         var html = await renderer.Dispatcher.InvokeAsync(view.ToHtmlString);
         Assert.DoesNotContain("service-link-final-approval", html);
         Assert.DoesNotContain("organization-approved", VisibleText(html));
-        Assert.Contains("no longer authorized", VisibleText(html));
+        Assert.Contains("current account cannot perform", VisibleText(html));
     }
 
     [Fact]
@@ -183,7 +183,7 @@ public sealed class ServiceLinkConsentPageTests
         var html = await renderer.Dispatcher.InvokeAsync(view.ToHtmlString);
         Assert.DoesNotContain("service-link-final-approval", html);
         Assert.DoesNotContain("service-link-consent-details", html);
-        Assert.Contains("requires current administrator authority", VisibleText(html));
+        Assert.Contains("current account cannot perform", VisibleText(html));
         Assert.Equal(0, attemptsRead);
         Assert.Equal("attempt-ui", reference.Page!.AttemptId);
     }
@@ -206,7 +206,119 @@ public sealed class ServiceLinkConsentPageTests
             new EventCallbackWorkItem((Func<Task>)(() => (Task)method.Invoke(reference.Panel, null)!)), null));
         var html = await renderer.Dispatcher.InvokeAsync(view.ToHtmlString);
         Assert.DoesNotContain("netratel-link-status", html);
-        Assert.Contains("status is unavailable", VisibleText(html));
+        Assert.Contains("current account cannot perform", VisibleText(html));
+    }
+
+    [Theory]
+    [InlineData("initiator", "awaiting_approval", "continue", false, "netratel-resume-approval")]
+    [InlineData("responder", "awaiting_approval", "respond", false, "Resume approval")]
+    [InlineData("initiator", "approved", "review", true, "Review and approve")]
+    [InlineData("responder", "prepared", "resume", true, "Resume connection checks")]
+    [InlineData("responder", "expired", "none", false, "Reconnect with new approval")]
+    public async Task Connection_list_uses_the_authorized_durable_approval_action(string role, string lifecycle, string action, bool summary, string expected)
+    {
+        var status = Status(summary) with { LocalRole = role, LifecycleState = lifecycle, AvailableAction = action, CanCancel = false, CanStartFresh = lifecycle == "expired" };
+        using var api = new ConsentApi(status) { Links = [status] };
+        await using var services = Services(api, responder: role == "responder");
+        await using var renderer = new ConsentRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        var view = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderAsync<LinksPanel>(ParameterView.Empty));
+        var html = await renderer.Dispatcher.InvokeAsync(view.ToHtmlString);
+        Assert.Contains(expected, html);
+        if (action == "respond")
+        {
+            Assert.Contains("/link/respond/attempt-ui", html);
+            Assert.DoesNotContain("/link/review/attempt-ui", html);
+        }
+        if (action != "continue") Assert.DoesNotContain("netratel-resume-approval", html);
+        if (action != "resume") Assert.DoesNotContain("Resume connection checks", html);
+    }
+
+    [Theory]
+    [InlineData("initiator", "continue", false)]
+    [InlineData("initiator", "continue", true)]
+    [InlineData("responder", "respond", false)]
+    [InlineData("responder", "respond", true)]
+    [InlineData("responder", "none", true)]
+    public async Task Route_alone_cannot_offer_consent_and_no_summary_never_claims_saved_approval(string role, string action, bool responderRoute)
+    {
+        using var api = new ConsentApi(Status(false) with { LocalRole = role, AvailableAction = action });
+        await using var services = Services(api, responderRoute);
+        await using var renderer = new ConsentRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        var view = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderAsync<PageHarness>(ParameterView.FromDictionary(
+            new Dictionary<string, object?> { [nameof(PageHarness.Reference)] = new PageReference() })));
+        var html = await renderer.Dispatcher.InvokeAsync(view.ToHtmlString);
+        Assert.Equal(role == "responder" && action == "respond" && responderRoute, html.Contains("service-link-responder-approval", StringComparison.Ordinal));
+        Assert.DoesNotContain("Approval is saved", VisibleText(html));
+        if (role != "responder" || action != "respond" || !responderRoute) Assert.Contains("No approval is saved", VisibleText(html));
+        Assert.DoesNotContain("service-link-final-approval", html);
+    }
+
+    [Fact]
+    public async Task Malformed_terminal_setup_offers_fresh_selection_without_reusing_the_invalid_organization()
+    {
+        var status = Status(false) with { LocalTenantId = "invalid-immutable-selection", LifecycleState = "expired", AvailableAction = "none", OrganizationBindingInvalid = true, CanCancel = true, CanStartFresh = true };
+        using var api = new ConsentApi(status) { Links = [status] };
+        await using var services = Services(api, responder: true);
+        await using var renderer = new ConsentRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        var view = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderAsync<PageHarness>(ParameterView.FromDictionary(
+            new Dictionary<string, object?> { [nameof(PageHarness.Reference)] = new PageReference() })));
+        var html = await renderer.Dispatcher.InvokeAsync(view.ToHtmlString);
+        Assert.Contains("Cancel setup", VisibleText(html));
+        Assert.Contains("Reconnect with new approval", VisibleText(html));
+        Assert.Contains("organization_id=&amp;customer_id=", html);
+        Assert.DoesNotContain("service-link-responder-approval", html);
+        Assert.DoesNotContain("netratel-resume-approval", html);
+        Assert.DoesNotContain("Resume connection checks", html);
+        Assert.DoesNotContain("organization_id=invalid-immutable-selection", html);
+        Assert.DoesNotContain("Approval is saved", html);
+    }
+
+    [Theory]
+    [InlineData("network-policy-rejected", "network policy")]
+    [InlineData("unsupported-peer", "compatible peer")]
+    [InlineData("organization-disabled", "enabled organization")]
+    public async Task Protected_status_failures_keep_safe_actionable_diagnostics(string code, string guidance)
+    {
+        using var api = new ConsentApi(Status(false));
+        api.Intercept = (request, _) => Task.FromResult<HttpResponseMessage?>(request.RequestUri!.AbsolutePath.Contains("/attempts/", StringComparison.Ordinal)
+            ? new(HttpStatusCode.Forbidden) { Content = JsonContent.Create(new { error = code, stage = "remote-review", correlationId = "0123456789abcdef0123456789abcdef", detail = "sensitive-peer-response" }) } : null);
+        await using var services = Services(api, responder: true);
+        await using var renderer = new ConsentRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        var view = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderAsync<PageHarness>(ParameterView.FromDictionary(
+            new Dictionary<string, object?> { [nameof(PageHarness.Reference)] = new PageReference() })));
+        var html = await renderer.Dispatcher.InvokeAsync(view.ToHtmlString);
+        Assert.Contains(guidance, VisibleText(html));
+        Assert.Contains("Stage: remote-review", VisibleText(html));
+        Assert.Contains("0123456789abcdef0123456789abcdef", VisibleText(html));
+        Assert.DoesNotContain("sensitive-peer-response", html);
+        Assert.DoesNotContain("service-link-responder-approval", html);
+        Assert.DoesNotContain("netratel-resume-approval", html);
+    }
+
+    [Fact]
+    public async Task Pre_attempt_failure_offers_input_correction_without_resume_or_untrusted_diagnostics()
+    {
+        using var api = new ConsentApi(Status(false));
+        await using var services = Services(api, responder: false);
+        var navigation = (ConsentNavigation)services.GetRequiredService<NavigationManager>();
+        navigation.SetResultRoute();
+        await using var renderer = new ConsentRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        var reference = new PageReference();
+        var view = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderAsync<PageHarness>(ParameterView.FromDictionary(
+            new Dictionary<string, object?> { [nameof(PageHarness.Reference)] = reference })));
+        await renderer.Dispatcher.InvokeAsync(() =>
+        {
+            typeof(ConsentPage).GetProperty(nameof(ConsentPage.Status))!.SetValue(reference.Page, "https://sensitive-peer.invalid/error");
+            typeof(ConsentPage).GetProperty(nameof(ConsentPage.Stage))!.SetValue(reference.Page, "start");
+            typeof(ConsentPage).GetProperty(nameof(ConsentPage.CorrelationId))!.SetValue(reference.Page, "sensitive-session-proof");
+            return reference.Page!.SetParametersAsync(ParameterView.Empty);
+        });
+        var html = await renderer.Dispatcher.InvokeAsync(view.ToHtmlString);
+        Assert.Contains("Correct setup and retry", VisibleText(html));
+        Assert.Contains("View notifications", VisibleText(html));
+        Assert.DoesNotContain("sensitive-", html);
+        Assert.DoesNotContain("Resume", VisibleText(html));
+        Assert.DoesNotContain("service-link-final-approval", html);
     }
 
     [Fact]
@@ -614,8 +726,9 @@ public sealed class ServiceLinkConsentPageTests
             InitiatorEndpointSnapshot = new() { Product = "netratel", WebBaseUrl = "https://nr.example.test", InstanceId = "nr-install" },
             ResponderEndpointSnapshot = new() { Product = "rateldesk", WebBaseUrl = "https://rd.example.test", InstanceId = "rd-install" }
         };
-        return new("attempt-ui", withSummary ? "link-ui" : null, 1, withSummary ? "approved" : "awaiting_approval", "organization-approved", "nr-install", "17",
-            "undecided", null, null, descriptor, withSummary ? new() { Grants = grants } : null, false, false, false, false, false, null, false, []);
+        return new("attempt-ui", withSummary ? "link-ui" : null, 1, withSummary ? "approved" : "awaiting_approval", withSummary ? "organization-approved" : "", "nr-install", "17",
+            "undecided", null, null, descriptor, withSummary ? new() { Grants = grants } : null, false, false, false, false, false, null, false, [])
+        { LocalRole = withSummary ? "initiator" : "responder", AvailableAction = withSummary ? "review" : "respond", CanCancel = true };
     }
 
     private static ServiceProvider Services(ConsentApi api, bool responder, PermissionSelectorCapture? selectors = null)

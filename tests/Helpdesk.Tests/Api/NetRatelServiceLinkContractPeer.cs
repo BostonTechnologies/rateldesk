@@ -68,6 +68,7 @@ internal sealed class NetRatelServiceLinkContractPeer : IAsyncDisposable
     public string[] PreparedAcknowledgementOperationIds => preparedAcknowledgementOperations.ToArray();
     public string[] ExchangeRequestFingerprints => exchangeRequestFingerprints.ToArray();
     public string? InvalidMetadataMember { get; set; }
+    public ServiceLinkMetadata? DiscoveryMetadata { get; set; }
     public ServiceDirectionalCredential InboundCredential => inbound!;
     public ServiceDirectionalCredential OutboundCredential => outbound!;
     public bool HasOutboundCredential => outbound is not null;
@@ -147,7 +148,7 @@ internal sealed class NetRatelServiceLinkContractPeer : IAsyncDisposable
         return new(attemptId, pairingCode, browserState, InstanceId, BaseUrl, sessionBinding);
     }
 
-    public ServiceLinkRequestDescriptor PrepareInitiator(ServiceLinkMetadata responder, string organizationId,
+    public ServiceLinkRequestDescriptor PrepareInitiator(ServiceLinkMetadata responder, string? organizationId,
         string customerId, DateTimeOffset now, bool includeCallback = true, bool mismatchInitiatorTenant = false)
     {
         initiatorRole = true; codeVerifier = ServiceLinkValidation.Proof(); BrowserState = ServiceLinkValidation.Proof();
@@ -164,7 +165,7 @@ internal sealed class NetRatelServiceLinkContractPeer : IAsyncDisposable
                 {
                     DirectionId = ServiceLinkContract.InitiatorToResponder, CallerSnapshot = "initiator", TargetSnapshot = "responder",
                     CallerProduct = "netratel", CallerInstanceId = InstanceId, CallerTenantId = TenantId,
-                    TargetProduct = "rateldesk", TargetInstanceId = responder.InstanceId, TargetTenantId = organizationId,
+                    TargetProduct = "rateldesk", TargetInstanceId = responder.InstanceId, TargetTenantId = organizationId ?? "",
                     Issuer = responder.OauthIssuer, Audience = responder.Audience,
                     Capabilities = includeCallback ? ["rateldesk.incident-create.v1", "rateldesk.orchestration.callback.v1"] : ["rateldesk.incident-create.v1"],
                     Scopes = includeCallback
@@ -176,7 +177,7 @@ internal sealed class NetRatelServiceLinkContractPeer : IAsyncDisposable
                 new()
                 {
                     DirectionId = ServiceLinkContract.ResponderToInitiator, CallerSnapshot = "responder", TargetSnapshot = "initiator",
-                    CallerProduct = "rateldesk", CallerInstanceId = responder.InstanceId, CallerTenantId = organizationId,
+                    CallerProduct = "rateldesk", CallerInstanceId = responder.InstanceId, CallerTenantId = organizationId ?? "",
                     TargetProduct = "netratel", TargetInstanceId = InstanceId, TargetTenantId = TenantId,
                     Issuer = BaseUrl, Audience = Metadata.Audience, Capabilities = ["netratel.orchestration.v1"],
                     Scopes = ["netratel.orchestration.invoke", "netratel.orchestration.read"],
@@ -352,7 +353,7 @@ internal sealed class NetRatelServiceLinkContractPeer : IAsyncDisposable
     {
         app.MapGet(ServiceLinkContract.MetadataPath, () =>
         {
-            if (InvalidMetadataMember is null) return Results.Json<object>(Metadata);
+            if (InvalidMetadataMember is null) return Results.Json<object>(DiscoveryMetadata ?? Metadata);
             var node = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(Metadata))!;
             switch (InvalidMetadataMember)
             {

@@ -1,4 +1,5 @@
 using System.Data;
+using System.Diagnostics;
 using System.Security.Claims;
 using Helpdesk.Shared.ServiceLink;
 using Microsoft.EntityFrameworkCore;
@@ -23,6 +24,7 @@ public sealed partial class ServiceLinkCoordinator
                 (prior.LifecycleState == "revoked" || prior.LifecycleState == "expired" && prior.Decision == "abort"), "profile-ownership-conflict", "The existing outbound profile must be explicitly disconnected and its local authority disabled before a new consent ceremony.", 409);
         }
         var peer = ServiceLinkValidation.Metadata(await transport.GetAsync<ServiceLinkMetadata>(Endpoint(request.PeerWebBaseUrl, ServiceLinkContract.MetadataPath), ct), settings.AllowPrivateHttp, request.PeerWebBaseUrl);
+        RecordPeerCompatibility("start", peer, local);
         Require(peer.Product == "netratel" && peer.InstanceId != local.InstanceId, "unsupported-peer", "Select a distinct compatible NetRatel installation.", 422);
         Require(Guid.TryParseExact(peer.SourceInstanceId, "D", out var producer), "source-identity-unavailable", "The NetRatel metadata must advertise its exact persistent Flow producer identity.", 422);
         var customers = Set(request.LocalCustomerIds);
@@ -100,6 +102,7 @@ public sealed partial class ServiceLinkCoordinator
         Require(actor.Identity?.IsAuthenticated == true && actor.FindFirst("integration_credential_id") is null && actor.FindFirst("service_principal_id") is null && (access.IsHelpdeskAdmin || access.ManagedOrganizationIds.Count > 0), "administrator-required", "A local product administrator is required.", 403);
         Require(request.BrowserState.Length is >= 32 and <= 256, "invalid-browser-state", "The bounded initiator correlation is required.");
         var peer = ServiceLinkValidation.Metadata(await transport.GetAsync<ServiceLinkMetadata>(Endpoint(request.InitiatorWebBaseUrl, ServiceLinkContract.MetadataPath), ct), settings.AllowPrivateHttp, request.InitiatorWebBaseUrl);
+        RecordPeerCompatibility("remote-review", peer, local);
         Require(peer.Product == "netratel" && peer.InstanceId != local.InstanceId, "unsupported-peer", "Select a distinct compatible NetRatel installation.");
         var d = await transport.GetAsync<ServiceLinkRequestDescriptor>(Endpoint(peer.ServiceLinkEndpoint, "/requests/" + request.AttemptId), ct);
         ServiceLinkValidation.Metadata(d.InitiatorEndpointSnapshot, settings.AllowPrivateHttp);
@@ -113,7 +116,12 @@ public sealed partial class ServiceLinkCoordinator
         Require(ServiceLinkCanonicalJson.ParseWholeSecondUtcTimestamp(d.ExpiresAt).ToUnixTimeSeconds() > Now, "attempt-expired", "The descriptor has expired.", 410);
         if (ServiceLinkCanonicalJson.HashObject(ServiceLinkPayloadNormalization.Descriptor(d), "descriptor_hash") == d.DescriptorHash)
             d = ServiceLinkPayloadNormalization.Descriptor(d);
-        var actorId = actor.FindFirstValue(ClaimTypes.NameIdentifier) ?? actor.FindFirstValue("sub") ?? "";
+        // A peer-supplied ceiling is not a local organization binding until the
+        // current administrator and enabled organization have both been resolved.
+        // An absent ceiling remains unbound for the responder's explicit chooser.
+        var actorId = string.IsNullOrEmpty(d.RequestedResponderTenantId)
+            ? actor.FindFirstValue(ClaimTypes.NameIdentifier) ?? actor.FindFirstValue("sub") ?? throw new ServiceLinkProtocolException(403, "administrator-required", "The approving actor is unidentified.")
+            : await Authorize(actor, d.RequestedResponderTenantId, ct);
         var existing = await db.Set<ServiceLinkAttempt>().SingleOrDefaultAsync(x => x.AttemptId == request.AttemptId, ct);
         if (existing is not null)
         {
@@ -124,11 +132,20 @@ public sealed partial class ServiceLinkCoordinator
         a.ProtectedBrowserState = Protect(a, "browser-state", request.BrowserState); db.Set<ServiceLinkAttempt>().Add(a); await db.SaveChangesAsync(ct); return d;
     }
 
+    private static void RecordPeerCompatibility(string stage, ServiceLinkMetadata peer, ServiceLinkMetadata local)
+    {
+        Activity.Current?.SetTag("service_link.stage", stage);
+        Activity.Current?.SetTag("service_link.peer_product", peer.Product is "netratel" or "rateldesk" ? peer.Product : "other");
+        Activity.Current?.SetTag("service_link.same_instance", peer.InstanceId == local.InstanceId);
+    }
+
     public async Task<ServiceLinkNavigation> RemoteApproveAsync(ServiceLinkRemoteApproveRequest request, ClaimsPrincipal actor, CancellationToken ct)
     {
         await RefreshSettingsAsync(ct);
         var a = await Attempt(request.AttemptId, ct); var actorId = await Authorize(actor, request.LocalTenantId, ct); var d = Descriptor(a);
         Require(a.Role == "responder" && a.LocalActorId == actorId && a.ExpiresAtUnixSeconds > Now && a.Decision == "undecided" && a.LifecycleState is "awaiting_approval" or "approved" or "prepared" or "verified", "attempt-expired", "The local consent attempt is unavailable.", 410);
+        Require(string.IsNullOrEmpty(d.RequestedResponderTenantId) || d.RequestedResponderTenantId == request.LocalTenantId,
+            "invalid-organization", "The retained proposal requires its original organization. Cancel an invalid proposal and start fresh consent.", 403);
         var browserState = Unprotect(a, "browser-state", a.ProtectedBrowserState!);
         Require(string.IsNullOrEmpty(request.BrowserState) || Same(request.BrowserState, browserState), "invalid-browser-state", "The remote approval correlation changed.");
         var selected = request.Grants;
@@ -223,7 +240,7 @@ public sealed partial class ServiceLinkCoordinator
             await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
             a.ConsentId = NewId(); await CreateInbound(a, actorId, ct); a.NextWorkAtUnixSeconds = Now; await Save(a, ct); await tx.CommitAsync(ct);
         }
-        return await AdminStatus(a, ct);
+        return await AdminStatus(a, actor, ct);
     }
 
     public async Task<ServiceLinkExchangeResponse> ExchangeAsync(string attemptId, ServiceLinkExchangeRequest request, CancellationToken ct)

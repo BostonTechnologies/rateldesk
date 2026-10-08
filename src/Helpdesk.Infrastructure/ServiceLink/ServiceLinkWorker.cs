@@ -79,7 +79,7 @@ public sealed partial class ServiceLinkCoordinator
     private static void ValidatePeerResult(ServiceLinkAttempt a, JsonElement e) => Require(String(e, "contract") == ServiceLinkContract.Version && String(e, "link_id") == a.LinkId && e.GetProperty("link_revision").GetInt64() == a.LinkRevision && String(e, "grant_hash") == a.GrantHash, "peer-lifecycle-binding-mismatch", "The authenticated peer response differs from this approved link.");
 
     public async Task<ServiceLinkAdminStatus> ResumeAsync(string linkId, ClaimsPrincipal actor, CancellationToken ct)
-    { await RefreshSettingsAsync(ct); var a = await Link(linkId, ct); await Authorize(actor, a.LocalTenantId, ct); a = await ProgressWithRetry(a, ct); return await AdminStatus(a, ct); }
+    { await RefreshSettingsAsync(ct); var a = await Link(linkId, ct); await Authorize(actor, a.LocalTenantId, ct); a = await ProgressWithRetry(a, ct); return await AdminStatus(a, actor, ct); }
 
     private async Task<ServiceLinkAttempt> ProgressWithRetry(ServiceLinkAttempt a, CancellationToken ct)
     {

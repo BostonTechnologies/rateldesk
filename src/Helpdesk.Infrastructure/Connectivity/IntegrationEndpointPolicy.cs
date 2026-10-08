@@ -59,9 +59,17 @@ public static class IntegrationEndpointPolicy
     // existing HTTPS and SignalR behavior.
     public static void ValidateServiceLink(Uri uri, string fieldName, bool allowPrivateHttp = false)
     {
-        Validate(uri, fieldName, allowPrivateHttp);
-        if (!allowPrivateHttp && IPAddress.TryParse(uri.Host, out var literal) && IsPrivateNetworkAddress(literal))
-            throw new ArgumentException($"{fieldName} targets a private address without the current deployment opt-in.", fieldName);
+        try
+        {
+            Validate(uri, fieldName, allowPrivateHttp);
+            if (!allowPrivateHttp && IPAddress.TryParse(uri.Host, out var literal) && IsPrivateNetworkAddress(literal))
+                throw new ArgumentException($"{fieldName} targets a private address without the current deployment opt-in.", fieldName);
+        }
+        catch (ArgumentException error)
+        {
+            error.Data["ServiceLink.NetworkPolicyRejected"] = true;
+            throw;
+        }
     }
 
     public static void ValidateServiceLinkResolvedAddresses(
@@ -70,10 +78,18 @@ public static class IntegrationEndpointPolicy
         string fieldName,
         bool allowPrivateHttp)
     {
-        ValidateServiceLink(uri, fieldName, allowPrivateHttp);
-        ValidateResolvedAddressesCore(uri, addresses, fieldName, allowPrivateHttp);
-        if (!allowPrivateHttp && addresses.Any(IsPrivateNetworkAddress))
-            throw new ArgumentException($"{fieldName} resolved to a private address without the current deployment opt-in.", fieldName);
+        try
+        {
+            ValidateServiceLink(uri, fieldName, allowPrivateHttp);
+            ValidateResolvedAddressesCore(uri, addresses, fieldName, allowPrivateHttp);
+            if (!allowPrivateHttp && addresses.Any(IsPrivateNetworkAddress))
+                throw new ArgumentException($"{fieldName} resolved to a private address without the current deployment opt-in.", fieldName);
+        }
+        catch (ArgumentException error)
+        {
+            error.Data["ServiceLink.NetworkPolicyRejected"] = true;
+            throw;
+        }
     }
 
     public static void ValidateResolvedAddresses(

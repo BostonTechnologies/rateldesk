@@ -4,6 +4,7 @@
 @attribute [Authorize(Roles = "HelpdeskAdmin")]
 @using Helpdesk.Shared.ServiceLink
 @using System.Text.Json
+@using HelpDesk.NewWeb.Services
 @inject IHttpClientFactory HttpClientFactory
 @inject NavigationManager Navigation
 @implements IDisposable
@@ -11,25 +12,31 @@
 <PageTitle>NetRatel link approval</PageTitle>
 <MudPaper Class="helpdesk-content-surface pa-4" data-testid="service-link-consent-page">
     <MudStack Spacing="2">
-        <MudText Typo="Typo.h5" HtmlTag="h1">@(IsResponder ? "Approve NetRatel connection" : "Complete NetRatel connection")</MudText>
+        <MudText Typo="Typo.h5" HtmlTag="h1">@(status?.LocalRole == "responder" ? "Approve NetRatel connection" : "Complete NetRatel connection")</MudText>
         @if (loading)
         {
             <MudProgressLinear Indeterminate="true" />
         }
         else if (!IsConsentRoute || error is not null || status is null)
         {
-            <MudAlert Severity="Severity.Warning" Dense="true">@(error ?? ResultMessage(Status))</MudAlert>
+            <MudAlert Severity="Severity.Warning" Dense="true">@(error ?? ServiceLinkFailurePresentation.Message(ServiceLinkFailure.From(Status, Stage, CorrelationId)))</MudAlert>
+            @if (ServiceLinkFailure.NormalizeStage(Stage) == "start")
+            {
+                <MudText Typo="Typo.body2">Correct the peer address or local selection, then retry setup. No approval was accepted by this page.</MudText>
+                <MudButton Href="/account/integration-credentials?purpose=netratel-m2m" Color="Color.Primary">Correct setup and retry</MudButton>
+            }
             <MudButton Href="/account/integration-credentials" Color="Color.Primary">Return to integration credentials</MudButton>
+            <MudButton Href="/notifications">View notifications</MudButton>
             <MudButton Href="/admin/automation/integration/orchestrator">Manual outbound settings</MudButton>
         }
         else
         {
             <MudText Typo="Typo.body2">1 · Connect   →   2 · Approve   →   3 · Connected</MudText>
             <ServiceLinkConsentDetails Initiator="@status.Descriptor.InitiatorEndpointSnapshot" Responder="@status.Descriptor.ResponderEndpointSnapshot" Grants="DisplayedGrants" />
-            @if (IsResponder && status.GrantSummary is null)
+            @if (CanOfferResponderApproval)
             {
                 <MudText Typo="Typo.caption">The receiver source namespace remains pending until this local consent is saved.</MudText>
-                <form method="post" action="/account/integration-credentials/link/respond" data-enhance="false">
+                <form method="post" action="/account/integration-credentials/link/respond" data-enhance="false" data-testid="service-link-responder-approval">
                     <AntiforgeryToken />
                     <input type="hidden" name="attemptId" value="@AttemptId" />
                     <input type="hidden" name="descriptorHash" value="@status.Descriptor.DescriptorHash" />
@@ -84,7 +91,7 @@
                     <MudButton ButtonType="ButtonType.Submit" Color="Color.Primary" Variant="Variant.Filled" Disabled="@(!CanApproveRemote)">Approve and return to NetRatel</MudButton>
                 </form>
             }
-            else if (!IsResponder && status.GrantSummary is not null && status.Decision == "undecided" && status.LifecycleState == "approved")
+            else if (CanOfferFinalApproval)
             {
                 <MudAlert Dense="true" Severity="Severity.Info">NetRatel selected the tenant and grant shown above. Your final confirmation authorizes the exact local grant; the server then exchanges and verifies both independent credentials.</MudAlert>
                 <form method="post" action="/account/integration-credentials/link/confirm" data-enhance="false" data-testid="service-link-final-approval">
@@ -95,9 +102,25 @@
                     <MudButton ButtonType="ButtonType.Submit" Color="Color.Primary" Variant="Variant.Filled">Approve and complete setup</MudButton>
                 </form>
             }
+            else if (status.OrganizationBindingInvalid)
+            {
+                <MudAlert Dense="true" Severity="Severity.Warning">This setup has an invalid organization selection and no saved approval. Its original grants cannot be changed. Use the permitted cancellation action below, then start a new setup.</MudAlert>
+            }
+            else if (status.LifecycleState is "revoked" or "expired" or "failed" || status.Decision == "abort")
+            {
+                <MudAlert Dense="true" Severity="Severity.Warning">This setup is no longer open for approval. Review its stored status below and start a new setup when offered.</MudAlert>
+            }
+            else if (status.GrantSummary is null)
+            {
+                <MudAlert Dense="true" Severity="Severity.Info">No approval is saved. The original approving account must continue in its authorized browser session; connection checks begin after consent.</MudAlert>
+            }
+            else if (status.AvailableAction == "review")
+            {
+                <MudAlert Dense="true" Severity="Severity.Info">The peer approval is saved. Open the final review below to approve the exact local grant.</MudAlert>
+            }
             else
             {
-                <MudAlert Dense="true" Severity="Severity.Info">Approval is saved. Finish the authenticated connection checks below, then verify the Flow connection before using it.</MudAlert>
+                <MudAlert Dense="true" Severity="Severity.Info">The approved grants are saved. Review the connection status and complete any remaining authenticated checks below.</MudAlert>
             }
             <NetRatelServiceLinks />
             <MudButton Href="/account/integration-credentials">Return to connections</MudButton>
@@ -108,6 +131,8 @@
 @code {
     [Parameter] public string? AttemptId { get; set; }
     [SupplyParameterFromQuery(Name = "status")] public string? Status { get; set; }
+    [SupplyParameterFromQuery(Name = "stage")] public string? Stage { get; set; }
+    [SupplyParameterFromQuery(Name = "correlationId")] public string? CorrelationId { get; set; }
     private ServiceLinkAdminStatus? status;
     private List<OrganizationDto> organizations = [];
     private List<CustomerDto> customers = [];
@@ -116,12 +141,14 @@
     private bool loading = true, outboundInvoke, confirmed;
     private long loadRevision;
     private string? error;
-    private bool IsResponder => new Uri(Navigation.Uri).AbsolutePath.Contains("/respond/", StringComparison.Ordinal);
+    private bool IsResponderRoute => new Uri(Navigation.Uri).AbsolutePath.Contains("/respond/", StringComparison.Ordinal);
     private bool IsConsentRoute => !string.IsNullOrEmpty(AttemptId) && string.Equals(new Uri(Navigation.Uri).AbsolutePath,
-        "/account/integration-credentials/link/" + (IsResponder ? "respond/" : "review/") + Uri.EscapeDataString(AttemptId), StringComparison.Ordinal);
+        "/account/integration-credentials/link/" + (IsResponderRoute ? "respond/" : "review/") + Uri.EscapeDataString(AttemptId), StringComparison.Ordinal);
+    private bool CanOfferResponderApproval => IsResponderRoute && status is { LocalRole: "responder", AvailableAction: "respond", GrantSummary: null, OrganizationBindingInvalid: false, Decision: "undecided", LifecycleState: "awaiting_approval" };
+    private bool CanOfferFinalApproval => !IsResponderRoute && status is { LocalRole: "initiator", AvailableAction: "review", GrantSummary: not null, Decision: "undecided", LifecycleState: "approved" };
     private IEnumerable<string> RequestedInboundScopes => status?.Descriptor.RequestedGrants.Where(grant => grant.TargetProduct == "rateldesk").SelectMany(grant => grant.Scopes).Distinct(StringComparer.Ordinal) ?? [];
     private IEnumerable<string> RequestedOutboundScopes => status?.Descriptor.RequestedGrants.Where(grant => grant.TargetProduct == "netratel").SelectMany(grant => grant.Scopes).Distinct(StringComparer.Ordinal) ?? [];
-    private ServiceLinkGrant[] DisplayedGrants => status?.GrantSummary?.Grants ?? (status?.Descriptor.RequestedGrants ?? []).Select(grant => !IsResponder ? grant
+    private ServiceLinkGrant[] DisplayedGrants => status?.GrantSummary?.Grants ?? (status?.Descriptor.RequestedGrants ?? []).Select(grant => !CanOfferResponderApproval ? grant
         : grant.TargetProduct == "rateldesk" ? grant with
         {
             TargetTenantId = organizationId, Scopes = scopes.Order(StringComparer.Ordinal).ToArray(),
@@ -136,7 +163,7 @@
         var revision = ++loadRevision;
         var attemptId = AttemptId;
         var route = new Uri(Navigation.Uri).AbsolutePath;
-        var responder = IsResponder;
+        var responder = IsResponderRoute;
         loading = true; error = null; status = null; confirmed = false;
         organizationId = ""; customerIds.Clear(); scopes.Clear();
         organizations = []; customers = []; outboundInvoke = false;
@@ -145,24 +172,31 @@
         try
         {
             var api = HttpClientFactory.CreateClient("HelpdeskApi");
-            var loadedStatus = await api.GetFromJsonAsync<ServiceLinkAdminStatus>("api/v1/admin/service-links/attempts/" + Uri.EscapeDataString(attemptId));
+            using var statusResponse = await api.GetAsync("api/v1/admin/service-links/attempts/" + Uri.EscapeDataString(attemptId));
+            if (!statusResponse.IsSuccessStatusCode)
+            {
+                var failure = await ServiceLinkFailurePresentation.ReadAsync(statusResponse, "status");
+                if (IsCurrent()) error = ServiceLinkFailurePresentation.Message(failure);
+                return;
+            }
+            var loadedStatus = await statusResponse.Content.ReadFromJsonAsync<ServiceLinkAdminStatus>();
             if (!IsCurrent()) return;
             if (loadedStatus is not null && (loadedStatus.AttemptId != attemptId || loadedStatus.Descriptor.AttemptId != attemptId))
                 throw new JsonException("The returned consent belongs to another attempt.");
             List<OrganizationDto> loadedOrganizations = [];
             List<CustomerDto> loadedCustomers = [];
-            if (responder && loadedStatus?.GrantSummary is null)
+            if (responder && loadedStatus is { LocalRole: "responder", AvailableAction: "respond", GrantSummary: null, OrganizationBindingInvalid: false })
             {
                 var organizationTask = api.GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations");
                 var customerTask = api.GetFromJsonAsync<List<CustomerDto>>("api/v1/customers");
                 await Task.WhenAll(organizationTask, customerTask);
                 if (!IsCurrent()) return;
-                loadedOrganizations = (organizationTask.Result ?? []).Where(organization => organization.IsEnabled).ToList();
+                loadedOrganizations = (organizationTask.Result ?? []).Where(organization => organization.IsEnabled && (string.IsNullOrEmpty(loadedStatus.LocalTenantId) || organization.Id == loadedStatus.LocalTenantId)).ToList();
                 loadedCustomers = customerTask.Result ?? [];
             }
             status = loadedStatus;
             organizations = loadedOrganizations; customers = loadedCustomers;
-            if (responder && status?.GrantSummary is null)
+            if (CanOfferResponderApproval)
             {
                 scopes = RequestedInboundScopes.ToHashSet(StringComparer.Ordinal);
                 outboundInvoke = RequestedOutboundScopes.Contains("netratel.orchestration.invoke");
@@ -185,19 +219,4 @@
     private void ScopesChanged(IEnumerable<string>? values) { confirmed = false; scopes = values?.ToHashSet(StringComparer.Ordinal) ?? []; }
     private void OutboundInvokeChanged(bool value) { confirmed = false; outboundInvoke = value; }
     public void Dispose() => loadRevision++;
-    private static string ResultMessage(string? code) => code switch
-    {
-        "upgrade-required" => "Upgrade required: the peer does not support the shared service-link protocol. Use manual credentials until a compatible NetRatel build is available.",
-        "not-authorized" => "The action requires current administrator authority for the selected organization and customer.",
-        "expired" => "This unprepared ceremony expired. Start a new approved attempt; prepared connections remain available for decision recovery.",
-        "form-expired" => "The approval form expired. Reload the protected review and confirm again.",
-        "needs-attention" => "The operation could not be confirmed. Review its durable directional status and resume recovery before starting another attempt.",
-        "deployment-managed" => "Deployment configuration owns this outbound profile. Review its concrete canonical values in advanced outbound settings; guided setup cannot replace it.",
-        "profile-occupied" => "An existing outbound connection owns the runtime profile. Disconnect it explicitly before approving a replacement.",
-        "source-unavailable" => "NetRatel did not advertise its exact persisted incident producer identity. Its administrator must configure that identity before linking.",
-        "unsupported-peer" => "The selected origin is not a compatible distinct NetRatel instance. Review its canonical metadata before linking.",
-        "service-unavailable" => "This deployment has not enabled its configured service issuer and reciprocal link capability. An operator must configure the separate service settings.",
-        "callback-required" => "Orchestration task invocation requires the reverse callback permission. Include the recorded-task callback grant or approve read-only orchestration access.",
-        _ => "The link proof or browser session could not be verified. No approval was accepted through this page."
-    };
 }
