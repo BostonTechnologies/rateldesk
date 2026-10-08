@@ -18,6 +18,13 @@ public sealed partial class ServiceLinkCoordinator
     private async Task StageOutbound(ServiceLinkAttempt a, ServiceDirectionalCredential credential, CancellationToken ct)
     {
         var peer = Peer(a); var grant = OutboundGrant(a); var inbound = InboundGrant(a);
+        Credential(credential, grant, peer);
+        if (IncidentOnlyGrant(grant))
+        {
+            // The attempt already owns the protected protocol credential. No orchestration profile or business sender is provisioned.
+            a.OutboundProfileRevision = checked((a.OutboundProfileRevision ?? 0) + 1);
+            return;
+        }
         var existing = await providers.GetOrchestratorSettingsAsync(ct);
         var binding = new ServiceLinkOrchestratorBinding(a.LocalTenantId, grant.TargetTenantId, a.PeerInstanceId, a.LinkId!, a.LinkRevision, credential.CredentialRevision, a.GrantHash!, grant.DirectionId, inbound.SourceInstanceId, inbound.SourceNamespaceId);
         var result = await providers.StageLinkedOrchestratorSettingsAsync(new UpdateOrchestrationConnectivitySettingsDto
@@ -72,7 +79,7 @@ public sealed partial class ServiceLinkCoordinator
     private static void ValidatePeerResult(ServiceLinkAttempt a, JsonElement e) => Require(String(e, "contract") == ServiceLinkContract.Version && String(e, "link_id") == a.LinkId && e.GetProperty("link_revision").GetInt64() == a.LinkRevision && String(e, "grant_hash") == a.GrantHash, "peer-lifecycle-binding-mismatch", "The authenticated peer response differs from this approved link.");
 
     public async Task<ServiceLinkAdminStatus> ResumeAsync(string linkId, ClaimsPrincipal actor, CancellationToken ct)
-    { var a = await Link(linkId, ct); await Authorize(actor, a.LocalTenantId, ct); a = await ProgressWithRetry(a, ct); return await AdminStatus(a, ct); }
+    { await RefreshSettingsAsync(ct); var a = await Link(linkId, ct); await Authorize(actor, a.LocalTenantId, ct); a = await ProgressWithRetry(a, ct); return await AdminStatus(a, ct); }
 
     private async Task<ServiceLinkAttempt> ProgressWithRetry(ServiceLinkAttempt a, CancellationToken ct)
     {
@@ -93,6 +100,7 @@ public sealed partial class ServiceLinkCoordinator
 
     public async Task WorkAsync(CancellationToken ct)
     {
+        await RefreshSettingsAsync(ct);
         await CleanupBootstrapEscrow(ct);
         await CleanupRotationEscrow(ct);
         if (!settings.Enabled) return;
@@ -106,6 +114,8 @@ public sealed partial class ServiceLinkCoordinator
             .OrderBy(x => x.NextWorkAtUnixSeconds).Select(x => x.AttemptId).Take(20).ToListAsync(ct);
         foreach (var id in ids)
         {
+            await RefreshSettingsAsync(ct);
+            if (!settings.Enabled || !issuer.Enabled) return;
             db.ChangeTracker.Clear(); var a = await Attempt(id, ct);
             // Recheck after loading: a concurrent local action may have changed
             // the state since the bounded candidate query.
@@ -238,7 +248,7 @@ public sealed partial class ServiceLinkCoordinator
             await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
             a.LocalActiveAcknowledged = true; a.PeerActiveAcknowledged = true; await EnableSender(a, ct); await Save(a, ct); await tx.CommitAsync(ct);
         }
-        else if (a.Decision == "commit" && a.LocalInboundActive && a.LocalActiveAcknowledged && a.PeerActiveAcknowledged && !a.LocalBusinessSenderEnabled)
+        else if (a.Decision == "commit" && a.LocalInboundActive && a.LocalActiveAcknowledged && a.PeerActiveAcknowledged && !a.LocalBusinessSenderEnabled && !(a.LifecycleState == "active" && IncidentOnlyGrant(OutboundGrant(a))))
         { await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct); await EnableSender(a, ct); await Save(a, ct); await tx.CommitAsync(ct); }
     }
 }

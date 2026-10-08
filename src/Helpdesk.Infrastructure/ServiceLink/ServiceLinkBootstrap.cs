@@ -10,11 +10,13 @@ public sealed partial class ServiceLinkCoordinator
 {
     public async Task<ServiceLinkNavigation> StartAsync(ServiceLinkStartRequest request, ClaimsPrincipal actor, CancellationToken ct)
     {
+        await RefreshSettingsAsync(ct);
         var local = Metadata(); var actorId = await Authorize(actor, request.LocalTenantId, ct);
         Require(request.SessionBinding.Length is >= 32 and <= 256, "invalid-browser-session", "A protected browser session binding is required.");
+        var incidentOnly = ControlOnlyScopes(request.OutboundScopes);
         var existingProfile = await providers.GetOrchestratorSettingsAsync(ct);
-        Require(!existingProfile.ManagedByDeployment, "deployment-owned-profile", "The deployment owns the outbound profile. Use its explicit manual deployment values before guided linking.", 409);
-        if (existingProfile.HasClientSecret || !string.IsNullOrEmpty(existingProfile.LinkId))
+        Require(incidentOnly || !existingProfile.ManagedByDeployment, "deployment-owned-profile", "The deployment owns the outbound profile. Use its explicit manual deployment values before guided linking.", 409);
+        if (!incidentOnly && (existingProfile.HasClientSecret || !string.IsNullOrEmpty(existingProfile.LinkId)))
         {
             var prior = await db.Set<ServiceLinkAttempt>().SingleOrDefaultAsync(x => x.LinkId == existingProfile.LinkId, ct);
             Require(prior is not null && prior.LocalTenantId == request.LocalTenantId && !prior.LocalInboundActive && !prior.LocalBusinessSenderEnabled && !existingProfile.Enabled &&
@@ -54,6 +56,7 @@ public sealed partial class ServiceLinkCoordinator
 
     public async Task<ServiceLinkNavigation> ContinueAsync(string attemptId, ServiceLinkContinueRequest request, ClaimsPrincipal actor, CancellationToken ct)
     {
+        await RefreshSettingsAsync(ct);
         Id(attemptId); var a = await Attempt(attemptId, ct); var actorId = await Authorize(actor, a.LocalTenantId, ct);
         Require(a.Role == "initiator" && a.LocalActorId == actorId && a.Decision == "undecided" && a.LifecycleState == "awaiting_approval" &&
             a.ExpiresAtUnixSeconds > Now && a.ProtectedBrowserState is not null && request.SessionBinding is { Length: >= 32 and <= 256 } &&
@@ -73,7 +76,16 @@ public sealed partial class ServiceLinkCoordinator
     {
         var remoteTenant = request.RequestedResponderTenantId ?? "";
         var inboundScopes = Set(request.InboundScopes); var outboundScopes = Set(request.OutboundScopes);
-        string[] Capabilities(ServiceLinkMetadata target, string[] scopes) => target.PermissionProfiles.Where(p => scopes.Any(s => p.Scopes.Contains(s, StringComparer.Ordinal))).Select(p => p.Capability).Order(StringComparer.Ordinal).ToArray();
+        string[] Capabilities(ServiceLinkMetadata target, string[] scopes)
+        {
+            if (target.Product == "netratel" && ControlOnlyScopes(scopes))
+            {
+                RequireIncidentOnlySupport(local, peer);
+                return [ServiceLinkContract.IncidentOnlyCapability];
+            }
+            return target.PermissionProfiles.Where(p => p.Capability != ServiceLinkContract.IncidentOnlyCapability && scopes.Any(s => p.Scopes.Contains(s, StringComparer.Ordinal)))
+                .Select(p => p.Capability).Order(StringComparer.Ordinal).ToArray();
+        }
         return
         [
             new() { DirectionId = ServiceLinkContract.InitiatorToResponder, CallerSnapshot = "initiator", TargetSnapshot = "responder", CallerProduct = local.Product, CallerInstanceId = local.InstanceId, CallerTenantId = request.LocalTenantId, TargetProduct = peer.Product, TargetInstanceId = peer.InstanceId, TargetTenantId = remoteTenant, Issuer = peer.OauthIssuer, Audience = peer.Audience, Scopes = outboundScopes, Capabilities = Capabilities(peer, outboundScopes), ResourceConstraints = new() { TenantId = string.IsNullOrEmpty(remoteTenant) ? null : remoteTenant, ResourceIds = request.OutboundResourceIds, RequestDefinitionIds = request.OutboundRequestDefinitionIds } },
@@ -83,6 +95,7 @@ public sealed partial class ServiceLinkCoordinator
 
     public async Task<ServiceLinkRequestDescriptor> RemoteReviewAsync(ServiceLinkRemoteReviewRequest request, ClaimsPrincipal actor, CancellationToken ct)
     {
+        await RefreshSettingsAsync(ct);
         Id(request.AttemptId); var local = Metadata(); var access = await accessService.ResolveAsync(actor, ct);
         Require(actor.Identity?.IsAuthenticated == true && actor.FindFirst("integration_credential_id") is null && actor.FindFirst("service_principal_id") is null && (access.IsHelpdeskAdmin || access.ManagedOrganizationIds.Count > 0), "administrator-required", "A local product administrator is required.", 403);
         Require(request.BrowserState.Length is >= 32 and <= 256, "invalid-browser-state", "The bounded initiator correlation is required.");
@@ -113,6 +126,7 @@ public sealed partial class ServiceLinkCoordinator
 
     public async Task<ServiceLinkNavigation> RemoteApproveAsync(ServiceLinkRemoteApproveRequest request, ClaimsPrincipal actor, CancellationToken ct)
     {
+        await RefreshSettingsAsync(ct);
         var a = await Attempt(request.AttemptId, ct); var actorId = await Authorize(actor, request.LocalTenantId, ct); var d = Descriptor(a);
         Require(a.Role == "responder" && a.LocalActorId == actorId && a.ExpiresAtUnixSeconds > Now && a.Decision == "undecided" && a.LifecycleState is "awaiting_approval" or "approved" or "prepared" or "verified", "attempt-expired", "The local consent attempt is unavailable.", 410);
         var browserState = Unprotect(a, "browser-state", a.ProtectedBrowserState!);
@@ -150,10 +164,11 @@ public sealed partial class ServiceLinkCoordinator
             Same(a.PairingCodeHash, Digest(request.PairingCode)) && Same(Descriptor(a).CodeChallenge, Challenge(request.CodeVerifier)) && Same(a.DescriptorHash, request.DescriptorHash), "invalid-pairing-proof", "The pairing proof is invalid or expired.", 403);
     }
     public async Task<ServiceLinkReviewResponse> ReviewAsync(string attemptId, ServiceLinkReviewRequest request, CancellationToken ct)
-    { var a = await Attempt(attemptId, ct); ReviewProof(a, request); return new(Summary(a), a.GrantHash!, "approved"); }
+    { await RefreshSettingsAsync(ct); var a = await Attempt(attemptId, ct); ReviewProof(a, request); return new(Summary(a), a.GrantHash!, "approved"); }
 
     public async Task<ServiceLinkReviewResponse> CallbackAsync(ServiceLinkCallbackRequest request, ClaimsPrincipal actor, CancellationToken ct)
     {
+        await RefreshSettingsAsync(ct);
         var a = await Attempt(request.AttemptId, ct); var actorId = await Authorize(actor, a.LocalTenantId, ct);
         Require(a.Role == "initiator" && actorId == a.LocalActorId && a.ExpiresAtUnixSeconds > Now && a.Decision == "undecided" && a.LifecycleState is "awaiting_approval" or "approved" or "prepared" or "verified" && Same(a.SessionBindingHash, Digest(request.SessionBinding)) &&
             Same(Unprotect(a, "browser-state", a.ProtectedBrowserState!), request.BrowserState) && request.ResponderInstanceId == a.PeerInstanceId && request.OauthIssuer == Peer(a).OauthIssuer,
@@ -192,6 +207,7 @@ public sealed partial class ServiceLinkCoordinator
 
     public async Task<ServiceLinkAdminStatus> LocalApproveAsync(string attemptId, ServiceLinkLocalApproveRequest request, ClaimsPrincipal actor, CancellationToken ct)
     {
+        await RefreshSettingsAsync(ct);
         var a = await Attempt(attemptId, ct); var actorId = await Authorize(actor, a.LocalTenantId, ct);
         Require(a.Role == "initiator" && a.LocalActorId == actorId && a.ExpiresAtUnixSeconds > Now && a.Decision == "undecided" && a.LifecycleState is "approved" or "prepared" or "verified" && Same(a.SessionBindingHash, Digest(request.SessionBinding)) && a.GrantHash == request.GrantHash, "invalid-local-consent", "The exact reviewed grant and initiating session are required.", 403);
         var inbound = InboundGrant(a);
@@ -212,6 +228,7 @@ public sealed partial class ServiceLinkCoordinator
 
     public async Task<ServiceLinkExchangeResponse> ExchangeAsync(string attemptId, ServiceLinkExchangeRequest request, CancellationToken ct)
     {
+        await RefreshSettingsAsync(ct);
         var a = await Attempt(attemptId, ct); ReviewProof(a, request);
         Require(request.GrantHash == a.GrantHash && request.InitiatorConsentId.Length is >= 16 and <= 128, "grant-binding-mismatch", "The initiator's durable consent binding is missing.", 403);
         Credential(request.CredentialForResponder, OutboundGrant(a), Peer(a));

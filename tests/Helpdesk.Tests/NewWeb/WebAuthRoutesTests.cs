@@ -93,20 +93,37 @@ public class WebAuthRoutesTests
     [InlineData("Local")]
     [InlineData("Oidc")]
     [InlineData("Hybrid")]
-    public async Task Signed_out_peer_approval_cleans_correlation_before_any_authentication_challenge(string mode)
+    public async Task Signed_out_peer_approval_protects_correlation_and_resumes_once_after_sign_in(string mode)
     {
         var peerCalls = 0;
-        using var factory = CreateFactory(authenticationMode: mode, serviceLinkApi: (_, _) =>
+        using var factory = CreateFactory(enableTestAuth: true, authenticationMode: mode, serviceLinkApi: (_, _) =>
         {
             Interlocked.Increment(ref peerCalls);
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError));
         });
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
-        using var response = await client.GetAsync("/account/integration-credentials/link/approve?initiator_web_base_url=https%3A%2F%2Fpeer.example.test&attempt_id=synthetic-attempt&browser_state=synthetic-private-correlation");
+        const string approval = "/account/integration-credentials/link/approve?initiator_web_base_url=https%3A%2F%2Fpeer.example.test&attempt_id=synthetic-attempt&browser_state=synthetic-private-correlation";
+        using var response = await client.GetAsync(approval);
         Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
-        Assert.Equal("/login?status=service-link-sign-in-required", response.Headers.Location?.OriginalString);
+        Assert.Equal("/login?ReturnUrl=%2Faccount%2Fintegration-credentials%2Flink%2Fresume-sign-in", response.Headers.Location?.OriginalString);
         Assert.True(response.Headers.CacheControl?.NoStore);
         Assert.Equal("no-referrer", Assert.Single(response.Headers.GetValues("Referrer-Policy")));
+        var continuation = Assert.Single(response.Headers.GetValues("Set-Cookie"), cookie => cookie.StartsWith("RatelDesk.ServiceLink.Continuation=", StringComparison.Ordinal));
+        Assert.Contains("httponly", continuation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("samesite=lax", continuation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("max-age=600", continuation, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("synthetic-private-correlation", continuation, StringComparison.Ordinal);
+        Assert.DoesNotContain("peer.example.test", continuation, StringComparison.Ordinal);
+        Assert.Equal(0, peerCalls);
+
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "HelpdeskAdmin");
+        using var resumed = await client.GetAsync("/account/integration-credentials/link/resume-sign-in");
+        Assert.Equal(HttpStatusCode.Redirect, resumed.StatusCode);
+        Assert.Equal(approval, resumed.Headers.Location?.OriginalString);
+        Assert.True(resumed.Headers.CacheControl?.NoStore);
+        Assert.Equal("no-referrer", Assert.Single(resumed.Headers.GetValues("Referrer-Policy")));
+        using var repeated = await client.GetAsync("/account/integration-credentials/link/resume-sign-in");
+        Assert.Equal("/account/integration-credentials/link/result?status=session-expired", repeated.Headers.Location?.OriginalString);
         Assert.Equal(0, peerCalls);
     }
 
@@ -121,7 +138,7 @@ public class WebAuthRoutesTests
         });
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "Technician");
-        using var response = await client.GetAsync("/account/integration-credentials/link/approve?browser_state=synthetic-private-correlation");
+        using var response = await client.GetAsync("/account/integration-credentials/link/approve?initiator_web_base_url=https%3A%2F%2Fpeer.example.test&attempt_id=synthetic-attempt&browser_state=synthetic-private-correlation");
         Assert.Equal("/account/integration-credentials/link/result?status=not-authorized", response.Headers.Location?.OriginalString);
         Assert.Equal(0, peerCalls);
     }

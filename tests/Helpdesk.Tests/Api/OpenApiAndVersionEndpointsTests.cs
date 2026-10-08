@@ -109,14 +109,14 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
 
         Assert.True(violations.Count == 0, string.Join(Environment.NewLine, violations));
         // Release includes service issuer/client/link, original-session continuation
-        // and legacy administration operations;
+        // legacy administration, managed public settings and read-only connection testing;
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(413, operationCount);
+        Assert.Equal(416, operationCount);
 #else
-        Assert.Equal(412, operationCount);
+        Assert.Equal(415, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         Assert.True(paths.TryGetProperty("/api/v1/admin/service-links/attempts/{attemptId}/continue", out var continuationPath),
@@ -147,6 +147,19 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         Assert.Empty(SecuritySchemes(document, "/api/integrations/service-link/metadata", "get"));
         Assert.Equal(["JwtBearer", "LocalSession"], SecuritySchemes(document, "/api/v1/admin/service-clients", "get"));
         Assert.Equal(["JwtBearer", "LocalSession"], SecuritySchemes(document, "/api/v1/admin/service-links", "get"));
+        var connectionSetupOperations = new[]
+        {
+            ("/api/v1/admin/service-clients/public-settings", "get", "Service Clients"),
+            ("/api/v1/admin/service-clients/public-settings", "put", "Service Clients"),
+            ("/api/v1/admin/service-links/links/{linkId}/test", "post", "Reciprocal Service Links")
+        };
+        foreach (var (path, method, tag) in connectionSetupOperations)
+        {
+            Assert.True(paths.TryGetProperty(path, out var setupPath), $"Missing documented connection setup path: {path}");
+            Assert.True(setupPath.TryGetProperty(method, out var setupOperation));
+            Assert.Equal([tag], setupOperation.GetProperty("tags").EnumerateArray().Select(item => item.GetString()).OfType<string>().ToArray());
+            Assert.Equal(["JwtBearer", "LocalSession"], SecuritySchemes(document, path, method));
+        }
         Assert.Equal(["ServiceIdentity"], SecuritySchemes(document, "/api/integrations/service-link/v1/links/{linkId}/verify", "post"));
         Assert.Equal(["ServiceIdentity"], SecuritySchemes(document, "/api/integrations/service-link/v1/links/{linkId}/status", "get"));
         Assert.True(paths.TryGetProperty("/api/v1/admin/orchestration/test-draft", out var orchestrationDraft));

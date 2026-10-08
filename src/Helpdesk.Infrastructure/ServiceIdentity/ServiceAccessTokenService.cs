@@ -9,14 +9,15 @@ namespace Helpdesk.Infrastructure.ServiceIdentity;
 public sealed record IssuedServiceAccessToken(string AccessToken, int ExpiresIn, string Scope);
 
 public sealed class ServiceAccessTokenService(ServiceSigningKeyStore keys, IServicePrincipalRegistry registry,
-    IOptionsMonitor<ServiceIdentityOptions> options, TimeProvider time)
+    IOptionsMonitor<ServiceIdentityOptions> options, TimeProvider time, IServicePublicSettingsResolver? publicSettings = null)
 {
     public async Task<IssuedServiceAccessToken> IssueAsync(AuthenticatedServiceClient client, string[] scopes, CancellationToken ct = default)
     {
         if (scopes.Length == 0 || scopes.Distinct(StringComparer.Ordinal).Count() != scopes.Length || scopes.Any(x => !registry.PermittedScopes(client.Principal, client.Credential).Contains(x, StringComparer.Ordinal))) throw new ArgumentException("invalid_scope");
         if (!await registry.CanIssueScopesAsync(client, scopes, ct)) throw new ArgumentException("invalid_scope");
         using var signing = await keys.GetSigningKeyAsync(ct);
-        var settings = options.CurrentValue;
+        var settings = publicSettings is null ? options.CurrentValue : (await publicSettings.ResolveAsync(ct)).Identity;
+        if (!settings.Enabled) throw new ServiceSigningKeyUnavailableException("Service connections are disabled.");
         var row = client.Principal;
         var claims = new List<Claim>
         {

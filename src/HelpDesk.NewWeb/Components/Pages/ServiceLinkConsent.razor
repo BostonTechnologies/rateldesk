@@ -11,7 +11,7 @@
 <PageTitle>NetRatel link approval</PageTitle>
 <MudPaper Class="helpdesk-content-surface pa-4" data-testid="service-link-consent-page">
     <MudStack Spacing="2">
-        <MudText Typo="Typo.h5" HtmlTag="h1">@(IsResponder ? "Approve NetRatel's reciprocal link" : "Review reciprocal NetRatel link")</MudText>
+        <MudText Typo="Typo.h5" HtmlTag="h1">@(IsResponder ? "Approve NetRatel connection" : "Complete NetRatel connection")</MudText>
         @if (loading)
         {
             <MudProgressLinear Indeterminate="true" />
@@ -24,7 +24,7 @@
         }
         else
         {
-            <MudText Typo="Typo.body2">Review the canonical instances, selected tenants and each direction's exact permission boundary. Neither discovery nor a public health response grants business access.</MudText>
+            <MudText Typo="Typo.body2">1 · Connect   →   2 · Approve   →   3 · Connected</MudText>
             <ServiceLinkConsentDetails Initiator="@status.Descriptor.InitiatorEndpointSnapshot" Responder="@status.Descriptor.ResponderEndpointSnapshot" Grants="DisplayedGrants" />
             @if (IsResponder && status.GrantSummary is null)
             {
@@ -51,7 +51,7 @@
                             <MudSelect T="string" Value="@organizationId" ValueChanged="OrganizationChanged" Label="Approve local organization" Required="true" Margin="Margin.Dense" Variant="Variant.Outlined">
                                 @foreach (var organization in organizations)
                                 {
-                                    <MudSelectItem Value="@organization.Id">@organization.Name (@organization.Id)</MudSelectItem>
+                                    <MudSelectItem Value="@organization.Id">@organization.Name</MudSelectItem>
                                 }
                             </MudSelect>
                         </MudItem>
@@ -59,11 +59,11 @@
                             <MudSelect T="string" Value="@customerIds.FirstOrDefault()" ValueChanged="CustomerChanged" Label="Approve incident customer" Required="true" Margin="Margin.Dense" Variant="Variant.Outlined" Disabled="@string.IsNullOrEmpty(organizationId)">
                                 @foreach (var customer in customers.Where(customer => customer.OrganizationId == organizationId && customer.IsEnabled))
                                 {
-                                    <MudSelectItem Value="@customer.Id">@customer.Name (@customer.Id)</MudSelectItem>
+                                    <MudSelectItem Value="@customer.Id">@customer.Name</MudSelectItem>
                                 }
                             </MudSelect>
                         </MudItem>
-                        <MudItem xs="12">
+                        <MudItem xs="12" Style="@(IncidentOnly ? "display:none" : null)">
                             <MudSelect T="string" Label="Approve or narrow requested inbound permissions" MultiSelection="true" SelectedValues="@scopes" SelectedValuesChanged="ScopesChanged" Margin="Margin.Dense" Variant="Variant.Outlined">
                                 @foreach (var scope in RequestedInboundScopes)
                                 {
@@ -80,7 +80,7 @@
                     {
                         <MudAlert Dense="true" Severity="Severity.Info">Task invocation requires the reverse task callback permission. Enable the requested callback permission or narrow orchestration access to read-only.</MudAlert>
                     }
-                    <label class="d-flex align-center my-3"><input type="checkbox" @bind="confirmed" name="confirmed" value="true" required class="mr-2" />I approve these exact peer instances, selected organization/customer and permissions in both directions.</label>
+                    <label class="d-flex align-center my-3"><input type="checkbox" @bind="confirmed" name="confirmed" value="true" required class="mr-2" />I approve this connection for the selected organization and incident customer.</label>
                     <MudButton ButtonType="ButtonType.Submit" Color="Color.Primary" Variant="Variant.Filled" Disabled="@(!CanApproveRemote)">Approve and return to NetRatel</MudButton>
                 </form>
             }
@@ -91,16 +91,16 @@
                     <AntiforgeryToken />
                     <input type="hidden" name="attemptId" value="@AttemptId" />
                     <input type="hidden" name="grantHash" value="@status.GrantHash" />
-                    <label class="d-flex align-center my-3"><input type="checkbox" @bind="confirmed" name="confirmed" value="true" required class="mr-2" />I approve the exact displayed grants and NetRatel tenant selection.</label>
+                    <label class="d-flex align-center my-3"><input type="checkbox" @bind="confirmed" name="confirmed" value="true" required class="mr-2" />I approve this connection and the selected NetRatel tenant.</label>
                     <MudButton ButtonType="ButtonType.Submit" Color="Color.Primary" Variant="Variant.Filled">Approve and complete setup</MudButton>
                 </form>
             }
             else
             {
-                <MudAlert Dense="true" Severity="Severity.Info">Current lifecycle: @status.LifecycleState. A connection is complete only after both authenticated direction checks and active acknowledgements.</MudAlert>
+                <MudAlert Dense="true" Severity="Severity.Info">Approval is saved. Finish the authenticated connection checks below, then verify the Flow connection before using it.</MudAlert>
             }
             <NetRatelServiceLinks />
-            <MudButton Href="/admin/automation/integration/orchestrator">Return to NetRatel orchestrator</MudButton>
+            <MudButton Href="/account/integration-credentials">Return to connections</MudButton>
         }
     </MudStack>
 </MudPaper>
@@ -128,6 +128,7 @@
             ResourceConstraints = grant.ResourceConstraints with { OrganizationId = string.IsNullOrEmpty(organizationId) ? null : organizationId, CustomerIds = customerIds.Order(StringComparer.Ordinal).ToArray() }
         }
         : grant with { CallerTenantId = organizationId, Scopes = RequestedOutboundScopes.Where(scope => scope != "netratel.orchestration.invoke" || outboundInvoke).Order(StringComparer.Ordinal).ToArray() }).ToArray();
+    private bool IncidentOnly => RequestedOutboundScopes.ToHashSet(StringComparer.Ordinal).SetEquals([ServiceLinkContract.ControlScope, ServiceLinkContract.VerifyScope]);
     private bool CanApproveRemote => !string.IsNullOrWhiteSpace(organizationId) && scopes.Count > 0 && (!outboundInvoke || scopes.Contains("rateldesk.orchestration.callback")) && (!scopes.Any(scope => scope.StartsWith("rateldesk.incident", StringComparison.Ordinal)) || customerIds.Count == 1);
 
     protected override async Task OnParametersSetAsync()
@@ -165,6 +166,7 @@
             {
                 scopes = RequestedInboundScopes.ToHashSet(StringComparer.Ordinal);
                 outboundInvoke = RequestedOutboundScopes.Contains("netratel.orchestration.invoke");
+                if (organizations.Count == 1) OrganizationChanged(organizations[0].Id);
             }
         }
         catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException)
@@ -173,7 +175,12 @@
         }
         finally { if (IsCurrent()) loading = false; }
     }
-    private void OrganizationChanged(string value) { confirmed = false; organizationId = value; customerIds.Clear(); }
+    private void OrganizationChanged(string value)
+    {
+        confirmed = false; organizationId = value; customerIds.Clear();
+        var allowed = customers.Where(customer => customer.OrganizationId == value && customer.IsEnabled).ToArray();
+        if (allowed.Length == 1) customerIds.Add(allowed[0].Id);
+    }
     private void CustomerChanged(string value) { confirmed = false; customerIds = string.IsNullOrEmpty(value) ? [] : new HashSet<string>([value], StringComparer.Ordinal); }
     private void ScopesChanged(IEnumerable<string>? values) { confirmed = false; scopes = values?.ToHashSet(StringComparer.Ordinal) ?? []; }
     private void OutboundInvokeChanged(bool value) { confirmed = false; outboundInvoke = value; }

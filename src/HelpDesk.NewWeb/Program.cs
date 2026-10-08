@@ -548,7 +548,7 @@ app.MapGet("/login-authentik", async (HttpContext ctx) =>
         return Results.LocalRedirect("/login");
     }
 
-    await ctx.ChallengeAsync("Authentik", new AuthenticationProperties { RedirectUri = "/home" });
+    await ctx.ChallengeAsync("Authentik", new AuthenticationProperties { RedirectUri = ServiceLinkBrowserEndpoints.SignInDestination(ctx, ctx.RequestServices.GetRequiredService<IConfiguration>()) });
     return Results.Empty;
 });
 

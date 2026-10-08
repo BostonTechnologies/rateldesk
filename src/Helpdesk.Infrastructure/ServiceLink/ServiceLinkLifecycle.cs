@@ -40,7 +40,7 @@ public sealed partial class ServiceLinkCoordinator
         result["rotations"] = await RotationSummaries(a, ct); return result;
     }
     public async Task<object> StatusAsync(string linkId, ClaimsPrincipal caller, CancellationToken ct)
-    { var (a, _) = await Bound(linkId, caller, ServiceLinkContract.ControlScope, ct); await Expire(a, ct); return await Status(a, ct); }
+    { await RefreshSettingsAsync(ct); var (a, _) = await Bound(linkId, caller, ServiceLinkContract.ControlScope, ct); await Expire(a, ct); return await Status(a, ct); }
 
     public Task<object> LifecycleAsync(string pathLinkId, string kind, ServiceLinkLifecycleRequest request, ClaimsPrincipal caller, CancellationToken ct) =>
         RetrySerializableLifecycle(coordinator => coordinator.LifecycleOnceAsync(pathLinkId, kind, request, caller, ct), ct);
@@ -106,6 +106,7 @@ public sealed partial class ServiceLinkCoordinator
         // share the recipient's Serializable snapshot. Caller transactions remain owned by callers.
         await using var ownedTransaction = db.Database.CurrentTransaction is null && System.Transactions.Transaction.Current is null
             ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct) : null;
+        await RefreshSettingsAsync(ct);
         var (a, principal) = await Bound(pathLinkId, caller, kind == "verify" ? ServiceLinkContract.VerifyScope : ServiceLinkContract.ControlScope, ct);
         Id(request.OperationId);
         Require(request.Contract == ServiceLinkContract.Version && request.LinkId == pathLinkId && request.LinkRevision == a.LinkRevision && request.GrantHash == a.GrantHash &&
@@ -257,7 +258,7 @@ public sealed partial class ServiceLinkCoordinator
     {
         a.LocalInboundActive = false; a.LocalBusinessSenderEnabled = false; a.TerminalControlExpiresAtUnixSeconds ??= Now + settings.TerminalControlRecoverySeconds;
         if (a.InboundPrincipalId is not null) await registry.RevokeAsync(a.InboundPrincipalId.Value, ct);
-        if (a.OutboundProfileRevision is not null) a.OutboundProfileRevision = (await providers.SetLinkedOrchestratorSenderEnabledAsync(a.LinkId!, a.LinkRevision, a.OutboundProfileRevision.Value, false, ct)).Revision;
+        if (a.OutboundProfileRevision is not null && !IncidentOnlyGrant(OutboundGrant(a))) a.OutboundProfileRevision = (await providers.SetLinkedOrchestratorSenderEnabledAsync(a.LinkId!, a.LinkRevision, a.OutboundProfileRevision.Value, false, ct)).Revision;
         a.ActiveRelationshipKey = null;
         if (a.InboundPrincipalId is not null)
         {
@@ -271,6 +272,11 @@ public sealed partial class ServiceLinkCoordinator
         if (a.LocalBusinessSenderEnabled) return;
         Require(a.Decision == "commit" && a.PeerActiveAcknowledged && a.LocalInboundActive && a.LocalPreparedAcknowledged && a.PeerPreparedAcknowledged, "activation-not-proven", "Both verified committed directions and active peer acknowledgement are required.", 409);
         if (!a.LocalActiveAcknowledged) return;
+        if (IncidentOnlyGrant(OutboundGrant(a)))
+        {
+            a.LocalBusinessSenderEnabled = false; a.LifecycleState = "active"; PurgeEscrow(a);
+            return;
+        }
         a.OutboundProfileRevision = (await providers.SetLinkedOrchestratorSenderEnabledAsync(a.LinkId!, a.LinkRevision, a.OutboundProfileRevision!.Value, true, ct)).Revision;
         a.LocalBusinessSenderEnabled = true; a.LifecycleState = "active"; PurgeEscrow(a);
     }

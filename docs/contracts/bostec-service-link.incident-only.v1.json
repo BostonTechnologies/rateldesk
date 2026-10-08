@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.service-link.example/bostec-service-link.incident-only.v1.json",
+  "title": "bostec.service-link.incident-only.v1",
+  "allOf": [
+    {
+      "$ref": "bostec-service-link.v1.json#/$defs/grant"
+    },
+    {
+      "properties": {
+        "target_product": {
+          "const": "netratel"
+        },
+        "capabilities": {
+          "const": [
+            "bostec.service-link.incident-only.v1"
+          ]
+        },
+        "scopes": {
+          "type": "array",
+          "uniqueItems": true,
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "enum": [
+              "bostec.service-link.control",
+              "bostec.service-link.verify"
+            ]
+          }
+        },
+        "resource_constraints": {
+          "properties": {
+            "resource_ids": {
+              "maxItems": 0
+            },
+            "request_definition_ids": {
+              "maxItems": 0
+            }
+          }
+        }
+      }
+    }
+  ]
+}

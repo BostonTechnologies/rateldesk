@@ -14,11 +14,13 @@ public sealed record OwnedServiceSigningKey(RSA Rsa, RsaSecurityKey Key) : IDisp
 
 /// <summary>Shared relational keys are protected by the established durable Data Protection ring.</summary>
 public sealed class ServiceSigningKeyStore(HelpdeskDbContext db, IDataProtectionProvider protection,
-    IOptionsMonitor<ServiceIdentityOptions> options, TimeProvider time)
+    IOptionsMonitor<ServiceIdentityOptions> options, TimeProvider time, IServicePublicSettingsResolver? publicSettings = null)
 {
+    private async Task<ServiceIdentityOptions> SettingsAsync(CancellationToken ct) => publicSettings is null ? options.CurrentValue : (await publicSettings.ResolveAsync(ct)).Identity;
+
     public async Task<OwnedServiceSigningKey> GetSigningKeyAsync(CancellationToken ct = default)
     {
-        var settings = options.CurrentValue;
+        var settings = await SettingsAsync(ct);
         if (!settings.Enabled) throw new ServiceSigningKeyUnavailableException("Service issuer is disabled.");
         var row = await db.Set<ServiceSigningKey>().AsNoTracking().SingleOrDefaultAsync(x => x.ActiveSlot == 1, ct);
         if (row is null)
@@ -57,7 +59,9 @@ public sealed class ServiceSigningKeyStore(HelpdeskDbContext db, IDataProtection
 
     public async Task<IReadOnlyList<RsaSecurityKey>> GetValidationKeysAsync(CancellationToken ct = default)
     {
-        var issuer = options.CurrentValue.Issuer;
+        var settings = await SettingsAsync(ct);
+        if (!settings.Enabled) return [];
+        var issuer = settings.Issuer;
         var rows = await db.Set<ServiceSigningKey>().AsNoTracking().Where(x => x.Issuer == issuer).ToListAsync(ct);
         return rows.Where(x => x.ActiveSlot == 1 || x.ValidateUntilUtc > time.GetUtcNow()).Select(x => new RsaSecurityKey(new RSAParameters
         {
@@ -75,14 +79,15 @@ public sealed class ServiceSigningKeyStore(HelpdeskDbContext db, IDataProtection
 
     public async Task<string> RotateAsync(CancellationToken ct = default)
     {
+        var settings = await SettingsAsync(ct);
         using var current = await GetSigningKeyAsync(ct);
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var row = await db.Set<ServiceSigningKey>().SingleAsync(x => x.ActiveSlot == 1, ct);
         row.ActiveSlot = null;
-        row.ValidateUntilUtc = time.GetUtcNow().AddSeconds(options.CurrentValue.AccessTokenLifetimeSeconds + options.CurrentValue.ClockSkewSeconds + 60);
+        row.ValidateUntilUtc = time.GetUtcNow().AddSeconds(settings.AccessTokenLifetimeSeconds + settings.ClockSkewSeconds + 60);
         await db.SaveChangesAsync(ct);
         using var rsa = RSA.Create(3072);
-        var next = CreateRow(rsa, options.CurrentValue.Issuer);
+        var next = CreateRow(rsa, settings.Issuer);
         db.Set<ServiceSigningKey>().Add(next);
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);

@@ -1,13 +1,14 @@
 @using HelpDesk.NewWeb.Models
+@using Helpdesk.Shared.ServiceLink
 @using System.Text.Json
 @inject IHttpClientFactory HttpClientFactory
 @implements IDisposable
 
 <MudStack Spacing="2" data-testid="netratel-m2m-form">
-    <MudText Typo="Typo.subtitle1">NetRatel M2M</MudText>
-    <MudText Typo="Typo.body2" Color="Color.Secondary">Create an organization-owned service connection with explicit customer grants.</MudText>
+    <MudText Typo="Typo.subtitle1">Connect NetRatel</MudText>
+    <MudText Typo="Typo.body2" Color="Color.Secondary">1 · Connect   →   2 · Approve   →   3 · Connected</MudText>
     <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap">
-        <MudButton Size="Size.Small" Variant="@(manual ? Variant.Outlined : Variant.Filled)" Color="Color.Primary" OnClick="ShowGuided" Disabled="@(busy || loading || reveal is not null)" data-testid="netratel-guided-mode">Link NetRatel</MudButton>
+        <MudButton Size="Size.Small" Variant="@(manual ? Variant.Outlined : Variant.Filled)" Color="Color.Primary" OnClick="ShowGuided" Disabled="@(busy || loading || reveal is not null)" data-testid="netratel-guided-mode">Connect NetRatel</MudButton>
         @if (AllowManualCreation)
         {
             <MudButton Size="Size.Small" Variant="@(manual ? Variant.Filled : Variant.Outlined)" OnClick="ShowManual" Disabled="@(busy || loading || reveal is not null)" data-testid="netratel-manual-mode">Manual credentials</MudButton>
@@ -41,6 +42,7 @@
     else
     {
         var renderedScopeSelectionOwner = scopeSelectionOwner;
+        @if (!manual) { <ServiceConnectionReadiness ReadyChanged="ConnectionReadyChanged" /> }
         @if (!manual && DeploymentManaged)
         {
             <MudAlert Dense="true" Severity="Severity.Info" Variant="Variant.Outlined">The outbound profile belongs to deployment configuration. Automated linking cannot replace it. Use Manual credentials and the advanced outbound settings to configure the approved values in your deployment.</MudAlert>
@@ -54,7 +56,7 @@
                 <MudSelect T="string" Value="@organizationId" ValueChanged="OrganizationChanged" Label="Local organization" Required="true" Margin="Margin.Dense" Variant="Variant.Outlined" data-testid="netratel-local-organization">
                     @foreach (var organization in organizations)
                     {
-                        <MudSelectItem Value="@organization.Id">@organization.Name (@organization.Id)</MudSelectItem>
+                        <MudSelectItem Value="@organization.Id">@organization.Name</MudSelectItem>
                     }
                 </MudSelect>
             </MudItem>
@@ -62,10 +64,12 @@
                 <MudSelect T="string" Label="Approved incident customer" Value="@customerIds.FirstOrDefault()" ValueChanged="CustomerChanged" Margin="Margin.Dense" Variant="Variant.Outlined" Disabled="@string.IsNullOrEmpty(organizationId)">
                     @foreach (var customer in customers.Where(customer => customer.OrganizationId == organizationId && customer.IsEnabled))
                     {
-                        <MudSelectItem Value="@customer.Id">@customer.Name (@customer.Id)</MudSelectItem>
+                        <MudSelectItem Value="@customer.Id">@customer.Name</MudSelectItem>
                     }
                 </MudSelect>
             </MudItem>
+            @if (manual)
+            {
             <MudItem xs="12">
                 <MudSelect @key="renderedScopeSelectionOwner" T="string" Label="NetRatel → RatelDesk permissions" MultiSelection="true" MultiSelectionTextFunc="SelectedScopeText" SelectedValues="@scopes" SelectedValuesChanged="@(EventCallback.Factory.Create<IReadOnlyCollection<string>?>(this, values => ScopesChanged(renderedScopeSelectionOwner, values)))" Margin="Margin.Dense" Variant="Variant.Outlined">
                     @foreach (var scope in InboundScopes)
@@ -80,6 +84,7 @@
                     }
                 </MudStack>
             </MudItem>
+            }
         </MudGrid>
         @if (manual)
         {
@@ -110,20 +115,25 @@
                 {
                     <input type="hidden" name="inboundScopes" value="@scope" />
                 }
-                <input type="hidden" name="outboundScopes" value="netratel.orchestration.read" />
                 @if (outboundInvoke)
                 {
+                    <input type="hidden" name="outboundScopes" value="netratel.orchestration.read" />
                     <input type="hidden" name="outboundScopes" value="netratel.orchestration.invoke" />
                 }
-                <MudCheckBox T="bool" @bind-Value="outboundInvoke" Label="Allow RatelDesk to invoke NetRatel orchestration tasks" Dense="true" />
+                else
+                {
+                    <input type="hidden" name="outboundScopes" value="@ServiceLinkContract.ControlScope" />
+                    <input type="hidden" name="outboundScopes" value="@ServiceLinkContract.VerifyScope" />
+                }
+                <MudCheckBox @key="renderedScopeSelectionOwner" T="bool" Value="outboundInvoke" ValueChanged="@(EventCallback.Factory.Create<bool>(this, value => RunTasksChanged(renderedScopeSelectionOwner, value)))" Label="Also run approved tasks (optional)" Dense="true" Disabled="@(busy || loading || reveal is not null)" />
                 @if (outboundInvoke && !scopes.Contains("rateldesk.orchestration.callback"))
                 {
                     <MudAlert Dense="true" Severity="Severity.Info">Task invocation requires the reverse task callback permission so recorded executions can complete. Enable Task callbacks or choose read-only orchestration access.</MudAlert>
                 }
-                <MudTextField @bind-Value="peerWebBaseUrl" name="peerWebBaseUrl" Label="NetRatel Web base URL" Required="true" Immediate="true" Margin="Margin.Dense" Variant="Variant.Outlined" Placeholder="https://netratel.example.com" />
-                <MudTextField @bind-Value="requestedPeerTenantId" name="requestedResponderTenantId" Label="Requested NetRatel tenant ID (optional)" Margin="Margin.Dense" Variant="Variant.Outlined" HelperText="The NetRatel administrator selects its authorized tenant. You will review that exact selection before final approval." />
-                <MudText Typo="Typo.caption" HtmlTag="p" Class="mt-2">Discovery → NetRatel administrator approval → review both grants → your final approval → authenticated checks in both directions.</MudText>
-                <MudButton Class="mt-2" ButtonType="ButtonType.Submit" Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(busy || loading || reveal is not null || DeploymentManaged || LinkManaged || !CanStart)">Continue to NetRatel</MudButton>
+                <MudTextField @bind-Value="peerWebBaseUrl" name="peerWebBaseUrl" Label="NetRatel web address" Required="true" Immediate="true" Margin="Margin.Dense" Variant="Variant.Outlined" Placeholder="https://netratel.example.com" />
+
+                <MudText Typo="Typo.caption" HtmlTag="p" Class="mt-2">Create helpdesk incidents from monitoring alerts. Sign in at NetRatel and approve the connection; you return here automatically.</MudText>
+                <MudButton Class="mt-2" ButtonType="ButtonType.Submit" Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(busy || loading || reveal is not null || DeploymentManaged || LinkManaged || !connectionReady || !CanStart)">Connect NetRatel</MudButton>
             </form>
         }
     }
@@ -191,7 +201,7 @@
     private List<CustomerDto> customers = [];
     private List<NetRatelServiceClientMetadata> clients = [];
     private HashSet<string> customerIds = new(StringComparer.Ordinal);
-    private HashSet<string> scopes = new(InboundScopes.Keys, StringComparer.Ordinal);
+    private HashSet<string> scopes = new(InboundScopes.Keys.Where(scope => scope != "rateldesk.orchestration.callback"), StringComparer.Ordinal);
     private object scopeSelectionOwner = new();
     private NetRatelServiceClientReveal? reveal;
     private string organizationId = string.Empty, name = string.Empty, peerInstanceId = string.Empty, peerTenantId = string.Empty;
@@ -199,7 +209,9 @@
     private string callbackRequestIds = string.Empty, callbackTaskIds = string.Empty;
     private string? error, pendingAction;
     private Guid? pendingActionClient;
-    private bool manual, busy, disposed, loading = true, outboundInvoke = true;
+    private bool connectionReady;
+    private void ConnectionReadyChanged(bool ready) => connectionReady = ready;
+    private bool manual, busy, disposed, loading = true, outboundInvoke;
     private bool NeedsSource => scopes.Any(scope => scope.StartsWith("rateldesk.incident", StringComparison.Ordinal));
     private bool HasMapping => !string.IsNullOrWhiteSpace(organizationId) && scopes.Count > 0 && (!NeedsSource || customerIds.Count > 0);
     private bool CanStart => HasMapping && (!outboundInvoke || scopes.Contains("rateldesk.orchestration.callback")) && Uri.TryCreate(peerWebBaseUrl, UriKind.Absolute, out _);
@@ -224,6 +236,7 @@
                 if (customers.Any(customer => customer.Id == InitialLocalCustomerId && customer.OrganizationId == organizationId && customer.IsEnabled))
                     customerIds.Add(InitialLocalCustomerId!);
             }
+            if (string.IsNullOrEmpty(organizationId) && organizations.Count == 1) OrganizationChanged(organizations[0].Id);
             if (AllowManualCreation) await ReloadClientsAsync();
         }
         catch (Exception exception) when (exception is HttpRequestException or JsonException)
@@ -232,13 +245,24 @@
         }
         finally { loading = false; }
     }
-    private void ShowGuided() { if (disposed || busy || loading || reveal is not null || !manual) return; manual = false; scopeSelectionOwner = new(); scopes = new HashSet<string>(scopes, StringComparer.Ordinal) { "rateldesk.orchestration.callback" }; error = null; }
+    private void ShowGuided() { if (disposed || busy || loading || reveal is not null || !manual) return; manual = false; scopeSelectionOwner = new(); scopes = InboundScopes.Keys.Where(scope => scope != "rateldesk.orchestration.callback").ToHashSet(StringComparer.Ordinal); outboundInvoke = false; error = null; }
     private void ShowManual() { if (disposed || busy || loading || reveal is not null || manual) return; manual = true; scopeSelectionOwner = new(); scopes = scopes.Where(scope => scope != "rateldesk.orchestration.callback").ToHashSet(StringComparer.Ordinal); error = null; }
     private void ClearReveal(NetRatelServiceClientReveal expected) { if (!disposed && !busy && ReferenceEquals(reveal, expected)) reveal = null; }
     private void ClearPendingAction() { pendingActionClient = null; pendingAction = null; }
     private void CancelPendingAction() { if (!disposed && !busy) ClearPendingAction(); }
     private void PrepareClientAction(Guid id, string action) { if (disposed || busy || loading || reveal is not null) return; pendingActionClient = id; pendingAction = action; }
-    private void OrganizationChanged(string value) { organizationId = value; customerIds.Clear(); }
+    private void RunTasksChanged(object expectedSelectionOwner, bool value)
+    {
+        if (disposed || busy || loading || manual || reveal is not null || !ReferenceEquals(scopeSelectionOwner, expectedSelectionOwner)) return;
+        outboundInvoke = value;
+        if (value) scopes.Add("rateldesk.orchestration.callback"); else scopes.Remove("rateldesk.orchestration.callback");
+    }
+    private void OrganizationChanged(string value)
+    {
+        organizationId = value; customerIds.Clear();
+        var allowed = customers.Where(customer => customer.OrganizationId == value && customer.IsEnabled).ToArray();
+        if (allowed.Length == 1) customerIds.Add(allowed[0].Id);
+    }
     private void CustomerChanged(string value) => customerIds = string.IsNullOrEmpty(value) ? [] : new HashSet<string>([value], StringComparer.Ordinal);
     private void ScopesChanged(object expectedSelectionOwner, IEnumerable<string>? values)
     {

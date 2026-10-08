@@ -82,6 +82,8 @@ public static class ServiceLinkEndpoints
             WithBody<ServiceLinkCallbackRequest, ServiceLinkReviewResponse>(http, body => links.CallbackAsync(body, http.User, ct), ct));
         admin.MapPost("/attempts/{attemptId}/approve", (string attemptId, HttpContext http, ServiceLinkCoordinator links, CancellationToken ct) =>
             WithBody<ServiceLinkLocalApproveRequest, ServiceLinkAdminStatus>(http, body => links.LocalApproveAsync(attemptId, body, http.User, ct), ct));
+        admin.MapPost("/links/{linkId}/test", (string linkId, HttpContext http, ServiceLinkCoordinator links, CancellationToken ct) =>
+            Respond(http, () => links.TestAsync(linkId, http.User, ct)));
         foreach (var operation in new[] { "resume", "cancel", "revoke", "rotate" })
         {
             var kind = operation;
@@ -120,7 +122,12 @@ public static class ServiceLinkEndpoints
     {
         http.Response.Headers.CacheControl = "no-store";
         http.Response.Headers.Pragma = "no-cache";
-        try { return Results.Json(await action()); }
+        try
+        {
+            if (http.RequestServices.GetService<IServicePublicSettingsResolver>() is not null)
+                await http.RequestServices.GetRequiredService<ServiceLinkCoordinator>().RefreshSettingsAsync(http.RequestAborted);
+            return Results.Json(await action());
+        }
         catch (ServiceLinkProtocolException error)
         { return Results.Problem(statusCode: error.StatusCode, title: error.Message, extensions: new Dictionary<string, object?> { ["code"] = error.Code }); }
         catch (Exception error) when (error is JsonException or DecoderFallbackException or ArgumentException or FormatException)

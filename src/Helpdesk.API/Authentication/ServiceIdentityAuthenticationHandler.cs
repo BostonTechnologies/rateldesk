@@ -10,7 +10,7 @@ namespace Helpdesk.API.Authentication;
 
 public sealed class ServiceIdentityAuthenticationHandler(IOptionsMonitor<AuthenticationSchemeOptions> schemeOptions,
     ILoggerFactory logger, UrlEncoder encoder, ServiceSigningKeyStore keys, IServicePrincipalRegistry registry,
-    IOptionsMonitor<ServiceIdentityOptions> issuerOptions, TimeProvider time)
+    IOptionsMonitor<ServiceIdentityOptions> issuerOptions, TimeProvider time, IServicePublicSettingsResolver? publicSettings = null)
     : AuthenticationHandler<AuthenticationSchemeOptions>(schemeOptions, logger, encoder)
 {
     public const string SchemeName = "RatelDeskService";
@@ -25,10 +25,11 @@ public sealed class ServiceIdentityAuthenticationHandler(IOptionsMonitor<Authent
         var header = Request.Headers.Authorization.ToString();
         if (!header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) return AuthenticateResult.NoResult();
         var token = header[7..].Trim();
-        if (token.Length is < 20 or > 16384 || !issuerOptions.CurrentValue.Enabled) return AuthenticateResult.Fail("Invalid service token.");
+        if (token.Length is < 20 or > 16384) return AuthenticateResult.Fail("Invalid service token.");
         try
         {
-            var settings = issuerOptions.CurrentValue;
+            var settings = publicSettings is null ? issuerOptions.CurrentValue : (await publicSettings.ResolveAsync(Context.RequestAborted)).Identity;
+            if (!settings.Enabled) return AuthenticateResult.Fail("Service connections are disabled.");
             var handler = new JwtSecurityTokenHandler { MapInboundClaims = false, MaximumTokenSizeInBytes = 16384 };
             var jwt = handler.ReadJwtToken(token);
             if (jwt.Header.Alg != SecurityAlgorithms.RsaSha256 || jwt.Header.Typ != "at+jwt" || string.IsNullOrWhiteSpace(jwt.Header.Kid)) return AuthenticateResult.Fail("Invalid service token type or signing algorithm.");
