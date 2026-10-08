@@ -125,7 +125,7 @@ public sealed partial class ServiceLinkCoordinator(
         CallerInstanceId = g.CallerInstanceId, CallerTenantId = g.CallerTenantId, TargetInstanceId = g.TargetInstanceId, TargetTenantId = g.TargetTenantId
     };
 
-    private async Task<ServiceLinkAdminStatus> AdminStatus(ServiceLinkAttempt a, CancellationToken ct)
+    private async Task<ServiceLinkAdminStatus> AdminStatus(ServiceLinkAttempt a, ClaimsPrincipal actor, CancellationToken ct)
     {
         var settings = this.settings;
         var issuer = this.issuer;
@@ -133,11 +133,31 @@ public sealed partial class ServiceLinkCoordinator(
         var provider = await providers.GetOrchestratorSettingsAsync(ct);
         var sender = SenderUsable(a, provider, inbound);
         var customerIds = a.GrantSummaryJson is null ? Array.Empty<string>() : InboundGrant(a).ResourceConstraints.CustomerIds;
+        var invalidOrganization = !string.IsNullOrEmpty(a.LocalTenantId) &&
+            !await db.Organizations.IgnoreQueryFilters().AnyAsync(o => o.Id == a.LocalTenantId && o.State == Helpdesk.Shared.Models.EntityState.Enabled, ct);
+        var originalActor = a.LocalActorId == (actor.FindFirstValue(ClaimTypes.NameIdentifier) ?? actor.FindFirstValue("sub"));
+        var terminal = a.LifecycleState is "expired" or "failed" or "revoked";
+        var expiredUnprepared = a.Decision != "commit" && a.ExpiresAtUnixSeconds <= Now && a.InboundPrincipalId is null &&
+            a.ProtectedOutboundCredential is null && !a.ExchangeDispatched && a.LifecycleState is "awaiting_approval" or "approved" or "expired" or "failed";
+        var action = "none";
+        if (!terminal && !invalidOrganization && !expiredUnprepared && a.LifecycleState != "active")
+        {
+            if (originalActor && a.Decision == "undecided" && a.LifecycleState == "awaiting_approval" && a.GrantSummaryJson is null && a.ProtectedBrowserState is not null)
+                action = a.Role == "initiator" ? "continue" : "respond";
+            else if (originalActor && a.Role == "initiator" && a.Decision == "undecided" && a.GrantSummaryJson is not null && a.InboundPrincipalId is null)
+                action = "review";
+            else if (a.InboundPrincipalId is not null || a.ProtectedOutboundCredential is not null || a.ExchangeDispatched)
+                action = "resume";
+        }
         return new(a.AttemptId, a.LinkId, a.LinkRevision, a.LifecycleState,
             a.LocalTenantId, a.PeerInstanceId, a.PeerTenantId, a.Decision, a.CommitId, a.GrantHash, Descriptor(a), a.GrantSummaryJson is null ? null : Summary(a),
             a.InboundPrincipalId is not null, a.ProtectedOutboundCredential is not null, inbound, sender, a.PeerActiveAcknowledged, EffectiveError(a, inbound, sender),
             provider.ManagedByDeployment, await RotationSummaries(a, ct))
-            { LocalTenantName = await db.Organizations.IgnoreQueryFilters().AsNoTracking().Where(o => o.Id == a.LocalTenantId).Select(o => o.Name).SingleOrDefaultAsync(ct),
+            { LocalRole = a.Role, AvailableAction = action, OrganizationBindingInvalid = invalidOrganization,
+                CanCancel = a.Decision is not ("commit" or "abort") && a.LifecycleState != "revoked",
+                CanStartFresh = a.LifecycleState is "expired" or "revoked" || expiredUnprepared ||
+                    a.LifecycleState == "failed" && a.InboundPrincipalId is null && a.ProtectedOutboundCredential is null && !a.ExchangeDispatched,
+                LocalTenantName = await db.Organizations.IgnoreQueryFilters().AsNoTracking().Where(o => o.Id == a.LocalTenantId).Select(o => o.Name).SingleOrDefaultAsync(ct),
                 LocalCustomerName = a.GrantSummaryJson is null ? null : await db.Customers.IgnoreQueryFilters().AsNoTracking()
                     .Where(c => customerIds.Contains(c.Id) && c.OrganizationId == a.LocalTenantId)
                     .Select(c => c.Name).SingleOrDefaultAsync(ct),
@@ -153,7 +173,46 @@ public sealed partial class ServiceLinkCoordinator(
         (a.Decision == "commit" && a.LifecycleState == "active" && (!inbound || !sender && !ControlOnlyOutbound(a)) ? "grant-unavailable" : null);
 
     public async Task<ServiceLinkAdminStatus> AdminStatusAsync(string attemptId, ClaimsPrincipal actor, CancellationToken ct)
-    { await RefreshSettingsAsync(ct); var a = await Attempt(attemptId, ct); await AuthorizeAttempt(a, actor, ct); return await AdminStatus(a, ct); }
+    { await RefreshSettingsAsync(ct); var a = await Attempt(attemptId, ct); await AuthorizeInspection(a, actor, ct); return await AdminStatus(a, actor, ct); }
+
+    // This exception is restricted to reading or terminally cancelling an
+    // unbound, never-consented responder proposal. It never authorizes resume,
+    // approval, credential exchange, revocation or a replacement organization.
+    private async Task<bool> CanInspectUnboundProposal(ServiceLinkAttempt a, ClaimsPrincipal actor, CancellationToken ct)
+    {
+        if (actor.Identity?.IsAuthenticated != true || string.IsNullOrEmpty(a.LocalActorId) || actor.FindFirst("integration_credential_id") is not null ||
+            actor.FindFirst(ServiceIdentityClaims.PrincipalId) is not null ||
+            a.LocalActorId != (actor.FindFirstValue(ClaimTypes.NameIdentifier) ?? actor.FindFirstValue("sub")) ||
+            a.Role != "responder" || a.Decision is not ("undecided" or "abort") ||
+            a.LifecycleState is not ("awaiting_approval" or "expired" or "failed") ||
+            a.GrantSummaryJson is not null || a.GrantHash is not null || a.ConsentId is not null || a.LinkId is not null ||
+            a.InboundPrincipalId is not null || a.ProtectedInboundEscrow is not null || a.ProtectedOutboundCredential is not null ||
+            a.OutboundProfileRevision is not null || a.ExchangeDispatched || a.ExchangeFingerprint is not null ||
+            a.ProtectedExchangeResponse is not null || a.ExchangeResponseHash is not null || a.CommitId is not null ||
+            a.ActiveRelationshipKey is not null || a.PairingCodeHash is not null || a.ProtectedPairingCode is not null ||
+            a.InitiatorVerificationReceiptId is not null || a.ResponderVerificationReceiptId is not null || a.RevocationId is not null ||
+            a.LocalPreparedAcknowledged || a.PeerPreparedAcknowledged || a.LocalInboundActive || a.LocalBusinessSenderEnabled ||
+            a.LocalActiveAcknowledged || a.PeerActiveAcknowledged) return false;
+        var access = await accessService.ResolveAsync(actor, ct);
+        var absentOrganization = string.IsNullOrEmpty(a.LocalTenantId);
+        if (!(absentOrganization ? access.IsHelpdeskAdmin || access.ManagedOrganizationIds.Count > 0 : access.IsHelpdeskAdmin)) return false;
+        if (!absentOrganization && await db.Organizations.IgnoreQueryFilters().AnyAsync(o => o.Id == a.LocalTenantId && o.State == Helpdesk.Shared.Models.EntityState.Enabled, ct)) return false;
+        var descriptor = Descriptor(a);
+        return descriptor.AttemptId == a.AttemptId && descriptor.DescriptorHash == a.DescriptorHash &&
+            (descriptor.RequestedResponderTenantId ?? "") == a.LocalTenantId &&
+            ServiceLinkPayloadNormalization.DescriptorHashMatches(descriptor, a.DescriptorHash) &&
+            !await db.Set<ServicePrincipalRegistration>().AnyAsync(p => p.AttemptId == a.AttemptId, ct) &&
+            !await db.Set<ServiceLinkVerificationReceipt>().AnyAsync(r => r.AttemptId == a.AttemptId, ct) &&
+            // Supported exchange/lifecycle journals are keyed by the approved
+            // LinkId (which must be absent above); also reject an attempt-keyed
+            // journal rather than treating unexpected retained work as empty.
+            !await db.Set<ServiceLinkOperation>().AnyAsync(o => o.LinkId == a.AttemptId || o.LinkId == a.LinkId, ct);
+    }
+
+    private async Task AuthorizeInspection(ServiceLinkAttempt a, ClaimsPrincipal actor, CancellationToken ct)
+    {
+        if (!await CanInspectUnboundProposal(a, actor, ct)) await AuthorizeAttempt(a, actor, ct);
+    }
     private async Task AuthorizeAttempt(ServiceLinkAttempt a, ClaimsPrincipal actor, CancellationToken ct)
     {
         if (!string.IsNullOrEmpty(a.LocalTenantId)) { await Authorize(actor, a.LocalTenantId, ct); return; }
@@ -164,9 +223,18 @@ public sealed partial class ServiceLinkCoordinator(
     {
         await RefreshSettingsAsync(ct);
         var access = await accessService.ResolveAsync(actor, ct);
-        Require(actor.FindFirst("integration_credential_id") is null && actor.FindFirst(ServiceIdentityClaims.PrincipalId) is null && (access.IsHelpdeskAdmin || access.ManagedOrganizationIds.Count > 0), "administrator-required", "Administrator authority is required.", 403);
-        var all = await db.Set<ServiceLinkAttempt>().Where(x => access.IsHelpdeskAdmin || access.ManagedOrganizationIds.Contains(x.LocalTenantId)).OrderByDescending(x => x.CreatedAtUnixSeconds).Take(100).ToListAsync(ct);
-        var result = new List<ServiceLinkAdminStatus>(); foreach (var a in all) result.Add(await AdminStatus(a, ct)); return result.ToArray();
+        Require(actor.Identity?.IsAuthenticated == true && actor.FindFirst("integration_credential_id") is null && actor.FindFirst(ServiceIdentityClaims.PrincipalId) is null && (access.IsHelpdeskAdmin || access.ManagedOrganizationIds.Count > 0), "administrator-required", "Administrator authority is required.", 403);
+        var actorId = actor.FindFirstValue(ClaimTypes.NameIdentifier) ?? actor.FindFirstValue("sub");
+        var all = await db.Set<ServiceLinkAttempt>().Where(x => access.IsHelpdeskAdmin || access.ManagedOrganizationIds.Contains(x.LocalTenantId) ||
+            x.LocalTenantId == "" && x.Role == "responder" && x.LocalActorId == actorId).OrderByDescending(x => x.CreatedAtUnixSeconds).Take(100).ToListAsync(ct);
+        var result = new List<ServiceLinkAdminStatus>();
+        foreach (var a in all)
+        {
+            try { await AuthorizeInspection(a, actor, ct); }
+            catch (ServiceLinkProtocolException error) when (error.StatusCode == 403) { continue; }
+            result.Add(await AdminStatus(a, actor, ct));
+        }
+        return result.ToArray();
     }
 
     private async Task<IReadOnlyList<ServiceLinkRotationSummary>> RotationSummaries(ServiceLinkAttempt a, CancellationToken ct) => (await db.Set<ServiceLinkRotation>().Where(x => x.LinkId == a.LinkId).ToListAsync(ct)).Select(x => new ServiceLinkRotationSummary(x.RotationId, x.DirectionId, x.RotationState, x.ExpectedCurrentCredentialRevision, x.SuccessorCredentialRevision, x.OfferExpiresAtUnixSeconds is null ? null : Timestamp(x.OfferExpiresAtUnixSeconds.Value), x.SuccessorVerificationReceiptId, x.ActivateDecisionId, x.CallerSwitchRevision, x.PredecessorRetireAtUnixSeconds is null ? null : Timestamp(x.PredecessorRetireAtUnixSeconds.Value))).ToArray();

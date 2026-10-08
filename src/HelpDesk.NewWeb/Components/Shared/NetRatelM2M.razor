@@ -107,6 +107,7 @@
             <form method="post" action="/account/integration-credentials/link/start" data-enhance="false" data-testid="netratel-link-start">
                 <AntiforgeryToken />
                 <input type="hidden" name="localTenantId" value="@organizationId" />
+                <input type="hidden" name="requestedResponderTenantId" value="@requestedPeerTenantId" />
                 @foreach (var customerId in customerIds.Order(StringComparer.Ordinal))
                 {
                     <input type="hidden" name="customerIds" value="@customerId" />

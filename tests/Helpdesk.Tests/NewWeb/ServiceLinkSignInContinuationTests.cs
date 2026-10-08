@@ -59,8 +59,8 @@ public sealed class ServiceLinkSignInContinuationTests
         using var resumed = await client.GetAsync("/account/integration-credentials/link/resume-sign-in");
         Assert.Equal(callback, resumed.Headers.Location!.OriginalString);
         using var reviewed = await client.GetAsync(resumed.Headers.Location);
-        Assert.Equal(sameActor ? "/account/integration-credentials/link/review/fixture-attempt" :
-            "/account/integration-credentials/link/result?status=session-expired", reviewed.Headers.Location!.OriginalString);
+        if (sameActor) Assert.Equal("/account/integration-credentials/link/review/fixture-attempt", reviewed.Headers.Location!.OriginalString);
+        else Assert.StartsWith("/account/integration-credentials/link/result?status=session-expired&stage=callback&correlationId=", reviewed.Headers.Location!.OriginalString);
         Assert.Equal(sameActor ? 1 : 0, host.Services.GetRequiredService<PeerFixture>().CallbackRequests);
     }
 
@@ -72,7 +72,26 @@ public sealed class ServiceLinkSignInContinuationTests
         client.DefaultRequestHeaders.Add("x-fixture-authenticated", "true");
         client.DefaultRequestHeaders.Add("Cookie", "__Host-RatelDesk.ServiceLink.Continuation=altered");
         using var resumed = await client.GetAsync("/account/integration-credentials/link/resume-sign-in");
-        Assert.Equal("/account/integration-credentials/link/result?status=session-expired", resumed.Headers.Location!.OriginalString);
+        Assert.StartsWith("/account/integration-credentials/link/result?status=session-expired&stage=request&correlationId=", resumed.Headers.Location!.OriginalString);
+    }
+
+    [Theory]
+    [InlineData("unsupported-peer", "unsupported-peer")]
+    [InlineData("organization-disabled", "invalid-organization")]
+    [InlineData("network-policy-rejected", "network-policy-rejected")]
+    [InlineData("https://secret.invalid/proof", "invalid-request")]
+    public async Task Browser_preserves_allowlisted_API_diagnostics_without_peer_text(string code, string expected)
+    {
+        using var host = await CreateHostAsync();
+        var peer = host.Services.GetRequiredService<PeerFixture>();
+        peer.FailureCode = code;
+        using var client = host.GetTestClient();
+        client.DefaultRequestHeaders.Add("x-fixture-authenticated", "true");
+        using var response = await client.GetAsync("/account/integration-credentials/link/approve?initiator_web_base_url=https%3A%2F%2Fpeer.example.invalid&attempt_id=fixture-attempt&browser_state=fixture-state");
+        Assert.Equal("/account/integration-credentials/link/result?status=" + expected +
+            "&stage=remote-review&correlationId=0123456789abcdef0123456789abcdef", response.Headers.Location!.OriginalString);
+        Assert.DoesNotContain("secret.invalid", response.Headers.Location.OriginalString);
+        Assert.DoesNotContain("fixture-state", response.Headers.Location.OriginalString);
     }
 
     private static Task<IHost> CreateHostAsync() => new HostBuilder().ConfigureWebHost(web =>
@@ -99,8 +118,14 @@ public sealed class ServiceLinkSignInContinuationTests
     {
         public HttpClient CreateClient(string name) => new(this, disposeHandler: false) { BaseAddress = new Uri("https://api.example.invalid/") };
         public int CallbackRequests { get; private set; }
+        public string? FailureCode { get; set; }
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            if (FailureCode is not null) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(new { code = FailureCode, stage = "remote-review",
+                    correlationId = "0123456789abcdef0123456789abcdef", title = "https://secret.invalid/proof" }))
+            });
             if (request.RequestUri!.AbsolutePath.EndsWith("/callback", StringComparison.Ordinal)) CallbackRequests++;
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NoContent));
         }

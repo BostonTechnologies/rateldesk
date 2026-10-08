@@ -1,5 +1,6 @@
 @using Helpdesk.Shared.ServiceLink
 @using System.Text.Json
+@using HelpDesk.NewWeb.Services
 @inject IHttpClientFactory HttpClientFactory
 
 <MudStack Spacing="2" data-testid="netratel-service-link-list">
@@ -24,9 +25,13 @@
                     <MudText Typo="Typo.subtitle2">NetRatel · @PeerHost(link)</MudText>
                     <MudChip T="string" Size="Size.Small" Color="@StatusColor(link)">@StatusLabel(link)</MudChip>
                 </MudStack>
-                <MudText Typo="Typo.body2">@(link.LocalTenantName ?? "Organization details unavailable") / @(link.LocalCustomerName ?? "Customer details unavailable")</MudText>
+                <MudText Typo="Typo.body2">@(link.OrganizationBindingInvalid ? "Organization selection is invalid" : link.LocalTenantName ?? (string.IsNullOrEmpty(link.LocalTenantId) ? "Organization selection pending" : "Organization details unavailable")) / @(link.LocalCustomerName ?? (link.GrantSummary is null ? "Customer selection pending" : "Customer details unavailable"))</MudText>
+                @if (link.OrganizationBindingInvalid)
+                {
+                    <MudAlert Severity="Severity.Warning" Dense="true">This setup contains an invalid organization selection. Its original grants cannot be changed. Cancel the unapproved setup, then choose an organization in a new setup.</MudAlert>
+                }
                 <MudExpansionPanels Elevation="0"><MudExpansionPanel Text="Connection details">
-                <MudText Typo="Typo.caption">Instance @link.PeerInstanceId · local organization @link.LocalTenantId · peer tenant @(link.PeerTenantId ?? "Awaiting remote selection")</MudText>
+                <MudText Typo="Typo.caption">Instance @link.PeerInstanceId · local organization @(link.OrganizationBindingInvalid ? "Invalid selection" : link.LocalTenantId) · peer tenant @(link.PeerTenantId ?? "Awaiting remote selection")</MudText>
                 <MudText Typo="Typo.caption">Rotation policy: @(link.AutomaticRotationEnabled ? $"automatic renewal after {link.RotationAgeDays} days" : "manual renewal") · @link.RotationOverlapSeconds second predecessor overlap after verified switch.</MudText>
                 <MudGrid Spacing="1">
                     <MudItem xs="12" sm="6"><MudText Typo="Typo.body2">NetRatel → RatelDesk: @(link.LocalInboundActive ? "Authenticated and active" : link.LocalInboundReady ? "Prepared; activation pending" : "Awaiting approval / verification")</MudText></MudItem>
@@ -49,26 +54,30 @@
                 }
                 </MudExpansionPanel></MudExpansionPanels>
                 <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap">
-                    <MudButton Size="Size.Small" Href="@($"/account/integration-credentials/link/review/{Uri.EscapeDataString(link.AttemptId)}")">Review exact grants</MudButton>
-                    @if (link.LifecycleState is not ("revoked" or "expired" or "failed"))
+                    <MudButton Size="Size.Small" Href="@ReviewUrl(link)">Review exact grants</MudButton>
+                    @if (link.AvailableAction == "continue")
                     {
-                        @if (CanContinueApproval(link))
-                        {
-                            <form method="post" action="/account/integration-credentials/link/continue" data-enhance="false" data-testid="netratel-resume-approval">
-                                <AntiforgeryToken />
-                                <input type="hidden" name="attemptId" value="@link.AttemptId" />
-                                <MudButton ButtonType="ButtonType.Submit" Size="Size.Small" Disabled="busy">Continue NetRatel approval</MudButton>
-                            </form>
-                        }
-                        else
-                        {
-                            <MudButton Size="Size.Small" Disabled="@busy" OnClick='@(() => ActionAsync(link, "resume"))'>Resume</MudButton>
-                        }
+                        <form method="post" action="/account/integration-credentials/link/continue" data-enhance="false" data-testid="netratel-resume-approval">
+                            <AntiforgeryToken />
+                            <input type="hidden" name="attemptId" value="@link.AttemptId" />
+                            <MudButton ButtonType="ButtonType.Submit" Size="Size.Small" Disabled="busy">Continue NetRatel approval</MudButton>
+                        </form>
+                    }
+                    else if (link.AvailableAction is "respond" or "review")
+                    {
+                        <MudButton Size="Size.Small" Href="@ApprovalUrl(link)" data-testid="netratel-resume-local-approval">@(link.AvailableAction == "respond" ? "Resume approval" : "Review and approve")</MudButton>
+                    }
+                    else if (link.AvailableAction == "resume")
+                    {
+                        <MudButton Size="Size.Small" Disabled="@busy" OnClick='@(() => ActionAsync(link, "resume"))'>Resume connection checks</MudButton>
+                    }
+                    @if (link.CanCancel || CanDisconnect(link))
+                    {
                         @if (pendingLinkId == Identifier(link) && pendingRotationDirection is null)
                         {
-                            <MudText Typo="Typo.caption">Disable both directions and request peer revocation?</MudText>
+                            <MudText Typo="Typo.caption">@(link.Decision == "commit" ? "Disable both directions and request peer revocation?" : "Cancel this setup and preserve its approval history?")</MudText>
                             <MudButton Size="Size.Small" OnClick="ClearPending">Keep connection</MudButton>
-                            <MudButton Size="Size.Small" Color="Color.Error" Disabled="@busy" OnClick='@(() => ActionAsync(link, link.Decision == "commit" ? "revoke" : "cancel"))'>Confirm disconnect</MudButton>
+                            <MudButton Size="Size.Small" Color="Color.Error" Disabled="@busy" OnClick='@(() => ActionAsync(link, link.Decision == "commit" ? "revoke" : "cancel"))'>@(link.Decision == "commit" ? "Confirm disconnect" : "Confirm cancellation")</MudButton>
                         }
                         else
                         {
@@ -92,7 +101,7 @@
                             }
                         }
                     }
-                    @if (link.LifecycleState is "revoked" or "expired" or "failed")
+                    @if (link.CanStartFresh)
                     {
                         <MudButton Size="Size.Small" Href="@ReconnectUrl(link)" Color="Color.Primary">Reconnect with new approval</MudButton>
                     }
@@ -127,7 +136,13 @@
         links = []; ClearPending();
         try
         {
-            links = await HttpClientFactory.CreateClient("HelpdeskApi").GetFromJsonAsync<List<ServiceLinkAdminStatus>>("api/v1/admin/service-links") ?? [];
+            using var response = await HttpClientFactory.CreateClient("HelpdeskApi").GetAsync("api/v1/admin/service-links");
+            if (!response.IsSuccessStatusCode)
+            {
+                error = ServiceLinkFailurePresentation.Message(await ServiceLinkFailurePresentation.ReadAsync(response, "status"));
+                return;
+            }
+            links = await response.Content.ReadFromJsonAsync<List<ServiceLinkAdminStatus>>() ?? [];
             verifiedConnections.Clear();
             foreach (var link in links.Where(LifecycleApproved)) await VerifyConnectionAsync(link);
         }
@@ -158,7 +173,7 @@
         if (!response.IsSuccessStatusCode)
         {
             verifiedConnections.Remove(link.LinkId);
-            error = "Connection verification could not be confirmed. The approved connection remains saved; retry verification.";
+            error = ServiceLinkFailurePresentation.Message(await ServiceLinkFailurePresentation.ReadAsync(response, "test"));
             return null;
         }
         var result = await response.Content.ReadFromJsonAsync<ServiceLinkTestResult>();
@@ -173,7 +188,7 @@
         {
             using var response = await HttpClientFactory.CreateClient("ServiceLinkApi").PostAsJsonAsync(
                 $"api/v1/admin/service-links/{(link.LinkId is null ? "attempts" : "links")}/{Uri.EscapeDataString(Identifier(link))}/{action}", new ServiceLinkAdminAction("administrator-request", directionId));
-            if (!response.IsSuccessStatusCode) error = "The lifecycle operation could not be confirmed. Refresh the durable state before retrying.";
+            if (!response.IsSuccessStatusCode) error = ServiceLinkFailurePresentation.Message(await ServiceLinkFailurePresentation.ReadAsync(response, action));
             else ClearPending();
         }
         catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException) { error = "The lifecycle operation could not be confirmed. The current durable connection status remains authoritative."; }
@@ -188,10 +203,13 @@
     private static bool LifecycleApproved(ServiceLinkAdminStatus link) => link.LifecycleState == "active" && link.LocalInboundActive && link.PeerActiveAcknowledged && (link.LocalBusinessSenderEnabled || link.LocalOutboundPersisted &&
         link.GrantSummary?.Grants.Any(grant => grant.TargetProduct == "netratel" && grant.Capabilities.Contains(ServiceLinkContract.IncidentOnlyCapability) &&
             grant.Scopes.ToHashSet(StringComparer.Ordinal).SetEquals([ServiceLinkContract.ControlScope, ServiceLinkContract.VerifyScope])) == true);
-    private static bool CanContinueApproval(ServiceLinkAdminStatus link) => link.Decision == "undecided" && link.LifecycleState == "awaiting_approval" && link.Descriptor.InitiatorEndpointSnapshot.Product == "rateldesk";
+    private static bool CanDisconnect(ServiceLinkAdminStatus link) => link.Decision == "commit" && link.LifecycleState is not ("revoked" or "expired" or "failed");
+    private static string ApprovalUrl(ServiceLinkAdminStatus link) => "/account/integration-credentials/link/" + (link.AvailableAction == "respond" ? "respond/" : "review/") + Uri.EscapeDataString(link.AttemptId);
+    private static string ReviewUrl(ServiceLinkAdminStatus link) => link.AvailableAction == "respond" ? ApprovalUrl(link) : "/account/integration-credentials/link/review/" + Uri.EscapeDataString(link.AttemptId);
     private string StatusLabel(ServiceLinkAdminStatus link) => link.LastErrorCode is "upgrade-required" or "service-link-unsupported" or "unsupported-contract" ? "Upgrade required" : IsConnected(link) ? "Connected" : link.LifecycleState switch
     {
-        "awaiting_approval" or "approved" => "Awaiting approval",
+        "awaiting_approval" => link.LocalRole == "responder" ? "Awaiting your approval" : "Awaiting peer approval",
+        "approved" => link.AvailableAction == "review" ? "Awaiting final approval" : "Completing setup",
         "prepared" or "verified" or "commit_decided" => "Completing setup",
         "active" => LifecycleApproved(link) ? "Approved · verify connection" : "Needs attention · grant unavailable",
         "in_doubt" => "Needs attention · recovery pending",
@@ -209,8 +227,8 @@
         var peer = link.Descriptor.InitiatorEndpointSnapshot.Product == "netratel" ? link.Descriptor.InitiatorEndpointSnapshot : link.Descriptor.ResponderEndpointSnapshot;
         var customer = link.GrantSummary?.Grants.FirstOrDefault(grant => grant.TargetProduct == "rateldesk")?.ResourceConstraints.CustomerIds.FirstOrDefault();
         return "/account/integration-credentials?purpose=netratel-m2m&peer_url=" + Uri.EscapeDataString(peer.WebBaseUrl)
-            + "&organization_id=" + Uri.EscapeDataString(link.LocalTenantId)
-            + "&customer_id=" + Uri.EscapeDataString(customer ?? "")
+            + "&organization_id=" + Uri.EscapeDataString(link.OrganizationBindingInvalid ? "" : link.LocalTenantId)
+            + "&customer_id=" + Uri.EscapeDataString(link.OrganizationBindingInvalid ? "" : customer ?? "")
             + "&peer_tenant_id=" + Uri.EscapeDataString(link.PeerTenantId ?? "");
     }
     private static string ErrorLabel(string code) => code switch
@@ -218,6 +236,6 @@
         "upgrade-required" or "service-link-unsupported" or "unsupported-contract" => "Upgrade required: this peer does not support the requested connection capability. Manual configuration remains available.",
         "deployment-managed" or "deployment-owned-profile" => "The deployment-owned outbound profile cannot be replaced by guided setup. Configure its approved values in deployment.",
         "grant-unavailable" => "The current approved grant is unavailable. Review the selected account, organization, customer and source before reconnecting with new approval.",
-        _ => "Connection needs attention. Resume to reconcile its stored decision and authenticated checks."
+        _ => ServiceLinkFailure.MessageFor(code)
     };
 }

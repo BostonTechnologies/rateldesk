@@ -123,7 +123,7 @@ public class WebAuthRoutesTests
         Assert.True(resumed.Headers.CacheControl?.NoStore);
         Assert.Equal("no-referrer", Assert.Single(resumed.Headers.GetValues("Referrer-Policy")));
         using var repeated = await client.GetAsync("/account/integration-credentials/link/resume-sign-in");
-        Assert.Equal("/account/integration-credentials/link/result?status=session-expired", repeated.Headers.Location?.OriginalString);
+        AssertFailureResult(repeated, "session-expired");
         Assert.Equal(0, peerCalls);
     }
 
@@ -139,7 +139,7 @@ public class WebAuthRoutesTests
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "Technician");
         using var response = await client.GetAsync("/account/integration-credentials/link/approve?initiator_web_base_url=https%3A%2F%2Fpeer.example.test&attempt_id=synthetic-attempt&browser_state=synthetic-private-correlation");
-        Assert.Equal("/account/integration-credentials/link/result?status=not-authorized", response.Headers.Location?.OriginalString);
+        AssertFailureResult(response, "not-authorized");
         Assert.Equal(0, peerCalls);
     }
 
@@ -155,7 +155,8 @@ public class WebAuthRoutesTests
             ResponderEndpointSnapshot = new() { Product = "netratel", InstanceId = "peer-install", WebBaseUrl = "https://peer.example.test", ApprovalEndpoint = "https://peer.example.test/account/integration-credentials/link/approve" }
         };
         var status = new ServiceLinkAdminStatus(attempt, null, 1, "awaiting_approval", "local-organization", "peer-install", null,
-            "undecided", null, null, descriptor, null, false, false, false, false, false, null, false, []);
+            "undecided", null, null, descriptor, null, false, false, false, false, false, null, false, [])
+        { LocalRole = "initiator", AvailableAction = "continue", CanCancel = true };
         string? originalBinding = null;
         var starts = 0;
         var continues = 0;
@@ -203,7 +204,7 @@ public class WebAuthRoutesTests
         Assert.False(html.Contains(originalBinding!, StringComparison.Ordinal), "The protected browser-session binding must remain absent from rendered HTML.");
 
         using var unprotected = await client.PostAsync("/account/integration-credentials/link/continue", new FormUrlEncodedContent(new Dictionary<string, string> { ["attemptId"] = attempt }));
-        Assert.Equal("/account/integration-credentials/link/result?status=form-expired", unprotected.Headers.Location?.OriginalString);
+        AssertFailureResult(unprotected, "form-expired");
         Assert.Equal(0, continues);
 
         using var form = new FormUrlEncodedContent(new Dictionary<string, string> { ["__RequestVerificationToken"] = ExtractFormToken(match.Value), ["attemptId"] = attempt });
@@ -214,6 +215,66 @@ public class WebAuthRoutesTests
         Assert.Equal(1, starts);
         Assert.Equal(1, continues);
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Guided_parent_submits_exact_native_form_presets_through_the_browser_handler(bool presets)
+    {
+        ServiceLinkStartRequest? received = null;
+        using var factory = CreateFactory(enableTestAuth: true, localAuthentication: true, serviceLinkApi: async (request, ct) =>
+        {
+            if (request.Method == HttpMethod.Post)
+            {
+                Assert.Equal("/api/v1/admin/service-links/start", request.RequestUri!.AbsolutePath);
+                received = await request.Content!.ReadFromJsonAsync<ServiceLinkStartRequest>(ct);
+                return new(HttpStatusCode.BadRequest) { Content = JsonContent.Create(new { error = "unsupported-peer", stage = "start" }) };
+            }
+            return new(HttpStatusCode.OK) { Content = JsonContent.Create(Array.Empty<ServiceLinkAdminStatus>()) };
+        });
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "HelpdeskAdmin");
+        var address = "/account/integration-credentials?purpose=netratel-m2m" +
+            (presets ? "&peer_url=https%3A%2F%2Fpeer.example.test%2F&organization_id=organization-ui&customer_id=customer-ui&peer_tenant_id=42" : "");
+        var html = await client.GetStringAsync(address);
+        var form = Regex.Match(html, "<form\\b[^>]*data-testid=\"netratel-link-start\"[^>]*>.*?</form>", RegexOptions.Singleline);
+        Assert.True(form.Success);
+        var inputs = ReadRenderedNativeInputs(form.Value);
+        Assert.Equal(presets ? "https://peer.example.test/" : "", inputs.Single(input => input.Key == "peerWebBaseUrl").Value);
+        Assert.Equal(presets ? "42" : "", inputs.Single(input => input.Key == "requestedResponderTenantId").Value);
+        Assert.Equal("organization-ui", inputs.Single(input => input.Key == "localTenantId").Value);
+        Assert.Equal("customer-ui", inputs.Single(input => input.Key == "customerIds").Value);
+        Assert.Equal(new[] { ServiceLinkContract.ControlScope, ServiceLinkContract.VerifyScope }, inputs.Where(input => input.Key == "outboundScopes").Select(input => input.Value).Order(StringComparer.Ordinal));
+        // Submit the values produced by the composed parent, including its antiforgery input.
+        // For the unprefilled case the user's only edit is the native peer-address field.
+        if (!presets) inputs = inputs.Select(input => input.Key == "peerWebBaseUrl" ? new KeyValuePair<string, string>(input.Key, "https://peer.example.test/") : input).ToList();
+        using var response = await client.PostAsync("/account/integration-credentials/link/start", new FormUrlEncodedContent(inputs));
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        Assert.NotNull(received);
+        Assert.Equal("https://peer.example.test/", received.PeerWebBaseUrl);
+        Assert.Equal(presets ? "42" : null, received.RequestedResponderTenantId);
+        Assert.Equal("organization-ui", received.LocalTenantId);
+        Assert.Equal(new[] { "customer-ui" }, received.LocalCustomerIds);
+        Assert.DoesNotContain("netratel.orchestration.invoke", received.OutboundScopes);
+    }
+
+    private static void AssertFailureResult(HttpResponseMessage response, string expectedCode)
+    {
+        var uri = new Uri(new Uri("https://fixture.example.test"), response.Headers.Location!);
+        Assert.Equal("/account/integration-credentials/link/result", uri.AbsolutePath);
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
+        Assert.Equal(expectedCode, query["status"].ToString());
+        Assert.Equal(ServiceLinkFailure.NormalizeStage(query["stage"].ToString()), query["stage"].ToString());
+        Assert.NotNull(ServiceLinkFailure.NormalizeCorrelation(query["correlationId"].ToString()));
+        Assert.Equal(new[] { "correlationId", "stage", "status" }, query.Keys.Order(StringComparer.Ordinal));
+    }
+
+    private static List<KeyValuePair<string, string>> ReadRenderedNativeInputs(string html) => Regex.Matches(html, "<input\\b[^>]*>")
+        .Cast<Match>().Select(match =>
+        {
+            string Attribute(string name) => WebUtility.HtmlDecode(Regex.Match(match.Value, name + "=\"([^\"]*)\"").Groups[1].Value);
+            return new KeyValuePair<string, string>(Attribute("name"), Attribute("value"));
+        }).Where(input => input.Key.Length > 0 && input.Key != "confirmed").ToList();
 
     [Fact]
     public async Task Login_Page_Shows_A_Distinct_Authentik_Link()
@@ -788,6 +849,16 @@ public class WebAuthRoutesTests
                 return loginApi(request, cancellationToken);
             if (request.RequestUri?.AbsolutePath.StartsWith("/api/v1/admin/service-links", StringComparison.Ordinal) == true && serviceLinkApi is not null)
                 return serviceLinkApi(request, cancellationToken);
+            object? setupFixture = request.RequestUri?.AbsolutePath switch
+            {
+                "/api/v1/organizations" => new[] { new { id = "organization-ui", name = "Fixture organization", isEnabled = true } },
+                "/api/v1/customers" => new[] { new { id = "customer-ui", organizationId = "organization-ui", name = "Fixture customer", isEnabled = true } },
+                "/api/v1/integration-credentials/" or "/api/v1/admin/service-clients" => Array.Empty<object>(),
+                "/api/v1/admin/service-clients/public-settings" => new Helpdesk.Shared.ServiceIdentity.ServicePublicSettingsDto(true, true,
+                    "https://local.example.test", "https://api.example.test", "https://api.example.test/services", "rateldesk.service", "local-install", 1, [], []),
+                _ => null
+            };
+            if (setupFixture is not null) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(setupFixture, setupFixture.GetType()) });
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = request.RequestUri?.AbsolutePath == "/api/v1/setup/status"

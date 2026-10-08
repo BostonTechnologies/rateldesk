@@ -228,6 +228,11 @@ public sealed record ServiceLinkAdminStatus(string AttemptId, string? LinkId, lo
     bool LocalInboundReady, bool LocalOutboundPersisted, bool LocalInboundActive, bool LocalBusinessSenderEnabled,
     bool PeerActiveAcknowledged, string? LastErrorCode, bool DeploymentManaged, IReadOnlyList<ServiceLinkRotationSummary> Rotations)
 {
+    public string LocalRole { get; init; } = "";
+    public string AvailableAction { get; init; } = "none";
+    public bool CanCancel { get; init; }
+    public bool CanStartFresh { get; init; }
+    public bool OrganizationBindingInvalid { get; init; }
     public string? LocalTenantName { get; init; }
     public string? LocalCustomerName { get; init; }
     public bool AutomaticRotationEnabled { get; init; }

@@ -96,7 +96,7 @@ public sealed class ServiceLinkTransport(HttpClient client, IOptions<ServiceLink
         {
             if (message.Method == HttpMethod.Get && message.RequestUri!.AbsolutePath.EndsWith(ServiceLinkContract.MetadataPath, StringComparison.Ordinal) && (int)response.StatusCode is 404 or 405)
                 throw new ServiceLinkProtocolException(422, "upgrade-required", "The peer does not serve the required service link discovery contract. Manual configuration remains available.");
-            throw new ServiceLinkProtocolException(502, "peer-operation-failed", $"The approved peer operation failed with status {(int)response.StatusCode}.");
+            throw await PeerFailureAsync(response, timeout.Token);
         }
         if (response.Content.Headers.ContentLength > settings.MaximumPayloadBytes) throw new ServiceLinkProtocolException(422, "peer-response-too-large", "The peer response exceeded its configured limit.");
         await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token);
@@ -111,4 +111,39 @@ public sealed class ServiceLinkTransport(HttpClient client, IOptions<ServiceLink
         if (typeof(T) == typeof(JsonDocument)) return (T)(object)JsonDocument.Parse(ServiceLinkCanonicalJson.Canonicalize(json));
         return ServiceLinkCanonicalJson.Deserialize<T>(json);
     }
+    private static async Task<ServiceLinkProtocolException> PeerFailureAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        // A peer may explain a rejected operation only with these known categories.
+        // Never trust its title, detail, stage, correlation, redirect or full response body.
+        const int limit = 4096;
+        if (response.Content.Headers.ContentLength > limit) return Unavailable();
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        var bytes = new byte[limit + 1];
+        var length = 0;
+        while (length < bytes.Length)
+        {
+            var count = await stream.ReadAsync(bytes.AsMemory(length), ct);
+            if (count == 0) break;
+            length += count;
+        }
+        if (length > limit) return Unavailable();
+        try
+        {
+            using var problem = JsonDocument.Parse(bytes.AsMemory(0, length));
+            if (problem.RootElement.ValueKind == JsonValueKind.Object && problem.RootElement.TryGetProperty("code", out var field) && field.ValueKind == JsonValueKind.String)
+            {
+                var code = field.GetString();
+                if (code is "network-policy-rejected" or "invalid-organization" or "organization-disabled" or
+                    "administrator-required" or "not-authorized" or "attempt-expired" or "expired" or
+                    "invalid-browser-session" or "invalid-browser-proof" or "session-expired" or
+                    "unsupported-peer" or "upgrade-required" or "peer-unavailable" or "peer-timeout")
+                    return new ServiceLinkProtocolException(502, code, ServiceLinkFailure.MessageFor(code));
+            }
+        }
+        catch (JsonException) { return Unavailable(); }
+        return Unavailable();
+
+        static ServiceLinkProtocolException Unavailable() => new(502, "peer-operation-failed", "The approved peer operation failed.");
+    }
+
 }

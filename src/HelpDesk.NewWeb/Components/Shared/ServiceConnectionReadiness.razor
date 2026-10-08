@@ -5,7 +5,7 @@
 <MudStack Spacing="1" data-testid="service-connection-readiness">
     @if (loading) { <MudProgressLinear Indeterminate="true" /> }
     else if (settings is { Enabled: true, LinksEnabled: true } && settings.Readiness.Length == 0)
-    { <MudText Typo="Typo.caption" Color="Color.Success">Connections enabled for this installation</MudText> }
+    { <MudText Typo="Typo.caption" Color="Color.Success">Connections enabled locally. Peer approval and verification are still required.</MudText> }
     else if (settings is not null)
     {
         <MudPaper Outlined="true" Class="pa-3">
@@ -20,7 +20,9 @@
                     <MudText Typo="Typo.body2">Enable protected service connections using this installation's configured public addresses.</MudText>
                     @if (!ValidUrl(settings.WebBaseUrl)) { <MudTextField Label="This RatelDesk web address" @bind-Value="webUrl" Immediate="true" ReadOnly="@Locked("webBaseUrl")" Margin="Margin.Dense" Variant="Variant.Outlined" /> }
                     @if (!ValidUrl(settings.ApiBaseUrl)) { <MudTextField Label="This RatelDesk API address" @bind-Value="apiUrl" Immediate="true" ReadOnly="@Locked("apiBaseUrl")" Margin="Margin.Dense" Variant="Variant.Outlined" HelperText="Use the configured API address; it can differ from the web address." /> }
-                    <MudButton OnClick="EnableAsync" Color="Color.Primary" Variant="Variant.Outlined" Disabled="@(busy || !ValidUrl(webUrl) || !ValidUrl(apiUrl))">@(busy ? "Enabling…" : "Enable connections")</MudButton>
+                    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" data-testid="service-connection-enable-actions">
+                        <MudButton Size="Size.Small" OnClick="EnableAsync" Color="Color.Primary" Variant="Variant.Outlined" Disabled="@(busy || !ValidUrl(webUrl) || !ValidUrl(apiUrl))">@(busy ? "Enabling…" : "Enable connections")</MudButton>
+                    </MudStack>
                 }
                 @if (settings.Readiness.Length > 0) { <MudText Typo="Typo.caption">Setup needs: @string.Join(", ", settings.Readiness)</MudText> }
                 <MudExpansionPanels Elevation="0"><MudExpansionPanel Text="Connection settings (advanced)">

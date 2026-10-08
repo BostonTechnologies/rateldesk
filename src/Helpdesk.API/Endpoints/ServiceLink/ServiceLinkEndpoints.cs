@@ -14,7 +14,7 @@ using Microsoft.Extensions.Options;
 namespace Helpdesk.API.Endpoints.ServiceLink;
 
 /// <summary>Public bounded descriptors, proof-bound bootstrap, and separately authenticated link controls.</summary>
-public static class ServiceLinkEndpoints
+public static partial class ServiceLinkEndpoints
 {
     public static IServiceCollection AddServiceLinkProtocol(this IServiceCollection services, IConfiguration configuration)
     {
@@ -118,7 +118,7 @@ public static class ServiceLinkEndpoints
             return await action(body);
         });
 
-    private static async Task<IResult> Respond<T>(HttpContext http, Func<Task<T>> action)
+    internal static async Task<IResult> Respond<T>(HttpContext http, Func<Task<T>> action)
     {
         http.Response.Headers.CacheControl = "no-store";
         http.Response.Headers.Pragma = "no-cache";
@@ -129,17 +129,18 @@ public static class ServiceLinkEndpoints
             return Results.Json(await action());
         }
         catch (ServiceLinkProtocolException error)
-        { return Results.Problem(statusCode: error.StatusCode, title: error.Message, extensions: new Dictionary<string, object?> { ["code"] = error.Code }); }
+        { return await FailureAsync(http, error.StatusCode, error.Code); }
+        catch (Exception error) when (ServiceLinkFailureReporting.IsNetworkPolicyFailure(error))
+        { return await FailureAsync(http, 422, "network-policy-rejected"); }
         catch (Exception error) when (error is JsonException or DecoderFallbackException or ArgumentException or FormatException)
-        { return Results.Problem(statusCode: 400, title: "The service-link request is invalid.", extensions: new Dictionary<string, object?> { ["code"] = "invalid-request" }); }
-        catch (Exception error) when (error is DbUpdateException or ServiceClientConflictException or IntegrationProviderConfigurationConflictException ||
-            ServiceLinkDatabaseConflict.IsAbortedTransaction(error))
-        { return Results.Problem(statusCode: 409, title: "The durable registration or profile changed. Refresh the current state.", extensions: new Dictionary<string, object?> { ["code"] = "service-link-conflict" }); }
+        { return await FailureAsync(http, 400, "invalid-request"); }
+        catch (Exception error) when (error is DbUpdateException or ServiceClientConflictException or IntegrationProviderConfigurationConflictException || ServiceLinkDatabaseConflict.IsAbortedTransaction(error))
+        { return await FailureAsync(http, 409, "service-link-conflict"); }
         catch (CryptographicException)
-        { return Results.Problem(statusCode: 503, title: "The protected link state is unavailable. Restore the shared key ring.", extensions: new Dictionary<string, object?> { ["code"] = "protected-state-unavailable" }); }
+        { return await FailureAsync(http, 503, "protected-state-unavailable"); }
         catch (HttpRequestException)
-        { return Results.Problem(statusCode: 502, title: "The approved peer could not be reached.", extensions: new Dictionary<string, object?> { ["code"] = "peer-unavailable" }); }
+        { return await FailureAsync(http, 502, "peer-unavailable"); }
         catch (OperationCanceledException) when (!http.RequestAborted.IsCancellationRequested)
-        { return Results.Problem(statusCode: 504, title: "The approved peer operation timed out.", extensions: new Dictionary<string, object?> { ["code"] = "peer-timeout" }); }
+        { return await FailureAsync(http, 504, "peer-timeout"); }
     }
 }
