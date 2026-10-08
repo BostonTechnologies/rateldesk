@@ -281,7 +281,7 @@
                 if (!IsCurrent() || !NeedsObservation(status)) return;
             }
         }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
         catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException)
         {
             await InvokeAsync(() =>

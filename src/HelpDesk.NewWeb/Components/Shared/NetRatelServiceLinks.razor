@@ -218,7 +218,7 @@
                     await VerifyConnectionAsync(link, cancellation);
             }
         }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
         catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException)
         { links = []; error = "Reciprocal connection status is unavailable. Refresh to retry."; }
     }
@@ -249,7 +249,7 @@
                 if (!links.Any(NeedsObservation)) break;
             }
         }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
     }
     private void StopObservation() { observation?.Cancel(); observation?.Dispose(); observation = null; }
     public void Dispose() { disposed = true; StopObservation(); }
