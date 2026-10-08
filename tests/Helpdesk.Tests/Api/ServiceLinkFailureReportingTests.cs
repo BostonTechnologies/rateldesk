@@ -99,6 +99,10 @@ public sealed class ServiceLinkFailureReportingTests
     [Fact]
     public void Unknown_display_fields_are_discarded_and_network_marker_survives_transport_wrapping()
     {
+        var throttled = ServiceLinkFailure.From(null, "status", statusCode: 429);
+        Assert.Equal("rate-limited", throttled.Code);
+        Assert.Equal(throttled.Message, ServiceLinkFailure.From(throttled.Code, "status").Message);
+        Assert.Contains("retry the same action", throttled.Message);
         var failure = ServiceLinkFailure.From("arbitrary-peer-code", "https://secret.invalid/proof", "private-trace");
         Assert.Equal("invalid-request", failure.Code);
         Assert.Equal("request", failure.Stage);

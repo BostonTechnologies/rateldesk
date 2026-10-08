@@ -2,10 +2,11 @@
 @using System.Text.Json
 @using HelpDesk.NewWeb.Services
 @inject IHttpClientFactory HttpClientFactory
+@implements IDisposable
 
 <MudStack Spacing="2" data-testid="netratel-service-link-list">
     <MudStack Row="true" AlignItems="AlignItems.Center">
-        <MudText Typo="Typo.subtitle2">NetRatel connections</MudText>
+        <MudText Typo="Typo.subtitle2">@(AttemptId is null ? "Current connections and setups" : "Connection status")</MudText>
         <MudSpacer />
         <MudButton Size="Size.Small" OnClick="RefreshAsync" Disabled="@busy">Refresh status</MudButton>
     </MudStack>
@@ -13,19 +14,51 @@
     {
         <MudAlert Severity="Severity.Warning" Dense="true">@error</MudAlert>
     }
-    @if (links.Count == 0 && error is null)
+    @if (outcome is not null) { <MudAlert Dense="true" Severity="Severity.Info" data-testid="service-link-operation-outcome">@outcome</MudAlert> }
+    @if (busy) { <MudProgressLinear Indeterminate="true" Size="Size.Small" data-testid="service-link-operation-progress" /> }
+    @if (!busy && !links.Any(link => !IsHistory(link)) && error is null && AttemptId is null)
     {
-        <MudText Typo="Typo.body2" Color="Color.Secondary">No NetRatel connection is configured.</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">No current NetRatel connection. Start a setup above.</MudText>
     }
-    @foreach (var link in links)
+    @{ var historyHeadingShown = false; var otherSetupsHeadingShown = false; }
+    @foreach (var link in links.OrderBy(DisplayGroup))
     {
-        <MudPaper Outlined="true" Class="pa-3" Style="overflow-wrap:anywhere" data-testid="netratel-link-status">
+        @if (AttemptId is null && IsOtherSetup(link) && !otherSetupsHeadingShown)
+        {
+            otherSetupsHeadingShown = true;
+            <MudStack Row="true">
+                <MudButton Size="Size.Small" OnClick="ToggleOtherSetups" StartIcon="@(showOtherSetups ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)" aria-expanded="@showOtherSetups.ToString().ToLowerInvariant()" data-testid="service-link-other-setups-toggle">Other setups for these connections (@links.Count(IsOtherSetup))</MudButton>
+            </MudStack>
+            @if (showOtherSetups)
+            {
+                <MudText Typo="Typo.body2" Color="Color.Secondary">These separate attempts target the same organization and peer tenant as a connection above. Review or cancel an unneeded attempt; its history is retained.</MudText>
+            }
+        }
+        @if (AttemptId is null && IsHistory(link) && !historyHeadingShown)
+        {
+            historyHeadingShown = true;
+            <MudStack Row="true">
+                <MudButton Size="Size.Small" OnClick="ToggleHistory" StartIcon="@(showHistory ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)" aria-expanded="@showHistory.ToString().ToLowerInvariant()" data-testid="service-link-history-toggle">Past setups and disconnected connections (@links.Count(IsHistory))</MudButton>
+            </MudStack>
+        }
+        @if (AttemptId is not null || (IsHistory(link) ? showHistory : !IsOtherSetup(link) || showOtherSetups))
+        {
+        <MudPaper @key="link.AttemptId" Outlined="true" Class="pa-3" Style="overflow-wrap:anywhere" data-testid="netratel-link-status" data-attempt-id="@link.AttemptId" data-history="@IsHistory(link).ToString().ToLowerInvariant()">
             <MudStack Spacing="1">
                 <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
                     <MudText Typo="Typo.subtitle2">NetRatel · @PeerHost(link)</MudText>
                     <MudChip T="string" Size="Size.Small" Color="@StatusColor(link)">@StatusLabel(link)</MudChip>
                 </MudStack>
                 <MudText Typo="Typo.body2">@(link.OrganizationBindingInvalid ? "Organization selection is invalid" : link.LocalTenantName ?? (string.IsNullOrEmpty(link.LocalTenantId) ? "Organization selection pending" : "Organization details unavailable")) / @(link.LocalCustomerName ?? (link.GrantSummary is null ? "Customer selection pending" : "Customer details unavailable"))</MudText>
+                <MudText Typo="Typo.body2" data-testid="service-link-next-step">@ProgressText(link)</MudText>
+                @if (rowErrors.TryGetValue(link.AttemptId, out var rowError))
+                {
+                    <MudAlert Dense="true" Severity="Severity.Warning" data-testid="service-link-operation-error">@rowError</MudAlert>
+                }
+                @if (link.LastErrorCode is not null)
+                {
+                    <MudAlert Dense="true" Severity="Severity.Warning">@ErrorLabel(link.LastErrorCode)</MudAlert>
+                }
                 @if (link.OrganizationBindingInvalid)
                 {
                     <MudAlert Severity="Severity.Warning" Dense="true">This setup contains an invalid organization selection. Its original grants cannot be changed. Cancel the unapproved setup, then choose an organization in a new setup.</MudAlert>
@@ -41,10 +74,6 @@
                 {
                     <MudAlert Severity="Severity.Warning" Dense="true">Local access is disabled. Peer revocation confirmation is still pending.</MudAlert>
                 }
-                @if (link.LastErrorCode is not null)
-                {
-                    <MudText Typo="Typo.body2" Color="Color.Warning">@ErrorLabel(link.LastErrorCode)</MudText>
-                }
                 @if (link.Rotations.Count > 0)
                 {
                     @foreach (var rotation in link.Rotations)
@@ -52,24 +81,45 @@
                         <MudText Typo="Typo.caption">@rotation.DirectionId rotation: @rotation.RotationState · credential @rotation.ExpectedCurrentCredentialRevision → @(rotation.SuccessorCredentialRevision?.ToString() ?? "Pending")</MudText>
                     }
                 }
+                @if (LifecycleApproved(link))
+                {
+                    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-2">
+                        @foreach (var direction in link.GrantSummary?.Grants ?? [])
+                        {
+                            @if (pendingLinkId == Identifier(link) && pendingRotationDirection == direction.DirectionId)
+                            {
+                                <MudText Typo="Typo.caption">Rotate @direction.CallerProduct → @direction.TargetProduct under its existing approved grant?</MudText>
+                                <MudButton Size="Size.Small" OnClick="ClearPending">Cancel rotation</MudButton>
+                                <MudButton Size="Size.Small" Color="Color.Primary" Disabled="@busy" OnClick='@(() => ActionAsync(link, "rotate", direction.DirectionId))'>Confirm rotation</MudButton>
+                            }
+                            else
+                            {
+                                <MudButton Size="Size.Small" Disabled="@busy" OnClick="() => PrepareRotation(link, direction.DirectionId)">Rotate @direction.CallerProduct → @direction.TargetProduct</MudButton>
+                            }
+                        }
+                    </MudStack>
+                }
                 </MudExpansionPanel></MudExpansionPanels>
                 <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap">
-                    <MudButton Size="Size.Small" Href="@ReviewUrl(link)">Review exact grants</MudButton>
-                    @if (link.AvailableAction == "continue")
+                    @if (link.AvailableAction is "continue" or "return")
                     {
                         <form method="post" action="/account/integration-credentials/link/continue" data-enhance="false" data-testid="netratel-resume-approval">
                             <AntiforgeryToken />
                             <input type="hidden" name="attemptId" value="@link.AttemptId" />
-                            <MudButton ButtonType="ButtonType.Submit" Size="Size.Small" Disabled="busy">Continue NetRatel approval</MudButton>
+                            <MudButton ButtonType="ButtonType.Submit" Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled" Disabled="busy">@(link.AvailableAction == "return" ? "Return to NetRatel" : "Continue NetRatel approval")</MudButton>
                         </form>
                     }
                     else if (link.AvailableAction is "respond" or "review")
                     {
-                        <MudButton Size="Size.Small" Href="@ApprovalUrl(link)" data-testid="netratel-resume-local-approval">@(link.AvailableAction == "respond" ? "Resume approval" : "Review and approve")</MudButton>
+                        <MudButton Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled" Href="@ApprovalUrl(link)" data-testid="netratel-resume-local-approval">@(link.AvailableAction == "respond" ? "Resume approval" : "Review and approve")</MudButton>
                     }
                     else if (link.AvailableAction == "resume")
                     {
-                        <MudButton Size="Size.Small" Disabled="@busy" OnClick='@(() => ActionAsync(link, "resume"))'>Resume connection checks</MudButton>
+                        <MudButton Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled" Disabled="@busy" OnClick='@(() => ActionAsync(link, "resume"))'>@(busyLinkId == Identifier(link) ? "Checking connection…" : "Complete connection")</MudButton>
+                    }
+                    @if (ShowReviewLink && link.AvailableAction is not ("respond" or "review"))
+                    {
+                        <MudButton Size="Size.Small" Href="@ReviewUrl(link)">Review exact grants</MudButton>
                     }
                     @if (link.CanCancel || CanDisconnect(link))
                     {
@@ -86,118 +136,207 @@
                     }
                     @if (LifecycleApproved(link))
                     {
-                        <MudButton Size="Size.Small" Disabled="busy" OnClick="@(() => TestAsync(link))" data-testid="netratel-test-connection">Test connection</MudButton>
-                        @foreach (var direction in link.GrantSummary?.Grants ?? [])
-                        {
-                            @if (pendingLinkId == Identifier(link) && pendingRotationDirection == direction.DirectionId)
-                            {
-                                <MudText Typo="Typo.caption">Rotate @direction.CallerProduct → @direction.TargetProduct under its existing approved grant?</MudText>
-                                <MudButton Size="Size.Small" OnClick="ClearPending">Cancel rotation</MudButton>
-                                <MudButton Size="Size.Small" Color="Color.Primary" Disabled="@busy" OnClick='@(() => ActionAsync(link, "rotate", direction.DirectionId))'>Confirm rotation</MudButton>
-                            }
-                            else
-                            {
-                                <MudButton Size="Size.Small" Disabled="@busy" OnClick="() => PrepareRotation(link, direction.DirectionId)">Rotate @direction.CallerProduct → @direction.TargetProduct</MudButton>
-                            }
-                        }
+                        <MudButton Size="Size.Small" Disabled="busy" OnClick="@(() => TestAsync(link))" data-testid="netratel-test-connection">@(busyLinkId == Identifier(link) ? "Testing connection…" : "Test connection")</MudButton>
                     }
                     @if (link.CanStartFresh)
                     {
                         <MudButton Size="Size.Small" Href="@ReconnectUrl(link)" Color="Color.Primary">Reconnect with new approval</MudButton>
                     }
                 </MudStack>
+                @if (link.LinkId is not null && verifiedConnections.TryGetValue(link.LinkId, out var result))
+                {
+                    <MudAlert Dense="true" Severity="@(result.OutboundAuthenticated && result.PeerAcknowledgedInbound && result.IncidentDeliveryReady ? Severity.Success : Severity.Warning)" data-testid="netratel-connection-test-result">
+                        <MudText Typo="Typo.body2">@(result.OutboundAuthenticated && result.PeerAcknowledgedInbound && result.IncidentDeliveryReady ? "Connection verified. Incident delivery is ready." : "Connection check incomplete. Review the checks below and retry this connection.")</MudText>
+                        <MudText Typo="Typo.caption">Peer authentication: @(result.OutboundAuthenticated ? "passed" : "not confirmed") · approval: @(result.PeerAcknowledgedInbound ? "confirmed" : "not confirmed") · incident target: @(result.IncidentDeliveryReady ? "ready" : "not confirmed"). This test creates no incident and runs no task.</MudText>
+                        @if (result.ErrorCode is not null) { <MudText Typo="Typo.body2">@ErrorLabel(result.ErrorCode)</MudText> }
+                    </MudAlert>
+                }
             </MudStack>
         </MudPaper>
-    }
-    @if (testResult is not null)
-    {
-        <MudAlert Dense="true" Severity="@(testResult.OutboundAuthenticated && testResult.PeerAcknowledgedInbound && testResult.IncidentDeliveryReady ? Severity.Success : Severity.Warning)" data-testid="netratel-connection-test-result">
-            NetRatel authenticated check: @(testResult.OutboundAuthenticated ? "passed" : "not confirmed"). Approved connection: @(testResult.PeerAcknowledgedInbound ? "confirmed" : "not confirmed"). Flow incident delivery: @(testResult.IncidentDeliveryReady ? "ready" : "requires capability and target verification"). This test creates no incident and runs no task.
-        </MudAlert>
+        }
     }
 </MudStack>
 
 @code {
+    [Parameter] public string? AttemptId { get; set; }
+    [Parameter] public bool ShowReviewLink { get; set; } = true;
     private List<ServiceLinkAdminStatus> links = [];
-    private string? error, pendingLinkId, pendingRotationDirection;
-    private bool busy;
-    private ServiceLinkTestResult? testResult;
+    private string? error, outcome, pendingLinkId, pendingRotationDirection, busyLinkId;
+    private bool busy, showHistory, showOtherSetups;
+    private readonly Dictionary<string, string> rowErrors = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ServiceLinkTestResult> verifiedConnections = new(StringComparer.Ordinal);
+    private CancellationTokenSource? observation;
+    private bool disposed;
     protected override async Task OnInitializedAsync() => await RefreshAsync();
     private async Task RefreshAsync()
     {
-        if (busy) return;
-        busy = true; error = null; testResult = null;
+        if (busy || disposed) return;
+        StopObservation();
+        busy = true; error = null; outcome = null; rowErrors.Clear();
         try { await ReadLinksAsync(); }
         finally { busy = false; }
+        StartObservation();
     }
-    private async Task ReadLinksAsync()
+    private async Task ReadLinksAsync(bool verifyConnections = true, CancellationToken cancellation = default)
     {
-        links = []; ClearPending();
+        var previous = links;
+        if (verifyConnections) { links = []; ClearPending(); }
         try
         {
-            using var response = await HttpClientFactory.CreateClient("HelpdeskApi").GetAsync("api/v1/admin/service-links");
+            using var response = await HttpClientFactory.CreateClient("HelpdeskApi").GetAsync(AttemptId is null ? "api/v1/admin/service-links" : "api/v1/admin/service-links/attempts/" + Uri.EscapeDataString(AttemptId), cancellation);
             if (!response.IsSuccessStatusCode)
             {
-                error = ServiceLinkFailurePresentation.Message(await ServiceLinkFailurePresentation.ReadAsync(response, "status"));
+                var failure = await ServiceLinkFailurePresentation.ReadAsync(response, "status");
+                cancellation.ThrowIfCancellationRequested();
+                if (disposed) return;
+                error = ServiceLinkFailurePresentation.Message(failure);
+                links = [];
                 return;
             }
-            links = await response.Content.ReadFromJsonAsync<List<ServiceLinkAdminStatus>>() ?? [];
-            verifiedConnections.Clear();
-            foreach (var link in links.Where(LifecycleApproved)) await VerifyConnectionAsync(link);
+            List<ServiceLinkAdminStatus> loaded;
+            if (AttemptId is null) loaded = await response.Content.ReadFromJsonAsync<List<ServiceLinkAdminStatus>>(cancellation) ?? [];
+            else
+            {
+                var selected = await response.Content.ReadFromJsonAsync<ServiceLinkAdminStatus>(cancellation);
+                if (selected is null || selected.AttemptId != AttemptId || selected.Descriptor.AttemptId != AttemptId) throw new JsonException("The returned status belongs to another setup.");
+                loaded = [selected];
+            }
+            cancellation.ThrowIfCancellationRequested();
+            if (disposed) return;
+            links = loaded;
+            error = null;
+            foreach (var linkId in verifiedConnections.Keys.ToArray())
+            {
+                var current = loaded.FirstOrDefault(link => link.LinkId == linkId);
+                var prior = previous.FirstOrDefault(link => link.LinkId == linkId);
+                if (verifyConnections || current is null || current.LinkRevision != prior?.LinkRevision) verifiedConnections.Remove(linkId);
+            }
+            foreach (var link in links.Where(LifecycleApproved))
+            {
+                // Verify once on an observed transition, never on each status read.
+                if (verifyConnections || previous.Any(prior => prior.AttemptId == link.AttemptId && !LifecycleApproved(prior)))
+                    await VerifyConnectionAsync(link, cancellation);
+            }
         }
-        catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException) { error = "Reciprocal connection status is unavailable. Refresh to retry."; }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException)
+        { links = []; error = "Reciprocal connection status is unavailable. Refresh to retry."; }
     }
+    private static bool NeedsObservation(ServiceLinkAdminStatus link) => link.LifecycleState is "awaiting_approval" or "approved" or "prepared" or "verified" or "commit_decided" or "in_doubt" or "revocation_pending";
+    private void StartObservation()
+    {
+        if (disposed || !links.Any(NeedsObservation)) return;
+        StopObservation();
+        observation = new CancellationTokenSource();
+        _ = ObserveAsync(observation.Token);
+    }
+    private async Task ObserveAsync(CancellationToken cancellation)
+    {
+        try
+        {
+            for (var delaySeconds = 2; delaySeconds <= 10 && !cancellation.IsCancellationRequested; delaySeconds += 2)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(delaySeconds), cancellation);
+                await InvokeAsync(async () =>
+                {
+                    if (disposed || busy || cancellation.IsCancellationRequested) return;
+                    busy = true;
+                    StateHasChanged();
+                    try { await ReadLinksAsync(verifyConnections: false, cancellation: cancellation); }
+                    finally { busy = false; }
+                    if (!disposed && !cancellation.IsCancellationRequested) StateHasChanged();
+                });
+                if (!links.Any(NeedsObservation)) break;
+            }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
+    }
+    private void StopObservation() { observation?.Cancel(); observation?.Dispose(); observation = null; }
+    public void Dispose() { disposed = true; StopObservation(); }
+
+    private void ToggleHistory() => showHistory = !showHistory;
+    private void ToggleOtherSetups() => showOtherSetups = !showOtherSetups;
+    private static bool IsEstablished(ServiceLinkAdminStatus link) => !IsHistory(link) && link.LifecycleState != "awaiting_approval" && link.GrantSummary is not null;
+    private static (string LocalTenant, string PeerInstance, string PeerTenant)? Relationship(ServiceLinkAdminStatus link) =>
+        !string.IsNullOrEmpty(link.LocalTenantId) && !string.IsNullOrEmpty(link.PeerInstanceId) && !string.IsNullOrEmpty(link.PeerTenantId)
+            ? (link.LocalTenantId, link.PeerInstanceId, link.PeerTenantId) : null;
+    private bool IsOtherSetup(ServiceLinkAdminStatus link) => link.LifecycleState == "awaiting_approval" && !link.LocalInboundReady && !link.LocalOutboundPersisted && Relationship(link) is { } relationship &&
+        links.Any(established => IsEstablished(established) && Relationship(established) == relationship);
+    private int DisplayGroup(ServiceLinkAdminStatus link) => IsHistory(link) ? 3 : IsOtherSetup(link) ? 2 : IsEstablished(link) ? 0 : 1;
+    private static bool IsHistory(ServiceLinkAdminStatus link) => link.LifecycleState is "revoked" or "expired" or "failed" && link.AvailableAction != "resume";
     private void ClearPending() { pendingLinkId = null; pendingRotationDirection = null; }
     private void PrepareDisconnect(ServiceLinkAdminStatus link) { pendingLinkId = Identifier(link); pendingRotationDirection = null; }
     private void PrepareRotation(ServiceLinkAdminStatus link, string direction) { pendingLinkId = Identifier(link); pendingRotationDirection = direction; }
     private static string Identifier(ServiceLinkAdminStatus link) => link.LinkId ?? link.AttemptId;
     private async Task TestAsync(ServiceLinkAdminStatus link)
     {
-        if (busy || link.LinkId is null) return;
-        busy = true; error = null; testResult = null;
+        if (busy || disposed || link.LinkId is null) return;
+        StopObservation();
+        busy = true; busyLinkId = Identifier(link); rowErrors.Remove(link.AttemptId);
         try
         {
-            testResult = await VerifyConnectionAsync(link);
+            await VerifyConnectionAsync(link);
         }
         catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException)
-        { error = "The peer is unavailable. The approved connection remains saved; retry when it is reachable."; }
-        finally { busy = false; }
+        { rowErrors[link.AttemptId] = "The peer is unavailable. The approved connection remains saved; retry this connection when it is reachable."; }
+        finally { busy = false; busyLinkId = null; }
+        StartObservation();
     }
-    private async Task<ServiceLinkTestResult?> VerifyConnectionAsync(ServiceLinkAdminStatus link)
+    private async Task<ServiceLinkTestResult?> VerifyConnectionAsync(ServiceLinkAdminStatus link, CancellationToken cancellation = default)
     {
         if (link.LinkId is null) return null;
         verifiedConnections.Remove(link.LinkId);
+        rowErrors.Remove(link.AttemptId);
         using var response = await HttpClientFactory.CreateClient("ServiceLinkApi").PostAsync(
-            $"api/v1/admin/service-links/links/{Uri.EscapeDataString(link.LinkId)}/test", null);
+            $"api/v1/admin/service-links/links/{Uri.EscapeDataString(link.LinkId)}/test", null, cancellation);
         if (!response.IsSuccessStatusCode)
         {
             verifiedConnections.Remove(link.LinkId);
-            error = ServiceLinkFailurePresentation.Message(await ServiceLinkFailurePresentation.ReadAsync(response, "test"));
+            rowErrors[link.AttemptId] = ServiceLinkFailurePresentation.Message(await ServiceLinkFailurePresentation.ReadAsync(response, "test"));
             return null;
         }
-        var result = await response.Content.ReadFromJsonAsync<ServiceLinkTestResult>();
+        var result = await response.Content.ReadFromJsonAsync<ServiceLinkTestResult>(cancellation);
         if (result is not null) verifiedConnections[link.LinkId] = result;
         return result;
     }
     private async Task ActionAsync(ServiceLinkAdminStatus link, string action, string? directionId = null)
     {
-        if (busy) return;
-        busy = true; error = null;
+        if (busy || disposed) return;
+        StopObservation();
+        busy = true; busyLinkId = Identifier(link); rowErrors.Remove(link.AttemptId); outcome = null;
+        string? operationError = null;
         try
         {
             using var response = await HttpClientFactory.CreateClient("ServiceLinkApi").PostAsJsonAsync(
                 $"api/v1/admin/service-links/{(link.LinkId is null ? "attempts" : "links")}/{Uri.EscapeDataString(Identifier(link))}/{action}", new ServiceLinkAdminAction("administrator-request", directionId));
-            if (!response.IsSuccessStatusCode) error = ServiceLinkFailurePresentation.Message(await ServiceLinkFailurePresentation.ReadAsync(response, action));
+            if (!response.IsSuccessStatusCode) operationError = ServiceLinkFailurePresentation.Message(await ServiceLinkFailurePresentation.ReadAsync(response, action));
             else ClearPending();
         }
-        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException) { error = "The lifecycle operation could not be confirmed. The current durable connection status remains authoritative."; }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException) { operationError = "The operation could not be confirmed. Refresh this connection's stored status before retrying."; }
         finally
         {
-            try { await ReadLinksAsync(); }
-            finally { busy = false; }
+            try
+            {
+                await ReadLinksAsync();
+                if (operationError is not null) rowErrors[link.AttemptId] = operationError;
+                else if (action == "cancel" && links.Any(current => current.AttemptId == link.AttemptId && IsHistory(current)))
+                    outcome = "This setup is closed. Its retained status is available under Past setups and disconnected connections.";
+            }
+            finally { busy = false; busyLinkId = null; }
         }
+        StartObservation();
     }
+    private string ProgressText(ServiceLinkAdminStatus link) => link.OrganizationBindingInvalid ? "Cancel this unapproved setup with the original authorized account before starting fresh." : IsConnected(link) ? "Ready to receive incidents from NetRatel." : link.AvailableAction switch
+    {
+        "continue" => "Next: sign in at NetRatel and approve this setup.",
+        "return" => "Your approval is saved. Return to NetRatel to complete this setup.",
+        "respond" => "Next: choose the local organization and customer, then approve.",
+        "review" => "Next: review the selected peer tenant and confirm the exact connection.",
+        "resume" => "Approval is saved. Complete the pending connection checks.",
+        _ when IsHistory(link) => "This setup is closed. Start a fresh setup only if a connection is still needed.",
+        _ when LifecycleApproved(link) => "Approval is saved. Test this connection to verify incident delivery.",
+        _ => "The original approving administrator must complete the pending approval."
+    };
     private bool IsConnected(ServiceLinkAdminStatus link) => LifecycleApproved(link) && link.LinkId is not null &&
         verifiedConnections.TryGetValue(link.LinkId, out var result) && result.OutboundAuthenticated && result.PeerAcknowledgedInbound && result.IncidentDeliveryReady;
     private static bool LifecycleApproved(ServiceLinkAdminStatus link) => link.LifecycleState == "active" && link.LocalInboundActive && link.PeerActiveAcknowledged && (link.LocalBusinessSenderEnabled || link.LocalOutboundPersisted &&
@@ -226,7 +365,7 @@
     {
         var peer = link.Descriptor.InitiatorEndpointSnapshot.Product == "netratel" ? link.Descriptor.InitiatorEndpointSnapshot : link.Descriptor.ResponderEndpointSnapshot;
         var customer = link.GrantSummary?.Grants.FirstOrDefault(grant => grant.TargetProduct == "rateldesk")?.ResourceConstraints.CustomerIds.FirstOrDefault();
-        return "/account/integration-credentials?purpose=netratel-m2m&peer_url=" + Uri.EscapeDataString(peer.WebBaseUrl)
+        return "/account/integration-credentials?tab=system-connections&purpose=netratel-m2m&peer_url=" + Uri.EscapeDataString(peer.WebBaseUrl)
             + "&organization_id=" + Uri.EscapeDataString(link.OrganizationBindingInvalid ? "" : link.LocalTenantId)
             + "&customer_id=" + Uri.EscapeDataString(link.OrganizationBindingInvalid ? "" : customer ?? "")
             + "&peer_tenant_id=" + Uri.EscapeDataString(link.PeerTenantId ?? "");

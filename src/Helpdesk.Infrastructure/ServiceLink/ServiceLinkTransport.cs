@@ -11,6 +11,8 @@ public sealed class ServiceLinkProtocolException(int statusCode, string code, st
 {
     public int StatusCode { get; } = statusCode;
     public string Code { get; } = code;
+    // Set only by an authorized lookup in this installation; never copied from a peer error.
+    public string? ExistingAttemptId { get; init; }
 }
 
 public sealed record ServiceLinkAccessToken(string AccessToken, int ExpiresIn);

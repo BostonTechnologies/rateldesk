@@ -65,6 +65,14 @@ public sealed partial class ServiceLinkLifecycleTests
         // This historical contract fixture exposes no candidate Flow readiness observation; do not fabricate it.
         Assert.False(observation.IncidentDeliveryReady);
         Assert.Equal("connector-readiness-required", observation.ErrorCode);
+        peer.IncidentDeliveryReady = true;
+        using var readyTest = await local.AdminAsync(HttpMethod.Post, "/api/v1/admin/service-links/links/" + peer.LinkId + "/test", new { });
+        Assert.True(readyTest.IsSuccessStatusCode);
+        var ready = await readyTest.Content.ReadFromJsonAsync<ServiceLinkTestResult>();
+        Assert.True(ready!.OutboundAuthenticated);
+        Assert.True(ready.PeerAcknowledgedInbound);
+        Assert.True(ready.IncidentDeliveryReady);
+        Assert.Null(ready.ErrorCode);
         Assert.Equal(operationCount, await db.Set<ServiceLinkOperation>().CountAsync());
         Assert.Empty(await db.Incidents.AsNoTracking().ToListAsync());
         using var duplicateResume = await ResumeAsync(local, peer.LinkId);

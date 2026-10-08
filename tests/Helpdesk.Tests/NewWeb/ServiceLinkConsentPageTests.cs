@@ -213,7 +213,8 @@ public sealed class ServiceLinkConsentPageTests
     [InlineData("initiator", "awaiting_approval", "continue", false, "netratel-resume-approval")]
     [InlineData("responder", "awaiting_approval", "respond", false, "Resume approval")]
     [InlineData("initiator", "approved", "review", true, "Review and approve")]
-    [InlineData("responder", "prepared", "resume", true, "Resume connection checks")]
+    [InlineData("responder", "approved", "return", true, "Return to NetRatel")]
+    [InlineData("responder", "prepared", "resume", true, "Complete connection")]
     [InlineData("responder", "expired", "none", false, "Reconnect with new approval")]
     public async Task Connection_list_uses_the_authorized_durable_approval_action(string role, string lifecycle, string action, bool summary, string expected)
     {
@@ -221,7 +222,14 @@ public sealed class ServiceLinkConsentPageTests
         using var api = new ConsentApi(status) { Links = [status] };
         await using var services = Services(api, responder: role == "responder");
         await using var renderer = new ConsentRenderer(services, services.GetRequiredService<ILoggerFactory>());
-        var view = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderAsync<LinksPanel>(ParameterView.Empty));
+        var reference = new LinksReference();
+        var view = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderAsync<LinksHarness>(ParameterView.FromDictionary(
+            new Dictionary<string, object?> { [nameof(LinksHarness.Reference)] = reference })));
+        if (lifecycle == "expired")
+        {
+            Assert.DoesNotContain("netratel-link-status", await renderer.Dispatcher.InvokeAsync(view.ToHtmlString));
+            await LinksEventAsync(renderer, reference.Panel!, "ToggleHistory");
+        }
         var html = await renderer.Dispatcher.InvokeAsync(view.ToHtmlString);
         Assert.Contains(expected, html);
         if (action == "respond")
@@ -229,8 +237,291 @@ public sealed class ServiceLinkConsentPageTests
             Assert.Contains("/link/respond/attempt-ui", html);
             Assert.DoesNotContain("/link/review/attempt-ui", html);
         }
-        if (action != "continue") Assert.DoesNotContain("netratel-resume-approval", html);
-        if (action != "resume") Assert.DoesNotContain("Resume connection checks", html);
+        if (action is not ("continue" or "return")) Assert.DoesNotContain("netratel-resume-approval", html);
+        if (action != "resume") Assert.DoesNotContain("Complete connection", html);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Approval_form_stays_focused_and_never_loads_the_connection_list(bool finalReview)
+    {
+        using var api = new ConsentApi(Status(finalReview)) { Links = [Status(false) with { AttemptId = "unrelated-setup" }] };
+        var listReads = 0;
+        api.Intercept = (request, _) => { if (request.RequestUri!.AbsolutePath == "/api/v1/admin/service-links") listReads++; return Task.FromResult<HttpResponseMessage?>(null); };
+        await using var services = Services(api, responder: !finalReview);
+        await using var renderer = new ConsentRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        var view = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderAsync<PageHarness>(ParameterView.FromDictionary(
+            new Dictionary<string, object?> { [nameof(PageHarness.Reference)] = new PageReference() })));
+        var html = await renderer.Dispatcher.InvokeAsync(view.ToHtmlString);
+        Assert.Contains(finalReview ? "service-link-final-approval" : "service-link-responder-approval", html);
+        Assert.DoesNotContain("netratel-service-link-list", html);
+        Assert.DoesNotContain("unrelated-setup", html);
+        Assert.Equal(0, listReads);
+    }
+
+    [Fact]
+    public async Task Current_setups_remain_visible_while_terminal_history_requires_explicit_expansion()
+    {
+        var current = Status(false);
+        var past = current with { AttemptId = "past-setup", LifecycleState = "expired", AvailableAction = "none", CanStartFresh = true, CanCancel = false };
+        using var api = new ConsentApi(current) { Links = [past, current] };
+        await using var services = Services(api, responder: true);
+        await using var renderer = new ConsentRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        var reference = new LinksReference();
+        var view = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderAsync<LinksHarness>(ParameterView.FromDictionary(
+            new Dictionary<string, object?> { [nameof(LinksHarness.Reference)] = reference })));
+        var collapsed = await renderer.Dispatcher.InvokeAsync(view.ToHtmlString);
+        Assert.Contains("data-attempt-id=\"attempt-ui\"", collapsed);
+        Assert.DoesNotContain("data-attempt-id=\"past-setup\"", collapsed);
+        Assert.Contains("aria-expanded=\"false\"", collapsed);
+        await LinksEventAsync(renderer, reference.Panel!, "ToggleHistory");
+        var expanded = await renderer.Dispatcher.InvokeAsync(view.ToHtmlString);
+        Assert.Contains("data-attempt-id=\"attempt-ui\"", expanded);
+        Assert.Contains("data-attempt-id=\"past-setup\"", expanded);
+        Assert.Contains("Reconnect with new approval", expanded);
+        await LinksEventAsync(renderer, reference.Panel!, "ToggleHistory");
+        Assert.DoesNotContain("data-attempt-id=\"past-setup\"", await renderer.Dispatcher.InvokeAsync(view.ToHtmlString));
+    }
+
+    [Fact]
+    public async Task Only_pending_attempts_with_an_exact_established_relationship_move_under_other_setups()
+    {
+        var established = Status(true);
+        var duplicate = Status(false) with { AttemptId = "matching-pending", LocalTenantId = established.LocalTenantId };
+        var different = duplicate with { AttemptId = "different-peer-tenant", PeerTenantId = "another-peer-tenant" };
+        var unknown = duplicate with { AttemptId = "unknown-peer-tenant", PeerTenantId = null };
+        var incomplete = duplicate with { AttemptId = "active-without-summary", LifecycleState = "active" };
+        using var api = new ConsentApi(established) { Links = [duplicate, different, unknown, incomplete, established] };
+        await using var services = Services(api, responder: false);
+        await using var renderer = new ConsentRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        var reference = new LinksReference();
+        var view = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderAsync<LinksHarness>(ParameterView.FromDictionary(
+            new Dictionary<string, object?> { [nameof(LinksHarness.Reference)] = reference })));
+        var collapsed = await renderer.Dispatcher.InvokeAsync(view.ToHtmlString);
+        Assert.Contains("data-attempt-id=\"attempt-ui\"", collapsed);
+        Assert.Contains("data-attempt-id=\"different-peer-tenant\"", collapsed);
+        Assert.Contains("data-attempt-id=\"unknown-peer-tenant\"", collapsed);
+        Assert.Contains("data-attempt-id=\"active-without-summary\"", collapsed);
+        Assert.DoesNotContain("data-attempt-id=\"matching-pending\"", collapsed);
+        Assert.Contains("Other setups for these connections (1)", VisibleText(collapsed));
+        await LinksEventAsync(renderer, reference.Panel!, "ToggleOtherSetups");
+        var expanded = await renderer.Dispatcher.InvokeAsync(view.ToHtmlString);
+        Assert.Contains("data-attempt-id=\"matching-pending\"", expanded);
+        Assert.Contains("/link/respond/matching-pending", expanded);
+        Assert.Contains("Cancel setup", VisibleText(expanded));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Failure_result_offers_only_the_authorized_selected_setup_action(bool authorized)
+    {
+        var stored = Status(true) with { LocalRole = "responder", AvailableAction = "return" };
+        using var api = new ConsentApi(stored) { Links = [stored with { AttemptId = "unrelated-history" }] };
+        var listReads = 0;
+        api.Intercept = (request, _) =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/api/v1/admin/service-links") listReads++;
+            return Task.FromResult<HttpResponseMessage?>(!authorized && request.RequestUri.AbsolutePath.Contains("/attempts/", StringComparison.Ordinal)
+                ? new(HttpStatusCode.Forbidden) { Content = JsonContent.Create(new { code = "not-authorized" }) } : null);
+        };
+        await using var services = Services(api, responder: false);
+        ((ConsentNavigation)services.GetRequiredService<NavigationManager>()).SetResultRoute();
+        await using var renderer = new ConsentRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        var reference = new PageReference();
+        var view = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderAsync<PageHarness>(ParameterView.FromDictionary(
+            new Dictionary<string, object?> { [nameof(PageHarness.Reference)] = reference })));
+        await renderer.Dispatcher.InvokeAsync(() =>
+        {
+            typeof(ConsentPage).GetProperty(nameof(ConsentPage.Status))!.SetValue(reference.Page, "relationship-already-exists");
+            typeof(ConsentPage).GetProperty(nameof(ConsentPage.Stage))!.SetValue(reference.Page, "remote-approve");
+            typeof(ConsentPage).GetProperty(nameof(ConsentPage.ResultAttemptId))!.SetValue(reference.Page, "attempt-ui");
+            return reference.Page!.SetParametersAsync(ParameterView.Empty);
+        });
+        var html = await renderer.Dispatcher.InvokeAsync(view.ToHtmlString);
+        Assert.Equal(authorized, html.Contains("Return to NetRatel", StringComparison.Ordinal));
+        Assert.Equal(authorized, html.Contains("netratel-resume-approval", StringComparison.Ordinal));
+        Assert.DoesNotContain("unrelated-history", html);
+        Assert.DoesNotContain("Correct setup and retry", html);
+        Assert.Equal(0, listReads);
+        if (!authorized) Assert.Contains("current account cannot perform", VisibleText(html));
+    }
+
+    [Fact]
+    public async Task Connection_test_results_and_retry_errors_stay_with_the_selected_row()
+    {
+        var first = Status(true) with { LifecycleState = "active", Decision = "commit", LocalInboundActive = true, PeerActiveAcknowledged = true, LocalBusinessSenderEnabled = true, AvailableAction = "none" };
+        var second = first with { AttemptId = "second-attempt", LinkId = "second-link" };
+        using var api = new ConsentApi(first) { Links = [first, second] };
+        var failFirst = false;
+        api.Intercept = (request, _) => Task.FromResult<HttpResponseMessage?>(request.Method == HttpMethod.Post
+            ? failFirst && request.RequestUri!.AbsolutePath.Contains("/link-ui/", StringComparison.Ordinal)
+                ? new(HttpStatusCode.BadGateway) { Content = JsonContent.Create(new { code = "peer-unavailable", stage = "test" }) }
+                : new(HttpStatusCode.OK) { Content = JsonContent.Create(new ServiceLinkTestResult(true, true, true, null)) } : null);
+        await using var services = Services(api, responder: false);
+        await using var renderer = new ConsentRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        var reference = new LinksReference();
+        var view = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderAsync<LinksHarness>(ParameterView.FromDictionary(
+            new Dictionary<string, object?> { [nameof(LinksHarness.Reference)] = reference })));
+        var firstMarkup = await renderer.Dispatcher.InvokeAsync(view.ToHtmlString);
+        Assert.Equal(2, Regex.Matches(firstMarkup, "data-testid=\"netratel-connection-test-result\"").Count);
+        failFirst = true;
+        await LinksEventAsync(renderer, reference.Panel!, "TestAsync", first);
+        var retried = await renderer.Dispatcher.InvokeAsync(view.ToHtmlString);
+        var firstStart = retried.IndexOf("data-attempt-id=\"attempt-ui\"", StringComparison.Ordinal);
+        var secondStart = retried.IndexOf("data-attempt-id=\"second-attempt\"", StringComparison.Ordinal);
+        var firstRow = retried[firstStart..secondStart];
+        var secondRow = retried[secondStart..];
+        Assert.Contains("service-link-operation-error", firstRow);
+        Assert.Contains("peer could not complete", VisibleText(firstRow));
+        Assert.DoesNotContain("netratel-connection-test-result", firstRow);
+        Assert.DoesNotContain("service-link-operation-error", secondRow);
+        Assert.Contains("Connection verified. Incident delivery is ready.", VisibleText(secondRow));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Progressing_status_becomes_active_and_verifies_once_without_replaying_operations(bool focused)
+    {
+        var pending = Status(true) with { AvailableAction = "resume" };
+        var active = pending with { LifecycleState = "active", Decision = "commit", LocalInboundActive = true, PeerActiveAcknowledged = true, LocalBusinessSenderEnabled = true, AvailableAction = "none", LinkRevision = 2 };
+        using var api = new ConsentApi(pending) { Links = [pending] };
+        var gets = 0;
+        var posts = 0;
+        api.Intercept = (request, _) =>
+        {
+            if (request.Method == HttpMethod.Post)
+            {
+                Assert.Equal("/api/v1/admin/service-links/links/link-ui/test", request.RequestUri!.AbsolutePath);
+                Interlocked.Increment(ref posts);
+                return Task.FromResult<HttpResponseMessage?>(new(HttpStatusCode.OK) { Content = JsonContent.Create(new ServiceLinkTestResult(true, true, true, null)) });
+            }
+            if (request.RequestUri!.AbsolutePath.StartsWith("/api/v1/admin/service-links", StringComparison.Ordinal))
+            {
+                var current = Interlocked.Increment(ref gets) > 1 ? active : pending;
+                return Task.FromResult<HttpResponseMessage?>(new(HttpStatusCode.OK) { Content = focused ? JsonContent.Create(current) : JsonContent.Create(new[] { current, pending with { AttemptId = "other-pending", LinkId = null } }) });
+            }
+            return Task.FromResult<HttpResponseMessage?>(null);
+        };
+        await using var services = Services(api, responder: false);
+        await using var renderer = new ConsentRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        var reference = new LinksReference();
+        var view = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderAsync<LinksHarness>(ParameterView.FromDictionary(
+            new Dictionary<string, object?> { [nameof(LinksHarness.Reference)] = reference, [nameof(LinksHarness.AttemptId)] = focused ? "attempt-ui" : null })));
+        Assert.Contains("Complete connection", await renderer.Dispatcher.InvokeAsync(view.ToHtmlString));
+        var observed = await WaitForHtmlAsync(renderer, view, html => html.Contains("netratel-connection-test-result", StringComparison.Ordinal));
+        if (focused) Assert.DoesNotContain("Complete connection", observed);
+        Assert.DoesNotContain("service-link-final-approval", observed);
+        Assert.Contains("Connection verified. Incident delivery is ready.", VisibleText(observed));
+        if (focused) await Task.Delay(TimeSpan.FromSeconds(2.2));
+        else await WaitForHtmlAsync(renderer, view, _ => Volatile.Read(ref gets) >= 3);
+        Assert.Equal(focused ? 2 : 3, gets);
+        Assert.Equal(1, posts);
+    }
+
+    [Fact]
+    public async Task Disposing_progress_observation_cancels_an_inflight_status_request()
+    {
+        var pending = Status(true) with { AvailableAction = "resume" };
+        using var api = new ConsentApi(pending) { Links = [pending] };
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reads = 0;
+        api.Intercept = async (request, cancellation) =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/api/v1/admin/service-links" && Interlocked.Increment(ref reads) > 1)
+            {
+                using var registration = cancellation.Register(() => cancelled.TrySetResult());
+                entered.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellation);
+            }
+            return null;
+        };
+        await using var services = Services(api, responder: false);
+        await using var renderer = new ConsentRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        var reference = new LinksReference();
+        await renderer.Dispatcher.InvokeAsync(() => renderer.RenderAsync<LinksHarness>(ParameterView.FromDictionary(
+            new Dictionary<string, object?> { [nameof(LinksHarness.Reference)] = reference })));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await renderer.Dispatcher.InvokeAsync(reference.Panel!.Dispose);
+        await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(2, reads);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Consent_observation_preserves_unchanged_drafts_and_verifies_once_after_approval_advances(bool responder)
+    {
+        var pending = Status(!responder);
+        var active = Status(true) with { LifecycleState = "active", Decision = "commit", LocalInboundActive = true, PeerActiveAcknowledged = true, LocalBusinessSenderEnabled = true, AvailableAction = "none", LinkRevision = 2, LocalRole = responder ? "responder" : "initiator" };
+        using var api = new ConsentApi(pending);
+        var reads = 0;
+        var posts = 0;
+        var advance = false;
+        api.Intercept = (request, _) =>
+        {
+            if (request.Method == HttpMethod.Post)
+            {
+                Assert.Equal("/api/v1/admin/service-links/links/link-ui/test", request.RequestUri!.AbsolutePath);
+                Interlocked.Increment(ref posts);
+                return Task.FromResult<HttpResponseMessage?>(new(HttpStatusCode.OK) { Content = JsonContent.Create(new ServiceLinkTestResult(true, true, true, null)) });
+            }
+            if (request.RequestUri!.AbsolutePath.Contains("/attempts/", StringComparison.Ordinal))
+            {
+                Interlocked.Increment(ref reads);
+                return Task.FromResult<HttpResponseMessage?>(new(HttpStatusCode.OK) { Content = JsonContent.Create(advance ? active : pending) });
+            }
+            return Task.FromResult<HttpResponseMessage?>(null);
+        };
+        await using var services = Services(api, responder);
+        await using var renderer = new ConsentRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        var reference = new PageReference();
+        var view = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderAsync<PageHarness>(ParameterView.FromDictionary(
+            new Dictionary<string, object?> { [nameof(PageHarness.Reference)] = reference })));
+        if (responder)
+        {
+            await ChangeAsync(renderer, reference.Page!, "OrganizationChanged", "organization-b");
+            await ChangeAsync(renderer, reference.Page!, "CustomerChanged", "customer-b");
+            await ChangeAsync(renderer, reference.Page!, "ScopesChanged", new[] { "rateldesk.incident-receipts.read" });
+        }
+        var confirmation = typeof(ConsentPage).GetField("confirmed", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        await renderer.Dispatcher.InvokeAsync(() => ((IHandleEvent)reference.Page!).HandleEventAsync(
+            new EventCallbackWorkItem((Action)(() => confirmation.SetValue(reference.Page, true))), null));
+        var unchanged = await WaitForHtmlAsync(renderer, view, _ => Volatile.Read(ref reads) >= 2);
+        Assert.Matches(@"\bchecked(?:=|\s|>)", ConfirmationInput(unchanged));
+        if (responder)
+        {
+            Assert.Contains("Customers: customer-b", VisibleText(unchanged));
+            Assert.Contains("value=\"organization-b\"", unchanged);
+            Assert.Contains("Scopes: rateldesk.incident-receipts.read", VisibleText(unchanged));
+        }
+        advance = true;
+        var observed = await WaitForHtmlAsync(renderer, view, html => html.Contains("netratel-connection-test-result", StringComparison.Ordinal));
+        Assert.DoesNotContain("service-link-responder-approval", observed);
+        Assert.DoesNotContain("service-link-final-approval", observed);
+        Assert.False((bool)confirmation.GetValue(reference.Page)!);
+        Assert.Equal(1, posts);
+    }
+
+    private static async Task<string> WaitForHtmlAsync(ConsentRenderer renderer, HtmlRootComponent view, Func<string, bool> predicate)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(7));
+        while (true)
+        {
+            var html = await renderer.Dispatcher.InvokeAsync(view.ToHtmlString);
+            if (predicate(html)) return html;
+            await Task.Delay(25, timeout.Token);
+        }
+    }
+
+    private static Task LinksEventAsync(ConsentRenderer renderer, LinksPanel panel, string method, params object[] values)
+    {
+        var handler = typeof(LinksPanel).GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)!;
+        return renderer.Dispatcher.InvokeAsync(() => ((IHandleEvent)panel).HandleEventAsync(new EventCallbackWorkItem(
+            (Func<Task>)(() => handler.Invoke(panel, values) as Task ?? Task.CompletedTask)), null));
     }
 
     [Theory]
@@ -821,11 +1112,13 @@ public sealed class ServiceLinkConsentPageTests
     }
     public sealed class LinksHarness : ComponentBase
     {
+        [Parameter] public string? AttemptId { get; set; }
         [Parameter] public LinksReference Reference { get; set; } = default!;
         protected override void BuildRenderTree(RenderTreeBuilder builder)
         {
             builder.OpenComponent<LinksPanel>(0);
-            builder.AddComponentReferenceCapture(1, component => Reference.Panel = (LinksPanel)component);
+            builder.AddAttribute(1, nameof(LinksPanel.AttemptId), AttemptId);
+            builder.AddComponentReferenceCapture(2, component => Reference.Panel = (LinksPanel)component);
             builder.CloseComponent();
         }
     }

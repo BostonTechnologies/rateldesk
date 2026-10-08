@@ -129,7 +129,7 @@ public static partial class ServiceLinkEndpoints
             return Results.Json(await action());
         }
         catch (ServiceLinkProtocolException error)
-        { return await FailureAsync(http, error.StatusCode, error.Code); }
+        { return await FailureAsync(http, error.StatusCode, error.Code, error.ExistingAttemptId); }
         catch (Exception error) when (ServiceLinkFailureReporting.IsNetworkPolicyFailure(error))
         { return await FailureAsync(http, 422, "network-policy-rejected"); }
         catch (Exception error) when (error is JsonException or DecoderFallbackException or ArgumentException or FormatException)

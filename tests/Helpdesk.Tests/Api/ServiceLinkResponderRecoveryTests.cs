@@ -52,7 +52,7 @@ public sealed partial class ServiceLinkLifecycleTests
             Assert.True(approval.IsSuccessStatusCode, await approval.Content.ReadAsStringAsync());
         var approved = await StatusAsync(local, descriptor.AttemptId);
         Assert.Equal(local.OrganizationId, approved.LocalTenantId);
-        Assert.Equal("resume", approved.AvailableAction);
+        Assert.Equal("return", approved.AvailableAction);
         Assert.NotNull(approved.GrantSummary);
         Assert.Equal(descriptor.DescriptorHash, approved.Descriptor.DescriptorHash);
     }

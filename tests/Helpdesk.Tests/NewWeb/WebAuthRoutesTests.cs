@@ -239,6 +239,8 @@ public class WebAuthRoutesTests
         var html = await client.GetStringAsync(address);
         var form = Regex.Match(html, "<form\\b[^>]*data-testid=\"netratel-link-start\"[^>]*>.*?</form>", RegexOptions.Singleline);
         Assert.True(form.Success);
+        Assert.Contains("integration-system-connections", html);
+        Assert.DoesNotContain("netratel-service-link-list", html);
         var inputs = ReadRenderedNativeInputs(form.Value);
         Assert.Equal(presets ? "https://peer.example.test/" : "", inputs.Single(input => input.Key == "peerWebBaseUrl").Value);
         Assert.Equal(presets ? "42" : "", inputs.Single(input => input.Key == "requestedResponderTenantId").Value);
@@ -256,6 +258,25 @@ public class WebAuthRoutesTests
         Assert.Equal("organization-ui", received.LocalTenantId);
         Assert.Equal(new[] { "customer-ui" }, received.LocalCustomerIds);
         Assert.DoesNotContain("netratel.orchestration.invoke", received.OutboundScopes);
+    }
+
+    [Fact]
+    public async Task Integration_page_separates_system_connections_from_account_credentials()
+    {
+        using var factory = CreateFactory(enableTestAuth: true, localAuthentication: true, serviceLinkApi: (_, _) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(Array.Empty<ServiceLinkAdminStatus>()) }));
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "HelpdeskAdmin");
+        var html = await client.GetStringAsync("/account/integration-credentials?tab=system-connections");
+        Assert.Contains("System connections", html);
+        Assert.Contains("API &amp; MCP credentials", html);
+        Assert.Contains("integration-system-connections", html);
+        Assert.Contains("integration-account-credentials", html);
+        Assert.Single(Regex.Matches(html, "data-testid=\"netratel-service-link-list\"").Cast<Match>());
+        Assert.DoesNotContain("netratel-link-start", html);
+        var credentials = await client.GetStringAsync("/account/integration-credentials?tab=credentials");
+        Assert.Contains("API &amp; MCP credentials", credentials);
+        Assert.Contains("integration-credential-create", credentials);
     }
 
     private static void AssertFailureResult(HttpResponseMessage response, string expectedCode)

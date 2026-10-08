@@ -7,13 +7,13 @@ namespace Helpdesk.API.Endpoints.ServiceLink;
 
 public static partial class ServiceLinkEndpoints
 {
-    private static async Task<IResult> FailureAsync(HttpContext http, int statusCode, string code)
+    private static async Task<IResult> FailureAsync(HttpContext http, int statusCode, string code, string? existingAttemptId = null)
     {
         // This ID is generated locally, never copied from an untrusted request header.
         var correlation = Guid.NewGuid().ToString("N");
         var stage = HttpMethods.IsGet(http.Request.Method) ? "status" :
             ServiceLinkFailure.NormalizeStage(http.Request.Path.Value?.TrimEnd('/').Split('/').LastOrDefault());
-        var failure = ServiceLinkFailure.From(code, stage, correlation, statusCode);
+        var failure = ServiceLinkFailure.From(code, stage, correlation, statusCode, existingAttemptId);
         http.RequestServices.GetService<ILoggerFactory>()?.CreateLogger("ServiceLinkFailure").LogWarning(
             "Service-link operation failed. Code={Code} Stage={Stage} CorrelationId={CorrelationId}",
             failure.Code, failure.Stage, failure.CorrelationId);
@@ -38,7 +38,8 @@ public static partial class ServiceLinkEndpoints
                     UserId = actor, Title = "Connection operation needs attention", Message = failure.Message +
                         $" Stage: {failure.Stage}. Reference: {failure.CorrelationId}.",
                     Severity = NotificationSeverity.Warning, Source = "ServiceLink", Category = "ServiceLink",
-                    Reference = failure.Code, CorrelationId = correlation, Link = "/account/integration-credentials"
+                    Reference = failure.Code, CorrelationId = correlation, Link = failure.ExistingAttemptId is null
+                        ? "/account/integration-credentials" : "/account/integration-credentials/link/review/" + failure.ExistingAttemptId
                     // TenantId deliberately remains absent: an unvalidated submitted organization is not authority.
                 }, http.RequestAborted);
             }
@@ -52,7 +53,8 @@ public static partial class ServiceLinkEndpoints
         return Results.Problem(statusCode: statusCode, title: failure.Message,
             extensions: new Dictionary<string, object?>
             {
-                ["code"] = ServiceLinkFailure.ProtocolCode(code, statusCode), ["stage"] = failure.Stage, ["correlationId"] = failure.CorrelationId
+                ["code"] = ServiceLinkFailure.ProtocolCode(code, statusCode), ["stage"] = failure.Stage, ["correlationId"] = failure.CorrelationId,
+                ["existingAttemptId"] = failure.ExistingAttemptId
             });
     }
 }

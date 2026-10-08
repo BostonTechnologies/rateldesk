@@ -146,6 +146,8 @@ public sealed partial class ServiceLinkCoordinator(
                 action = a.Role == "initiator" ? "continue" : "respond";
             else if (originalActor && a.Role == "initiator" && a.Decision == "undecided" && a.GrantSummaryJson is not null && a.InboundPrincipalId is null)
                 action = "review";
+            else if (originalActor && CanReturnApprovedResponder(a))
+                action = "return";
             else if (a.InboundPrincipalId is not null || a.ProtectedOutboundCredential is not null || a.ExchangeDispatched)
                 action = "resume";
         }

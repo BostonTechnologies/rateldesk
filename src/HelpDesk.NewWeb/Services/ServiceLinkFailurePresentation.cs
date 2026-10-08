@@ -23,7 +23,7 @@ internal static class ServiceLinkFailurePresentation
             using var body = JsonDocument.Parse(buffer.AsMemory(0, length));
             if (body.RootElement.ValueKind != JsonValueKind.Object) return fallback;
             string? Value(string name) => body.RootElement.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
-            return ServiceLinkFailure.From(Value("code") ?? Value("error"), Value("stage") ?? stage, Value("correlationId"), (int)response.StatusCode);
+            return ServiceLinkFailure.From(Value("code") ?? Value("error"), Value("stage") ?? stage, Value("correlationId"), (int)response.StatusCode, Value("existingAttemptId"));
         }
         catch (Exception exception) when (exception is JsonException or IOException) { return fallback; }
     }
