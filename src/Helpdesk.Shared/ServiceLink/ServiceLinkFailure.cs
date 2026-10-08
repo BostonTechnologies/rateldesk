@@ -5,9 +5,14 @@ public sealed record ServiceLinkFailure(string Code, string Stage, string? Corre
 {
     public const string NotificationEventType = "ServiceLink.OperationFailed";
     public string Message => MessageFor(Code);
+    public string? ExistingAttemptId { get; init; }
 
-    public static ServiceLinkFailure From(string? code, string? stage = null, string? correlationId = null, int statusCode = 400) =>
-        new(NormalizeCode(code, statusCode), NormalizeStage(stage), NormalizeCorrelation(correlationId));
+    public static ServiceLinkFailure From(string? code, string? stage = null, string? correlationId = null, int statusCode = 400, string? existingAttemptId = null) =>
+        new(NormalizeCode(code, statusCode), NormalizeStage(stage), NormalizeCorrelation(correlationId))
+        { ExistingAttemptId = code == "relationship-already-exists" ? NormalizeAttemptId(existingAttemptId) : null };
+
+    public static string? NormalizeAttemptId(string? value) => value is { Length: >= 16 and <= 128 } &&
+        value.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_') ? value : null;
 
     public static string NormalizeStage(string? stage) => stage switch
     {
@@ -25,7 +30,7 @@ public sealed record ServiceLinkFailure(string Code, string Stage, string? Corre
         "invalid-organization" or "invalid-tenant" or "approval-required" or "not-authorized" or "expired" or "session-expired" or "form-expired" or
         "invalid-proof" or "upgrade-required" or "deployment-managed" or "profile-occupied" or
         "source-unavailable" or "service-unavailable" or "callback-required" or "grant-unavailable" or
-        "service-link-conflict" or "protected-state-unavailable" or "invalid-request" or "needs-attention" => code,
+        "service-link-conflict" or "relationship-already-exists" or "protected-state-unavailable" or "invalid-request" or "needs-attention" => code,
         "organization-disabled" or "organization-required" => "invalid-organization",
         "administrator-required" or "actor-mismatch" or "actor-session-mismatch" => "not-authorized",
         "attempt-expired" => "expired",
@@ -93,6 +98,7 @@ public sealed record ServiceLinkFailure(string Code, string Stage, string? Corre
         "upgrade-required" => "The peer does not support the required connection contract. Upgrade the peer before retrying guided setup.",
         "deployment-managed" => "This connection is managed by deployment configuration. Ask its administrator to update that configuration.",
         "profile-occupied" => "The connection profile is already owned by another link. Review existing connections before starting again.",
+        "relationship-already-exists" => "This organization and peer tenant already have an approved connection or setup. Open that existing setup to continue it, or cancel this duplicate. Disconnect the existing connection before replacing its consent.",
         "source-unavailable" => "The producer identity is unavailable. Complete the local producer configuration before retrying.",
         "service-unavailable" => "The installation's connection configuration is unavailable. Review its enabled state and canonical addresses before retrying.",
         "callback-required" => "Task invocation requires explicit consent to the task callback grant. Approve that optional grant or leave task access off.",

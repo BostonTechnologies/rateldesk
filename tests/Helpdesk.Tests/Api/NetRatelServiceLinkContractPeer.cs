@@ -69,6 +69,7 @@ internal sealed class NetRatelServiceLinkContractPeer : IAsyncDisposable
     public string[] ExchangeRequestFingerprints => exchangeRequestFingerprints.ToArray();
     public string? InvalidMetadataMember { get; set; }
     public ServiceLinkMetadata? DiscoveryMetadata { get; set; }
+    public bool? IncidentDeliveryReady { get; set; }
     public ServiceDirectionalCredential InboundCredential => inbound!;
     public ServiceDirectionalCredential OutboundCredential => outbound!;
     public bool HasOutboundCredential => outbound is not null;
@@ -149,8 +150,9 @@ internal sealed class NetRatelServiceLinkContractPeer : IAsyncDisposable
     }
 
     public ServiceLinkRequestDescriptor PrepareInitiator(ServiceLinkMetadata responder, string? organizationId,
-        string customerId, DateTimeOffset now, bool includeCallback = true, bool mismatchInitiatorTenant = false)
+        string customerId, DateTimeOffset now, bool includeCallback = true, bool mismatchInitiatorTenant = false, bool incidentOnly = false)
     {
+        if (incidentOnly) includeCallback = false;
         initiatorRole = true; codeVerifier = ServiceLinkValidation.Proof(); BrowserState = ServiceLinkValidation.Proof();
         descriptor = new()
         {
@@ -179,9 +181,10 @@ internal sealed class NetRatelServiceLinkContractPeer : IAsyncDisposable
                     DirectionId = ServiceLinkContract.ResponderToInitiator, CallerSnapshot = "responder", TargetSnapshot = "initiator",
                     CallerProduct = "rateldesk", CallerInstanceId = responder.InstanceId, CallerTenantId = organizationId ?? "",
                     TargetProduct = "netratel", TargetInstanceId = InstanceId, TargetTenantId = TenantId,
-                    Issuer = BaseUrl, Audience = Metadata.Audience, Capabilities = ["netratel.orchestration.v1"],
-                    Scopes = ["netratel.orchestration.invoke", "netratel.orchestration.read"],
-                    ResourceConstraints = new() { TenantId = TenantId, RequestDefinitionIds = ["synthetic-request-definition"] }
+                    Issuer = BaseUrl, Audience = Metadata.Audience,
+                    Capabilities = incidentOnly ? [ServiceLinkContract.IncidentOnlyCapability] : ["netratel.orchestration.v1"],
+                    Scopes = incidentOnly ? [ServiceLinkContract.ControlScope, ServiceLinkContract.VerifyScope] : ["netratel.orchestration.invoke", "netratel.orchestration.read"],
+                    ResourceConstraints = new() { TenantId = TenantId, RequestDefinitionIds = incidentOnly ? [] : ["synthetic-request-definition"] }
                 }
             ]
         };
@@ -550,6 +553,7 @@ internal sealed class NetRatelServiceLinkContractPeer : IAsyncDisposable
         descriptor_hash = descriptor.DescriptorHash, local_inbound_ready = inbound is not null,
         local_outbound_persisted = outbound is not null, local_inbound_active = active && !revoked,
         local_business_sender_enabled = active && !revoked, peer_active_acknowledged = active && !revoked,
+        incident_delivery_ready = IncidentDeliveryReady,
         initiator_verification_receipt_id = initiatorReceipt, responder_verification_receipt_id = responderReceipt,
         rotations = Array.Empty<object>()
     };

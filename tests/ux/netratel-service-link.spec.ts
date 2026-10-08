@@ -31,8 +31,15 @@ test.afterEach(async ({ page }) => {
 test('NetRatel service mode requires explicit grants and fits mobile light/dark layouts', async ({ page }, testInfo) => {
   await page.goto('/account/integration-credentials');
   await expect(page.getByTestId('integration-credentials-page')).toHaveAttribute('data-interactive', 'true');
+  await expect(page.getByRole('tab', { name: 'System connections', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await page.getByRole('tab', { name: 'API & MCP credentials', exact: true }).click();
+  await expect(page.getByTestId('integration-credential-create')).toBeVisible();
+  await expect(page.getByTestId('netratel-service-link-list')).not.toBeVisible();
+  await page.getByRole('tab', { name: 'System connections', exact: true }).click();
+  await expect(page.getByTestId('integration-credential-create')).not.toBeVisible();
   await page.getByRole('button', { name: 'Connect NetRatel', exact: true }).click();
   await expect(page.getByTestId('netratel-m2m-form')).toBeVisible();
+  await expect(page.getByTestId('netratel-service-link-list')).toHaveCount(0);
   await expect(page.getByTestId('netratel-link-start').getByRole('button', { name: 'Connect NetRatel', exact: true })).toBeDisabled();
   await expect(page.getByTestId('netratel-link-start').locator('input[name="requestedResponderTenantId"]')).toHaveValue('');
   await page.getByTestId('netratel-manual-mode').click();
@@ -67,6 +74,7 @@ test('a failed proof has a clean review page and a truthful manual compatibility
   await expect(page.getByText(/The peer does not support the required connection contract/)).toBeVisible();
   await expect(page.getByRole('link', { name: 'Correct setup and retry', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /^Resume/ })).toHaveCount(0);
+  await page.getByText('Manual connection settings', { exact: true }).click();
   await expect(page.getByRole('link', { name: 'Manual outbound settings', exact: true })).toBeVisible();
   await assertNoHorizontalOverflow(page);
   await page.goto('/account/integration-credentials/link/callback?attempt_id=synthetic-attempt&pairing_code=synthetic-proof&browser_state=synthetic-state&responder_instance_id=synthetic-peer&oauth_issuer=https%3A%2F%2Fnetratel.example.invalid');

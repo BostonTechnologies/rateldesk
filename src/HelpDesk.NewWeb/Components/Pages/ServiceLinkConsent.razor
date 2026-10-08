@@ -12,7 +12,7 @@
 <PageTitle>NetRatel link approval</PageTitle>
 <MudPaper Class="helpdesk-content-surface pa-4" data-testid="service-link-consent-page">
     <MudStack Spacing="2">
-        <MudText Typo="Typo.h5" HtmlTag="h1">@(status?.LocalRole == "responder" ? "Approve NetRatel connection" : "Complete NetRatel connection")</MudText>
+        <MudText Typo="Typo.h5" HtmlTag="h1">@(!IsConsentRoute ? "Connection needs attention" : CanOfferResponderApproval ? "Approve NetRatel connection" : CanOfferFinalApproval ? "Review NetRatel connection" : "NetRatel connection")</MudText>
         @if (loading)
         {
             <MudProgressLinear Indeterminate="true" />
@@ -20,14 +20,25 @@
         else if (!IsConsentRoute || error is not null || status is null)
         {
             <MudAlert Severity="Severity.Warning" Dense="true">@(error ?? ServiceLinkFailurePresentation.Message(ServiceLinkFailure.From(Status, Stage, CorrelationId)))</MudAlert>
-            @if (ServiceLinkFailure.NormalizeStage(Stage) == "start")
+            @if (ServiceLinkFailure.NormalizeStage(Stage) == "start" && !IsSafeResultAttempt && Status != "relationship-already-exists")
             {
                 <MudText Typo="Typo.body2">Correct the peer address or local selection, then retry setup. No approval was accepted by this page.</MudText>
-                <MudButton Href="/account/integration-credentials?purpose=netratel-m2m" Color="Color.Primary">Correct setup and retry</MudButton>
+                <MudButton Href="/account/integration-credentials?tab=system-connections&purpose=netratel-m2m" Color="Color.Primary">Correct setup and retry</MudButton>
             }
-            <MudButton Href="/account/integration-credentials" Color="Color.Primary">Return to integration credentials</MudButton>
-            <MudButton Href="/notifications">View notifications</MudButton>
-            <MudButton Href="/admin/automation/integration/orchestrator">Manual outbound settings</MudButton>
+            @if (IsSafeResultAttempt)
+            {
+                <MudText Typo="Typo.body2">Review this setup's current status and available action below.</MudText>
+                <NetRatelServiceLinks @key="ResultAttemptId" AttemptId="@ResultAttemptId" />
+            }
+            else if (ServiceLinkFailure.NormalizeStage(Stage) is "remote-review" or "remote-approve" or "approve" or "continue" || Status == "relationship-already-exists")
+            {
+                <MudText Typo="Typo.body2">Open System connections and continue the existing setup for this peer. If approval was already saved, return to the initiating product from that setup.</MudText>
+            }
+            <MudStack Row="true" Wrap="Wrap.Wrap">
+                <MudButton Href="/account/integration-credentials?tab=system-connections" Color="Color.Primary" Variant="Variant.Filled">Open System connections</MudButton>
+                <MudButton Href="/notifications">View notifications</MudButton>
+            </MudStack>
+            <MudExpansionPanels Elevation="0"><MudExpansionPanel Text="Manual connection settings"><MudButton Href="/admin/automation/integration/orchestrator">Manual outbound settings</MudButton></MudExpansionPanel></MudExpansionPanels>
         }
         else
         {
@@ -122,14 +133,19 @@
             {
                 <MudAlert Dense="true" Severity="Severity.Info">The approved grants are saved. Review the connection status and complete any remaining authenticated checks below.</MudAlert>
             }
-            <NetRatelServiceLinks />
-            <MudButton Href="/account/integration-credentials">Return to connections</MudButton>
+            @if (!CanOfferResponderApproval && !CanOfferFinalApproval)
+            {
+                <NetRatelServiceLinks @key="status.AttemptId" AttemptId="@status.AttemptId" ShowReviewLink="false" />
+            }
+            <MudStack Row="true"><MudButton Href="/account/integration-credentials?tab=system-connections">Back to System connections</MudButton></MudStack>
         }
     </MudStack>
 </MudPaper>
 
 @code {
     [Parameter] public string? AttemptId { get; set; }
+    [SupplyParameterFromQuery(Name = "attemptId")] public string? ResultAttemptId { get; set; }
+    private bool IsSafeResultAttempt => !IsConsentRoute && ResultAttemptId is { Length: > 0 and <= 256 } && ResultAttemptId.All(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '_');
     [SupplyParameterFromQuery(Name = "status")] public string? Status { get; set; }
     [SupplyParameterFromQuery(Name = "stage")] public string? Stage { get; set; }
     [SupplyParameterFromQuery(Name = "correlationId")] public string? CorrelationId { get; set; }
@@ -140,6 +156,8 @@
     private HashSet<string> customerIds = new(StringComparer.Ordinal), scopes = new(StringComparer.Ordinal);
     private bool loading = true, outboundInvoke, confirmed;
     private long loadRevision;
+    private CancellationTokenSource? observation;
+    private bool disposed;
     private string? error;
     private bool IsResponderRoute => new Uri(Navigation.Uri).AbsolutePath.Contains("/respond/", StringComparison.Ordinal);
     private bool IsConsentRoute => !string.IsNullOrEmpty(AttemptId) && string.Equals(new Uri(Navigation.Uri).AbsolutePath,
@@ -160,6 +178,7 @@
 
     protected override async Task OnParametersSetAsync()
     {
+        StopObservation();
         var revision = ++loadRevision;
         var attemptId = AttemptId;
         var route = new Uri(Navigation.Uri).AbsolutePath;
@@ -168,7 +187,7 @@
         organizationId = ""; customerIds.Clear(); scopes.Clear();
         organizations = []; customers = []; outboundInvoke = false;
         if (string.IsNullOrEmpty(attemptId) || !IsConsentRoute) { loading = false; return; }
-        bool IsCurrent() => revision == loadRevision && attemptId == AttemptId && route == new Uri(Navigation.Uri).AbsolutePath;
+        bool IsCurrent() => !disposed && revision == loadRevision && attemptId == AttemptId && route == new Uri(Navigation.Uri).AbsolutePath;
         try
         {
             var api = HttpClientFactory.CreateClient("HelpdeskApi");
@@ -207,7 +226,18 @@
         {
             if (IsCurrent()) error = "The protected grant summary is unavailable or this attempt is no longer authorized. Refresh its stored status before proceeding.";
         }
-        finally { if (IsCurrent()) loading = false; }
+        finally
+        {
+            if (IsCurrent())
+            {
+                loading = false;
+                if (error is null && NeedsObservation(status))
+                {
+                    observation = new CancellationTokenSource();
+                    _ = ObserveAsync(revision, attemptId, route, observation.Token);
+                }
+            }
+        }
     }
     private void OrganizationChanged(string value)
     {
@@ -218,5 +248,51 @@
     private void CustomerChanged(string value) { confirmed = false; customerIds = string.IsNullOrEmpty(value) ? [] : new HashSet<string>([value], StringComparer.Ordinal); }
     private void ScopesChanged(IEnumerable<string>? values) { confirmed = false; scopes = values?.ToHashSet(StringComparer.Ordinal) ?? []; }
     private void OutboundInvokeChanged(bool value) { confirmed = false; outboundInvoke = value; }
-    public void Dispose() => loadRevision++;
+    private static bool NeedsObservation(ServiceLinkAdminStatus? value) => value?.LifecycleState is "awaiting_approval" or "approved" or "prepared" or "verified" or "commit_decided" or "in_doubt" or "revocation_pending";
+    private async Task ObserveAsync(long revision, string attemptId, string route, CancellationToken cancellation)
+    {
+        bool IsCurrent() => !disposed && !cancellation.IsCancellationRequested && revision == loadRevision &&
+            AttemptId == attemptId && route == new Uri(Navigation.Uri).AbsolutePath;
+        try
+        {
+            for (var delaySeconds = 2; delaySeconds <= 10 && IsCurrent(); delaySeconds += 2)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(delaySeconds), cancellation);
+                if (!IsCurrent()) return;
+                using var response = await HttpClientFactory.CreateClient("HelpdeskApi").GetAsync(
+                    "api/v1/admin/service-links/attempts/" + Uri.EscapeDataString(attemptId), cancellation);
+                var failure = response.IsSuccessStatusCode ? null : ServiceLinkFailurePresentation.Message(await ServiceLinkFailurePresentation.ReadAsync(response, "status"));
+                var current = response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<ServiceLinkAdminStatus>(cancellation) : null;
+                if (response.IsSuccessStatusCode && (current is null || current.AttemptId != attemptId || current.Descriptor.AttemptId != attemptId))
+                    throw new JsonException("The returned consent belongs to another attempt.");
+                await InvokeAsync(() =>
+                {
+                    if (!IsCurrent()) return;
+                    // Preserve unsaved organization/customer choices while the durable approval is unchanged.
+                    if (current?.LifecycleState != status?.LifecycleState || current?.AvailableAction != status?.AvailableAction ||
+                        current?.LinkRevision != status?.LinkRevision || current?.GrantHash != status?.GrantHash ||
+                        current?.Descriptor.DescriptorHash != status?.Descriptor.DescriptorHash || current?.LocalTenantId != status?.LocalTenantId ||
+                        current?.OrganizationBindingInvalid != status?.OrganizationBindingInvalid || current?.Decision != status?.Decision)
+                        confirmed = false;
+                    status = current;
+                    error = failure;
+                    StateHasChanged();
+                });
+                if (!IsCurrent() || !NeedsObservation(status)) return;
+            }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException)
+        {
+            await InvokeAsync(() =>
+            {
+                if (!IsCurrent()) return;
+                status = null; confirmed = false;
+                error = "The protected grant summary is unavailable or this attempt is no longer authorized. Refresh its stored status before proceeding.";
+                StateHasChanged();
+            });
+        }
+    }
+    private void StopObservation() { observation?.Cancel(); observation?.Dispose(); observation = null; }
+    public void Dispose() { disposed = true; loadRevision++; StopObservation(); }
 }

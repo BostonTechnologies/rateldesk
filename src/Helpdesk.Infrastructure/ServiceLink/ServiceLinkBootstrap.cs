@@ -17,12 +17,6 @@ public sealed partial class ServiceLinkCoordinator
         var incidentOnly = ControlOnlyScopes(request.OutboundScopes);
         var existingProfile = await providers.GetOrchestratorSettingsAsync(ct);
         Require(incidentOnly || !existingProfile.ManagedByDeployment, "deployment-owned-profile", "The deployment owns the outbound profile. Use its explicit manual deployment values before guided linking.", 409);
-        if (!incidentOnly && (existingProfile.HasClientSecret || !string.IsNullOrEmpty(existingProfile.LinkId)))
-        {
-            var prior = await db.Set<ServiceLinkAttempt>().SingleOrDefaultAsync(x => x.LinkId == existingProfile.LinkId, ct);
-            Require(prior is not null && prior.LocalTenantId == request.LocalTenantId && !prior.LocalInboundActive && !prior.LocalBusinessSenderEnabled && !existingProfile.Enabled &&
-                (prior.LifecycleState == "revoked" || prior.LifecycleState == "expired" && prior.Decision == "abort"), "profile-ownership-conflict", "The existing outbound profile must be explicitly disconnected and its local authority disabled before a new consent ceremony.", 409);
-        }
         var peer = ServiceLinkValidation.Metadata(await transport.GetAsync<ServiceLinkMetadata>(Endpoint(request.PeerWebBaseUrl, ServiceLinkContract.MetadataPath), ct), settings.AllowPrivateHttp, request.PeerWebBaseUrl);
         RecordPeerCompatibility("start", peer, local);
         Require(peer.Product == "netratel" && peer.InstanceId != local.InstanceId, "unsupported-peer", "Select a distinct compatible NetRatel installation.", 422);
@@ -36,6 +30,16 @@ public sealed partial class ServiceLinkCoordinator
         grants = Grants(grants, local, peer, proposal: true);
         Require(grants.Single(x => x.TargetInstanceId == local.InstanceId).ResourceConstraints.OrganizationId == request.LocalTenantId &&
             grants.Single(x => x.TargetInstanceId == local.InstanceId).SourceNamespaceId == namespaceId.ToString("D"), "invalid-source-grant", "The proposal differs from its administrator-reserved local source mapping.");
+        await RequireAvailableRelationship(request.LocalTenantId, peer.InstanceId,
+            grants.Single(g => g.TargetInstanceId == peer.InstanceId).TargetTenantId, actor, null, ct);
+        if (!incidentOnly && (existingProfile.HasClientSecret || !string.IsNullOrEmpty(existingProfile.LinkId)))
+        {
+            var prior = await db.Set<ServiceLinkAttempt>().SingleOrDefaultAsync(x => x.LinkId == existingProfile.LinkId, ct);
+            Require(prior is not null && prior.LocalTenantId == request.LocalTenantId && !prior.LocalInboundActive && !prior.LocalBusinessSenderEnabled && !existingProfile.Enabled &&
+                (prior.LifecycleState == "revoked" || prior.LifecycleState == "expired" && prior.Decision == "abort"), "profile-ownership-conflict", "The existing outbound profile must be explicitly disconnected and its local authority disabled before a new consent ceremony.", 409);
+        }
+        var continued = await ContinueMatchingProposal(request, actor, actorId, local, peer, grants, ct);
+        if (continued is not null) return continued;
         var descriptor = new ServiceLinkRequestDescriptor
         {
             AttemptId = attemptId, ExpiresAt = Timestamp(Now + settings.BootstrapLifetimeSeconds), InitiatorInstanceId = local.InstanceId,
@@ -60,6 +64,7 @@ public sealed partial class ServiceLinkCoordinator
     {
         await RefreshSettingsAsync(ct);
         Id(attemptId); var a = await Attempt(attemptId, ct); var actorId = await Authorize(actor, a.LocalTenantId, ct);
+        if (a.Role == "responder") return ReturnApprovedResponder(a, actorId);
         Require(a.Role == "initiator" && a.LocalActorId == actorId && a.Decision == "undecided" && a.LifecycleState == "awaiting_approval" &&
             a.ExpiresAtUnixSeconds > Now && a.ProtectedBrowserState is not null && request.SessionBinding is { Length: >= 32 and <= 256 } &&
             Same(a.SessionBindingHash, Digest(request.SessionBinding)), "invalid-local-consent", "The original live initiating browser session is required to continue this approval.", 403);
@@ -128,6 +133,8 @@ public sealed partial class ServiceLinkCoordinator
             Require(existing.Role == "responder" && existing.DescriptorHash == d.DescriptorHash && existing.LocalActorId == actorId && Same(Unprotect(existing, "browser-state", existing.ProtectedBrowserState!), request.BrowserState), "attempt-conflict", "This attempt is already bound to a different origin, actor or correlation.", 409);
             return Descriptor(existing);
         }
+        if (!string.IsNullOrEmpty(d.RequestedResponderTenantId))
+            await RequireAvailableRelationship(d.RequestedResponderTenantId, peer.InstanceId, d.InitiatorTenantId, actor, null, ct);
         var a = new ServiceLinkAttempt { AttemptId = d.AttemptId, Role = "responder", LocalTenantId = d.RequestedResponderTenantId ?? "", LocalActorId = actorId, PeerInstanceId = peer.InstanceId, PeerTenantId = d.InitiatorTenantId, DescriptorJson = Json(d), DescriptorHash = d.DescriptorHash, ExpiresAtUnixSeconds = Math.Min(ServiceLinkCanonicalJson.ParseWholeSecondUtcTimestamp(d.ExpiresAt).ToUnixTimeSeconds(), Now + settings.BootstrapLifetimeSeconds), CreatedAtUnixSeconds = Now, UpdatedAtUnixSeconds = Now, NextWorkAtUnixSeconds = Now };
         a.ProtectedBrowserState = Protect(a, "browser-state", request.BrowserState); db.Set<ServiceLinkAttempt>().Add(a); await db.SaveChangesAsync(ct); return d;
     }
@@ -153,6 +160,7 @@ public sealed partial class ServiceLinkCoordinator
         var inbound = selected.Single(x => x.TargetInstanceId == issuer.InstanceId);
         Require(inbound.TargetTenantId == request.LocalTenantId && inbound.ResourceConstraints.CustomerIds.Length == 1 && Guid.TryParseExact(d.InitiatorEndpointSnapshot.SourceInstanceId, "D", out _), "invalid-source-grant", "Select an explicit local customer and the persisted peer producer.");
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+        await RequireAvailableRelationship(request.LocalTenantId, a.PeerInstanceId, a.PeerTenantId, actor, a.AttemptId, ct);
         var namespaceId = await ReserveSource(Guid.Parse(d.InitiatorEndpointSnapshot.SourceInstanceId!), request.LocalTenantId, inbound.ResourceConstraints.CustomerIds[0], actorId, ct);
         selected = selected.Select(g => g == inbound ? g with { SourceNamespaceId = namespaceId.ToString("D"), SourceInstanceId = d.InitiatorEndpointSnapshot.SourceInstanceId } : g).ToArray();
         selected = Grants(selected, d.InitiatorEndpointSnapshot, d.ResponderEndpointSnapshot);
@@ -214,6 +222,8 @@ public sealed partial class ServiceLinkCoordinator
         var expiry = ServiceLinkCanonicalJson.ParseWholeSecondUtcTimestamp(summary.ExpiresAt).ToUnixTimeSeconds();
         Require(expiry <= a.ExpiresAtUnixSeconds && expiry > Now, "attempt-expired", "The peer selected an invalid bootstrap expiry.");
         Require(a.GrantHash is null || a.GrantHash == review.GrantHash, "grant-conflict", "The immutable reviewed grant changed.", 409);
+        await RequireAvailableRelationship(a.LocalTenantId, a.PeerInstanceId,
+            selected.Single(x => x.TargetInstanceId == a.PeerInstanceId).TargetTenantId, actor, a.AttemptId, ct);
         if (ServiceLinkCanonicalJson.HashObject(ServiceLinkPayloadNormalization.Summary(summary)) == review.GrantHash)
             summary = ServiceLinkPayloadNormalization.Summary(summary);
         a.LinkId = summary.LinkId; a.GrantSummaryJson = Json(summary); a.GrantHash = review.GrantHash; a.ExpiresAtUnixSeconds = expiry;
