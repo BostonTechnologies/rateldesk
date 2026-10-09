@@ -63,6 +63,32 @@ public sealed class PairingTransportTests
     }
 
     [Theory]
+    [InlineData("ABCD-EFGH", "abcd-efgh")]
+    [InlineData("ABCD-EFGH", "abCdEfGh")]
+    [InlineData("abcd-efgh", "ABCDEFGH")]
+    [InlineData("a-b-c-d-e-f-g-h", "AB-CD--EF-GH")]
+    [InlineData("  abcd--efgh  ", "A-B-C-D-E-F-G-H")]
+    public async Task Every_accepted_code_representation_is_redacted_from_peer_error_message_and_log_code(string offered, string reflected)
+    {
+        using var handler = new WireHandler(_ => new(HttpStatusCode.BadGateway) { Content = JsonContent.Create(new { code = reflected, message = "Rejected " + reflected }) });
+        using var client = new HttpClient(handler); var transport = new PairingTransport(new SingleClient(client));
+        var request = new PairingExchangeRequest(offered, Guid.NewGuid().ToString("D"), null!, new string('s', 43));
+        var failure = await Assert.ThrowsAsync<PairingFailure>(() => transport.SendAsync<bool>("https://peer.example.test", "/exchange", HttpMethod.Post, request, null, null, default));
+        Assert.Equal("peer_rejected", failure.Code); Assert.Equal("Rejected [redacted]", failure.Message);
+    }
+
+    [Fact]
+    public async Task Whole_credential_is_redacted_before_a_code_substring_inside_it()
+    {
+        var secret = new string('a', 15) + "ABCDEFGH" + new string('b', 20);
+        using var handler = new WireHandler(_ => new(HttpStatusCode.BadGateway) { Content = JsonContent.Create(new { code = "peer_busy", message = secret }) });
+        using var client = new HttpClient(handler); var transport = new PairingTransport(new SingleClient(client));
+        var request = new PairingExchangeRequest("ABCD-EFGH", Guid.NewGuid().ToString("D"), null!, secret);
+        var failure = await Assert.ThrowsAsync<PairingFailure>(() => transport.SendAsync<bool>("https://peer.example.test", "/exchange", HttpMethod.Post, request, null, null, default));
+        Assert.Equal("peer_busy", failure.Code); Assert.Equal("[redacted]", failure.Message);
+    }
+
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public async Task Real_private_dns_https_uses_standard_hostname_and_certificate_validation(bool trusted)

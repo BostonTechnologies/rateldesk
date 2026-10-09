@@ -236,6 +236,25 @@ public sealed class PairingServiceTests
         if (localInitiates) Assert.Equal("pairing_generation_changed", (await Assert.ThrowsAsync<PairingFailure>(() => service.AuthenticateAsync(peer.Metadata.InstallationId, original.InboundSecret, SystemPairingService.Hash(oldOffer.InboundSecret), default))).Code);
         Assert.Equal(0, (await h.CountsAsync()).Incidents);
     }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Peer_test_failures_and_persisted_results_mask_every_representation_of_the_saved_code(bool postgres)
+    {
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true);
+        using var peer = new PairingTestPeer(h.SourceId) { TestMessage = "abCdEfGh a-b--C-d-eF-G-h ABCD-EFGH" };
+        await using var scope = h.App.Services.CreateAsyncScope(); var service = peer.Service(scope.ServiceProvider, new PairingTestClock());
+        var pair = await service.ConnectAsync(new(peer.Metadata.WebOrigin, "abcd-efgh", Guid.NewGuid().ToString("D")), "owner", default);
+        var mapping = new PairingMapping(Guid.NewGuid().ToString("D"), pair.PairId, "Safe peer message", "17", h.OrganizationId, h.CustomerId, true, false);
+        peer.TestSuccess = false;
+        Assert.Equal("[redacted] [redacted] [redacted]", (await Assert.ThrowsAsync<PairingFailure>(() => service.SaveAsync(pair.PairId, mapping, "owner", default))).Message);
+        peer.TestSuccess = true;
+        var saved = await service.SaveAsync(pair.PairId, mapping, "owner", default); Assert.Equal("Connected", saved.Status);
+        Assert.Equal("[redacted] [redacted] [redacted]", (await service.TestAsync(pair.PairId, Guid.Parse(mapping.Id), "owner", default)).Message);
+        await h.RestartAsync();
+        await using var refreshed = h.App.Services.CreateAsyncScope();
+        Assert.Equal("[redacted] [redacted] [redacted]", Assert.Single(await peer.Service(refreshed.ServiceProvider, new PairingTestClock()).ListAsync("owner", default)).LastTest!.Message);
+    }
 }
 
 internal sealed class PairingTestClock : TimeProvider
@@ -254,6 +273,8 @@ internal sealed class PairingTestPeer : HttpMessageHandler, IHttpClientFactory
     public PairingMetadata Metadata { get; }
     public bool FailSave { get; set; }
     public bool Unavailable { get; set; }
+    public string TestMessage { get; set; } = "Synthetic selected read check";
+    public bool TestSuccess { get; set; } = true;
     public string InboundSecret { get; } = Microsoft.IdentityModel.Tokens.Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(32));
     public string? OfferedInboundSecret { get; private set; }
     public PairingTestPeer(Guid producer)
@@ -283,7 +304,7 @@ internal sealed class PairingTestPeer : HttpMessageHandler, IHttpClientFactory
             var response = new PairingExchangeResponse(SystemPairingService.PairId(offered.Peer.InstallationId, Metadata.InstallationId), Metadata, InboundSecret);
             return Ok(response with { Signature = Convert.ToBase64String(key.SignData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(response, Json)), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1)) });
         }
-        if (path.EndsWith("/test", StringComparison.Ordinal)) return Ok(new PairingTestResult(true, "Synthetic selected read check", DateTimeOffset.UtcNow));
+        if (path.EndsWith("/test", StringComparison.Ordinal)) return Ok(new PairingTestResult(TestSuccess, TestMessage, DateTimeOffset.UtcNow));
         if (request.Method == HttpMethod.Put)
         {
             if (FailSave) return new(HttpStatusCode.ServiceUnavailable) { Content = JsonContent.Create(new { code = "peer_busy", message = "The synthetic peer is temporarily unavailable. Retry this saved connection." }) };

@@ -12,6 +12,10 @@ namespace Helpdesk.Tests.Application.RequestTasks;
 
 public sealed class RequestTaskLifecycleServiceTests
 {
+    private static readonly Guid SystemConnectionId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+    private const string PeerInstanceId = "44444444-4444-4444-4444-444444444444";
+    private const long MappingRevision = 7;
+
     [Theory]
     [InlineData(AutomationBindingSyncState.Drifted)]
     [InlineData(AutomationBindingSyncState.ImportPending)]
@@ -38,6 +42,7 @@ public sealed class RequestTaskLifecycleServiceTests
             Type = RequestTaskType.Automation,
             Status = RequestTaskStatus.Pending,
             OrganizationId = "tenant-1",
+            OrchestrationLinkId = "55555555-5555-5555-5555-555555555555",
             ExpectedRuntimeSeconds = 1800,
             GraceSeconds = 600,
             HardTimeoutSeconds = 2400
@@ -55,11 +60,12 @@ public sealed class RequestTaskLifecycleServiceTests
                 TaskTemplateId = Guid.Parse("22222222-2222-2222-2222-222222222222"),
                 OrchestrationRequestDefinitionId = "orchestration-req-1",
                 OrchestrationRequestDefinitionName = "Provision mailbox",
+                SystemConnectionId = SystemConnectionId,
                 Enabled = true,
                 SyncState = syncState
             });
-        connectivity.GetResolvedOrchestrationSettingsAsync(Arg.Any<CancellationToken>())
-            .Returns(new OrchestrationResolvedSettings { Enabled = true, BaseUrl = "https://orchestration.local" });
+        connectivity.GetResolvedOrchestrationSettingsAsync("tenant-1", SystemConnectionId, Arg.Any<CancellationToken>())
+            .Returns(PairedSettings());
         payloadBuilder.BuildAsync(Arg.Any<RequestTask>(), "corr-test", Arg.Any<CancellationToken>())
             .Returns(RequestTaskPayloadBuildResult.Succeeded(
                 "Provision mailbox",
@@ -93,6 +99,7 @@ public sealed class RequestTaskLifecycleServiceTests
         Assert.Equal(RequestTaskStatus.InProgress, started.Status);
         Assert.Equal("orchestration-request-1", started.OrchestrationExternalRequestId);
         Assert.Equal("orchestration-run-1", started.OrchestrationExternalRunId);
+        await AssertSelectedSystemConnectionAsync(connectivity, started);
         await payloadBuilder.Received(1).BuildAsync(Arg.Any<RequestTask>(), "corr-test", Arg.Any<CancellationToken>());
         await orchestrationClient.Received(1).IngestAsync(
             Arg.Any<OrchestrationResolvedSettings>(),
@@ -162,6 +169,7 @@ public sealed class RequestTaskLifecycleServiceTests
 
         Assert.Contains("broken", ex.Message, StringComparison.OrdinalIgnoreCase);
         await tasks.DidNotReceive().UpdateAsync(Arg.Any<RequestTask>());
+        await connectivity.DidNotReceive().GetResolvedOrchestrationSettingsAsync(Arg.Any<string?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
         await payloadBuilder.DidNotReceive().BuildAsync(Arg.Any<RequestTask>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
         await orchestrationClient.DidNotReceive().IngestAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<OrchestrationIngestRequest>(), Arg.Any<CancellationToken>());
     }
@@ -224,6 +232,7 @@ public sealed class RequestTaskLifecycleServiceTests
 
         Assert.Contains("earlier approval", ex.Message, StringComparison.OrdinalIgnoreCase);
         await bindings.DidNotReceive().GetByTaskTemplateAsync(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+        await connectivity.DidNotReceive().GetResolvedOrchestrationSettingsAsync(Arg.Any<string?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
         await payloadBuilder.DidNotReceive().BuildAsync(Arg.Any<RequestTask>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
         await orchestrationClient.DidNotReceive().IngestAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<OrchestrationIngestRequest>(), Arg.Any<CancellationToken>());
     }
@@ -252,12 +261,13 @@ public sealed class RequestTaskLifecycleServiceTests
             Status = RequestTaskStatus.Pending,
             MaxRetries = 3,
             RetryDelayMinutes = 0,
-            OrganizationId = "tenant-1"
+            OrganizationId = "tenant-1",
+            OrchestrationLinkId = SystemConnectionId.ToString("D")
         };
 
         tasks.GetAsync(taskId).Returns(task);
-        connectivity.GetResolvedOrchestrationSettingsAsync(Arg.Any<CancellationToken>())
-            .Returns(new OrchestrationResolvedSettings { Enabled = true, BaseUrl = "https://orchestration.local" });
+        connectivity.GetResolvedOrchestrationSettingsAsync(task.OrganizationId, SystemConnectionId, Arg.Any<CancellationToken>())
+            .Returns(PairedSettings());
         payloadBuilder.BuildAsync(task, "corr-submit", Arg.Any<CancellationToken>())
             .Returns(RequestTaskPayloadBuildResult.Succeeded(
                 "Test Job (Linux)",
@@ -283,6 +293,7 @@ public sealed class RequestTaskLifecycleServiceTests
         var failed = await service.StartAsync(taskId, CancellationToken.None);
 
         Assert.Equal(RequestTaskStatus.Failed, failed.Status);
+        await AssertSelectedSystemConnectionAsync(connectivity, failed);
         Assert.Equal(AutomationTaskStatuses.SubmitFailedManualRetry, failed.LastAutomationStatus);
         Assert.Null(failed.NextRetryAt);
         Assert.Equal("External orchestration submission failed. Check provider status before retrying.", failed.FailureReason);
@@ -312,11 +323,12 @@ public sealed class RequestTaskLifecycleServiceTests
             Title = "Existing execution",
             Type = RequestTaskType.Automation,
             Status = RequestTaskStatus.Pending,
-            OrganizationId = "tenant-1"
+            OrganizationId = "tenant-1",
+            OrchestrationLinkId = SystemConnectionId.ToString("D")
         };
         tasks.GetAsync(taskId).Returns(task);
-        connectivity.GetResolvedOrchestrationSettingsAsync(Arg.Any<CancellationToken>())
-            .Returns(new OrchestrationResolvedSettings { Enabled = true, BaseUrl = "https://orchestration.local" });
+        connectivity.GetResolvedOrchestrationSettingsAsync(task.OrganizationId, SystemConnectionId, Arg.Any<CancellationToken>())
+            .Returns(PairedSettings());
         payloadBuilder.BuildAsync(task, "corr-existing", Arg.Any<CancellationToken>())
             .Returns(RequestTaskPayloadBuildResult.Succeeded("Existing job", "{}", "binding-1", "request-definition-1", "job-definition-1"));
         orchestrationClient.IngestAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<OrchestrationIngestRequest>(), Arg.Any<CancellationToken>())
@@ -336,6 +348,7 @@ public sealed class RequestTaskLifecycleServiceTests
         var completed = await service.StartAsync(taskId, CancellationToken.None);
 
         Assert.Equal(RequestTaskStatus.Completed, completed.Status);
+        await AssertSelectedSystemConnectionAsync(connectivity, completed);
         Assert.Equal("remote-request", completed.OrchestrationExternalRequestId);
         Assert.Equal("remote-run", completed.OrchestrationExternalRunId);
         Assert.Equal("remote-execution", completed.OrchestratorExecutionId);
@@ -366,11 +379,12 @@ public sealed class RequestTaskLifecycleServiceTests
             Title = "Unknown execution",
             Type = RequestTaskType.Automation,
             Status = RequestTaskStatus.Pending,
-            OrganizationId = "tenant-1"
+            OrganizationId = "tenant-1",
+            OrchestrationLinkId = SystemConnectionId.ToString("D")
         };
         tasks.GetAsync(taskId).Returns(task);
-        connectivity.GetResolvedOrchestrationSettingsAsync(Arg.Any<CancellationToken>())
-            .Returns(new OrchestrationResolvedSettings { Enabled = true, BaseUrl = "https://orchestration.local" });
+        connectivity.GetResolvedOrchestrationSettingsAsync(task.OrganizationId, SystemConnectionId, Arg.Any<CancellationToken>())
+            .Returns(PairedSettings());
         payloadBuilder.BuildAsync(task, "corr-unknown", Arg.Any<CancellationToken>())
             .Returns(RequestTaskPayloadBuildResult.Succeeded("Unknown job", "{}", "binding-1", "request-definition-1", "job-definition-1"));
         orchestrationClient.IngestAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<OrchestrationIngestRequest>(), Arg.Any<CancellationToken>())
@@ -389,6 +403,7 @@ public sealed class RequestTaskLifecycleServiceTests
         var uncertain = await service.StartAsync(taskId, CancellationToken.None);
 
         Assert.Equal(RequestTaskStatus.Failed, uncertain.Status);
+        await AssertSelectedSystemConnectionAsync(connectivity, uncertain);
         Assert.Equal(AutomationTaskStatuses.SubmitUncertainManualReconcile, uncertain.LastAutomationStatus);
         Assert.Equal("remote-request", uncertain.OrchestrationExternalRequestId);
         Assert.Equal("remote-run", uncertain.OrchestrationExternalRunId);
@@ -422,12 +437,13 @@ public sealed class RequestTaskLifecycleServiceTests
             Status = RequestTaskStatus.Pending,
             MaxRetries = 3,
             RetryDelayMinutes = 0,
-            OrganizationId = "tenant-1"
+            OrganizationId = "tenant-1",
+            OrchestrationLinkId = SystemConnectionId.ToString("D")
         };
 
         tasks.GetAsync(taskId).Returns(task);
-        connectivity.GetResolvedOrchestrationSettingsAsync(Arg.Any<CancellationToken>())
-            .Returns(new OrchestrationResolvedSettings { Enabled = true, BaseUrl = "https://orchestration.local" });
+        connectivity.GetResolvedOrchestrationSettingsAsync(task.OrganizationId, SystemConnectionId, Arg.Any<CancellationToken>())
+            .Returns(PairedSettings());
         payloadBuilder.BuildAsync(task, "corr-uncertain", Arg.Any<CancellationToken>())
             .Returns(RequestTaskPayloadBuildResult.Succeeded("Uncertain job", "{}", "binding-1", "2", "2"));
         orchestrationClient.IngestAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<OrchestrationIngestRequest>(), Arg.Any<CancellationToken>())
@@ -448,10 +464,28 @@ public sealed class RequestTaskLifecycleServiceTests
         var failed = await service.StartAsync(taskId, CancellationToken.None);
 
         Assert.Equal(RequestTaskStatus.Failed, failed.Status);
+        await AssertSelectedSystemConnectionAsync(connectivity, failed);
         Assert.Equal(AutomationTaskStatuses.SubmitUncertainManualReconcile, failed.LastAutomationStatus);
         Assert.Null(failed.NextRetryAt);
         Assert.Contains("acknowledgement", failed.FailureReason, StringComparison.OrdinalIgnoreCase);
         await failurePolicy.DidNotReceive().OnTaskFailedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
         await domainEvents.Received(1).PublishAsync(Arg.Is<RequestTaskAutomationSubmitUncertainEvent>(x => x.TaskId == taskId), Arg.Any<CancellationToken>());
+    }
+
+    private static OrchestrationResolvedSettings PairedSettings() => new()
+    {
+        Enabled = true,
+        BaseUrl = "https://orchestration.local",
+        Source = "pairing",
+        Pairing = new PairingOrchestratorBinding("tenant-1", "netratel-tenant-1", PeerInstanceId, SystemConnectionId.ToString("D"), MappingRevision)
+    };
+
+    private static async Task AssertSelectedSystemConnectionAsync(IOrchestrationConnectivityService connectivity, RequestTask task)
+    {
+        await connectivity.Received(1).GetResolvedOrchestrationSettingsAsync(task.OrganizationId, SystemConnectionId, CancellationToken.None);
+        await connectivity.DidNotReceive().GetResolvedOrchestrationSettingsAsync(Arg.Any<CancellationToken>());
+        Assert.Equal(SystemConnectionId.ToString("D"), task.OrchestrationLinkId);
+        Assert.Equal(PeerInstanceId, task.OrchestrationPeerInstanceId);
+        Assert.Equal(MappingRevision, task.OrchestrationLinkRevision);
     }
 }

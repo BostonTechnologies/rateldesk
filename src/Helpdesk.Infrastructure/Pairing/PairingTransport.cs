@@ -97,11 +97,13 @@ public sealed class PairingTransport(IHttpClientFactory clients)
                 string? message = null; string? code = null;
                 try { using var doc = JsonDocument.Parse(buffer.AsMemory(0, count)); if (doc.RootElement.TryGetProperty("message", out var text) && text.ValueKind == JsonValueKind.String) message = text.GetString(); if (doc.RootElement.TryGetProperty("code", out var value) && value.ValueKind == JsonValueKind.String) code = value.GetString(); } catch (JsonException) { }
                 var sensitive = new List<string?> { secret };
-                if (body is PairingExchangeRequest exchange) sensitive.AddRange([exchange.Code, exchange.Code.Replace("-", "", StringComparison.Ordinal), exchange.InboundSecret]);
+                if (body is PairingExchangeRequest exchange) sensitive.AddRange([exchange.InboundSecret, exchange.Code, exchange.Code.Replace("-", "", StringComparison.Ordinal)]);
                 if (body is PairingSaveRequest save) sensitive.Add(save.Credential?.ClientSecret);
-                code = IntegrationErrorSafety.ProviderMessage(code, 80, sensitive.ToArray());
+                var pairingCode = (body as PairingExchangeRequest)?.Code;
+                code = PairingCodeRedaction.Apply(IntegrationErrorSafety.ProviderMessage(code, 65536, sensitive.ToArray()), pairingCode)!;
                 if (code.Length is < 1 or > 80 || code.Any(x => !char.IsAsciiLetterOrDigit(x) && x is not ('_' or '-'))) code = "peer_rejected";
-                message = IntegrationErrorSafety.ProviderMessage(message is { Length: <= 512 } ? message : $"The peer rejected the request (HTTP {(int)response.StatusCode}).", 512, sensitive.ToArray());
+                message = PairingCodeRedaction.Apply(IntegrationErrorSafety.ProviderMessage(message is { Length: <= 512 } ? message : $"The peer rejected the request (HTTP {(int)response.StatusCode}).", 65536, sensitive.ToArray()), pairingCode)!;
+                if (message.Length > 512) message = message[..512];
                 throw new PairingFailure(code, message, (int)response.StatusCode);
             }
             if (typeof(T) == typeof(bool)) return (T)(object)true;

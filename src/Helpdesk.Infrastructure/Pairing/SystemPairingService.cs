@@ -461,8 +461,10 @@ public sealed class SystemPairingService(HelpdeskDbContext db, PairingTransport 
         var sensitive = new List<string?> { secrets.Unprotect(pair.ProtectedInboundSecret), pair.ProtectedOutboundSecret is null ? null : secrets.Unprotect(pair.ProtectedOutboundSecret) };
         if (row.ProtectedInboundCredential is not null) sensitive.Add(Unprotect<PairingBusinessCredential>(row.ProtectedInboundCredential).ClientSecret);
         if (row.ProtectedOutboundCredential is not null) sensitive.Add(Unprotect<PairingBusinessCredential>(row.ProtectedOutboundCredential).ClientSecret);
-        if (pair.ProtectedExchangeRequest is not null) { var exchange = Unprotect<PairingExchangeRequest>(pair.ProtectedExchangeRequest); sensitive.Add(exchange.Code); sensitive.Add(exchange.Code.Replace("-", "", StringComparison.Ordinal)); }
-        return result with { Message = IntegrationErrorSafety.ProviderMessage(result.Message, 512, sensitive.ToArray()) };
+        string? code = null;
+        if (pair.ProtectedExchangeRequest is not null) { var exchange = Unprotect<PairingExchangeRequest>(pair.ProtectedExchangeRequest); code = exchange.Code; sensitive.Add(exchange.Code); sensitive.Add(exchange.Code.Replace("-", "", StringComparison.Ordinal)); }
+        var message = PairingCodeRedaction.Apply(IntegrationErrorSafety.ProviderMessage(result.Message, 65536, sensitive.ToArray()), code)!;
+        return result with { Message = message.Length <= 512 ? message : message[..512] };
     }
     private static void ValidateDirectory(PairingDirectory directory)
     {
