@@ -185,17 +185,6 @@ DataProtection__KeyRingPath="$setup_state_dir/e2e-keys" \
 Authentication__Mode=Hybrid \
 Authentication__AllowInsecureLocalhost=true \
 ASPNETCORE_URLS="$api_url" \
-ServiceIdentity__Enabled=true \
-ServiceIdentity__Issuer="$api_url" \
-ServiceIdentity__Audience=rateldesk.services \
-ServiceIdentity__ApiBaseUrl="$api_url" \
-ServiceIdentity__WebBaseUrl="$web_url" \
-ServiceIdentity__InstanceId=helpdesk-e2e-rateldesk \
-ServiceIdentity__AllowPrivateHttp=true \
-ServiceLinks__Enabled=true \
-ServiceLinks__ApiBaseUrl="$api_url" \
-ServiceLinks__WebBaseUrl="$web_url" \
-ServiceLinks__AllowPrivateHttp=true \
 ConnectionStrings__HelpdeskDb="Host=127.0.0.1;Port=${database_port};Database=rateldesk;Username=rateldesk;Password=rateldesk" \
 EmailIngestion__Enabled=false \
 Helpdesk__E2eSeedData=true \

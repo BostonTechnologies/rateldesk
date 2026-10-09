@@ -8,7 +8,7 @@ using HelpDesk.NewWeb.Models;
 using HelpDesk.NewWeb.Services;
 using HelpDesk.NewWeb.Services.Search;
 using Helpdesk.Shared.Auth;
-using Helpdesk.Shared.ServiceLink;
+using Helpdesk.Shared.Pairing;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.RateLimiting;
@@ -275,11 +275,11 @@ var netclawPairingApiClient = builder.Services.AddHttpClient("NetclawPairingApi"
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false })
     .AddHttpMessageHandler<TokenAuthorizationHandler>();
 
-// Consent and proof capture use the durable coordinator's explicit retries; never replay a browser mutation automatically.
-var serviceLinkApiClient = builder.Services.AddHttpClient("ServiceLinkApi", client =>
+// Mutations retain explicit operation IDs; automatic retries must not replace pairing codes.
+var systemPairingApiClient = builder.Services.AddHttpClient("SystemPairingApi", client =>
 {
     client.BaseAddress = new Uri(apiBaseUrl, UriKind.Absolute);
-    client.Timeout = TimeSpan.FromSeconds(45);
+    client.Timeout = TimeSpan.FromSeconds(60);
 })
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false, AllowAutoRedirect = false })
     .AddHttpMessageHandler<TokenAuthorizationHandler>();
@@ -295,7 +295,7 @@ var helpdeskApiStreamingClient = builder.Services.AddHttpClient("HelpdeskApiStre
 #pragma warning disable EXTEXP0001
 helpdeskApiClient.RemoveAllResilienceHandlers();
 netclawPairingApiClient.RemoveAllResilienceHandlers();
-serviceLinkApiClient.RemoveAllResilienceHandlers();
+systemPairingApiClient.RemoveAllResilienceHandlers();
 helpdeskApiClient.AddStandardResilienceHandler(options =>
 {
     options.AttemptTimeout.Timeout = TimeSpan.FromMinutes(2);
@@ -382,12 +382,6 @@ fwd.KnownProxies.Clear();
 app.UseForwardedHeaders(fwd);
 
 app.UseHttpsRedirection();
-app.Use(async (context, next) =>
-{
-    if (context.Request.Path.StartsWithSegments("/account/integration-credentials/link"))
-        ServiceLinkBrowserEndpoints.ProtectResponse(context);
-    await next();
-});
 app.UseMiddleware<FirstRunEntryMiddleware>();
 app.UseAuthentication();
 app.UseMiddleware<TenantContextMiddleware>();
@@ -406,7 +400,7 @@ app.Use(async (ctx, next) =>
     }
 
     if (ctx.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase) &&
-        !string.Equals(path, ServiceLinkContract.MetadataPath, StringComparison.OrdinalIgnoreCase) &&
+        !string.Equals(path, PairingContract.Root + "/metadata", StringComparison.OrdinalIgnoreCase) &&
         !ctx.Request.Path.StartsWithSegments("/api/docs", StringComparison.OrdinalIgnoreCase) &&
         !ctx.Request.Path.StartsWithSegments("/api/openapi", StringComparison.OrdinalIgnoreCase) &&
         !ctx.Request.Path.StartsWithSegments("/api/v1", StringComparison.OrdinalIgnoreCase) &&
@@ -548,14 +542,14 @@ app.MapGet("/login-authentik", async (HttpContext ctx) =>
         return Results.LocalRedirect("/login");
     }
 
-    await ctx.ChallengeAsync("Authentik", new AuthenticationProperties { RedirectUri = ServiceLinkBrowserEndpoints.SignInDestination(ctx, ctx.RequestServices.GetRequiredService<IConfiguration>()) });
+    await ctx.ChallengeAsync("Authentik", new AuthenticationProperties { RedirectUri = "/home" });
     return Results.Empty;
 });
 
 app.MapGet("/login-azure", () => Results.LocalRedirect("/login-authentik"));
 
 app.MapLocalBrowserLoginEndpoints(webSupportsLocalAccounts, localCookieName);
-app.MapServiceLinkBrowserEndpoints();
+app.MapPairingMetadataEndpoint();
 
 app.MapGet("/login-ai-agent", (IOptions<AuthentikAiAgentOptions> options) =>
 {

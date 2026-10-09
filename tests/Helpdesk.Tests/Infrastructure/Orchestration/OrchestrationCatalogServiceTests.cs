@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Infrastructure.Orchestration;
+using Helpdesk.Infrastructure.Pairing;
 using NSubstitute;
 using Xunit;
 
@@ -64,7 +65,7 @@ public sealed class OrchestrationCatalogServiceTests
     {
         var handler = new FixedResponseHandler(responseBody);
         var factory = Substitute.For<IHttpClientFactory>();
-        factory.CreateClient("OrchestrationInternalApi").Returns(new HttpClient(handler));
+        factory.CreateClient(PairingTransport.ClientName).Returns(new HttpClient(handler));
 
         var tokenService = Substitute.For<IOrchestrationTokenService>();
         tokenService.GetAccessTokenAsync(
@@ -79,6 +80,7 @@ public sealed class OrchestrationCatalogServiceTests
             {
                 Enabled = true,
                 BaseUrl = "https://orchestration.example.test",
+                Pairing = new("synthetic-tenant", "17", Guid.NewGuid().ToString("D"), Guid.NewGuid().ToString("D"), 1),
                 CatalogPath = "/internal/catalog",
                 ClientSecret = "synthetic-secret"
             });

@@ -15,7 +15,6 @@ public static class RatelDeskOpenApiCatalog
     private const string McpIntegrationCredentialScheme = "McpIntegrationCredential";
     private const string LocalSessionScheme = "LocalSession";
     private const string AiAgentScheme = "AiAgentJwt";
-    private const string OrchestrationScheme = "OrchestrationM2M";
     private const string SystemScheme = "SystemToken";
     private const string ServiceIdentityScheme = "ServiceIdentity";
 
@@ -152,15 +151,7 @@ public static class RatelDeskOpenApiCatalog
             In = ParameterLocation.Header,
             Description = "JWT issued for the configured AI-agent machine identity."
         };
-        document.Components.SecuritySchemes[OrchestrationScheme] = new OpenApiSecurityScheme
-        {
-            Name = "Authorization",
-            Type = SecuritySchemeType.Http,
-            Scheme = "Bearer",
-            BearerFormat = "JWT",
-            In = ParameterLocation.Header,
-            Description = "Client-credentials JWT for the configured orchestration provider."
-        };
+
         document.Components.SecuritySchemes[ServiceIdentityScheme] = new OpenApiSecurityScheme
         {
             Name = "Authorization",
@@ -213,10 +204,9 @@ public static class RatelDeskOpenApiCatalog
         operation.Security = policies switch
         {
             _ when tag == "NetRatel Incident Receiver" => Requirements(document, IntegrationCredentialScheme, ServiceIdentityScheme),
-            _ when policies.Contains("ServiceLinkVerify") || policies.Contains("ServiceLinkControl") => Requirements(document, ServiceIdentityScheme),
             _ when policies.Contains("ServiceClientManagement") => Requirements(document, JwtBearerScheme, LocalSessionScheme),
             _ when policies.Contains("AuthentikAiAgentApi") => Requirements(document, AiAgentScheme),
-            _ when policies.Contains("OrchestrationM2MOnly") => Requirements(document, OrchestrationScheme, ServiceIdentityScheme),
+            _ when policies.Contains("PairingCallbackOnly") => Requirements(document, ServiceIdentityScheme),
             _ when policies.Contains("SystemBlazorWeb") => Requirements(document, SystemScheme),
             _ when policies.Contains("IntegrationCredentialManagementSession") => Requirements(document, JwtBearerScheme, LocalSessionScheme),
             _ when policies.Contains("IntegrationCredentialSelfRevocation") => Requirements(document, IntegrationCredentialScheme),

@@ -1,3 +1,5 @@
+> Historical validation record. The previous NetRatel ↔ RatelDesk setup is superseded by the pairing-code cutover; its old runtime and fallback are retired. Dated results below do not establish acceptance of the new pairing flow.
+
 # RatelDesk beta.4 integration progress
 
 This ledger preserves the beta.4 baseline and dated implementation evidence.
@@ -71,7 +73,7 @@ or acceptance environment is identified in this workspace. Its current head is
 `d5bfa08550bd303e2d5d1388ed71336404c45fbc`, pushed on 6 October at 10:06:45
 SAST (08:06:45 UTC). The owner started normal run `37433948570` against the
 published beta.13 peer at `af71b9f9ae47bf75ea44f9fb486bd5c812d34910`;
-the [service-link guide](../integrations/netratel-service-link.md) records its
+the [service-link guide](../integrations/netratel-pairing.md) records its
 exact API/Web image digests. At 10:18 SAST (08:18 UTC), source-Compose and both
 extracted local-first bundle jobs had failed before preparing actual owner
 images or reaching owner-browser acceptance; general tests were still running.
@@ -96,7 +98,7 @@ the general acceptance job was cancelled, final guards were not completed,
 and the Web-owner job was skipped after a Compose startup failure. Successful
 individual receipts are useful evidence, not a successful final reciprocal
 suite. Exact receipt artifact identities and limitations are retained in the
-[service-link guide](../integrations/netratel-service-link.md); the current
+[service-link guide](../integrations/netratel-pairing.md); the current
 [#89 receipt](https://github.com/BostonTechnologies/RatelDesk/issues/89) supplies
 the external continuation and artifact URLs.
 

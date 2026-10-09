@@ -3,7 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Helpdesk.Application.Orchestration;
-using Helpdesk.Infrastructure.ServiceLink;
+using Helpdesk.Infrastructure.Pairing;
 using Helpdesk.Infrastructure.ServiceIdentity;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,8 +15,7 @@ public sealed class OrchestrationTokenService(
     IHttpClientFactory httpClientFactory,
     IMemoryCache cache,
     TimeProvider? timeProvider = null,
-    IServiceScopeFactory? scopes = null,
-    IOptionsMonitor<ServiceLinkOptions>? currentLinkOptions = null) : IOrchestrationTokenService
+    IServiceScopeFactory? scopes = null) : IOrchestrationTokenService
 {
     private const int MaximumResponseBytes = 256 * 1024;
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(20);
@@ -39,7 +38,7 @@ public sealed class OrchestrationTokenService(
 
         if (!Uri.TryCreate(tokenEndpoint, UriKind.Absolute, out var tokenUri))
             throw new InvalidOperationException("External orchestration token endpoint is not a valid absolute URL.");
-        ServiceLinkOutboundNetwork.Validate(tokenUri, "TokenEndpoint", settings, currentLinkOptions, settings.ServiceLink is null ? null : await CurrentLinksAsync(cancellationToken));
+        PairingOutboundNetwork.Validate(tokenUri, "TokenEndpoint", settings);
 
         if (string.IsNullOrWhiteSpace(settings.ClientId) || string.IsNullOrWhiteSpace(settings.ClientSecret))
         {
@@ -55,11 +54,8 @@ public sealed class OrchestrationTokenService(
 
         var cacheMaterial = string.Join("\n", tokenEndpoint, settings.Authority, settings.BaseUrl, settings.ClientId,
             settings.Scope, settings.Audience, settings.Source, settings.SourceKey, settings.ProfileFingerprint,
-            settings.ServiceLink?.LocalTenantId, settings.ServiceLink?.PeerTenantId, settings.ServiceLink?.PeerInstanceId,
-            settings.ServiceLink?.LinkId, settings.ServiceLink?.GrantHash, settings.ServiceLink?.DirectionId,
-            settings.ServiceLink?.SourceInstanceId, settings.ServiceLink?.SourceNamespaceId,
-            settings.ServiceLink?.LinkRevision.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            settings.ServiceLink?.CredentialRevision.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            settings.Pairing?.LocalTenantId, settings.Pairing?.PeerTenantId, settings.Pairing?.PeerInstanceId,
+            settings.Pairing?.MappingId, settings.Pairing?.MappingRevision.ToString(System.Globalization.CultureInfo.InvariantCulture),
             settings.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture),
             Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(settings.ClientSecret))));
         var cacheKey = $"orchestration_token::{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(cacheMaterial)))}";
@@ -69,9 +65,9 @@ public sealed class OrchestrationTokenService(
             _cache.Remove(cacheKey);
         }
 
-        var client = _httpClientFactory.CreateClient(settings.ServiceLink is null ? "OrchestrationToken" : ServiceLinkOutboundNetwork.TokenClientName);
+        var client = _httpClientFactory.CreateClient(PairingTransport.ClientName);
         using var request = new HttpRequestMessage(HttpMethod.Post, tokenEndpoint);
-        ServiceLinkOutboundNetwork.PrepareRequest(request, settings, currentLinkOptions, settings.ServiceLink is null ? null : await CurrentLinksAsync(cancellationToken));
+        PairingOutboundNetwork.PrepareRequest(request, settings);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var form = new Dictionary<string, string>
@@ -168,28 +164,11 @@ public sealed class OrchestrationTokenService(
         }
     }
 
-    private async Task<ServiceLinkOptions?> CurrentLinksAsync(CancellationToken cancellationToken)
-    {
-        if (scopes is null) return null;
-        await using var scope = scopes.CreateAsyncScope();
-        var settings = scope.ServiceProvider.GetService<IServicePublicSettingsResolver>();
-        return settings is null ? null : (await settings.ResolveAsync(cancellationToken)).Linking;
-    }
-
     private async Task RequireCurrentProviderAsync(OrchestrationResolvedSettings settings, CancellationToken cancellationToken)
     {
-        if (settings.ServiceLink is not null && !settings.Enabled)
-            throw new InvalidOperationException("The service-link business sender is disabled.");
-        if (settings.Source == "database" && (settings.Revision > 0 || settings.ServiceLink is not null))
-        {
-            if (scopes is null) throw new InvalidOperationException("Durable provider authority is unavailable.");
-            await using var scope = scopes.CreateAsyncScope();
-            var current = await scope.ServiceProvider.GetRequiredService<IIntegrationProviderSettingsService>()
-                .GetResolvedOrchestratorSettingsAsync(cancellationToken);
-            if (!current.Enabled || current.SecretUnavailable || current.Revision != settings.Revision ||
-                current.ProfileFingerprint != settings.ProfileFingerprint || current.ServiceLink != settings.ServiceLink)
-                throw new InvalidOperationException("The provider changed or was disabled. Resolve its current settings before dispatching.");
-        }
+        if (!settings.Enabled || settings.Pairing is null || scopes is null) throw new InvalidOperationException("A saved automation connection and current durable authority are required.");
+        await using var scope = scopes.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<IPairingBusinessAuthority>().RequireCurrentAsync(settings, cancellationToken);
     }
 
     private sealed record CachedAccessToken(string Token, DateTimeOffset ReuseUntilUtc);

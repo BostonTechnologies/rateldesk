@@ -16,7 +16,7 @@ public sealed class OrchestrationResolvedSettings
     public string? ClientSecret { get; init; }
     public bool AllowPrivateHttp { get; init; }
     public string? RemoteSystemName { get; init; }
-    public string HealthPath { get; init; } = "/api/v1/health";
+    public string HealthPath { get; init; } = "/internal/health";
     public string IngestPath { get; init; } = "/api/v1/orchestration/ingest";
     public string CatalogPath { get; init; } = "/api/v1/orchestration/catalog";
     public DateTimeOffset? UpdatedAtUtc { get; init; }
@@ -31,14 +31,10 @@ public sealed class OrchestrationResolvedSettings
     public string SecretState { get; init; } = "not-configured";
     public string? SourceKey { get; init; }
     public string ProfileFingerprint { get; init; } = string.Empty;
-    public ServiceLinkOrchestratorBinding? ServiceLink { get; init; }
+    public PairingOrchestratorBinding? Pairing { get; init; }
 }
 
-/// <summary>Approved ownership of the existing outbound provider profile, independent of its secret version.</summary>
-public sealed record ServiceLinkOrchestratorBinding(
-    string LocalTenantId, string PeerTenantId, string PeerInstanceId, string LinkId,
-    long LinkRevision, long CredentialRevision, string GrantHash, string DirectionId,
-    string? SourceInstanceId = null, string? SourceNamespaceId = null);
+public sealed record PairingOrchestratorBinding(string LocalTenantId, string PeerTenantId, string PeerInstanceId, string MappingId, long MappingRevision);
 
 public sealed class NetclawResolvedSettings
 {
@@ -150,25 +146,16 @@ public interface IOrchestrationConnectivityService
         CancellationToken cancellationToken = default,
         bool useTokenCache = true);
     Task<OrchestrationResolvedSettings> GetResolvedOrchestrationSettingsAsync(CancellationToken cancellationToken = default);
+    Task<OrchestrationResolvedSettings> GetResolvedOrchestrationSettingsAsync(string? organizationId, Guid? connectionId, CancellationToken cancellationToken = default)
+        => GetResolvedOrchestrationSettingsAsync(cancellationToken);
 }
 
 public interface IIntegrationProviderSettingsService
 {
     Task<OrchestrationConnectivitySettingsDto> GetOrchestratorSettingsAsync(CancellationToken cancellationToken = default);
     Task<OrchestrationResolvedSettings> GetResolvedOrchestratorSettingsAsync(CancellationToken cancellationToken = default);
-    Task<OrchestrationResolvedSettings> ResolveOrchestratorDraftAsync(
-        UpdateOrchestrationConnectivitySettingsDto request,
-        CancellationToken cancellationToken = default);
-    Task<OrchestrationConnectivitySettingsDto> UpdateOrchestratorSettingsAsync(
-        UpdateOrchestrationConnectivitySettingsDto request,
-        CancellationToken cancellationToken = default);
-    Task<OrchestrationConnectivitySettingsDto> StageLinkedOrchestratorSettingsAsync(
-        UpdateOrchestrationConnectivitySettingsDto request, ServiceLinkOrchestratorBinding binding,
-        CancellationToken cancellationToken = default);
-    Task<OrchestrationConnectivitySettingsDto> SetLinkedOrchestratorSenderEnabledAsync(
-        string linkId, long linkRevision, int expectedProfileRevision, bool enabled,
-        CancellationToken cancellationToken = default);
-    Task<bool> RecordOrchestratorTestAsync(int expectedRevision, string profileFingerprint, bool succeeded, CancellationToken cancellationToken = default);
+    Task<OrchestrationResolvedSettings> GetResolvedOrchestratorSettingsAsync(string? organizationId, Guid? connectionId, CancellationToken cancellationToken = default)
+        => GetResolvedOrchestratorSettingsAsync(cancellationToken);
     Task<NetclawConnectivitySettingsDto> GetNetclawSettingsAsync(CancellationToken cancellationToken = default);
     Task<NetclawResolvedSettings> GetResolvedNetclawSettingsAsync(CancellationToken cancellationToken = default);
     Task<NetclawResolvedSettings> ResolveNetclawDraftAsync(

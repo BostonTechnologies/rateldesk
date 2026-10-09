@@ -41,7 +41,7 @@ public static class LocalBrowserLoginEndpoints
                 }
                 else if (response.StatusCode == HttpStatusCode.NoContent && HasCookie(response, localCookieName))
                 {
-                    return Results.LocalRedirect(ServiceLinkBrowserEndpoints.SignInDestination(context, configuration));
+                    return Results.LocalRedirect("/home");
                 }
                 else if (response.StatusCode == HttpStatusCode.Unauthorized)
                 {
@@ -94,7 +94,7 @@ public static class LocalBrowserLoginEndpoints
                 using var response = await clients.CreateClient("SystemApiNoAuth").SendAsync(request, context.RequestAborted);
                 ForwardLoginCookies(response, context, localCookieName, configuration);
                 if (response.StatusCode == HttpStatusCode.NoContent && HasCookie(response, localCookieName))
-                    return Results.LocalRedirect(ServiceLinkBrowserEndpoints.SignInDestination(context, configuration));
+                    return Results.LocalRedirect("/home");
                 if (response.StatusCode == HttpStatusCode.Unauthorized)
                     return Results.LocalRedirect(HasCookie(response, challengeCookieName)
                         ? "/login?status=verification-expired"

@@ -23,48 +23,114 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("Helpdesk.Infrastructure.Persistence.Connectivity.M2MConnectivitySettings", b =>
+            modelBuilder.Entity("Helpdesk.Infrastructure.Pairing.InstallationPairingCode", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("CodeHash")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ConsumedOperationId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ConsumedPeerId")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("FailedAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("OwnerId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Salt")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("InstallationPairingCodes", (string)null);
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.Pairing.PairingCleanup", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<bool>("AllowPrivateHttp")
-                        .HasColumnType("boolean");
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
 
-                    b.Property<string>("CatalogPath")
+                    b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ProtectedRequest")
                         .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
+                        .HasColumnType("text");
 
-                    b.Property<string>("ClientId")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
+                    b.HasKey("Id");
 
-                    b.Property<long>("CredentialRevision")
+                    b.HasIndex("ExpiresAtUtc");
+
+                    b.ToTable("PairingCleanups", (string)null);
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.Pairing.PairingRedemption", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("OwnerId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long>("PairGeneration")
                         .HasColumnType("bigint");
 
-                    b.Property<string>("DirectionId")
+                    b.Property<string>("PairId")
+                        .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<bool>("Enabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("GrantHash")
+                    b.Property<string>("ProtectedResponse")
                         .HasColumnType("text");
 
-                    b.Property<string>("HealthPath")
+                    b.Property<string>("RequestHash")
                         .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
+                        .HasColumnType("text");
 
-                    b.Property<string>("IngestPath")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<DateTimeOffset?>("LastAppliedAtUtc")
+                    b.Property<DateTimeOffset>("RetryUntilUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PairId");
+
+                    b.HasIndex("RetryUntilUtc");
+
+                    b.ToTable("PairingRedemptions", (string)null);
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.Pairing.SystemConnection", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("InboundPrincipalId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("LastTestMessage")
+                        .HasColumnType("text");
 
                     b.Property<bool?>("LastTestSucceeded")
                         .HasColumnType("boolean");
@@ -72,76 +138,42 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("LastTestedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("LinkId")
+                    b.Property<string>("MappingJson")
+                        .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<long>("LinkRevision")
+                    b.Property<string>("OwnerId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long>("PairGeneration")
                         .HasColumnType("bigint");
 
-                    b.Property<string>("LocalTenantId")
-                        .HasColumnType("text");
-
-                    b.Property<bool>("ManagedSenderEnabled")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(true);
-
-                    b.Property<string>("PeerInstanceId")
-                        .HasColumnType("text");
-
-                    b.Property<string>("PeerTenantId")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ProfileFingerprint")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ProtectedClientSecret")
-                        .HasMaxLength(8192)
-                        .HasColumnType("character varying(8192)");
-
-                    b.Property<string>("ProviderKey")
+                    b.Property<string>("PairId")
                         .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
+                        .HasColumnType("text");
 
-                    b.Property<string>("RemoteAudience")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
+                    b.Property<string>("ProtectedInboundCredential")
+                        .HasColumnType("text");
 
-                    b.Property<string>("RemoteAuthority")
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
+                    b.Property<string>("ProtectedOutboundCredential")
+                        .HasColumnType("text");
 
-                    b.Property<string>("RemoteBaseUrl")
-                        .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)");
+                    b.Property<string>("ProtectedSaveResponse")
+                        .HasColumnType("text");
 
-                    b.Property<string>("RemoteScope")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("RemoteSystemName")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("RemoteTokenEndpoint")
-                        .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)");
-
-                    b.Property<int>("Revision")
+                    b.Property<long>("Revision")
                         .IsConcurrencyToken()
-                        .HasColumnType("integer");
+                        .HasColumnType("bigint");
 
-                    b.Property<string>("SecretBindingFingerprint")
+                    b.Property<string>("SaveOperationId")
                         .HasColumnType("text");
 
-                    b.Property<int?>("SecretBindingRevision")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("SourceInstanceId")
+                    b.Property<string>("SaveRequestHash")
                         .HasColumnType("text");
 
-                    b.Property<string>("SourceNamespaceId")
+                    b.Property<string>("State")
+                        .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<DateTimeOffset>("UpdatedAtUtc")
@@ -149,10 +181,70 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ProviderKey")
+                    b.HasIndex("PairId");
+
+                    b.ToTable("SystemConnections", (string)null);
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.Pairing.SystemPair", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ConnectOperationId")
+                        .HasColumnType("text");
+
+                    b.Property<long>("Generation")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("InboundSecretHash")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("OwnerId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PeerInstallationId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PeerJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProtectedExchangeRequest")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProtectedInboundSecret")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProtectedOutboundSecret")
+                        .HasColumnType("text");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Salt")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PeerInstallationId")
                         .IsUnique();
 
-                    b.ToTable("M2MConnectivitySettings", (string)null);
+                    b.ToTable("SystemPairs", (string)null);
                 });
 
             modelBuilder.Entity("Helpdesk.Infrastructure.Persistence.Connectivity.NetclawConnectivitySettings", b =>
@@ -391,10 +483,6 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
-                    b.Property<string>("AttemptId")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
                     b.Property<string>("ClientId")
                         .IsRequired()
                         .HasMaxLength(256)
@@ -418,23 +506,10 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Property<string>("DeploymentFingerprint")
                         .HasColumnType("text");
 
-                    b.Property<string>("DescriptorHash")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
+                    b.Property<Guid?>("MappingId")
+                        .HasColumnType("uuid");
 
-                    b.Property<string>("DirectionId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("GrantHash")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("LinkId")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<long>("LinkRevision")
+                    b.Property<long>("MappingRevision")
                         .HasColumnType("bigint");
 
                     b.Property<string>("Name")
@@ -499,14 +574,12 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("MappingId");
+
                     b.HasIndex("NormalizedClientId")
                         .IsUnique();
 
                     b.HasIndex("OrganizationId");
-
-                    b.HasIndex("LinkId", "DirectionId")
-                        .IsUnique()
-                        .HasFilter("\"LinkId\" IS NOT NULL");
 
                     b.ToTable("ServicePrincipalRegistrations", null, t =>
                         {
@@ -596,328 +669,6 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                         .HasFilter("\"ActiveSlot\" IS NOT NULL");
 
                     b.ToTable("ServiceSigningKeys", (string)null);
-                });
-
-            modelBuilder.Entity("Helpdesk.Infrastructure.ServiceLink.ServiceLinkAttempt", b =>
-                {
-                    b.Property<string>("AttemptId")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("AbortId")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ActiveRelationshipKey")
-                        .HasColumnType("text");
-
-                    b.Property<string>("CommitId")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ConsentId")
-                        .HasColumnType("text");
-
-                    b.Property<long>("CreatedAtUnixSeconds")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("Decision")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("DescriptorHash")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("DescriptorJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<bool>("ExchangeDispatched")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("ExchangeFingerprint")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ExchangeResponseHash")
-                        .HasColumnType("text");
-
-                    b.Property<long>("ExpiresAtUnixSeconds")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("GrantHash")
-                        .HasColumnType("text");
-
-                    b.Property<string>("GrantSummaryJson")
-                        .HasColumnType("text");
-
-                    b.Property<Guid?>("InboundPrincipalId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("InitiatorVerificationReceiptId")
-                        .HasColumnType("text");
-
-                    b.Property<string>("LastErrorCode")
-                        .HasColumnType("text");
-
-                    b.Property<string>("LifecycleState")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("LinkId")
-                        .HasColumnType("text");
-
-                    b.Property<long>("LinkRevision")
-                        .HasColumnType("bigint");
-
-                    b.Property<bool>("LocalActiveAcknowledged")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("LocalActorId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<bool>("LocalBusinessSenderEnabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("LocalInboundActive")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("LocalPreparedAcknowledged")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("LocalTenantId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<long>("NextWorkAtUnixSeconds")
-                        .HasColumnType("bigint");
-
-                    b.Property<int?>("OutboundProfileRevision")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("PairingCodeHash")
-                        .HasColumnType("text");
-
-                    b.Property<bool>("PeerActiveAcknowledged")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("PeerInstanceId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<bool>("PeerPreparedAcknowledged")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("PeerRevocationAcknowledged")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("PeerTenantId")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ProtectedBrowserState")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ProtectedExchangeResponse")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ProtectedInboundEscrow")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ProtectedOutboundCredential")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ProtectedPairingCode")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ProtectedVerifier")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ResponderVerificationReceiptId")
-                        .HasColumnType("text");
-
-                    b.Property<long>("Revision")
-                        .IsConcurrencyToken()
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("RevocationId")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Role")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("SessionBindingHash")
-                        .HasColumnType("text");
-
-                    b.Property<long?>("TerminalControlExpiresAtUnixSeconds")
-                        .HasColumnType("bigint");
-
-                    b.Property<long>("UpdatedAtUnixSeconds")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("AttemptId");
-
-                    b.HasIndex("ActiveRelationshipKey")
-                        .IsUnique();
-
-                    b.HasIndex("LinkId")
-                        .IsUnique();
-
-                    b.HasIndex("LifecycleState", "NextWorkAtUnixSeconds");
-
-                    b.HasIndex("PeerInstanceId", "LocalTenantId", "PeerTenantId", "LinkRevision", "Role");
-
-                    b.ToTable("ServiceLinkAttempts", (string)null);
-                });
-
-            modelBuilder.Entity("Helpdesk.Infrastructure.ServiceLink.ServiceLinkOperation", b =>
-                {
-                    b.Property<string>("LinkId")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("OperationId")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<bool>("Completed")
-                        .HasColumnType("boolean");
-
-                    b.Property<long>("CreatedAtUnixSeconds")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("Kind")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<bool>("Outbound")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("ProtectedRequestJson")
-                        .HasColumnType("text");
-
-                    b.Property<string>("RequestFingerprint")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("ResponseJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("LinkId", "OperationId");
-
-                    b.HasIndex("Outbound", "Completed");
-
-                    b.ToTable("ServiceLinkOperations", (string)null);
-                });
-
-            modelBuilder.Entity("Helpdesk.Infrastructure.ServiceLink.ServiceLinkRotation", b =>
-                {
-                    b.Property<string>("RotationId")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ActivateDecisionId")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ActiveRotationKey")
-                        .HasColumnType("text");
-
-                    b.Property<long?>("CallerSwitchRevision")
-                        .HasColumnType("bigint");
-
-                    b.Property<long>("CreatedAtUnixSeconds")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("DirectionId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<long>("ExpectedCurrentCredentialRevision")
-                        .HasColumnType("bigint");
-
-                    b.Property<bool>("IsIssuer")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("LastErrorCode")
-                        .HasColumnType("text");
-
-                    b.Property<string>("LinkId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<long?>("OfferExpiresAtUnixSeconds")
-                        .HasColumnType("bigint");
-
-                    b.Property<long?>("PredecessorRetireAtUnixSeconds")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("ProtectedCandidate")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ProtectedOffer")
-                        .HasColumnType("text");
-
-                    b.Property<long>("Revision")
-                        .IsConcurrencyToken()
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("RotationState")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<long?>("SuccessorCredentialRevision")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("SuccessorVerificationReceiptId")
-                        .HasColumnType("text");
-
-                    b.HasKey("RotationId");
-
-                    b.HasIndex("ActiveRotationKey")
-                        .IsUnique();
-
-                    b.HasIndex("LinkId", "DirectionId", "ExpectedCurrentCredentialRevision");
-
-                    b.ToTable("ServiceLinkRotations", (string)null);
-                });
-
-            modelBuilder.Entity("Helpdesk.Infrastructure.ServiceLink.ServiceLinkVerificationReceipt", b =>
-                {
-                    b.Property<string>("VerificationReceiptId")
-                        .HasColumnType("text");
-
-                    b.Property<string>("AttemptId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<long>("CredentialRevision")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("DirectionId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("GrantHash")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("LinkId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("RotationId")
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("ServicePrincipalId")
-                        .HasColumnType("uuid");
-
-                    b.Property<long>("VerifiedAtUnixSeconds")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("VerificationReceiptId");
-
-                    b.HasIndex("LinkId", "ServicePrincipalId", "CredentialRevision", "RotationId");
-
-                    b.ToTable("ServiceLinkVerificationReceipts", (string)null);
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.AiAssistant.Chat.AiAssistantChatConversation", b =>
@@ -1453,6 +1204,9 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
 
                     b.Property<int>("SyncState")
                         .HasColumnType("integer");
+
+                    b.Property<Guid?>("SystemConnectionId")
+                        .HasColumnType("uuid");
 
                     b.Property<Guid>("TaskTemplateId")
                         .HasColumnType("uuid");
@@ -2537,8 +2291,7 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
 
                     b.HasKey("SourceNamespaceId");
 
-                    b.HasIndex("SourceInstanceId")
-                        .IsUnique();
+                    b.HasIndex("SourceInstanceId");
 
                     b.ToTable("IncidentReceiverSources");
                 });

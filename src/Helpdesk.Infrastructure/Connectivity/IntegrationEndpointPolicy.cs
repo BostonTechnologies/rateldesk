@@ -54,44 +54,6 @@ public static class IntegrationEndpointPolicy
         !IsRejectedHost(uri.Host) &&
         (uri.Scheme == "https" || (allowPrivateHttp && !IsPublicIp(uri.Host)));
 
-    // Reciprocal service links require the current deployment opt-in for
-    // private HTTPS as well as HTTP. Other integration policies retain their
-    // existing HTTPS and SignalR behavior.
-    public static void ValidateServiceLink(Uri uri, string fieldName, bool allowPrivateHttp = false)
-    {
-        try
-        {
-            Validate(uri, fieldName, allowPrivateHttp);
-            if (!allowPrivateHttp && IPAddress.TryParse(uri.Host, out var literal) && IsPrivateNetworkAddress(literal))
-                throw new ArgumentException($"{fieldName} targets a private address without the current deployment opt-in.", fieldName);
-        }
-        catch (ArgumentException error)
-        {
-            error.Data["ServiceLink.NetworkPolicyRejected"] = true;
-            throw;
-        }
-    }
-
-    public static void ValidateServiceLinkResolvedAddresses(
-        Uri uri,
-        IReadOnlyCollection<IPAddress> addresses,
-        string fieldName,
-        bool allowPrivateHttp)
-    {
-        try
-        {
-            ValidateServiceLink(uri, fieldName, allowPrivateHttp);
-            ValidateResolvedAddressesCore(uri, addresses, fieldName, allowPrivateHttp);
-            if (!allowPrivateHttp && addresses.Any(IsPrivateNetworkAddress))
-                throw new ArgumentException($"{fieldName} resolved to a private address without the current deployment opt-in.", fieldName);
-        }
-        catch (ArgumentException error)
-        {
-            error.Data["ServiceLink.NetworkPolicyRejected"] = true;
-            throw;
-        }
-    }
-
     public static void ValidateResolvedAddresses(
         Uri uri,
         IReadOnlyCollection<IPAddress> addresses,

@@ -4,6 +4,7 @@ using Helpdesk.Application.Orchestration;
 using Helpdesk.Application.RequestTasks;
 using Helpdesk.Application.Workflow;
 using Helpdesk.Infrastructure.Orchestration;
+using Helpdesk.Infrastructure.Pairing;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
@@ -335,16 +336,17 @@ public sealed class OrchestrationIngestLifecycleIntegrationTests
             await db.SaveChangesAsync();
 
             var factory = Substitute.For<IHttpClientFactory>();
-            factory.CreateClient("OrchestrationInternalApi").Returns(new HttpClient(handler));
+            factory.CreateClient(PairingTransport.ClientName).Returns(new HttpClient(handler));
             var tokens = Substitute.For<IOrchestrationTokenService>();
             tokens.GetAccessTokenAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<CancellationToken>())
                 .Returns("synthetic-bearer-456");
             var actualClient = new OrchestrationInternalClient(factory, tokens, NullLogger<OrchestrationInternalClient>.Instance);
             var connectivity = Substitute.For<IOrchestrationConnectivityService>();
-            connectivity.GetResolvedOrchestrationSettingsAsync(Arg.Any<CancellationToken>()).Returns(new OrchestrationResolvedSettings
+            connectivity.GetResolvedOrchestrationSettingsAsync(Arg.Any<string?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(new OrchestrationResolvedSettings
             {
                 Enabled = true,
                 BaseUrl = "https://provider.example.test",
+                Pairing = new("synthetic-tenant", "17", Guid.NewGuid().ToString("D"), Guid.NewGuid().ToString("D"), 1),
                 IngestPath = "/internal/ingest",
                 ClientSecret = SyntheticClientSecret
             });

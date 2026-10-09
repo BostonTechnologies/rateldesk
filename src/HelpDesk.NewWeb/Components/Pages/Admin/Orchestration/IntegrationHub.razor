@@ -15,7 +15,7 @@
             <MudItem xs="12" md="4">
                 <MudCard Class="h-100">
                     <MudCardHeader><CardHeaderContent><MudText Typo="Typo.h6">NetRatel orchestrator</MudText><MudText Typo="Typo.caption">Outbound automation</MudText></CardHeaderContent></MudCardHeader>
-                    <MudCardContent><MudText Typo="Typo.body2">Use a dedicated NetRatel OAuth client to browse safe catalogue metadata and submit bound automation tasks.</MudText></MudCardContent>
+                    <MudCardContent><MudText Typo="Typo.body2">Pair NetRatel and choose the tenant mapping and Run automation capability in System connections.</MudText></MudCardContent>
                     <MudCardActions>
                         <MudButton Href="/admin/automation/integration/orchestrator" Color="Color.Primary" Variant="Variant.Filled">Open destination</MudButton>
                         <MudLink Href="https://github.com/BostonTechnologies/RatelDesk/blob/main/docs/integrations/netratel-orchestrator.md" Target="_blank" Rel="noopener">Guide</MudLink>
@@ -42,7 +42,7 @@
         </MudGrid>
 
         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
-            NetRatel M2M client credentials and Netclaw paired-device tokens are administrator-managed provider secrets. They are not interchangeable with account integration credentials or reverse HTTP MCP delegation.
+            NetRatel system pairing and Netclaw paired-device tokens are managed separately from account API and MCP credentials.
         </MudAlert>
     </MudStack>
 </MudPaper>

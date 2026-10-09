@@ -28,11 +28,9 @@ namespace Helpdesk.Tests.Api;
 public sealed class SavedDiagnosticSupersessionEndpointsTests
 {
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    [InlineData(true, true)]
-    public async Task Saved_test_reports_superseded_profile_without_retrying_provider_or_recording_stale_success(bool netclaw, bool postgres)
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Saved_test_reports_superseded_profile_without_retrying_provider_or_recording_stale_success(bool postgres)
     {
         var databasePath = Path.Combine(Path.GetTempPath(), $"rateldesk-saved-diagnostic-{Guid.NewGuid():N}.db");
         PostgreSqlContainer? container = null;
@@ -57,19 +55,12 @@ public sealed class SavedDiagnosticSupersessionEndpointsTests
             await using (var initializer = new HelpdeskDbContext(options, tenant, new HttpContextAccessor()))
             {
                 await initializer.Database.EnsureCreatedAsync();
-                if (netclaw)
                     initializer.NetclawConnectivitySettings.Add(new NetclawConnectivitySettings
                     {
                         Revision = 1,
                         Enabled = true,
                         Endpoint = "https://provider-a.example.test/hub/session",
                         ProtectedDeviceToken = protector.Protect("synthetic-device-token"),
-                        ProfileFingerprint = "profile-a"
-                    });
-                else
-                    initializer.M2MConnectivitySettings.Add(new M2MConnectivitySettings
-                    {
-                        Revision = 1,
                         ProfileFingerprint = "profile-a"
                     });
                 await initializer.SaveChangesAsync();
@@ -110,24 +101,16 @@ public sealed class SavedDiagnosticSupersessionEndpointsTests
             await using var app = builder.Build();
             app.UseAuthorization();
             app.MapNetclawConnectivityEndpoints();
-            app.MapExternalOrchestrationEndpoints();
             await app.StartAsync();
             using var client = app.GetTestClient();
-            var path = netclaw ? "/api/v1/admin/netclaw/test" : "/api/v1/admin/orchestration/test";
+            var path = "/api/v1/admin/netclaw/test";
             var request = client.PostAsync(path, null);
             try
             {
                 await diagnostic.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
                 await using var editor = new HelpdeskDbContext(options, tenant, new HttpContextAccessor());
-                if (netclaw)
                 {
                     var current = await editor.NetclawConnectivitySettings.SingleAsync();
-                    current.Revision = 2;
-                    current.ProfileFingerprint = "profile-b";
-                }
-                else
-                {
-                    var current = await editor.M2MConnectivitySettings.SingleAsync();
                     current.Revision = 2;
                     current.ProfileFingerprint = "profile-b";
                 }
@@ -149,16 +132,8 @@ public sealed class SavedDiagnosticSupersessionEndpointsTests
             await using var verification = new HelpdeskDbContext(options, tenant, new HttpContextAccessor());
             var audit = Assert.Single(await verification.ActivityLogs.ToListAsync());
             Assert.Contains("Superseded=True", audit.Message, StringComparison.Ordinal);
-            if (netclaw)
             {
                 var current = await verification.NetclawConnectivitySettings.SingleAsync();
-                Assert.Equal(2, current.Revision);
-                Assert.Null(current.LastTestedAtUtc);
-                Assert.Null(current.LastTestSucceeded);
-            }
-            else
-            {
-                var current = await verification.M2MConnectivitySettings.SingleAsync();
                 Assert.Equal(2, current.Revision);
                 Assert.Null(current.LastTestedAtUtc);
                 Assert.Null(current.LastTestSucceeded);

@@ -30,7 +30,7 @@ using Helpdesk.API.Endpoints.RequestTasks;
 using Helpdesk.API.Endpoints.Search;
 using Helpdesk.API.Endpoints.Sla;
 using Helpdesk.API.Endpoints.SupportNotifications;
-using Helpdesk.API.Endpoints.ServiceLink;
+using Helpdesk.API.Endpoints.Pairing;
 using Helpdesk.API.Endpoints.Services;
 using Helpdesk.API.Endpoints.System;
 using Helpdesk.API.Endpoints.Tickets;
@@ -352,7 +352,7 @@ builder.Services.AddDataProtection()
     .SetApplicationName(dpSection["ApplicationName"] ?? "Helpdesk-Keyring");
 builder.Services.AddHelpdeskInfrastructure(builder.Configuration);
 builder.Services.AddRatelDeskServiceIdentity(builder.Configuration);
-builder.Services.AddServiceLinkProtocol(builder.Configuration);
+builder.Services.AddSystemPairing();
 if (skipDatabaseStartup)
 {
     var testDatabaseRoot = new InMemoryDatabaseRoot();
@@ -880,81 +880,6 @@ builder.Services.AddAuthentication(options =>
             return Task.CompletedTask;
         }
     };
-})
-.AddJwtBearer("OrchestrationM2M", options =>
-{
-    var orchestrationAuthority = builder.Configuration["Orchestration:Provider:Authority"]
-        ?? builder.Configuration["Orchestration:Provider:BaseUrl"];
-    if (string.IsNullOrWhiteSpace(orchestrationAuthority) && builder.Environment.IsDevelopment())
-    {
-        orchestrationAuthority = "https://localhost:9222";
-    }
-
-    var orchestrationCallbackAudience = builder.Configuration["M2M:ClientId"];
-    if (string.IsNullOrWhiteSpace(orchestrationCallbackAudience))
-    {
-        orchestrationCallbackAudience = "helpdesk.api";
-    }
-
-    options.Authority = orchestrationAuthority;
-    options.Audience = orchestrationCallbackAudience;
-    options.RequireHttpsMetadata = !string.IsNullOrWhiteSpace(orchestrationAuthority)
-        && orchestrationAuthority.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
-    options.IncludeErrorDetails = builder.Environment.IsDevelopment();
-    options.TokenValidationParameters = new TokenValidationParameters
-    {
-        ValidateIssuer = true,
-        ValidIssuer = string.IsNullOrWhiteSpace(orchestrationAuthority) ? null : orchestrationAuthority.TrimEnd('/'),
-        ValidateAudience = true,
-        ValidAudience = orchestrationCallbackAudience,
-        ValidateLifetime = true,
-        ValidateIssuerSigningKey = true,
-        ClockSkew = TimeSpan.FromMinutes(2),
-        NameClaimType = "azp"
-    };
-    options.Events = new JwtBearerEvents
-    {
-        OnAuthenticationFailed = async context =>
-        {
-            context.HttpContext.Items["OrchestrationM2MRejectedReason"] =
-                OrchestrationCallbackEndpoints.ResolveRejectedReasonFromException(context.Exception);
-            var domainEvents = context.HttpContext.RequestServices.GetService<IDomainEventPublisher>();
-            var correlationContext = context.HttpContext.RequestServices.GetService<ICorrelationContext>();
-            if (domainEvents is not null && correlationContext is not null)
-            {
-                var correlationId = correlationContext.GetCorrelationId() ?? $"corr-{Guid.NewGuid():N}";
-                await OrchestrationCallbackEndpoints.PublishRejectedAsync(
-                    domainEvents,
-                    OrchestrationCallbackEndpoints.ResolveRejectedReasonFromException(context.Exception),
-                    null,
-                    correlationId,
-                    context.HttpContext.RequestAborted);
-                context.HttpContext.Items["OrchestrationM2MRejectedPublished"] = true;
-            }
-        },
-        OnChallenge = async context =>
-        {
-            if (context.HttpContext.Items.TryGetValue("OrchestrationM2MRejectedPublished", out var alreadyPublished)
-                && alreadyPublished is true)
-            {
-                return;
-            }
-            var reason = context.HttpContext.Items["OrchestrationM2MRejectedReason"] as string
-                         ?? "InvalidToken";
-            var domainEvents = context.HttpContext.RequestServices.GetService<IDomainEventPublisher>();
-            var correlationContext = context.HttpContext.RequestServices.GetService<ICorrelationContext>();
-            if (domainEvents is not null && correlationContext is not null)
-            {
-                var correlationId = correlationContext.GetCorrelationId() ?? $"corr-{Guid.NewGuid():N}";
-                await OrchestrationCallbackEndpoints.PublishRejectedAsync(
-                    domainEvents,
-                    reason,
-                    null,
-                    correlationId,
-                    context.HttpContext.RequestAborted);
-            }
-        }
-    };
 });
 builder.Services.AddAuthorization(opts =>
 {
@@ -1049,11 +974,7 @@ builder.Services.AddAuthorization(opts =>
         p.RequireRole("system.blazor-web");
     });
 
-    opts.AddPolicy("OrchestrationM2MOnly", p =>
-    {
-        p.AddAuthenticationSchemes("OrchestrationM2M");
-        p.RequireAuthenticatedUser();
-    });
+
 
 });
 
@@ -1174,7 +1095,7 @@ if (useHangfireRuntime)
 app.MapCurrentUserAccessEndpoint();
 app.MapIntegrationCredentialEndpoints();
 app.MapServiceIdentityEndpoints();
-app.MapServiceLinkEndpoints();
+app.MapSystemPairing();
 app.MapMcpGatewayDelegationEndpoints();
 app.MapGet("/api/v1/setup/status", () => Results.Ok(new { state = "Ready" }))
     .AllowAnonymous()

@@ -2,7 +2,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Helpdesk.Application.Orchestration;
-using Helpdesk.Infrastructure.ServiceLink;
+using Helpdesk.Infrastructure.Pairing;
 using Helpdesk.Infrastructure.ServiceIdentity;
 using Helpdesk.Shared.DTOs.Orchestration;
 using Microsoft.Extensions.Options;
@@ -12,8 +12,7 @@ namespace Helpdesk.Infrastructure.Orchestration;
 public sealed class OrchestrationCatalogService(
     IHttpClientFactory httpClientFactory,
     IOrchestrationTokenService tokenService,
-    IOrchestrationConnectivityService connectivityService,
-    IOptionsMonitor<ServiceLinkOptions>? currentLinkOptions = null, IServicePublicSettingsResolver? publicSettings = null) : IOrchestrationCatalogService
+    IOrchestrationConnectivityService connectivityService) : IOrchestrationCatalogService
 {
     private const int MaximumResponseBytes = 1024 * 1024;
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(20);
@@ -54,7 +53,7 @@ public sealed class OrchestrationCatalogService(
 
         await AttachAuthHeaderAsync(settings, request, cancellationToken);
 
-        var client = _httpClientFactory.CreateClient(settings.ServiceLink is null ? "OrchestrationInternalApi" : ServiceLinkOutboundNetwork.BusinessClientName);
+        var client = _httpClientFactory.CreateClient(PairingTransport.ClientName);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(RequestTimeout);
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
@@ -109,7 +108,7 @@ public sealed class OrchestrationCatalogService(
 
         await AttachAuthHeaderAsync(settings, request, cancellationToken);
 
-        var client = _httpClientFactory.CreateClient(settings.ServiceLink is null ? "OrchestrationInternalApi" : ServiceLinkOutboundNetwork.BusinessClientName);
+        var client = _httpClientFactory.CreateClient(PairingTransport.ClientName);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(RequestTimeout);
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
@@ -150,7 +149,7 @@ public sealed class OrchestrationCatalogService(
         using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
         await AttachAuthHeaderAsync(settings, request, cancellationToken);
 
-        var client = _httpClientFactory.CreateClient(settings.ServiceLink is null ? "OrchestrationInternalApi" : ServiceLinkOutboundNetwork.BusinessClientName);
+        var client = _httpClientFactory.CreateClient(PairingTransport.ClientName);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(RequestTimeout);
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
@@ -219,7 +218,7 @@ public sealed class OrchestrationCatalogService(
         CancellationToken cancellationToken)
     {
         var accessToken = await _tokenService.GetAccessTokenAsync(settings, cancellationToken);
-        ServiceLinkOutboundNetwork.PrepareRequest(request, settings, currentLinkOptions, publicSettings is null || settings.ServiceLink is null ? null : (await publicSettings.ResolveAsync(cancellationToken)).Linking);
+        PairingOutboundNetwork.PrepareRequest(request, settings);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
     }
@@ -233,7 +232,7 @@ public sealed class OrchestrationCatalogService(
         }
 
         var uri = new Uri(new Uri(baseUrl, UriKind.Absolute), path);
-        ServiceLinkOutboundNetwork.Validate(uri, "NetRatel endpoint", settings, currentLinkOptions, publicSettings is null || settings.ServiceLink is null ? null : (await publicSettings.ResolveAsync(cancellationToken)).Linking);
+        PairingOutboundNetwork.Validate(uri, "NetRatel endpoint", settings);
         return uri;
     }
 

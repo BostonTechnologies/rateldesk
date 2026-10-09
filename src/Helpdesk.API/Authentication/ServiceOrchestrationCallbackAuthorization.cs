@@ -1,15 +1,12 @@
-using Helpdesk.Infrastructure.Configuration;
 using Helpdesk.Infrastructure.ServiceIdentity;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.Extensions.Options;
 
 namespace Helpdesk.API.Authentication;
 
 public sealed class ServiceOrchestrationCallbackRequirement : IAuthorizationRequirement;
 
 /// <summary>A dedicated service alternative at the callback boundary; ordinary application JWTs are excluded.</summary>
-public sealed class ServiceOrchestrationCallbackHandler(IServicePrincipalRegistry registry,
-    IOptions<OrchestrationM2MOptions> legacy) : AuthorizationHandler<ServiceOrchestrationCallbackRequirement>
+public sealed class ServiceOrchestrationCallbackHandler(IServicePrincipalRegistry registry) : AuthorizationHandler<ServiceOrchestrationCallbackRequirement>
 {
     protected override async Task HandleRequirementAsync(AuthorizationHandlerContext context, ServiceOrchestrationCallbackRequirement requirement)
     {
@@ -21,9 +18,7 @@ public sealed class ServiceOrchestrationCallbackHandler(IServicePrincipalRegistr
                 context.Succeed(requirement);
             return;
         }
-        var caller = context.User.FindFirst("azp")?.Value ?? context.User.FindFirst("client_id")?.Value;
-        if (legacy.Value.AllowedCallerClientIds.Any(x => string.Equals(x.Trim(), caller, StringComparison.OrdinalIgnoreCase)))
-            context.Succeed(requirement);
+
     }
 }
 
@@ -32,9 +27,9 @@ public static class ServiceOrchestrationCallbackRegistration
     public static IServiceCollection AddServiceOrchestrationCallbacks(this IServiceCollection services)
     {
         services.AddScoped<IAuthorizationHandler, ServiceOrchestrationCallbackHandler>();
-        services.Configure<AuthorizationOptions>(options => options.AddPolicy("OrchestrationM2MOnly", policy =>
+        services.Configure<AuthorizationOptions>(options => options.AddPolicy("PairingCallbackOnly", policy =>
         {
-            policy.AddAuthenticationSchemes("OrchestrationM2M", ServiceIdentityAuthenticationHandler.SchemeName);
+            policy.AddAuthenticationSchemes(ServiceIdentityAuthenticationHandler.SchemeName);
             policy.RequireAuthenticatedUser();
             policy.AddRequirements(new ServiceOrchestrationCallbackRequirement());
         }));

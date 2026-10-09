@@ -6,70 +6,15 @@ namespace Helpdesk.Infrastructure.Configuration;
 
 public static class IntegrationConfigurationAliases
 {
-    private const string OrchestratorSection = "Orchestrator";
-    private const string LegacyOrchestratorSection = "Orchestration:Provider";
     private const string NetclawSection = "Netclaw";
     private const string LegacyNetclawSection = "AiAssistantChat";
     private static int compatibilityWarningsLogged;
-
-    private static readonly string[] OrchestratorNames =
-    [
-        "Enabled", "ProviderName", "BaseUrl", "Audience", "Scope", "TokenEndpoint", "Authority",
-        "ClientId", "ClientSecret", "AllowPrivateHttp", "HealthPath", "IngestPath", "CatalogPath"
-    ];
 
     private static readonly string[] NetclawNames =
     [
         "Enabled", "Instance", "Endpoint", "DeviceToken", "AllowPrivateHttp", "IdleMinutes",
         "ConnectionCapacity", "TurnInactivityTimeout", "ActivityHeartbeatInterval"
     ];
-
-    public static OrchestrationM2MOptions ReadOrchestrator(IConfiguration configuration)
-    {
-        var canonical = SelectCanonicalSection(configuration, OrchestratorSection, LegacyOrchestratorSection,
-            "Enabled", "ProviderName", "BaseUrl", "Audience", "Scope", "TokenEndpoint", "Authority", "ClientId", "ClientSecret", "HealthPath", "IngestPath", "CatalogPath");
-        var clientId = ReadString(configuration, Key(canonical, OrchestratorSection, LegacyOrchestratorSection, "ClientId"));
-        var clientSecret = ReadString(configuration, Key(canonical, OrchestratorSection, LegacyOrchestratorSection, "ClientSecret"));
-        if (!canonical)
-        {
-            // The old outbound profile used the global M2M client. Keep that
-            // upgrade path only when the legacy provider profile has no
-            // provider-specific credential fields. A canonical Orchestrator
-            // profile never borrows the inbound M2M credential.
-            if (!HasKey(configuration, $"{LegacyOrchestratorSection}:ClientId") &&
-                !HasKey(configuration, $"{LegacyOrchestratorSection}:ClientSecret"))
-            {
-                clientId = ReadString(configuration, "M2M:ClientId");
-                clientSecret = ReadString(configuration, "M2M:ClientSecret");
-            }
-        }
-
-        return new OrchestrationM2MOptions
-        {
-            Enabled = ReadBool(configuration, Key(canonical, OrchestratorSection, LegacyOrchestratorSection, "Enabled")),
-            ProviderName = ReadString(configuration, Key(canonical, OrchestratorSection, LegacyOrchestratorSection, "ProviderName"))
-                ?? "NetRatel orchestrator",
-            BaseUrl = ReadString(configuration, Key(canonical, OrchestratorSection, LegacyOrchestratorSection, "BaseUrl")),
-            Audience = ReadString(configuration, Key(canonical, OrchestratorSection, LegacyOrchestratorSection, "Audience")),
-            Scope = ReadString(configuration, Key(canonical, OrchestratorSection, LegacyOrchestratorSection, "Scope")),
-            TokenEndpoint = ReadString(configuration, Key(canonical, OrchestratorSection, LegacyOrchestratorSection, "TokenEndpoint")),
-            Authority = ReadString(configuration, Key(canonical, OrchestratorSection, LegacyOrchestratorSection, "Authority")),
-            ClientId = clientId,
-            ClientSecret = clientSecret,
-            AllowPrivateHttp = ReadBool(configuration, Key(canonical, OrchestratorSection, LegacyOrchestratorSection, "AllowPrivateHttp")),
-            HealthPath = ReadString(configuration, Key(canonical, OrchestratorSection, LegacyOrchestratorSection, "HealthPath"))
-                ?? "/internal/health",
-            IngestPath = ReadString(configuration, Key(canonical, OrchestratorSection, LegacyOrchestratorSection, "IngestPath"))
-                ?? "/internal/ingest",
-            CatalogPath = ReadString(configuration, Key(canonical, OrchestratorSection, LegacyOrchestratorSection, "CatalogPath"))
-                ?? "/internal/catalog",
-            SuppressedDefaults = new[] { "Authority", "TokenEndpoint", "Audience", "Scope" }.Where(name =>
-            {
-                var key = Key(canonical, OrchestratorSection, LegacyOrchestratorSection, name);
-                return HasKey(configuration, key) && string.IsNullOrWhiteSpace(configuration[key]);
-            }).ToHashSet(StringComparer.Ordinal)
-        };
-    }
 
     public static AiAssistantChatOptions ReadNetclaw(IConfiguration configuration)
     {
@@ -89,17 +34,14 @@ public static class IntegrationConfigurationAliases
         };
     }
 
-    public static bool HasDeploymentOrchestratorConfiguration(IConfiguration configuration)
-        => HasDeploymentConfiguration(configuration, OrchestratorSection, LegacyOrchestratorSection, OrchestratorNames);
-
     public static bool HasDeploymentNetclawConfiguration(IConfiguration configuration)
         => HasDeploymentConfiguration(configuration, NetclawSection, LegacyNetclawSection, NetclawNames);
 
     public static string? GetDeploymentSourceKey(IConfiguration configuration, bool netclaw)
     {
-        var canonicalSection = netclaw ? NetclawSection : OrchestratorSection;
-        var legacySection = netclaw ? LegacyNetclawSection : LegacyOrchestratorSection;
-        var names = netclaw ? NetclawNames : OrchestratorNames;
+        var canonicalSection = NetclawSection;
+        var legacySection = LegacyNetclawSection;
+        var names = NetclawNames;
 
         if (configuration is IConfigurationRoot root)
         {
@@ -121,10 +63,6 @@ public static class IntegrationConfigurationAliases
 
     public static void ValidateDeploymentConfiguration(IConfiguration configuration)
     {
-        ValidateBool(configuration, OrchestratorSection, "Enabled");
-        ValidateBool(configuration, LegacyOrchestratorSection, "Enabled");
-        ValidateBool(configuration, OrchestratorSection, "AllowPrivateHttp");
-        ValidateBool(configuration, LegacyOrchestratorSection, "AllowPrivateHttp");
         ValidateBool(configuration, NetclawSection, "Enabled");
         ValidateBool(configuration, LegacyNetclawSection, "Enabled");
         ValidateBool(configuration, NetclawSection, "AllowPrivateHttp");
@@ -143,26 +81,11 @@ public static class IntegrationConfigurationAliases
     {
         if (Interlocked.Exchange(ref compatibilityWarningsLogged, 1) != 0) return;
 
-        var legacyOrchestrator = HasDeploymentConfiguration(configuration, LegacyOrchestratorSection, LegacyOrchestratorSection, OrchestratorNames);
-        var canonicalOrchestrator = HasDeploymentConfiguration(configuration, OrchestratorSection, OrchestratorSection, OrchestratorNames);
         var legacyNetclaw = HasDeploymentConfiguration(configuration, LegacyNetclawSection, LegacyNetclawSection, NetclawNames);
         var canonicalNetclaw = HasDeploymentConfiguration(configuration, NetclawSection, NetclawSection, NetclawNames);
 
-        if (legacyOrchestrator)
-        {
-            logger.LogWarning("Legacy orchestration provider configuration keys are in use; migrate to the canonical Orchestrator__... namespace before the next major release.");
-            if (!HasKey(configuration, $"{LegacyOrchestratorSection}:ClientId") &&
-                (ReadString(configuration, "M2M:ClientId") is not null || ReadString(configuration, "M2M:ClientSecret") is not null))
-            {
-                logger.LogWarning("The legacy orchestration profile is using the deprecated M2M credential fallback; configure a dedicated Orchestrator__ClientId and Orchestrator__ClientSecret.");
-            }
-        }
-
         if (legacyNetclaw)
             logger.LogWarning("Legacy AI Assistant chat configuration keys are in use; migrate to the canonical Netclaw__... namespace before the next major release.");
-
-        if (canonicalOrchestrator && legacyOrchestrator)
-            logger.LogWarning("Both Orchestrator__... and Orchestration__Provider__... keys are present; effective configuration follows source priority, with the canonical namespace winning at equal priority.");
 
         if (canonicalNetclaw && legacyNetclaw)
             logger.LogWarning("Both Netclaw__... and AiAssistantChat__... keys are present; effective configuration follows source priority, with the canonical namespace winning at equal priority.");
@@ -286,13 +209,6 @@ public static class IntegrationConfigurationAliases
         var fileName = path is null ? string.Empty : System.IO.Path.GetFileName(path);
         if (!string.Equals(fileName, "appsettings.json", StringComparison.OrdinalIgnoreCase)) return false;
         if (string.IsNullOrWhiteSpace(value)) return false;
-        if (key.StartsWith(OrchestratorSection + ":", StringComparison.OrdinalIgnoreCase) ||
-            key.StartsWith(LegacyOrchestratorSection + ":", StringComparison.OrdinalIgnoreCase))
-        {
-            var sectionEnabled = ReadBool(configuration, key[..key.LastIndexOf(':')].TrimEnd(':') + ":Enabled");
-            var baseUrl = ReadString(configuration, key[..key.LastIndexOf(':')].TrimEnd(':') + ":BaseUrl");
-            if (!sectionEnabled && baseUrl is null) return true;
-        }
         if (key.StartsWith(NetclawSection + ":", StringComparison.OrdinalIgnoreCase) ||
             key.StartsWith(LegacyNetclawSection + ":", StringComparison.OrdinalIgnoreCase))
         {

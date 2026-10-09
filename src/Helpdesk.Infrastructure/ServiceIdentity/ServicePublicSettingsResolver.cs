@@ -1,7 +1,6 @@
 using Helpdesk.Infrastructure.Persistence;
-using Helpdesk.Infrastructure.ServiceLink;
+using Helpdesk.Infrastructure.Pairing;
 using Helpdesk.Shared.Models;
-using Helpdesk.Shared.ServiceIdentity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
@@ -21,142 +20,41 @@ public sealed class ServiceIdentityConfiguration
     public string UpdatedBy { get; set; } = "";
     public DateTimeOffset UpdatedAtUtc { get; set; }
 }
-
-public sealed record ServicePublicSettingsEffective(ServiceIdentityOptions Identity, ServiceLinkOptions Linking,
-    long Revision, string[] LockedFields)
-{
-    public ServicePublicSettingsDto ToDto()
-    {
-        var messages = new List<string>();
-        if (!Identity.Enabled || !Linking.Enabled)
-            messages.Add(LockedFields.Contains("enabled", StringComparer.Ordinal)
-                ? "Connections are disabled by deployment settings. Set ServiceIdentity__Enabled and ServiceLinks__Enabled to true, then reload setup."
-                : "Enable connections to complete setup.");
-        var candidate = new ServiceIdentityOptions
-        {
-            Enabled = true, InstanceId = string.IsNullOrEmpty(Identity.InstanceId) ? "setup-pending" : Identity.InstanceId,
-            WebBaseUrl = Identity.WebBaseUrl, ApiBaseUrl = Identity.ApiBaseUrl, Issuer = Identity.Issuer,
-            Audience = Identity.Audience, AllowPrivateHttp = Identity.AllowPrivateHttp,
-            AccessTokenLifetimeSeconds = Identity.AccessTokenLifetimeSeconds, ClockSkewSeconds = Identity.ClockSkewSeconds,
-            CredentialMaximumAgeDays = Identity.CredentialMaximumAgeDays, CredentialOverlapSeconds = Identity.CredentialOverlapSeconds,
-            TerminalControlRecoverySeconds = Identity.TerminalControlRecoverySeconds, Clients = Identity.Clients
-        };
-        var validation = new ServiceIdentityOptionsValidator().Validate(null, candidate);
-        if (validation.Failed) messages.AddRange(validation.Failures);
-        return new(Identity.Enabled, Linking.Enabled, Identity.WebBaseUrl, Identity.ApiBaseUrl,
-            Identity.Issuer, Identity.Audience, Identity.InstanceId, Revision, LockedFields, messages.ToArray());
-    }
-}
-
+public sealed record ServicePublicSettingsEffective(ServiceIdentityOptions Identity, long Revision, string[] LockedFields);
 public interface IServicePublicSettingsResolver
 {
     Task<ServicePublicSettingsEffective> ResolveAsync(CancellationToken ct = default);
-    Task<ServicePublicSettingsEffective> UpdateAsync(ServicePublicSettingsUpdate update, string actorId, CancellationToken ct = default);
 }
-
-/// <summary>Fresh durable setup merges explicit deployment locks; request Host is never a public address.</summary>
+/// <summary>Installation identity and ordinary deployment origins automatically enable paired connections.</summary>
 public sealed class ServicePublicSettingsResolver(HelpdeskDbContext db, IConfiguration configuration,
-    IOptionsMonitor<ServiceIdentityOptions> identityOptions, IOptionsMonitor<ServiceLinkOptions> linkingOptions,
-    TimeProvider clock) : IServicePublicSettingsResolver
+    IOptionsMonitor<ServiceIdentityOptions> options) : IServicePublicSettingsResolver
 {
-    public async Task<ServicePublicSettingsEffective> ResolveAsync(CancellationToken ct = default) =>
-        await Resolve(await db.Set<ServiceIdentityConfiguration>().AsNoTracking().SingleOrDefaultAsync(row => row.Id == 1, ct), ct);
-
-    public async Task<ServicePublicSettingsEffective> UpdateAsync(ServicePublicSettingsUpdate update, string actorId, CancellationToken ct = default)
+    public async Task<ServicePublicSettingsEffective> ResolveAsync(CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(actorId)) throw new ArgumentException("An authenticated administrator is required.");
-        if (new[] { update.WebBaseUrl, update.ApiBaseUrl, update.Issuer }.Any(value => value is null || value.Length > 2048 || value.Any(char.IsControl)) ||
-            update.Audience is null || update.Audience.Length > 256 || update.Audience.Any(char.IsControl))
-            throw new ArgumentException("Public Web/API addresses and issuer must be bounded canonical addresses, with a valid audience.");
-        var row = await db.Set<ServiceIdentityConfiguration>().SingleOrDefaultAsync(item => item.Id == 1, ct);
-        if ((row?.Revision ?? 0) != update.ExpectedRevision) throw new ServiceClientConflictException("Connection setup changed. Reload and review the current settings.");
-        var current = await Resolve(row, ct);
-        foreach (var field in current.LockedFields)
+        var stored = await db.Set<ServiceIdentityConfiguration>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == 1, ct);
+        var configured = options.CurrentValue;
+        var branding = await db.Set<InstanceBranding>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == 1, ct);
+        var installation = await db.InstanceInitializations.AsNoTracking().Where(x => x.Id == InstanceInitialization.SingletonId).Select(x => (Guid?)x.InstanceId).SingleOrDefaultAsync(ct);
+        var web = configured.WebBaseUrl is { Length: > 0 } ? configured.WebBaseUrl : stored?.WebBaseUrl is { Length: > 0 } ? stored.WebBaseUrl : branding?.ApplicationUrl ?? configuration["Branding:ApplicationUrl"] ?? configuration["PublicWebAppUrl"] ?? "";
+        var api = configured.ApiBaseUrl is { Length: > 0 } ? configured.ApiBaseUrl : configuration["StorageOptions:PublicApiBaseUrl"] is { Length: > 0 } publicApi ? publicApi : stored?.ApiBaseUrl is { Length: > 0 } ? stored.ApiBaseUrl : configuration["PublicApiBaseUrl"] ?? "";
+        web = PairingTransport.Origin(web); api = PairingTransport.Origin(api);
+        var publishedId = configured.InstanceId is { Length: > 0 } ? configured.InstanceId : stored?.InstanceId is { Length: > 0 } ? stored.InstanceId : installation?.ToString("D");
+        if (!Guid.TryParse(publishedId, out var persistentId) || persistentId == Guid.Empty) throw new PairingFailure("installation_unavailable", "Restore the persistent installation GUID or complete normal installation bootstrap before pairing.", 503);
+        var existingPairs = await db.Set<SystemPair>().AsNoTracking().Where(x => x.State != "deleted").Select(x => new { x.Id, x.PeerInstallationId }).ToListAsync(ct);
+        if (existingPairs.Any(x => x.Id != SystemPairingService.PairId(persistentId.ToString("D"), x.PeerInstallationId))) throw new PairingFailure("installation_identity_changed", "The configured installation GUID differs from the saved system pairing identity. Restore the original persistent GUID.", 409);
+        var signingIssuer = await db.Set<ServiceSigningKey>().AsNoTracking().Where(x => x.ActiveSlot == 1).Select(x => x.Issuer).SingleOrDefaultAsync(ct);
+        var issuer = signingIssuer ?? (configured.Issuer.Length > 0 ? configured.Issuer : stored?.Issuer is { Length: > 0 } ? stored.Issuer : api + "/services");
+        var identity = new ServiceIdentityOptions { Enabled = true, WebBaseUrl = web, ApiBaseUrl = api, InstanceId = persistentId.ToString("D"), Issuer = issuer,
+            Audience = configuration["ServiceIdentity:Audience"] is { Length: > 0 } ? configured.Audience : stored?.Audience is { Length: > 0 } ? stored.Audience : configured.Audience, AllowPrivateHttp = true, AccessTokenLifetimeSeconds = configured.AccessTokenLifetimeSeconds,
+            ClockSkewSeconds = configured.ClockSkewSeconds, CredentialMaximumAgeDays = configured.CredentialMaximumAgeDays };
+        if (stored?.InstanceId != identity.InstanceId)
         {
-            var changed = field switch
-            {
-                "enabled" => update.Enabled != current.Identity.Enabled || update.Enabled != current.Linking.Enabled,
-                "webBaseUrl" => update.WebBaseUrl.TrimEnd('/') != current.Identity.WebBaseUrl,
-                "apiBaseUrl" => update.ApiBaseUrl.TrimEnd('/') != current.Identity.ApiBaseUrl,
-                "issuer" => update.Issuer != current.Identity.Issuer,
-                "audience" => update.Audience != current.Identity.Audience,
-                _ => false
-            };
-            if (changed) throw new ArgumentException($"The {field} setting is managed by deployment configuration. Update its ServiceIdentity/ServiceLinks deployment value and reload setup.");
+            var persisted = await db.Set<ServiceIdentityConfiguration>().SingleOrDefaultAsync(x => x.Id == 1, ct);
+            if (persisted is null) { persisted = new(); db.Add(persisted); }
+            persisted.InstanceId = identity.InstanceId; persisted.WebBaseUrl = web; persisted.ApiBaseUrl = api; persisted.Issuer = issuer; persisted.Audience = identity.Audience;
+            persisted.Enabled = true; persisted.Revision++; persisted.UpdatedBy = "pairing-installation"; persisted.UpdatedAtUtc = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync(ct);
         }
-        if ((await db.Set<ServiceSigningKey>().AnyAsync(ct) || await db.Set<ServicePrincipalRegistration>().AnyAsync(ct)) &&
-            (update.Issuer != current.Identity.Issuer || update.Audience != current.Identity.Audience))
-            throw new ServiceClientConflictException("The established service issuer and audience must be preserved. A deliberate identity migration is required.");
-        var candidate = new ServiceIdentityConfiguration
-        {
-            Revision = checked((row?.Revision ?? 0) + 1), Enabled = update.Enabled,
-            WebBaseUrl = update.WebBaseUrl, ApiBaseUrl = update.ApiBaseUrl, Issuer = update.Issuer,
-            Audience = update.Audience, InstanceId = string.IsNullOrEmpty(current.Identity.InstanceId) ? Guid.NewGuid().ToString("D") : current.Identity.InstanceId,
-            UpdatedBy = actorId, UpdatedAtUtc = clock.GetUtcNow()
-        };
-        _ = await Resolve(candidate, ct);
-        if (row is null) db.Set<ServiceIdentityConfiguration>().Add(candidate);
-        else db.Entry(row).CurrentValues.SetValues(candidate);
-        await db.SaveChangesAsync(ct);
-        return await ResolveAsync(ct);
-    }
-
-    private async Task<ServicePublicSettingsEffective> Resolve(ServiceIdentityConfiguration? stored, CancellationToken ct)
-    {
-        var configured = identityOptions.CurrentValue; var linking = linkingOptions.CurrentValue;
-        var locks = new List<string>();
-        string Select(string field, string? deployment, string? persisted, string fallback, bool address = false)
-        {
-            var value = !string.IsNullOrWhiteSpace(deployment) ? deployment : !string.IsNullOrWhiteSpace(persisted) ? persisted : fallback;
-            if (!string.IsNullOrWhiteSpace(deployment)) locks.Add(field);
-            return address ? value.TrimEnd('/') : value;
-        }
-        if (!string.IsNullOrWhiteSpace(configured.WebBaseUrl) && !string.IsNullOrWhiteSpace(linking.WebBaseUrl) && configured.WebBaseUrl.TrimEnd('/') != linking.WebBaseUrl.TrimEnd('/') ||
-            !string.IsNullOrWhiteSpace(configured.ApiBaseUrl) && !string.IsNullOrWhiteSpace(linking.ApiBaseUrl) && configured.ApiBaseUrl.TrimEnd('/') != linking.ApiBaseUrl.TrimEnd('/'))
-            throw new ArgumentException("ServiceIdentity and ServiceLinks addresses disagree. Configure one public Web/API profile.");
-        var branding = await db.Set<InstanceBranding>().AsNoTracking().SingleOrDefaultAsync(row => row.Id == 1, ct);
-        var configuredWeb = !string.IsNullOrWhiteSpace(configured.WebBaseUrl) ? configured.WebBaseUrl : !string.IsNullOrWhiteSpace(linking.WebBaseUrl) ? linking.WebBaseUrl : configuration["Branding:ApplicationUrl"];
-        var web = Select("webBaseUrl", configuredWeb, stored?.WebBaseUrl,
-            branding?.ApplicationUrl ?? configuration["PublicWebAppUrl"] ?? "", true);
-        var configuredApi = !string.IsNullOrWhiteSpace(configured.ApiBaseUrl) ? configured.ApiBaseUrl : !string.IsNullOrWhiteSpace(linking.ApiBaseUrl) ? linking.ApiBaseUrl : configuration["StorageOptions:PublicApiBaseUrl"];
-        var api = Select("apiBaseUrl", configuredApi, stored?.ApiBaseUrl, "", true);
-        var signingIssuer = await db.Set<ServiceSigningKey>().AsNoTracking().Where(row => row.ActiveSlot == 1).Select(row => row.Issuer).SingleOrDefaultAsync(ct);
-        var issuer = Select("issuer", configured.Issuer, stored?.Issuer, signingIssuer ?? (string.IsNullOrEmpty(api) ? "" : api + "/services"));
-        var audience = Select("audience", configuration["ServiceIdentity:Audience"], stored?.Audience, configured.Audience);
-        var initializedInstance = await db.InstanceInitializations.AsNoTracking().Where(row => row.Id == InstanceInitialization.SingletonId)
-            .Select(row => (Guid?)row.InstanceId).SingleOrDefaultAsync(ct);
-        var instance = Select("instanceId", configured.InstanceId, stored?.InstanceId,
-            initializedInstance is { } installed && installed != Guid.Empty ? installed.ToString("D") : "");
-        var enabled = stored?.Enabled ?? configured.Enabled;
-        if (bool.TryParse(configuration["ServiceIdentity:Enabled"], out var explicitIdentity)) { enabled = explicitIdentity; locks.Add("enabled"); }
-        var linkEnabled = stored?.Enabled ?? linking.Enabled;
-        if (bool.TryParse(configuration["ServiceLinks:Enabled"], out var explicitLink)) { linkEnabled = explicitLink; locks.Add("enabled"); }
-        var identity = new ServiceIdentityOptions
-        {
-            Enabled = enabled, WebBaseUrl = web, ApiBaseUrl = api, Issuer = issuer, Audience = audience, InstanceId = instance,
-            AllowPrivateHttp = configured.AllowPrivateHttp || linking.AllowPrivateHttp, Clients = configured.Clients,
-            AccessTokenLifetimeSeconds = configured.AccessTokenLifetimeSeconds, ClockSkewSeconds = configured.ClockSkewSeconds,
-            CredentialMaximumAgeDays = configured.CredentialMaximumAgeDays, CredentialOverlapSeconds = configured.CredentialOverlapSeconds,
-            TerminalControlRecoverySeconds = configured.TerminalControlRecoverySeconds
-        };
-        var links = new ServiceLinkOptions
-        {
-            Enabled = enabled && linkEnabled, WebBaseUrl = web, ApiBaseUrl = api, GatewayBaseUrl = linking.GatewayBaseUrl,
-            AllowPrivateHttp = identity.AllowPrivateHttp, BootstrapLifetimeSeconds = linking.BootstrapLifetimeSeconds,
-            TerminalControlRecoverySeconds = linking.TerminalControlRecoverySeconds, WorkerIntervalSeconds = linking.WorkerIntervalSeconds,
-            MaximumPayloadBytes = linking.MaximumPayloadBytes, AutomaticRotationEnabled = linking.AutomaticRotationEnabled,
-            RotationAgeDays = linking.RotationAgeDays, RotationOfferLifetimeSeconds = linking.RotationOfferLifetimeSeconds,
-            RotationOverlapSeconds = linking.RotationOverlapSeconds, RotationPolicyRevision = linking.RotationPolicyRevision
-        };
-        if (identity.Enabled)
-        {
-            var validation = new ServiceIdentityOptionsValidator().Validate(null, identity);
-            if (validation.Failed) throw new ArgumentException(string.Join(" ", validation.Failures));
-            var linkValidation = new ServiceLinkOptionsValidator(Options.Create(identity)).Validate(null, links);
-            if (linkValidation.Failed) throw new ArgumentException(string.Join(" ", linkValidation.Failures));
-            if (signingIssuer is not null && signingIssuer != issuer)
-                throw new ServiceClientConflictException("The durable signing issuer must be preserved. Restore its configured value or perform a deliberate identity migration.");
-        }
-        return new(identity, links, stored?.Revision ?? 0, locks.Distinct(StringComparer.Ordinal).ToArray());
+        return new(identity, stored?.Revision ?? 0, []);
     }
 }

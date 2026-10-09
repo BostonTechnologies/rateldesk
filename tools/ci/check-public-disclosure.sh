@@ -12,7 +12,7 @@ done
 repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
 
-# NetRatel and the exact bostec.service-link shared protocol identifiers are
+# NetRatel and the exact public pairing/historical protocol identifiers are
 # intentional public integration terms. Other organization, infrastructure,
 # and operator identifiers remain blocked.
 blocked_text='boston|bostec|proxicon|komodo|openbao|spacetimeorchestrator|camelot|konrad|jeremi|hd-dev|@boston\.net\.za'
@@ -32,6 +32,8 @@ disallowed_matches=$(rg -n -i -e "$blocked_text" \
     -e 's#ghcr.io/bostontechnologies/rateldesk-mcp-http##g' \
     -e 's#orgs/BostonTechnologies/packages/container##g' \
     -e 's#BostonTechnologies/RatelDesk##g' \
+    -e 's#\(^\|[^[:alnum:]_.-]\)bostec\.pairing\.v1\($\|[^[:alnum:]_.-]\)#\1\2#g' \
+    -e 's#\(^\|[^[:alnum:]_.-]\)bostec-pairing\.v1\.md\($\|[^[:alnum:]_.-]\)#\1\2#g' \
     -e 's#bostec\.service-link\.hash\.v1##g' \
     -e 's#\(^\|[^[:alnum:]_.-]\)bostec\.service-link\.incident-only\.v1\($\|[^[:alnum:]_.-]\)#\1\2#g' \
     -e 's#\(^\|[^[:alnum:]_.-]\)bostec-service-link\.incident-only\.v1\(\.fixtures\.json\|\.SHA256SUMS\|\.json\|\.md\)\{0,1\}\($\|[^[:alnum:]_.-]\)#\1\3#g' \
@@ -58,7 +60,9 @@ while IFS= read -r candidate_file; do
   [[ "$mime_type" == text/* || "$mime_type" == application/json || "$mime_type" == application/xml ]] && continue
 
   if strings -a "$candidate_file" | sed \
-      -e 's#bostec\.service-link\.hash\.v1##g' \
+      -e 's#\(^\|[^[:alnum:]_.-]\)bostec\.pairing\.v1\($\|[^[:alnum:]_.-]\)#\1\2#g' \
+    -e 's#\(^\|[^[:alnum:]_.-]\)bostec-pairing\.v1\.md\($\|[^[:alnum:]_.-]\)#\1\2#g' \
+    -e 's#bostec\.service-link\.hash\.v1##g' \
       -e 's#\(^\|[^[:alnum:]_.-]\)bostec\.service-link\.incident-only\.v1\($\|[^[:alnum:]_.-]\)#\1\2#g' \
       -e 's#\(^\|[^[:alnum:]_.-]\)bostec-service-link\.incident-only\.v1\(\.fixtures\.json\|\.SHA256SUMS\|\.json\|\.md\)\{0,1\}\($\|[^[:alnum:]_.-]\)#\1\3#g' \
       -e 's#bostec\.service-link\.v1##g' \

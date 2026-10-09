@@ -30,29 +30,6 @@ public sealed class OrchestrationConnectivitySettingsDto
     public string? PeerInstanceId { get; set; }
     public string? PeerTenantId { get; set; }
     public string? LocalTenantId { get; set; }
-    public string? LinkId { get; set; }
-    public long LinkRevision { get; set; }
-    public long CredentialRevision { get; set; }
-    public bool ManagedSenderEnabled { get; set; } = true;
-}
-
-public sealed class UpdateOrchestrationConnectivitySettingsDto
-{
-    public int? ExpectedRevision { get; set; }
-    public bool Enabled { get; set; }
-    public string? BaseUrl { get; set; }
-    public string? Audience { get; set; }
-    public string? Authority { get; set; }
-    public string? TokenEndpoint { get; set; }
-    public string? Scope { get; set; }
-    public string? ClientId { get; set; }
-    public string? ClientSecret { get; set; }
-    public bool ClearClientSecret { get; set; }
-    public bool AllowPrivateHttp { get; set; }
-    public string? RemoteSystemName { get; set; }
-    public string? HealthPath { get; set; }
-    public string? IngestPath { get; set; }
-    public string? CatalogPath { get; set; }
 }
 
 public sealed class NetclawConnectivitySettingsDto

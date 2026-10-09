@@ -4,7 +4,7 @@ using Helpdesk.Shared.Services;
 using Helpdesk.Infrastructure.Persistence.Entities;
 using Helpdesk.Infrastructure.Persistence.Connectivity;
 using Helpdesk.Infrastructure.ServiceIdentity;
-using Helpdesk.Infrastructure.ServiceLink;
+using Helpdesk.Infrastructure.Pairing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.AspNetCore.Http;
@@ -106,7 +106,6 @@ public class HelpdeskDbContext(
     public DbSet<SupportNotificationSubscription> SupportNotificationSubscriptions => Set<SupportNotificationSubscription>();
     public DbSet<UserSupportNotificationPreference> UserSupportNotificationPreferences => Set<UserSupportNotificationPreference>();
     public DbSet<SupportNotificationDelivery> SupportNotificationDeliveries => Set<SupportNotificationDelivery>();
-    public DbSet<M2MConnectivitySettings> M2MConnectivitySettings => Set<M2MConnectivitySettings>();
     public DbSet<NetclawConnectivitySettings> NetclawConnectivitySettings => Set<NetclawConnectivitySettings>();
     public DbSet<AutomationBinding> AutomationBindings => Set<AutomationBinding>();
     public DbSet<DatasetDefinition> DatasetDefinitions => Set<DatasetDefinition>();
@@ -134,11 +133,11 @@ public class HelpdeskDbContext(
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ConfigureServiceIdentityModel();
-        modelBuilder.ConfigureServiceLinkModel();
+        modelBuilder.ConfigurePairingModel();
         modelBuilder.Entity<IncidentReceiverSource>(entity =>
         {
             entity.HasKey(x => x.SourceNamespaceId);
-            entity.HasIndex(x => x.SourceInstanceId).IsUnique();
+            entity.HasIndex(x => x.SourceInstanceId);
             entity.Property(x => x.OrganizationId).HasMaxLength(64);
             entity.Property(x => x.CustomerId).HasMaxLength(64);
             entity.Property(x => x.CreatedBy).HasMaxLength(256);
@@ -363,27 +362,6 @@ public class HelpdeskDbContext(
             entity.HasIndex(x => new { x.OrganizationId, x.SourceTicketId });
             entity.Property(x => x.SourceTicketId).HasMaxLength(64);
             entity.Property(x => x.SourceAutomationBindingId).HasMaxLength(64);
-        });
-
-        modelBuilder.Entity<M2MConnectivitySettings>(entity =>
-        {
-            entity.ToTable("M2MConnectivitySettings");
-            entity.HasKey(x => x.Id);
-            entity.Property(x => x.ProviderKey).HasMaxLength(64).IsRequired();
-            entity.Property(x => x.Revision).IsConcurrencyToken();
-            entity.HasIndex(x => x.ProviderKey).IsUnique();
-            entity.Property(x => x.ManagedSenderEnabled).HasDefaultValue(true);
-            entity.Property(x => x.RemoteBaseUrl).HasMaxLength(1024);
-            entity.Property(x => x.RemoteAudience).HasMaxLength(256);
-            entity.Property(x => x.RemoteSystemName).HasMaxLength(128);
-            entity.Property(x => x.RemoteTokenEndpoint).HasMaxLength(1024);
-            entity.Property(x => x.RemoteAuthority).HasMaxLength(512);
-            entity.Property(x => x.RemoteScope).HasMaxLength(256);
-            entity.Property(x => x.ClientId).HasMaxLength(256);
-            entity.Property(x => x.ProtectedClientSecret).HasMaxLength(8192);
-            entity.Property(x => x.HealthPath).HasMaxLength(256);
-            entity.Property(x => x.IngestPath).HasMaxLength(256);
-            entity.Property(x => x.CatalogPath).HasMaxLength(256);
         });
 
         modelBuilder.Entity<NetclawConnectivitySettings>(entity =>

@@ -16,12 +16,8 @@ public sealed class ServicePrincipalRegistration
     public string ResourceConstraintsJson { get; set; } = "{}";
     public Guid? SourceInstanceId { get; set; }
     public Guid? SourceNamespaceId { get; set; }
-    public string? LinkId { get; set; }
-    public string? AttemptId { get; set; }
-    public string? GrantHash { get; set; }
-    public string? DescriptorHash { get; set; }
-    public string? DirectionId { get; set; }
-    public long LinkRevision { get; set; } = 1;
+    public Guid? MappingId { get; set; }
+    public long MappingRevision { get; set; } = 1;
     public long Revision { get; set; } = 1;
     public long Version { get; set; } = 1;
     public long CurrentCredentialRevision { get; set; } = 1;
@@ -36,7 +32,7 @@ public sealed class ServicePrincipalRegistration
     public DateTimeOffset? TerminalControlUntilUtc { get; set; }
 }
 
-/// <summary>Inbound storage contains salted verifiers only; protocol escrow is separate and finite.</summary>
+/// <summary>Inbound business storage retains salted secret verifiers only.</summary>
 public sealed class ServicePrincipalSecret
 {
     public Guid ServicePrincipalId { get; set; }
@@ -78,14 +74,9 @@ public static class ServiceIdentityModelConfiguration
             e.ToTable("ServicePrincipalRegistrations", t => t.HasCheckConstraint("CK_ServicePrincipal_Status", "\"Status\" IN ('pending','prepared','verified','in_doubt','active','revoked','expired','failed')"));
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.NormalizedClientId).IsUnique();
-            e.HasIndex(x => new { x.LinkId, x.DirectionId }).IsUnique().HasFilter("\"LinkId\" IS NOT NULL");
+            e.HasIndex(x => x.MappingId);
             foreach (var p in new[] { nameof(ServicePrincipalRegistration.ClientId), nameof(ServicePrincipalRegistration.NormalizedClientId), nameof(ServicePrincipalRegistration.Name), nameof(ServicePrincipalRegistration.PeerInstanceId), nameof(ServicePrincipalRegistration.PeerTenantId), nameof(ServicePrincipalRegistration.CreatedBy), nameof(ServicePrincipalRegistration.ApprovedBy) }) e.Property(p).HasMaxLength(256);
             e.Property(x => x.OrganizationId).HasMaxLength(64);
-            e.Property(x => x.LinkId).HasMaxLength(256);
-            e.Property(x => x.AttemptId).HasMaxLength(256);
-            e.Property(x => x.GrantHash).HasMaxLength(64);
-            e.Property(x => x.DescriptorHash).HasMaxLength(64);
-            e.Property(x => x.DirectionId).HasMaxLength(64);
             e.Property(x => x.Revision).IsConcurrencyToken();
             e.Property(x => x.Version).IsConcurrencyToken();
             e.HasOne<Helpdesk.Shared.Models.Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);

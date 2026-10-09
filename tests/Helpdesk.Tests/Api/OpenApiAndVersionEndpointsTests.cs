@@ -71,7 +71,7 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         Assert.Empty(SecuritySchemes(document, "/api/v1/setup/status", "get"));
         Assert.Empty(SecuritySchemes(document, "/api/v1/tickets/public/view", "get"));
         Assert.Equal(["JwtBearer", "LocalSession"], SecuritySchemes(document, "/api/v1/integration-credentials", "get"));
-        Assert.Equal(["OrchestrationM2M", "ServiceIdentity"], SecuritySchemes(document, "/api/v1/orchestration/provider/m2m/ping", "get"));
+        Assert.Equal(["ServiceIdentity"], SecuritySchemes(document, "/api/v1/orchestration/provider/m2m/ping", "get"));
         Assert.Equal(["AiAgentJwt"], SecuritySchemes(document, "/api/v1/auth/ai-agent/status", "get"));
         Assert.Equal(["IntegrationCredential", "JwtBearer", "LocalSession"], SecuritySchemes(document, "/api/v1/incidents", "get"));
         Assert.Equal(["McpIntegrationCredential"], SecuritySchemes(document, "/api/v1/mcp/execution-token", "post"));

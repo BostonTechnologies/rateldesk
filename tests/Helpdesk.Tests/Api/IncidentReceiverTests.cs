@@ -15,6 +15,7 @@ using Helpdesk.API.Endpoints.Authentication;
 using Helpdesk.API.Endpoints.Incidents;
 using Helpdesk.API.Endpoints.Integrations;
 using Helpdesk.API.Endpoints.Orchestration;
+using Helpdesk.API.Endpoints.Pairing;
 using Helpdesk.API.Services;
 using Helpdesk.Application.Incidents;
 using Helpdesk.Application.Services.Tickets;
@@ -494,7 +495,7 @@ public sealed class IncidentReceiverTests
         private string connectionString = string.Empty;
         private bool postgres;
         private bool serviceIdentity;
-        private bool serviceLinks;
+        private IHttpClientFactory? pairingPeer;
         private readonly ECDsa callbackSigningKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         public WebApplication App => apps[0];
         public HttpClient Client => clients[0];
@@ -509,10 +510,10 @@ public sealed class IncidentReceiverTests
         public string Token { get; private set; } = string.Empty;
         public CommitFault Fault { get; } = new();
 
-        public static async Task<Harness> CreateAsync(bool postgres, bool serviceIdentity = false, bool serviceLinks = false)
+        public static async Task<Harness> CreateAsync(bool postgres, bool serviceIdentity = false, IHttpClientFactory? pairingPeer = null)
         {
             Npgsql.NpgsqlConnection.GlobalTypeMapper.EnableDynamicJson();
-            var h = new Harness { postgres = postgres, serviceIdentity = serviceIdentity, serviceLinks = serviceLinks };
+            var h = new Harness { postgres = postgres, serviceIdentity = serviceIdentity, pairingPeer = pairingPeer };
             Directory.CreateDirectory(h.root);
             if (postgres)
             {
@@ -571,9 +572,6 @@ public sealed class IncidentReceiverTests
             builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ServiceIdentity:Enabled"] = serviceIdentity.ToString(),
-                ["ServiceLinks:Enabled"] = serviceLinks.ToString(),
-                ["ServiceLinks:ApiBaseUrl"] = "https://receiver.example.test",
-                ["ServiceLinks:WebBaseUrl"] = "https://receiver-web.example.test",
                 ["ServiceIdentity:Issuer"] = "https://receiver.example.test/services",
                 ["ServiceIdentity:ApiBaseUrl"] = "https://receiver.example.test",
                 ["ServiceIdentity:WebBaseUrl"] = "https://receiver-web.example.test",
@@ -583,7 +581,8 @@ public sealed class IncidentReceiverTests
             builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(root, "keys"))).SetApplicationName("ReceiverTests");
             builder.Services.AddHelpdeskInfrastructure(builder.Configuration);
             builder.Services.AddRatelDeskServiceIdentity(builder.Configuration);
-            builder.Services.AddOptions<Helpdesk.Infrastructure.ServiceLink.ServiceLinkOptions>().Bind(builder.Configuration.GetSection("ServiceLinks"));
+            builder.Services.AddSystemPairing();
+            if (pairingPeer is not null) builder.Services.AddSingleton(pairingPeer);
             builder.Services.RemoveAll<IHostedService>();
             builder.Services.AddDbContext<HelpdeskDbContext>(options => options.AddInterceptors(Fault));
             builder.Services.AddSingleton<ITicketRefGeneratorService, TicketRefGeneratorService>();
@@ -602,18 +601,7 @@ public sealed class IncidentReceiverTests
                 .AddScheme<AuthenticationSchemeOptions, AdminAuthentication>("SyntheticAdmin", _ => { })
                 .AddScheme<IntegrationCredentialAuthenticationOptions, IntegrationCredentialAuthenticationHandler>(IntegrationCredentialAuthenticationHandler.SchemeName,
                     options => options.Purpose = "api")
-                .AddJwtBearer("OrchestrationM2M", options =>
-                {
-                    options.TokenValidationParameters = new TokenValidationParameters
-                    {
-                        ValidateIssuer = true, ValidIssuer = "https://legacy-callback.example.test",
-                        ValidateAudience = true, ValidAudience = "rateldesk.legacy-callback",
-                        ValidateLifetime = true, ValidateIssuerSigningKey = true,
-                        IssuerSigningKey = new ECDsaSecurityKey(callbackSigningKey), ClockSkew = TimeSpan.Zero
-                    };
-                });
-            builder.Services.Configure<Helpdesk.Infrastructure.Configuration.OrchestrationM2MOptions>(options =>
-                options.AllowedCallerClientIds = ["legacy-netratel-callback"]);
+;
             builder.Services.AddAuthorization(options =>
             {
                 options.AddPolicy("IncidentAccess", policy =>
@@ -641,6 +629,7 @@ public sealed class IncidentReceiverTests
             app.MapIncidentReceiverEndpoints();
             app.MapIncidentReceiverSourceEndpoints();
             app.MapServiceIdentityEndpoints();
+            app.MapSystemPairing();
             app.MapExternalOrchestrationCallbackEndpoints();
             await app.StartAsync();
             apps.Add(app); clients.Add(app.GetTestClient());
@@ -760,9 +749,9 @@ public sealed class IncidentReceiverTests
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/integrations/netratel/targets/validate") { Content = JsonContent.Create(payload) };
             Authorize(request); return await Client.SendAsync(request);
         }
-        public async Task<HttpResponseMessage> AdminAsync(HttpMethod method, string path, object payload)
+        public async Task<HttpResponseMessage> AdminAsync(HttpMethod method, string path, object? payload = null)
         {
-            using var request = new HttpRequestMessage(method, path) { Content = JsonContent.Create(payload) };
+            using var request = new HttpRequestMessage(method, path) { Content = payload is null ? null : JsonContent.Create(payload) };
             request.Headers.Add("X-Synthetic-Admin", "true"); return await Client.SendAsync(request);
         }
         public async Task<(Guid Id, string Token)> AddCredentialAsync()

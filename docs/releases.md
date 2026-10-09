@@ -2,7 +2,22 @@
 
 RatelDesk has one repository-owned release line. The root `Directory.Build.props` is the source of truth for `VersionPrefix` and `VersionSuffix`. Applications and release outputs inherit those values. Prereleases remain immutable.
 
-## Current reconciliation — 6 October 2026
+## 0.1.1-beta.20 — pairing-code cutover
+
+Account → Integration credentials → System connections now uses Generate a
+Pairing Code → Address and Pairing code → Pair & connect → tenant and
+organization/customer, name and independent capabilities → Save. The saved
+mapping supports View, read-only Test and immediate local Delete during a peer
+outage. Upgrade both products and pair afresh: forward migrations retire old
+NR↔RD authority while preserving installation identities, signing keys,
+unrelated credentials, Netclaw and business history.
+
+See the [upgrade and pairing guide](integrations/netratel-pairing.md),
+[current protocol](contracts/bostec-pairing.v1.md) and
+[release notes](release-notes/0.1.1-beta.20.md). Source validation and publication
+receipts are separate from owner acceptance of the deployed beta.
+
+## Historical reconciliation — 6 October 2026
 
 The reviewed baseline is `af71b9f9ae47bf75ea44f9fb486bd5c812d34910` and its
 source version is `0.1.1-beta.13`. The latest observed published release at this
@@ -60,8 +75,9 @@ Both SQLite and PostgreSQL migrations preserve existing accounts, protected
 provider profiles, receiver namespaces and receipts. Existing outbound
 Orchestrator configuration and legacy callback authentication remain supported.
 The issuer and guided protocol require separate explicit deployment settings;
-see [configuration and acceptance](integrations/netratel-service-link.md) and
-the [shared protocol](contracts/bostec-service-link.v1.md).
+That setup is retired by the beta.20 cutover. Use the
+[current pairing guide](integrations/netratel-pairing.md) and
+[current protocol](contracts/bostec-pairing.v1.md) when upgrading.
 
 The current NetRatel release needs its companion implementation before guided
 linking can complete. Synthetic contract-peer and real RatelDesk provider tests
