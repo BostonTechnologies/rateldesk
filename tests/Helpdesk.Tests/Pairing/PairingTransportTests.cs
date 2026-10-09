@@ -26,7 +26,8 @@ public sealed class PairingTransportTests
     [InlineData("reflected-code")]
     public async Task Readiness_evidence_is_allowlisted_and_formatted_locally_before_forwarding(string variant)
     {
-        var diagnostic = new PairingReadinessDiagnostic("receiver-capabilities", "receiver-endpoint-outside-approved-api-base", "1234567890abcdef1234567890abcdef", 502);
+        var reference = "a" + Guid.NewGuid().ToString("N")[1..];
+        var diagnostic = new PairingReadinessDiagnostic("receiver-capabilities", "receiver-endpoint-outside-approved-api-base", reference, 502);
         diagnostic = variant switch
         {
             "stage" => diagnostic with { Stage = "https://private.example.test/stage" },
