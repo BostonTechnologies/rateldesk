@@ -76,7 +76,7 @@
                                     </MudSelect>
                                 </MudItem>
                                 <MudItem xs="12" sm="6">
-                                    <MudSelect T="string" Value="draft.RatelDeskOrganizationId" ValueChanged="OrganizationChanged" Label="RatelDesk organization" Required="true" Margin="Margin.Dense" Variant="Variant.Outlined" Disabled="busy" data-testid="connection-rateldesk-organization">
+                                    <MudSelect T="string" Value="@draft.RatelDeskOrganizationId" ValueChanged="OrganizationChanged" Label="RatelDesk organization" Required="true" Margin="Margin.Dense" Variant="Variant.Outlined" Disabled="busy" data-testid="connection-rateldesk-organization">
                                         @foreach (var organization in directory.RatelDeskOrganizations) { <MudSelectItem Value="@organization.Id">@organization.Name</MudSelectItem> }
                                     </MudSelect>
                                 </MudItem>

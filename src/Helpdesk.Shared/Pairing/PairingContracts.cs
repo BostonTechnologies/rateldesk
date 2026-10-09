@@ -22,7 +22,7 @@ public sealed record PairingBusinessCredential(string ClientId, string ClientSec
     string Audience, string Issuer, string[] Scopes, string? SourceInstanceId, string? SourceNamespaceId);
 public sealed record PairingSaveRequest(string OperationId, long Revision, PairingMapping Mapping, PairingBusinessCredential? Credential);
 public sealed record PairingSaveResponse(PairingMapping Mapping, PairingBusinessCredential? Credential);
-public sealed record PairingTestResult(bool Success, string Message, DateTimeOffset TestedAtUtc);
+public sealed record PairingTestResult(bool Success, string Message, DateTimeOffset TestedAtUtc, PairingReadinessDiagnostic? Diagnostic = null);
 public sealed record PairingConnectionDto(string Id, string PairId, PairingMapping? Mapping, PairingMetadata Peer,
     string Status, PairingTestResult? LastTest);
 

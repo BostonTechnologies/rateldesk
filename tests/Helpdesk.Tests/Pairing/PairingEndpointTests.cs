@@ -17,6 +17,90 @@ public sealed class PairingEndpointTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task Final_save_preserves_safe_peer_readiness_correlation_and_same_draft_for_retry(bool peerHttpFailure)
+    {
+        var reference = "1234567890abcdef1234567890abcdef";
+        var diagnostic = new { stage = "receiver-capabilities", code = "receiver-endpoint-outside-approved-api-base", reference, httpStatus = (int?)null };
+        using var peer = new PairingTestPeer(Guid.NewGuid())
+        {
+            TestSuccess = false,
+            TestStatus = peerHttpFailure ? HttpStatusCode.BadGateway : HttpStatusCode.OK,
+            TestMessage = "Unsafe peer detail https://private.example.test/path?client_secret=private-body",
+            TestDiagnostic = diagnostic
+        };
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(false, serviceIdentity: true, pairingPeer: peer);
+        using var pairedResponse = await h.AdminAsync(HttpMethod.Post, "/api/v1/admin/system-connections/pair",
+            new PairingConnectRequest(peer.Metadata.WebOrigin, "ABCD-EFGH", Guid.NewGuid().ToString("D")));
+        Assert.Equal(HttpStatusCode.OK, pairedResponse.StatusCode);
+        var pair = (await pairedResponse.Content.ReadFromJsonAsync<PairingConnectionDto>())!;
+        var mapping = new PairingMapping(Guid.NewGuid().ToString("D"), pair.PairId, "Both capabilities", "17", h.OrganizationId, h.CustomerId, true, true);
+        var route = $"/api/v1/admin/system-connections/{pair.PairId}/mappings/{mapping.Id}";
+
+        using var failed = await h.AdminAsync(HttpMethod.Put, route, mapping);
+        Assert.Equal(peerHttpFailure ? HttpStatusCode.BadGateway : HttpStatusCode.Conflict, failed.StatusCode);
+        using var failure = JsonDocument.Parse(await failed.Content.ReadAsStringAsync());
+        var error = failure.RootElement;
+        Assert.Equal("business_validation_failed", error.GetProperty("code").GetString());
+        Assert.Equal(reference, error.GetProperty("reference").GetString());
+        Assert.Equal("receiver-capabilities", error.GetProperty("diagnostic").GetProperty("stage").GetString());
+        Assert.Equal("receiver-endpoint-outside-approved-api-base", error.GetProperty("diagnostic").GetProperty("code").GetString());
+        Assert.Equal(reference, error.GetProperty("diagnostic").GetProperty("reference").GetString());
+        Assert.Contains("receiver capabilities", error.GetProperty("message").GetString());
+        Assert.Contains("receiver-endpoint-outside-approved-api-base", error.GetProperty("message").GetString());
+        Assert.DoesNotContain("private.example.test", failure.RootElement.GetRawText());
+        Assert.DoesNotContain("private-body", failure.RootElement.GetRawText());
+        using var listed = await h.AdminAsync(HttpMethod.Get, "/api/v1/admin/system-connections/");
+        var draft = Assert.Single((await listed.Content.ReadFromJsonAsync<PairingConnectionDto[]>())!);
+        Assert.Equal(mapping, draft.Mapping);
+        Assert.Equal("Systems paired", draft.Status);
+        await using (var scope = h.App.Services.CreateAsyncScope())
+        {
+            var row = await scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>().Set<SystemConnection>().SingleAsync();
+            Assert.Equal("draft", row.State);
+        }
+        Assert.Equal(0, (await h.CountsAsync()).Incidents);
+
+        peer.TestStatus = HttpStatusCode.OK;
+        peer.TestSuccess = true;
+        peer.TestDiagnostic = null;
+        peer.TestMessage = "Authenticated selected capability check passed.";
+        using var retried = await h.AdminAsync(HttpMethod.Put, route, mapping);
+        Assert.Equal(HttpStatusCode.OK, retried.StatusCode);
+        var connected = (await retried.Content.ReadFromJsonAsync<PairingConnectionDto>())!;
+        Assert.Equal(mapping, connected.Mapping);
+        Assert.Equal(pair.PairId, connected.PairId);
+        Assert.Equal("Connected", connected.Status);
+        Assert.Equal(0, (await h.CountsAsync()).Incidents);
+
+        peer.TestSuccess = false;
+        peer.TestDiagnostic = diagnostic;
+        peer.TestMessage = "Unsafe test detail https://private.example.test/path?client_secret=private-body";
+        using var failedTest = await h.AdminAsync(HttpMethod.Post, route + "/test");
+        Assert.Equal(HttpStatusCode.OK, failedTest.StatusCode);
+        var testResult = (await failedTest.Content.ReadFromJsonAsync<PairingTestResult>())!;
+        Assert.False(testResult.Success);
+        Assert.Equal(reference, testResult.Diagnostic!.Reference);
+        Assert.Contains("Reference: " + reference, testResult.Message);
+        Assert.DoesNotContain("private.example.test", testResult.Message);
+        using var refreshed = await h.AdminAsync(HttpMethod.Get, "/api/v1/admin/system-connections/");
+        var lastTest = Assert.Single((await refreshed.Content.ReadFromJsonAsync<PairingConnectionDto[]>())!).LastTest!;
+        Assert.False(lastTest.Success);
+        Assert.Equal(testResult.Message, lastTest.Message);
+        Assert.Contains("Reference: " + reference, lastTest.Message);
+
+        peer.TestSuccess = true;
+        using var successfulTest = await h.AdminAsync(HttpMethod.Post, route + "/test");
+        var success = (await successfulTest.Content.ReadFromJsonAsync<PairingTestResult>())!;
+        Assert.True(success.Success);
+        Assert.Null(success.Diagnostic);
+        Assert.DoesNotContain("readiness failed", success.Message);
+        Assert.DoesNotContain(reference, success.Message);
+        Assert.DoesNotContain("private.example.test", success.Message);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task Signed_metadata_and_small_exchange_expose_no_business_or_browser_secrets(bool postgres)
     {
         using var peer = new PairingTestPeer(Guid.NewGuid());
