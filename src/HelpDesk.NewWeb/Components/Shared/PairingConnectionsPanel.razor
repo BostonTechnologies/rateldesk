@@ -154,7 +154,7 @@
     private string address = "", pairingCode = "", pairFingerprint = "", pairOperationId = "";
     private string? error, errorReference, notice;
     private bool loading = true, busy, createOpen, disposed;
-    private long generation;
+    private long generation, loadingGeneration;
     private bool CanPair => SystemConnectionApi.NormalizeAddress(address) is not null && ValidCode(pairingCode);
     private bool CanSave => draft is not null && directory is not null && !string.IsNullOrWhiteSpace(draft.Name) &&
         directory.NetRatelTenants.Any(t => t.Id == draft.NetRatelTenantId) && directory.RatelDeskOrganizations.Any(t => t.Id == draft.RatelDeskOrganizationId) &&
@@ -168,11 +168,14 @@
         if (busy || disposed) return;
         loading = true; ClearMessages();
         var current = ++generation;
+        loadingGeneration = current;
         try
         {
             var loaded = await Api.ListAsync(lifetime.Token);
             if (!Current(current)) return;
             connections = loaded;
+            loading = false;
+            StateHasChanged();
             await Task.WhenAll(loaded.Select(c => c.PairId).Distinct().Select(async pairId =>
             {
                 try { var choices = await Api.DirectoryAsync(pairId, lifetime.Token); if (Current(current)) directories[pairId] = choices; }
@@ -183,7 +186,7 @@
             if (selected is null && !createOpen && incomplete is not null) await BeginFinalizeAsync(incomplete, false);
         }
         catch (Exception exception) when (Expected(exception)) { if (Current(current)) Failure(exception); }
-        finally { if (Current(current)) loading = false; }
+        finally { if (!disposed && loadingGeneration == current) loading = false; }
     }
     private void OpenCreate()
     {
@@ -296,6 +299,7 @@
         {
             await Api.DeleteAsync(connection, lifetime.Token);
             if (!Current(current)) return;
+            loading = false;
             connections.RemoveAll(c => c.Id == connection.Id || connection.Mapping is null && c.PairId == connection.PairId);
             if (selected?.Id == connection.Id) { selected = null; draft = null; directory = null; }
             notice = "Connection deleted. Local access is revoked.";

@@ -219,6 +219,57 @@ public sealed class PairingConnectionsPageTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Pending_peer_labels_do_not_block_local_delete_or_clear_a_newer_local_list_load(bool peerUnavailable)
+    {
+        var mapping = new PairingMapping("33333333-3333-3333-3333-333333333333", PairId, "Offline peer mapping", "42", "organization-7", "customer-9", true, false);
+        var api = new FixtureApi { Rows = [Paired(mapping, "connected")] };
+        await using var view = await RenderAsync(api);
+        var peerReply = new TaskCompletionSource<PairingSetupDirectory>(TaskCreationOptions.RunContinuationsAsynchronously);
+        api.HeldDirectory = peerReply;
+        var oldLoad = view.InvokeAsync("LoadAsync");
+        await api.DirectoryStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var html = await view.HtmlAsync();
+        Assert.Contains(mapping.Name, html);
+        AssertLocalControls(html, enabled: true);
+        await view.InvokeAsync("DeleteAsync", Paired(mapping, "connected"));
+        html = await view.HtmlAsync();
+        Assert.Contains("Local access is revoked", html);
+        Assert.DoesNotContain(mapping.Name, html);
+        AssertLocalControls(html, enabled: true);
+        Assert.Equal(mapping.Id, Assert.Single(api.DeletedMappingIds));
+
+        var localReply = new TaskCompletionSource<List<PairingConnectionDto>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        api.HeldList = localReply;
+        var newerLoad = view.InvokeAsync("LoadAsync");
+        await api.ListStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        AssertLocalControls(await view.HtmlAsync(), enabled: false);
+        if (peerUnavailable) peerReply.SetException(new HttpRequestException("Synthetic unavailable peer"));
+        else peerReply.SetResult(Directory);
+        await oldLoad.WaitAsync(TimeSpan.FromSeconds(10));
+        AssertLocalControls(await view.HtmlAsync(), enabled: false);
+        localReply.SetResult([]);
+        await newerLoad.WaitAsync(TimeSpan.FromSeconds(10));
+
+        html = await view.HtmlAsync();
+        AssertLocalControls(html, enabled: true);
+        Assert.DoesNotContain(mapping.Name, html);
+        Assert.DoesNotContain("system-connection-error", html);
+        await view.InvokeAsync("GenerateAsync");
+        Assert.Equal(1, api.GenerateCount);
+        await view.InvokeAsync("OpenCreate");
+        Assert.Contains("system-pairing-form", await view.HtmlAsync());
+        await view.InvokeAsync("CloseForm");
+        await view.InvokeAsync("LoadAsync");
+        Assert.Equal(4, api.ListCount);
+        Assert.Empty(ReadField<List<PairingConnectionDto>>(view.Panel, "connections"));
+        AssertLocalControls(await view.HtmlAsync(), enabled: true);
+        Assert.Empty(api.Saves);
+    }
+
+    [Theory]
     [InlineData("host.lan:5100/", "https://host.lan:5100")]
     [InlineData("https://desk.lan///", "https://desk.lan")]
     [InlineData("http://10.0.1.3:5000/", "http://10.0.1.3:5000")]
@@ -229,6 +280,15 @@ public sealed class PairingConnectionsPageTests
         => Assert.Equal(expected, ConnectionApi.NormalizeAddress(address));
 
     private static string Form(string html, string testId) => Assert.Single(Regex.Matches(html, "<form\\b[^>]*data-testid=\"" + testId + "\"[^>]*>.*?</form>", RegexOptions.Singleline).Cast<Match>()).Value;
+    private static void AssertLocalControls(string html, bool enabled)
+    {
+        var buttons = Regex.Matches(html, "<button\\b[^>]*>.*?</button>", RegexOptions.Singleline).Cast<Match>().Select(match => match.Value).ToList();
+        foreach (var identifier in new[] { "data-testid=\"generate-pairing-code\"", "data-testid=\"create-system-connection\"", "Refresh connections" })
+        {
+            var button = Assert.Single(buttons, button => button.Contains(identifier, StringComparison.Ordinal));
+            Assert.Equal(!enabled, Regex.IsMatch(button.Split('>')[0], "\\sdisabled(?:\\s|=|$)"));
+        }
+    }
     private static void Field(object instance, string name, object value) => instance.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(instance, value);
     private static T ReadField<T>(object instance, string name) => (T)instance.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(instance)!;
     private static T Property<T>(object instance, string name) => (T)instance.GetType().GetProperty(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!.GetValue(instance)!;
@@ -294,17 +354,30 @@ public sealed class PairingConnectionsPageTests
         public List<PairingConnectRequest> PairRequests { get; } = [];
         public List<PairingMapping> Saves { get; } = [];
         public List<string> DeletedMappingIds { get; } = [];
-        public int GenerateCount, TestCount;
+        public int GenerateCount, TestCount, ListCount;
         public bool FailSave, LoseFirstPairResponse, RejectPairCode, ExpirePairSession;
+        public TaskCompletionSource<PairingSetupDirectory>? HeldDirectory;
+        public TaskCompletionSource<List<PairingConnectionDto>>? HeldList;
+        public TaskCompletionSource DirectoryStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ListStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public HttpClient CreateClient(string name) => new(this, disposeHandler: false) { BaseAddress = new Uri("http://127.0.0.1/") };
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             var path = request.RequestUri!.AbsolutePath;
             if (path == "/api/v1/organizations") return Json(new[] { new { id = "organization-7", name = "Support team" } });
             if (path == "/api/v1/integration-credentials/") return Json(Array.Empty<object>());
-            if (path == "/api/v1/admin/system-connections/") return Json(Rows);
+            if (path == "/api/v1/admin/system-connections/")
+            {
+                ListCount++;
+                if (HeldList is { } held) { HeldList = null; ListStarted.TrySetResult(); return Json(await held.Task.WaitAsync(ct)); }
+                return Json(Rows);
+            }
             if (path.EndsWith("/code", StringComparison.Ordinal)) { GenerateCount++; return Json(new PairingCodeDto("JKLM-NPQR", DateTimeOffset.UtcNow.AddMinutes(5))); }
-            if (path.EndsWith("/directory", StringComparison.Ordinal)) return Json(Directory);
+            if (path.EndsWith("/directory", StringComparison.Ordinal))
+            {
+                if (HeldDirectory is { } held) { HeldDirectory = null; DirectoryStarted.TrySetResult(); return Json(await held.Task.WaitAsync(ct)); }
+                return Json(Directory);
+            }
             if (path.EndsWith("/pair", StringComparison.Ordinal))
             {
                 PairRequests.Add((await request.Content!.ReadFromJsonAsync<PairingConnectRequest>(ct))!);
@@ -319,7 +392,12 @@ public sealed class PairingConnectionsPageTests
                 var mapping = (await request.Content!.ReadFromJsonAsync<PairingMapping>(ct))!; Saves.Add(mapping);
                 return FailSave ? Json(new { message = "Choose a customer that belongs to the selected organization.", reference = "pairing-test-ref" }, HttpStatusCode.BadRequest) : Json(Paired(mapping, "connected"));
             }
-            if (request.Method == HttpMethod.Delete) { DeletedMappingIds.Add(path.Split('/').Last()); return new(HttpStatusCode.NoContent); }
+            if (request.Method == HttpMethod.Delete)
+            {
+                var id = path.Split('/').Last(); DeletedMappingIds.Add(id);
+                Rows.RemoveAll(row => row.Id == id || row.PairId == id);
+                return new(HttpStatusCode.NoContent);
+            }
             throw new InvalidOperationException($"Unexpected connection request: {request.Method} {path}");
         }
         private static HttpResponseMessage Json<T>(T value, HttpStatusCode status = HttpStatusCode.OK) => new(status) { Content = JsonContent.Create(value) };
