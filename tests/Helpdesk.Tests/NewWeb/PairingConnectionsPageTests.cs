@@ -158,6 +158,45 @@ public sealed class PairingConnectionsPageTests
     }
 
     [Fact]
+    public async Task Rejected_peer_code_401_keeps_the_pair_form_and_displays_the_code_failure_without_a_sign_in_warning()
+    {
+        var api = new FixtureApi { RejectPairCode = true };
+        await using var view = await RenderAsync(api);
+        await view.InvokeAsync("OpenCreate");
+        Field(view.Panel, "address", "https://netratel.example.test");
+        Field(view.Panel, "pairingCode", "ABCD-EFGH");
+        await view.InvokeAsync("PairAsync");
+
+        var html = await view.HtmlAsync();
+        Assert.Contains("The pairing code is wrong, expired or replaced. Generate a current code and try again.", html);
+        Assert.Contains("Reference: rejected-code-ref", html);
+        Assert.Contains("system-pairing-form", html);
+        Assert.DoesNotContain("Sign in again", html);
+        Assert.Single(api.PairRequests);
+        Assert.Empty(ReadField<List<PairingConnectionDto>>(view.Panel, "connections"));
+        Assert.Empty(api.Saves);
+    }
+
+    [Fact]
+    public async Task Unstructured_local_authentication_401_retains_the_sign_in_warning()
+    {
+        var api = new FixtureApi { ExpirePairSession = true };
+        await using var view = await RenderAsync(api);
+        await view.InvokeAsync("OpenCreate");
+        Field(view.Panel, "address", "https://netratel.example.test");
+        Field(view.Panel, "pairingCode", "ABCD-EFGH");
+        await view.InvokeAsync("PairAsync");
+
+        var html = await view.HtmlAsync();
+        Assert.Contains("Sign in again, then retry this action.", html);
+        Assert.Contains("Reference: HTTP-401", html);
+        Assert.Contains("system-pairing-form", html);
+        Assert.Single(api.PairRequests);
+        Assert.Empty(ReadField<List<PairingConnectionDto>>(view.Panel, "connections"));
+        Assert.Empty(api.Saves);
+    }
+
+    [Fact]
     public async Task Test_and_delete_target_the_selected_mapping_and_delete_removes_the_row_without_another_test()
     {
         var selected = new PairingMapping("33333333-3333-3333-3333-333333333333", PairId, "First mapping", "42", "organization-7", "customer-9", true, false);
@@ -256,7 +295,7 @@ public sealed class PairingConnectionsPageTests
         public List<PairingMapping> Saves { get; } = [];
         public List<string> DeletedMappingIds { get; } = [];
         public int GenerateCount, TestCount;
-        public bool FailSave, LoseFirstPairResponse;
+        public bool FailSave, LoseFirstPairResponse, RejectPairCode, ExpirePairSession;
         public HttpClient CreateClient(string name) => new(this, disposeHandler: false) { BaseAddress = new Uri("http://127.0.0.1/") };
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
@@ -270,6 +309,8 @@ public sealed class PairingConnectionsPageTests
             {
                 PairRequests.Add((await request.Content!.ReadFromJsonAsync<PairingConnectRequest>(ct))!);
                 if (LoseFirstPairResponse && PairRequests.Count == 1) throw new HttpRequestException("Synthetic lost success response");
+                if (RejectPairCode) return Json(new { code = "pairing_code_rejected", message = "The pairing code is wrong, expired or replaced. Generate a current code and try again.", reference = "rejected-code-ref" }, HttpStatusCode.Unauthorized);
+                if (ExpirePairSession) return new(HttpStatusCode.Unauthorized) { Content = new StringContent("") };
                 return Json(Paired());
             }
             if (path.EndsWith("/test", StringComparison.Ordinal)) { TestCount++; return Json(new PairingTestResult(true, "Current mapping and permissions verified", DateTimeOffset.UtcNow)); }
