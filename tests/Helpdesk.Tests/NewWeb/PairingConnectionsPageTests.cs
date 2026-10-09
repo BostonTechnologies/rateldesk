@@ -15,6 +15,7 @@ using Microsoft.AspNetCore.Components.Web.HtmlRendering;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
+using MudBlazor;
 using MudBlazor.Services;
 using NSubstitute;
 using AccountPage = NewWeb::HelpDesk.NewWeb.Components.Pages.IntegrationCredentials;
@@ -138,6 +139,60 @@ public sealed class PairingConnectionsPageTests
         await using var restored = await RenderAsync(api);
         Assert.Equal(mapping.Id, Property<string>(ReadField<object>(restored.Panel, "draft"), "Id"));
         Assert.Contains("Office draft", await restored.HtmlAsync());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Reopened_saved_or_failed_draft_retains_rendered_organization_and_saves_changed_organization_customer(bool failedSave)
+    {
+        var mapping = new PairingMapping("33333333-3333-3333-3333-333333333333", PairId, "Office connection", "42", "organization-7", "customer-9", true, true);
+        var api = new FixtureApi
+        {
+            Rows = [Paired(mapping, failedSave ? "paired" : "connected")],
+            FailSave = failedSave,
+            Choices = new(Directory.NetRatelTenants,
+                [new("organization-7", "Support team"), new("organization-8", "Escalation team")],
+                [new("customer-9", "Incident customer", "organization-7"), new("customer-10", "Escalation customer", "organization-8")])
+        };
+        await using var view = await RenderAsync(api);
+        if (failedSave)
+        {
+            await view.InvokeAsync("SaveAsync");
+            Assert.Contains("Reference: pairing-test-ref", await view.HtmlAsync());
+            await view.InvokeAsync("CloseForm");
+        }
+        await view.InvokeAsync("ViewAsync", api.Rows[0]);
+
+        AssertRenderedSelection(view, await view.HtmlAsync(), "connection-rateldesk-organization", "organization-7", "Support team");
+        AssertRenderedSelection(view, await view.HtmlAsync(), "connection-rateldesk-customer", "customer-9", "Incident customer");
+        await view.ChangeSelectionAsync("connection-rateldesk-organization", "organization-8");
+        AssertRenderedSelection(view, await view.HtmlAsync(), "connection-rateldesk-organization", "organization-8", "Escalation team");
+        Assert.Null(view.Select("connection-rateldesk-customer").Value);
+        Assert.False(Property<bool>(view.Panel, "CanSave"));
+        Assert.Equal(failedSave ? 1 : 0, api.Saves.Count);
+
+        await view.ChangeSelectionAsync("connection-rateldesk-customer", "customer-10");
+        AssertRenderedSelection(view, await view.HtmlAsync(), "connection-rateldesk-customer", "customer-10", "Escalation customer");
+        api.FailSave = false;
+        await view.InvokeAsync("SaveAsync");
+
+        var submitted = api.Saves.Last();
+        Assert.Equal(mapping.Id, submitted.Id);
+        Assert.Equal(mapping.PairId, submitted.PairId);
+        Assert.Equal(mapping.Name, submitted.Name);
+        Assert.Equal("42", submitted.NetRatelTenantId);
+        Assert.Equal("organization-8", submitted.RatelDeskOrganizationId);
+        Assert.Equal("customer-10", submitted.RatelDeskCustomerId);
+        Assert.True(submitted.CreateIncidents);
+        Assert.True(submitted.RunAutomation);
+        Assert.Equal(failedSave ? 2 : 1, api.Saves.Count);
+        Assert.Equal(0, api.TestCount);
+        var html = await view.HtmlAsync();
+        Assert.Contains("Connected. The selected mapping and capabilities are active.", html);
+        Assert.DoesNotContain("system-connection-save-form", html);
+        Assert.Contains("Escalation team", html);
+        Assert.Contains("Escalation customer", html);
     }
 
     [Fact]
@@ -280,6 +335,13 @@ public sealed class PairingConnectionsPageTests
         => Assert.Equal(expected, ConnectionApi.NormalizeAddress(address));
 
     private static string Form(string html, string testId) => Assert.Single(Regex.Matches(html, "<form\\b[^>]*data-testid=\"" + testId + "\"[^>]*>.*?</form>", RegexOptions.Singleline).Cast<Match>()).Value;
+    private static void AssertRenderedSelection(RenderedAccount view, string html, string testId, string id, string displayName)
+    {
+        Assert.Equal(id, view.Select(testId).Value);
+        var presenter = Assert.Single(Regex.Matches(html, "<div\\b[^>]*>([^<]*)</div>").Cast<Match>(), match => match.Value.Contains("data-testid=\"" + testId + "\"", StringComparison.Ordinal));
+        Assert.Contains("display:inline", presenter.Value);
+        Assert.Equal(displayName, WebUtility.HtmlDecode(presenter.Groups[1].Value).Trim());
+    }
     private static void AssertLocalControls(string html, bool enabled)
     {
         var buttons = Regex.Matches(html, "<button\\b[^>]*>.*?</button>", RegexOptions.Singleline).Cast<Match>().Select(match => match.Value).ToList();
@@ -306,7 +368,7 @@ public sealed class PairingConnectionsPageTests
         var provider = services.BuildServiceProvider();
         var renderer = new AccountRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
         var root = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderAsync());
-        return new(provider, renderer, root, capture.Panel!);
+        return new(provider, renderer, root, capture.Panel!, capture);
     }
     private sealed class AdminAuthentication : AuthenticationStateProvider
     {
@@ -319,10 +381,12 @@ public sealed class PairingConnectionsPageTests
     private sealed class ComponentCapture : IComponentActivator
     {
         public PairingPanel? Panel { get; private set; }
+        public List<MudSelect<string>> Selects { get; } = [];
         public IComponent CreateInstance(Type componentType)
         {
             var component = (IComponent)Activator.CreateInstance(componentType)!;
             if (component is PairingPanel panel) Panel = panel;
+            if (component is MudSelect<string> select) Selects.Add(select);
             return component;
         }
     }
@@ -336,9 +400,11 @@ public sealed class PairingConnectionsPageTests
             return root;
         }
     }
-    private sealed class RenderedAccount(ServiceProvider services, AccountRenderer renderer, HtmlRootComponent root, PairingPanel panel) : IAsyncDisposable
+    private sealed class RenderedAccount(ServiceProvider services, AccountRenderer renderer, HtmlRootComponent root, PairingPanel panel, ComponentCapture capture) : IAsyncDisposable
     {
         public PairingPanel Panel => panel;
+        public MudSelect<string> Select(string testId) => capture.Selects.Last(select => select.UserAttributes?.GetValueOrDefault("data-testid")?.ToString() == testId);
+        public Task ChangeSelectionAsync(string testId, string id) => renderer.Dispatcher.InvokeAsync(() => Select(testId).ValueChanged.InvokeAsync(id));
         public Task<string> HtmlAsync() => renderer.Dispatcher.InvokeAsync(root.ToHtmlString);
         public Task InvokeAsync(string methodName, object? argument = null)
         {
@@ -351,6 +417,7 @@ public sealed class PairingConnectionsPageTests
     private sealed class FixtureApi : HttpMessageHandler, IHttpClientFactory
     {
         public List<PairingConnectionDto> Rows { get; set; } = [];
+        public PairingSetupDirectory Choices { get; set; } = Directory;
         public List<PairingConnectRequest> PairRequests { get; } = [];
         public List<PairingMapping> Saves { get; } = [];
         public List<string> DeletedMappingIds { get; } = [];
@@ -376,7 +443,7 @@ public sealed class PairingConnectionsPageTests
             if (path.EndsWith("/directory", StringComparison.Ordinal))
             {
                 if (HeldDirectory is { } held) { HeldDirectory = null; DirectoryStarted.TrySetResult(); return Json(await held.Task.WaitAsync(ct)); }
-                return Json(Directory);
+                return Json(Choices);
             }
             if (path.EndsWith("/pair", StringComparison.Ordinal))
             {

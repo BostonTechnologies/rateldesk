@@ -71,7 +71,7 @@ public static class PairingEndpoints
     {
         http.Response.Headers.CacheControl = "no-store";
         try { return await action(); }
-        catch (PairingFailure failure) { return await FailureAsync(http, failure.Status, failure.Code, failure.Message); }
+        catch (PairingFailure failure) { return await FailureAsync(http, failure.Status, failure.Code, failure.Message, failure.Diagnostic); }
         catch (Exception ex) when (PairingDatabaseConflict.IsConflict(ex)) { return await FailureAsync(http, 409, "connection_changed", "Another operation changed this connection. Refresh and retry this same connection."); }
         catch (global::System.Data.Common.DbException) { return await FailureAsync(http, 409, "connection_changed", "Another operation changed this connection. Refresh and retry the same connection."); }
         catch (DbUpdateException) { return await FailureAsync(http, 409, "connection_changed", "Another operation changed this connection. Refresh and retry the same connection."); }
@@ -79,10 +79,14 @@ public static class PairingEndpoints
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or global::System.Text.Json.JsonException or global::System.Security.Cryptography.CryptographicException)
         { return await FailureAsync(http, 503, "connection_operation_failed", "The connection could not complete this operation. Review the saved form and use the reference in the scoped operational log."); }
     }
-    private static async Task<IResult> FailureAsync(HttpContext http, int status, string code, string message)
+    private static async Task<IResult> FailureAsync(HttpContext http, int status, string code, string message, PairingReadinessDiagnostic? diagnostic = null)
     {
-        var reference = Guid.NewGuid().ToString("N");
-        http.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("SystemPairing").LogWarning("Connection operation failed. Code={Code} Reference={Reference}", code, reference);
+        diagnostic = PairingReadinessDiagnostics.IsValid(diagnostic) ? diagnostic : null;
+        var reference = diagnostic?.Reference ?? Guid.NewGuid().ToString("N");
+        var logger = http.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("SystemPairing");
+        if (diagnostic is null) logger.LogWarning("Connection operation failed. Code={Code} Reference={Reference}", code, reference);
+        else logger.LogWarning("Connection operation failed. Code={Code} Stage={Stage} Reason={Reason} PeerHttpStatus={PeerHttpStatus} Reference={Reference}",
+            code, diagnostic.Stage, diagnostic.Code, diagnostic.HttpStatus, reference);
         if (status >= 500 && http.Request.Path.StartsWithSegments("/api/v1/admin/system-connections") && !HttpMethods.IsGet(http.Request.Method))
         {
             var actor = http.User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -101,7 +105,7 @@ public static class PairingEndpoints
                 catch (Exception) when (!http.RequestAborted.IsCancellationRequested) { }
             }
         }
-        return Results.Json(new { code, message, reference }, statusCode: status);
+        return Results.Json(new { code, message, reference, diagnostic }, statusCode: status);
     }
 }
 

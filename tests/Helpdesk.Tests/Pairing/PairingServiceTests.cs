@@ -275,6 +275,8 @@ internal sealed class PairingTestPeer : HttpMessageHandler, IHttpClientFactory
     public bool Unavailable { get; set; }
     public string TestMessage { get; set; } = "Synthetic selected read check";
     public bool TestSuccess { get; set; } = true;
+    public object? TestDiagnostic { get; set; }
+    public HttpStatusCode TestStatus { get; set; } = HttpStatusCode.OK;
     public string InboundSecret { get; } = Microsoft.IdentityModel.Tokens.Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(32));
     public string? OfferedInboundSecret { get; private set; }
     public PairingTestPeer(Guid producer)
@@ -304,7 +306,9 @@ internal sealed class PairingTestPeer : HttpMessageHandler, IHttpClientFactory
             var response = new PairingExchangeResponse(SystemPairingService.PairId(offered.Peer.InstallationId, Metadata.InstallationId), Metadata, InboundSecret);
             return Ok(response with { Signature = Convert.ToBase64String(key.SignData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(response, Json)), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1)) });
         }
-        if (path.EndsWith("/test", StringComparison.Ordinal)) return Ok(new PairingTestResult(TestSuccess, TestMessage, DateTimeOffset.UtcNow));
+        if (path.EndsWith("/test", StringComparison.Ordinal)) return TestStatus == HttpStatusCode.OK
+            ? Ok(new { Success = TestSuccess, Message = TestMessage, TestedAtUtc = DateTimeOffset.UtcNow, Diagnostic = TestDiagnostic })
+            : new(TestStatus) { Content = JsonContent.Create(new { code = "business_validation_failed", message = TestMessage, diagnostic = TestDiagnostic }) };
         if (request.Method == HttpMethod.Put)
         {
             if (FailSave) return new(HttpStatusCode.ServiceUnavailable) { Content = JsonContent.Create(new { code = "peer_busy", message = "The synthetic peer is temporarily unavailable. Retry this saved connection." }) };

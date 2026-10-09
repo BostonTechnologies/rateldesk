@@ -9,10 +9,11 @@ using Helpdesk.Shared.Pairing;
 
 namespace Helpdesk.Infrastructure.Pairing;
 
-public sealed class PairingFailure(string code, string message, int status = 400) : InvalidOperationException(message)
+public sealed class PairingFailure(string code, string message, int status = 400, PairingReadinessDiagnostic? diagnostic = null) : InvalidOperationException(message)
 {
     public string Code { get; } = code;
     public int Status { get; } = status;
+    public PairingReadinessDiagnostic? Diagnostic { get; } = PairingReadinessDiagnostics.IsValid(diagnostic) ? diagnostic : null;
 }
 
 public sealed class PairingTransport(IHttpClientFactory clients)
@@ -94,17 +95,34 @@ public sealed class PairingTransport(IHttpClientFactory clients)
             if (count > 65536) throw new PairingFailure("invalid_response", "The peer response exceeded the supported size.", 502);
             if (!response.IsSuccessStatusCode)
             {
-                string? message = null; string? code = null;
-                try { using var doc = JsonDocument.Parse(buffer.AsMemory(0, count)); if (doc.RootElement.TryGetProperty("message", out var text) && text.ValueKind == JsonValueKind.String) message = text.GetString(); if (doc.RootElement.TryGetProperty("code", out var value) && value.ValueKind == JsonValueKind.String) code = value.GetString(); } catch (JsonException) { }
+                string? message = null; string? code = null; PairingReadinessDiagnostic? diagnostic = null; var diagnosticProvided = false;
+                try
+                {
+                    using var doc = JsonDocument.Parse(buffer.AsMemory(0, count));
+                    if (doc.RootElement.ValueKind == JsonValueKind.Object)
+                    {
+                        if (doc.RootElement.TryGetProperty("message", out var text) && text.ValueKind == JsonValueKind.String) message = text.GetString();
+                        if (doc.RootElement.TryGetProperty("code", out var value) && value.ValueKind == JsonValueKind.String) code = value.GetString();
+                        if (doc.RootElement.TryGetProperty("diagnostic", out var evidence) && evidence.ValueKind != JsonValueKind.Null)
+                        {
+                            diagnosticProvided = true;
+                            if (evidence.ValueKind == JsonValueKind.Object) diagnostic = evidence.Deserialize<PairingReadinessDiagnostic>(Json);
+                        }
+                    }
+                }
+                catch (JsonException) { }
                 var sensitive = new List<string?> { secret };
                 if (body is PairingExchangeRequest exchange) sensitive.AddRange([exchange.InboundSecret, exchange.Code, exchange.Code.Replace("-", "", StringComparison.Ordinal)]);
                 if (body is PairingSaveRequest save) sensitive.Add(save.Credential?.ClientSecret);
                 var pairingCode = (body as PairingExchangeRequest)?.Code;
+                diagnostic = SafeDiagnostic(diagnostic, sensitive, pairingCode);
                 code = PairingCodeRedaction.Apply(IntegrationErrorSafety.ProviderMessage(code, 65536, sensitive.ToArray()), pairingCode)!;
                 if (code.Length is < 1 or > 80 || code.Any(x => !char.IsAsciiLetterOrDigit(x) && x is not ('_' or '-'))) code = "peer_rejected";
                 message = PairingCodeRedaction.Apply(IntegrationErrorSafety.ProviderMessage(message is { Length: <= 512 } ? message : $"The peer rejected the request (HTTP {(int)response.StatusCode}).", 65536, sensitive.ToArray()), pairingCode)!;
                 if (message.Length > 512) message = message[..512];
-                throw new PairingFailure(code, message, (int)response.StatusCode);
+                var safeMessage = diagnostic is not null ? PairingReadinessDiagnostics.Describe(diagnostic)
+                    : diagnosticProvided ? "Receiver readiness could not be verified. Check the server reference, then retry this connection." : message;
+                throw new PairingFailure(code, safeMessage, (int)response.StatusCode, diagnostic);
             }
             if (typeof(T) == typeof(bool)) return (T)(object)true;
             return JsonSerializer.Deserialize<T>(buffer.AsSpan(0, count), Json) ?? throw new PairingFailure("invalid_response", "The peer returned an empty response.", 502);
@@ -113,5 +131,13 @@ public sealed class PairingTransport(IHttpClientFactory clients)
         catch (HttpRequestException) { throw new PairingFailure("peer_unavailable", "The peer could not be reached. Check its address, network access and trusted TLS certificate, then retry this connection.", 502); }
         catch (IOException) { throw new PairingFailure("peer_response_lost", "The peer response was interrupted. Retry this same connection; completed operations are retained.", 502); }
         catch (JsonException) { throw new PairingFailure("invalid_response", "The peer returned an incompatible response.", 502); }
+    }
+
+    internal static PairingReadinessDiagnostic? SafeDiagnostic(PairingReadinessDiagnostic? diagnostic, IReadOnlyList<string?> sensitive, string? pairingCode = null)
+    {
+        if (!PairingReadinessDiagnostics.IsValid(diagnostic)) return null;
+        foreach (var field in new[] { diagnostic!.Stage, diagnostic.Code, diagnostic.Reference })
+            if (PairingCodeRedaction.Apply(IntegrationErrorSafety.ProviderMessage(field, 65536, sensitive.ToArray()), pairingCode) != field) return null;
+        return diagnostic;
     }
 }

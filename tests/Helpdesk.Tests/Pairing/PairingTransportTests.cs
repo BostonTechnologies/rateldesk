@@ -18,6 +18,48 @@ namespace Helpdesk.Tests.Api;
 public sealed class PairingTransportTests
 {
     [Theory]
+    [InlineData("valid")]
+    [InlineData("stage")]
+    [InlineData("code")]
+    [InlineData("reference")]
+    [InlineData("status")]
+    [InlineData("reflected-code")]
+    public async Task Readiness_evidence_is_allowlisted_and_formatted_locally_before_forwarding(string variant)
+    {
+        var diagnostic = new PairingReadinessDiagnostic("receiver-capabilities", "receiver-endpoint-outside-approved-api-base", "1234567890abcdef1234567890abcdef", 502);
+        diagnostic = variant switch
+        {
+            "stage" => diagnostic with { Stage = "https://private.example.test/stage" },
+            "code" => diagnostic with { Code = "private-body" },
+            "reference" => diagnostic with { Reference = diagnostic.Reference.ToUpperInvariant() },
+            "status" => diagnostic with { HttpStatus = 999 },
+            "reflected-code" => diagnostic with { Reference = "11111111abcdefab2222222233333333" },
+            _ => diagnostic
+        };
+        Assert.Equal(variant is "valid" or "reflected-code", PairingReadinessDiagnostics.IsValid(diagnostic));
+        using var handler = new WireHandler(_ => new(HttpStatusCode.BadGateway)
+        {
+            Content = JsonContent.Create(new { code = "business_validation_failed", message = "Raw private detail https://private.example.test/body", diagnostic })
+        });
+        using var client = new HttpClient(handler);
+        var transport = new PairingTransport(new SingleClient(client));
+        var offered = new PairingExchangeRequest("ABCD-EFAB", Guid.NewGuid().ToString("D"), null!, new string('s', 43));
+        var failure = await Assert.ThrowsAsync<PairingFailure>(() => transport.SendAsync<bool>("https://peer.example.test", "/exchange", HttpMethod.Post, offered, null, null, default));
+        Assert.Equal("business_validation_failed", failure.Code);
+        Assert.Equal(502, failure.Status);
+        if (variant == "valid")
+        {
+            Assert.Equal(diagnostic, failure.Diagnostic);
+            Assert.Equal(PairingReadinessDiagnostics.Describe(diagnostic), failure.Message);
+            Assert.Contains("HTTP 502", failure.Message);
+        }
+        else Assert.Null(failure.Diagnostic);
+        Assert.DoesNotContain("private.example.test", failure.Message);
+        Assert.DoesNotContain("private-body", failure.Message);
+        Assert.DoesNotContain("abcdefab", failure.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
     [InlineData("private.example.test:5030", "https://private.example.test:5030")]
     [InlineData("http://10.20.30.40:5030/", "http://10.20.30.40:5030")]
     [InlineData("http://[fd12:3456::9]:5030", "http://[fd12:3456::9]:5030")]

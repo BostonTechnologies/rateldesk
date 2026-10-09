@@ -257,7 +257,7 @@ public sealed class SystemPairingService(HelpdeskDbContext db, PairingTransport 
         try
         {
             var verified = SafeTestResult(pair, row, await PeerSendAsync<PairingTestResult>(pair, "/mappings/" + mapping.Id + "/test", HttpMethod.Post, null, ct));
-            if (!verified.Success) throw new PairingFailure("business_validation_failed", verified.Message, 409);
+            if (!verified.Success) throw new PairingFailure("business_validation_failed", verified.Message, 409, verified.Diagnostic);
             await AcceptTestAsync(pair, row.Id, ct);
             await db.Entry(row).ReloadAsync(ct); await db.Entry(pair).ReloadAsync(ct);
             if (row.State != "connected" || row.Revision != revision || pair.State != "paired" || pair.Generation != generation) throw new PairingFailure("mapping_changed", "The connection changed or was deleted while validating. Reload its current configuration.", 409);
@@ -367,6 +367,12 @@ public sealed class SystemPairingService(HelpdeskDbContext db, PairingTransport 
         await AcceptTestAsync(pair, mappingId, ct);
         await db.Entry(row).ReloadAsync(ct); await db.Entry(pair).ReloadAsync(ct);
         if (row.State != "connected" || row.Revision != revision || pair.State != "paired" || pair.Generation != generation) throw new PairingFailure("connection_deleted", "The connection changed or was deleted during the test.", 409);
+        if (!result.Success && result.Diagnostic is { } diagnostic)
+        {
+            var reference = " Reference: " + diagnostic.Reference;
+            var message = result.Message.Length <= 512 - reference.Length ? result.Message : result.Message[..(512 - reference.Length)];
+            result = result with { Message = message + reference };
+        }
         row.LastTestedAtUtc = time.GetUtcNow(); row.LastTestSucceeded = result.Success; row.LastTestMessage = result.Message; await db.SaveChangesAsync(ct);
         return result;
     }
@@ -463,8 +469,12 @@ public sealed class SystemPairingService(HelpdeskDbContext db, PairingTransport 
         if (row.ProtectedOutboundCredential is not null) sensitive.Add(Unprotect<PairingBusinessCredential>(row.ProtectedOutboundCredential).ClientSecret);
         string? code = null;
         if (pair.ProtectedExchangeRequest is not null) { var exchange = Unprotect<PairingExchangeRequest>(pair.ProtectedExchangeRequest); code = exchange.Code; sensitive.Add(exchange.Code); sensitive.Add(exchange.Code.Replace("-", "", StringComparison.Ordinal)); }
-        var message = PairingCodeRedaction.Apply(IntegrationErrorSafety.ProviderMessage(result.Message, 65536, sensitive.ToArray()), code)!;
-        return result with { Message = message.Length <= 512 ? message : message[..512] };
+        var diagnostic = result.Success ? null : PairingTransport.SafeDiagnostic(result.Diagnostic, sensitive, code);
+        var message = diagnostic is not null ? PairingReadinessDiagnostics.Describe(diagnostic)
+            : result.Success && result.Diagnostic is not null ? "Authenticated connection, mapping and selected capabilities are available. No incident or task was created."
+            : result.Diagnostic is not null ? "Receiver readiness could not be verified. Check the server reference, then retry this connection."
+            : PairingCodeRedaction.Apply(IntegrationErrorSafety.ProviderMessage(result.Message, 65536, sensitive.ToArray()), code)!;
+        return result with { Message = message.Length <= 512 ? message : message[..512], Diagnostic = diagnostic };
     }
     private static void ValidateDirectory(PairingDirectory directory)
     {
