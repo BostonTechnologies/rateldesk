@@ -1,6 +1,7 @@
 .pairing-connections { min-width: 0; }
 .pairing-connections ::deep .pairing-peer-address { overflow-wrap: anywhere; }
 .pairing-connections ::deep .pairing-readable-code { letter-spacing: .08em; user-select: all; }
+.pairing-connections ::deep .pairing-error .mud-alert-message { min-width: 0; overflow-wrap: anywhere; }
 .pairing-connections ::deep .mud-input-control { min-width: 0; }
 .pairing-connections ::deep .mud-checkbox .mud-typography { white-space: normal; }
 .pairing-connections ::deep form { width: 100%; min-width: 0; }

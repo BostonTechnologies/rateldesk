@@ -29,7 +29,7 @@
         }
         @if (error is not null)
         {
-            <MudAlert Severity="Severity.Error" Dense="true" data-testid="system-connection-error" role="alert">@error @if (errorReference is not null) { <span>Reference: @errorReference</span> }</MudAlert>
+            <MudAlert Severity="Severity.Error" Dense="true" Class="pairing-error" data-testid="system-connection-error" role="alert">@error@if (errorReference is not null) { <span>@(" Reference: ")@errorReference</span> }</MudAlert>
         }
         @if (notice is not null)
         {
