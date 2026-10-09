@@ -2,14 +2,11 @@ using System.Security.Claims;
 using Helpdesk.API.Authentication;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.ServiceIdentity;
-using Helpdesk.Shared.ServiceIdentity;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace Helpdesk.API.Endpoints.Authentication;
-
-public sealed record RotateServiceClientRequest(long ExpectedCredentialRevision);
 
 public static class ServiceIdentityEndpoints
 {
@@ -35,77 +32,6 @@ public static class ServiceIdentityEndpoints
         app.MapPost("/connect/token", IssueTokenAsync).AllowAnonymous().DisableAntiforgery().WithTags("Service Identity")
             .RequireRateLimiting(ServiceIdentityServiceCollectionExtensions.SensitiveRateLimiter);
 
-        var group = app.MapGroup("/api/v1/admin/service-clients").RequireAuthorization(ServiceIdentityServiceCollectionExtensions.ManagementPolicy).WithTags("Service Clients");
-        group.MapGet("/public-settings", async (IServicePublicSettingsResolver settings, HttpContext http, CancellationToken ct) =>
-        {
-            NoStore(http);
-            try { return Results.Ok((await settings.ResolveAsync(ct)).ToDto()); }
-            catch (ArgumentException exception) { return Results.Problem(statusCode: 503, title: exception.Message); }
-            catch (ServiceClientConflictException exception) { return Conflict(exception.Message); }
-        });
-        group.MapPut("/public-settings", async ([FromBody] ServicePublicSettingsUpdate update, IServicePublicSettingsResolver settings,
-            IIntegrationCredentialOwnerResolver owners, HttpContext http, CancellationToken ct) =>
-        {
-            NoStore(http);
-            var owner = await owners.ResolveAsync(http.User, ct);
-            if (owner is null) return Results.Forbid();
-            try { return Results.Ok((await settings.UpdateAsync(update, owner.UserId, ct)).ToDto()); }
-            catch (ArgumentException exception) { return Results.BadRequest(new { code = "invalid-service-settings", error = exception.Message }); }
-            catch (ServiceClientConflictException exception) { return Conflict(exception.Message); }
-            catch (DbUpdateException) { return Conflict("Connection setup changed. Reload and review the current settings."); }
-        });
-        group.MapGet("/", async (IServicePrincipalRegistry registry, HttpContext http, CancellationToken ct) =>
-        {
-            NoStore(http);
-            try { return Results.Ok(await registry.ListAsync(ct)); }
-            catch (ServiceClientConflictException ex) { return Conflict(ex.Message); }
-        });
-        group.MapPost("/", async ([FromBody] ServiceClientCreateRequest request, IServicePrincipalRegistry registry, IIntegrationCredentialOwnerResolver owners,
-            ClaimsPrincipal principal, IServicePublicSettingsResolver options, HttpContext http, CancellationToken ct) =>
-        {
-            NoStore(http);
-            // Link clients are created solely by the bound consent state machine, never by a manual body.
-            if (request.LinkId is not null || request.AttemptId is not null || request.GrantHash is not null || request.DescriptorHash is not null || request.DirectionId is not null) return Results.BadRequest(new { code = "invalid-client-request", error = "Reciprocal clients require the guided consent workflow." });
-            try
-            {
-                var owner = await owners.ResolveAsync(principal, ct);
-                if (owner is null) return Results.Forbid();
-                var created = await registry.CreateAsync(request, owner.UserId, ct: ct);
-                return Results.Created($"/api/v1/admin/service-clients/{created.Principal.Id:D}", Reveal(created, (await options.ResolveAsync(ct)).Identity));
-            }
-            catch (ArgumentException ex) { return Results.BadRequest(new { code = "invalid-client-request", error = ex.Message }); }
-            catch (ServiceClientConflictException ex) { return Conflict(ex.Message); }
-            catch (DbUpdateConcurrencyException) { return Conflict("The registration changed; reload it."); }
-            catch (DbUpdateException) { return Conflict("The client or source identity already exists."); }
-            catch (InvalidOperationException ex) { return Results.Problem(statusCode: 503, title: ex.Message); }
-        }).RequireRateLimiting(ServiceIdentityServiceCollectionExtensions.SensitiveRateLimiter);
-        group.MapPost("/{id:guid}/rotate", async (Guid id, [FromBody] RotateServiceClientRequest request, IServicePrincipalRegistry registry,
-            IServicePublicSettingsResolver options, HttpContext http, CancellationToken ct) =>
-        {
-            NoStore(http);
-            try { return Results.Ok(Reveal(await registry.RotateAsync(id, request.ExpectedCredentialRevision, ct), (await options.ResolveAsync(ct)).Identity)); }
-            catch (ServiceClientConflictException ex) { return Conflict(ex.Message); }
-            catch (KeyNotFoundException) { return Results.NotFound(); }
-            catch (DbUpdateException) { return Conflict("A concurrent credential change won; reload the registration."); }
-        }).RequireRateLimiting(ServiceIdentityServiceCollectionExtensions.SensitiveRateLimiter);
-        group.MapPost("/{id:guid}/revoke", async (Guid id, IServicePrincipalRegistry registry, HelpdeskDbContext db, HttpContext http, CancellationToken ct) =>
-        {
-            NoStore(http);
-            var row = await db.Set<ServicePrincipalRegistration>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
-            if (row is null) return Results.NotFound();
-            if (row.LinkId is not null) return Conflict("Reciprocal clients must be unlinked through the coordinated link workflow.");
-            try { await registry.RevokeAsync(id, ct); return Results.Ok(new { id, status = "revoked" }); }
-            catch (ServiceClientConflictException ex) { return Conflict(ex.Message); }
-            catch (KeyNotFoundException) { return Results.NotFound(); }
-            catch (DbUpdateConcurrencyException) { return Conflict("The registration changed; reload it."); }
-        });
-        group.MapPost("/signing-keys/rotate", async (ServiceSigningKeyStore keys, HttpContext http, CancellationToken ct) =>
-        {
-            NoStore(http);
-            try { return Results.Ok(new { kid = await keys.RotateAsync(ct) }); }
-            catch (ServiceSigningKeyUnavailableException) { return Results.Problem(statusCode: 503, title: "Service signing key unavailable"); }
-            catch (DbUpdateException) { return Conflict("A concurrent signing-key rotation won; reload the public keys."); }
-        });
     }
 
     private static async Task<IResult> IssueTokenAsync(HttpContext http, IServicePrincipalRegistry registry, ServiceAccessTokenService tokens,
@@ -141,13 +67,5 @@ public static class ServiceIdentityEndpoints
         catch (DbUpdateException) { return Results.Json(new { error = "temporarily_unavailable" }, statusCode: 503); }
     }
 
-    private static object Reveal(CreatedServiceClient created, ServiceIdentityOptions options) => new
-    {
-        client = ServicePrincipalRegistry.Metadata(created.Principal, created.CredentialExpiresAtUtc) with { CredentialRevision = created.CredentialRevision },
-        clientSecret = created.ClientSecret, issuer = options.Issuer, tokenEndpoint = options.ApiBaseUrl.TrimEnd('/') + "/connect/token", audience = options.Audience,
-        scopes = ServicePrincipalRegistry.ReadArray(created.Principal.AllowedScopesJson),
-        dockerEnvironmentExample = $"# RatelDesk deployment-managed provisioning alternative: use a DISTINCT client ID to avoid shadowing this web-managed client.\nServiceIdentity__Enabled=true\nServiceIdentity__Issuer={options.Issuer}\nServiceIdentity__ApiBaseUrl={options.ApiBaseUrl}\nServiceIdentity__WebBaseUrl={options.WebBaseUrl}\nServiceIdentity__Audience={options.Audience}\nServiceIdentity__InstanceId={options.InstanceId}\nServiceIdentity__Clients__0__ClientId=<distinct-deployment-client-id>\nServiceIdentity__Clients__0__ClientSecret=<new-independent-random-secret>\nServiceIdentity__Clients__0__OrganizationId={created.Principal.OrganizationId}\nServiceIdentity__Clients__0__PeerInstanceId={created.Principal.PeerInstanceId}\nServiceIdentity__Clients__0__PeerTenantId={created.Principal.PeerTenantId}\n" + string.Join('\n', ServicePrincipalRegistry.ReadArray(created.Principal.AllowedScopesJson).Select((scope, i) => $"ServiceIdentity__Clients__0__Scopes__{i}={scope}")) + "\n" + string.Join('\n', ServicePrincipalRegistry.ReadArray(created.Principal.CustomerIdsJson).Select((customer, i) => $"ServiceIdentity__Clients__0__CustomerIds__{i}={customer}")) + (created.Principal.SourceInstanceId is null ? "" : $"\nServiceIdentity__Clients__0__SourceInstanceId={created.Principal.SourceInstanceId:D}") + $"\nServiceIdentity__Clients__0__ResourceConstraintsJson='{created.Principal.ResourceConstraintsJson}'"
-    };
-    private static IResult Conflict(string message) => Results.Conflict(new { code = "service-client-conflict", error = message });
     private static void NoStore(HttpContext http) { http.Response.Headers.CacheControl = "no-store"; http.Response.Headers.Pragma = "no-cache"; }
 }

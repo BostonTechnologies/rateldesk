@@ -64,12 +64,13 @@ public sealed class IncidentReceiverAuthorization(HelpdeskDbContext db, RatelDes
             credential.RevokedAtUtc is not null || credential.ExpiresAtUtc <= time.GetUtcNow() ||
             !await identity.Users.AnyAsync(x => x.Id == credential.OwnerUserId && x.IsEnabled, ct)) return null;
 
-        var source = await (from sourceRow in db.IncidentReceiverSources.AsNoTracking()
+        var candidates = await (from sourceRow in db.IncidentReceiverSources.AsNoTracking()
                             join binding in db.IncidentReceiverPrincipalBindings.AsNoTracking()
                                 on sourceRow.SourceNamespaceId equals binding.SourceNamespaceId
                             where sourceRow.SourceInstanceId == sourceInstanceId && sourceRow.IsEnabled && binding.IsEnabled &&
                                   binding.PrincipalKind == "api_credential" && binding.PrincipalId == id.ToString("N")
-                            select sourceRow).SingleOrDefaultAsync(ct);
+                            select sourceRow).Take(2).ToListAsync(ct);
+        var source = candidates.Count == 1 ? candidates[0] : null;
         if (source is null || credential.OrganizationId != source.OrganizationId) return null;
         var approved = await ResolveEnabledMappingAsync(source, ct);
         if (approved is null) return null;

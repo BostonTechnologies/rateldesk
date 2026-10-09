@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Infrastructure.Orchestration;
+using Helpdesk.Infrastructure.Pairing;
 using Helpdesk.Shared.DTOs.Orchestration;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -16,7 +17,7 @@ public sealed class OrchestrationInternalClientTests
     {
         var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.OK));
         var clientFactory = Substitute.For<IHttpClientFactory>();
-        clientFactory.CreateClient("OrchestrationInternalApi").Returns(new HttpClient(handler));
+        clientFactory.CreateClient(PairingTransport.ClientName).Returns(new HttpClient(handler));
         var tokenService = Substitute.For<IOrchestrationTokenService>();
         tokenService.GetAccessTokenAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<CancellationToken>()).Returns("token");
         var client = new OrchestrationInternalClient(clientFactory, tokenService, NullLogger<OrchestrationInternalClient>.Instance);
@@ -32,7 +33,7 @@ public sealed class OrchestrationInternalClientTests
             Content = new StringContent("<html>public home page</html>")
         });
         var clientFactory = Substitute.For<IHttpClientFactory>();
-        clientFactory.CreateClient("OrchestrationInternalApi").Returns(new HttpClient(handler));
+        clientFactory.CreateClient(PairingTransport.ClientName).Returns(new HttpClient(handler));
         var tokenService = Substitute.For<IOrchestrationTokenService>();
         tokenService.GetAccessTokenAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<CancellationToken>()).Returns("token");
         var client = new OrchestrationInternalClient(clientFactory, tokenService, NullLogger<OrchestrationInternalClient>.Instance);
@@ -51,7 +52,7 @@ public sealed class OrchestrationInternalClientTests
             Content = new StringContent("""{"message":"client_secret=secret authorization: Bearer provider-token"}""")
         });
         var clientFactory = Substitute.For<IHttpClientFactory>();
-        clientFactory.CreateClient("OrchestrationInternalApi").Returns(new HttpClient(handler));
+        clientFactory.CreateClient(PairingTransport.ClientName).Returns(new HttpClient(handler));
         var tokenService = Substitute.For<IOrchestrationTokenService>();
         tokenService.GetAccessTokenAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<CancellationToken>()).Returns("token");
         var client = new OrchestrationInternalClient(clientFactory, tokenService, NullLogger<OrchestrationInternalClient>.Instance);
@@ -78,7 +79,7 @@ public sealed class OrchestrationInternalClientTests
             }))
         });
         var clientFactory = Substitute.For<IHttpClientFactory>();
-        clientFactory.CreateClient("OrchestrationInternalApi").Returns(new HttpClient(handler));
+        clientFactory.CreateClient(PairingTransport.ClientName).Returns(new HttpClient(handler));
         var tokenService = Substitute.For<IOrchestrationTokenService>();
         tokenService.GetAccessTokenAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<CancellationToken>()).Returns("token");
         var client = new OrchestrationInternalClient(clientFactory, tokenService, NullLogger<OrchestrationInternalClient>.Instance);
@@ -141,7 +142,7 @@ public sealed class OrchestrationInternalClientTests
             }))
         });
         var clientFactory = Substitute.For<IHttpClientFactory>();
-        clientFactory.CreateClient("OrchestrationInternalApi").Returns(new HttpClient(handler));
+        clientFactory.CreateClient(PairingTransport.ClientName).Returns(new HttpClient(handler));
         var tokenService = Substitute.For<IOrchestrationTokenService>();
         tokenService.GetAccessTokenAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<CancellationToken>()).Returns("token");
         var client = new OrchestrationInternalClient(clientFactory, tokenService, NullLogger<OrchestrationInternalClient>.Instance);
@@ -161,7 +162,7 @@ public sealed class OrchestrationInternalClientTests
             Content = new StringContent("""{"executionId":"99","status":"provider-specific-state"}""")
         });
         var clientFactory = Substitute.For<IHttpClientFactory>();
-        clientFactory.CreateClient("OrchestrationInternalApi").Returns(new HttpClient(handler));
+        clientFactory.CreateClient(PairingTransport.ClientName).Returns(new HttpClient(handler));
         var tokenService = Substitute.For<IOrchestrationTokenService>();
         tokenService.GetAccessTokenAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<CancellationToken>()).Returns("token");
         var client = new OrchestrationInternalClient(clientFactory, tokenService, NullLogger<OrchestrationInternalClient>.Instance);
@@ -258,7 +259,7 @@ public sealed class OrchestrationInternalClientTests
     private static OrchestrationInternalClient Client(HttpMessageHandler handler)
     {
         var factory = Substitute.For<IHttpClientFactory>();
-        factory.CreateClient("OrchestrationInternalApi").Returns(new HttpClient(handler));
+        factory.CreateClient(PairingTransport.ClientName).Returns(new HttpClient(handler));
         var tokens = Substitute.For<IOrchestrationTokenService>();
         tokens.GetAccessTokenAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<CancellationToken>()).Returns("token");
         return new OrchestrationInternalClient(factory, tokens, NullLogger<OrchestrationInternalClient>.Instance);
@@ -272,7 +273,7 @@ public sealed class OrchestrationInternalClientTests
             Content = new StringContent("""{"message":"request definition rejected"}""")
         });
         var clientFactory = Substitute.For<IHttpClientFactory>();
-        clientFactory.CreateClient("OrchestrationInternalApi").Returns(new HttpClient(handler));
+        clientFactory.CreateClient(PairingTransport.ClientName).Returns(new HttpClient(handler));
         var tokenService = Substitute.For<IOrchestrationTokenService>();
         tokenService.GetAccessTokenAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<CancellationToken>()).Returns("token");
         var client = new OrchestrationInternalClient(clientFactory, tokenService, NullLogger<OrchestrationInternalClient>.Instance);
@@ -288,7 +289,7 @@ public sealed class OrchestrationInternalClientTests
             Content = new StringContent(new string('x', 1024 * 1024 + 1))
         });
         var clientFactory = Substitute.For<IHttpClientFactory>();
-        clientFactory.CreateClient("OrchestrationInternalApi").Returns(new HttpClient(handler));
+        clientFactory.CreateClient(PairingTransport.ClientName).Returns(new HttpClient(handler));
         var tokenService = Substitute.For<IOrchestrationTokenService>();
         tokenService.GetAccessTokenAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<CancellationToken>()).Returns("token");
         var client = new OrchestrationInternalClient(clientFactory, tokenService, NullLogger<OrchestrationInternalClient>.Instance);
@@ -304,7 +305,7 @@ public sealed class OrchestrationInternalClientTests
         var sent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var handler = new BlockingHandler(sent);
         var clientFactory = Substitute.For<IHttpClientFactory>();
-        clientFactory.CreateClient("OrchestrationInternalApi").Returns(new HttpClient(handler));
+        clientFactory.CreateClient(PairingTransport.ClientName).Returns(new HttpClient(handler));
         var tokenService = Substitute.For<IOrchestrationTokenService>();
         tokenService.GetAccessTokenAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<CancellationToken>()).Returns("token");
         var client = new OrchestrationInternalClient(clientFactory, tokenService, NullLogger<OrchestrationInternalClient>.Instance);
@@ -327,7 +328,7 @@ public sealed class OrchestrationInternalClientTests
             Content = new StringContent("""{"executionId":"99","status":"Accepted"}""")
         });
         var clientFactory = Substitute.For<IHttpClientFactory>();
-        clientFactory.CreateClient("OrchestrationInternalApi").Returns(new HttpClient(handler));
+        clientFactory.CreateClient(PairingTransport.ClientName).Returns(new HttpClient(handler));
         var tokenService = Substitute.For<IOrchestrationTokenService>();
         tokenService.GetAccessTokenAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<CancellationToken>()).Returns("token");
         var client = new OrchestrationInternalClient(clientFactory, tokenService, NullLogger<OrchestrationInternalClient>.Instance);
@@ -342,6 +343,7 @@ public sealed class OrchestrationInternalClientTests
     {
         Enabled = true,
         BaseUrl = "https://netratel.example.test",
+        Pairing = new("synthetic-tenant", "17", Guid.NewGuid().ToString("D"), Guid.NewGuid().ToString("D"), 1),
         TokenEndpoint = "https://netratel.example.test/connect/token",
         Scope = "netratel.api",
         ClientId = "client",

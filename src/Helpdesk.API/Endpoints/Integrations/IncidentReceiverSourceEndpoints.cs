@@ -38,6 +38,10 @@ public static class IncidentReceiverSourceEndpoints
                 return IncidentReceiverContract.Problem(400, "invalid-source-registration");
             var actor = http.User.FindFirstValue(ClaimTypes.NameIdentifier);
             if (string.IsNullOrEmpty(actor)) return Results.Forbid();
+            if (await (from existing in db.IncidentReceiverSources
+                       join binding in db.IncidentReceiverPrincipalBindings on existing.SourceNamespaceId equals binding.SourceNamespaceId
+                       where existing.SourceInstanceId == request.SourceInstanceId && binding.PrincipalKind == "api_credential"
+                       select existing).AnyAsync(ct)) return IncidentReceiverContract.Problem(409, "source-already-registered");
             var source = new IncidentReceiverSource
             {
                 SourceNamespaceId = Guid.NewGuid(), SourceInstanceId = request.SourceInstanceId,

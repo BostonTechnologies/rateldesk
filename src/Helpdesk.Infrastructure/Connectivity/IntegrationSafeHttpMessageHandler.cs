@@ -14,27 +14,11 @@ public static class IntegrationSafeHttpMessageHandler
     public static SocketsHttpHandler Create(bool allowPrivateHttp = false, Uri? protocolEndpoint = null)
         => CreateCore(allowPrivateHttp, protocolEndpoint, null);
 
-    public static SocketsHttpHandler CreateServiceLink(Func<bool>? currentAllowPrivateHttp = null, bool allowPrivateHttp = false)
-        => CreateServiceLinkCore(currentAllowPrivateHttp, allowPrivateHttp, null);
-
-    internal static SocketsHttpHandler CreateServiceLinkCore(
-        Func<bool>? currentAllowPrivateHttp,
-        bool allowPrivateHttp,
-        IntegrationConnectionHooks? hooks)
-    {
-        var handler = CreateCore(allowPrivateHttp, null, hooks, currentAllowPrivateHttp, serviceLink: true);
-        // An approved private HTTPS socket cannot survive opt-in removal.
-        handler.PooledConnectionLifetime = TimeSpan.Zero;
-        handler.PooledConnectionIdleTimeout = TimeSpan.Zero;
-        return handler;
-    }
-
     internal static SocketsHttpHandler CreateCore(
         bool allowPrivateHttp,
         Uri? protocolEndpoint,
         IntegrationConnectionHooks? hooks,
-        Func<bool>? currentAllowPrivateHttp = null,
-        bool serviceLink = false)
+        Func<bool>? currentAllowPrivateHttp = null)
     {
         var handler = new SocketsHttpHandler
         {
@@ -42,7 +26,7 @@ public static class IntegrationSafeHttpMessageHandler
             UseProxy = false,
             ConnectTimeout = TimeSpan.FromSeconds(10)
         };
-        handler.ConnectCallback = (context, cancellationToken) => ConnectAsync(context, cancellationToken, allowPrivateHttp, protocolEndpoint, hooks, currentAllowPrivateHttp, serviceLink);
+        handler.ConnectCallback = (context, cancellationToken) => ConnectAsync(context, cancellationToken, allowPrivateHttp, protocolEndpoint, hooks, currentAllowPrivateHttp);
         return handler;
     }
 
@@ -100,8 +84,7 @@ public static class IntegrationSafeHttpMessageHandler
         bool defaultAllowPrivateHttp,
         Uri? protocolEndpoint,
         IntegrationConnectionHooks? hooks,
-        Func<bool>? currentAllowPrivateHttp,
-        bool serviceLink)
+        Func<bool>? currentAllowPrivateHttp )
     {
         var request = context.InitialRequestMessage;
         var requestUri = request?.RequestUri
@@ -113,9 +96,7 @@ public static class IntegrationSafeHttpMessageHandler
         var addresses = await ResolveAddressesAsync(context.DnsEndPoint.Host, cancellationToken, hooks);
         // A reload during DNS resolution must also remove the old request's opt-in.
         if (currentAllowPrivateHttp is not null) allowPrivateHttp = currentAllowPrivateHttp();
-        if (serviceLink)
-            IntegrationEndpointPolicy.ValidateServiceLinkResolvedAddresses(requestUri, addresses, "Service link endpoint", allowPrivateHttp);
-        else if (protocolEndpoint is null)
+        if (protocolEndpoint is null)
             IntegrationEndpointPolicy.ValidateResolvedAddresses(requestUri, addresses, "Outbound integration endpoint", allowPrivateHttp);
         else
             IntegrationEndpointPolicy.ValidateSignalRResolvedAddresses(protocolEndpoint, requestUri, addresses, "Netclaw SignalR endpoint", allowPrivateHttp);
@@ -126,9 +107,7 @@ public static class IntegrationSafeHttpMessageHandler
             if (currentAllowPrivateHttp is not null)
             {
                 allowPrivateHttp = currentAllowPrivateHttp();
-                if (serviceLink)
-                    IntegrationEndpointPolicy.ValidateServiceLinkResolvedAddresses(requestUri, addresses, "Service link endpoint", allowPrivateHttp);
-                else if (protocolEndpoint is null)
+                if (protocolEndpoint is null)
                     IntegrationEndpointPolicy.ValidateResolvedAddresses(requestUri, addresses, "Outbound integration endpoint", allowPrivateHttp);
                 else
                     IntegrationEndpointPolicy.ValidateSignalRResolvedAddresses(protocolEndpoint, requestUri, addresses, "Netclaw SignalR endpoint", allowPrivateHttp);

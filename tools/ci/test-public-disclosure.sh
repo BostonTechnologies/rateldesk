@@ -26,6 +26,8 @@ expect_rejected() {
 
 accepted="$(new_fixture accepted)"
 printf '%s\n' \
+  'bostec.pairing.v1' \
+  'bostec-pairing.v1.md' \
   'bostec.service-link.v1' \
   'bostec.service-link.incident-only.v1' \
   'bostec-service-link.incident-only.v1' \
@@ -36,6 +38,11 @@ printf '%s\n' \
 printf '\0%s\0%s\0' 'bostec.service-link.incident-only.v1' 'bostec-service-link.incident-only.v1.json' > "$accepted/public.bin"
 git -C "$accepted" add README.md public.bin
 (cd "$accepted" && bash tools/ci/check-public-disclosure.sh) >/dev/null
+
+near_pairing="$(new_fixture near-pairing)"
+printf '%s%s\n' 'bos' 'tec.pairing.v10' >> "$near_pairing/README.md"
+git -C "$near_pairing" add README.md
+expect_rejected "$near_pairing"
 
 near_capability="$(new_fixture near-capability)"
 printf '%s%s\n' 'bos' 'tec.service-link.incident-only.v10' >> "$near_capability/README.md"

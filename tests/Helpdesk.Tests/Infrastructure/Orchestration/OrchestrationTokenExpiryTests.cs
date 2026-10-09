@@ -1,10 +1,12 @@
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Infrastructure.Orchestration;
+using Helpdesk.Infrastructure.Pairing;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Helpdesk.Tests.Infrastructure.Orchestration;
@@ -78,8 +80,8 @@ public sealed class OrchestrationTokenExpiryTests
     }
 
     // This fixture exercises the production token service against actual HTTP
-    // through TestServer. Its draft profile and synthetic OAuth endpoint make
-    // no claim about reciprocal consent or published-peer acceptance.
+    // through TestServer. Its authority seam isolates token lifetime behavior;
+    // the HTTP endpoint is synthetic and does not claim real peer acceptance.
     private sealed class TokenEndpointFixture : IAsyncDisposable
     {
         private const string ClientId = "synthetic-client";
@@ -95,9 +97,10 @@ public sealed class OrchestrationTokenExpiryTests
         private long nextResponseAdvanceTicks;
         private readonly OrchestrationResolvedSettings settings = new()
         {
-            Source = "draft", Enabled = true, Authority = "https://issuer.example.test",
-            TokenEndpoint = "https://issuer.example.test/connect/token", BaseUrl = "https://api.example.test",
-            ClientId = ClientId, ClientSecret = ClientSecret, Scope = Scope, Audience = "synthetic-api"
+            Source = "pairing", Enabled = true, Authority = "https://issuer.example.test",
+            TokenEndpoint = "https://issuer.example.test/connect/token", BaseUrl = "https://issuer.example.test",
+            ClientId = ClientId, ClientSecret = ClientSecret, Scope = Scope, Audience = "synthetic-api",
+            Pairing = new("local", "17", Guid.NewGuid().ToString("D"), Guid.NewGuid().ToString("D"), 1)
         };
 
         private TokenEndpointFixture(WebApplication app, int? expiresIn)
@@ -105,7 +108,7 @@ public sealed class OrchestrationTokenExpiryTests
             this.app = app; this.expiresIn = expiresIn;
             client = app.GetTestClient();
             client.BaseAddress = new Uri("https://issuer.example.test");
-            tokens = new(new EndpointClientFactory(client), cache, Clock);
+            tokens = new(new EndpointClientFactory(client), cache, Clock, app.Services.GetRequiredService<IServiceScopeFactory>());
         }
 
         public TokenClock Clock { get; } = new();
@@ -118,6 +121,7 @@ public sealed class OrchestrationTokenExpiryTests
         {
             var builder = WebApplication.CreateBuilder();
             builder.WebHost.UseTestServer();
+            builder.Services.AddSingleton<IPairingBusinessAuthority, CurrentSyntheticAuthority>();
             var app = builder.Build();
             TokenEndpointFixture? fixture = null;
             app.MapPost("/connect/token", (HttpRequest request) => fixture!.RespondAsync(request));
@@ -149,8 +153,12 @@ public sealed class OrchestrationTokenExpiryTests
 
         private sealed class EndpointClientFactory(HttpClient client) : IHttpClientFactory
         {
-            public HttpClient CreateClient(string name) => name == "OrchestrationToken"
+            public HttpClient CreateClient(string name) => name == PairingTransport.ClientName
                 ? client : throw new InvalidOperationException("Unexpected token client.");
+        }
+        private sealed class CurrentSyntheticAuthority : IPairingBusinessAuthority
+        {
+            public Task RequireCurrentAsync(OrchestrationResolvedSettings expected, CancellationToken ct) => Task.CompletedTask;
         }
     }
 

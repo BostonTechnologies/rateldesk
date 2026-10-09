@@ -20,8 +20,9 @@ def main(path: str) -> None:
         "IncidentReceiverConformanceTests": False,
         "ServiceIdentityHttpTests": True,
         "ManagedOrchestrationCallbackHttpTests": True,
-        "ServiceLinkLifecycleTests": True,
-        "ServiceLinkCanonicalJsonTests": False,
+        "PairingServiceTests": True,
+        "PairingEndpointTests": False,
+        "PairingUpgradeTests": True,
         "ServiceIdentityMigrationTests": True,
     }
     for name, requires_providers in classes.items():

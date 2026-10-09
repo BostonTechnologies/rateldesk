@@ -109,18 +109,18 @@ public sealed class RequestTaskLifecycleService(
             return task;
         }
 
-        var settings = await _orchestrationConnectivityService.GetResolvedOrchestrationSettingsAsync(ct);
+        var settings = await _orchestrationConnectivityService.GetResolvedOrchestrationSettingsAsync(task.OrganizationId, Guid.TryParse(task.OrchestrationLinkId, out var selectedConnection) ? selectedConnection : null, ct);
         if (!settings.Enabled)
         {
             return await HandleAutomationSubmissionFailureAsync(task, "External orchestration disabled", correlationId, ct);
         }
-        if (settings.ServiceLink is { } linked)
+        if (settings.Pairing is { } linked)
         {
             if (task.OrganizationId != linked.LocalTenantId)
-                return await HandleAutomationSubmissionFailureAsync(task, "The service link does not authorize this task organization", correlationId, ct);
-            task.OrchestrationLinkId = linked.LinkId;
+                return await HandleAutomationSubmissionFailureAsync(task, "The system connection does not authorize this task organization", correlationId, ct);
+            task.OrchestrationLinkId = linked.MappingId;
             task.OrchestrationPeerInstanceId = linked.PeerInstanceId;
-            task.OrchestrationLinkRevision = linked.LinkRevision;
+            task.OrchestrationLinkRevision = linked.MappingRevision;
             await _requestTasks.UpdateAsync(task);
         }
 
@@ -672,6 +672,7 @@ public sealed class RequestTaskLifecycleService(
             return null;
         }
 
+        if (binding.SystemConnectionId is { } connection) task.OrchestrationLinkId = connection.ToString("D");
         if (binding.SyncState != AutomationBindingSyncState.Broken)
         {
             return binding.SyncState;

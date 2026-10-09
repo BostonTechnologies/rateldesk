@@ -53,10 +53,9 @@ public sealed class ServiceIdentityAuthenticationHandler(IOptionsMonitor<Authent
                 NameClaimType = "client_id", RoleClaimType = "service_role_unused"
             }, out _);
             foreach (var name in new[] { "sub", "client_id", "token_use", "auth_mode", ServiceIdentityClaims.PrincipalId, ServiceIdentityClaims.CredentialRevision, ServiceIdentityClaims.GrantRevision,
-                         ServiceIdentityClaims.OrganizationId, ServiceIdentityClaims.PeerInstanceId, ServiceIdentityClaims.PeerTenantId, ServiceIdentityClaims.LinkRevision, "scope", "target_instance_id", "target_tenant_id", "caller_instance_id", "caller_tenant_id" })
+                         ServiceIdentityClaims.OrganizationId, ServiceIdentityClaims.PeerInstanceId, ServiceIdentityClaims.PeerTenantId, ServiceIdentityClaims.MappingRevision, "scope", "target_instance_id", "target_tenant_id", "caller_instance_id", "caller_tenant_id" })
                 if (principal.FindAll(name).Count() != 1) return AuthenticateResult.Fail("Ambiguous service identity.");
-            foreach (var name in new[] { ServiceIdentityClaims.LinkId, ServiceIdentityClaims.AttemptId, ServiceIdentityClaims.GrantHash, ServiceIdentityClaims.DirectionId })
-                if (principal.FindAll(name).Count() > 1) return AuthenticateResult.Fail("Ambiguous service link binding.");
+            if (principal.FindAll(ServiceIdentityClaims.MappingId).Count() != 1) return AuthenticateResult.Fail("Ambiguous connection mapping.");
             if (principal.FindFirstValue("target_instance_id") != settings.InstanceId || principal.FindFirstValue("target_tenant_id") != principal.FindFirstValue(ServiceIdentityClaims.OrganizationId) ||
                 principal.FindFirstValue("caller_instance_id") != principal.FindFirstValue(ServiceIdentityClaims.PeerInstanceId) || principal.FindFirstValue("caller_tenant_id") != principal.FindFirstValue(ServiceIdentityClaims.PeerTenantId)) return AuthenticateResult.Fail("Wrong service instance or tenant.");
             if (await registry.ResolvePrincipalAsync(principal, null, Context.RequestAborted) is null) return AuthenticateResult.Fail("The current service grant is unavailable.");

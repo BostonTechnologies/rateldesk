@@ -3,12 +3,11 @@ using Helpdesk.Application.Messaging;
 using Helpdesk.Application.RequestTasks;
 using Helpdesk.Application.WorkLogs;
 using Helpdesk.Application.Workflow;
-using Helpdesk.Infrastructure.Configuration;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.ServiceIdentity;
 using Helpdesk.Shared.DTOs.Orchestration;
 using Helpdesk.Shared.Models;
-using Helpdesk.Shared.ServiceLink;
+using Helpdesk.Shared.Pairing;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -39,7 +38,7 @@ public static class OrchestrationCallbackEndpoints
         var group = app.MapGroup(prefix).WithTags(tag);
 
         group.MapPost("/callback", HandleCallbackAsync)
-            .RequireAuthorization("OrchestrationM2MOnly")
+            .RequireAuthorization("PairingCallbackOnly")
             .Produces(StatusCodes.Status204NoContent)
             .Produces(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status401Unauthorized)
@@ -48,49 +47,15 @@ public static class OrchestrationCallbackEndpoints
 
         group.MapGet("/m2m/ping", async (
             HttpContext httpContext,
-            IOptions<OrchestrationM2MOptions> orchestrationOptions,
             CancellationToken ct) =>
         {
-            var machine = ServicePrincipalRegistry.IsMachinePrincipal(httpContext.User);
-            var registration = machine
-                ? await httpContext.RequestServices.GetRequiredService<IServicePrincipalRegistry>()
-                    .ResolvePrincipalAsync(httpContext.User, ServiceIdentityScopes.Callback, ct) : null;
-            var callerClientId = machine ? registration?.ClientId : GetCallerClientId(httpContext.User);
-            if (string.IsNullOrWhiteSpace(callerClientId)
-                || (machine ? registration is null : !IsCallerAllowed(callerClientId, orchestrationOptions.Value.AllowedCallerClientIds)))
-            {
-                return Results.StatusCode(StatusCodes.Status403Forbidden);
-            }
-
-            var user = httpContext.User;
+            var registration = await httpContext.RequestServices.GetRequiredService<IServicePrincipalRegistry>().ResolvePrincipalAsync(httpContext.User, ServiceIdentityScopes.Callback, ct);
+            if (registration is null) return Results.StatusCode(403);
             httpContext.Response.Headers.CacheControl = "no-store";
-            if (machine)
-                return Results.Ok(new { service = "Helpdesk.API", client_id = callerClientId,
-                    organization_id = registration!.OrganizationId, peer_instance_id = registration.PeerInstanceId,
-                    peer_tenant_id = registration.PeerTenantId, link_id = registration.LinkId,
-                    link_revision = registration.LinkRevision });
-            var issuer = user.FindFirst("iss")?.Value;
-            var audienceValues = user.FindAll("aud").Select(c => c.Value).ToArray();
-            var audience = audienceValues.Length switch
-            {
-                0 => null,
-                1 => audienceValues[0],
-                _ => string.Join(' ', audienceValues)
-            };
-            var claims = user.Claims
-                .GroupBy(c => c.Type, StringComparer.Ordinal)
-                .ToDictionary(g => g.Key, g => g.Select(c => c.Value).ToArray(), StringComparer.Ordinal);
-
-            return Results.Ok(new
-            {
-                service = "Helpdesk.API",
-                issuer,
-                audience,
-                client_id = callerClientId,
-                claims
-            });
+            return Results.Ok(new { service = "Helpdesk.API", client_id = registration.ClientId, organization_id = registration.OrganizationId,
+                peer_instance_id = registration.PeerInstanceId, peer_tenant_id = registration.PeerTenantId, mapping_id = registration.MappingId, mapping_revision = registration.MappingRevision });
         })
-        .RequireAuthorization("OrchestrationM2MOnly")
+        .RequireAuthorization("PairingCallbackOnly")
         .Produces(StatusCodes.Status200OK)
         .Produces(StatusCodes.Status401Unauthorized)
         .Produces(StatusCodes.Status403Forbidden);
@@ -101,7 +66,6 @@ public static class OrchestrationCallbackEndpoints
         HttpContext httpContext,
         HelpdeskDbContext db,
         IRequestTaskStateService requestTaskStateService,
-        IOptions<OrchestrationM2MOptions> orchestrationOptions,
         IDomainEventPublisher domainEvents,
         ICorrelationContext correlationContext,
         IRequestSender sender,
@@ -110,11 +74,8 @@ public static class OrchestrationCallbackEndpoints
     {
         var correlationId = GetCorrelationId(correlationContext);
         httpContext.Response.Headers.CacheControl = "no-store";
-        var machine = ServicePrincipalRegistry.IsMachinePrincipal(httpContext.User);
-        var registration = machine
-            ? await httpContext.RequestServices.GetRequiredService<IServicePrincipalRegistry>()
-                .ResolvePrincipalAsync(httpContext.User, ServiceIdentityScopes.Callback, ct) : null;
-        var callerClientId = machine ? registration?.ClientId : GetCallerClientId(httpContext.User);
+        var registration = await httpContext.RequestServices.GetRequiredService<IServicePrincipalRegistry>().ResolvePrincipalAsync(httpContext.User, ServiceIdentityScopes.Callback, ct);
+        var callerClientId = registration?.ClientId;
         if (string.IsNullOrWhiteSpace(callerClientId))
         {
             await PublishRejectedAsync(
@@ -126,7 +87,7 @@ public static class OrchestrationCallbackEndpoints
             return Results.StatusCode(StatusCodes.Status403Forbidden);
         }
 
-        if (machine ? registration is null : !IsCallerAllowed(callerClientId, orchestrationOptions.Value.AllowedCallerClientIds))
+        if (registration is null)
         {
             await PublishRejectedAsync(
                 domainEvents,
@@ -148,9 +109,7 @@ public static class OrchestrationCallbackEndpoints
             return Results.BadRequest();
         }
 
-        var task = machine
-            ? await ResolveManagedTaskAsync(db, dto, registration!, ct)
-            : await ResolveTaskAsync(db, dto, ct);
+        var task = await ResolveManagedTaskAsync(db, dto, registration!, ct);
         if (task is null)
         {
             await PublishRejectedAsync(
@@ -159,7 +118,7 @@ public static class OrchestrationCallbackEndpoints
                 callerClientId,
                 correlationId,
                 ct);
-            return machine ? Results.StatusCode(StatusCodes.Status403Forbidden) : Results.NotFound();
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
         }
 
         var incomingStatus = NormalizeStatus(dto.Status);
@@ -347,79 +306,8 @@ public static class OrchestrationCallbackEndpoints
         return normalized is "running" or "succeeded" or "failed" ? normalized : null;
     }
 
-    private static bool IsCallerAllowed(string callerClientId, IReadOnlyCollection<string> allowedCallerClientIds)
-    {
-        if (allowedCallerClientIds.Count == 0)
-        {
-            return false;
-        }
-
-        return allowedCallerClientIds
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Any(x => string.Equals(x.Trim(), callerClientId, StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static string GetCorrelationId(ICorrelationContext correlationContext)
-    {
-        return correlationContext.GetCorrelationId() ?? $"corr-{Guid.NewGuid():N}";
-    }
-
-    private static string? GetCallerClientId(ClaimsPrincipal principal)
-    {
-        var azp = principal.FindFirst("azp")?.Value;
-        if (!string.IsNullOrWhiteSpace(azp))
-        {
-            return azp;
-        }
-
-        var clientId = principal.FindFirst("client_id")?.Value;
-        return string.IsNullOrWhiteSpace(clientId) ? null : clientId;
-    }
-
-    private static bool HasTaskIdentifier(OrchestrationCallbackDto dto)
-    {
-        return !string.IsNullOrWhiteSpace(dto.RequestTaskId)
-               || !string.IsNullOrWhiteSpace(dto.ExecutionId)
-               || !string.IsNullOrWhiteSpace(dto.OrchestrationRunId)
-               || !string.IsNullOrWhiteSpace(dto.OrchestrationRequestId)
-               || !string.IsNullOrWhiteSpace(dto.RequestId);
-    }
-
-    private static async Task<RequestTask?> ResolveTaskAsync(
-        HelpdeskDbContext db,
-        OrchestrationCallbackDto dto,
-        CancellationToken ct)
-    {
-        var requestTaskId = NormalizeIdentifier(dto.RequestTaskId);
-        if (!string.IsNullOrWhiteSpace(requestTaskId))
-        {
-            return await db.RequestTasks.FirstOrDefaultAsync(
-                x => x.Id == requestTaskId,
-                ct);
-        }
-
-        var orchestrationRunId = FirstNonEmpty(dto.OrchestrationRunId, dto.ExecutionId);
-        if (!string.IsNullOrWhiteSpace(orchestrationRunId))
-        {
-            var byRun = await db.RequestTasks.FirstOrDefaultAsync(
-                x => x.OrchestrationExternalRunId == orchestrationRunId || x.OrchestratorExecutionId == orchestrationRunId,
-                ct);
-            if (byRun is not null)
-            {
-                return byRun;
-            }
-        }
-
-        var orchestrationRequestId = FirstNonEmpty(dto.OrchestrationRequestId, dto.RequestId);
-        if (!string.IsNullOrWhiteSpace(orchestrationRequestId))
-        {
-            return await db.RequestTasks.FirstOrDefaultAsync(
-                x => x.OrchestrationExternalRequestId == orchestrationRequestId,
-                ct);
-        }
-
-        return null;
-    }
+    private static string GetCorrelationId(ICorrelationContext correlationContext) => correlationContext.GetCorrelationId() ?? $"corr-{Guid.NewGuid():N}";
+    private static bool HasTaskIdentifier(OrchestrationCallbackDto dto) => !string.IsNullOrWhiteSpace(dto.RequestTaskId) || !string.IsNullOrWhiteSpace(dto.ExecutionId) || !string.IsNullOrWhiteSpace(dto.OrchestrationRunId) || !string.IsNullOrWhiteSpace(dto.OrchestrationRequestId) || !string.IsNullOrWhiteSpace(dto.RequestId);
 
     private static async Task<RequestTask?> ResolveManagedTaskAsync(HelpdeskDbContext db, OrchestrationCallbackDto dto,
         ServicePrincipalRegistration registration, CancellationToken ct)
@@ -429,27 +317,16 @@ public static class OrchestrationCallbackEndpoints
         var request = FirstNonEmpty(dto.OrchestrationRequestId, dto.RequestId);
         // Managed callbacks cannot create a missing correlation or use a client ID as a user identity.
         if (id is null || execution is null || request is null) return null;
-        ServiceLinkResourceConstraints? constraints;
-        try { constraints = JsonSerializer.Deserialize<ServiceLinkResourceConstraints>(registration.ResourceConstraintsJson); }
-        catch (JsonException) { return null; }
-        if (constraints is null || constraints.OrganizationId != registration.OrganizationId ||
-            constraints.RequestIds is null || constraints.TaskIds is null || constraints.CustomerIds is null) return null;
-        var tasks = db.RequestTasks.Where(x => x.Id == id && x.OrganizationId == registration.OrganizationId);
-        if (registration.LinkId is not null)
-            tasks = tasks.Where(x => x.OrchestrationLinkId == registration.LinkId && x.OrchestrationPeerInstanceId == registration.PeerInstanceId &&
-                x.OrchestrationLinkRevision == registration.LinkRevision);
-        else if (constraints.RequestIds.Length == 0 || constraints.TaskIds.Length == 0)
-            return null; // Manual callback credentials require explicit recorded task/request grants.
+        if (registration.MappingId is not { } mappingId) return null;
+        var mapping = mappingId.ToString("D");
+        var tasks = db.RequestTasks.Where(x => x.Id == id && x.OrganizationId == registration.OrganizationId &&
+            x.OrchestrationLinkId == mapping && x.OrchestrationPeerInstanceId == registration.PeerInstanceId && x.OrchestrationLinkRevision == registration.MappingRevision);
         var task = await tasks.FirstOrDefaultAsync(ct);
         if (task is null || task.Type != RequestTaskType.Automation ||
             string.IsNullOrWhiteSpace(task.OrchestrationExternalRequestId) ||
             !string.Equals(task.OrchestrationExternalRequestId, request, StringComparison.Ordinal) ||
             !new[] { task.OrchestratorExecutionId, task.OrchestrationExternalRunId }.Any(x => !string.IsNullOrEmpty(x) && x == execution) ||
             !await db.Requests.AnyAsync(x => x.Id == task.RequestId && x.OrganizationId == registration.OrganizationId, ct)) return null;
-        if (constraints.RequestIds.Length > 0 && !constraints.RequestIds.Contains(task.RequestId, StringComparer.Ordinal) ||
-            constraints.TaskIds.Length > 0 && !constraints.TaskIds.Select(NormalizeIdentifier).Contains(task.Id, StringComparer.Ordinal) ||
-            constraints.CustomerIds.Length > 0 && !constraints.CustomerIds.Contains(task.CustomerId, StringComparer.Ordinal) ||
-            registration.LinkId is null && task.OrchestrationPeerInstanceId is not null && task.OrchestrationPeerInstanceId != registration.PeerInstanceId) return null;
         return task;
     }
 

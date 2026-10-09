@@ -3,7 +3,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Helpdesk.Application.Orchestration;
-using Helpdesk.Infrastructure.ServiceLink;
+using Helpdesk.Infrastructure.Pairing;
 using Helpdesk.Infrastructure.ServiceIdentity;
 using Helpdesk.Shared.DTOs.Orchestration;
 using Microsoft.Extensions.Logging;
@@ -14,8 +14,7 @@ namespace Helpdesk.Infrastructure.Orchestration;
 public sealed class OrchestrationInternalClient(
     IHttpClientFactory httpClientFactory,
     IOrchestrationTokenService tokenService,
-    ILogger<OrchestrationInternalClient> logger,
-    IOptionsMonitor<ServiceLinkOptions>? currentLinkOptions = null, IServicePublicSettingsResolver? publicSettings = null) : IOrchestrationInternalClient, IOrchestrationProtectedDiagnosticsClient
+    ILogger<OrchestrationInternalClient> logger) : IOrchestrationInternalClient, IOrchestrationProtectedDiagnosticsClient
 {
     private const int MaximumResponseBytes = 1024 * 1024;
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(20);
@@ -32,7 +31,7 @@ public sealed class OrchestrationInternalClient(
         using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
         await AttachAuthHeaderAsync(settings, request, cancellationToken, useTokenCache);
 
-        var client = _httpClientFactory.CreateClient(settings.ServiceLink is null ? "OrchestrationInternalApi" : ServiceLinkOutboundNetwork.BusinessClientName);
+        var client = _httpClientFactory.CreateClient(PairingTransport.ClientName);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(RequestTimeout);
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
@@ -58,7 +57,7 @@ public sealed class OrchestrationInternalClient(
         var endpoint = await BuildAbsoluteUriAsync(settings, "/api/v1/system/m2m/ping", cancellationToken);
         using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
         await AttachAuthHeaderAsync(settings, request, cancellationToken, useTokenCache);
-        var client = _httpClientFactory.CreateClient(settings.ServiceLink is null ? "OrchestrationInternalApi" : ServiceLinkOutboundNetwork.BusinessClientName);
+        var client = _httpClientFactory.CreateClient(PairingTransport.ClientName);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(RequestTimeout);
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
@@ -93,7 +92,7 @@ public sealed class OrchestrationInternalClient(
             request.Headers.Add("X-Correlation-Id", requestPayload.CorrelationId);
         await AttachAuthHeaderAsync(settings, request, cancellationToken);
 
-        var client = _httpClientFactory.CreateClient(settings.ServiceLink is null ? "OrchestrationInternalApi" : ServiceLinkOutboundNetwork.BusinessClientName);
+        var client = _httpClientFactory.CreateClient(PairingTransport.ClientName);
         var sendStarted = false;
         try
         {
@@ -295,7 +294,7 @@ public sealed class OrchestrationInternalClient(
         bool useTokenCache = true)
     {
         var accessToken = await _tokenService.GetAccessTokenAsync(settings, cancellationToken, useTokenCache);
-        ServiceLinkOutboundNetwork.PrepareRequest(request, settings, currentLinkOptions, publicSettings is null || settings.ServiceLink is null ? null : (await publicSettings.ResolveAsync(cancellationToken)).Linking);
+        PairingOutboundNetwork.PrepareRequest(request, settings);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
     }
@@ -309,7 +308,7 @@ public sealed class OrchestrationInternalClient(
         }
 
         var uri = new Uri(new Uri(baseUrl, UriKind.Absolute), path);
-        ServiceLinkOutboundNetwork.Validate(uri, "NetRatel endpoint", settings, currentLinkOptions, publicSettings is null || settings.ServiceLink is null ? null : (await publicSettings.ResolveAsync(cancellationToken)).Linking);
+        PairingOutboundNetwork.Validate(uri, "NetRatel endpoint", settings);
         return uri;
     }
 

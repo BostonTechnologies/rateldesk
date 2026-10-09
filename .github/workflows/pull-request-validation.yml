@@ -128,7 +128,7 @@ jobs:
       - name: Verify authenticated HTTP, SQLite, PostgreSQL and golden contract
         run: >-
           dotnet test tests/Helpdesk.Tests/Helpdesk.Tests.csproj --configuration Release --no-build
-          --filter "FullyQualifiedName~IncidentReceiver|FullyQualifiedName~ServiceIdentityHttpTests|FullyQualifiedName~ManagedOrchestrationCallbackHttpTests|FullyQualifiedName~ServiceLinkLifecycleTests|FullyQualifiedName~ServiceLinkCanonicalJsonTests|FullyQualifiedName~ServiceIdentityMigrationTests"
+          --filter "FullyQualifiedName~IncidentReceiver|FullyQualifiedName~ServiceIdentityHttpTests|FullyQualifiedName~ManagedOrchestrationCallbackHttpTests|FullyQualifiedName~PairingServiceTests|FullyQualifiedName~PairingEndpointTests|FullyQualifiedName~PairingUpgradeTests|FullyQualifiedName~ServiceIdentityMigrationTests"
           --logger "trx;LogFileName=incident-receiver.trx"
           --results-directory TestResults/incident-receiver
 

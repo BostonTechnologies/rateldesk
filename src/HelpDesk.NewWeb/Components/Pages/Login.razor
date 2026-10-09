@@ -107,7 +107,6 @@
         "Sign-in failed" => "Sign-in failed. Check your email and password.",
         "service-unavailable" => "Sign-in is temporarily unavailable. Please try again shortly.",
         "form-expired" => "Your sign-in form expired. Please try again.",
-        "service-link-sign-in-required" => "Sign in to review the connection. Approval resumes automatically.",
         "verification-expired" => "Your verification session expired. Enter your email and password to try again.",
         "invalid-code" when IsSecondFactorStep => "That verification code was not accepted. Please try again.",
         "code-required" when IsSecondFactorStep => "Enter your verification code to continue.",
@@ -140,7 +139,7 @@
         if (user.Identity?.IsAuthenticated != true)
             return;
 
-        Navigation.NavigateTo(ServiceLinkBrowserEndpoints.SignInDestination(HttpContextAccessor.HttpContext, Config), forceLoad: true, replace: true);
+        Navigation.NavigateTo("/home", forceLoad: true, replace: true);
     }
 
     private string EnvironmentLabel =>

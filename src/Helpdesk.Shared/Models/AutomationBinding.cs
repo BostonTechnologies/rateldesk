@@ -5,6 +5,7 @@ namespace Helpdesk.Shared.Models;
 public sealed class AutomationBinding
 {
     public string Id { get; set; } = Uuid.CreateVersion7().ToString();
+    public Guid? SystemConnectionId { get; set; }
     public string OrganizationId { get; set; } = string.Empty;
     public string RequestFormId { get; set; } = string.Empty;
     public Guid TaskTemplateId { get; set; }

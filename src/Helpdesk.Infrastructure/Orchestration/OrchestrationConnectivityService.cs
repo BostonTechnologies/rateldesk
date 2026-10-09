@@ -7,8 +7,6 @@ using Microsoft.Extensions.Options;
 namespace Helpdesk.Infrastructure.Orchestration;
 
 public sealed class OrchestrationConnectivityService(
-    IOptions<OrchestrationM2MOptions> options,
-    IOptions<M2MClientOptions> m2mClientOptions,
     IOrchestrationTokenService orchestrationTokenService,
     IOrchestrationInternalClient orchestrationClient,
     IIntegrationProviderSettingsService? providerSettings = null,
@@ -16,7 +14,6 @@ public sealed class OrchestrationConnectivityService(
 {
     private const string DefaultOrchestrationAudience = "netratel.api";
 
-    private readonly OrchestrationM2MOptions _options = options.Value;
     private readonly IOrchestrationTokenService _orchestrationTokenService = orchestrationTokenService;
     private readonly IOrchestrationInternalClient _orchestrationClient = orchestrationClient;
     private readonly IIntegrationProviderSettingsService? _providerSettings = providerSettings;
@@ -25,7 +22,7 @@ public sealed class OrchestrationConnectivityService(
     public async Task<OrchestrationConnectivitySettingsDto> GetOrchestrationSettingsAsync(CancellationToken cancellationToken = default)
         => _providerSettings is not null
             ? await _providerSettings.GetOrchestratorSettingsAsync(cancellationToken)
-            : ToDto(ToResolvedSettings());
+            : ToDto(new OrchestrationResolvedSettings());
 
     public async Task<OrchestrationConnectivityTestResultDto> TestOrchestrationConnectivityAsync(CancellationToken cancellationToken = default)
     {
@@ -43,7 +40,7 @@ public sealed class OrchestrationConnectivityService(
             return new OrchestrationConnectivityTestResultDto
             {
                 Success = false,
-                Message = "External orchestration connectivity is disabled. Enable the provider explicitly before testing it.",
+                Message = "Save a named automation system connection before testing it.",
                 Probes =
                 [
                     CreateProbe(
@@ -208,43 +205,10 @@ public sealed class OrchestrationConnectivityService(
     public async Task<OrchestrationResolvedSettings> GetResolvedOrchestrationSettingsAsync(CancellationToken cancellationToken = default)
         => _providerSettings is not null
             ? await _providerSettings.GetResolvedOrchestratorSettingsAsync(cancellationToken)
-            : ToResolvedSettings();
+            : new OrchestrationResolvedSettings();
 
-    private OrchestrationResolvedSettings ToResolvedSettings()
-    {
-        // M2MClientOptions remains bound for inbound callback authentication;
-        // it is deliberately never reused for outbound NetRatel calls.
-        _ = m2mClientOptions.Value;
-        var baseUrl = Normalize(_options.BaseUrl);
-        var authority = Normalize(_options.Authority)
-            ?? baseUrl;
-        var audience = Normalize(_options.Audience)
-            ?? DefaultOrchestrationAudience;
-        var scope = Normalize(_options.Scope) ?? audience;
-        var tokenEndpoint = Normalize(_options.TokenEndpoint)
-            ?? BuildTokenEndpoint(authority);
-        var enabled = _options.Enabled;
-
-        return new OrchestrationResolvedSettings
-        {
-            Enabled = enabled,
-            BaseUrl = baseUrl,
-            Audience = audience,
-            Authority = authority,
-            TokenEndpoint = tokenEndpoint,
-            Scope = scope,
-            ClientId = Normalize(_options.ClientId),
-            ClientSecret = Normalize(_options.ClientSecret),
-            AllowPrivateHttp = _options.AllowPrivateHttp,
-            RemoteSystemName = Normalize(_options.ProviderName) ?? "NetRatel orchestrator",
-            HealthPath = NormalizePath(_options.HealthPath, "/internal/health"),
-            IngestPath = NormalizePath(_options.IngestPath, "/internal/ingest"),
-            CatalogPath = NormalizePath(_options.CatalogPath, "/internal/catalog"),
-            Source = "deployment",
-            ManagedByDeployment = true,
-            HasClientSecret = !string.IsNullOrWhiteSpace(_options.ClientSecret)
-        };
-    }
+    public Task<OrchestrationResolvedSettings> GetResolvedOrchestrationSettingsAsync(string? organizationId, Guid? connectionId, CancellationToken cancellationToken = default)
+        => _providerSettings?.GetResolvedOrchestratorSettingsAsync(organizationId, connectionId, cancellationToken) ?? Task.FromResult(new OrchestrationResolvedSettings());
 
     private static OrchestrationConnectivitySettingsDto ToDto(OrchestrationResolvedSettings settings)
     {

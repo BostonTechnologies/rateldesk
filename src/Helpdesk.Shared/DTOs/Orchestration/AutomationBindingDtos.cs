@@ -5,6 +5,7 @@ namespace Helpdesk.Shared.DTOs.Orchestration;
 
 public sealed class AutomationBindingDto
 {
+    public Guid? SystemConnectionId { get; set; }
     public string Id { get; set; } = string.Empty;
     public string OrganizationId { get; set; } = string.Empty;
     public string RequestFormId { get; set; } = string.Empty;
@@ -29,6 +30,7 @@ public sealed class AutomationBindingDto
 
 public sealed class CreateAutomationBindingDto
 {
+    public Guid? SystemConnectionId { get; set; }
     [Required]
     public string RequestFormId { get; set; } = string.Empty;
 
@@ -45,6 +47,7 @@ public sealed class CreateAutomationBindingDto
 
 public sealed class UpdateAutomationBindingDto
 {
+    public Guid? SystemConnectionId { get; set; }
     public string? OrchestrationRequestDefinitionId { get; set; }
     public string? OrchestrationRequestDefinitionName { get; set; }
     public bool? ClearOrchestrationRequestDefinitionName { get; set; }

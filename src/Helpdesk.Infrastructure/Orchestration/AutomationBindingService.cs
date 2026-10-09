@@ -1,6 +1,7 @@
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Application.RequestTasks;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Pairing;
 using Helpdesk.Shared.DTOs.Orchestration;
 using Helpdesk.Shared.DTOs.RequestForm;
 using Helpdesk.Shared.Models;
@@ -12,7 +13,7 @@ namespace Helpdesk.Infrastructure.Orchestration;
 public sealed class AutomationBindingService(
     HelpdeskDbContext db,
     ITenantContext tenantContext,
-    IRequestFormSchemaParser schemaParser) : IAutomationBindingService
+    IRequestFormSchemaParser schemaParser, PairingConnectionResolver? connections = null) : IAutomationBindingService
 {
     private readonly HelpdeskDbContext _db = db;
     private readonly ITenantContext _tenantContext = tenantContext;
@@ -129,8 +130,11 @@ public sealed class AutomationBindingService(
             throw new InvalidOperationException("An automation binding already exists for this request form task template.");
         }
 
+        var selectedConnection = connections is null ? null : await connections.ResolveAsync(tenantId, dto.SystemConnectionId, cancellationToken);
+        if (connections is not null && selectedConnection?.Enabled != true) throw new InvalidOperationException("Save an authorized automation system connection before binding this task.");
         var binding = new AutomationBinding
         {
+            SystemConnectionId = selectedConnection?.Pairing is { } selected ? Guid.Parse(selected.MappingId) : dto.SystemConnectionId,
             OrganizationId = tenantId,
             RequestFormId = requestFormId,
             TaskTemplateId = dto.TaskTemplateId,
@@ -216,6 +220,13 @@ public sealed class AutomationBindingService(
         else if (dto.ClearLastReviewedDriftAtUtc is true)
         {
             binding.LastReviewedDriftAtUtc = null;
+        }
+
+        if (dto.SystemConnectionId is { } connectionId)
+        {
+            var selected = connections is null ? null : await connections.ResolveAsync(binding.OrganizationId, connectionId, cancellationToken);
+            if (connections is not null && selected?.Enabled != true) throw new InvalidOperationException("The selected system connection is unavailable for this organization.");
+            binding.SystemConnectionId = connectionId;
         }
 
         if (dto.Enabled.HasValue)
@@ -321,6 +332,7 @@ public sealed class AutomationBindingService(
         return new AutomationBindingDto
         {
             Id = binding.Id,
+            SystemConnectionId = binding.SystemConnectionId,
             OrganizationId = binding.OrganizationId,
             RequestFormId = binding.RequestFormId,
             RequestFormTitle = requestForm?.Title ?? string.Empty,

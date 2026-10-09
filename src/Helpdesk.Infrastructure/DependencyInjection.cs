@@ -88,8 +88,6 @@ public static class DependencyInjection
         services.AddScoped<ITenantContext, TenantContext>();
         services.Configure<StorageOptions>(configuration.GetSection("StorageOptions"));
         services.Configure<SlaReportingOptions>(configuration.GetSection("SlaReporting"));
-        services.Configure<OrchestrationM2MOptions>(configuration.GetSection("Orchestration:Provider"));
-        services.Configure<M2MClientOptions>(configuration.GetSection("M2M"));
         services.Configure<AuthentikOptions>(configuration.GetSection("Authentication:AuthentikAdmin"));
 
         services.AddSingleton(databaseOptions);

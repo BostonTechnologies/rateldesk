@@ -50,10 +50,9 @@ test.afterEach(async ({ page }) => {
   await page.evaluate(() => document.documentElement.replaceChildren());
 });
 
-test('admin UI saves and reloads PostgreSQL provider profiles without exposing protected secrets', async ({ page }, testInfo) => {
+test('admin UI saves and reloads PostgreSQL Netclaw provider profiles without exposing protected secrets', async ({ page }, testInfo) => {
   test.setTimeout(90_000);
   const netclawToken = `synthetic-e2e-netclaw-token-${randomUUID()}`;
-  const netratelSecret = `synthetic-e2e-netratel-secret-${randomUUID()}`;
 
   await page.goto('/admin/automation/integration/netclaw');
   await expect(page.getByRole('heading', { name: 'Netclaw AI harness' })).toBeVisible();
@@ -86,31 +85,4 @@ test('admin UI saves and reloads PostgreSQL provider profiles without exposing p
   await expectSecretAbsentFromPage(page, netclawToken);
   await page.screenshot({ path: testInfo.outputPath('integration-netclaw-protected-secret.png'), fullPage: true });
 
-  await page.goto('/admin/automation/integration/orchestrator');
-  await expect(page.getByRole('heading', { name: 'NetRatel orchestrator' })).toBeVisible();
-  await page.getByText('Manual outbound credentials (advanced)', { exact: true }).click();
-  const initialNetRatelRevision = Number(await settingValue(page, 'Revision'));
-
-  await page.getByLabel('Enable NetRatel automation').check();
-  await page.getByLabel('NetRatel API base URL').fill('https://netratel-e2e.invalid');
-  await page.getByLabel('Dedicated M2M client id').fill('rateldesk-e2e-client');
-  await page.getByLabel('Dedicated M2M client secret').fill(netratelSecret);
-  await page.getByRole('button', { name: 'Save settings' }).click();
-  await expect(page.getByText('NetRatel orchestrator settings saved.', { exact: true })).toBeVisible();
-  await expectSecretInputBlank(page, 'Dedicated M2M client secret');
-  await expect.poll(() => settingValue(page, 'Client secret')).toBe('Configured (protected)');
-  const savedNetRatelRevision = Number(await settingValue(page, 'Revision'));
-  expect(savedNetRatelRevision).toBeGreaterThan(initialNetRatelRevision);
-  await expectSecretAbsentFromPage(page, netratelSecret);
-
-  await page.reload();
-  await expect(page.getByRole('heading', { name: 'NetRatel orchestrator' })).toBeVisible();
-  await page.getByText('Manual outbound credentials (advanced)', { exact: true }).click();
-  await expect(page.getByLabel('NetRatel API base URL')).toHaveValue('https://netratel-e2e.invalid');
-  await expectSecretInputBlank(page, 'Dedicated M2M client secret');
-  await expect.poll(() => settingValue(page, 'Revision')).toBe(String(savedNetRatelRevision));
-  await expect.poll(() => settingValue(page, 'Client secret')).toBe('Configured (protected)');
-  await expect.poll(() => settingValue(page, 'Source')).toBe('Saved administrator profile');
-  await expectSecretAbsentFromPage(page, netratelSecret);
-  await page.screenshot({ path: testInfo.outputPath('integration-netratel-protected-secret.png'), fullPage: true });
 });
