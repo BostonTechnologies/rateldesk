@@ -2,7 +2,7 @@
 
 The authoritative contract is [rateldesk-incident-create.v1.json](rateldesk-incident-create.v1.json). The frozen semantic SHA-256 vectors are [rateldesk-incident-create.v1.fixtures.json](rateldesk-incident-create.v1.fixtures.json). Copy these exact files and this document into the producer repository before enabling delivery. Compare the file SHA-256 digests; neither a connector proposal nor successful authentication establishes receiver support.
 
-This contract is owned by RatelDesk issue #116 and consumed by NetRatel epic #141 and connector PR #152. The separate M2M interoperability work is tracked in RatelDesk issue #89. V1 advertises only `api_bearer`. It adds no reciprocal pairing UX or OAuth service credentials.
+This contract is owned by RatelDesk issue #116 and consumed by NetRatel epic #141 and connector PR #152. The receiver advertises `api_bearer` and `oauth_client_credentials`. NetRatel ↔ RatelDesk system connections use the [pairing contract](bostec-pairing.v1.md): Save provisions an authorized OAuth principal and mapping namespace, while the stable NetRatel producer and existing receipts retain their identity.
 
 ## Routes and responses
 
@@ -15,7 +15,7 @@ All routes are relative to the configured API path prefix. Configure `StorageOpt
 | Reconcile | `GET /api/v1/integrations/netratel/incident-receipts/{key}` | 200 accepted create body and Location; 404 absent key in the authorized namespace |
 | Validate target | `POST /api/v1/integrations/netratel/targets/validate` | 200 authorized normalized mapping; read-only |
 
-Keyed create requires exactly one `Idempotency-Key` and one `X-NetRatel-Source-Instance`. The source is a lowercase nonempty GUID in D form. The key is case-sensitive ASCII URI-unreserved, 1–256 characters, matching `^[A-Za-z0-9._~-]{1,256}$`. Both headers are identifiers; neither grants authority. One missing header, empty/multiple values or invalid encoding returns 400 with `invalid-integration-headers`. A valid but unknown/foreign/unbound source returns 403 `source-not-authorized`. There is no fallback to ordinary create. Existing callers with neither header retain their ordinary DTO/result and creation behavior. A managed machine identity must always use both headers through the bounded authorization seam; no machine authentication mode is enabled in this implementation.
+Keyed create requires exactly one `Idempotency-Key` and one `X-NetRatel-Source-Instance`. The source is a lowercase nonempty GUID in D form. The key is case-sensitive ASCII URI-unreserved, 1–256 characters, matching `^[A-Za-z0-9._~-]{1,256}$`. Both headers are identifiers; neither grants authority. One missing header, empty/multiple values or invalid encoding returns 400 with `invalid-integration-headers`. A valid but unknown/foreign/unbound source returns 403 `source-not-authorized`. There is no fallback to ordinary create. Existing callers with neither header retain their ordinary DTO/result and creation behavior. A paired machine identity must always use both headers and its saved mapping namespace. Current pairing, mapping, administrator, credential and incident-scope authority are checked on every use.
 
 Use the key verbatim as one unreserved path segment. Do not percent-escape, case-fold or normalize it, including the rare `.`/`..` keys. Clients must preserve dot segments instead of allowing their URI builder to resolve them. New producers should use 64-character SHA-256 keys. Encoded path variants, invalid keys and receipt query strings return 400 `invalid-idempotency-key`; an invalid source header returns 400 `invalid-source-header`. A nonexistent key's 404 does not imply an in-flight create cannot still commit. Retry with the original key.
 
@@ -25,7 +25,9 @@ The same authorized namespace/key with different submitted semantics returns 409
 
 Target validation accepts required organizationId/customerId, optional assignedToId (omitted/null means null), and optional categoryIds (omitted/null means empty). Its 200 response has contractVersion, receiverInstanceId, sourceInstanceId, sourceNamespaceId, valid=true and mapping. The mapping preserves explicit null assignment and distinct canonical GUID D category IDs sorted ordinally. Malformed/oversized input returns 400 `invalid-target-request`; unauthorized mapping returns 403 `target-not-authorized`; invalid assignee or inactive/incompatible/foreign categories return 422 `invalid-incident-target` with bounded field errors and no entity details. It creates no ticket, job, customer or notification. Validation is an observation and does not replace checks at creation.
 
-## Register and rotate a source
+## Register and rotate an API-purpose source
+
+The source registry below remains available for API-purpose callers. Pairing Save automatically provisions the system connection's namespace and principal binding; deleting that mapping revokes its authority and preserves receipts. Distinct pairing mappings may share the same durable producer identity.
 
 Use an authenticated interactive local/OIDC instance administrator. Integration credentials cannot manage this registry. Create the API-purpose credential with current incident permissions for an enabled owner and the intended organization using the existing credential management flow. Never place the opaque secret in source registration, audit logs or contract files.
 

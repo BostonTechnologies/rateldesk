@@ -108,21 +108,18 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         }
 
         Assert.True(violations.Count == 0, string.Join(Environment.NewLine, violations));
-        // Release includes service issuer/client/link, original-session continuation
-        // legacy administration, managed public settings and read-only connection testing;
+        // Release includes automatic service issuance, signed code pairing, named mappings,
+        // and the preserved Netclaw administration and business APIs;
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(416, operationCount);
+        Assert.Equal(393, operationCount);
 #else
-        Assert.Equal(415, operationCount);
+        Assert.Equal(392, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
-        Assert.True(paths.TryGetProperty("/api/v1/admin/service-links/attempts/{attemptId}/continue", out var continuationPath),
-            "The original-session continuation route must be documented.");
-        Assert.True(continuationPath.TryGetProperty("post", out var continuationOperation));
-        Assert.True(continuationOperation.GetProperty("requestBody").GetProperty("content").TryGetProperty("application/json", out _));
+        Assert.DoesNotContain(paths.EnumerateObject(), path => path.Name.Contains("service-link", StringComparison.Ordinal) || path.Name.Contains("service-clients", StringComparison.Ordinal));
         var receiverOperations = new[]
         {
             ("/api/v1/integrations/netratel/capabilities", "get"),
@@ -144,26 +141,26 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
                 ? new[] { "JwtBearer", "LocalSession" } : new[] { "IntegrationCredential", "ServiceIdentity" }, SecuritySchemes(document, path, method));
         }
         Assert.Empty(SecuritySchemes(document, "/connect/token", "post"));
-        Assert.Empty(SecuritySchemes(document, "/api/integrations/service-link/metadata", "get"));
-        Assert.Equal(["JwtBearer", "LocalSession"], SecuritySchemes(document, "/api/v1/admin/service-clients", "get"));
-        Assert.Equal(["JwtBearer", "LocalSession"], SecuritySchemes(document, "/api/v1/admin/service-links", "get"));
+        Assert.Empty(SecuritySchemes(document, "/api/pairing/v1/metadata", "get"));
+        Assert.Empty(SecuritySchemes(document, "/api/pairing/v1/exchange", "post"));
+        Assert.Equal(["PairingSetup"], SecuritySchemes(document, "/api/pairing/v1/directory", "get"));
         var connectionSetupOperations = new[]
         {
-            ("/api/v1/admin/service-clients/public-settings", "get", "Service Clients"),
-            ("/api/v1/admin/service-clients/public-settings", "put", "Service Clients"),
-            ("/api/v1/admin/service-links/links/{linkId}/test", "post", "Reciprocal Service Links")
+            ("/api/v1/admin/system-connections", "get"),
+            ("/api/v1/admin/system-connections/code", "post"),
+            ("/api/v1/admin/system-connections/pair", "post"),
+            ("/api/v1/admin/system-connections/{pairId}/mappings/{mappingId}", "put"),
+            ("/api/v1/admin/system-connections/{pairId}/mappings/{mappingId}/test", "post"),
+            ("/api/v1/admin/system-connections/{pairId}/mappings/{mappingId}", "delete")
         };
-        foreach (var (path, method, tag) in connectionSetupOperations)
+        foreach (var (path, method) in connectionSetupOperations)
         {
             Assert.True(paths.TryGetProperty(path, out var setupPath), $"Missing documented connection setup path: {path}");
             Assert.True(setupPath.TryGetProperty(method, out var setupOperation));
-            Assert.Equal([tag], setupOperation.GetProperty("tags").EnumerateArray().Select(item => item.GetString()).OfType<string>().ToArray());
+            Assert.Equal(["System Connections"], setupOperation.GetProperty("tags").EnumerateArray().Select(item => item.GetString()).OfType<string>().ToArray());
             Assert.Equal(["JwtBearer", "LocalSession"], SecuritySchemes(document, path, method));
         }
-        Assert.Equal(["ServiceIdentity"], SecuritySchemes(document, "/api/integrations/service-link/v1/links/{linkId}/verify", "post"));
-        Assert.Equal(["ServiceIdentity"], SecuritySchemes(document, "/api/integrations/service-link/v1/links/{linkId}/status", "get"));
-        Assert.True(paths.TryGetProperty("/api/v1/admin/orchestration/test-draft", out var orchestrationDraft));
-        Assert.True(orchestrationDraft.TryGetProperty("post", out _));
+        Assert.False(paths.TryGetProperty("/api/v1/admin/orchestration/test-draft", out _));
         Assert.True(paths.TryGetProperty("/api/v1/admin/netclaw/test-draft", out var netclawDraft));
         Assert.True(netclawDraft.TryGetProperty("post", out _));
         Assert.True(paths.TryGetProperty("/api/v1/admin/netclaw/pair-and-save", out var pairNetclaw));

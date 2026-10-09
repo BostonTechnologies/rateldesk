@@ -36,6 +36,47 @@ public sealed class PairingUpgradeTests
     }
 
     [Theory]
+    [InlineData("2026-10-09 08:00:00.9999999+00:00")]
+    [InlineData("2026-10-09 13:30:00.1234567+05:30")]
+    [InlineData("2026-10-09 01:00:00-07:00")]
+    public async Task Sqlite_pairing_timestamp_migration_preserves_exact_expiry_and_offset(string expiry)
+    {
+        await using var fixture = await ServiceIdentityMigrationTests.DatabaseFixture.CreateAsync(false);
+        await using var db = fixture.Open();
+        var cutover = db.Database.GetMigrations().Single(x => x.EndsWith("_ReplaceServiceLinksWithPairingCodes", StringComparison.Ordinal));
+        await db.GetService<IMigrator>().MigrateAsync(cutover);
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "InstallationPairingCodes"
+                ("Id", "Salt", "CodeHash", "OwnerId", "ExpiresAtUtc", "FailedAttempts", "Revision")
+            VALUES (1, 'synthetic-salt', 'synthetic-code-hash', 'synthetic-owner', {expiry}, 0, 1)
+            """);
+        await db.Database.MigrateAsync();
+        var code = await db.Set<InstallationPairingCode>().SingleAsync();
+        Assert.Equal(DateTimeOffset.Parse(expiry, System.Globalization.CultureInfo.InvariantCulture).UtcTicks, code.ExpiresAtUtc.UtcTicks);
+        Assert.True(code.ExpiresAtUtc.Offset == TimeSpan.Zero);
+        Assert.Empty(await db.Database.GetPendingMigrationsAsync());
+    }
+
+    [Theory]
+    [InlineData("2026-10-09 08:00:00.abc+00:00")]
+    [InlineData("2026-10-09 08:00:00.12345678+00:00")]
+    [InlineData("2026-02-30 08:00:00+00:00")]
+    public async Task Sqlite_pairing_timestamp_migration_rejects_malformed_authority_bounds(string expiry)
+    {
+        await using var fixture = await ServiceIdentityMigrationTests.DatabaseFixture.CreateAsync(false);
+        await using var db = fixture.Open();
+        var cutover = db.Database.GetMigrations().Single(x => x.EndsWith("_ReplaceServiceLinksWithPairingCodes", StringComparison.Ordinal));
+        await db.GetService<IMigrator>().MigrateAsync(cutover);
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "InstallationPairingCodes"
+                ("Id", "Salt", "CodeHash", "OwnerId", "ExpiresAtUtc", "FailedAttempts", "Revision")
+            VALUES (1, 'synthetic-salt', 'synthetic-code-hash', 'synthetic-owner', {expiry}, 0, 1)
+            """);
+        await Assert.ThrowsAsync<Microsoft.Data.Sqlite.SqliteException>(() => db.Database.MigrateAsync());
+        Assert.Contains(await db.Database.GetPendingMigrationsAsync(), x => x.EndsWith("_StorePairingTimestampsAsUtcTicks", StringComparison.Ordinal));
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task Forward_cutover_retires_active_pending_failed_and_malformed_state_and_preserves_unrelated_authority_and_history(bool postgres)
@@ -106,6 +147,7 @@ public sealed class PairingUpgradeTests
                 await InsertHistoricalAsync(db, "ServicePrincipalSecrets", new() { ["ServicePrincipalId"] = principal, ["CredentialRevision"] = 1L,
                     ["Status"] = status == "pending" ? "pending" : "active", ["Salt"] = new string('b', 64), ["SecretHash"] = new string('c', 64), ["ExpiresAtUtc"] = now.AddDays(90) });
                 await InsertHistoricalAsync(db, "ServiceLinkAttempts", new() { ["AttemptId"] = "old-" + status, ["Role"] = "initiator",
+                    ["LinkId"] = "legacy-" + status, ["ActiveRelationshipKey"] = "legacy-relationship-" + status,
                     ["LifecycleState"] = status == "verified" ? "failed" : status, ["GrantSummaryJson"] = status == "verified" ? "{malformed" : "{}",
                     ["ProtectedOutboundCredential"] = "opaque-retired-secret", ["InboundPrincipalId"] = principal });
             }

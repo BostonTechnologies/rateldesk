@@ -72,6 +72,7 @@ public static class PairingEndpoints
         http.Response.Headers.CacheControl = "no-store";
         try { return await action(); }
         catch (PairingFailure failure) { return await FailureAsync(http, failure.Status, failure.Code, failure.Message); }
+        catch (Exception ex) when (PairingDatabaseConflict.IsConflict(ex)) { return await FailureAsync(http, 409, "connection_changed", "Another operation changed this connection. Refresh and retry this same connection."); }
         catch (global::System.Data.Common.DbException) { return await FailureAsync(http, 409, "connection_changed", "Another operation changed this connection. Refresh and retry the same connection."); }
         catch (DbUpdateException) { return await FailureAsync(http, 409, "connection_changed", "Another operation changed this connection. Refresh and retry the same connection."); }
         catch (IntegrationProviderSecretUnavailableException) { return await FailureAsync(http, 503, "protected_secret_unavailable", "The protected connection credential cannot be read. Restore the shared Data Protection key ring or delete and pair again."); }

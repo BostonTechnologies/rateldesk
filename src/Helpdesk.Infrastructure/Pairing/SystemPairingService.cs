@@ -31,9 +31,11 @@ public sealed class SystemPairingService(HelpdeskDbContext db, PairingTransport 
     public async Task<PairingMetadata> MetadataAsync(CancellationToken ct)
     {
         var current = (await settings.ResolveAsync(ct)).Identity;
+        var receiverId = await db.InstanceInitializations.AsNoTracking().Where(x => x.Id == Helpdesk.Shared.Models.InstanceInitialization.SingletonId).Select(x => (Guid?)x.InstanceId).SingleOrDefaultAsync(ct);
+        if (receiverId is null || receiverId == Guid.Empty) throw new PairingFailure("receiver_identity_unavailable", "Restore the persistent incident receiver GUID or complete normal installation bootstrap before pairing.", 503);
         using var signing = await keys.GetSigningKeyAsync(ct);
         return new(PairingContract.Version, "rateldesk", current.InstanceId, "RatelDesk", current.WebBaseUrl,
-            current.ApiBaseUrl, null, Convert.ToBase64String(signing.Rsa.ExportSubjectPublicKeyInfo()));
+            current.ApiBaseUrl, null, Convert.ToBase64String(signing.Rsa.ExportSubjectPublicKeyInfo()), receiverId.Value.ToString("D"));
     }
     public async Task<PairingMetadataProof> MetadataProofAsync(string nonce, CancellationToken ct)
     {

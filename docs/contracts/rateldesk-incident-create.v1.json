@@ -2,7 +2,8 @@
   "contractVersion": "rateldesk.incident-create.v1",
   "owner": "RatelDesk issue #116",
   "authenticationModes": [
-    "api_bearer"
+    "api_bearer",
+    "oauth_client_credentials"
   ],
   "headers": {
     "key": "Idempotency-Key",
@@ -236,7 +237,7 @@
             "oauth_client_credentials"
           ]
         },
-        "description": "V1 receiver initially advertises only api_bearer; OAuth requires the separately verified managed-principal implementation."
+        "description": "The receiver advertises API bearer and OAuth client credentials. OAuth incident authority requires a saved pairing mapping, current administrators and the selected incident capability."
       }
     },
     "additionalProperties": true

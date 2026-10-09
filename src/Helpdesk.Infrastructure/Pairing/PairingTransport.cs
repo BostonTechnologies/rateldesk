@@ -65,11 +65,15 @@ public sealed class PairingTransport(IHttpClientFactory clients)
     public static void ValidateMetadata(PairingMetadata peer)
     {
         if (peer is null || peer.Contract != PairingContract.Version || peer.Product is not ("netratel" or "rateldesk") ||
-            !Guid.TryParse(peer.InstallationId, out var installation) || installation == Guid.Empty || peer.Name is null || peer.Name.Length > 256)
+            !Guid.TryParse(peer.InstallationId, out var installation) || installation == Guid.Empty || peer.InstallationId != installation.ToString("D") || peer.Name is null || peer.Name.Length > 256)
             throw new PairingFailure("incompatible_peer", "The address must run a compatible NetRatel or RatelDesk beta.", 502);
         _ = Origin(peer.WebOrigin); _ = Origin(peer.ApiOrigin);
-        if (peer.Product == "netratel" && (!Guid.TryParse(peer.ProducerInstanceId, out var producer) || producer == Guid.Empty))
-            throw new PairingFailure("invalid_producer", "NetRatel did not provide its persistent Flow producer identity.", 502);
+        if (peer.Product == "rateldesk" && peer.ProducerInstanceId is not null || peer.Product == "netratel" &&
+            (!Guid.TryParse(peer.ProducerInstanceId, out var producer) || producer == Guid.Empty || peer.ProducerInstanceId != producer.ToString("D")))
+            throw new PairingFailure("invalid_producer", "The peer did not provide its persistent Flow producer identity.", 502);
+        if (peer.Product == "netratel" && peer.ReceiverInstanceId is not null || peer.Product == "rateldesk" &&
+            (!Guid.TryParse(peer.ReceiverInstanceId, out var receiver) || receiver == Guid.Empty || peer.ReceiverInstanceId != receiver.ToString("D")))
+            throw new PairingFailure("invalid_receiver", "The peer did not provide its persistent incident receiver identity.", 502);
     }
     public async Task<T> SendAsync<T>(string origin, string route, HttpMethod method, object? body, string? secret, string? peerId, CancellationToken ct, string? nonce = null, string? callerHash = null)
     {

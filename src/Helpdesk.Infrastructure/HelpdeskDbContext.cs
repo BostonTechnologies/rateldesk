@@ -952,12 +952,12 @@ public class HelpdeskDbContext(
         modelBuilder.ApplyConfiguration(new NotificationReadEntityConfiguration());
         if (isSqlite)
         {
-            // New service authority uses UTC ticks so SQLite can translate expiry and overlap
+            // Service and pairing authority use UTC ticks so SQLite can translate expiry and ordering
             // comparisons. Existing timestamp mappings retain their upgrade representation.
             var serviceUtc = new Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter<DateTimeOffset, long>(
                 value => value.UtcTicks, value => new DateTimeOffset(value, TimeSpan.Zero));
             foreach (var entity in modelBuilder.Model.GetEntityTypes().Where(entity =>
-                entity.ClrType.Namespace == "Helpdesk.Infrastructure.ServiceIdentity"))
+                entity.ClrType.Namespace is "Helpdesk.Infrastructure.ServiceIdentity" or "Helpdesk.Infrastructure.Pairing"))
                 foreach (var property in entity.GetProperties().Where(property =>
                     property.ClrType == typeof(DateTimeOffset) || property.ClrType == typeof(DateTimeOffset?)))
                     property.SetValueConverter(serviceUtc);

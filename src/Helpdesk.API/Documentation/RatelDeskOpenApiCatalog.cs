@@ -17,6 +17,7 @@ public static class RatelDeskOpenApiCatalog
     private const string AiAgentScheme = "AiAgentJwt";
     private const string SystemScheme = "SystemToken";
     private const string ServiceIdentityScheme = "ServiceIdentity";
+    private const string PairingSetupScheme = "PairingSetup";
 
     private static readonly string[] GroupOrder =
     [
@@ -38,8 +39,8 @@ public static class RatelDeskOpenApiCatalog
         new("Role Definitions", "Identity & Access", "Scoped application role definitions."),
         new("Integration Credentials", "Identity & Access", "Revocable API credentials. Secrets are shown once."),
         new("Service Identity", "Identity & Access", "Service client-credentials issuer metadata, public keys, and token exchange."),
-        new("Service Clients", "Identity & Access", "Administrator-managed machine clients. Secrets are shown once."),
-        new("Reciprocal Service Links", "Automation & Integrations", "Explicit reciprocal consent, proof-bound bootstrap, and authenticated link lifecycle."),
+        new("System Pairing", "Automation & Integrations", "Signed installation discovery, one-time pairing codes, and authenticated setup operations."),
+        new("System Connections", "Automation & Integrations", "Administrator-owned named tenant and customer mappings, verification, and local-first deletion."),
         new("MCP Gateway", "Automation & Integrations", "Paired MCP credential delegation."),
         new("NetRatel Incident Receiver", "Automation & Integrations", "Authenticated incident-create v1 capability, target validation and immutable receipt reconciliation."),
         new("NetRatel Source Administration", "Automation & Integrations", "Administrator-approved stable incident source namespaces and audited credential rotation."),
@@ -63,7 +64,7 @@ public static class RatelDeskOpenApiCatalog
 
     private static readonly IReadOnlyDictionary<string, string> CanonicalNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
-        ["Local authentication"] = "Local Authentication", ["Role definitions"] = "Role Definitions", ["Tenant administration"] = "Tenant Administration", ["Tenant settings"] = "Tenant Settings", ["Ticketing"] = "Ticket Lookups", ["Captcha"] = "CAPTCHA", ["SLA"] = "SLA Policies", ["Email"] = "Email Processing", ["Workflow Ops"] = "Workflow Operations", ["AutomationRules"] = "Automation Rules", ["Branding"] = "Instance Branding", ["AI Agent Ops"] = "AI Agent Operations", ["Ops"] = "Background Jobs", ["Admin"] = "Tenant Administration", ["AiAssistant Chat"] = "AI Assistant Chat", ["AiAssistant Webhooks"] = "AI Assistant Webhooks", ["External orchestration"] = "External Orchestration", ["Orchestration provider"] = "Orchestration Provider", ["Self Service"] = "Self-Service"
+        ["System pairing"] = "System Pairing", ["System connections"] = "System Connections", ["Local authentication"] = "Local Authentication", ["Role definitions"] = "Role Definitions", ["Tenant administration"] = "Tenant Administration", ["Tenant settings"] = "Tenant Settings", ["Ticketing"] = "Ticket Lookups", ["Captcha"] = "CAPTCHA", ["SLA"] = "SLA Policies", ["Email"] = "Email Processing", ["Workflow Ops"] = "Workflow Operations", ["AutomationRules"] = "Automation Rules", ["Branding"] = "Instance Branding", ["AI Agent Ops"] = "AI Agent Operations", ["Ops"] = "Background Jobs", ["Admin"] = "Tenant Administration", ["AiAssistant Chat"] = "AI Assistant Chat", ["AiAssistant Webhooks"] = "AI Assistant Webhooks", ["External orchestration"] = "External Orchestration", ["Orchestration provider"] = "Orchestration Provider", ["Self Service"] = "Self-Service"
     };
 
     public static Task TransformDocumentAsync(OpenApiDocument document, CancellationToken cancellationToken)
@@ -161,6 +162,11 @@ public static class RatelDeskOpenApiCatalog
             In = ParameterLocation.Header,
             Description = "RS256 service-purpose JWT issued by this RatelDesk instance. Exact scopes and approved tenant, customer, peer, and source bindings apply."
         };
+        document.Components.SecuritySchemes[PairingSetupScheme] = new OpenApiSecurityScheme
+        {
+            Name = "Authorization", Type = SecuritySchemeType.ApiKey, In = ParameterLocation.Header,
+            Description = "Pairing <setup-secret> with X-Pairing-Peer and X-Pairing-Caller generation proof. Setup access cannot authorize incident or automation business operations."
+        };
         document.Components.SecuritySchemes[SystemScheme] = new OpenApiSecurityScheme
         {
             Name = "Authorization",
@@ -182,6 +188,12 @@ public static class RatelDeskOpenApiCatalog
         }
 
         var metadata = ResolveEndpointMetadata(description, applicationServices);
+        if (description.RelativePath?.StartsWith("api/pairing/v1/", StringComparison.Ordinal) == true &&
+            description.RelativePath is not ("api/pairing/v1/metadata" or "api/pairing/v1/exchange"))
+        {
+            operation.Security = Requirements(document, PairingSetupScheme);
+            return Task.CompletedTask;
+        }
         if (metadata.OfType<IAllowAnonymous>().Any())
         {
             operation.Security = [];

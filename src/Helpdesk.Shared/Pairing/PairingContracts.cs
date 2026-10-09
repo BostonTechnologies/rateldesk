@@ -7,7 +7,7 @@ public static class PairingContract
     public const string PeerHeader = "X-Pairing-Peer";
 }
 public sealed record PairingMetadata(string Contract, string Product, string InstallationId, string Name,
-    string WebOrigin, string ApiOrigin, string? ProducerInstanceId, string SigningPublicKey = "");
+    string WebOrigin, string ApiOrigin, string? ProducerInstanceId, string SigningPublicKey = "", string? ReceiverInstanceId = null);
 public sealed record PairingMetadataProof(PairingMetadata Metadata, string Nonce, string Signature);
 public sealed record PairingCodeDto(string Code, DateTimeOffset ExpiresAtUtc);
 public sealed record PairingConnectRequest(string Address, string PairingCode, string OperationId);

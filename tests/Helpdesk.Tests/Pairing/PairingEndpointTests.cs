@@ -20,15 +20,16 @@ public sealed class PairingEndpointTests
     public async Task Signed_metadata_and_small_exchange_expose_no_business_or_browser_secrets(bool postgres)
     {
         using var peer = new PairingTestPeer(Guid.NewGuid());
-        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true, pairingPeer: peer);
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true, pairingPeer: peer, publishedInstanceId: Guid.NewGuid());
         var nonce = Microsoft.IdentityModel.Tokens.Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(32));
         using var metadataRequest = new HttpRequestMessage(HttpMethod.Get, "/api/pairing/v1/metadata"); metadataRequest.Headers.Add("X-Pairing-Nonce", nonce);
         using var metadataResponse = await h.Client.SendAsync(metadataRequest); Assert.Equal(HttpStatusCode.OK, metadataResponse.StatusCode);
         Assert.Equal("no-store", metadataResponse.Headers.CacheControl!.ToString());
         var proof = (await metadataResponse.Content.ReadFromJsonAsync<PairingMetadataProof>())!;
-        Assert.Equal(h.ReceiverId.ToString("D"), proof.Metadata.InstallationId); Assert.Equal(nonce, proof.Nonce);
+        Assert.Equal(h.PublishedId.ToString("D"), proof.Metadata.InstallationId); Assert.Equal(h.ReceiverId.ToString("D"), proof.Metadata.ReceiverInstanceId); Assert.NotEqual(proof.Metadata.InstallationId, proof.Metadata.ReceiverInstanceId); Assert.Equal(nonce, proof.Nonce);
         using var rsa = RSA.Create(); rsa.ImportSubjectPublicKeyInfo(Convert.FromBase64String(proof.Metadata.SigningPublicKey), out _);
         Assert.True(rsa.VerifyData(PairingTransport.ProofPayload(proof.Metadata, nonce), Convert.FromBase64String(proof.Signature), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1));
+        Assert.False(rsa.VerifyData(PairingTransport.ProofPayload(proof.Metadata with { ReceiverInstanceId = Guid.NewGuid().ToString("D") }, nonce), Convert.FromBase64String(proof.Signature), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1));
         using var unauthenticated = await h.Client.GetAsync("/api/v1/admin/system-connections/"); Assert.Equal(HttpStatusCode.Unauthorized, unauthenticated.StatusCode);
         using var generated = await h.AdminAsync(HttpMethod.Post, "/api/v1/admin/system-connections/code"); Assert.Equal(HttpStatusCode.OK, generated.StatusCode);
         var code = (await generated.Content.ReadFromJsonAsync<PairingCodeDto>())!; var offered = peer.Exchange(code.Code);

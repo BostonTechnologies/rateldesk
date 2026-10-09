@@ -54,6 +54,8 @@ public sealed class PairingServiceTests
             Assert.Equal("pairing_code_used", (await Assert.ThrowsAsync<PairingFailure>(() => service.ExchangeAsync(accepted, default))).Code);
             var expiring = await service.GenerateAsync("owner", default); clock.Advance(TimeSpan.FromMinutes(5));
             Assert.Equal("pairing_code_rejected", (await Assert.ThrowsAsync<PairingFailure>(() => service.ExchangeAsync(peer.Exchange(expiring.Code), default))).Code);
+            await service.CleanupAsync(default);
+            Assert.Empty(await scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>().Set<PairingRedemption>().ToListAsync());
         }
     }
 
@@ -70,7 +72,7 @@ public sealed class PairingServiceTests
         {
             await using var scope = h.App.Services.CreateAsyncScope();
             try { await peer.Service(scope.ServiceProvider, clock).ExchangeAsync(peer.Exchange(code.Code), default); return true; }
-            catch (Exception ex) when (ex is PairingFailure or DbUpdateException or System.Data.Common.DbException) { return false; }
+            catch (Exception ex) when (ex is PairingFailure || PairingDatabaseConflict.IsConflict(ex)) { return false; }
         }
         var results = await Task.WhenAll(RedeemAsync(), RedeemAsync());
         Assert.Single(results.Where(x => x));
@@ -137,6 +139,7 @@ public sealed class PairingServiceTests
             Assert.Single(await service.ListAsync("owner", default));
             await service.DeleteAsync(pairId, Guid.Parse(second.Id), "owner", true, default);
             Assert.Empty(await service.ListAsync("owner", default)); Assert.Equal(before, await h.CountsAsync());
+            await service.CleanupAsync(default); Assert.All(await db.Set<PairingCleanup>().ToListAsync(), x => Assert.Equal(1, x.Attempts));
             Assert.Equal("pairing_code_used", (await Assert.ThrowsAsync<PairingFailure>(() => service.ExchangeAsync(peer.Exchange(code.Code), default))).Code);
         }
         await h.RestartAsync();
