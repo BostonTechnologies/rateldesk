@@ -19,6 +19,8 @@ public static class TicketingLookupEndpoints
             .WithTags("Ticketing")
             .RequireAuthorization();
 
+        group.MapAssigneeSearchEndpoints();
+
         group.MapGet("/organizations", async (
             ClaimsPrincipal user,
             [FromQuery] string? module,

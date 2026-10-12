@@ -102,13 +102,9 @@ else
                                 <MudTextField T="string" Label="Updated" Variant="Variant.Outlined" Dense="true" Margin="Margin.Dense" ReadOnly="true" Value="@incident.UpdatedAt?.ToString("g")" />
                             </MudItem>
                             <MudItem xs="12">
-                                <MudSelect T="string" Label="Assignee" Variant="Variant.Outlined" Dense="true" Margin="Margin.Dense" Value="@GetAssigneeSelectValue(incident.AssignedToId)" ValueChanged="OnAssigneeChanged" Disabled="@(!CanManage)">
-                                    <MudSelectItem Value="@UnassignedAssigneeValue">Unassigned</MudSelectItem>
-                                    @foreach (var u in teamMembers)
-                                    {
-                                        <MudSelectItem Value="@u.Id">@u.Name (@u.Email)</MudSelectItem>
-                                    }
-                                </MudSelect>
+                                <AssigneeSelector Module="incident" OrganizationId="@incident.OrganizationId" TicketId="@incident.Id"
+                                                  Value="@incident.AssignedToId" ReadOnly="@(!CanManage)" Busy="isUpdating"
+                                                  SelectionChanged="@(user => OnAssigneeChanged(user?.Id))" />
                             </MudItem>
                             @if (incident.Sla is not null)
                             {
@@ -184,8 +180,6 @@ else
     private bool isUpdating;
     private bool hasChanges;
     private int activityTabsKey;
-    private const string UnassignedAssigneeValue = "__unassigned__";
-    private List<UserDto> teamMembers = new();
 
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
 
@@ -225,10 +219,7 @@ else
                 selectedCategoryIds = incident.CategoryIds.ToHashSet();
             }
 
-            if (CanManage && incident?.OrganizationId is not null)
-            {
-                teamMembers = await HelpdeskApi.GetFromJsonAsync<List<UserDto>>($"api/v1/ticketing/assignees?module=incident&organizationId={Uri.EscapeDataString(incident.OrganizationId)}") ?? new();
-            }
+
         }
         catch (Exception ex)
         {
@@ -297,14 +288,11 @@ else
     private void OnAssigneeChanged(string? newAssigneeId)
     {
         if (incident is null) return;
-        incident.AssignedToId = string.IsNullOrWhiteSpace(newAssigneeId) || newAssigneeId == UnassignedAssigneeValue
+        incident.AssignedToId = string.IsNullOrWhiteSpace(newAssigneeId)
             ? null
             : newAssigneeId;
         hasChanges = true;
     }
-
-    private static string GetAssigneeSelectValue(string? assignedToId)
-        => string.IsNullOrWhiteSpace(assignedToId) ? UnassignedAssigneeValue : assignedToId;
 
     private static string NormalizeAssigneePayloadValue(string? assignedToId)
         => string.IsNullOrWhiteSpace(assignedToId) ? string.Empty : assignedToId;

@@ -1345,3 +1345,9 @@ h1[tabindex="-1"]:focus
         max-height: calc(100dvh - 20px) !important;
     }
 }
+/* Keep the wide assignee chooser within the viewport when neither side of a
+   narrow table trigger has enough room for MudPopover's horizontal flip. */
+.assignee-popup { z-index: 1601 !important; }
+@media (max-width: 600px) {
+    .assignee-popup { left: 12px !important; width: calc(100vw - 24px) !important; min-width: 0 !important; }
+}

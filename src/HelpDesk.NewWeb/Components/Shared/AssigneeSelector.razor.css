@@ -1,0 +1,20 @@
+.assignee-selector { display: inline-block; max-width: 100%; }
+.assignee-trigger, .assignee-current { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; }
+.assignee-trigger { background: var(--mud-palette-surface); color: var(--mud-palette-text-primary); border: 1px solid var(--mud-palette-lines-inputs); border-radius: 6px; padding: 8px; text-align: left; cursor: pointer; width: 100%; }
+.assignee-trigger > span { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+.assignee-trigger small { color: var(--mud-palette-text-secondary); }
+.assignee-trigger-compact { width: auto; border: 0; padding: 5px; }
+.assignee-trigger:focus-visible, .assignee-option:focus-visible, .assignee-clear:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 2px; }
+.assignee-trigger:disabled { cursor: default; opacity: .7; }
+.assignee-search-header { padding: 12px; }
+.assignee-search-input { width: 100%; min-height: 40px; border: 1px solid var(--mud-palette-lines-inputs); border-radius: 4px; padding: 8px; background: var(--mud-palette-surface); color: var(--mud-palette-text-primary); }
+.assignee-search-input:focus { outline: 2px solid var(--mud-palette-primary); }
+.assignee-selection { display: block; color: var(--mud-palette-text-secondary); font-size: 12px; padding-top: 6px; overflow-wrap: anywhere; }
+.assignee-results { max-height: min(300px, 45vh); overflow-y: auto; }
+.assignee-option { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 12px; text-align: left; color: var(--mud-palette-text-primary); background: transparent; border: 0; cursor: pointer; }
+.assignee-option:hover, .assignee-option-active, .assignee-option[aria-selected="true"] { background: var(--mud-palette-action-default-hover); }
+.assignee-option-text { display: flex; flex-direction: column; min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.assignee-option-text small { color: var(--mud-palette-text-secondary); }
+.assignee-feedback, .assignee-footer { padding: 0 12px 8px; font-size: 13px; color: var(--mud-palette-text-secondary); }
+.assignee-feedback button, .assignee-clear { color: var(--mud-palette-primary); background: transparent; border: 0; cursor: pointer; padding: 8px 12px; }
+.assignee-clear { width: 100%; text-align: left; border-top: 1px solid var(--mud-palette-lines-default); }

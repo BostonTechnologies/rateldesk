@@ -27,3 +27,22 @@ This suite exercises UI grouping, streaming, keyboard/IME, replay, approval
 presentation, archive, responsive layout and themes. It is not live AiAssistant,
 attachment ingestion or authorization evidence. It is deliberately excluded
 from the ordinary live-instance UX configuration.
+
+## Assignee picker interaction
+
+Build the web project using the SDK pinned in `global.json`, then run
+`npm run test:ux:assignee`. For a Release build set
+`HELPDESK_ASSIGNEE_CONFIGURATION=Release`. The focused configuration starts the
+real Blazor application with loopback manager/read-only hosts and a synthetic API.
+It covers the three grids, create/detail form selection and Revert, bulk selection,
+keyboard behavior, lookup/save failures, delayed requests and mobile themes.
+These fixture checks establish UI behavior; the SQLite/PostgreSQL HTTP tests in
+`AssigneeSearchEndpointsTests` establish authorization, eligibility and persistence.
+
+For manual validation, open an incident, request or Draft change grid and activate
+its assignee/implementor button. Initial suggestions must appear without assigning
+anyone. Search a name or email fragment, select a result, and reload to check the
+saved value. Clearing the query must leave the selection intact. Use the separate
+Unassigned action for incidents/requests; changes require an implementor. In a
+create/detail form, selection stays local until Create/Save Changes, and Cancel or
+Revert discards it. Check Escape, Tab and arrow/Enter behavior as well.

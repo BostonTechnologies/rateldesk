@@ -3,7 +3,6 @@
 @using System.Reflection
 @using Helpdesk.Shared.DTOs.User
 
-@inject IHttpClientFactory HttpClientFactory
 
 @if (SelectedCount > 0 && CanEditSelection)
 {
@@ -27,20 +26,11 @@
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="RequestBulkState">Update</MudButton>
             }
 
-            <MudSelect T="string"
-                       @bind-Value="_bulkAssigneeId"
-                       Placeholder="Assignee"
-                       Dense="true"
-                       Variant="Variant.Outlined"
-                       Margin="Margin.Dense"
-                       Class="helpdesk-bulk-assignee-picker">
-                <MudSelectItem T="string" Value="@string.Empty">Unassigned</MudSelectItem>
-                @foreach (var user in _teamMembers)
-                {
-                    <MudSelectItem T="string" Value="@user.Id">@user.Name (@user.Email)</MudSelectItem>
-                }
-            </MudSelect>
-            <MudButton Variant="Variant.Filled" Color="Color.Secondary" OnClick="RequestBulkAssign">Assign</MudButton>
+            <AssigneeSelector Module="@TicketType.TrimEnd('s')" OrganizationId="@BulkOrganizationId" ContextKey="@BulkContextKey"
+                              Value="@_bulkAssigneeId" Label="Bulk assignee" AllowUnassigned="@(TicketType != "changes")"
+                              ReadOnly="@(BulkOrganizationId is null)" Busy="_bulkAssigning" SelectionChanged="OnBulkAssigneeChanged" />
+            <MudButton Variant="Variant.Filled" Color="Color.Secondary" OnClick="RequestBulkAssign"
+                       Disabled="@(BulkOrganizationId is null || !_bulkChoiceMade || _bulkAssigning)">Assign</MudButton>
 
             @if (BulkActions.Count > 0)
             {
@@ -188,10 +178,20 @@
     private readonly List<UserDto> _teamMembers = new();
     private MudTable<TTicket>? _table;
     private TicketState _bulkState = TicketState.New;
-    private string _bulkAssigneeId = string.Empty;
+    private string? _bulkAssigneeId;
+    private bool _bulkChoiceMade;
+    private bool _bulkAssigning;
+    private string? BulkOrganizationId => SelectedItems.Select(item => GetStringValue(item, "OrganizationId"))
+        .Distinct(StringComparer.OrdinalIgnoreCase).ToList() is { Count: 1 } ids && !string.IsNullOrWhiteSpace(ids[0]) ? ids[0] : null;
+    private string BulkContextKey => string.Join("|", SelectedItems.Select(item => GetStringValue(item, "Id")).Order());
+    private Task OnBulkAssigneeChanged(UserDto? user)
+    {
+        _bulkAssigneeId = user?.Id;
+        _bulkChoiceMade = true;
+        return Task.CompletedTask;
+    }
     private string? _bulkAction;
 
-    private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
     private int SelectedCount => SelectedItems?.Count ?? 0;
     private bool HasCustomerOrgName => ResolveProperty("CustomerOrgName") is not null;
     private bool HasCustomerUser => ResolveProperty("CustomerId") is not null
@@ -203,33 +203,11 @@
         return _table?.ReloadServerData() ?? Task.CompletedTask;
     }
 
-    private async Task LoadTeamMembersAsync()
-    {
-        try
-        {
-            var organizationIds = SelectedItems.Select(item => GetStringValue(item, "OrganizationId")).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            _teamMembers.Clear();
-            if (!CanEditSelection || organizationIds.Count != 1 || string.IsNullOrWhiteSpace(organizationIds[0])) return;
-            var module = TicketType.TrimEnd('s');
-            var users = await HelpdeskApi.GetFromJsonAsync<List<UserDto>>($"api/v1/ticketing/assignees?module={module}&organizationId={Uri.EscapeDataString(organizationIds[0])}");
-            if (users is null)
-            {
-                return;
-            }
-
-            _teamMembers.Clear();
-            _teamMembers.AddRange(users);
-        }
-        catch
-        {
-            _teamMembers.Clear();
-        }
-    }
-
     private async Task HandleSelectedItemsChanged(HashSet<TTicket> selectedItems)
     {
         SelectedItems = selectedItems;
-        await LoadTeamMembersAsync();
+        _bulkAssigneeId = null;
+        _bulkChoiceMade = false;
         await SelectedItemsChanged.InvokeAsync(selectedItems);
     }
 
@@ -254,9 +232,12 @@
         return BulkStateRequested.InvokeAsync();
     }
 
-    private Task RequestBulkAssign()
+    private async Task RequestBulkAssign()
     {
-        return BulkAssignRequested.InvokeAsync();
+        if (_bulkAssigning || BulkOrganizationId is null || !_bulkChoiceMade) return;
+        _bulkAssigning = true;
+        try { await BulkAssignRequested.InvokeAsync(); }
+        finally { _bulkAssigning = false; }
     }
 
     private Task RequestBulkAction()

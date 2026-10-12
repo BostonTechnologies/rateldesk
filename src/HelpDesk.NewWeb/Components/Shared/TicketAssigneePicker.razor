@@ -1,121 +1,80 @@
 @using Helpdesk.Shared.DTOs.User
+@using System.Text.Json
+@implements IDisposable
 @inject IHttpClientFactory HttpClientFactory
 @inject ISnackbar Snackbar
 
-<div @onclick:stopPropagation="true">
-
-    <MudMenu Dense="true" Disabled="@ReadOnly"
-             AnchorOrigin="Origin.CenterCenter"
-             TransformOrigin="Origin.CenterCenter">
-
-        <ActivatorContent>
-
-            <MudTooltip Text="@Tooltip">
-
-                <MudAvatar Class="cursor-pointer"
-                           Size="Size.Small"
-                           Color="Color.Default"
-                           Variant="Variant.Outlined">
-
-                    @Initials(User)
-
-                </MudAvatar>
-
-            </MudTooltip>
-
-        </ActivatorContent>
-
-        <ChildContent>
-
-            <MudMenuItem OnClick="@(async () => await Assign(null))">
-                Unassigned
-            </MudMenuItem>
-
-            @foreach (var user in availableUsers)
-            {
-                <MudMenuItem OnClick="@(async () => await Assign(user.Id))">
-                    @user.Name (@user.Email)
-                </MudMenuItem>
-            }
-
-        </ChildContent>
-
-    </MudMenu>
-
-</div>
+<AssigneeSelector Module="@TicketType.TrimEnd('s')" OrganizationId="@OrganizationId" TicketId="@TicketId"
+                  Value="@AssignedToId" SelectedName="@SelectedName" SelectedEmail="@SelectedEmail"
+                  Label="@(TicketType == "changes" ? "Implementor" : "Assignee")"
+                  ReadOnly="ReadOnly" Busy="saving" Compact="true" AllowUnassigned="@(TicketType != "changes")"
+                  SelectionChanged="Assign" />
 
 @code {
-
     [Parameter] public bool ReadOnly { get; set; }
     [Parameter] public string? OrganizationId { get; set; }
-    private List<UserDto> availableUsers = new();
-    private string? loadedOrganizationId;
-    protected override async Task OnParametersSetAsync()
-    {
-        if (ReadOnly || string.IsNullOrWhiteSpace(OrganizationId) || loadedOrganizationId == OrganizationId) return;
-        loadedOrganizationId = OrganizationId;
-        try { availableUsers = await Api.GetFromJsonAsync<List<UserDto>>($"api/v1/ticketing/assignees?module={TicketType.TrimEnd('s')}&organizationId={Uri.EscapeDataString(OrganizationId)}") ?? new(); }
-        catch (HttpRequestException) { availableUsers = new(); }
-    }
-
     [Parameter] public string TicketId { get; set; } = default!;
     [Parameter] public string TicketType { get; set; } = default!;
     [Parameter] public string? AssignedToId { get; set; }
-
-    [Parameter] public List<UserDto> TeamMembers { get; set; } = new();
-
+    [Parameter] public string? SelectedName { get; set; }
+    [Parameter] public string? SelectedEmail { get; set; }
     [Parameter] public EventCallback<string?> AssignedToIdChanged { get; set; }
-
+    [Parameter] public EventCallback<UserDto?> AssignmentChanged { get; set; }
+    private (string, string?, string, bool) scope;
+    private CancellationTokenSource lifetime = new();
+    private bool saving, disposed;
     private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
 
-    private UserDto? User => availableUsers.Concat(TeamMembers).FirstOrDefault(x => x.Id == AssignedToId);
-
-    private string Tooltip =>
-        User is null
-        ? (string.IsNullOrWhiteSpace(AssignedToId) ? "Unassigned" : "Assigned team member")
-        : $"{User.Name} ({User.Email})";
-
-    private async Task Assign(string? newUserId)
+    protected override void OnParametersSet()
     {
-        if (ReadOnly) return;
+        var nextScope = (TicketType, OrganizationId, TicketId, ReadOnly);
+        if (scope == nextScope) return;
+        scope = nextScope;
+        lifetime.Cancel();
+        lifetime.Dispose();
+        lifetime = new();
+    }
+
+    private async Task Assign(UserDto? candidate)
+    {
+        if (ReadOnly || saving || candidate?.Id == AssignedToId) return;
+        var origin = scope;
+        var token = lifetime.Token;
+        var ticketId = Uri.EscapeDataString(TicketId);
+        saving = true;
         try
         {
-            using var resp = string.Equals(TicketType, "incidents", StringComparison.OrdinalIgnoreCase)
-                ? await Api.PutAsJsonAsync($"api/v1/incidents/{TicketId}", new { AssignedToId = newUserId ?? string.Empty })
-                : await Api.PostAsJsonAsync($"api/v1/{TicketType}/bulk/assign", new { Ids = new[] { TicketId }, AssignedToId = newUserId });
-
-            if (!resp.IsSuccessStatusCode)
+            using var response = TicketType switch
             {
-                Snackbar.Add("Assignment failed", Severity.Error);
+                "incidents" => await Api.PutAsJsonAsync($"api/v1/incidents/{ticketId}", new UpdateIncidentDto { AssignedToId = candidate?.Id ?? string.Empty }, token),
+                "requests" => await Api.PostAsJsonAsync("api/v1/requests/bulk/assign", new { Ids = new[] { TicketId }, AssignedToId = candidate?.Id }, token),
+                "changes" => await Api.PostAsJsonAsync($"api/v1/changes/{ticketId}/assignee", new { ImplementorUserId = candidate?.Id }, token),
+                _ => throw new InvalidOperationException("Unsupported ticket module.")
+            };
+            if (disposed || token.IsCancellationRequested || scope != origin) return;
+            if (!response.IsSuccessStatusCode)
+            {
+                Snackbar.Add("Assignment failed. Refresh and try again.", Severity.Error);
                 return;
             }
-
-            AssignedToId = newUserId;
-
-            await AssignedToIdChanged.InvokeAsync(newUserId);
+            if (TicketType == "changes") candidate = await response.Content.ReadFromJsonAsync<UserDto>(token);
+            if (disposed || token.IsCancellationRequested || scope != origin) return;
+            AssignedToId = candidate?.Id;
+            await AssignedToIdChanged.InvokeAsync(AssignedToId);
+            if (!disposed && scope == origin) await AssignmentChanged.InvokeAsync(candidate);
         }
-        catch
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException)
         {
-            Snackbar.Add("Assignment failed", Severity.Error);
+            if (!disposed && scope == origin) Snackbar.Add("Assignment failed. Refresh and try again.", Severity.Error);
         }
+        finally { saving = false; }
     }
 
-    private static string Initials(UserDto? u)
+    public void Dispose()
     {
-        if (u is null)
-            return "?";
-
-        var name = u.Name ?? u.Email ?? "?";
-
-        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-
-        if (parts.Length == 1)
-            return parts[0].Length >= 2
-                ? parts[0][0].ToString().ToUpper() + parts[0][1].ToString().ToUpper()
-                : parts[0][0].ToString().ToUpper();
-
-        return parts[0][0].ToString().ToUpper()
-             + parts[^1][0].ToString().ToUpper();
+        disposed = true;
+        lifetime.Cancel();
+        lifetime.Dispose();
     }
-
 }

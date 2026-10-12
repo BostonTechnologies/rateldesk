@@ -167,6 +167,12 @@
                                 </MudSelect>
                             </MudItem>
                             <MudItem xs="12">
+                                <AssigneeSelector Module="change" OrganizationId="@change.OrganizationId" TicketId="@change.Id"
+                                                  Value="@change.ImplementorUserId" SelectedName="@change.ImplementorUserName" SelectedEmail="@change.ImplementorUserEmail"
+                                                  Label="Implementor" AllowUnassigned="false" ReadOnly="IsChangeLocked" Busy="isUpdating"
+                                                  SelectionChanged="OnImplementorChanged" />
+                            </MudItem>
+                            <MudItem xs="12">
                                 <MudSelect T="string" Label="Change Type" Variant="Variant.Outlined" Dense="true" Margin="Margin.Dense" Value="@change.ChangeType" ValueChanged="OnChangeTypeChanged" Disabled="@(isUpdating || IsChangeLocked)">
                                     <MudSelectItem T="string" Value="@StandardChangeType">Standard</MudSelectItem>
                                     <MudSelectItem T="string" Value="@NormalChangeType">Normal</MudSelectItem>
@@ -563,6 +569,15 @@
         hasChanges = true;
     }
 
+    private void OnImplementorChanged(UserDto? user)
+    {
+        if (IsChangeLocked || change is null || user is null) return;
+        change.ImplementorUserId = change.AssignedToId = user.Id;
+        change.ImplementorUserName = user.Name;
+        change.ImplementorUserEmail = user.Email;
+        hasChanges = true;
+    }
+
     private void OnChangeTypeChanged(string? newType)
     {
         if (IsChangeLocked) return;
@@ -654,6 +669,10 @@
         change.State = originalChange.State;
         change.LifecycleState = originalChange.LifecycleState;
         change.Priority = originalChange.Priority;
+        change.ImplementorUserId = originalChange.ImplementorUserId;
+        change.AssignedToId = originalChange.AssignedToId;
+        change.ImplementorUserName = originalChange.ImplementorUserName;
+        change.ImplementorUserEmail = originalChange.ImplementorUserEmail;
         change.OrganizationId = originalChange.OrganizationId;
         change.OrganizationName = originalChange.OrganizationName;
         change.CustomerOrgName = originalChange.CustomerOrgName;
@@ -756,6 +775,7 @@
             change.State == originalChange.State &&
             change.Priority == originalChange.Priority &&
             string.Equals(change.OrganizationId, originalChange.OrganizationId, StringComparison.Ordinal) &&
+            string.Equals(change.ImplementorUserId, originalChange.ImplementorUserId, StringComparison.Ordinal) &&
             Nullable.Compare(change.ImplementationStartAt, originalChange.ImplementationStartAt) == 0 &&
             Nullable.Compare(change.ImplementationEndAt, originalChange.ImplementationEndAt) == 0 &&
             string.Equals(change.ChangeType, originalChange.ChangeType, StringComparison.Ordinal) &&
@@ -775,6 +795,7 @@
             LifecycleState = change.LifecycleState,
             Priority = change.Priority,
             OrganizationId = change.OrganizationId,
+            ImplementorUserId = change.ImplementorUserId,
             ImplementationStartAt = change.ImplementationStartAt,
             ImplementationEndAt = change.ImplementationEndAt,
             ChangeType = change.ChangeType,

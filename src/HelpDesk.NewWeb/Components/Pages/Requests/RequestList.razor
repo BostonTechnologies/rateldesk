@@ -80,14 +80,14 @@
             </MudStack>
         </SubjectTemplate>
         <AssigneeTemplate Context="request">
-            <TicketAssigneePicker
+            <TicketAssigneePicker @key="request.Id"
                 ReadOnly="@(accessProfile?.CanManageRequest(request.OrganizationId) != true)"
                 OrganizationId="@request.OrganizationId"
                 TicketId="@request.Id"
                 TicketType="requests"
                 AssignedToId="@request.AssignedToId"
                 AssignedToIdChanged="@(x => request.AssignedToId = x)"
-                TeamMembers="@(teamMembers.Where(user => string.Equals(user.OrganizationId, request.OrganizationId, StringComparison.OrdinalIgnoreCase)).ToList())" />
+                />
         </AssigneeTemplate>
         <CustomerTemplate Context="request">
             <TicketCustomerPicker
@@ -122,7 +122,6 @@
     private string? search;
     private CancellationTokenSource? _debounceCts;
     private HashSet<RequestDto> _selected = new();
-    private List<UserDto> teamMembers = new();
     private bool aiOriginOnly;
     private bool historicOnly;
     private string? appliedQuerySearch;
