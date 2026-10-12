@@ -109,16 +109,30 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
 
         Assert.True(violations.Count == 0, string.Join(Environment.NewLine, violations));
         // Release includes automatic service issuance, signed code pairing, named mappings,
-        // and the preserved Netclaw administration and business APIs;
+        // the preserved Netclaw administration and business APIs, and the three
+        // scoped assignee search/current-label/change-implementor operations;
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(393, operationCount);
+        Assert.Equal(396, operationCount);
 #else
-        Assert.Equal(392, operationCount);
+        Assert.Equal(395, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
+        var assigneeOperations = new[]
+        {
+            ("/api/v1/ticketing/assignees/search", "get", "Ticket Lookups"),
+            ("/api/v1/ticketing/assignees/current", "get", "Ticket Lookups"),
+            ("/api/v1/changes/{id}/assignee", "post", "Changes")
+        };
+        foreach (var (path, method, expectedTag) in assigneeOperations)
+        {
+            Assert.True(paths.TryGetProperty(path, out var assigneePath), $"Missing documented assignee path: {path}");
+            Assert.True(assigneePath.TryGetProperty(method, out var assigneeOperation));
+            Assert.Equal([expectedTag], assigneeOperation.GetProperty("tags").EnumerateArray().Select(tag => tag.GetString()).OfType<string>().ToArray());
+            Assert.Equal(["IntegrationCredential", "JwtBearer", "LocalSession"], SecuritySchemes(document, path, method));
+        }
         Assert.DoesNotContain(paths.EnumerateObject(), path => path.Name.Contains("service-link", StringComparison.Ordinal) || path.Name.Contains("service-clients", StringComparison.Ordinal));
         var receiverOperations = new[]
         {
