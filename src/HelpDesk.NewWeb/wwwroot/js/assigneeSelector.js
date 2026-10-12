@@ -6,6 +6,10 @@ export function focusSearch(input, trigger) {
             // Tab may visit the explicit Retry/Unassigned action. When leaving
             // the portal, continue the surrounding form's order at the trigger.
             const actions = input.closest('[role="dialog"]')?.querySelector('.assignee-clear:not(:disabled), .assignee-retry');
+            if (event.key === 'Tab' && !event.shiftKey && actions) {
+                event.preventDefault();
+                actions.focus({ preventScroll: true });
+            }
             if (event.key === 'Tab' && (event.shiftKey || !actions)) trigger?.focus({ preventScroll: true });
             // Keep arrow navigation in the list and Enter out of the enclosing form.
             if (['ArrowDown', 'ArrowUp', 'Enter', 'Escape'].includes(event.key)) event.preventDefault();
