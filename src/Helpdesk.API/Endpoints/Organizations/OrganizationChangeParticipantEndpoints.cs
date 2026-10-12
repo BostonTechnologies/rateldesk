@@ -15,6 +15,7 @@ public static class OrganizationChangeParticipantEndpoints
 
         group.MapGet("/{id}/change-participants", async (
             [FromRoute] string id,
+            [FromQuery] bool? includeImplementors,
             [FromServices] HelpdeskDbContext db,
             CancellationToken token) =>
         {
@@ -32,7 +33,8 @@ public static class OrganizationChangeParticipantEndpoints
 
             var users = await db.Users
                 .AsNoTracking()
-                .Where(x => x.OrganizationId == organization.Id || x.OrganizationId == implementorOrganizationId)
+                .Where(x => x.OrganizationId == organization.Id ||
+                            (includeImplementors != false && x.OrganizationId == implementorOrganizationId))
                 .OrderBy(x => x.Name)
                 .ThenBy(x => x.Email)
                 .Select(x => new ChangeParticipantUserDto(x.Id, x.Name, x.Email, x.Role, x.OrganizationId))
@@ -53,9 +55,9 @@ public static class OrganizationChangeParticipantEndpoints
                 .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
             var implementorUsers = users
-                .Where(x => string.Equals(x.OrganizationId, implementorOrganizationId, StringComparison.OrdinalIgnoreCase))
+                .Where(x => includeImplementors != false && string.Equals(x.OrganizationId, implementorOrganizationId, StringComparison.OrdinalIgnoreCase))
                 .ToList();
-            if (implementorUsers.Count == 0)
+            if (includeImplementors != false && implementorUsers.Count == 0)
             {
                 implementorUsers = await db.Users
                     .AsNoTracking()

@@ -69,7 +69,11 @@
             </MudStack>
         </SubjectTemplate>
         <AssigneeTemplate Context="change">
-            @RenderImplementor(change)
+            <TicketAssigneePicker @key="change.Id" TicketType="changes" TicketId="@change.Id"
+                                  OrganizationId="@change.OrganizationId" AssignedToId="@change.ImplementorUserId"
+                                  SelectedName="@change.ImplementorUserName" SelectedEmail="@change.ImplementorUserEmail"
+                                  ReadOnly="@(accessProfile?.CanManageChange(change.OrganizationId) != true || change.LifecycleState != ChangeLifecycleState.Draft)"
+                                  AssignmentChanged="@(user => UpdateImplementor(change, user))" />
         </AssigneeTemplate>
         <CustomerTemplate Context="change">
             @RenderRequestedFor(change)
@@ -99,7 +103,6 @@
     private string? search;
     private CancellationTokenSource? _debounceCts;
     private HashSet<ChangeDto> _selected = new();
-    private List<UserDto> teamMembers = new();
     private bool aiInvolvedOnly;
     private bool historicOnly;
     private string? appliedQuerySearch;
@@ -195,24 +198,12 @@
         builder.CloseComponent();
     };
 
-    private static RenderFragment RenderImplementor(ChangeDto change) => builder =>
+    private static void UpdateImplementor(ChangeDto change, UserDto? user)
     {
-        var display = FormatShortPerson(change.ImplementorUserName, change.ImplementorUserEmail, change.ImplementorUserId);
-        var tooltip = FormatPerson(change.ImplementorUserName, change.ImplementorUserEmail, change.ImplementorUserId);
-        builder.OpenComponent<MudTooltip>(0);
-        builder.AddAttribute(1, nameof(MudTooltip.Text), tooltip);
-        builder.AddAttribute(2, nameof(MudTooltip.ChildContent), (RenderFragment)(tooltipBuilder =>
-        {
-            tooltipBuilder.OpenComponent<MudAvatar>(3);
-            tooltipBuilder.AddAttribute(4, nameof(MudAvatar.Size), Size.Medium);
-            tooltipBuilder.AddAttribute(5, nameof(MudAvatar.Color), string.IsNullOrWhiteSpace(display) ? Color.Warning : Color.Primary);
-            tooltipBuilder.AddAttribute(6, nameof(MudAvatar.Variant), Variant.Filled);
-            tooltipBuilder.AddAttribute(7, nameof(MudAvatar.ChildContent), (RenderFragment)(avatarBuilder =>
-                avatarBuilder.AddContent(8, Initials(display))));
-            tooltipBuilder.CloseComponent();
-        }));
-        builder.CloseComponent();
-    };
+        change.ImplementorUserId = change.AssignedToId = user?.Id;
+        change.ImplementorUserName = user?.Name;
+        change.ImplementorUserEmail = user?.Email;
+    }
 
     private RenderFragment RenderLifecycleState(ChangeDto change) => builder =>
     {
@@ -247,24 +238,6 @@
         return value.Contains('@', StringComparison.Ordinal)
             ? value.Split('@')[0]
             : value;
-    }
-
-    private static string Initials(string? display)
-    {
-        if (string.IsNullOrWhiteSpace(display))
-        {
-            return "?";
-        }
-
-        var parts = display.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length == 1)
-        {
-            return parts[0].Length >= 2
-                ? $"{char.ToUpperInvariant(parts[0][0])}{char.ToUpperInvariant(parts[0][1])}"
-                : char.ToUpperInvariant(parts[0][0]).ToString();
-        }
-
-        return $"{char.ToUpperInvariant(parts[0][0])}{char.ToUpperInvariant(parts[^1][0])}";
     }
 
     private static string? FirstNonEmpty(params string?[] values) =>

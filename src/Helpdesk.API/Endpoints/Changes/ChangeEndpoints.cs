@@ -7,6 +7,8 @@ using Helpdesk.Application.Tickets;
 using Helpdesk.Application.Timeline;
 using Helpdesk.Application.WorkLogs;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.API.Endpoints.Ticketing;
+using Helpdesk.Shared.DTOs.User;
 using Helpdesk.Shared.DTOs;
 using Helpdesk.Shared.DTOs.Change;
 using Helpdesk.Shared.DTOs.Sla;
@@ -840,18 +842,54 @@ public static class ChangeEndpoints
         .WithDescription("Updates the state of multiple changes in one request.")
         .WithTags("Changes");
 
+        group.MapPost("/{id}/assignee", async (
+            string id, ChangeAssigneeRequest req, ClaimsPrincipal user,
+            HelpdeskDbContext db, ICurrentUserAccessService accessService,
+            IRepository<Change> repo, CancellationToken token) =>
+        {
+            var change = await repo.GetAsync(id);
+            if (change is null) return Results.NotFound();
+            var access = await accessService.ResolveAsync(user, token);
+            if (!access.CanManageChange(change.OrganizationId)) return Results.Forbid();
+            var validation = await ValidateImplementorAssignmentAsync(db, change, req.ImplementorUserId, token);
+            if (validation is not null) return validation;
+            change.ImplementorUserId = req.ImplementorUserId!.Trim();
+            change.AssignedToId = change.ImplementorUserId;
+            change.UpdatedAt = DateTime.UtcNow;
+            await repo.UpdateAsync(change);
+            var assigned = await db.Users.AsNoTracking().Where(x => x.Id == change.ImplementorUserId)
+                .Select(x => new UserDto(x.Id, x.Name, x.Email, x.Role, x.IsTestUser, x.OrganizationId))
+                .SingleAsync(token);
+            return Results.Ok(assigned);
+        }).WithName("AssignChangeImplementor");
+
         group.MapPost("/bulk/assign", async (
             [FromBody] BulkAssignRequest req,
-            [FromServices] IRepository<Change> repo) =>
+            [FromServices] IRepository<Change> repo,
+            HelpdeskDbContext db, ClaimsPrincipal user,
+            ICurrentUserAccessService accessService, CancellationToken token) =>
         {
             if (req.Ids is null || req.Ids.Count == 0) return Results.BadRequest("No ids");
             var changes = (await repo.GetAllAsync()).Where(x => req.Ids.Contains(x.Id)).ToList();
+            if (changes.Count != req.Ids.Distinct().Count()) return Results.NotFound();
+            var access = await accessService.ResolveAsync(user, token);
+            if (changes.Any(x => !access.CanManageChange(x.OrganizationId))) return Results.Forbid();
+            // Validate every target before writing any of them. Keep the admin-only policy.
             foreach (var change in changes)
             {
-                change.AssignedToId = req.AssignedToId;
+                var validation = await ValidateImplementorAssignmentAsync(db, change, req.AssignedToId, token);
+                if (validation is not null) return validation;
+            }
+            await using var transaction = await db.Database.BeginTransactionAsync(token);
+            foreach (var change in changes)
+            {
+                change.ImplementorUserId = req.AssignedToId!.Trim();
+                change.AssignedToId = change.ImplementorUserId;
                 change.UpdatedAt = DateTime.UtcNow;
                 await repo.UpdateAsync(change);
             }
+
+            await transaction.CommitAsync(token);
 
             return Results.Ok(new { updated = changes.Count });
         })
@@ -2366,24 +2404,8 @@ public static class ChangeEndpoints
 
         if (!string.IsNullOrWhiteSpace(implementorUserId))
         {
-            var implementorOrganizationId = string.IsNullOrWhiteSpace(organization.ItSupportOrganizationId)
-                ? organization.Id
-                : organization.ItSupportOrganizationId;
-            var implementorExists = await db.Users
-                .AsNoTracking()
-                .AnyAsync(
-                    user => user.Id == implementorUserId.Trim() &&
-                            user.OrganizationId == implementorOrganizationId,
-                    token);
-            if (!implementorExists)
-            {
-                implementorExists = await db.Users
-                    .AsNoTracking()
-                    .AnyAsync(
-                        user => user.Id == implementorUserId.Trim() &&
-                                (user.Role == "HelpdeskAdmin" || user.Role == "Technician"),
-                        token);
-            }
+            var implementorExists = await AssigneeQueries.Eligible(db, "change", organization)
+                .AnyAsync(user => user.Id == implementorUserId.Trim(), token);
 
             if (!implementorExists)
             {
@@ -2392,6 +2414,19 @@ public static class ChangeEndpoints
         }
 
         return null;
+    }
+
+    private static async Task<IResult?> ValidateImplementorAssignmentAsync(
+        HelpdeskDbContext db, Change change, string? implementorId, CancellationToken token)
+    {
+        if (EffectiveLifecycleState(change) != ChangeLifecycleState.Draft)
+            return Results.BadRequest("Change details are locked unless the change is moved back to Draft.");
+        if (string.IsNullOrWhiteSpace(implementorId)) return Results.BadRequest("Implementor is required.");
+        var organization = await db.Organizations.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == change.OrganizationId, token);
+        if (organization is null) return Results.BadRequest("The selected organization could not be found.");
+        return await ValidateChangeParticipantsAsync(db, organization, change.RequestedForUserId,
+            implementorId, change.ApproverUserIds, requireRequestedForAndImplementor: true, token);
     }
 
     private static async Task<Dictionary<string, ChangeParticipantUserDto>> BuildParticipantLookupAsync(
@@ -2636,3 +2671,4 @@ internal sealed record BulkStateChangeRequest(List<string> Ids, TicketState NewS
 internal sealed record QuickChangeLifecycleRequest(ChangeLifecycleState LifecycleState);
 
 internal sealed record BulkAssignRequest(List<string> Ids, string? AssignedToId);
+internal sealed record ChangeAssigneeRequest(string? ImplementorUserId);

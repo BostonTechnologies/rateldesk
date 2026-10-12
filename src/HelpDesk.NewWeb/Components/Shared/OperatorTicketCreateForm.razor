@@ -82,20 +82,10 @@
                                         }
                                     </MudSelect>
 
-                                    <MudSelect T="string"
-                                               Label="Technician assignment (optional)"
-                                               Variant="Variant.Outlined"
-                                               Dense="true"
-                                               Margin="Margin.Dense"
-                                               Value="@AssigneeSelectValue"
-                                               ValueChanged="OnAssigneeChanged"
-                                               Disabled="@(!canAssign || string.IsNullOrWhiteSpace(model.OrganizationId))">
-                                        <MudSelectItem T="string" Value="@UnassignedValue">Unassigned</MudSelectItem>
-                                        @foreach (var user in FilteredUsers)
-                                        {
-                                            <MudSelectItem T="string" Value="@user.Id">@user.Name (@user.Email)</MudSelectItem>
-                                        }
-                                    </MudSelect>
+                                    <AssigneeSelector Module="@Module" OrganizationId="@model.OrganizationId"
+                                                      Value="@model.AssignedToId" Label="Technician assignment (optional)"
+                                                      ReadOnly="@(!canAssign)" Busy="isSubmitting"
+                                                      SelectionChanged="@(user => OnAssigneeChanged(user?.Id))" />
                                 </MudStack>
                             </MudItem>
                         </MudGrid>
@@ -115,8 +105,6 @@
 </MudDialog>
 
 @code {
-    private const string UnassignedValue = "__unassigned";
-
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
 
     [CascadingParameter]
@@ -134,21 +122,10 @@
     private MudForm form = default!;
     private OperatorTicketCreateFormModel model = new();
     private List<OrganizationDto> organizations = new();
-    private List<UserDto> users = new();
     private CurrentUserAccessDto? access;
     private bool isSubmitting;
     private bool canAssign;
     private bool canCreateCustomers;
-
-    private IEnumerable<UserDto> FilteredUsers => string.IsNullOrWhiteSpace(model.OrganizationId)
-        ? Enumerable.Empty<UserDto>()
-        : users
-            .Where(x => string.Equals(x.OrganizationId, model.OrganizationId, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase);
-
-    private string AssigneeSelectValue => string.IsNullOrWhiteSpace(model.AssignedToId)
-        ? UnassignedValue
-        : model.AssignedToId;
 
     protected override async Task OnInitializedAsync()
     {
@@ -175,7 +152,7 @@
         }
     }
 
-    private async Task OnOrganizationChanged(string? value)
+    private Task OnOrganizationChanged(string? value)
     {
         model.OrganizationId = string.IsNullOrWhiteSpace(value) ? null : value;
         canAssign = Module switch
@@ -186,30 +163,9 @@
             _ => false
         };
         canCreateCustomers = canAssign;
-        if (!FilteredUsers.Any(x => x.Id == model.AssignedToId))
-        {
-            model.AssignedToId = null;
-        }
+        model.AssignedToId = null;
         model.CustomerId = null;
-        users.Clear();
-        if (canAssign && !string.IsNullOrWhiteSpace(model.OrganizationId))
-        {
-            await LoadAssigneesAsync(model.OrganizationId);
-        }
-
-    }
-
-    private async Task LoadAssigneesAsync(string organizationId)
-    {
-        try
-        {
-            users = await HelpdeskApi.GetFromJsonAsync<List<UserDto>>($"api/v1/ticketing/assignees?module={Module}&organizationId={Uri.EscapeDataString(organizationId)}") ?? new();
-        }
-        catch
-        {
-            users.Clear();
-            Snackbar.Add("Unable to load assignees right now.", Severity.Warning);
-        }
+        return Task.CompletedTask;
     }
 
     private Task OnCustomerChanged(string? value)
@@ -220,7 +176,7 @@
 
     private Task OnAssigneeChanged(string? value)
     {
-        model.AssignedToId = string.IsNullOrWhiteSpace(value) || value == UnassignedValue
+        model.AssignedToId = string.IsNullOrWhiteSpace(value)
             ? null
             : value;
         return Task.CompletedTask;

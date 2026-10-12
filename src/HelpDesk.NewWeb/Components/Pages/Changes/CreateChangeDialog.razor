@@ -130,19 +130,9 @@
                                             <ChangeFieldHelp Label="Implementor"
                                                              TooltipText="The person implementing the change"
                                                              ExampleText="Select one user from the organization that manages IT for this organization." />
-                                            <MudSelect T="string"
-                                                       Label="Implementor"
-                                                       Dense="true"
-                                                       Margin="Margin.Dense"
-                                                       Variant="Variant.Outlined"
-                                                       @bind-Value="model.ImplementorUserId"
-                                                       Required="true"
-                                                       Disabled="@participantsLoading">
-                                                @foreach (var user in implementorUsers)
-                                                {
-                                                    <MudSelectItem T="string" Value="@user.Id">@FormatUser(user)</MudSelectItem>
-                                                }
-                                            </MudSelect>
+                                            <AssigneeSelector Module="change" OrganizationId="@model.OrganizationId"
+                                                              Value="@model.ImplementorUserId" Label="Implementor" AllowUnassigned="false"
+                                                              Busy="participantsLoading" SelectionChanged="@(user => model.ImplementorUserId = user?.Id)" />
                                         </MudItem>
 
                                         <MudItem xs="12" sm="6">
@@ -264,7 +254,6 @@
     };
     private List<OrganizationDto> organizations = new();
     private List<ChangeParticipantUserDto> requestedForUsers = new();
-    private List<ChangeParticipantUserDto> implementorUsers = new();
     private List<ChangeParticipantUserDto> approverUsers = new();
     private HashSet<string> selectedApproverIds = new(StringComparer.OrdinalIgnoreCase);
     private List<string> templateErrors = new();
@@ -305,7 +294,6 @@
         model.ApproverUserIds = new List<string>();
         selectedApproverIds.Clear();
         requestedForUsers.Clear();
-        implementorUsers.Clear();
         approverUsers.Clear();
 
         if (!string.IsNullOrWhiteSpace(model.OrganizationId))
@@ -320,9 +308,8 @@
         try
         {
             var participants = await HelpdeskApi.GetFromJsonAsync<ChangeParticipantsDto>(
-                $"api/v1/organizations/{Uri.EscapeDataString(organizationId)}/change-participants");
+                $"api/v1/organizations/{Uri.EscapeDataString(organizationId)}/change-participants?includeImplementors=false");
             requestedForUsers = participants?.RequestedForUsers ?? new();
-            implementorUsers = participants?.ImplementorUsers ?? new();
             approverUsers = participants?.ApproverUsers ?? new();
         }
         catch (Exception ex)

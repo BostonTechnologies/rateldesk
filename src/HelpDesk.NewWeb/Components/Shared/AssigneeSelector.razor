@@ -1,0 +1,271 @@
+@using Helpdesk.Shared.DTOs.User
+@using System.Text.Json
+@implements IAsyncDisposable
+@inject IHttpClientFactory HttpClientFactory
+@inject IJSRuntime JS
+
+<div class="assignee-selector" @onclick:stopPropagation="true" @onkeydown:stopPropagation="true">
+    @if (ReadOnly)
+    {
+        <span class="assignee-current" role="img" aria-label="@($"{Label}: {DisplayName}")" title="@DisplayTooltip">
+            <MudAvatar Size="Size.Small" Variant="Variant.Outlined">@Initials(selected)</MudAvatar>
+            @if (!Compact) { <span>@DisplayName</span> }
+        </span>
+    }
+    else
+    {
+        <button @ref="trigger" type="button" class="assignee-trigger @(Compact ? "assignee-trigger-compact" : null)"
+                disabled="@(Busy || selecting || string.IsNullOrWhiteSpace(OrganizationId))"
+                aria-label="@($"Choose {Label.ToLowerInvariant()}: {DisplayName}")" aria-haspopup="dialog"
+                aria-expanded="@(open ? "true" : "false")" aria-controls="@popupId" title="@DisplayTooltip" @onclick="Toggle">
+            <MudAvatar Size="Size.Small" Variant="Variant.Outlined">@Initials(selected)</MudAvatar>
+            @if (!Compact) { <span><small>@Label</small><span>@DisplayName</span></span> }
+            @if (Busy || selecting) { <MudProgressCircular Size="Size.Small" Indeterminate="true" /> }
+        </button>
+    }
+    <MudPopover Open="open" AnchorOrigin="Origin.BottomLeft" TransformOrigin="Origin.TopLeft"
+                Class="assignee-popup" Style="width: 390px; max-width: calc(100vw - 24px); z-index: 1601;">
+        @if (open)
+        {
+            <div id="@popupId" role="dialog" aria-label="@($"Choose {Label.ToLowerInvariant()}")"
+                 @onclick:stopPropagation="true" @onkeydown="PopupKeyDown" @onkeydown:stopPropagation="true">
+                <div class="assignee-search-header">
+                    <input @ref="searchInput" type="search" value="@query" maxlength="200"
+                           class="assignee-search-input" placeholder="Search name or email"
+                           aria-label="Search name or email" role="combobox" aria-autocomplete="list"
+                           aria-expanded="true" aria-controls="@listId" aria-activedescendant="@ActiveId"
+                           @oninput="QueryChanged" @onkeydown="KeyDown" @onkeydown:stopPropagation="true" disabled="@(Busy || selecting)" />
+                    <span class="assignee-selection">@($"Current: {DisplayName}")</span>
+                </div>
+                <div aria-live="polite" class="assignee-feedback">
+                    @if (Busy || selecting) { <span>Saving assignment…</span> }
+                    else if (loading) { <span>Loading assignees…</span> }
+                    else if (failed)
+                    {
+                        <span>Unable to load assignees.</span>
+                        <button type="button" class="assignee-retry" @onclick="Retry">Retry</button>
+                    }
+                    else if (items.Count == 0) { <span>@(query.Trim().Length == 0 ? "No eligible users." : "No matching users.")</span> }
+                </div>
+                <div id="@listId" role="listbox" aria-label="Eligible assignees" class="assignee-results">
+                    @for (var i = 0; i < items.Count; i++)
+                    {
+                        var index = i;
+                        var candidate = items[i];
+                        <button id="@OptionId(index)" type="button" role="option" tabindex="-1"
+                                aria-selected="@(candidate.Id == Value ? "true" : "false")"
+                                class="assignee-option @(activeIndex == index ? "assignee-option-active" : null)"
+                                disabled="@(Busy || selecting || loading)" @onclick="@(() => Choose(candidate))">
+                            <MudAvatar Size="Size.Small" Variant="Variant.Outlined">@Initials(candidate)</MudAvatar>
+                            <span class="assignee-option-text"><span>@Name(candidate)</span><small>@candidate.Email</small></span>
+                            @if (candidate.Id == Value) { <span aria-label="Selected">✓</span> }
+                        </button>
+                    }
+                </div>
+                @if (hasMore && !loading) { <div class="assignee-footer">More users available. Refine your search.</div> }
+                @if (AllowUnassigned)
+                {
+                    <button type="button" class="assignee-clear" disabled="@(Busy || selecting)" @onclick="@(() => Choose(null))">Unassigned</button>
+                }
+            </div>
+        }
+    </MudPopover>
+    <MudOverlay Visible="open" OnClick="Dismiss" ZIndex="1600" />
+</div>
+
+@code {
+    [Parameter] public string Module { get; set; } = "incident";
+    [Parameter] public string? OrganizationId { get; set; }
+    [Parameter] public string? TicketId { get; set; }
+    [Parameter] public string? ContextKey { get; set; }
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public string? SelectedName { get; set; }
+    [Parameter] public string? SelectedEmail { get; set; }
+    [Parameter] public string Label { get; set; } = "Assignee";
+    [Parameter] public bool ReadOnly { get; set; }
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public bool Compact { get; set; }
+    [Parameter] public bool AllowUnassigned { get; set; } = true;
+    [Parameter] public EventCallback<UserDto?> SelectionChanged { get; set; }
+
+    private readonly string popupId = $"assignee-{Guid.NewGuid():N}";
+    private string listId => popupId + "-results";
+    private string? ActiveId => activeIndex >= 0 && activeIndex < items.Count ? OptionId(activeIndex) : null;
+    private string OptionId(int index) => $"{listId}-{index}";
+    private ElementReference trigger, searchInput;
+    private IJSObjectReference? js;
+    private CancellationTokenSource scopeCancellation = new();
+    private CancellationTokenSource? lookupCancellation;
+    private (string, string?, string?, string?, bool) scope;
+    private List<UserDto> items = [];
+    private UserDto? selected, lastChoice;
+    private string query = "";
+    private bool open, loading, failed, hasMore, selecting, focusSearch, disposed;
+    private int activeIndex = -1;
+    private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
+    private string DisplayName => string.IsNullOrWhiteSpace(Value) ? "Unassigned" : selected is null ? "Assigned user" : Name(selected);
+    private string? DisplayEmail => selected?.Email;
+    private string DisplayTooltip => string.IsNullOrWhiteSpace(DisplayEmail) ? DisplayName : $"{DisplayName} ({DisplayEmail})";
+    private static string Name(UserDto user) => !string.IsNullOrWhiteSpace(user.Name) ? user.Name : !string.IsNullOrWhiteSpace(user.Email) ? user.Email : "User";
+    private static string Initials(UserDto? user)
+    {
+        if (user is null) return "?";
+        var parts = Name(user).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return (parts.Length > 1 ? $"{parts[0][0]}{parts[^1][0]}" : parts[0][..Math.Min(2, parts[0].Length)]).ToUpperInvariant();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var nextScope = (Module, OrganizationId, TicketId, ContextKey, ReadOnly);
+        if (scope != nextScope)
+        {
+            scope = nextScope;
+            scopeCancellation.Cancel();
+            scopeCancellation.Dispose();
+            scopeCancellation = new();
+            CancelLookup();
+            open = loading = failed = hasMore = focusSearch = false;
+            query = "";
+            items.Clear();
+            activeIndex = -1;
+            selected = lastChoice = null;
+        }
+        if (string.IsNullOrWhiteSpace(Value)) { selected = null; return; }
+        if (!string.IsNullOrWhiteSpace(SelectedName) || !string.IsNullOrWhiteSpace(SelectedEmail))
+        {
+            selected = new UserDto(Value, SelectedName ?? "", SelectedEmail ?? "", "", false, OrganizationId);
+            return;
+        }
+        if (selected?.Id == Value) return;
+        selected = lastChoice?.Id == Value ? lastChoice : items.FirstOrDefault(x => x.Id == Value);
+        if (selected is null && !string.IsNullOrWhiteSpace(TicketId))
+        {
+            var expectedValue = Value;
+            var token = scopeCancellation.Token;
+            try
+            {
+                var current = await Api.GetFromJsonAsync<UserDto>($"api/v1/ticketing/assignees/current?{ScopeQuery()}&ticketId={Uri.EscapeDataString(TicketId)}", token);
+                if (!disposed && !token.IsCancellationRequested && Value == expectedValue && current?.Id == expectedValue) selected = current;
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) when (ex is HttpRequestException or JsonException) { }
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!focusSearch || !open || disposed) return;
+        focusSearch = false;
+        js ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/assigneeSelector.js");
+        if (open && !disposed) await js.InvokeVoidAsync("focusSearch", searchInput, trigger);
+    }
+
+    private string ScopeQuery() => $"module={Uri.EscapeDataString(Module)}&organizationId={Uri.EscapeDataString(OrganizationId ?? "")}";
+    private async Task Toggle()
+    {
+        if (open) { await Close(true); return; }
+        if (ReadOnly || Busy || selecting || string.IsNullOrWhiteSpace(OrganizationId)) return;
+        open = focusSearch = true;
+        query = "";
+        await Load(false);
+    }
+    private Task Dismiss() => Close(true);
+    private Task Retry() { focusSearch = true; return Load(false); }
+    private async Task Close(bool returnFocus)
+    {
+        open = focusSearch = false;
+        CancelLookup();
+        if (returnFocus && !disposed) await trigger.FocusAsync();
+    }
+    private Task QueryChanged(ChangeEventArgs args)
+    {
+        query = args.Value?.ToString() ?? "";
+        return Load(true);
+    }
+    private async Task Load(bool debounce)
+    {
+        CancelLookup();
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(scopeCancellation.Token);
+        lookupCancellation = cancellation;
+        var token = cancellation.Token;
+        var expectedQuery = query;
+        var request = $"api/v1/ticketing/assignees/search?{ScopeQuery()}&q={Uri.EscapeDataString(query)}";
+        loading = true;
+        failed = hasMore = false;
+        items = [];
+        activeIndex = -1;
+        try
+        {
+            if (debounce) await Task.Delay(250, token);
+            var result = await Api.GetFromJsonAsync<AssigneeSearchResult>(request, token);
+            if (disposed || token.IsCancellationRequested || !open || query != expectedQuery) return;
+            items = result?.Items ?? [];
+            hasMore = result?.HasMore == true;
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (OperationCanceledException) { if (!disposed && open) failed = true; }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException) { if (!disposed && !token.IsCancellationRequested && open) failed = true; }
+        finally
+        {
+            if (ReferenceEquals(lookupCancellation, cancellation))
+            {
+                lookupCancellation = null;
+                loading = false;
+            }
+        }
+    }
+    private async Task KeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape") { await Close(true); return; }
+        if (args.Key == "Tab")
+        {
+            if (args.ShiftKey || (!AllowUnassigned && !failed)) await Close(false);
+            return;
+        }
+        if (loading || Busy || selecting) return;
+        if (args.Key is "ArrowDown" or "ArrowUp" && items.Count > 0)
+        {
+            activeIndex = args.Key == "ArrowDown" ? (activeIndex + 1) % items.Count : (activeIndex <= 0 ? items.Count - 1 : activeIndex - 1);
+            if (js is not null) await js.InvokeVoidAsync("scrollOption", OptionId(activeIndex));
+        }
+        else if (args.Key == "Enter" && activeIndex >= 0 && activeIndex < items.Count) await Choose(items[activeIndex]);
+    }
+    private Task PopupKeyDown(KeyboardEventArgs args) => args.Key switch
+    {
+        "Escape" => Close(true),
+        "Tab" when !args.ShiftKey => Close(false),
+        _ => Task.CompletedTask
+    };
+    private async Task Choose(UserDto? candidate)
+    {
+        if (ReadOnly || Busy || selecting || (!AllowUnassigned && candidate is null)) return;
+        var origin = scope;
+        selecting = true;
+        try
+        {
+            await SelectionChanged.InvokeAsync(candidate);
+            if (!disposed && origin == scope)
+            {
+                lastChoice = candidate;
+                await Close(true);
+            }
+        }
+        finally { selecting = false; }
+    }
+    private void CancelLookup()
+    {
+        lookupCancellation?.Cancel();
+        lookupCancellation = null;
+    }
+    public async ValueTask DisposeAsync()
+    {
+        disposed = true;
+        CancelLookup();
+        scopeCancellation.Cancel();
+        scopeCancellation.Dispose();
+        if (js is not null)
+        {
+            try { await js.DisposeAsync(); } catch (JSDisconnectedException) { }
+        }
+    }
+}
