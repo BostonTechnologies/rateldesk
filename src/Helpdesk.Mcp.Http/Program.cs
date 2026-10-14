@@ -16,6 +16,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using ModelContextProtocol.Authentication;
 using Microsoft.IdentityModel.Tokens;
 using System.Threading.RateLimiting;
+using Helpdesk.Setup;
 
 namespace Helpdesk.Mcp.Http;
 
@@ -23,6 +24,21 @@ public sealed partial class Program
 {
     public static void Main(string[] args)
     {
+        if (args is ["--help"] or ["-h"])
+        {
+            Console.Out.WriteLine("RatelDesk HTTP MCP host\n\nExplicit commands before server validation: setup [--target http-host|http-client|cli|stdio] [--profile NAME|--config PATH] [--export-directory DIR] [--monochrome], status, config validate, doctor [--network] [--authenticate], profile list/show/remove, auth status/logout. Normal startup serves HTTP without prompting.");
+            return;
+        }
+        if (args is ["--version"])
+        {
+            Console.Out.WriteLine($"rateldesk-mcp-http {typeof(Program).Assembly.GetName().Version}");
+            return;
+        }
+        if (SetupCommands.IsCommand(args))
+        {
+            Environment.ExitCode = SetupCommands.InvokeAsync(args, SetupTransport.Http).GetAwaiter().GetResult();
+            return;
+        }
         const string McpScheme = "HelpdeskMcp";
         const string JwtScheme = "HelpdeskMcpJwt";
         const string PolicyName = "HelpdeskMcpAccess";
@@ -38,7 +54,7 @@ public sealed partial class Program
         var configurationPath = string.IsNullOrWhiteSpace(httpOptions.ConfigurationPath)
             ? Environment.GetEnvironmentVariable(HelpdeskMcpTarget.ConfigurationEnvironmentVariable)
             : httpOptions.ConfigurationPath;
-        var agentConfiguration = AgentClientConfigurationResolver.LoadIsolated(configurationPath);
+        var agentConfiguration = AgentClientConfigurationResolver.LoadMcp(builder.Configuration, configurationPath);
         var target = HelpdeskMcpTarget.Resolve(agentConfiguration, configurationPath, httpOptions.Instance, httpOptions.ExpectedApiBaseUrl);
 
         builder.Services.AddOptions<HelpdeskMcpHttpOptions>()

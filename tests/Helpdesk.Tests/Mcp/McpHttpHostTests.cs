@@ -34,6 +34,74 @@ public sealed class McpHttpHostTests
     private const string ResourceUri = "https://helpdesk-dev.example/mcp";
 
     [Fact]
+    public async Task Environment_only_gateway_process_starts_without_file_deployment_credential_or_prompt()
+    {
+        using var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        var assembly = typeof(Helpdesk.Mcp.Http.Program).Assembly.Location;
+        var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet")
+        {
+            UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
+            WorkingDirectory = Path.GetDirectoryName(assembly)!
+        };
+        start.ArgumentList.Add(assembly);
+        foreach (var name in start.Environment.Keys.Where(name => name.StartsWith("RATELDESK_MCP_", StringComparison.OrdinalIgnoreCase) ||
+            name.StartsWith("Helpdesk__Mcp__", StringComparison.OrdinalIgnoreCase) || name.StartsWith("Authentication__AuthentikMcp__", StringComparison.OrdinalIgnoreCase)).ToArray())
+            start.Environment.Remove(name);
+        start.Environment["ASPNETCORE_URLS"] = $"http://127.0.0.1:{port}";
+        start.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
+        start.Environment["DOTNET_ENVIRONMENT"] = "Production";
+        start.Environment["Helpdesk__Mcp__Outbound__ApiBaseUrl"] = "http://api:8222/";
+        start.Environment["Helpdesk__Mcp__Outbound__CredentialMode"] = "gateway";
+        start.Environment["Helpdesk__Mcp__Instance"] = "north-west";
+        start.Environment["Helpdesk__Mcp__ExpectedApiBaseUrl"] = "http://api:8222/";
+        start.Environment["Helpdesk__Mcp__PublicResourceUri"] = "https://desk.example/mcp";
+        start.Environment["Helpdesk__Mcp__AllowedOrigins__0"] = "https://desk.example";
+        start.Environment["Helpdesk__Mcp__AuthenticationMode"] = "gateway";
+        start.Environment["Logging__LogLevel__Default"] = "Warning";
+        start.Environment["RATELDESK_CREDENTIAL_MODE"] = "integration";
+        start.Environment["RATELDESK_API_BASE_URL"] = "https://unrelated-cli.example";
+        start.Environment["RATELDESK_INTEGRATION_CREDENTIAL"] = "rdk_unrelated_cli_identity";
+        using var process = Process.Start(start)!;
+        var stdout = process.StandardOutput.ReadToEndAsync();
+        var stderr = process.StandardError.ReadToEndAsync();
+        try
+        {
+            using var client = new HttpClient(new SocketsHttpHandler { UseProxy = false, AllowAutoRedirect = false })
+                { BaseAddress = new Uri($"http://127.0.0.1:{port}"), Timeout = Timeout.InfiniteTimeSpan };
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            HttpResponseMessage? live = null;
+            while (live is null)
+            {
+                deadline.Token.ThrowIfCancellationRequested();
+                if (process.HasExited) Assert.Fail($"HTTP MCP exited during startup (code {process.ExitCode}). {await stderr}");
+                try { live = await client.GetAsync("/health/live", deadline.Token); }
+                catch (HttpRequestException) { await Task.Delay(100, deadline.Token); }
+            }
+            using (live) Assert.Equal(HttpStatusCode.OK, live.StatusCode);
+            Assert.False(process.HasExited);
+            using var initialize = await client.PostAsync("/mcp", McpRequest("initialize"), deadline.Token);
+            Assert.Equal(HttpStatusCode.Unauthorized, initialize.StatusCode);
+            Assert.DoesNotContain(initialize.Headers.WwwAuthenticate, challenge => challenge.Parameter?.Contains("oauth-protected-resource", StringComparison.Ordinal) == true);
+            using var metadata = await client.GetAsync("/.well-known/oauth-protected-resource/mcp", deadline.Token);
+            Assert.Equal(HttpStatusCode.NotFound, metadata.StatusCode);
+        }
+        finally
+        {
+            if (!process.HasExited) process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.WhenAll(stdout, stderr);
+        }
+        var logs = await stdout + await stderr;
+        Assert.DoesNotContain("Connect a client", logs, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("[Ctrl+N", logs, StringComparison.Ordinal);
+        Assert.DoesNotContain("\u001b", logs, StringComparison.Ordinal);
+        Assert.DoesNotContain("rdk_unrelated_cli_identity", logs, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Anonymous_request_is_challenged_with_protected_resource_metadata()
     {
         using var environment = new McpHostEnvironment();

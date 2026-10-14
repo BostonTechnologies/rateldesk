@@ -1,6 +1,7 @@
 using Dodo.Primitives;
 using FluentValidation;
 using Helpdesk.API.Authentication;
+using Helpdesk.API.Services.IntegrationCredentials;
 using Helpdesk.API.Documentation;
 using Helpdesk.API.Email;
 using Helpdesk.API.Configuration;
@@ -479,6 +480,10 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0
             });
     });
+    options.AddPolicy("IntegrationPairing", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions { AutoReplenishment = true, PermitLimit = 3000,
+                Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
     options.AddPolicy("LocalLogin", httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(
             httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
@@ -979,6 +984,10 @@ builder.Services.AddAuthorization(opts =>
 });
 
 builder.Services.AddScoped<IIntegrationCredentialOwnerResolver, IntegrationCredentialOwnerResolver>();
+builder.Services.AddScoped<IntegrationCredentialIssuer>();
+builder.Services.AddScoped<IntegrationCredentialPairingService>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddHostedService<IntegrationCredentialPairingCleanup>();
 builder.Services.AddServiceOrchestrationCallbacks();
 builder.Services.AddScoped<IIncidentReceiverAuthorization, IncidentReceiverAuthorization>();
 builder.Services.AddScoped<IAuthorizationHandler, IncidentCreateBoundaryHandler>();
@@ -1081,6 +1090,21 @@ if (app.Environment.IsDevelopment())
 app.UseAuthentication();
 app.UseMiddleware<Helpdesk.API.Middleware.LocalCookieCsrfMiddleware>();
 app.UseMiddleware<UserAccessClaimsMiddleware>();
+// Set the pairing transport bound before Minimal API body binding, including chunked requests.
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/api/v1/integration-credentials/pairing"))
+    {
+        if (context.Request.ContentLength > 16384)
+        {
+            context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
+            return;
+        }
+        var bodyLimit = context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>();
+        if (bodyLimit is { IsReadOnly: false }) bodyLimit.MaxRequestBodySize = 16384;
+    }
+    await next(context);
+});
 app.UseRateLimiter();
 app.UseAuthorization();
 
@@ -1094,6 +1118,7 @@ if (useHangfireRuntime)
 
 app.MapCurrentUserAccessEndpoint();
 app.MapIntegrationCredentialEndpoints();
+app.MapIntegrationCredentialPairingEndpoints();
 app.MapServiceIdentityEndpoints();
 app.MapSystemPairing();
 app.MapMcpGatewayDelegationEndpoints();

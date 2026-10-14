@@ -60,6 +60,41 @@ grep -q '^rateldesk ' "$temporary_directory/cli-version.txt"
 grep -q '^rateldesk-mcp ' "$temporary_directory/mcp-version.txt"
 grep -q 'stdout is reserved for MCP protocol traffic' "$temporary_directory/mcp-help.txt"
 
+# Verify setup is packaged and remains explicit/noninteractive before configuration.
+# On Windows, exercise actual archived CLI private storage under a broad parent ACL.
+"$python_bin" - "$cli" "$mcp" "$temporary_directory" "$rid" "$(dirname "${BASH_SOURCE[0]}")/check-windows-profile-privacy.ps1" <<'PY'
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+cli, mcp, temporary, rid, privacy_script = sys.argv[1:]
+environment = {key: value for key, value in os.environ.items() if not key.startswith('RATELDESK_')}
+for tool in [cli, mcp]:
+    result = subprocess.run([tool, 'setup'], env=environment, capture_output=True, text=True, timeout=15)
+    if result.returncode != 78 or result.stdout or 'requires a TTY' not in result.stderr:
+        raise SystemExit('The archive setup entrypoint did not exit predictably without a TTY.')
+if rid == 'win-x64':
+    directory = str(Path(temporary) / 'windows-private-profile')
+    command = ['powershell.exe', '-NoProfile', '-NonInteractive', '-File', privacy_script, '-DirectoryPath', directory]
+    subprocess.run(command + ['-Prepare'], check=True, timeout=15)
+    environment.update({
+        'RATELDESK_API_BASE_URL': 'https://api.example.test/',
+        'RATELDESK_CREDENTIAL_MODE': 'authentik',
+        'RATELDESK_AUTHENTIK_TOKEN_URL': 'https://auth.example.test/token',
+        'RATELDESK_AUTHENTIK_CLIENT_ID': 'archive-probe',
+        'RATELDESK_AUTHENTIK_USERNAME': 'archive-probe',
+        'RATELDESK_AUTHENTIK_APP_PASSWORD': 'synthetic-archive-private-fixture',
+    })
+    for _ in range(2):
+        result = subprocess.run([cli, '--config', str(Path(directory) / 'cli.json'), 'auth', 'configure'],
+                                env=environment, capture_output=True, text=True, timeout=15)
+        if result.returncode or 'synthetic-archive-private-fixture' in result.stdout + result.stderr:
+            raise SystemExit('The archive CLI private configuration probe failed or disclosed its fixture.')
+        subprocess.run(command, check=True, timeout=15)
+print('Archive explicit setup entrypoints passed for ' + rid)
+PY
+
 configuration="$temporary_directory/mcp-config.json"
 cat > "$configuration" <<'EOF'
 {

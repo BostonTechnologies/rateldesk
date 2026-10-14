@@ -6,6 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Helpdesk.AgentClient\Helpdesk.AgentClient.csproj" />
+    <ProjectReference Include="..\Helpdesk.Setup\Helpdesk.Setup.csproj" />
     <ProjectReference Include="..\Helpdesk.Mcp.Core\Helpdesk.Mcp.Core.csproj" />
     <ProjectReference Include="..\Helpdesk.ServiceDefaults\Helpdesk.ServiceDefaults.csproj" />
   </ItemGroup>

@@ -1,10 +1,8 @@
 using System.Security.Claims;
-using System.Security.Cryptography;
-using System.Text;
 using Helpdesk.API.Authentication;
+using Helpdesk.API.Services.IntegrationCredentials;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
-using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -15,8 +13,6 @@ public static class IntegrationCredentialEndpoints
 {
     public const string CredentialManagementPolicy = "IntegrationCredentialManagementSession";
     public const string SelfRevocationPolicy = "IntegrationCredentialSelfRevocation";
-    private const int DefaultLifetimeDays = 30;
-    private const int MaximumLifetimeDays = 90;
 
     public static void MapIntegrationCredentialEndpoints(this IEndpointRouteBuilder app)
     {
@@ -53,84 +49,25 @@ public static class IntegrationCredentialEndpoints
             RatelDeskIdentityDbContext identityDb,
             CancellationToken ct) =>
         {
-            var owner = await ownerResolver.ResolveAsync(principal, ct);
-            if (owner is null) return Results.Forbid();
-            if (request is null) return Results.ValidationProblem(new Dictionary<string, string[]> { ["request"] = ["A credential request is required."] });
-            if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Length > 128) return Results.ValidationProblem(new Dictionary<string, string[]> { ["name"] = ["A credential name up to 128 characters is required."] });
-            var purpose = request.Purpose?.Trim().ToLowerInvariant();
-            if (purpose is not ("api" or "mcp")) return Results.ValidationProblem(new Dictionary<string, string[]> { ["purpose"] = ["Purpose must be api or mcp."] });
-            var mcpResourceUri = purpose == "mcp"
-                ? CanonicalMcpResourceUri(request.McpResourceUri)
-                : null;
-            if (purpose == "mcp" && mcpResourceUri is null)
-                return Results.ValidationProblem(new Dictionary<string, string[]> { ["mcpResourceUri"] = ["MCP credentials require an absolute HTTPS resource URI ending in /mcp."] });
-            if (purpose == "api" && !string.IsNullOrWhiteSpace(request.McpResourceUri))
-                return Results.ValidationProblem(new Dictionary<string, string[]> { ["mcpResourceUri"] = ["MCP resource URIs can only be configured for MCP credentials."] });
-
-            var access = await accessService.ResolveAsync(principal, ct);
-            if (request.Permissions is null || request.Permissions.Count == 0 ||
-                request.Permissions.Any(string.IsNullOrWhiteSpace))
+            var issuer = new IntegrationCredentialIssuer(ownerResolver, accessService, db, identityDb);
+            ValidatedCredentialGrant grant;
+            try { grant = await issuer.ValidateAsync(principal, request, ct); }
+            catch (CredentialGrantException error)
             {
-                return Results.ValidationProblem(new Dictionary<string, string[]> { ["permissions"] = ["At least one non-empty permission is required."] });
+                return error.Errors is null ? Results.Forbid() : Results.ValidationProblem(error.Errors);
             }
-            var requestedPermissions = request.Permissions
-                .Select(permission => permission.Trim())
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-            if (requestedPermissions.Any(permission => !HelpdeskPermissions.AssignablePermissions.Contains(permission, StringComparer.OrdinalIgnoreCase)))
-            {
-                return Results.ValidationProblem(new Dictionary<string, string[]> { ["permissions"] = ["Permissions must be known assignable permissions."] });
-            }
-            var organizationId = request.OrganizationId?.Trim();
-            var organization = string.IsNullOrWhiteSpace(organizationId)
-                ? null
-                : await db.Organizations.AsNoTracking()
-                    .SingleOrDefaultAsync(candidate => candidate.Id == organizationId, ct);
-            if (organization is null || organization.State != Helpdesk.Shared.Models.EntityState.Enabled)
-            {
-                return Results.ValidationProblem(new Dictionary<string, string[]> { ["organizationId"] = ["An enabled organization is required."] });
-            }
-            if (!access.IsHelpdeskAdmin && requestedPermissions.Any(permission => !access.HasPermission(permission, organizationId)))
-                return Results.Forbid();
-
-            if (request.LifetimeDays is < 1 or > MaximumLifetimeDays)
-                return Results.ValidationProblem(new Dictionary<string, string[]> { ["lifetimeDays"] = [$"Lifetime must be between 1 and {MaximumLifetimeDays} days."] });
-            var lifetimeDays = request.LifetimeDays ?? DefaultLifetimeDays;
-            var id = Guid.NewGuid();
-            var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
-            var prefix = $"rdk_{id:N}"[..16];
-            var createdAtUtc = DateTimeOffset.UtcNow;
-            var credential = new IntegrationCredential
-            {
-                Id = id,
-                OwnerUserId = owner.UserId,
-                Name = request.Name.Trim(),
-                Prefix = prefix,
-                SecretHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(secret))),
-                Purpose = purpose,
-                McpResourceUri = mcpResourceUri,
-                OrganizationId = organizationId,
-                Permissions = string.Join(' ', requestedPermissions.Order(StringComparer.OrdinalIgnoreCase)),
-                CreatedAtUtc = createdAtUtc,
-                CreatedAtUnixMilliseconds = createdAtUtc.ToUnixTimeMilliseconds(),
-                ExpiresAtUtc = createdAtUtc.AddDays(lifetimeDays)
-            };
-            identityDb.IntegrationCredentials.Add(credential);
+            var (credential, delivery) = issuer.Create(grant, DateTimeOffset.UtcNow);
+            issuer.Track(credential);
             await identityDb.SaveChangesAsync(ct);
             db.ActivityLogs.Add(new Helpdesk.Shared.Models.ActivityLog
             {
-                UserId = owner.UserId,
+                UserId = grant.OwnerUserId,
                 RelatedEntityId = credential.Id.ToString("N"),
                 Message = $"Integration credential created. Prefix={credential.Prefix}; Purpose={credential.Purpose}; OrganizationId={credential.OrganizationId}; Permissions={credential.Permissions}; ExpiresAtUtc={credential.ExpiresAtUtc:O}."
             });
             await db.SaveChangesAsync(ct);
             context.Response.Headers.CacheControl = "no-store";
-            return Results.Created($"/api/v1/integration-credentials/{credential.Id:N}", new CreatedIntegrationCredential(
-                credential.Id, credential.Prefix, $"rdk_{credential.Id:N}_{secret}", credential.Purpose,
-                credential.OrganizationId, requestedPermissions, credential.ExpiresAtUtc)
-            {
-                McpResourceUri = credential.McpResourceUri
-            });
+            return Results.Created($"/api/v1/integration-credentials/{credential.Id:N}", delivery);
         }).WithSummary("Create an API integration credential");
 
         group.MapDelete("/{credentialId:guid}", async (Guid credentialId, ClaimsPrincipal principal, IIntegrationCredentialOwnerResolver ownerResolver, RatelDeskIdentityDbContext identityDb, HelpdeskDbContext db, CancellationToken ct) =>
@@ -181,19 +118,6 @@ public static class IntegrationCredentialEndpoints
         }).RequireAuthorization(SelfRevocationPolicy).WithTags("Integration Credentials").WithSummary("Revoke the presenting integration credential");
     }
 
-    private static string? CanonicalMcpResourceUri(string? value)
-    {
-        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) ||
-            !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
-            !string.IsNullOrEmpty(uri.UserInfo) || !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment) ||
-            !string.Equals(uri.AbsolutePath.TrimEnd('/'), "/mcp", StringComparison.Ordinal))
-        {
-            return null;
-        }
-
-        return uri.AbsoluteUri.TrimEnd('/');
-    }
-
     public sealed record CreateIntegrationCredentialRequest(string Name, string Purpose, string OrganizationId, IReadOnlyList<string> Permissions, int? LifetimeDays)
     {
         public string? McpResourceUri { get; init; }
@@ -207,5 +131,6 @@ public static class IntegrationCredentialEndpoints
     public sealed record CreatedIntegrationCredential(Guid Id, string Prefix, string Secret, string Purpose, string? OrganizationId, IReadOnlyList<string> Permissions, DateTimeOffset ExpiresAtUtc)
     {
         public string? McpResourceUri { get; init; }
+        public override string ToString() => $"CreatedIntegrationCredential {{ Id = {Id}, Prefix = {Prefix}, Secret = [redacted], Purpose = {Purpose} }}";
     }
 }

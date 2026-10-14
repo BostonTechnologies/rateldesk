@@ -38,15 +38,14 @@ public sealed class HelpdeskMcpTargetTests
     }
 
     [Fact]
-    public void Resolve_requires_an_explicit_configuration_path()
+    public void Resolve_accepts_environment_only_configuration_with_an_explicit_bound_target()
     {
         using var environment = new EnvironmentVariables(
             (HelpdeskMcpTarget.InstanceEnvironmentVariable, "dev"),
             ("RATELDESK_MCP_DEV_API_BASE_URL", "https://dev.example"));
 
-        var exception = Assert.Throws<AgentClientValidationException>(() => HelpdeskMcpTarget.Resolve(Configuration("https://dev.example"), null));
-
-        Assert.Contains(HelpdeskMcpTarget.ConfigurationEnvironmentVariable, exception.Message, StringComparison.Ordinal);
+        var target = HelpdeskMcpTarget.Resolve(Configuration("https://dev.example"), null);
+        Assert.Equal("https://dev.example", target.CanonicalApiBaseUrl);
     }
 
     [Fact]
@@ -56,6 +55,25 @@ public sealed class HelpdeskMcpTargetTests
 
         Assert.True(target.MatchesApiBaseUrl("https://prod.example/api/"));
         Assert.False(target.MatchesApiBaseUrl("https://dev.example/api"));
+    }
+
+    [Fact]
+    public void Named_instance_and_private_http_backend_remain_supported_without_a_file()
+    {
+        var target = HelpdeskMcpTarget.Resolve(Configuration("http://api:8222/"), null, "north-west", "http://api:8222");
+        Assert.Equal("north-west", target.Instance);
+        Assert.Equal("http://api:8222", target.CanonicalApiBaseUrl);
+    }
+
+    [Fact]
+    public void Shell_safe_expected_endpoint_alias_beats_legacy_instance_alias()
+    {
+        using var environment = new EnvironmentVariables(
+            (HelpdeskMcpTarget.InstanceEnvironmentVariable, "north-west"),
+            ("RATELDESK_MCP_NORTH-WEST_API_BASE_URL", "https://old.example"),
+            ("RATELDESK_MCP_EXPECTED_API_BASE_URL", "http://api:8222"));
+        var target = HelpdeskMcpTarget.Resolve(Configuration("http://api:8222"), null);
+        Assert.Equal("north-west", target.Instance);
     }
 
     private static AgentClientConfiguration Configuration(string apiBaseUrl)

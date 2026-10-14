@@ -2,6 +2,14 @@ name: rateldesk
 
 # Optional source-build overlay. The base compose topology remains Web + API.
 services:
+  web:
+    environment:
+      WebGateway__PublicOrigin: ${RATELDESK_PUBLIC_ORIGIN:-}
+      WebGateway__Mcp__PublicResourceUri: ${RATELDESK_MCP_PUBLIC_RESOURCE_URI:?Set the canonical public HTTPS MCP resource.}
+      WebGateway__Mcp__Enabled: "true"
+      WebGateway__Mcp__Destination: ${RATELDESK_MCP_DESTINATION:-http://mcp-http:8223/}
+      WebGateway__Mcp__AuthenticationMode: authentik
+
   mcp-config-init:
     build:
       context: ..

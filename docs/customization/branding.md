@@ -14,7 +14,7 @@ Deployment-managed values are visible in the Admin page and labelled as environm
 
 ## Environment variables
 
-Use the names in [`.env.example`](../.env.example): `Branding__ApplicationName`, `Branding__OrganizationName`, `Branding__ApplicationUrl`, `Branding__OrganizationUrl`, `Branding__SupportUrl`, `Branding__SupportEmail`, `Branding__LogoUrl`, `Branding__CompactLogoUrl`, `Branding__FaviconUrl`, `Branding__EmailFromDisplayName`, and `Branding__Tagline`.
+Use the names in [`.env.example`](../../.env.example): `Branding__ApplicationName`, `Branding__OrganizationName`, `Branding__ApplicationUrl`, `Branding__OrganizationUrl`, `Branding__SupportUrl`, `Branding__SupportEmail`, `Branding__LogoUrl`, `Branding__CompactLogoUrl`, `Branding__FaviconUrl`, `Branding__EmailFromDisplayName`, and `Branding__Tagline`.
 
 For Compose, make these values available to the API service. For example:
 

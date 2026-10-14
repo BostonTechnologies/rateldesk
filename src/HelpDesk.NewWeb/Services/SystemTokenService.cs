@@ -28,7 +28,8 @@ public class SystemTokenService : ISystemTokenService
         }
 
         var client = _factory.CreateClient("SystemApiNoAuth");
-        var request = new HttpRequestMessage(HttpMethod.Post, $"{_config["ApiBaseUrl"]}api/v1/system/token");
+        // The named client owns the startup-resolved destination; a configuration reload cannot rebind it.
+        using var request = new HttpRequestMessage(HttpMethod.Post, "api/v1/system/token");
         var secret = _config["SYSTEM_TOKEN_SECRET"];
         if (string.IsNullOrWhiteSpace(secret))
         {
@@ -36,7 +37,7 @@ public class SystemTokenService : ISystemTokenService
         }
 
         request.Headers.Add("X-System-Secret", secret);
-        var response = await client.SendAsync(request);
+        using var response = await client.SendAsync(request);
         response.EnsureSuccessStatusCode();
         var token = await response.Content.ReadFromJsonAsync<SystemTokenResponse>();
         _token = token?.token ?? string.Empty;

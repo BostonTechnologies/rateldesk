@@ -145,6 +145,7 @@
     private Helpdesk.Shared.Build.BuildInfo _appBarVersion = new("dev", "unknown", "unknown", "HelpDesk.NewWeb", "unknown");
     private DotNetObjectReference<MainLayout>? dotNetRef;
     private int? hotkeyRegistrationId;
+    private int? navigationRegistrationId;
     private BrandingSnapshot _branding = new();
 
     protected override void OnInitialized()
@@ -174,6 +175,7 @@
 
         dotNetRef = DotNetObjectReference.Create(this);
         hotkeyRegistrationId = await JS.InvokeAsync<int>("helpdeskGlobalSearchHotkeys.register", dotNetRef);
+        navigationRegistrationId = await JS.InvokeAsync<int>("helpdeskNavigationDrawer.register", dotNetRef);
         interactive = true;
         StateHasChanged();
     }
@@ -196,6 +198,14 @@
         return Task.CompletedTask;
     }
 
+    [JSInvokable]
+    public Task CloseNavigationFromShortcut()
+    {
+        _drawerOpen = false;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
     private Task OnSearchOpenChanged(bool value)
     {
         searchOpen = value;
@@ -213,6 +223,18 @@
             catch (JSDisconnectedException exception)
             {
                 System.Diagnostics.Debug.WriteLine($"Global-search hotkey cleanup was interrupted by circuit disposal: {exception.Message}");
+            }
+        }
+
+        if (navigationRegistrationId.HasValue)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("helpdeskNavigationDrawer.dispose", navigationRegistrationId.Value);
+            }
+            catch (JSDisconnectedException exception)
+            {
+                System.Diagnostics.Debug.WriteLine($"Navigation shortcut cleanup was interrupted by circuit disposal: {exception.Message}");
             }
         }
 

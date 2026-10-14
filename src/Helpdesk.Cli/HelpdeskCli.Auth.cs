@@ -21,8 +21,8 @@ internal static partial class HelpdeskCli
         var configure = new Command("configure", "Persist local CLI authentication settings.");
         configure.SetHandler(async ctx =>
         {
-            var config = LoadConfig(ctx, globals, requireAuth: false);
-            var store = new CliConfigStore(ctx.ParseResult.GetValueForOption(globals.ConfigPath));
+            var config = LoadConfig(ctx, globals, requireAuth: false, allowMissingFile: true);
+            var store = new CliConfigStore(SelectedConfigurationPath(ctx, globals));
             store.Save(config.File.Merge(config.Overrides));
             await WriteJsonAsync(runtime, new { saved = true, path = store.Path }, ctx, globals).ConfigureAwait(false);
         });
@@ -48,6 +48,19 @@ internal static partial class HelpdeskCli
             }
         });
         auth.AddCommand(token);
+        var logout = new Command("logout", "Remove local authentication references; server revocation remains separate.");
+        logout.SetHandler(async ctx =>
+        {
+            var selected = SelectedConfigurationPath(ctx, globals);
+            var resolution = ResolveLocalConfiguration(ctx, globals);
+            if (resolution.Settings.Any(setting => setting.Managed && setting.IsSecret))
+                throw new CliValidationException("Authentication is externally managed; change the owning environment or secret mount.");
+            var store = new Helpdesk.AgentClient.AgentClientConfigurationStore(selected);
+            var value = store.Load() with { IntegrationCredential = null, IntegrationCredentialFile = null, AuthentikAppPassword = null, AuthentikAppPasswordFile = null };
+            store.SaveSecure(value, resolution.Revision ?? "", ctx.GetCancellationToken());
+            await WriteJsonAsync(runtime, new { loggedOutLocally = true, serverCredentialRevoked = false }, ctx, globals);
+        });
+        auth.AddCommand(logout);
 
         return auth;
     }
@@ -55,21 +68,24 @@ internal static partial class HelpdeskCli
     private static Command BuildConfigCommand(CliRuntime runtime, GlobalOptions globals)
     {
         var config = new Command("config", "Read and edit local Helpdesk CLI config.");
+        config.AddCommand(BuildLocalValidateCommand(runtime, globals, "validate"));
         var keyArg = new Argument<string>("key");
         var valueArg = new Argument<string>("value");
 
         var show = new Command("show", "Show merged CLI config with secrets redacted.");
         show.SetHandler(ctx =>
         {
-            var loaded = LoadConfig(ctx, globals, requireAuth: false);
-            return WriteJsonAsync(runtime, Redact(loaded.File.Merge(loaded.Overrides)), ctx, globals);
+            var resolution = ResolveLocalConfiguration(ctx, globals);
+            var redacted = JsonSerializer.SerializeToNode(Redact(CliConfig.FromAgentConfiguration(resolution.Configuration)), JsonOptions)!.AsObject();
+            redacted["sources"] = JsonSerializer.SerializeToNode(resolution.Settings, JsonOptions);
+            return WriteJsonAsync(runtime, redacted, ctx, globals);
         });
         config.AddCommand(show);
 
         var get = new Command("get", "Read one persisted config value.") { keyArg };
         get.SetHandler(async ctx =>
         {
-            var store = new CliConfigStore(ctx.ParseResult.GetValueForOption(globals.ConfigPath));
+            var store = new CliConfigStore(SelectedConfigurationPath(ctx, globals));
             var key = RequiredArgument(ctx.ParseResult, keyArg);
             var value = GetConfigValue(store.Load(), key, redact: true);
             await WriteJsonAsync(runtime, new { key, value }, ctx, globals).ConfigureAwait(false);
@@ -79,7 +95,7 @@ internal static partial class HelpdeskCli
         var set = new Command("set", "Set one persisted config value.") { keyArg, valueArg };
         set.SetHandler(async ctx =>
         {
-            var store = new CliConfigStore(ctx.ParseResult.GetValueForOption(globals.ConfigPath));
+            var store = new CliConfigStore(SelectedConfigurationPath(ctx, globals));
             var current = store.Load();
             var updated = SetConfigValue(current, RequiredArgument(ctx.ParseResult, keyArg), RequiredArgument(ctx.ParseResult, valueArg));
             store.Save(updated);
@@ -90,7 +106,7 @@ internal static partial class HelpdeskCli
         var unset = new Command("unset", "Unset one persisted config value.") { keyArg };
         unset.SetHandler(async ctx =>
         {
-            var store = new CliConfigStore(ctx.ParseResult.GetValueForOption(globals.ConfigPath));
+            var store = new CliConfigStore(SelectedConfigurationPath(ctx, globals));
             var updated = SetConfigValue(store.Load(), RequiredArgument(ctx.ParseResult, keyArg), null);
             store.Save(updated);
             await WriteJsonAsync(runtime, new { saved = true, path = store.Path }, ctx, globals).ConfigureAwait(false);

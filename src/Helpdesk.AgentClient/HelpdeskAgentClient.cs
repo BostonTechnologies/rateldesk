@@ -273,7 +273,7 @@ public sealed class HelpdeskAgentClient : IHelpdeskAgentClient
     }
 
     private HttpClient CreateFallbackClient()
-        => _handlerFactory is null ? new HttpClient() : new HttpClient(_handlerFactory(), disposeHandler: true);
+        => _handlerFactory is null ? new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) : new HttpClient(_handlerFactory(), disposeHandler: true);
 
     private CancellationTokenSource CreateRequestCancellation(CancellationToken cancellationToken, TimeSpan timeout)
     {

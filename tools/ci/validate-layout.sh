@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-for dependency in git rg dotnet; do
+for dependency in git rg dotnet python3 docker; do
   if ! command -v "$dependency" >/dev/null 2>&1; then
     printf 'layout validation: required tool is missing: %s\n' "$dependency" >&2
     exit 1
@@ -11,6 +11,9 @@ done
 
 repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
+
+python3 tools/ci/validate-docs.py
+python3 tools/ci/test-mcp-host-recipes.py
 
 runtime_projects=(
   Helpdesk.API
@@ -25,6 +28,7 @@ runtime_projects=(
   Helpdesk.Mcp.Http
   Helpdesk.ServiceDefaults
   Helpdesk.Shared
+  Helpdesk.Setup
 )
 
 failed=false

@@ -1,5 +1,11 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Net.Http.Headers;
+using Helpdesk.API.Services.IntegrationCredentials;
+using Helpdesk.AgentClient;
+using Helpdesk.Shared.DTOs.Auth;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.RateLimiting;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Helpdesk.API.Endpoints.Authentication;
@@ -12,6 +18,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -28,6 +35,58 @@ namespace Helpdesk.Tests.Api;
 
 public sealed class IntegrationCredentialSqliteTests
 {
+    [Fact]
+    public async Task Pairing_http_protocol_secure_profile_save_and_ordinary_revocation_work_together()
+    {
+        await using var harness = await Harness.CreateAsync();
+        using var device = harness.DeviceClient();
+        using var pairing = new IntegrationCredentialPairingClient("https://desk.example", device);
+        var capabilities = await pairing.DiscoverAsync();
+        Assert.Equal("RatelDesk", capabilities!.Product); Assert.True(capabilities.PairingSupported);
+        var started = await pairing.StartAsync(new("integration test client", "api"));
+        Assert.Equal("https://desk.example/account/integration-credentials/approve", started.VerificationUri);
+        using var reviewResponse = await harness.Client.PostAsJsonAsync("/api/v1/integration-credentials/pairing/review",
+            new IntegrationPairingReviewRequest(started.HumanCode));
+        var review = await reviewResponse.Content.ReadFromJsonAsync<IntegrationPairingReview>();
+        Assert.Equal("org-a", Assert.Single(review!.Organizations).Id);
+        using var approval = await harness.Client.PostAsJsonAsync("/api/v1/integration-credentials/pairing/approve",
+            new IntegrationPairingApprovalRequest(started.HumanCode, "org-a", ["Incident.Read"], 30, true));
+        Assert.Equal(HttpStatusCode.NoContent, approval.StatusCode);
+        var polled = await pairing.PollAsync(started.DeviceCode);
+        Assert.Equal("issued", polled.Status); Assert.NotNull(polled.DeliveryExpiresAtUtc);
+        var granted = polled.Credential!;
+        var privateRoot = Path.Combine(Path.GetTempPath(), "rdk-paired-profile-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var profiles = new ConfigurationProfiles(privateRoot);
+            var saved = profiles.Save("paired", AgentClientConfiguration.Empty with
+            {
+                ApiBaseUrl = "https://desk.example", CredentialMode = "integration", CredentialPurpose = "api",
+                ClientTransport = "cli", CredentialTarget = "https://desk.example", IntegrationCredential = granted.Secret,
+                CredentialOrganizationId = granted.OrganizationId, CredentialPermissions = granted.Permissions,
+                CredentialExpiresAtUtc = granted.ExpiresAtUtc
+            }, expectedRevision: "");
+            var profileBytes = await File.ReadAllTextAsync(saved.Path);
+            Assert.False(profileBytes.Contains(granted.Secret, StringComparison.Ordinal), "Profiles must reference a private secret file.");
+            await pairing.AcknowledgeAsync(started.DeviceCode, granted.Id);
+            await pairing.AcknowledgeAsync(started.DeviceCode, granted.Id);
+            var resolved = profiles.Load("paired").Resolve();
+            using var read = new HttpRequestMessage(HttpMethod.Get, "/api/v1/pairing-read-only-check");
+            read.Headers.Authorization = new AuthenticationHeaderValue("Bearer", resolved.IntegrationCredential);
+            using var validated = await device.SendAsync(read);
+            Assert.Equal(HttpStatusCode.OK, validated.StatusCode);
+            var metadata = await harness.Client.GetFromJsonAsync<List<IntegrationCredentialEndpoints.IntegrationCredentialMetadata>>("/api/v1/integration-credentials/");
+            Assert.Equal(granted.Id, Assert.Single(metadata!).Id);
+            using var revoked = await harness.Client.DeleteAsync($"/api/v1/integration-credentials/{granted.Id}");
+            Assert.Equal(HttpStatusCode.NoContent, revoked.StatusCode);
+            using var deniedRead = new HttpRequestMessage(HttpMethod.Get, "/api/v1/pairing-read-only-check");
+            deniedRead.Headers.Authorization = new AuthenticationHeaderValue("Bearer", resolved.IntegrationCredential);
+            using var denied = await device.SendAsync(deniedRead);
+            Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
+        }
+        finally { if (Directory.Exists(privateRoot)) Directory.Delete(privateRoot, true); }
+    }
+
     [Fact]
     public async Task List_endpoint_uses_provider_supported_chronological_ordering_with_a_stable_tie_breaker()
     {
@@ -212,6 +271,12 @@ public sealed class IntegrationCredentialSqliteTests
 
         public HttpClient Client { get; } = application.GetTestClient();
 
+        public HttpClient DeviceClient()
+        {
+            var device = application.GetTestClient(); device.BaseAddress = new Uri("https://desk.example");
+            device.DefaultRequestHeaders.Add("X-Test-Auth-Mode", "anonymous"); return device;
+        }
+
         public static async Task<Harness> CreateAsync()
         {
             var connection = new SqliteConnection("Data Source=:memory:");
@@ -219,6 +284,13 @@ public sealed class IntegrationCredentialSqliteTests
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
             builder.WebHost.UseTestServer();
             builder.Services.AddHttpContextAccessor();
+            builder.Configuration["IntegrationCredentials:Pairing:PublicOrigin"] = "https://desk.example";
+            builder.Services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
+            builder.Services.AddSingleton(TimeProvider.System);
+            builder.Services.AddScoped<IntegrationCredentialIssuer>();
+            builder.Services.AddScoped<IntegrationCredentialPairingService>();
+            builder.Services.AddRateLimiter(options => options.AddFixedWindowLimiter("IntegrationPairing", limiter =>
+            { limiter.PermitLimit = 3000; limiter.Window = TimeSpan.FromMinutes(1); }));
             builder.Services.AddDbContext<RatelDeskIdentityDbContext>(options => options.UseSqlite(connection));
             builder.Services.AddDbContext<HelpdeskDbContext>(options => options.UseSqlite(connection));
             builder.Services.AddScoped<ITenantContext>(_ =>
@@ -230,7 +302,11 @@ public sealed class IntegrationCredentialSqliteTests
             builder.Services.AddSingleton<ICurrentUserAccessService>(new TestAccessService());
             builder.Services.AddScoped<IIntegrationCredentialOwnerResolver, IntegrationCredentialOwnerResolver>();
             builder.Services.AddScoped<IAuthorizationHandler, IntegrationCredentialManagementSessionHandler>();
-            builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>("Test", _ => { });
+            builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>("Test", _ => { })
+                .AddScheme<IntegrationCredentialAuthenticationOptions, IntegrationCredentialAuthenticationHandler>(
+                    IntegrationCredentialAuthenticationHandler.SchemeName, _ => { });
+            builder.Services.AddAuthorization(options => options.AddPolicy("PairingReadOnly", policy =>
+            { policy.AddAuthenticationSchemes(IntegrationCredentialAuthenticationHandler.SchemeName); policy.RequireAuthenticatedUser(); }));
             builder.Services.AddAuthorization(options => options.AddPolicy(IntegrationCredentialEndpoints.CredentialManagementPolicy, policy =>
             {
                 policy.RequireAuthenticatedUser();
@@ -238,8 +314,13 @@ public sealed class IntegrationCredentialSqliteTests
             }));
             var application = builder.Build();
             application.UseAuthentication();
+            application.UseRateLimiter();
             application.UseAuthorization();
             application.MapIntegrationCredentialEndpoints();
+            application.MapIntegrationCredentialPairingEndpoints();
+            application.MapGet("/api/v1/pairing-read-only-check", (ClaimsPrincipal principal) =>
+                principal.HasClaim("integration_permission", "Incident.Read") && principal.HasClaim("integration_organization_id", "org-a")
+                    ? Results.Ok(new { authenticated = true, readOnly = true }) : Results.Forbid()).RequireAuthorization("PairingReadOnly");
             await application.StartAsync();
             await using (var scope = application.Services.CreateAsyncScope())
             {

@@ -21,12 +21,13 @@ public static class LocalBrowserLoginEndpoints
                 return Results.LocalRedirect("/login?status=form-expired");
 
             var form = await context.Request.ReadFormAsync(context.RequestAborted);
+            var returnPath = LoginReturnUrl.Normalize(form["returnUrl"]);
             var email = form["email"].ToString().Trim();
             var password = form["password"].ToString();
             var rememberMe = string.Equals(form["rememberMe"], "on", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(form["rememberMe"], "true", StringComparison.OrdinalIgnoreCase);
             if (string.IsNullOrWhiteSpace(email) || string.IsNullOrEmpty(password))
-                return Results.LocalRedirect("/login?status=Email%20and%20password%20are%20required");
+                return Results.LocalRedirect(LoginReturnUrl.WithReturn("/login?status=Email%20and%20password%20are%20required", returnPath));
 
             try
             {
@@ -37,25 +38,25 @@ public static class LocalBrowserLoginEndpoints
                 {
                     var result = await response.Content.ReadFromJsonAsync<PasswordVerificationResult>(context.RequestAborted);
                     if (result?.RequiresTwoFactor == true && HasCookie(response, ChallengeCookieName(configuration)))
-                        return Results.LocalRedirect("/login/two-factor");
+                        return Results.LocalRedirect(LoginReturnUrl.WithReturn("/login/two-factor", returnPath));
                 }
                 else if (response.StatusCode == HttpStatusCode.NoContent && HasCookie(response, localCookieName))
                 {
-                    return Results.LocalRedirect("/home");
+                    return Results.LocalRedirect(returnPath);
                 }
                 else if (response.StatusCode == HttpStatusCode.Unauthorized)
                 {
-                    return Results.LocalRedirect("/login?status=Sign-in%20failed");
+                    return Results.LocalRedirect(LoginReturnUrl.WithReturn("/login?status=Sign-in%20failed", returnPath));
                 }
                 else if (response.StatusCode == HttpStatusCode.TooManyRequests)
                 {
-                    return Results.LocalRedirect("/login?status=rate-limited");
+                    return Results.LocalRedirect(LoginReturnUrl.WithReturn("/login?status=rate-limited", returnPath));
                 }
 
                 loggers.CreateLogger("LocalBrowserLogin").LogWarning(
                     "Local sign-in could not complete. API status {StatusCode}; request {RequestId}.",
                     (int)response.StatusCode, context.TraceIdentifier);
-                return Results.LocalRedirect("/login?status=service-unavailable");
+                return Results.LocalRedirect(LoginReturnUrl.WithReturn("/login?status=service-unavailable", returnPath));
             }
             catch (Exception exception) when (exception is HttpRequestException or JsonException ||
                 exception is OperationCanceledException && !context.RequestAborted.IsCancellationRequested)
@@ -63,7 +64,7 @@ public static class LocalBrowserLoginEndpoints
                 loggers.CreateLogger("LocalBrowserLogin").LogWarning(
                     "Local sign-in service unavailable ({ExceptionType}); request {RequestId}.",
                     exception.GetType().Name, context.TraceIdentifier);
-                return Results.LocalRedirect("/login?status=service-unavailable");
+                return Results.LocalRedirect(LoginReturnUrl.WithReturn("/login?status=service-unavailable", returnPath));
             }
         }).AllowAnonymous().RequireRateLimiting("LocalBrowserLogin");
 
@@ -79,9 +80,10 @@ public static class LocalBrowserLoginEndpoints
                 return Results.LocalRedirect("/login?status=verification-expired");
 
             var form = await context.Request.ReadFormAsync(context.RequestAborted);
+            var returnPath = LoginReturnUrl.Normalize(form["returnUrl"]);
             var code = form["code"].ToString();
             if (string.IsNullOrWhiteSpace(code))
-                return Results.LocalRedirect("/login/two-factor?status=code-required");
+                return Results.LocalRedirect(LoginReturnUrl.WithReturn("/login/two-factor?status=code-required", returnPath));
 
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/local-auth/login/two-factor")
             {
@@ -94,18 +96,18 @@ public static class LocalBrowserLoginEndpoints
                 using var response = await clients.CreateClient("SystemApiNoAuth").SendAsync(request, context.RequestAborted);
                 ForwardLoginCookies(response, context, localCookieName, configuration);
                 if (response.StatusCode == HttpStatusCode.NoContent && HasCookie(response, localCookieName))
-                    return Results.LocalRedirect("/home");
+                    return Results.LocalRedirect(returnPath);
                 if (response.StatusCode == HttpStatusCode.Unauthorized)
-                    return Results.LocalRedirect(HasCookie(response, challengeCookieName)
+                    return Results.LocalRedirect(LoginReturnUrl.WithReturn(HasCookie(response, challengeCookieName)
                         ? "/login?status=verification-expired"
-                        : "/login/two-factor?status=invalid-code");
+                        : "/login/two-factor?status=invalid-code", returnPath));
                 if (response.StatusCode == HttpStatusCode.TooManyRequests)
-                    return Results.LocalRedirect("/login/two-factor?status=rate-limited");
+                    return Results.LocalRedirect(LoginReturnUrl.WithReturn("/login/two-factor?status=rate-limited", returnPath));
 
                 loggers.CreateLogger("LocalBrowserLogin").LogWarning(
                     "Local second-factor sign-in could not complete. API status {StatusCode}; request {RequestId}.",
                     (int)response.StatusCode, context.TraceIdentifier);
-                return Results.LocalRedirect("/login/two-factor?status=service-unavailable");
+                return Results.LocalRedirect(LoginReturnUrl.WithReturn("/login/two-factor?status=service-unavailable", returnPath));
             }
             catch (Exception exception) when (exception is HttpRequestException ||
                 exception is OperationCanceledException && !context.RequestAborted.IsCancellationRequested)
@@ -113,7 +115,7 @@ public static class LocalBrowserLoginEndpoints
                 loggers.CreateLogger("LocalBrowserLogin").LogWarning(
                     "Local second-factor service unavailable ({ExceptionType}); request {RequestId}.",
                     exception.GetType().Name, context.TraceIdentifier);
-                return Results.LocalRedirect("/login/two-factor?status=service-unavailable");
+                return Results.LocalRedirect(LoginReturnUrl.WithReturn("/login/two-factor?status=service-unavailable", returnPath));
             }
         }).AllowAnonymous().RequireRateLimiting("LocalBrowserLogin");
     }

@@ -139,11 +139,11 @@ builder.Services.AddSingleton<IAuthentikAiAgentTokenValidator, AuthentikAiAgentT
 builder.Services.AddOptions<NotificationPageOptions>()
     .Bind(builder.Configuration.GetSection("Notifications"));
 
-var apiBaseUrl = builder.Configuration["ApiBaseUrl"];
-if (string.IsNullOrWhiteSpace(apiBaseUrl))
-{
-    throw new InvalidOperationException("ApiBaseUrl is required. Set it through configuration or an environment variable.");
-}
+var gatewayConfiguration = new WebGatewayConfiguration(builder.Configuration);
+var gatewayOptions = gatewayConfiguration.Options;
+builder.Services.AddSingleton(gatewayOptions);
+builder.Services.AddSingleton(_ => gatewayConfiguration);
+var apiBaseUri = gatewayOptions.ApiBaseUri;
 
 var authentication = builder.Services.AddAuthentication(options =>
 {
@@ -237,10 +237,8 @@ if (webUsesOidc)
         OnRedirectToIdentityProvider = ctx =>
         {
             var req = ctx.Request;
-            var proto = req.Headers["X-Forwarded-Proto"].FirstOrDefault() ?? req.Scheme;
-            var host = req.Headers["X-Forwarded-Host"].FirstOrDefault() ?? req.Host.Value;
             var basePath = req.PathBase.ToString();
-            ctx.ProtocolMessage.RedirectUri = $"{proto}://{host}{basePath}{options.CallbackPath}";
+            ctx.ProtocolMessage.RedirectUri = $"{req.Scheme}://{req.Host}{basePath}{options.CallbackPath}";
             return Task.CompletedTask;
         },
         OnTokenValidated = context => QueueUserProvisioningOnTokenValidatedAsync(context),
@@ -260,7 +258,7 @@ if (webUsesOidc)
 // Web & System API clients
 var helpdeskApiClient = builder.Services.AddHttpClient("HelpdeskApi", client =>
 {
-    client.BaseAddress = new Uri(apiBaseUrl, UriKind.Absolute);
+    client.BaseAddress = apiBaseUri;
     client.Timeout = TimeSpan.FromMinutes(5);
 })
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false })
@@ -269,7 +267,7 @@ var helpdeskApiClient = builder.Services.AddHttpClient("HelpdeskApi", client =>
 // Pairing consumes a one-time code; a transient response must never replay this POST.
 var netclawPairingApiClient = builder.Services.AddHttpClient("NetclawPairingApi", client =>
 {
-    client.BaseAddress = new Uri(apiBaseUrl, UriKind.Absolute);
+    client.BaseAddress = apiBaseUri;
     client.Timeout = TimeSpan.FromMinutes(5);
 })
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false })
@@ -278,7 +276,7 @@ var netclawPairingApiClient = builder.Services.AddHttpClient("NetclawPairingApi"
 // Mutations retain explicit operation IDs; automatic retries must not replace pairing codes.
 var systemPairingApiClient = builder.Services.AddHttpClient("SystemPairingApi", client =>
 {
-    client.BaseAddress = new Uri(apiBaseUrl, UriKind.Absolute);
+    client.BaseAddress = apiBaseUri;
     client.Timeout = TimeSpan.FromSeconds(60);
 })
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false, AllowAutoRedirect = false })
@@ -286,7 +284,7 @@ var systemPairingApiClient = builder.Services.AddHttpClient("SystemPairingApi", 
 
 var helpdeskApiStreamingClient = builder.Services.AddHttpClient("HelpdeskApiStreaming", client =>
 {
-    client.BaseAddress = new Uri(apiBaseUrl, UriKind.Absolute);
+    client.BaseAddress = apiBaseUri;
     client.Timeout = Timeout.InfiniteTimeSpan;
 })
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false })
@@ -315,23 +313,29 @@ helpdeskApiStreamingClient.AddStandardResilienceHandler(options =>
 
 builder.Services.AddHttpClient("SystemApi", c =>
 {
-    c.BaseAddress = new Uri(apiBaseUrl, UriKind.Absolute);
+    c.BaseAddress = apiBaseUri;
     c.Timeout = TimeSpan.FromSeconds(100);
 }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false })
     .AddHttpMessageHandler<SystemTokenAuthorizationHandler>();
 
 builder.Services.AddHttpClient("SystemApiNoAuth", c =>
 {
-    c.BaseAddress = new Uri(apiBaseUrl, UriKind.Absolute);
+    c.BaseAddress = apiBaseUri;
     c.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
 }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false });
 
 builder.Services.AddSingleton<InstanceSetupStatusClient>();
 
 builder.Services.AddReverseProxy()
-    .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
+    .LoadFromConfig(gatewayConfiguration.EffectiveConfiguration.GetSection("ReverseProxy"));
 
 var app = builder.Build();
+app.Services.GetRequiredService<WebGatewayConfiguration>().SetLogger(app.Logger);
+var apiProxyDestinations = gatewayConfiguration.EffectiveConfiguration
+    .GetSection("ReverseProxy:Clusters:apiCluster:Destinations").GetChildren().ToArray();
+if (apiProxyDestinations.Length != 1 ||
+    !string.Equals(apiProxyDestinations[0]["Address"], apiBaseUri.AbsoluteUri, StringComparison.Ordinal))
+    app.Logger.LogInformation("Explicit ReverseProxy API destinations override the generated default. Web API clients continue using the resolved ApiBaseUrl.");
 
 app.MapDefaultEndpoints();
 
@@ -373,15 +377,19 @@ var fwd = new ForwardedHeadersOptions
         ForwardedHeaders.XForwardedFor
 };
 
-// Trust any proxy (dev-friendly). In prod, list the proxy IP(s) instead.
-fwd.KnownIPNetworks.Clear();
-fwd.KnownProxies.Clear();
-
-// (Optional) lock to Traefik's IP
-//fwd.KnownProxies.Add(IPAddress.Parse("192.168.1.65"));
+// Preserve legacy trust when no ingress boundary is supplied. Explicit addresses narrow trust.
+// Public MCP URLs always come from deployment configuration rather than forwarded headers.
+if (gatewayOptions.TrustedProxies.Length == 0 && gatewayOptions.TrustedNetworks.Length == 0)
+{
+    fwd.KnownIPNetworks.Clear();
+    fwd.KnownProxies.Clear();
+}
+foreach (var proxy in gatewayOptions.TrustedProxies) fwd.KnownProxies.Add(proxy);
+foreach (var network in gatewayOptions.TrustedNetworks) fwd.KnownIPNetworks.Add(network);
 app.UseForwardedHeaders(fwd);
 
 app.UseHttpsRedirection();
+app.UseWebGatewayRequestGuard(gatewayOptions);
 app.UseMiddleware<FirstRunEntryMiddleware>();
 app.UseAuthentication();
 app.UseMiddleware<TenantContextMiddleware>();
@@ -427,12 +435,12 @@ app.MapScalarApiReference(
     }).AllowAnonymous();
 
 app.MapReverseProxy().AllowAnonymous();
+app.MapIntegrationPairingConsentEndpoints();
 
 app.MapMethods("/hangfire/{**path}", ["GET", "POST", "PUT", "DELETE", "HEAD"], async (
     HttpContext context,
     IHttpClientFactory httpClientFactory,
-    ITokenService tokenService,
-    IConfiguration configuration) =>
+    ITokenService tokenService) =>
 {
     if (!(context.User?.Identity?.IsAuthenticated ?? false) || !context.User.IsInRole("HelpdeskAdmin"))
     {
@@ -450,12 +458,11 @@ app.MapMethods("/hangfire/{**path}", ["GET", "POST", "PUT", "DELETE", "HEAD"], a
         return;
     }
 
-    var configuredApiBaseUrl = configuration["ApiBaseUrl"] ?? throw new InvalidOperationException("ApiBaseUrl is required.");
     var path = context.Request.RouteValues.TryGetValue("path", out var pathValue)
         ? pathValue?.ToString()
         : null;
     var targetPath = string.IsNullOrWhiteSpace(path) ? "hangfire" : $"hangfire/{path.TrimStart('/')}";
-    var targetUri = new Uri(new Uri(configuredApiBaseUrl, UriKind.Absolute), $"{targetPath}{context.Request.QueryString}");
+    var targetUri = new Uri(apiBaseUri, $"{targetPath}{context.Request.QueryString}");
 
     using var requestMessage = new HttpRequestMessage(new HttpMethod(context.Request.Method), targetUri);
     if (!string.IsNullOrWhiteSpace(token))
@@ -542,7 +549,7 @@ app.MapGet("/login-authentik", async (HttpContext ctx) =>
         return Results.LocalRedirect("/login");
     }
 
-    await ctx.ChallengeAsync("Authentik", new AuthenticationProperties { RedirectUri = "/home" });
+    await ctx.ChallengeAsync("Authentik", new AuthenticationProperties { RedirectUri = LoginReturnUrl.Normalize(ctx.Request.Query["returnUrl"]) });
     return Results.Empty;
 });
 
