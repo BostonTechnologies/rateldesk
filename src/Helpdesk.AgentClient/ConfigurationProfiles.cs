@@ -58,6 +58,8 @@ public sealed partial class ConfigurationProfiles(string? rootPath = null, Confi
             AgentClientConfigurationValidator.ValidateHttpClientProfile(configuration, requireCredential: false);
         }
         path = System.IO.Path.GetFullPath(path);
+        if (File.Exists(path) && new FileInfo(path).IsReadOnly)
+            throw new AgentClientValidationException("The selected profile is read-only; choose a writable profile or export directory.");
         // A writer that waited for pairing cleanup cannot publish an already removed reference.
         ValidateSecretReferences(configuration);
         var currentRevision = SecureConfigurationFiles.Revision(path);

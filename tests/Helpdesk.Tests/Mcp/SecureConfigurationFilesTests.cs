@@ -25,6 +25,23 @@ public sealed class SecureConfigurationFilesTests : IDisposable
     }
 
     [Fact]
+    public void Readonly_file_cannot_be_replaced_or_deleted_through_writable_parent_directory()
+    {
+        var revision = SecureConfigurationFiles.WriteAtomic(FilePath, "existing-fixture", "");
+        File.SetAttributes(FilePath, File.GetAttributes(FilePath) | FileAttributes.ReadOnly);
+        try
+        {
+            Assert.True(new FileInfo(FilePath).IsReadOnly);
+            var error = Assert.Throws<AgentClientValidationException>(() => SecureConfigurationFiles.WriteAtomic(FilePath, "replacement-fixture", revision));
+            Assert.Contains("read-only", error.Message, StringComparison.Ordinal);
+            Assert.Throws<AgentClientValidationException>(() => SecureConfigurationFiles.DeleteAtomic(FilePath, revision));
+            Assert.Equal("existing-fixture", File.ReadAllText(FilePath));
+            Assert.True(new FileInfo(FilePath).IsReadOnly);
+        }
+        finally { File.SetAttributes(FilePath, File.GetAttributes(FilePath) & ~FileAttributes.ReadOnly); }
+    }
+
+    [Fact]
     public void Revision_conflict_preserves_existing_file_and_has_no_secret_in_error()
     {
         var initial = SecureConfigurationFiles.WriteAtomic(FilePath, "initial-secret");

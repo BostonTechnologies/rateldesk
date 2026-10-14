@@ -40,6 +40,8 @@ public static class SecureConfigurationFiles
         using var writeLock = AcquireLock(destination + ".lock");
         RejectLinks(destination);
         RequirePrivateFile(destination);
+        if (new FileInfo(destination).IsReadOnly)
+            throw new AgentClientValidationException("The selected file is read-only; choose a writable profile or export directory.");
         if (expectedRevision is not null && !string.Equals(expectedRevision, RevisionCore(destination), StringComparison.Ordinal))
             throw new AgentClientValidationException("Configuration changed; reload it before removing.");
         File.Delete(destination);
@@ -62,7 +64,12 @@ public static class SecureConfigurationFiles
         var lockPath = destination + ".lock";
         using var writeLock = AcquireLock(lockPath);
         RejectLinks(destination);
-        if (File.Exists(destination)) RequirePrivateFile(destination);
+        if (File.Exists(destination))
+        {
+            RequirePrivateFile(destination);
+            if (new FileInfo(destination).IsReadOnly)
+                throw new AgentClientValidationException("The selected file is read-only; choose a writable profile or export directory.");
+        }
         var currentRevision = RevisionCore(destination);
         if (expectedRevision is not null && !string.Equals(expectedRevision, currentRevision ?? "", StringComparison.Ordinal))
             throw new AgentClientValidationException("Configuration changed; reload it before saving.");

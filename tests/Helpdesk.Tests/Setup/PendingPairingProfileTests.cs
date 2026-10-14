@@ -7,6 +7,32 @@ namespace Helpdesk.Tests.Setup;
 public sealed class PendingPairingProfileTests
 {
     [Fact]
+    public void Readonly_working_profile_is_preserved_without_new_secret_or_pairing_candidate()
+    {
+        var directory = Directory.CreateTempSubdirectory("rateldesk-readonly-");
+        var path = Path.Combine(directory.FullName, "client.json");
+        try
+        {
+            var old = ConfigurationProfiles.SaveFile(path, Configuration("rdk_previous_working"), "");
+            var bytes = File.ReadAllBytes(path);
+            var secretCount = Directory.GetFiles(Path.Combine(directory.FullName, "secrets")).Length;
+            File.SetAttributes(path, File.GetAttributes(path) | FileAttributes.ReadOnly);
+            Assert.Throws<AgentClientValidationException>(() => ConfigurationProfiles.SaveFile(path, Configuration("rdk_new_approval"), old.Revision));
+            Assert.Throws<AgentClientValidationException>(() => Stage(path, old.Revision));
+            Assert.Equal(bytes, File.ReadAllBytes(path));
+            Assert.True(new FileInfo(path).IsReadOnly);
+            Assert.False(File.Exists(path + ".pairing-candidate"));
+            Assert.False(File.Exists(path + ".pairing-pending"));
+            Assert.Equal(secretCount, Directory.GetFiles(Path.Combine(directory.FullName, "secrets")).Length);
+        }
+        finally
+        {
+            if (File.Exists(path)) File.SetAttributes(path, File.GetAttributes(path) & ~FileAttributes.ReadOnly);
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public void Crash_before_acknowledgement_preserves_working_profile_and_recovers_private_candidate()
     {
         var directory = Directory.CreateTempSubdirectory("rateldesk-pending-");

@@ -21,6 +21,8 @@ public static class PendingPairingProfiles
         string origin, PairingSession session, Guid credentialId, DateTimeOffset deliveryExpiresAtUtc, CancellationToken cancellationToken = default)
     {
         targetPath = ValidatedPath(targetPath);
+        if (File.Exists(targetPath) && new FileInfo(targetPath).IsReadOnly)
+            throw new AgentClientValidationException("The selected profile is read-only; choose a writable profile or export directory.");
         ValidateSession(session);
         if (!ValidRevision(expectedRevision, allowEmpty: true) || credentialId == Guid.Empty)
             throw InvalidState();
