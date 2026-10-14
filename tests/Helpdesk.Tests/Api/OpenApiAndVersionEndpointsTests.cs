@@ -110,16 +110,40 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         Assert.True(violations.Count == 0, string.Join(Environment.NewLine, violations));
         // Release includes automatic service issuance, signed code pairing, named mappings,
         // the preserved Netclaw administration and business APIs, and the three
-        // scoped assignee search/current-label/change-implementor operations;
+        // scoped assignee search/current-label/change-implementor operations, and
+        // eight browser-approved integration-credential pairing operations;
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(396, operationCount);
+        Assert.Equal(404, operationCount);
 #else
-        Assert.Equal(395, operationCount);
+        Assert.Equal(403, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
+        var identityGroup = Assert.Single(document.RootElement.GetProperty("x-tagGroups").EnumerateArray(),
+            group => group.GetProperty("name").GetString() == "Identity & Access");
+        Assert.Contains(identityGroup.GetProperty("tags").EnumerateArray(),
+            tag => tag.GetString() == "Integration Credential Pairing");
+        var credentialPairingOperations = new[]
+        {
+            ("capabilities", "get", false),
+            ("start", "post", false),
+            ("poll", "post", false),
+            ("ack", "post", false),
+            ("cancel", "post", false),
+            ("review", "post", true),
+            ("approve", "post", true),
+            ("deny", "post", true)
+        };
+        foreach (var (action, method, requiresSession) in credentialPairingOperations)
+        {
+            var path = $"/api/v1/integration-credentials/pairing/{action}";
+            Assert.True(paths.TryGetProperty(path, out var pairingPath), $"Missing documented credential pairing path: {path}");
+            Assert.True(pairingPath.TryGetProperty(method, out var pairingOperation));
+            Assert.Equal(["Integration Credential Pairing"], pairingOperation.GetProperty("tags").EnumerateArray().Select(tag => tag.GetString()).OfType<string>().ToArray());
+            Assert.Equal(requiresSession ? new[] { "JwtBearer", "LocalSession" } : [], SecuritySchemes(document, path, method));
+        }
         var assigneeOperations = new[]
         {
             ("/api/v1/ticketing/assignees/search", "get", "Ticket Lookups"),

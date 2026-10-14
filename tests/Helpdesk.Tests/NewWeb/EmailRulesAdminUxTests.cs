@@ -1,3 +1,15 @@
+extern alias NewWeb;
+
+using Bunit;
+using Bunit.TestDoubles;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Components;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using MudBlazor;
+using MudBlazor.Services;
+using NavMenu = NewWeb::HelpDesk.NewWeb.Components.Layout.NavMenu;
+
 namespace Helpdesk.Tests.NewWeb;
 
 public class EmailRulesAdminUxTests
@@ -14,16 +26,36 @@ public class EmailRulesAdminUxTests
     [Fact]
     public void NavMenu_LinksEmailRulesUnderAdminEmailSettings()
     {
-        var source = ReadNewWebSource("Components/Layout/NavMenu.razor");
+        using var context = NavigationContext("HelpdeskAdmin");
+        context.Services.GetRequiredService<NavigationManager>().NavigateTo("/admin/email-rules");
+        var menu = context.Render<NavMenu>();
+        var administration = Assert.Single(menu.FindComponents<MudNavGroup>(), group => group.Instance.Title == "Administration");
+        var emailSettings = Assert.Single(administration.FindComponents<MudNavGroup>(), group => group.Instance.Title == "Email Settings");
 
-        var emailSettingsIndex = source.IndexOf("Title=\"Email Settings\"", StringComparison.Ordinal);
-        var emailRulesIndex = source.IndexOf("Href=\"/admin/email-rules\"", StringComparison.Ordinal);
-        var templatesIndex = source.IndexOf("Href=\"/admin/templates\"", StringComparison.Ordinal);
+        Assert.Equal(new[]
+        {
+            "/admin/email-settings", "/admin/pending-emails", "/admin/email-rules", "/admin/templates", "/admin/layouts"
+        }, emailSettings.FindAll("a[href]").Select(link => link.GetAttribute("href")));
+        var emailRules = Assert.Single(emailSettings.FindAll("a[href='/admin/email-rules']"));
+        Assert.Equal("Email Rules", emailRules.TextContent.Trim());
+        Assert.Equal("page", emailRules.GetAttribute("aria-current"));
+        Assert.Equal("true", administration.Find("button").GetAttribute("aria-expanded"));
+        Assert.Equal("true", emailSettings.Find("button").GetAttribute("aria-expanded"));
+    }
 
-        Assert.True(emailSettingsIndex >= 0);
-        Assert.True(emailRulesIndex > emailSettingsIndex);
-        Assert.True(templatesIndex > emailRulesIndex);
-        Assert.Contains(">Email Rules</MudNavLink>", source, StringComparison.Ordinal);
+    [Theory]
+    [InlineData("")]
+    [InlineData("Tenant.Roles.Assign")]
+    [InlineData("Tenant.Settings.Manage")]
+    [InlineData("Incident.Read")]
+    public void NavMenu_HidesEmailRulesAndEmailSettingsFromNonAdministrators(string role)
+    {
+        using var context = NavigationContext(role);
+        context.Services.GetRequiredService<NavigationManager>().NavigateTo("/admin/email-rules");
+        var menu = context.Render<NavMenu>();
+
+        Assert.Empty(menu.FindAll("a[href='/admin/email-rules']"));
+        Assert.DoesNotContain(menu.FindComponents<MudNavGroup>(), group => group.Instance.Title == "Email Settings");
     }
 
     [Fact]
@@ -78,6 +110,20 @@ public class EmailRulesAdminUxTests
         Assert.Contains("InboundEmailRuleLabels.Action(action)", dialog, StringComparison.Ordinal);
         Assert.Contains("InboundEmailRuleLabels.ActionDescription(action)", dialog, StringComparison.Ordinal);
         Assert.DoesNotContain("Json", dialog, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static BunitContext NavigationContext(string role)
+    {
+        var context = new BunitContext();
+        context.Services.AddMudServices();
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        var authorization = context.AddAuthorization();
+        context.Services.RemoveAll<IAuthorizationService>();
+        context.Services.RemoveAll<IAuthorizationPolicyProvider>();
+        context.Services.AddAuthorizationCore();
+        authorization.SetAuthorized("Synthetic email rules administrator");
+        authorization.SetRoles(string.IsNullOrEmpty(role) ? [] : [role]);
+        return context;
     }
 
     private static string ReadNewWebSource(string relativePath)

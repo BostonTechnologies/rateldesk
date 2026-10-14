@@ -138,6 +138,8 @@ public sealed class HelpdeskToolsMutationTests
     {
         var path = Path.Combine(Path.GetTempPath(), $"helpdesk-mcp-{Guid.NewGuid():N}.json");
         var store = new AgentClientConfigurationStore(path);
+        store.Save(AgentClientConfiguration.Empty);
+        var originalBytes = await File.ReadAllBytesAsync(path);
         var client = Substitute.For<IHelpdeskAgentClient>();
         var tools = new HelpdeskTools(client, store);
 
@@ -145,6 +147,7 @@ public sealed class HelpdeskToolsMutationTests
 
         Assert.Equal("confirmation_required", response.Status);
         Assert.Null(store.Load().ApiBaseUrl);
+        Assert.Equal(originalBytes, await File.ReadAllBytesAsync(path));
     }
 
     [Fact]
@@ -152,6 +155,8 @@ public sealed class HelpdeskToolsMutationTests
     {
         var path = Path.Combine(Path.GetTempPath(), $"helpdesk-mcp-{Guid.NewGuid():N}.json");
         var store = new AgentClientConfigurationStore(path);
+        store.Save(AgentClientConfiguration.Empty);
+        var originalBytes = await File.ReadAllBytesAsync(path);
         var client = Substitute.For<IHelpdeskAgentClient>();
         var target = new HelpdeskMcpTarget("prod", new Uri("https://prod.example"));
         var tools = new HelpdeskTools(client, store, target);
@@ -161,6 +166,7 @@ public sealed class HelpdeskToolsMutationTests
         Assert.Equal("validation_failed", response.Status);
         Assert.Equal("prod", response.Target?.Instance);
         Assert.Null(store.Load().ApiBaseUrl);
+        Assert.Equal(originalBytes, await File.ReadAllBytesAsync(path));
     }
 
     [Fact]

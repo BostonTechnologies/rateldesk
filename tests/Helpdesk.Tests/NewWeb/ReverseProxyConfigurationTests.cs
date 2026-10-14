@@ -340,12 +340,11 @@ public sealed class ReverseProxyConfigurationTests
         {
             builder.UseEnvironment("Production");
             builder.UseSetting("Authentication:Mode", "Local");
-            builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["ApiBaseUrl"] = "http://selected-api.example:8222/",
-                ["Authentication:Mode"] = "Local",
-                ["WebGateway:PublicOrigin"] = "https://trusted.example/"
-            }));
+            // Minimal-host settings must be available while Program resolves its
+            // immutable gateway options; ConfigureAppConfiguration runs afterward.
+            // Keep the process-wide loopback safety defaults for other tests intact.
+            builder.UseSetting("ApiBaseUrl", "http://selected-api.example:8222/");
+            builder.UseSetting("WebGateway:PublicOrigin", "https://trusted.example/");
             builder.ConfigureLogging(logging => logging.ClearProviders());
         });
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
