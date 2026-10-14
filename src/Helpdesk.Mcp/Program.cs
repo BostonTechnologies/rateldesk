@@ -7,6 +7,7 @@ using Helpdesk.Mcp.Tools;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Helpdesk.Setup;
 
 namespace Helpdesk.Mcp;
 
@@ -14,9 +15,11 @@ public static class Program
 {
     public static async Task<int> Main(string[] args)
     {
+        if (SetupCommands.IsCommand(args))
+            return await SetupCommands.InvokeAsync(args, SetupTransport.Stdio, stdioEntryAssembly: typeof(Program).Assembly.Location);
         if (args is ["--help"] or ["-h"])
         {
-            await Console.Out.WriteLineAsync("rateldesk-mcp - RatelDesk stdio MCP server\n\nConfigure RATELDESK_MCP_CONFIG and RATELDESK_MCP_INSTANCE before normal server mode. Logs are written to stderr; stdout is reserved for MCP protocol traffic.");
+            await Console.Out.WriteLineAsync("rateldesk-mcp - RatelDesk stdio MCP server\n\nExplicit commands: setup [--target cli|stdio|http-client|http-host] [--profile NAME|--config PATH] [--export-directory DIR] [--monochrome], status, config validate, doctor [--network] [--authenticate], profile list/show/remove, auth status/logout.\n\nConfigure RATELDESK_MCP_CONFIG and RATELDESK_MCP_INSTANCE before normal server mode. Logs are written to stderr; stdout is reserved for MCP protocol traffic.");
             return 0;
         }
         if (args is ["--version"])
@@ -27,14 +30,14 @@ public static class Program
         try
         {
             var configurationPath = Environment.GetEnvironmentVariable(HelpdeskMcpTarget.ConfigurationEnvironmentVariable);
-            var configurationStore = new AgentClientConfigurationStore(configurationPath);
-            var configuration = AgentClientConfigurationResolver.LoadIsolated(configurationPath);
-            var target = HelpdeskMcpTarget.Resolve(configuration, configurationPath);
-            var configurationSurface = new AgentClientConfigurationSurface(configurationStore);
-
             var builder = Host.CreateApplicationBuilder(args);
             builder.Logging.ClearProviders();
             builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);
+            var resolution = AgentClientConfigurationResolver.ResolveEffective(ConfigurationSurface.Mcp, configurationPath, configuration: builder.Configuration);
+            var configuration = resolution.Configuration;
+            var target = HelpdeskMcpTarget.Resolve(configuration, configurationPath,
+                builder.Configuration["Helpdesk:Mcp:Instance"], builder.Configuration["Helpdesk:Mcp:ExpectedApiBaseUrl"]);
+            var configurationSurface = HelpdeskMcpConfigurationSurface.Create(resolution);
 
             builder.Services.AddHelpdeskMcpCore(configuration, configurationSurface, target, "stdio");
             builder.Services.AddMcpServer()

@@ -83,7 +83,7 @@ public sealed class RatelDeskTheme : MudTheme
         LayoutProperties = new LayoutProperties
         {
             DefaultBorderRadius = "7px",
-            DrawerWidthLeft = "272px",
+            DrawerWidthLeft = "240px",
             AppbarHeight = "56px",
         };
 

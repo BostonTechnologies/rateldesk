@@ -4,11 +4,11 @@
 
 RatelDesk has an ASP.NET Core API and a Blazor web application. The default installation uses embedded SQLite and local accounts; PostgreSQL, OIDC, and MCP hosting are optional. The Web application proxies `/api` traffic to the API. Run both application services behind a TLS-terminating reverse proxy in production.
 
-For built-in roles, scoped custom roles, and the bounded tenant-member delegation workflow, see [Roles and tenant-scoped access](rbac.md).
+For built-in roles, scoped custom roles, and the bounded tenant-member delegation workflow, see [Roles and tenant-scoped access](../security/rbac.md).
 
 ## First use and Docker
 
-Use [docker/docker-compose.yml](../docker/docker-compose.yml) as the default starting point. It starts only Web and API in Production mode and persists four distinct concerns: bootstrap state, data-protection keys, SQLite data, and attachments. Run repository-relative Compose commands from a checked-out repository's root directory. After the first API start, open `http://localhost:8111/`, or your public application URL. Fresh root and login visits automatically open `/setup`.
+Use [docker/docker-compose.yml](../../docker/docker-compose.yml) as the default starting point. It starts only Web and API in Production mode and persists four distinct concerns: bootstrap state, data-protection keys, SQLite data, and attachments. Run repository-relative Compose commands from a checked-out repository's root directory. After the first API start, open `http://localhost:8111/`, or your public application URL. Fresh root and login visits automatically open `/setup`.
 
 Retrieve the operator-only setup code using the running API's configuration:
 
@@ -124,7 +124,7 @@ An existing PostgreSQL deployment continues to use `ConnectionStrings__HelpdeskD
 
 ### Bundled PostgreSQL
 
-For a fresh local or single-host deployment, combine the default stack with [docker/docker-compose.postgres.yml](../docker/docker-compose.postgres.yml). It runs the standard `postgres:16` image and keeps database data in a separate named volume:
+For a fresh local or single-host deployment, combine the default stack with [docker/docker-compose.postgres.yml](../../docker/docker-compose.postgres.yml). It runs the standard `postgres:16` image and keeps database data in a separate named volume:
 
 ```bash
 RATELDESK_POSTGRES_PASSWORD='replace-with-a-secret' \
@@ -137,7 +137,7 @@ Complete `/setup` with host `postgres`, port `5432`, database/user `rateldesk`, 
 
 For an interactive first run, start the default source or release Compose stack and select PostgreSQL at `/setup`. The API remains in the restricted setup host until it has preflighted the external connection and committed the one-time initialization. The external database must therefore be reachable from the API container, but its credential is supplied only in the setup request; it is never placed in the normal runtime environment.
 
-For deployment-managed unattended initialization, use [docker/docker-compose.external-postgres.yml](../docker/docker-compose.external-postgres.yml) with either base Compose file. It maps operator-supplied values only to the `Bootstrap__Unattended__*` settings; it does not need to set `ConnectionStrings__HelpdeskDb`. That ordinary connection setting is also supported for fresh databases: setup keeps deployment-owned storage read-only and still requires the first administrator. Established installations follow the conservative adoption path.
+For deployment-managed unattended initialization, use [docker/docker-compose.external-postgres.yml](../../docker/docker-compose.external-postgres.yml) with either base Compose file. It maps operator-supplied values only to the `Bootstrap__Unattended__*` settings; it does not need to set `ConnectionStrings__HelpdeskDb`. That ordinary connection setting is also supported for fresh databases: setup keeps deployment-owned storage read-only and still requires the first administrator. Established installations follow the conservative adoption path.
 
 ```bash
 export RATELDESK_POSTGRES_CONNECTION_STRING='Host=db.example.test;Port=5432;Database=rateldesk;Username=rateldesk;Password=replace-with-a-secret;Ssl Mode=Require'
@@ -191,13 +191,13 @@ The browser login form includes an antiforgery token. Direct cookie-based API cl
 
 ## Email
 
-Configure mailbox receiving and sending separately in **Administration → Email Settings**. A fresh instance leaves its mailbox worker paused until an administrator deliberately starts it; `EmailIngestion:Enabled=false` is an operator hard stop that the UI cannot override. IMAP and POP3 need an explicit SMTP submission host, port, verified TLS mode and separate credential to send ticket mail. Graph sending uses the selected mailbox's Microsoft application identity and requires `Mail.Send` authorization separately from mailbox read access. A dedicated assignment determines both the tenant's incoming route and outgoing sender; a broken dedicated sender never falls back to the global mailbox. Use a mailbox dedicated to RatelDesk and configure sender-domain controls deliberately. See [Mailbox administration](mailbox-ingestion.md) for activation, routing and recovery behavior.
+Configure mailbox receiving and sending separately in **Administration → Email Settings**. A fresh instance leaves its mailbox worker paused until an administrator deliberately starts it; `EmailIngestion:Enabled=false` is an operator hard stop that the UI cannot override. IMAP and POP3 need an explicit SMTP submission host, port, verified TLS mode and separate credential to send ticket mail. Graph sending uses the selected mailbox's Microsoft application identity and requires `Mail.Send` authorization separately from mailbox read access. A dedicated assignment determines both the tenant's incoming route and outgoing sender; a broken dedicated sender never falls back to the global mailbox. Use a mailbox dedicated to RatelDesk and configure sender-domain controls deliberately. See [Mailbox administration](../integrations/mailbox-ingestion.md) for activation, routing and recovery behavior.
 
 ## AI, MCP, and orchestration
 
-AI providers are configurable and should use provider-specific credentials from a secret store. MCP hosts use isolated `RATELDESK_MCP_CONFIG` configuration files and `RATELDESK_MCP_<INSTANCE>_API_BASE_URL` endpoint pinning. Netclaw uses the canonical `Netclaw__...` namespace, with `AiAssistantChat__...` retained as a migration alias. Configure NetRatel through [pairing codes and System connections](integrations/netratel-pairing.md); final Save binds the selected tenants and capabilities. Upgrade both products and pair afresh after the one-time cutover.
+AI providers are configurable and should use provider-specific credentials from a secret store. MCP hosts retain isolated `RATELDESK_MCP_CONFIG` files and instance endpoint pinning, and also support dedicated environment-only outbound configuration. See [HTTP MCP configuration](../mcp-http/configuration.md), [HTTP hosting/setup](../mcp-http/deployment.md) and [CLI/stdio profiles](../integrations/cli-stdio.md) for exact keys, secret-file references and browser approval. Netclaw uses the canonical `Netclaw__...` namespace, with `AiAssistantChat__...` retained as a migration alias. Configure NetRatel through [pairing codes and System connections](../integrations/netratel-pairing.md); final Save binds the selected tenants and capabilities. Upgrade both products and pair afresh after the one-time cutover.
 
-Native AI Assistant chat is an optional PostgreSQL capability, available since rc.4 and disabled by default. Its durable transport ownership uses PostgreSQL advisory locks. SQLite supports webhook AI assistance and its investigation history; the ticket UI falls back to that workflow when native chat is unavailable. With PostgreSQL, an administrator can open **Admin → Automation → Integration hub → Netclaw AI harness** (`/admin/automation/integration/netclaw`) and use **Pair & connect** to save a protected DB-managed profile and apply it at runtime. Deployment-managed profiles instead use `Netclaw__Enabled=true` together with the endpoint and injected device token and are read-only in the hub. See the [NetClaw setup guide](netclaw.md). Enabling native chat with SQLite is stored safely but remains runtime-disabled with an actionable capability message.
+Native AI Assistant chat is an optional PostgreSQL capability, available since rc.4 and disabled by default. Its durable transport ownership uses PostgreSQL advisory locks. SQLite supports webhook AI assistance and its investigation history; the ticket UI falls back to that workflow when native chat is unavailable. With PostgreSQL, an administrator can open **Admin → Automation → Integration hub → Netclaw AI harness** (`/admin/automation/integration/netclaw`) and use **Pair & connect** to save a protected DB-managed profile and apply it at runtime. Deployment-managed profiles instead use `Netclaw__Enabled=true` together with the endpoint and injected device token and are read-only in the hub. See the [NetClaw setup guide](../integrations/netclaw.md). Enabling native chat with SQLite is stored safely but remains runtime-disabled with an actionable capability message.
 
 ### AI Assistant chat recovery
 
@@ -231,4 +231,4 @@ For the bundled PostgreSQL sidecar, use host `postgres`, port `5432`, and the co
 
 Explicit `Authentication__Mode` values remain authoritative after setup. Without an explicit mode, fresh instances use Local and adopted legacy installations use OIDC. `Branding__ApplicationName` and `Branding__ApplicationUrl` prefill deployment-managed setup fields; optional visual branding does not discard the instance name.
 
-Inbound provider configuration, tenant overrides and upgrade procedures are documented in [Inbound mailbox administration](mailbox-ingestion.md).
+Inbound provider configuration, tenant overrides and upgrade procedures are documented in [Inbound mailbox administration](../integrations/mailbox-ingestion.md).

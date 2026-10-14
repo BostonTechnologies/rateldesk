@@ -32,10 +32,13 @@ package_tool() {
   mkdir -p "$package_directory"
   cp -a "$publish_directory/." "$package_directory/"
   cp "$repository_root/LICENSE" "$package_directory/LICENSE"
+  python3 "$repository_root/tools/release/package-documentation.py" "$package_directory"
   cat > "$package_directory/README.txt" <<EOF
 RatelDesk $tool $version
 
-Run ./$tool --help or ./$tool --version after extracting. Linux archives require a glibc-based distribution; they are not Alpine/musl builds. Configure credentials in a protected file or environment variable, never on a command line.
+Run ./$tool --help or ./$tool --version after extracting. Run ./$tool setup explicitly from an interactive terminal for client onboarding. Linux archives require a glibc-based distribution; they are not Alpine/musl builds. Configure credentials in a protected file or environment variable, never on a command line.
+
+Canonical configuration/setup guidance is bundled in docs/integrations/cli-stdio.md and docs/mcp-http/. Third-party notices and licenses are included alongside LICENSE.
 EOF
   if [[ "$rid" == win-* ]]; then
     (cd "$staging_directory" && zip -qr "$output_directory/$archive_base.zip" "$archive_base")
@@ -54,6 +57,7 @@ rm -rf "$deployment_directory"
 mkdir -p "$deployment_directory"
 cp -a "$repository_root/docker/." "$deployment_directory/"
 cp "$repository_root/LICENSE" "$deployment_directory/LICENSE"
+python3 "$repository_root/tools/release/package-documentation.py" "$deployment_directory" --flat-deployment
 tar -C "$staging_directory" -czf "$output_directory/rateldesk-deployment-$version.tar.gz" "rateldesk-deployment-$version"
 
 (cd "$output_directory" && find . -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' \) -printf '%f\n' | sort | xargs -r sha256sum > SHA256SUMS)

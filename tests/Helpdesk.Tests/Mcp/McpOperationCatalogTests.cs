@@ -231,7 +231,10 @@ public sealed class McpOperationCatalogTests
             client.GetAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(new JsonObject { ["id"] = "record-1" });
             client.SendAsync(Arg.Any<HttpMethod>(), Arg.Any<string>(), Arg.Any<JsonNode?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(new JsonObject { ["id"] = "record-1", ["correlationId"] = "corr-1" });
             client.GetHealthAsync(Arg.Any<CancellationToken>()).Returns(new JsonArray());
-            var tools = new HelpdeskTools(client, Store());
+            var store = Store();
+            if (operation.Tool == "helpdesk_config")
+                store.Save(AgentClientConfiguration.Empty);
+            var tools = new HelpdeskTools(client, store);
             var request = ContractRequest(operation);
 
             if (operation.RequiresConfirmation)

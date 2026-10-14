@@ -42,15 +42,17 @@
                     <MudText Typo="Typo.body2">Enter the code from your authenticator app. You can also use one of the recovery codes saved when you enabled two-factor authentication.</MudText>
                     <form method="post" action="/local-login/two-factor" class="helpdesk-login-local-form" data-testid="local-two-factor-form" data-interactive="@(RendererInfo.IsInteractive ? "true" : "false")">
                         <AntiforgeryToken />
+                        <input type="hidden" name="returnUrl" value="@ReturnPath" />
                         <MudTextField T="string" Name="code" Disabled="@(!RendererInfo.IsInteractive)" Label="Verification code" autocomplete="one-time-code" Required="true" Variant="Variant.Outlined" FullWidth="true" />
                         <MudButton Variant="Variant.Filled" ButtonType="ButtonType.Submit" Disabled="@(!RendererInfo.IsInteractive)" Size="Size.Large" Color="Color.Primary" FullWidth="true" Class="mt-3">Verify and sign in</MudButton>
                     </form>
-                    <MudLink Href="/login" Class="align-self-center">Back to sign in</MudLink>
+                    <MudLink Href="@LoginReturnUrl.WithReturn("/login", ReturnPath)" Class="align-self-center">Back to sign in</MudLink>
                 }
                 else
                 {
                     <form method="post" action="/local-login" class="helpdesk-login-local-form" data-testid="local-login-form" data-interactive="@(RendererInfo.IsInteractive ? "true" : "false")">
                         <AntiforgeryToken />
+                        <input type="hidden" name="returnUrl" value="@ReturnPath" />
                         <MudTextField T="string" Name="email" Disabled="@(!RendererInfo.IsInteractive)" Label="Email" InputType="InputType.Email" autocomplete="username" Required="true" Variant="Variant.Outlined" FullWidth="true" />
                         <MudTextField T="string" Name="password" Disabled="@(!RendererInfo.IsInteractive)" Label="Password" InputType="InputType.Password" autocomplete="current-password" Required="true" Variant="Variant.Outlined" FullWidth="true" Class="mt-3" />
                         <MudCheckBox T="bool" Name="rememberMe" Disabled="@(!RendererInfo.IsInteractive)" Label="Keep me signed in" Color="Color.Primary" Class="mt-2" />
@@ -70,7 +72,7 @@
             @if (!IsSecondFactorStep && SupportsOidc)
             {
                 <nav class="helpdesk-login-providers" aria-label="Organization sign-in">
-                    <a class="helpdesk-login-provider-link" href="/login-authentik" data-testid="oidc-login-link">
+                    <a class="helpdesk-login-provider-link" href="@LoginReturnUrl.WithReturn("/login-authentik", ReturnPath)" data-testid="oidc-login-link">
                         <MudIcon Icon="@Icons.Material.Outlined.Business" Size="Size.Small" aria-hidden="true" />
                         <span>Sign in with @ProviderDisplayName</span>
                     </a>
@@ -96,6 +98,10 @@
 </section>
 
 @code {
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    public string? ReturnUrl { get; set; }
+    private string ReturnPath => LoginReturnUrl.Normalize(ReturnUrl);
+
     [SupplyParameterFromQuery(Name = "status")]
     public string? SignInStatus { get; set; }
 
@@ -121,7 +127,7 @@
         if (IsSecondFactorStep && (!SupportsLocalAccounts ||
             LocalBrowserLoginEndpoints.ReadChallenge(HttpContextAccessor.HttpContext, Config, Protection) is null))
         {
-            Navigation.NavigateTo("/login?status=verification-expired", forceLoad: true, replace: true);
+            Navigation.NavigateTo(LoginReturnUrl.WithReturn("/login?status=verification-expired", ReturnPath), forceLoad: true, replace: true);
             return;
         }
 

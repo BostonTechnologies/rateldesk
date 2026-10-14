@@ -9,7 +9,7 @@
 
         var target = isAuthenticated
             ? "/access-denied"
-            : $"/login?returnUrl={Uri.EscapeDataString(NavigationManager.Uri)}";
+            : $"/login?returnUrl={Uri.EscapeDataString("/" + NavigationManager.ToBaseRelativePath(NavigationManager.Uri))}";
 
         NavigationManager.NavigateTo(target, forceLoad: true);
     }

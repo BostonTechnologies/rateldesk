@@ -1,0 +1,204 @@
+# HTTP MCP setup, deployment and migration
+
+Choose the task first: **Connect a client** obtains an account-owned credential;
+**Configure HTTP MCP hosting** exports local deployment settings for an
+administrator/operator. Client pairing grants no server administration.
+The explicit Termina setup shares headless configuration, pairing, persistence
+and validation services with runtime. Normal startup never prompts.
+
+## Connect a client
+
+Run `rateldesk setup` or `rateldesk-mcp setup` from an interactive terminal and
+choose CLI, stdio or HTTP MCP client plus a named profile. Enter the intended
+HTTPS instance URL, validate capabilities, then use
+[browser approval](../integrations/browser-pairing.md) or explicit existing
+credential/import for older installations. Browser opening is deliberate;
+SSH users can open the visible trusted URL on another device.
+
+Review actual approved organization/permissions/expiry, purpose/resource,
+target, secret reference and profile path before saving. Environment-managed
+fields show their source and are read-only. Browser pairing stages a private
+candidate and recovery state before acknowledgement, then atomically activates
+the profile only after acknowledgement is confirmed. Cancellation or expired
+delivery cleanup preserves an older working profile; explicit setup re-entry
+recovers staged delivery. CLI/stdio use API-purpose credentials; the HTTP client uses a separate
+MCP-purpose credential and never supplies it as a host downstream identity.
+External OAuth clients can choose **External Authentik / OAuth client**. Setup
+verifies the exact protected-resource metadata endpoint and saves reviewed
+non-secret resource/HTTPS authority information plus an optional public client
+ID. The external MCP client retains sign-in, tokens and actual grant ownership;
+setup does not collect a downstream API password or turn gateway pairing into
+an external OAuth token response. Authentication, initialize and tool-result
+remain explicitly unverified until that client connects.
+
+Gateway HTTP client setup checks configuration, reachability, accepted authentication,
+initialize and a read-only `helpdesk_auth` status result against API. Stdio setup
+also launches its selected executable through pipes for initialize and the
+authenticated read-only status call. Setup from a different distribution needs
+`--stdio-executable`; absent executable selection is reported as skipped and
+does not establish protocol acceptance. Follow the secret-reference launch snippet and review
+[CLI/stdio guidance](../integrations/cli-stdio.md).
+
+## First-run container tooling
+
+The existing HTTP image includes setup and third-party licenses. These standalone
+Compose files require only setup output (and exact release version for the
+release recipe), so unrelated API/database/Authentik variables cannot block
+their interpolation. They do not start Web/API or mutate remote deployment.
+
+Prepare an explicit writable output directory. On Linux, the one-shot tooling
+can use the operator's UID/GID through `RATELDESK_SETUP_UID`/`RATELDESK_SETUP_GID`,
+avoiding a host-root ownership change. Their defaults are 10001/10001; other
+hosts can provision the mount for those defaults through their normal mechanism.
+The serving process remains UID 10001. Preserve existing paths; do not loosen
+a private production mount just to run setup.
+
+```sh
+mkdir -p work/mcp-setup-output
+chmod 700 work/mcp-setup-output
+RATELDESK_SETUP_UID="$(id -u)" RATELDESK_SETUP_GID="$(id -g)" \
+RATELDESK_SETUP_OUTPUT="$PWD/work/mcp-setup-output" \
+docker compose -f docker/docker-compose.setup.source.yml \
+  run --build --rm --no-deps mcp-http
+```
+
+For published images, export `RATELDESK_VERSION` as one exact selected release
+version and use:
+
+```sh
+RATELDESK_SETUP_UID="$(id -u)" RATELDESK_SETUP_GID="$(id -g)" \
+RATELDESK_SETUP_OUTPUT="$PWD/work/mcp-setup-output" \
+docker compose -f docker/docker-compose.setup.yml \
+  run --rm --no-deps mcp-http
+```
+
+The command is `setup --target http-host --export-directory /output`, routed by the
+image's existing `dotnet Helpdesk.Mcp.Http.dll` entrypoint before normal host
+validation. Direct image equivalent, with version/output already selected:
+
+```sh
+docker run --rm -it --user "$(id -u):$(id -g)" \
+  --mount type=bind,src="$RATELDESK_SETUP_OUTPUT",dst=/output \
+  "ghcr.io/bostontechnologies/rateldesk-mcp-http:$RATELDESK_VERSION" \
+  setup --target http-host --export-directory /output
+```
+
+A running container can use the same dispatch, provided an explicit writable
+output mount was provisioned in that deployment:
+
+```sh
+docker exec -it rateldesk-mcp-http-1 \
+  dotnet /app/Helpdesk.Mcp.Http.dll setup --target http-host --export-directory /output
+```
+
+Use the actual container name. Normal serving stays non-root; no Docker socket,
+host-root interactive process or runtime package download is needed. Setup
+requires a TTY; stdio serving uses pipes without a TTY. Noninteractive users
+configure the documented environment/private files instead of launching a
+wizard.
+
+## Reviewed host exports and applying them
+
+The host workflow inspects existing exports and dedicated deployment environment
+or isolated MCP file inputs, showing managed values/source as read-only. It configures public
+origin, private API/MCP destinations, instance pin, gateway versus Authentik,
+allowed origins, listener and delegation deadline. Advanced external ingress
+requires authority/audience/scopes/groups and a separate reviewed downstream
+API identity. Gateway uses no persistent downstream secret.
+An existing external Authentik or API-purpose downstream identity can be retained
+without re-entering its secret; it remains bound to the reviewed API backend.
+The advanced delegation deadline is retained on reruns. When selecting a custom
+listener, the shared-network `mcp-http` destination port must match it; exported
+healthchecks follow the selected listener. Legacy overlays still publish direct
+port 8223, so replace/remove that optional mapping explicitly for a changed
+listener. A custom HTTPS listener also needs deployment-owned TLS certificate
+configuration; the normal recipe terminates TLS at the outer ingress.
+
+The coordinator produces:
+
+| File | Contents |
+| --- | --- |
+| `host-settings.json` | Reviewed non-secret host settings; no downstream secret fields |
+| `mcp-outbound.json` | Protected isolated downstream file; gateway has only URL and `credentialMode=gateway`; external mode includes its reviewed private identity |
+| `compose.host.json` | Web/API/MCP environment coordination and protected config-init source mount |
+| `APPLY.txt` | Preservation, interpolation and explicit apply/recreate instructions |
+
+All files are private, bounded and atomically replaced with conflict checks.
+Existing output requires explicit reviewed overwrite; cancellation and reruns
+preserve existing API identities/state. External secret references from the
+operator machine are resolved into the protected isolated-file fallback for
+container mounting, so protect the entire export directory. The preview is
+redacted. The export does not change running env, parent-shell variables or
+immutable Docker secrets.
+
+Layer the selected base source/release Compose file, its matching
+gateway/Authentik MCP overlay, then `compose.host.json` last. The underlying
+overlay still requires its interpolation inputs: config-file path, canonical
+public resource, allowed origin and, for external mode, authority/version.
+Set them to the reviewed export values before rendering. Inspect
+`docker compose config` privately; avoid logging full secret-bearing output.
+Explicitly recreate Web/API/MCP after review. Do not discard persistent volumes.
+Set `RATELDESK_MCP_CONFIG_FILE` to the actual exported file path on the Docker
+host; the generated mount interpolates that host path. A tooling-container
+`/output/mcp-outbound.json` path is not the host bind source.
+
+The legacy initializer reads the protected host input, copies it into
+`mcp-http-config` as UID/GID 10001 with mode 0400, then exits. The MCP service
+mounts only that configuration read-only. It does not mount API database,
+bootstrap, data-protection keys or shared signing material.
+
+## Environment-only single-origin gateway
+
+For a source checkout with external HTTPS ingress already configured:
+
+```sh
+RATELDESK_PUBLIC_ORIGIN=https://rateldesk.example.test \
+docker compose -f docker/docker-compose.yml \
+  -f docker/docker-compose.mcp.env.yml up --build
+```
+
+For exact published images, export `RATELDESK_VERSION` and use the release pair:
+
+```sh
+RATELDESK_PUBLIC_ORIGIN=https://rateldesk.example.test \
+docker compose -f docker/docker-compose.release.yml \
+  -f docker/docker-compose.mcp.env.release.yml up -d
+```
+
+MCP is unselected in the base stack. These overlays explicitly configure Web
+Enabled/Destination/mode, API pairing origin, and MCP target/resource/origin and
+gateway outbound mode. They publish no direct MCP host port; public clients use
+Web's `/mcp`. `RATELDESK_MCP_INSTANCE` defaults to `local`,
+`RATELDESK_MCP_API_BASE_URL` to `http://api:8222/`, and
+`RATELDESK_MCP_DESTINATION` to `http://mcp-http:8223/` in this recipe.
+For a custom API backend, align Web `ApiBaseUrl` too through an explicit overlay.
+
+File-based and standalone source/release recipes remain in the
+[Docker example](../../docker/examples/mcp-http/README.md). Legacy file overlays
+retain optional loopback MCP publication (`RATELDESK_MCP_PORT`, default 8223)
+for intentional standalone access. Public HTTPS ingress must serve the configured
+resource; a bare `http://+:8223` listener does not itself provide TLS.
+
+In an extracted deployment archive, Compose files are at archive root: omit
+the `docker/` prefix and use release overlays; source builds require a checkout.
+Canonical guides and third-party licenses are bundled with the flat recipe.
+
+## Migration, persistence and rotation
+
+An existing protected JSON + env_file installation remains supported. Review
+effective values and provenance before replacing files; preserve instance label,
+custom target, API-owned database/bootstrap/key ring, mounts and account
+credentials. Choose the same explicit ingress mode and exact resource. Adoption
+does not reset NetRatel/NetClaw/mailbox configuration or account identities.
+
+Gateway server upgrades need no shared-key provisioning. After target/resource
+changes, reauthorize/review client bindings rather than forwarding old credentials
+to a new endpoint. Rotate/revoke client credentials through account management.
+External ingress and downstream credentials rotate separately. Environment or
+generated host settings require restart/recreation; live explicit YARP file
+reload is documented independently.
+
+Keep published images pinned to exact tags/digests. Product version comes from
+`Directory.Build.props`, and betas never move `latest`; see
+[release engineering](../releases/README.md). Finish with the separate
+[verification checklist](troubleshooting.md), not only port reachability.

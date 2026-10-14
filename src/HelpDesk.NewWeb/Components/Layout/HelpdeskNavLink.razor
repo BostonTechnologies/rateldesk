@@ -1,0 +1,22 @@
+@using MudBlazor.Interfaces
+
+<div class="mud-nav-item">
+    <HelpdeskRouteLink Route="@Href" href="@Href" Match="@Match" ExcludedRoutes="@ExcludedRoutes" Aliases="@Aliases"
+                      class="mud-nav-link" tabindex="@TabIndex" @onclick="OnNavigation">
+        <MudIcon Icon="@Icon" Class="mud-nav-link-icon mud-nav-link-icon-default" />
+        <div class="mud-nav-link-text">@ChildContent</div>
+    </HelpdeskRouteLink>
+</div>
+
+@code {
+    [Parameter] public string Href { get; set; } = string.Empty;
+    [Parameter] public string? Icon { get; set; }
+    [Parameter] public NavLinkMatch Match { get; set; } = NavLinkMatch.Prefix;
+    [Parameter] public string[] ExcludedRoutes { get; set; } = [];
+    [Parameter] public string[] Aliases { get; set; } = [];
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [CascadingParameter] private INavigationEventReceiver? NavigationEventReceiver { get; set; }
+    [CascadingParameter] private MudBlazor.NavigationContext? NavigationContext { get; set; }
+    private int TabIndex => NavigationContext is { Disabled: true } or { Expanded: false } ? -1 : 0;
+    private Task OnNavigation() => NavigationEventReceiver?.OnNavigation() ?? Task.CompletedTask;
+}

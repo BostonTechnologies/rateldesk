@@ -12,9 +12,9 @@ outage. Upgrade both products and pair afresh: forward migrations retire old
 NR↔RD authority while preserving installation identities, signing keys,
 unrelated credentials, Netclaw and business history.
 
-See the [upgrade and pairing guide](integrations/netratel-pairing.md),
-[current protocol](contracts/bostec-pairing.v1.md) and
-[release notes](release-notes/0.1.1-beta.20.md). Source validation and publication
+See the [upgrade and pairing guide](../integrations/netratel-pairing.md),
+[current protocol](../contracts/bostec-pairing.v1.md) and
+[release notes](../release-notes/0.1.1-beta.20.md). Source validation and publication
 receipts are separate from owner acceptance of the deployed beta.
 
 ## Historical reconciliation — 6 October 2026
@@ -37,7 +37,7 @@ original review context. Their implementation subsequently merged: #94
 #95/#98/#100. Service linking and its follow-ups merged through #120, #123,
 #125, #127, #129, #130 and #131. Earlier candidate/draft wording no longer
 describes that source's merge status. The
-[reconciliation ledger](implementation/beta4-integration-progress.md)
+[reconciliation ledger](../implementation/beta4-integration-progress.md)
 preserves exact source pins, repository validation and protected-operation
 receipts, alongside separately pending real NetRatel and NetClaw acceptance.
 This reconciliation records the existing owner's publication; it starts no
@@ -76,8 +76,8 @@ provider profiles, receiver namespaces and receipts. Existing outbound
 Orchestrator configuration and legacy callback authentication remain supported.
 The issuer and guided protocol require separate explicit deployment settings;
 That setup is retired by the beta.20 cutover. Use the
-[current pairing guide](integrations/netratel-pairing.md) and
-[current protocol](contracts/bostec-pairing.v1.md) when upgrading.
+[current pairing guide](../integrations/netratel-pairing.md) and
+[current protocol](../contracts/bostec-pairing.v1.md) when upgrading.
 
 The current NetRatel release needs its companion implementation before guided
 linking can complete. Synthetic contract-peer and real RatelDesk provider tests
@@ -199,23 +199,27 @@ Deployment configuration never owns the product version. A deployment-specific l
 
 ## Publishing a release
 
-After the release-engineering pull request is merged and `main` is green, verify the evaluated value rather than reading the props file directly:
+Before allocating a beta, recheck tags/releases and registry state so the version
+is unallocated. Change product version only in `Directory.Build.props`, review
+and merge normally, then verify the successful normal CI run for the exact
+merged SHA. Evaluate the repository value before tagging that verified source:
 
 ```bash
-dotnet msbuild src/Helpdesk.API/Helpdesk.API.csproj -nologo -getProperty:Version
+release_version="$(dotnet msbuild src/Helpdesk.API/Helpdesk.API.csproj -nologo -getProperty:Version)"
+release_tag="v$release_version"
 git status --short
-git tag -a v0.1.0 -m "RatelDesk 0.1.0 — first usable alpha"
-git push origin v0.1.0
+git tag -a "$release_tag" -m "RatelDesk $release_version"
+git push origin "$release_tag"
 ```
 
-The canonical tag is a SemVer tag (`vMAJOR.MINOR.PATCH` or `vMAJOR.MINOR.PATCH-prerelease`) on `main`, and its value must exactly equal MSBuild's evaluated repository version. For compatibility with the existing `RatelDesk-0.1.1-beta.3` release tag, the workflow also accepts the equivalent `RatelDesk-MAJOR.MINOR.PATCH[-prerelease]` form. The tag workflow reruns release validation, builds Web and API images for amd64 and arm64, attaches provenance/SBOM data, then creates the GitHub Release only after both image pushes complete.
+The canonical tag is a SemVer tag (`vMAJOR.MINOR.PATCH` or `vMAJOR.MINOR.PATCH-prerelease`) on `main`, and its value must exactly equal MSBuild's evaluated repository version. For compatibility with the existing `RatelDesk-0.1.1-beta.3` release tag, the workflow also accepts the equivalent `RatelDesk-MAJOR.MINOR.PATCH[-prerelease]` form. The tag workflow reruns release validation, builds Web, API and HTTP MCP images for amd64 and arm64, attaches provenance/SBOM data, then creates the GitHub Release only after all three image pushes complete. Existing CLI/stdio archives include explicit setup, canonical guides and third-party license notices; deployment archives retain flat Compose paths and bundle the categorized guides with adapted local links.
 
-To recover an exact existing tag after the tag push has already happened,
-dispatch `release.yml` from `main` with the exact tag as the required input.
-For example, once the beta.5 tag exists:
+If pushing a newly allocated tag did not start a release run, manual dispatch is
+available from `main` with that exact tag. First check that no release run is
+already active for it:
 
 ```bash
-gh workflow run release.yml --ref main -f tag=RatelDesk-0.1.1-beta.5
+gh workflow run release.yml --ref main -f tag="$release_tag"
 ```
 
 For tags containing this workflow revision, an existing GitHub Release receives
@@ -223,6 +227,59 @@ any missing validated assets and updated metadata while retaining its draft or
 published state. A rerun reuses matching assets; it stops if an asset with the
 same name has different content, so operators can resolve the conflict without
 overwriting it. Dispatching an older tag checks out that tag's release scripts.
+
+Before public completion, recovery can use `gh run rerun RUN_ID --failed` only
+when the failed/dependent jobs will not rerun already successful image pushes.
+Verify the green jobs' recorded digests and actual registry state first; preserve
+their successful outputs. Do not use full `release.yml` redispatch/rebuild as
+recovery for successful pushes or an already public tag: image jobs rebuild and
+push exact tags with a fresh build timestamp, which can change digests even
+though conflicting archive uploads are rejected. After partial publication,
+preserve verified digests/assets; allocate a new reviewed beta if recovery cannot
+avoid changing already published bytes. Older tags execute their own workflow
+and scripts, so verify that version's recovery behavior rather than assuming
+the current upload helper applies. Never call a rerun immutable recovery without
+checking its actual jobs, inputs and recorded digests.
+
+### Normal checks and provider evidence
+
+`pull-request-validation.yml` automatically runs these checks on PRs to `dev` or
+`main` and pushes to `main`: Public disclosure gate, .NET validation, Incident
+receiver HTTP and provider acceptance, External PostgreSQL Compose configuration,
+and Layout and reference validation. Layout includes offline documentation
+placement/link checks and source/release MCP setup/environment recipe rendering.
+Branch protection settings remain a separate repository configuration; the
+workflow alone does not prove which checks are enforced there.
+
+Incident/service acceptance requires Docker and actual authenticated HTTP,
+SQLite/PostgreSQL and golden-contract tests. Its TRX validator rejects absent,
+failed or skipped selected results and requires eight named test classes, with
+actual `postgres: true` and `postgres: false` cases for receiver, service identity,
+managed orchestration callback, pairing service/upgrade and service identity
+migration coverage. Do not substitute an empty pass or a skipped provider run.
+
+Deep Playwright/mailbox/image/archive/Compose acceptance is an existing explicit
+`workflow_dispatch` option (`deep_acceptance=true`); skipped deep jobs on ordinary
+PR/main runs do not establish that acceptance. Deployment-managed PostgreSQL
+first-run validation has its own manual workflow. Keep normal gates intact and
+record optional/owner walkthroughs separately.
+
+### Staging and public verification
+
+The release workflow validates the supported tag, evaluated version and peeled
+source's `main` ancestry; builds/tests the source and three containers; validates
+layout and first-run Compose; packages archives; and executes the native archives
+on Linux x64, Linux ARM64 and Windows x64. Image jobs publish exact amd64/arm64
+tags with SBOM/provenance. After all jobs succeed, anonymous image pulls are
+checked before the verified draft release is assembled.
+
+The manifest contains source/tag/version, exactly seven archives and three
+container digests. `SHA256SUMS` covers the archives; the detached manifest checksum
+avoids self-reference. Asset uploads reuse identical existing bytes and reject
+conflicts. The workflow creates/updates a draft without making it public. After
+explicit publication, verify anonymous downloads/checksums, the manifest source
+and exact tag-to-digest mapping, and clean anonymous image pulls. A tag, draft or
+workflow URL alone is not verified public distribution.
 
 Tag workflows publish Web, API and HTTP MCP images with the exact version.
 Only the separate approved stable-channel promotion moves `latest`.
@@ -235,4 +292,4 @@ To use released images locally, set required credentials and run:
 RATELDESK_VERSION=0.1.0 docker compose -f docker/docker-compose.release.yml up -d
 ```
 
-The GitHub Release records the source commit, UTC build timestamp, and immutable Web/API digests. Before a private deployment is updated, operators should clean-pull both public images and pin the deployment to those recorded digests.
+The GitHub Release records the source commit, UTC build timestamp, and immutable Web/API/HTTP MCP digests. Before a private deployment is updated, operators should clean-pull its selected public images and pin the deployment to those recorded digests.

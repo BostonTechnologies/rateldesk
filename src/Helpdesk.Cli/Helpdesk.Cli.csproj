@@ -18,6 +18,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Helpdesk.AgentClient\Helpdesk.AgentClient.csproj" />
+    <ProjectReference Include="..\Helpdesk.Setup\Helpdesk.Setup.csproj" />
     <ProjectReference Include="..\Helpdesk.Shared\Helpdesk.Shared.csproj" />
   </ItemGroup>
 </Project>

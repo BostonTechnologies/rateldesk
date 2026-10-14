@@ -31,6 +31,66 @@ namespace Helpdesk.Tests.NewWeb;
 
 public class WebAuthRoutesTests
 {
+    [Theory]
+    [InlineData("/account/integration-credentials/approve", "/account/integration-credentials/approve")]
+    [InlineData("https://attacker.example/", "/home")]
+    [InlineData("//attacker.example/", "/home")]
+    [InlineData("/\\attacker.example/", "/home")]
+    [InlineData("/%2f%2fattacker.example/", "/home")]
+    [InlineData("/%5cattacker.example/", "/home")]
+    [InlineData("/home%0d%0aLocation:evil", "/home")]
+    public void Sign_in_return_paths_cannot_escape_the_application(string value, string expected)
+        => Assert.Equal(expected, LoginReturnUrl.Normalize(value));
+
+    [Fact]
+    public async Task Local_sign_in_preserves_approval_destination_and_does_not_forward_it_to_authentication()
+    {
+        string? submitted = null;
+        using var factory = CreateFactory(localAuthentication: true, loginApi: async (request, cancellationToken) =>
+        {
+            submitted = await request.Content!.ReadAsStringAsync(cancellationToken);
+            var response = new HttpResponseMessage(HttpStatusCode.NoContent);
+            response.Headers.Add("Set-Cookie", "RatelDesk.Local=authenticated-ticket; path=/; httponly");
+            return response;
+        });
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var token = await ReadFormTokenAsync(client, "/login?returnUrl=%2Faccount%2Fintegration-credentials%2Fapprove");
+        using var form = new FormUrlEncodedContent(new Dictionary<string, string>
+        { ["__RequestVerificationToken"] = token, ["email"] = "admin@example.test", ["password"] = "test password", ["returnUrl"] = "/account/integration-credentials/approve" });
+        var response = await client.PostAsync("/local-login", form);
+        Assert.Equal("/account/integration-credentials/approve", response.Headers.Location?.OriginalString);
+        Assert.DoesNotContain("returnUrl", submitted);
+    }
+
+    [Fact]
+    public async Task Client_approval_requires_code_and_deliberate_antiforgery_protected_consent()
+    {
+        using var factory = CreateFactory(enableTestAuth: true, localAuthentication: true);
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "HelpdeskAdmin");
+        var html = await client.GetStringAsync("/account/integration-credentials/approve");
+        Assert.Contains("integration-pairing-code", html);
+        Assert.Contains("Signing in does not approve", html);
+        Assert.DoesNotContain("integration-pairing-consent-form", html);
+        using var form = new FormUrlEncodedContent(new Dictionary<string, string>
+        { ["humanCode"] = "ABCD-EFGH", ["consent"] = "on", ["decision"] = "approve", ["organizationId"] = "org-a", ["permissions"] = "Incident.Read" });
+        var response = await client.PostAsync("/account/integration-credentials/pairing-consent", form);
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        Assert.Equal("/account/integration-credentials/approve?status=form-expired", response.Headers.Location?.OriginalString);
+    }
+
+    [Fact]
+    public async Task Approval_result_has_recovery_and_credentials_management_access()
+    {
+        using var factory = CreateFactory(enableTestAuth: true, localAuthentication: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "HelpdeskAdmin");
+        var html = await client.GetStringAsync("/account/integration-credentials/approve?status=approved");
+        Assert.Contains("Return to the client", html);
+        Assert.Contains("Manage integration credentials", html);
+        Assert.DoesNotContain("rdk_", html);
+    }
+
     [Fact]
     public async Task Anonymous_session_poll_returns_unauthorized_without_an_oidc_redirect()
     {

@@ -54,7 +54,12 @@ public sealed class HelpdeskCliTests
         ], new CliRuntime { Out = output, Error = errors });
 
         Assert.Equal(CliExitCodes.Success, code);
-        Assert.Contains("secret", File.ReadAllText(path), StringComparison.Ordinal);
+        using (var saved = JsonDocument.Parse(File.ReadAllText(path)))
+        {
+            Assert.False(saved.RootElement.TryGetProperty("authentikAppPassword", out _));
+            var reference = saved.RootElement.GetProperty("authentikAppPasswordFile").GetString()!;
+            Assert.Equal("secret", Helpdesk.AgentClient.SecureConfigurationFiles.ReadText(reference, requirePrivate: true).Trim());
+        }
 
         output.GetStringBuilder().Clear();
         code = await HelpdeskCli.RunAsync(["--config", path, "config", "show"], new CliRuntime { Out = output, Error = errors });
@@ -117,7 +122,6 @@ public sealed class HelpdeskCliTests
             var temp = Directory.CreateTempSubdirectory("helpdesk-cli-test-");
             var output = new StringWriter();
             var code = await HelpdeskCli.RunAsync([
-                "--config", Path.Combine(temp.FullName, "missing.json"),
                 "config", "show"
             ], new CliRuntime { Out = output, Error = new StringWriter() });
 

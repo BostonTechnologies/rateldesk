@@ -32,15 +32,17 @@ public class AdministrationNavigationTests
         Assert.Equal(1, Count("Href=\"/admin/requests/services\""));
         Assert.Equal(1, Count("Href=\"/admin/ai-assistant-webhooks\""));
         Assert.Contains("admin/orchestration/orchestration", Source, StringComparison.Ordinal);
-        Assert.Contains("MatchesPath(path, \"admin/requests/services\")", Source, StringComparison.Ordinal);
+        Assert.Contains("\"admin/requests/services\"", Source, StringComparison.Ordinal);
     }
 
     [Fact]
     public void RelocatedGroups_UseLocationAwareExpansionWithoutDuplicatingOperationsLinks()
     {
-        Assert.Contains("ExpandedChanged=\"OnEmailSettingsExpandedChanged\"", Source, StringComparison.Ordinal);
-        Assert.Contains("ExpandedChanged=\"OnAutomationExpandedChanged\"", Source, StringComparison.Ordinal);
-        Assert.Contains("UpdateExpandedGroups(e.Location);", Source, StringComparison.Ordinal);
+        Assert.Contains("RoutePrefixes=\"@EmailRoutes\"", Source, StringComparison.Ordinal);
+        Assert.Contains("RoutePrefixes=\"@AutomationRoutes\"", Source, StringComparison.Ordinal);
+        var groupSource = File.ReadAllText(Path.Combine(TestEnvironment.RepositoryRoot, "src", "HelpDesk.NewWeb", "Components", "Layout", "HelpdeskNavGroup.razor"));
+        Assert.Contains("UpdateExpandedGroups(e.Location);", groupSource, StringComparison.Ordinal);
+        Assert.Contains("Navigation.LocationChanged -= OnLocationChanged;", groupSource, StringComparison.Ordinal);
         Assert.Equal(1, Count("Href=\"/admin/pending-emails\""));
         Assert.Equal(1, Count("Href=\"/admin/automation/integration\""));
     }

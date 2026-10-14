@@ -249,11 +249,11 @@ internal static partial class HelpdeskCli
 
     private static bool HasAuthConfig(CliConfig profile)
         => CredentialMode(profile) == "integration"
-            ? !string.IsNullOrWhiteSpace(profile.IntegrationCredential)
+            ? !string.IsNullOrWhiteSpace(profile.IntegrationCredential) || !string.IsNullOrWhiteSpace(profile.IntegrationCredentialFile)
             : !string.IsNullOrWhiteSpace(profile.AuthentikTokenUrl)
               && !string.IsNullOrWhiteSpace(profile.AuthentikClientId)
               && !string.IsNullOrWhiteSpace(profile.AuthentikUsername)
-              && !string.IsNullOrWhiteSpace(profile.AuthentikAppPassword);
+              && (!string.IsNullOrWhiteSpace(profile.AuthentikAppPassword) || !string.IsNullOrWhiteSpace(profile.AuthentikAppPasswordFile));
 
     private static List<JsonObject> BuildExampleEntries()
         =>

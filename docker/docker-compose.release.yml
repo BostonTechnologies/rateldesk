@@ -32,7 +32,6 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
       ApiBaseUrl: http://api:8222/
       DataProtection__KeyRingPath: /var/lib/rateldesk/keys
-      ReverseProxy__Clusters__apiCluster__Destinations__api1__Address: http://api:8222/
       Authentication__Mode: Local
       Authentication__AllowInsecureLocalhost: "true"
     depends_on:

@@ -2,6 +2,7 @@ using Helpdesk.AgentClient;
 using Helpdesk.Mcp.Configuration;
 using Helpdesk.Mcp.Tools;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace Helpdesk.Mcp;
 
@@ -28,15 +29,31 @@ public static class HelpdeskMcpCoreServiceCollectionExtensions
         services.AddTransient<HelpdeskTools>();
         services.AddSingleton(new HelpdeskMcpTarget(hostContext.Instance, new Uri(hostContext.CanonicalApiBaseUrl)));
         var resolvedConfiguration = configuration.Resolve();
+        services.AddSingleton<IValidateOptions<AgentClientOutboundOptions>, AgentClientOutboundOptionsValidator>();
+        services.AddOptions<AgentClientOutboundOptions>().Configure(options =>
+        {
+            options.ApiBaseUrl = configuration.ApiBaseUrl;
+            options.CredentialMode = configuration.CredentialMode;
+            options.IntegrationCredential = configuration.IntegrationCredential;
+            options.IntegrationCredentialFile = configuration.IntegrationCredentialFile;
+            options.AuthentikTokenUrl = configuration.AuthentikTokenUrl;
+            options.AuthentikClientId = configuration.AuthentikClientId;
+            options.AuthentikUsername = configuration.AuthentikUsername;
+            options.AuthentikAppPassword = configuration.AuthentikAppPassword;
+            options.AuthentikAppPasswordFile = configuration.AuthentikAppPasswordFile;
+            options.AuthentikScope = configuration.AuthentikScope;
+            options.AgentUserEmail = configuration.AgentUserEmail;
+            options.CredentialTarget = configuration.CredentialTarget;
+        }).ValidateOnStart();
         services.AddHttpClient(HelpdeskAgentClient.ApiHttpClientName, client =>
         {
             client.BaseAddress = resolvedConfiguration.ApiBaseUrl;
             client.Timeout = TimeSpan.FromSeconds(60);
-        });
+        }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
         services.AddHttpClient(HelpdeskAgentClient.AuthHttpClientName, client =>
         {
             client.Timeout = TimeSpan.FromSeconds(30);
-        });
+        }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
         services.AddSingleton<IHelpdeskAgentClient>(provider => new HelpdeskAgentClient(
             configuration,
             provider.GetRequiredService<IHttpClientFactory>(),

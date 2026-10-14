@@ -24,19 +24,18 @@ public sealed partial record HelpdeskMcpTarget(string Instance, Uri ApiBaseUrl)
         string? instanceOverride = null,
         string? expectedEndpointOverride = null)
     {
-        if (string.IsNullOrWhiteSpace(configurationPath))
-            throw new AgentClientValidationException($"{ConfigurationEnvironmentVariable} is required for isolated MCP configuration.");
-
         var instance = (string.IsNullOrWhiteSpace(instanceOverride) ? Environment.GetEnvironmentVariable(InstanceEnvironmentVariable) : instanceOverride)?.Trim().ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(instance) || !InstanceLabel().IsMatch(instance))
             throw new AgentClientValidationException($"{InstanceEnvironmentVariable} must be a lowercase instance label containing letters, digits, and hyphens.");
 
         var expectedEndpointVariable = $"RATELDESK_MCP_{instance.ToUpperInvariant()}_API_BASE_URL";
-        var expectedEndpoint = ParseUri(string.IsNullOrWhiteSpace(expectedEndpointOverride) ? Environment.GetEnvironmentVariable(expectedEndpointVariable) : expectedEndpointOverride, expectedEndpointVariable);
+        var canonicalExpected = Environment.GetEnvironmentVariable("RATELDESK_MCP_EXPECTED_API_BASE_URL");
+        var expectedEndpointName = !string.IsNullOrWhiteSpace(expectedEndpointOverride) ? "Helpdesk:Mcp:ExpectedApiBaseUrl" : canonicalExpected is null ? expectedEndpointVariable : "RATELDESK_MCP_EXPECTED_API_BASE_URL";
+        var expectedEndpoint = ParseUri(string.IsNullOrWhiteSpace(expectedEndpointOverride) ? canonicalExpected ?? Environment.GetEnvironmentVariable(expectedEndpointVariable) : expectedEndpointOverride, expectedEndpointName);
         var configuredEndpoint = ParseUri(configuration.ApiBaseUrl, "the isolated MCP configuration apiBaseUrl");
 
         if (!Equivalent(expectedEndpoint, configuredEndpoint))
-            throw new AgentClientValidationException($"{InstanceEnvironmentVariable} '{instance}' requires the isolated MCP configuration apiBaseUrl to match {expectedEndpointVariable}.");
+            throw new AgentClientValidationException($"{InstanceEnvironmentVariable} '{instance}' requires the isolated MCP configuration apiBaseUrl to match {expectedEndpointName}.");
 
         return new HelpdeskMcpTarget(instance, configuredEndpoint);
     }

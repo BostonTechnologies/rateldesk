@@ -97,7 +97,7 @@ public sealed class PairingUpgradeTests
         var netclawToken = protector.Protect("synthetic-unrelated-netclaw-token");
         var signingKey = protector.Protect("synthetic-preserved-signing-material");
         var oldPrincipals = new List<Guid>();
-        string[] previousHistory;
+        IReadOnlyList<HistoryRow> previousHistory;
 
         await using (var identity = fixture.Identity())
         {
@@ -156,7 +156,7 @@ public sealed class PairingUpgradeTests
             await InsertHistoricalAsync(db, "M2MConnectivitySettings", new() { ["Id"] = Guid.NewGuid(), ["ProviderKey"] = "Orchestrator", ["Enabled"] = true,
                 ["ManagedSenderEnabled"] = true, ["ProtectedClientSecret"] = "opaque-retired-outbound-secret" });
             await InsertHistoricalAsync(db, "AutomationBindings", new() { ["Id"] = "old-binding", ["OrganizationId"] = "preserved-org", ["TaskTemplateId"] = Guid.NewGuid(), ["RequestFormId"] = "existing-form", ["Enabled"] = true });
-            previousHistory = (await db.Database.GetAppliedMigrationsAsync()).ToArray();
+            previousHistory = await db.GetService<IHistoryRepository>().GetAppliedMigrationsAsync();
             db.ChangeTracker.Clear();
             await db.Database.MigrateAsync();
             await db.Database.MigrateAsync();
@@ -164,7 +164,14 @@ public sealed class PairingUpgradeTests
         await using (var db = fixture.Open())
         {
             Assert.Empty(await db.Database.GetPendingMigrationsAsync());
-            Assert.Equal(previousHistory, (await db.Database.GetAppliedMigrationsAsync()).Take(previousHistory.Length));
+            var currentHistory = (await db.GetService<IHistoryRepository>().GetAppliedMigrationsAsync())
+                .ToDictionary(row => row.MigrationId, row => row.ProductVersion, StringComparer.Ordinal);
+            // Identity and domain contexts share the history table. Their migration IDs can
+            // interleave chronologically, so preserve rows by ID rather than sorted position.
+            var expectedHistoryIds = previousHistory.Select(row => row.MigrationId)
+                .Concat(db.Database.GetMigrations()).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+            Assert.Equal(expectedHistoryIds, currentHistory.Keys.Order(StringComparer.Ordinal).ToArray());
+            Assert.All(previousHistory, row => Assert.Equal(row.ProductVersion, currentHistory[row.MigrationId]));
             Assert.Empty(await db.Set<SystemPair>().ToListAsync());
             Assert.Empty(await db.Set<SystemConnection>().ToListAsync());
             Assert.Empty(await db.Set<PairingRedemption>().ToListAsync());

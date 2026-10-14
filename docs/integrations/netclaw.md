@@ -34,7 +34,7 @@ deployment-managed profiles remain read-only in the hub.
 
 Repository validation and local-stack CLI/stdio/HTTP MCP protected operations
 using locally published Release builds are recorded in the
-[reconciliation ledger](implementation/beta4-integration-progress.md).
+[reconciliation ledger](../implementation/beta4-integration-progress.md).
 [#90](https://github.com/BostonTechnologies/RatelDesk/issues/90) still requires
 an authorized real NetClaw daemon/device, its exact version and endpoint, and
 pairing, authenticated session/message/approval, reconnect/restart, profile
@@ -238,7 +238,7 @@ local-account paired gateway mode for this guide. It exchanges the incoming
 MCP credential for a short-lived execution credential and does not forward the
 long-lived credential to ordinary API operations.
 
-Follow the [HTTP MCP deployment example](../docker/examples/mcp-http/README.md)
+Follow the [HTTP MCP deployment example](../../docker/examples/mcp-http/README.md)
 for the source or released-image overlay. It requires a protected gateway
 configuration file, an exact RatelDesk API base URL, and these public values:
 
