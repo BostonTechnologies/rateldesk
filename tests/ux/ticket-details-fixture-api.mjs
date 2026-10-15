@@ -78,7 +78,7 @@ http.createServer(async (req, res) => {
       const update = await body();
       if (fault === 'save') { fault = ''; return reply({ error: 'Fixture save rejected' }, 409); }
       if (fault === 'slow-save') { fault = ''; await new Promise(resolve => setTimeout(resolve, 1000)); }
-      saves.push({ module, ...update }); Object.assign(ticket, update);
+      saves.push({ module, ...update }); Object.assign(ticket, Object.fromEntries(Object.entries(update).filter(([, value]) => value !== null)));
       const value = update.implementorUserId ?? update.assignedToId;
       if ('assignedToId' in update || 'implementorUserId' in update) {
         ticket.assignedToId = value || null;
