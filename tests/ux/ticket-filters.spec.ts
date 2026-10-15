@@ -16,7 +16,8 @@ for(const module of ['incidents','requests','changes']) {
   const originalRows=await page.locator('tbody tr').allTextContents();
   await page.locator('tbody input[type=checkbox]').first().check();
   await expect(page.getByText('1 selected',{exact:true})).toBeVisible();
-  await page.getByText('Synthetic ticket 51',{exact:true}).click();
+  // The incident subject is an email-preview button; the tracking cell navigates the row.
+  await page.getByRole('cell',{name:'SYN-051',exact:true}).click();
   await expect(page).toHaveURL(new RegExp(`/${module}/row-51\\?`));
   expect(new URL(page.url()).searchParams.get('returnUrl')).toBe(new URL(originalUrl).pathname+new URL(originalUrl).search);
   await expect(page.getByText('SYN-051',{exact:true})).toBeVisible();
