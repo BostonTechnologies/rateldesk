@@ -271,7 +271,9 @@
             <LifecycleActions>
 @if (accessProfile?.CanApproveChange(change.OrganizationId) == true && change.LifecycleState == ChangeLifecycleState.PendingApproval)
                         {
-                            <ChangeLifecycleStatePicker ChangeId="@change.Id" LifecycleState="@change.LifecycleState" CanApprove="true" ChangeUpdated="@(_ => LoadChangeAsync())" />
+                            var approvalLifetime = ticketLifetime;
+                            <ChangeLifecycleStatePicker @key="approvalLifetime" ChangeId="@change.Id" LifecycleState="@change.LifecycleState"
+                                                        CanApprove="@(!isUpdating && !hasChanges)" ChangeUpdated="@(updated => OnApprovalUpdated(updated, approvalLifetime))" />
                         }
                 </LifecycleActions>
             </TicketDetailsPanel>
@@ -725,6 +727,9 @@
             if (IsCurrent(lifetime)) { isUpdating = false; refreshVersion++; }
         }
     }
+
+    private Task OnApprovalUpdated(ChangeDto updated, long lifetime) =>
+        IsCurrent(lifetime) && updated.Id == Id ? HandleWorklogAdded() : Task.CompletedTask;
 
     private async Task HandleWorklogAdded()
     {

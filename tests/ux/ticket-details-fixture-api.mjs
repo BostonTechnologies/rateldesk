@@ -33,7 +33,7 @@ http.createServer(async (req, res) => {
   if (url.pathname === '/fixture/reset') { reset(); return reply({ ok: true }); }
   if (url.pathname === '/fixture/state') return reply({ searches, completedQueries, saves, tickets, categories, categorySearches, slaActions, held: held.map(item => item.kind) });
   if (url.pathname === '/fixture/release') { release(); return reply({ ok: true }); }
-  if (url.pathname === '/fixture/fault') { fault = url.searchParams.get('mode') ?? ''; reader = fault === 'reader'; if (fault === 'locked') tickets.changes.lifecycleState = 1; return reply({ ok: true }); }
+  if (url.pathname === '/fixture/fault') { fault = url.searchParams.get('mode') ?? ''; reader = fault === 'reader'; if (fault === 'locked') tickets.changes.lifecycleState = 1; if (fault === 'dense') { const extra = Array.from({ length: 24 }, (_, i) => ({ id: `79000000-0000-0000-0000-${String(i + 100).padStart(12, '0')}`, name: `Long service category ${i} with an intentionally lengthy operational label for constrained layouts`, isActive: true, type: 0 })); categories.push(...extra); tickets.incidents.categoryIds.push(...extra.map(x => x.id)); tickets.incidents.assignedToId = 'dense-user'; } return reply({ ok: true }); }
   if (url.pathname.endsWith('/system/token')) {
     const encode = value => Buffer.from(JSON.stringify(value)).toString('base64url');
     const roles = req.headers['x-system-secret'] === 'local-details-reader-fixture' ? ['Incident.Read', 'Request.Read', 'Change.Read'] : ['HelpdeskAdmin'];
@@ -58,7 +58,7 @@ http.createServer(async (req, res) => {
   }
   if (url.pathname === '/api/v1/ticketing/assignees/current') {
     const ticket = Object.values(tickets).find(ticket => ticket.id === url.searchParams.get('ticketId'));
-    return reply(users.find(user => user.id === ticket?.assignedToId) ?? null);
+    return reply(ticket?.assignedToId === 'dense-user' ? { id: 'dense-user', name: 'Long Assigned Operator Name With Additional Identification Details', email: 'long-assigned-operator@example.test' } : users.find(user => user.id === ticket?.assignedToId) ?? null);
   }
   if (url.pathname === '/api/v1/ticketing/assignees') return reply(users);
   if (url.pathname === '/api/v1/ticketing/organizations') return reply([{ id: 'org-1', name: 'Customer organization', state: 0 }, { id: 'org-2', name: 'Second organization', state: 0 }]);

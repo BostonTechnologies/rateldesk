@@ -264,3 +264,17 @@ test('request workflow ignores a late response from the previous event group', a
   await expect(page.getByText('Tasks workflow event', { exact: true })).toHaveCount(0);
   await expect(page.getByText('SLA workflow event', { exact: true })).toBeVisible();
 });
+
+
+test('long assignee and 26 selected category labels remain usable at 320px', async ({ page, request }) => {
+  await request.get(`${fixture}/fault?mode=dense`);
+  await page.setViewportSize({ width: 320, height: 1000 });
+  await open(page);
+  await expect(selected(page).locator('.mud-chip')).toHaveCount(26);
+  await expect(page.getByRole('button', { name: /Long Assigned Operator/ })).toBeVisible();
+  await noOverflow(page);
+  await selected(page).locator('.mud-chip').filter({ hasText: 'Long service category 23 ' }).locator('.mud-chip-close-button').click();
+  await page.getByRole('button', { name: 'Revert', exact: true }).click();
+  await expect(selected(page).locator('.mud-chip')).toHaveCount(26);
+  await noOverflow(page);
+});
