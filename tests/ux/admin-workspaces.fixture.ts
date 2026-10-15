@@ -280,10 +280,9 @@ test.describe('focused admin tasks', () => {
   await expect(page.getByRole('option', { name: 'DataManagement.Admin', exact: true })).toHaveCount(0);
   await page.keyboard.press('Escape'); await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await open(page, 'https://127.0.0.1:5181/admin/resources/data-management');
-  await page.getByRole('combobox', { name: 'Organization', exact: true }).click();
-  await expect(page.getByRole('option', { name: 'Atlas Tenant', exact: true })).toBeVisible();
-  await expect(page.getByRole('option', { name: 'Birch Tenant', exact: true })).toHaveCount(0);
-  await page.keyboard.press('Escape');
+  await expect(page.locator('.data-management-rail').getByText('Atlas Tenant', { exact: true })).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Organization', exact: true })).toHaveCount(0);
+  await expect(page.getByText('Birch Tenant', { exact: true })).toHaveCount(0);
   for (const [, path, , selector] of routes.filter(([name]) => name === 'routing' || name === 'sla')) {
    await page.goto(`https://127.0.0.1:5181${path}`);
    await expect(page.locator(selector)).toHaveCount(0);
