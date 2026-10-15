@@ -1,6 +1,6 @@
 # Workspace ticket filters: 0.1.1 evidence
 
-Recorded 2026-10-15 UTC for [#165](https://github.com/BostonTechnologies/rateldesk/issues/165) and [#166](https://github.com/BostonTechnologies/rateldesk/issues/166). Source tested: `f58788fd252d0fa4cafeeded814f73a547ce2c20`; the Web assembly was built at `9b520a3`, followed by an API-only projection correction and browser-locator correction. These are local implementation checks; the integrated release report owns final provider and release validation.
+Recorded 2026-10-15 UTC for [#165](https://github.com/BostonTechnologies/RatelDesk/issues/165) and [#166](https://github.com/BostonTechnologies/RatelDesk/issues/166). Source tested: `f58788fd252d0fa4cafeeded814f73a547ce2c20`; the Web assembly was built at `9b520a3`, followed by an API-only projection correction and browser-locator correction. These are local implementation checks; the integrated release report owns final provider and release validation.
 
 The three lists remove their obsolete AI-only controls and generated predicates. External request `aiOnly`, CLI compatibility, AI provenance, audit history and the AI Assistant retain their contracts. The shared filter panel adds Customer, For, State, Assignee, Unassigned, Priority and time filters, named removable chips, search, sort and page size. Full-data predicates run before count, sort and page; values OR within a dimension and AND across dimensions. Authorization remains scoped by module, organization and own-contact access.
 

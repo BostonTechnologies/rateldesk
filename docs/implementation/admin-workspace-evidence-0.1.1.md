@@ -1,6 +1,6 @@
 # Admin workspace evidence for 0.1.1
 
-Captured 2026-10-15 for issues [#171](https://github.com/BostonTechnologies/rateldesk/issues/171), [#172](https://github.com/BostonTechnologies/rateldesk/issues/172), [#173](https://github.com/BostonTechnologies/rateldesk/issues/173) and [#174](https://github.com/BostonTechnologies/rateldesk/issues/174). Current usage is documented in the [administration workspaces guide](../deployment/admin-workspaces.md).
+Captured 2026-10-15 for issues [#171](https://github.com/BostonTechnologies/RatelDesk/issues/171), [#172](https://github.com/BostonTechnologies/RatelDesk/issues/172), [#173](https://github.com/BostonTechnologies/RatelDesk/issues/173) and [#174](https://github.com/BostonTechnologies/RatelDesk/issues/174). Current usage is documented in the [administration workspaces guide](../deployment/admin-workspaces.md).
 
 ## Source and validation receipt
 

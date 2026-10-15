@@ -215,7 +215,7 @@ version or actual SMTP delivery. Real provider tests use fake mail transports.
 The preserved hosted required-provider gate at
 `b106f77598af49e99a1bbc73539ae2fb207af25d` reported **128 passed, 0 failed, 0
 skipped**, with all eight required test classes validated, in
-[Actions run 38691499933](https://github.com/BostonTechnologies/rateldesk/actions/runs/38691499933).
+[Actions run 38691499933](https://github.com/BostonTechnologies/RatelDesk/actions/runs/38691499933).
 This receipt is for that exact historical SHA. Final-candidate full solution and
 provider validation remain pending; it is not substituted for those gates.
 
