@@ -268,6 +268,14 @@ jobs:
           npx playwright test --config playwright.native-zoom.config.ts
           --output=artifacts/e2e/workspace-${{ matrix.suite }}/native-zoom
 
+      - name: Verify contributor and manager ticket ownership controls
+        if: matrix.suite == 'details'
+        env:
+          PLAYWRIGHT_HTML_OUTPUT_DIR: artifacts/e2e/workspace-details/roles-report
+        run: >-
+          npx playwright test --config playwright.details-roles.config.ts
+          --output=artifacts/e2e/workspace-details/roles
+
       - name: Upload workspace browser evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

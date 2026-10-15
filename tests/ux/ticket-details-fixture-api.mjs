@@ -2,6 +2,7 @@
 // Authorization/database evidence belongs to AssigneeSearchEndpointsTests.
 import http from 'node:http';
 const actor = 'assignee-operator';
+const port = Number(process.env.HELPDESK_DETAILS_FIXTURE_PORT ?? 18600);
 const users = Array.from({ length: 25 }, (_, i) => ({ id: `user-${i}`, name: `Alpha ${String(i).padStart(2, '0')}`, email: `alpha${i}@example.test`, role: 'Technician', organizationId: 'org-1' }));
 users.push({ id: 'late', name: 'Zulu Surname', email: 'late@example.test', role: 'Technician', organizationId: 'provider' },
   { id: 'duplicate-1', name: 'Duplicate Name', email: 'one@example.test', organizationId: 'org-1' },
@@ -9,12 +10,12 @@ users.push({ id: 'late', name: 'Zulu Surname', email: 'late@example.test', role:
 const categoryOne = '79000000-0000-0000-0000-000000000001';
 const categoryTwo = '79000000-0000-0000-0000-000000000002';
 const categoryThree = '79000000-0000-0000-0000-000000000003';
-let categories, categorySearches, tickets, searches, completedQueries, saves, fault, reader, slaActions;
+let categories, categorySearches, tickets, searches, completedQueries, saves, fault, reader, slaActions, worklogs;
 let held = [];
 const hold = kind => new Promise(resolve => held.push({ kind, resolve }));
 function release() { const pending = held; held = []; pending.forEach(item => item.resolve()); }
 function reset() {
-  release(); slaActions = [];
+  release(); slaActions = []; worklogs = [];
   categories = [{ id: categoryOne, name: 'Network Operations', isActive: true, type: 0 }, { id: categoryTwo, name: 'Historical selection', isActive: false, type: 0 }, { id: categoryThree, name: 'R&D + 100%_\\', isActive: true, type: 0 }]; categorySearches = []; searches = []; completedQueries = []; saves = []; fault = ''; reader = false;
   tickets = Object.fromEntries(['incidents', 'requests', 'changes'].map(module => [module, {
     id: `${module}-1`, subject: 'Picker incident', title: `Picker ${module}`, description: 'Fixture ticket',
@@ -31,19 +32,37 @@ http.createServer(async (req, res) => {
   const body = async () => { let value = ''; for await (const part of req) value += part; return value ? JSON.parse(value) : {}; };
   if (url.pathname === '/fixture/health') return reply({ ok: true });
   if (url.pathname === '/fixture/reset') { reset(); return reply({ ok: true }); }
-  if (url.pathname === '/fixture/state') return reply({ searches, completedQueries, saves, tickets, categories, categorySearches, slaActions, held: held.map(item => item.kind) });
+  if (url.pathname === '/fixture/state') return reply({ searches, completedQueries, saves, tickets, categories, categorySearches, slaActions, worklogs, held: held.map(item => item.kind) });
+  if (url.pathname === '/fixture/ticket-scope' && req.method === 'POST') {
+    const scope = await body();
+    for (const ticket of Object.values(tickets)) {
+      ticket.organizationId = scope.organizationId ?? 'org-1';
+      ticket.customerId = scope.customerId ?? 'customer-owner';
+      ticket.customerEmail = ticket.requesterEmail = 'owner@example.test';
+    }
+    return reply({ ok: true });
+  }
   if (url.pathname === '/fixture/release') { release(); return reply({ ok: true }); }
   if (url.pathname === '/fixture/fault') { fault = url.searchParams.get('mode') ?? ''; reader = fault === 'reader'; if (fault === 'locked') tickets.changes.lifecycleState = 1; if (fault === 'dense') { const extra = Array.from({ length: 24 }, (_, i) => ({ id: `79000000-0000-0000-0000-${String(i + 100).padStart(12, '0')}`, name: `Long service category ${i} with an intentionally lengthy operational label for constrained layouts`, isActive: true, type: 0 })); categories.push(...extra); tickets.incidents.categoryIds.push(...extra.map(x => x.id)); tickets.incidents.assignedToId = 'dense-user'; } return reply({ ok: true }); }
   if (url.pathname.endsWith('/system/token')) {
     const encode = value => Buffer.from(JSON.stringify(value)).toString('base64url');
-    const roles = req.headers['x-system-secret'] === 'local-details-reader-fixture' ? ['Incident.Read', 'Request.Read', 'Change.Read'] : ['HelpdeskAdmin'];
-    return reply({ token: `${encode({ alg: 'none' })}.${encode({ sub: actor, auth_mode: 'development', preferred_username: 'Picker Operator', roles, allowed_organization_id: 'org-1', exp: Math.floor(Date.now() / 1000) + 3600 })}.fixture` });
+    const secret = req.headers['x-system-secret'];
+    const role = secret === 'local-details-contributor-fixture' ? 'User' : secret === 'local-details-manager-fixture' ? 'Manager' : null;
+    const roles = role ? ['Incident', 'Request', 'Change'].flatMap(module => [`${module}.Read`, `${module}.${role}`])
+      : secret === 'local-details-reader-fixture' ? ['Incident.Read', 'Request.Read', 'Change.Read'] : ['HelpdeskAdmin'];
+    const scopedClaims = role ? {
+      customer_id: 'customer-owner', permission_scope_mode: 'scoped',
+      scoped_permission: [...roles.map(permission => `${permission}|org-1`), ...['Incident', 'Request', 'Change'].map(module => `${module}.Read|org-2`)]
+    } : {};
+    return reply({ token: `${encode({ alg: 'none' })}.${encode({ sub: actor, auth_mode: 'development', preferred_username: 'Picker Operator', roles, allowed_organization_id: 'org-1', ...scopedClaims, exp: Math.floor(Date.now() / 1000) + 3600 })}.fixture` });
   }
   if (url.pathname === '/api/v1/auth/me') {
     const token = (req.headers.authorization ?? '').split(' ')[1];
-    reader = token ? JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()).roles.includes('Incident.Read') : false;
-    return reply({ isAuthenticated: true, name: 'Picker Operator', email: 'Picker Operator', primaryOrganizationId: null, primaryOrganizationName: null, customerId: null, userId: actor, isHelpdeskAdmin: !reader,
-    roleBundles: reader ? ['Incident.Read', 'Request.Read', 'Change.Read'] : ['HelpdeskAdmin'], permissions: [], allowedOrganizationIds: ['org-1'], managedOrganizationIds: [] });
+    const claims = token ? JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()) : {};
+    reader = claims.roles?.includes('Incident.Read') ?? false;
+    return reply({ isAuthenticated: true, name: 'Picker Operator', email: 'Picker Operator', primaryOrganizationId: null, primaryOrganizationName: null, customerId: claims.customer_id ?? null, userId: actor, isHelpdeskAdmin: claims.roles?.includes('HelpdeskAdmin') ?? false,
+    roleBundles: claims.roles ?? [], permissions: claims.roles ?? [], allowedOrganizationIds: claims.permission_scope_mode ? ['org-1', 'org-2'] : ['org-1'], managedOrganizationIds: [],
+    usesScopedPermissions: claims.permission_scope_mode === 'scoped', scopedPermissionGrants: (claims.scoped_permission ?? []).map(value => { const [permission, organizationId] = value.split('|'); return { permission, organizationId }; }) });
   }
   if (url.pathname === '/api/v1/branding') return reply({ applicationName: 'RatelDesk', faviconUrl: '/favicon.ico' });
   if (url.pathname === '/api/v1/ticketing/assignees/search') {
@@ -79,6 +98,7 @@ http.createServer(async (req, res) => {
   if (match) {
     const [, module, action] = match;
     const ticket = tickets[module];
+    if (action?.endsWith('/worklogs') && req.method === 'POST') { worklogs.push({ module, ...await body() }); return reply({}); }
     if (!action && req.method === 'GET') return reply({ items: [ticket], totalCount: 1 });
     if (req.method === 'PUT' || (req.method === 'POST' && (action === 'bulk/assign' || action?.endsWith('/assignee')))) {
       const update = await body();
@@ -115,4 +135,4 @@ http.createServer(async (req, res) => {
   if (url.pathname.includes('summary') || url.pathname.includes('status')) return reply({});
   if (url.pathname.includes('/stream')) { res.writeHead(200, { 'Content-Type': 'text/event-stream' }); return res.end(); }
   return reply([]);
-}).listen(18600, '127.0.0.1', () => console.log('Details fixture API on loopback :18600'));
+}).listen(port, '127.0.0.1', () => console.log(`Details fixture API on loopback :${port}`));
