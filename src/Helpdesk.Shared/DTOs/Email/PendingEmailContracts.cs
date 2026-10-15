@@ -34,3 +34,4 @@ public sealed record PendingEmailPage(IReadOnlyList<PendingEmailRow> Items, int 
 public sealed record PendingEmailActionRequest(Guid[] Ids, string Action, string Reason, bool Confirmed);
 public sealed record PendingEmailActionResult(Guid Id, string Outcome, string Message);
 public sealed record PendingEmailActionResponse(IReadOnlyList<PendingEmailActionResult> Results);
+public sealed record PendingEmailOrganization(string Id, string Label);

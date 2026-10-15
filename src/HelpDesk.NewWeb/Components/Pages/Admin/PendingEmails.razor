@@ -26,18 +26,25 @@
                 <MudSelectItem Value="@value.ToString()">@value</MudSelectItem>
             }
         </MudSelect>
-        <MudTextField T="string" Label="Organization ID" @bind-Value="organization" Variant="Variant.Outlined" Margin="Margin.Dense" />
-        <MudTextField T="string" Label="Mailbox / sender" @bind-Value="sender" Variant="Variant.Outlined" Margin="Margin.Dense" />
-        <MudTextField T="string" Label="Recipient" @bind-Value="recipient" Variant="Variant.Outlined" Margin="Margin.Dense" />
-        <MudTextField T="string" Label="Reason / error code" @bind-Value="reason" Variant="Variant.Outlined" Margin="Margin.Dense" />
-        <MudTextField T="string" Label="Created from (UTC, inclusive)" InputType="InputType.DateTimeLocal" @bind-Value="from" Variant="Variant.Outlined" Margin="Margin.Dense" />
-        <MudTextField T="string" Label="Created to (UTC, inclusive)" InputType="InputType.DateTimeLocal" @bind-Value="to" Variant="Variant.Outlined" Margin="Margin.Dense" />
         <MudSelect T="string" Label="Sort" @bind-Value="sort" Variant="Variant.Outlined" Margin="Margin.Dense">
             <MudSelectItem Value='@("created")'>Created</MudSelectItem><MudSelectItem Value='@("ticket")'>Ticket</MudSelectItem>
             <MudSelectItem Value='@("recipient")'>Recipient</MudSelectItem><MudSelectItem Value='@("status")'>Status</MudSelectItem>
         </MudSelect>
         <MudCheckBox T="bool" @bind-Value="descending" Label="Descending" />
     </div>
+    <details class="pending-mail-advanced" open="@(appliedFilters.Keys.Any(x => x is "organization" or "sender" or "recipient" or "reason" or "from" or "to"))">
+        <summary>More filters · organization, mailbox, recipient, reason and created time</summary>
+        <div class="pending-mail-filters">
+        <MudAutocomplete T="PendingEmailOrganization" Label="Organization" Value="organizationOption" ValueChanged="OrganizationChanged"
+            SearchFunc="SearchOrganizations" ToStringFunc="@(x => x?.Label ?? string.Empty)" Clearable="true" CoerceText="true"
+            Variant="Variant.Outlined" Margin="Margin.Dense" MaxItems="20" />
+        <MudTextField T="string" Label="Mailbox / sender" @bind-Value="sender" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        <MudTextField T="string" Label="Recipient" @bind-Value="recipient" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        <MudTextField T="string" Label="Reason / error code" @bind-Value="reason" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        <MudTextField T="string" Label="Created from (UTC, inclusive)" InputType="InputType.DateTimeLocal" @bind-Value="from" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        <MudTextField T="string" Label="Created to (UTC, inclusive)" InputType="InputType.DateTimeLocal" @bind-Value="to" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        </div>
+    </details>
     <div class="pending-mail-actions">
         <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="ApplyFilters" Disabled="loading">Apply filters</MudButton>
         <MudButton OnClick="ClearFilters" Disabled="loading">Clear filters</MudButton>
@@ -114,6 +121,7 @@
     private List<PendingEmailRow> rows = [];
     private HashSet<PendingEmailRow> selected = [];
     private PendingEmailRow? detail;
+    private PendingEmailOrganization? organizationOption;
     private string? search, organization, sender, recipient, reason, from, to, error;
     private string status = "active", sort = "created";
     private bool descending = true, loading, disposed;
@@ -157,6 +165,9 @@
         if (Navigation.ToAbsoluteUri(uri).ToString() == Navigation.Uri) _ = LoadAsync();
         else Navigation.NavigateTo(uri);
     }
+    private void OrganizationChanged(PendingEmailOrganization? value) { organizationOption = value; organization = value?.Id; }
+    private async Task<IEnumerable<PendingEmailOrganization>> SearchOrganizations(string text, CancellationToken ct) =>
+        await TimelineClient.SearchPendingOrganizationsAsync(text, ct: ct);
     private void ApplyFilters() { page = 0; Navigate(); }
     private void ClearFilters() => Navigation.NavigateTo("/admin/pending-emails");
     private void RemoveFilter(string key)
@@ -174,9 +185,13 @@
     {
         requestCancellation?.Cancel(); requestCancellation?.Dispose(); requestCancellation = new();
         var token = requestCancellation.Token; var current = ++generation;
-        loading = true; error = null; selected.Clear(); detail = null;
+        loading = true; error = null; selected.Clear(); rows = []; detail = null;
         try
         {
+            organizationOption = string.IsNullOrWhiteSpace(organization) ? null :
+                (await TimelineClient.SearchPendingOrganizationsAsync(null, organization, token)).FirstOrDefault();
+            if (current != generation || disposed) return;
+            if (organizationOption is not null) appliedFilters["organization"] = $"organization: {organizationOption.Label}";
             var first = Utc(from); var last = Utc(to);
             if (first > last) throw new FormatException("Created From must precede To.");
             var query = new PendingEmailQuery { Search = search, OrganizationId = organization, Sender = sender,
@@ -188,7 +203,7 @@
             rows = result.Items.ToList(); total = result.Total; page = result.Page;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
-        catch (Exception ex) when (ex is HttpRequestException or FormatException or ArgumentException)
+        catch (Exception)
         {
             if (current != generation || disposed) return;
             rows = []; total = 0; error = "Could not load deliveries. Check the filters and try Refresh.";
@@ -211,7 +226,7 @@
             var labels = targets.ToDictionary(x => x.Id, x => $"{x.TrackingId} · {x.EmailRecipient}");
             outcomes = response.Results.Select(x => $"{labels.GetValueOrDefault(x.Id, "Delivery")}: {x.Outcome} — {x.Message}").ToList();
         }
-        catch (HttpRequestException) { Snackbar.Add("Queue action failed. Refresh before trying again.", Severity.Error); }
+        catch (Exception) { Snackbar.Add("Queue action failed. Refresh before trying again.", Severity.Error); }
         finally { loading = false; await LoadAsync(); }
     }
     private Task ReviewAsync(PendingEmailRow row)
@@ -230,7 +245,7 @@
         if (!await JS.InvokeAsync<bool>("confirm", $"Retry the selected legacy delivery for {row.TrackingId} to {row.EmailRecipient}? Its original mailbox binding is unavailable. Reconstruct the ticket update using current ticket recipients and sender routing; the worker will check its pinned sender revisions before submission.")) return;
         loading = true;
         try { await TimelineClient.RetryAsync(row.Id); Snackbar.Add("Legacy delivery queued for sender validation.", Severity.Success); }
-        catch (HttpRequestException) { Snackbar.Add("Legacy retry could not be queued. Refresh and review the delivery.", Severity.Error); }
+        catch (Exception) { Snackbar.Add("Legacy retry could not be queued. Refresh and review the delivery.", Severity.Error); }
         finally { loading = false; await LoadAsync(); }
     }
     public void Dispose() { disposed = true; Navigation.LocationChanged -= LocationChanged; requestCancellation?.Cancel(); requestCancellation?.Dispose(); }

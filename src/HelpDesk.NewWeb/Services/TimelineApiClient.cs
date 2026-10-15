@@ -19,6 +19,7 @@ public interface ITimelineApiClient
     Task RetryWithCurrentRouteAsync(Guid id, ConfirmMailboxRouteRetryRequest request);
     Task<int> GetPendingCountAsync();
     Task<List<TicketTimelineEventDto>> GetFailedAsync();
+    Task<IReadOnlyList<PendingEmailOrganization>> SearchPendingOrganizationsAsync(string? search, string? id = null, CancellationToken ct = default);
     Task<PendingEmailPage> SearchPendingAsync(PendingEmailQuery query, CancellationToken ct = default);
     Task<PendingEmailActionResponse> ApplyPendingActionAsync(PendingEmailActionRequest request, CancellationToken ct = default);
 }
@@ -122,6 +123,15 @@ public class TimelineApiClient(
             return new();
 
         return await response.Content.ReadFromJsonAsync<List<TicketTimelineEventDto>>() ?? new();
+    }
+
+    public async Task<IReadOnlyList<PendingEmailOrganization>> SearchPendingOrganizationsAsync(string? search, string? id = null, CancellationToken ct = default)
+    {
+        using var request = CreateUserScopedRequest(HttpMethod.Get, Microsoft.AspNetCore.WebUtilities.QueryHelpers.AddQueryString(
+            "/api/v1/timeline/pending/organizations", new Dictionary<string, string?> { ["q"] = search, ["id"] = id, ["take"] = "20" }));
+        using var response = await _client.SendAsync(request, ct);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<List<PendingEmailOrganization>>(ct) ?? [];
     }
 
     public async Task<PendingEmailPage> SearchPendingAsync(PendingEmailQuery query, CancellationToken ct = default)

@@ -85,8 +85,10 @@ Before enabling a real source, the mailbox administrator must grant the provider
 Administrators open `/admin/pending-emails` to search ticket tracking references,
 subjects and recipients. Filtering and totals apply to the complete database
 before sorting and paging. Pages contain 25 rows by default, with 50 and 100
-available; the API rejects larger pages. Status, organization ID, mailbox sender,
-recipient, error code and created-time filters combine with AND. Created-time
+available; the API rejects larger pages. Status, organization, mailbox sender,
+recipient, error code and created-time filters combine with AND. Organization
+search returns at most 20 names per request and retains the stable organization
+ID in the URL. Additional filters expand below the compact search toolbar. Created-time
 bounds use UTC and include both endpoints. Equal endpoints select that instant.
 The URL retains filters, sorting and page for browser Back/Forward.
 

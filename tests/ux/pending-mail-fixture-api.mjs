@@ -20,9 +20,10 @@ http.createServer(async (req, res) => {
     const encode = value => Buffer.from(JSON.stringify(value)).toString('base64url');
     return reply({ token: `${encode({ alg: 'none' })}.${encode({ sub: 'synthetic-operator', auth_mode: 'development', roles: ['HelpdeskAdmin'], exp: Math.floor(Date.now() / 1000) + 3600 })}.fixture` });
   }
-  if (url.pathname === '/api/v1/auth/me') return reply({ isAuthenticated: true, name: 'Synthetic operator', userId: 'synthetic-operator', isHelpdeskAdmin: true, roleBundles: ['HelpdeskAdmin'], permissions: [], allowedOrganizationIds: [], managedOrganizationIds: [] });
+  if (url.pathname === '/api/v1/auth/me') return reply({ isAuthenticated: true, email: null, primaryOrganizationId: null, customerId: null, name: 'Synthetic operator', userId: 'synthetic-operator', isHelpdeskAdmin: true, roleBundles: ['HelpdeskAdmin'], permissions: [], allowedOrganizationIds: [], managedOrganizationIds: [] });
   if (url.pathname === '/api/v1/branding') return reply({ applicationName: 'RatelDesk', faviconUrl: '/favicon.ico' });
   if (url.pathname === '/api/v1/timeline/failed') return reply(data.slice(0, 100));
+  if (url.pathname === '/api/v1/timeline/pending/organizations') return reply([{ id: 'org-synthetic', label: 'Synthetic organization' }]);
   if (url.pathname === '/api/v1/timeline/pending') {
     requests.push(Object.fromEntries(url.searchParams));
     if (fail) return reply({}, 503);
@@ -42,6 +43,7 @@ http.createServer(async (req, res) => {
     }) });
   }
   if (url.pathname.endsWith('/pending-count') || url.pathname.endsWith('/count')) return reply(0);
+  if (url.pathname.includes('summary') || url.pathname.includes('status')) return reply({});
   if (url.pathname.includes('/stream')) { res.writeHead(200, { 'Content-Type': 'text/event-stream' }); return res.end(); }
   return reply([]);
 }).listen(18700, '127.0.0.1');

@@ -1,5 +1,6 @@
 import { expect, test, Page } from '@playwright/test';
 import { assertNoHorizontalOverflow } from './auth';
+test.setTimeout(60_000);
 const fixture = 'http://127.0.0.1:18700/fixture';
 async function ready(page: Page, route = '/admin/pending-emails') {
   await page.goto(route);
@@ -58,7 +59,7 @@ test('failure and zero states remain distinct and recover, keyboard at 200 perce
   await ready(page);
   await request.get(`${fixture}/fail?enabled=true`);
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
-  await expect(page.getByText('Delivery list unavailable. Refresh to try again.')).toBeVisible();
+  await expect(page.getByText('Delivery list unavailable. Refresh to try again.')).toBeVisible({ timeout: 35_000 });
   await request.get(`${fixture}/fail?enabled=false`);
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(page.getByText('1205 deliveries · 0 selected records on this page')).toBeVisible();

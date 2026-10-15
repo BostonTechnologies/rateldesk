@@ -143,6 +143,18 @@ public static class TimelineEndpoints
             catch (ArgumentException error) { return Results.BadRequest(new { message = error.Message }); }
         }).WithName($"SearchPendingEmails{nameSuffix}");
 
+        group.MapGet("/pending/organizations", async (string? q, string? id, int? take,
+            [FromServices] HelpdeskDbContext db, CancellationToken ct) =>
+        {
+            if (q?.Length > 100 || id?.Length > 200) return Results.BadRequest();
+            var organizations = db.Organizations.AsNoTracking();
+            if (!string.IsNullOrWhiteSpace(id)) organizations = organizations.Where(x => x.Id == id);
+            if (q?.Trim().ToLowerInvariant() is { Length: > 0 } text)
+                organizations = organizations.Where(x => x.Name.ToLower().Contains(text));
+            return Results.Ok(await organizations.OrderBy(x => x.Name).ThenBy(x => x.Id)
+                .Take(Math.Clamp(take ?? 20, 1, 50)).Select(x => new PendingEmailOrganization(x.Id, x.Name)).ToListAsync(ct));
+        }).WithName($"LookupPendingEmailOrganizations{nameSuffix}");
+
         group.MapPost("/pending/actions", async (PendingEmailActionRequest request, HttpContext context,
             [FromServices] HelpdeskDbContext db, [FromServices] PendingEmailActions actions, CancellationToken ct) =>
         {
