@@ -19,14 +19,14 @@ results only when explicitly marked passed; planned case counts are not passes.
 
 | Issue | Implementation and preserved behavior | Owning verification and current status |
 | --- | --- | --- |
-| #163 | `Pages/SelfService/ServiceBrowser.razor` and scoped CSS: bounded accessible catalogue search, compact toolbar, existing search/card navigation retained. | `ServiceBrowserRenderedTests`; Operations browser matrix: passed as part of 67 component cases and 30 browser cases. |
+| #163 | `Pages/SelfService/ServiceBrowser.razor` and scoped CSS: bounded accessible catalogue search, compact toolbar, existing search/card navigation retained. | `ServiceBrowserRenderedTests`; Operations browser matrix: passed as part of the final 70 component cases and 30 browser cases. |
 | #164 | `Services/EmailDisplayDocument.cs`, `TicketMessageContent.cs`, shared `EmailContent`, `IncidentSubjectWithPeek`, `TicketMessages`, email JS, incident peek API and worklog/timeline boundaries: isolated readable original email, preserved sanitized rich content and plain text. | `playwright.email.config.ts`: 13 browser cases passed. Native zoom: 4 passed. Owning .NET tests and integrated acceptance pending. Separate receipt: `docs/implementation/email-display-164.md`. |
 | #165 | Incident/request/change list pages remove obsolete AI-only UI/state while retaining compatible API consumers, stored provenance, Assistant tabs and conversations. | `TicketListRenderedTests`; ticket-filter browser suite: 30 passed, 0 failed, 0 skipped (2.7 minutes). Integrated provider/component results pending. |
 | #166 | API `TicketListQuery.cs`, `TicketFilterEndpoints.cs`, `AssigneeQueries.cs`, all three list endpoints; Web `TicketListState`, shared `TicketListFilters`/`TicketFilterLookup`: authorized filters before count/page, stable IDs, bounded lookups, AND across dimensions, OR within dimensions, explicit Unassigned, UTC half-open time ranges, URL restoration and stale-response/selection protection. | `TicketListFiltersTests`, `TicketListStateTests`, `TicketListRenderedTests`, `AssigneeSearchEndpointsTests`: 39 planned focused cases, final result pending. `playwright.ticket-filters.config.ts`: 30 passed, 0 failed, 0 skipped; provider/component results pending. Contract: `docs/contracts/ticket-list-queries.md`; separate receipt: `docs/implementation/workspace-filters-evidence-0.1.1.md`. |
 | #167 | Shared `TicketDetailsPanel`/`TicketSlaSummary` and all three detail pages: compact read/edit and SLA hierarchy, shared Save/Revert, ticket-specific data and permissions retained. | `playwright.details.config.ts`: final browser result and async draft/refresh review follow-up pending. |
 | #168 | Shared `ServiceCategoryPicker`, create/detail forms and existing `TicketCategoryEndpoints`: hydrate saved IDs, bounded cancellable encoded search, explicit authorized Add action, unavailable selections retained, existing category relationships preserved. | Detail browser journey plus 8 planned category API/provider theory cases; final results pending. |
 | #169 | Shared `TicketActivityTabs`: semantic persisted selection, lazy applicable panels, inline count pills, accessible keyboard tab/panel associations and preserved message overrides. | Detail browser suite covers ticket types, saved state, panels and responsive geometry; final result pending. |
-| #170 | `Pages/Ops/OperationsConsole` presents exactly SLA and Workflows tabs; original SLA/Workflow/Hangfire views keep independent authorization, legacy paths/query state and actions. Six workflow categories use one focused table. Notifications moves once to Operations for every authenticated user. | `WorkflowOpsDashboardTests`, role/category rendered tests and `playwright.operations.config.ts`: 67 component cases and 30 browser cases passed before two SLA review regressions described below. Route/permission/metric inventory is in [Operations console](../deployment/operations-console.md). |
+| #170 | `Pages/Ops/OperationsConsole` presents exactly SLA and Workflows tabs; original SLA/Workflow/Hangfire views keep independent authorization, legacy paths/query state and actions. Six workflow categories use one focused table. Notifications moves once to Operations for every authenticated user. | `WorkflowOpsDashboardTests`, role/category rendered tests and `playwright.operations.config.ts`: 70 component cases and 30 browser cases passed after the review fixes described below. Route/permission/metric inventory is in [Operations console](../deployment/operations-console.md). |
 | #171 | `Pages/Admin/Resources/DataManagement`: compact organization/dataset rail and Rows/Schema/Graph sync/Ingest API capabilities, existing schema, keys, sync/schedule details and explicit destructive confirmations retained. | `playwright.admin.config.ts` and existing dataset API authorization tests; final browser/integrated results pending. Inventory: `docs/deployment/admin-workspaces.md`. |
 | #172 | `Pages/Admin/SupportNotifications/SupportRoutingManagement` and shared administration panels: Routing, Support groups and Diagnostics with shared context, one explicit bootstrap action, unchanged coverage/subscription/recipient resolver semantics and permissions. | Admin browser suite plus existing resolver/bootstrap tests; final results pending. |
 | #173 | `Pages/Admin/Role/RoleManagement`: Custom roles first, Built-in roles second, search/paging and permission details, preserved protected role/assignment API rules. | Admin browser and existing role-definition/assignment tests; final results pending. |
@@ -44,14 +44,16 @@ port 18400; actual Blazor hosts use ports 5170–5173 for admin, SLA-only,
 Workflow-only and notification-only identities. Authentication/session handling
 and the authenticated Web proxy execute normally.
 
-The initial completed component result was **67 passed, 0 failed, 0 skipped**,
-22 seconds. The temporary `Operations.Focus.csproj` harness compiled the canonical
+The final component result was **70 passed, 0 failed, 0 skipped**, 16 seconds.
+The earlier receipt had 67 passing cases in 22 seconds; the final run includes
+three additional SLA review regressions. The temporary `Operations.Focus.csproj` harness compiled the canonical
 `ServiceBrowserRenderedTests.cs`, `NavMenuRenderedTests.cs` and
 `WorkflowOpsDashboardTests.cs` against the actual Web/Shared assemblies, avoiding
 a duplicate API dependency build. This is not a full canonical solution result.
 The owning canonical test files remain in `tests/Helpdesk.Tests/NewWeb`.
 
-The completed browser result was **30 passed, 0 failed, 0 skipped**, 4.5 minutes.
+The final browser result at `b1d4a60` was **30 passed, 0 failed, 0 skipped**,
+2.6 minutes, after the SLA and navigation review fixes.
 It asserts actual search/clear/empty behavior and bounds; one focused diagnostic
 table; six workflow categories; legacy routes and query/Back/Forward restoration;
 seven-day compliance numerator/denominator fixtures; notification deep links;
@@ -97,9 +99,11 @@ during concurrent PostgreSQL container-network activity, and twelve navigation
 bounds failures showing a four-pixel common-label allocation gap. It is not a
 passing receipt. The explicit interactive wait is now 30 seconds; product
 assertions and retry settings are unchanged. Nested drawer indentation has been
-reduced and the bounds test also checks an explicit Arial fallback font. A clean
-rerun is pending after provider-network activity ends. The earlier 30-case pass
-and representative screenshots remain evidence for the pre-review source.
+reduced and the bounds test also checks an explicit Arial fallback font. The subsequent clean
+rerun passed **all 30 cases**, including every fallback-font assertion, with
+network creation paused. The affected representative screenshots below were
+refreshed from that passing run. This supersedes the earlier 30-case pass on
+pre-review source; reruns are not added together as distinct acceptance cases.
 
 Native Operations command, **pending** on the final integrated source:
 
