@@ -1,9 +1,9 @@
 @implements IDisposable
 
 <button @ref="_anchor" type="button" class="incident-preview-trigger" aria-haspopup="dialog"
-        aria-expanded="@_open" aria-controls="@_previewId" aria-label="@($"Preview: {Subject}")"
+        aria-expanded="@(_open ? "true" : "false")" aria-controls="@_previewId" aria-label="@($"Preview: {Subject}")"
         @onmouseenter="AnchorEnter" @onmouseleave="AnchorLeave" @onfocus="AnchorFocus" @onblur="AnchorBlur"
-        @onclick="Open" @onclick:stopPropagation="true" @onkeydown="OnKeyDown" @onkeydown:stopPropagation="true">
+        @onclick="Activate" @onclick:stopPropagation="true" @onkeydown="OnKeyDown" @onkeydown:stopPropagation="true">
     @Subject
 </button>
 
@@ -15,7 +15,7 @@
              @onkeydown="OnKeyDown" @onclick:stopPropagation="true">
             <div class="incident-preview-heading">
                 <strong>Email preview</strong>
-                <button type="button" class="incident-preview-close" @onclick="Dismiss">Close preview</button>
+                <button @ref="_closeButton" type="button" class="incident-preview-close" @onclick="Dismiss">Close preview</button>
             </div>
             <TicketMessages @key="IncidentId" TicketId="@IncidentId" TicketType="incidents" OnEscape="Dismiss" />
         </div>
@@ -26,7 +26,8 @@
     [Parameter] public string IncidentId { get; set; } = string.Empty;
     [Parameter] public string Subject { get; set; } = string.Empty;
     private readonly string _previewId = "email-preview-" + Guid.NewGuid().ToString("N");
-    private ElementReference _anchor;
+    private ElementReference _anchor, _closeButton;
+    private bool _moveFocus;
     private bool _open, _hoverAnchor, _hoverPopover, _focusAnchor, _focusPopover, _disposed, _dismissed;
     private string? _previousId;
     private CancellationTokenSource? _closeCts;
@@ -38,6 +39,11 @@
         _closeCts?.Cancel();
         _open = _hoverAnchor = _hoverPopover = _focusAnchor = _focusPopover = _dismissed = false;
     }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_moveFocus && _open) { _moveFocus = false; await _closeButton.FocusAsync(preventScroll: true); }
+    }
+    private void Activate() { Open(); _moveFocus = true; }
     private void Open() { _dismissed = false; _closeCts?.Cancel(); _open = true; }
     private void AnchorEnter() { _hoverAnchor = true; Open(); }
     private Task AnchorLeave() { _hoverAnchor = false; return TryCloseAfterDelay(); }

@@ -1143,7 +1143,8 @@ public static class IncidentEndpoints
 
             var sanitizer = new HtmlSanitizer();
             sanitizer.AllowedSchemes.Add("data");
-            var safeHtml = sanitizer.Sanitize(html);
+            // Keep document-level body colours; fragment sanitation discards the body wrapper.
+            var safeHtml = string.IsNullOrWhiteSpace(html) ? string.Empty : sanitizer.SanitizeDocument(html);
 
             if (string.IsNullOrWhiteSpace(safeHtml) && !string.IsNullOrWhiteSpace(text))
                 safeHtml = $"<pre style=\"white-space:pre-wrap\">{WebUtility.HtmlEncode(text)}</pre>";

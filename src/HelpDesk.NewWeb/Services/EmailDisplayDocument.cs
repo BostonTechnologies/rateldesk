@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using AngleSharp.Html.Parser;
+using AngleSharp.Dom;
 using Ganss.Xss;
 
 namespace HelpDesk.NewWeb.Services;
@@ -28,11 +29,11 @@ public static class EmailDisplayDocument
         sanitizer.AllowedAttributes.Clear();
         sanitizer.AllowedAttributes.UnionWith(["href", "src", "alt", "title", "style", "width", "height", "colspan", "rowspan", "align", "valign", "bgcolor", "color", "size", "face"]);
         sanitizer.AllowedCssProperties.Clear();
-        sanitizer.AllowedCssProperties.UnionWith(["color", "background-color", "font-family", "font-size", "font-weight", "font-style", "text-align", "text-decoration", "line-height", "white-space", "vertical-align", "padding", "padding-left", "padding-right", "padding-top", "padding-bottom", "margin", "margin-left", "margin-right", "margin-top", "margin-bottom", "border", "border-color", "border-width", "border-style", "border-collapse", "border-spacing", "width", "max-width", "height", "list-style-type"]);
+        sanitizer.AllowedCssProperties.UnionWith(["color", "background", "background-color", "font-family", "font-size", "font-weight", "font-style", "text-align", "text-decoration", "line-height", "white-space", "vertical-align", "padding", "padding-left", "padding-right", "padding-top", "padding-bottom", "margin", "margin-left", "margin-right", "margin-top", "margin-bottom", "border", "border-color", "border-width", "border-style", "border-collapse", "border-spacing", "width", "max-width", "height", "list-style-type"]);
         sanitizer.AllowedSchemes.Clear();
         sanitizer.AllowedSchemes.UnionWith(["https", "http", "mailto", "data"]);
         var sourceDocument = new HtmlParser().ParseDocument(html ?? string.Empty);
-        var source = sourceDocument.Body!.InnerHtml;
+        var sourceMarkup = sourceDocument.Body!.InnerHtml;
         // A complete email may put its foreground/background on body or html. Sanitizing
         // a fragment would discard those wrappers; retain their display attributes first.
         foreach (var wrapper in new[] { sourceDocument.Body, sourceDocument.DocumentElement })
@@ -40,9 +41,9 @@ public static class EmailDisplayDocument
             var attributes = string.Join(" ", new[] { "style", "bgcolor", "color" }
                 .Where(name => wrapper.HasAttribute(name))
                 .Select(name => $"{name}=\"{WebUtility.HtmlEncode(wrapper.GetAttribute(name))}\""));
-            if (attributes.Length > 0) source = $"<div {attributes}>{source}</div>";
+            if (attributes.Length > 0) sourceMarkup = $"<div {attributes}>{sourceMarkup}</div>";
         }
-        var document = new HtmlParser().ParseDocument(sanitizer.Sanitize(source));
+        var document = new HtmlParser().ParseDocument(sanitizer.Sanitize(sourceMarkup));
         var links = new List<Link>();
         var origin = new Uri(applicationBaseUri).GetLeftPart(UriPartial.Authority);
         foreach (var anchor in document.QuerySelectorAll("a"))
@@ -75,6 +76,7 @@ public static class EmailDisplayDocument
             var placeholder = document.CreateElement("span");
             placeholder.SetAttribute("role", "img");
             placeholder.TextContent = $"[Image unavailable: {image.GetAttribute("alt")}]";
+            placeholder.SetAttribute("aria-label", placeholder.TextContent);
             image.Replace(placeholder);
         }
         // URLs, CSS variables and escape sequences cannot participate in display CSS. The
@@ -86,10 +88,61 @@ public static class EmailDisplayDocument
                 element.RemoveAttribute("style");
         }
         var body = document.Body!;
+        SupplyMissingColourPairs(body, false, false);
         var plain = string.IsNullOrWhiteSpace(text) ? ToText(body.InnerHtml) : text;
         var csp = $"default-src 'none'; script-src 'sha256-{BridgeHash}'; style-src 'unsafe-inline'; img-src data: {origin}; base-uri 'none'; form-action 'none'; connect-src 'none'";
         var output = $"<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"referrer\" content=\"no-referrer\"><meta http-equiv=\"Content-Security-Policy\" content=\"{WebUtility.HtmlEncode(csp)}\"><style>html{{color-scheme:light;background:#fff;color:#111}}body{{margin:12px;font:14px/1.5 Arial,sans-serif;overflow-wrap:anywhere}}table{{max-width:100%}}img{{max-width:100%;height:auto}}pre{{white-space:pre-wrap}}a{{text-decoration:underline}}*{{box-sizing:border-box}}</style></head><body>{body.InnerHtml}<script>{Bridge}</script></body></html>";
         return new Result(output, plain ?? string.Empty, links.Distinct().ToArray(), blockedImages);
+    }
+
+    private static void SupplyMissingColourPairs(IElement element, bool inheritedForeground, bool inheritedBackground)
+    {
+        var style = element.GetAttribute("style") ?? string.Empty;
+        string? Property(string name) => Regex.Match(style, $@"(?:^|;)\s*{name}\s*:\s*([^;!]+)", RegexOptions.IgnoreCase) is { Success: true } match ? match.Groups[1].Value.Trim() : null;
+        var foreground = Property("color") ?? element.GetAttribute("color");
+        var background = Property("background-color") ?? Property("background") ?? element.GetAttribute("bgcolor");
+        var hasForeground = inheritedForeground || foreground is not null;
+        var hasBackground = inheritedBackground || background is not null && background != "transparent";
+        if (!hasForeground && TryLightColour(background, out var lightBackground))
+        {
+            style += $";color:{(lightBackground ? "#111111" : "#ffffff")}";
+            hasForeground = true;
+        }
+        else if (!hasBackground && TryLightColour(foreground, out var lightForeground))
+        {
+            style += $";background-color:{(lightForeground ? "#111111" : "#ffffff")}";
+            hasBackground = true;
+        }
+        if (!string.IsNullOrWhiteSpace(style)) element.SetAttribute("style", style);
+        foreach (var child in element.Children) SupplyMissingColourPairs(child, hasForeground, hasBackground);
+    }
+
+    private static bool TryLightColour(string? value, out bool light)
+    {
+        light = false;
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        double r, g, b;
+        if (Regex.IsMatch(value, "^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$"))
+        {
+            var hex = value[1..];
+            if (hex.Length == 3) hex = string.Concat(hex.Select(c => new string(c, 2)));
+            r = Convert.ToByte(hex[..2], 16); g = Convert.ToByte(hex[2..4], 16); b = Convert.ToByte(hex[4..6], 16);
+        }
+        else if (Regex.Match(value, @"^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*1)?\s*\)$", RegexOptions.IgnoreCase) is { Success: true } rgb)
+        {
+            r = double.Parse(rgb.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            g = double.Parse(rgb.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture);
+            b = double.Parse(rgb.Groups[3].Value, System.Globalization.CultureInfo.InvariantCulture);
+        }
+        else
+        {
+            var known = System.Drawing.Color.FromName(value);
+            if (!known.IsKnownColor || known.A == 0) return false;
+            r = known.R; g = known.G; b = known.B;
+        }
+        static double Linear(double channel) => channel <= 10.31475 ? channel / 3294.6 : Math.Pow((channel / 255 + .055) / 1.055, 2.4);
+        light = .2126 * Linear(r) + .7152 * Linear(g) + .0722 * Linear(b) > .179;
+        return true;
     }
 
     private static string ToText(string html)
