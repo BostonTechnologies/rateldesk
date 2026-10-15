@@ -36,6 +36,7 @@ for (const module of ['incidents', 'requests', 'changes']) {
     expect(state.tickets[module].categoryIds).toHaveLength(2);
     expect(state.categorySearches).toContain('R&D + 100%_\\');
     await page.reload();
+    await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
     await expect(selected(page)).toContainText('R&D');
     await selected(page).locator('.mud-chip').filter({ hasText: 'Historical selection' }).locator('.mud-chip-close-button').click();
     await page.getByRole('button', { name: 'Revert', exact: true }).click();
@@ -88,6 +89,7 @@ test('semantic selection ignores legacy indices and retains a visited panel whil
   await page.getByRole('tab', { name: /Listeners/ }).click();
   expect(await page.evaluate(() => localStorage.getItem('ticket-tabs-selection:v2:incidents:incidents-1'))).toBe('listeners');
   await page.reload();
+  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
   await expect(page.getByRole('tab', { name: /Listeners/ })).toHaveAttribute('aria-selected', 'true');
 });
 
@@ -171,4 +173,16 @@ test('submitted changes retain lifecycle assignment restrictions', async ({ page
   await expect(categorySearch(page)).toBeDisabled();
   await expect(selected(page).locator('.mud-chip-close-button')).toHaveCount(0);
   await expect(page.locator('.ticket-header-category-chip .mud-chip-close-button')).toHaveCount(0);
+});
+
+
+test('change template draft survives activity tab switches', async ({ page }) => {
+  await open(page, 'changes');
+  const draft = page.getByRole('textbox', { name: 'Scope of Change', exact: true });
+  await draft.fill('Synthetic draft retained while reading activity');
+  await page.getByRole('tab', { name: /Timeline/ }).click();
+  await expect(draft).toBeHidden();
+  await page.getByRole('tab', { name: 'Change Template', exact: true }).click();
+  await expect(draft).toHaveValue('Synthetic draft retained while reading activity');
+  await expect(page.getByRole('button', { name: 'Save Changes', exact: true })).toBeEnabled();
 });

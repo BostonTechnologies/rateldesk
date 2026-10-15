@@ -96,7 +96,7 @@
             }
         }
         catch (OperationCanceledException) { }
-        catch (HttpRequestException) { if (!token.IsCancellationRequested) error = "Some selected categories could not be loaded. Their assignments are preserved."; }
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException) { if (!token.IsCancellationRequested) error = "Some selected categories could not be loaded. Their assignments are preserved."; }
         finally { if (!token.IsCancellationRequested) loading = false; }
     }
 
@@ -122,7 +122,7 @@
             return result.DistinctBy(x => x.Id).ToArray();
         }
         catch (OperationCanceledException) { return Array.Empty<TicketCategoryDto>(); }
-        catch (HttpRequestException)
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException)
         {
             if (version == searchVersion)
             {
@@ -179,7 +179,7 @@
             if (!token.IsCancellationRequested && key == parameterKey) await AddCategory(category);
         }
         catch (OperationCanceledException) { }
-        catch (HttpRequestException) { if (!token.IsCancellationRequested) error = "Category could not be created. Check your permissions or the category catalogue and try again."; }
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException) { if (!token.IsCancellationRequested) error = "Category could not be created. Check your permissions or the category catalogue and try again."; }
         finally { creating = false; }
     }
 
