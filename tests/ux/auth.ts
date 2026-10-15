@@ -40,8 +40,14 @@ export async function assertNoHorizontalOverflow(page: Page): Promise<void> {
 }
 
 export async function selectTheme(page: Page, theme: 'System' | 'Light' | 'Dark'): Promise<void> {
-  const menuButton = page.getByTestId('theme-preference-menu').locator('button');
-  const option = page.getByTestId(`theme-option-${theme.toLowerCase()}`);
+  const desktopButton = page.getByTestId('theme-preference-menu').locator('button');
+  const useDesktopMenu = await desktopButton.isVisible();
+  const menuButton = useDesktopMenu
+    ? desktopButton
+    : page.locator('.helpdesk-appbar-mobile-menu').getByRole('button');
+  const option = useDesktopMenu
+    ? page.getByTestId(`theme-option-${theme.toLowerCase()}`)
+    : page.getByRole('menuitem', { name: theme, exact: true });
 
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -53,6 +59,10 @@ export async function selectTheme(page: Page, theme: 'System' | 'Light' | 'Dark'
     try {
       await option.waitFor({ state: 'visible', timeout: 5_000 });
       await option.click();
+      const expected = theme === 'System'
+        ? await page.evaluate(() => window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+        : theme.toLowerCase();
+      await expect(page.locator('html')).toHaveAttribute('data-helpdesk-theme', expected);
       return;
     } catch {
       // MudBlazor can recreate its portal while the theme provider settles after a reload.
