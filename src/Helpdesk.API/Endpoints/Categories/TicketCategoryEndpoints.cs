@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.DTOs.Category;
@@ -39,12 +40,21 @@ public static class TicketCategoryEndpoints
         [FromQuery] Guid? tenantId,
         [FromQuery] bool? allScopes,
         [FromQuery] bool? includeInactive,
+        ClaimsPrincipal user,
         CancellationToken cancellationToken)
     {
         if ((allScopes == true || includeInactive == true) && !tenant.IsHelpdeskAdmin) return Results.Forbid();
         var currentTenantId = ParseTenantId(tenant.TenantId);
         if (tenantId.HasValue && !tenant.IsHelpdeskAdmin && tenantId != currentTenantId)
-            return Results.Forbid();
+        {
+            var access = CurrentUserAccessProfile.FromClaims(user);
+            var organization = tenantId.Value.ToString();
+            var permitted = access.OrganizationIdsForAny(
+                HelpdeskPermissions.IncidentRead, HelpdeskPermissions.IncidentWrite, HelpdeskPermissions.IncidentManager, HelpdeskPermissions.IncidentUser,
+                HelpdeskPermissions.RequestRead, HelpdeskPermissions.RequestWrite, HelpdeskPermissions.RequestManager, HelpdeskPermissions.RequestUser,
+                HelpdeskPermissions.ChangeRead, HelpdeskPermissions.ChangeWrite, HelpdeskPermissions.ChangeManager, HelpdeskPermissions.ChangeUser);
+            if (!permitted.Contains(organization)) return Results.Forbid();
+        }
         tenantId ??= currentTenantId;
         var selectedIds = new List<Guid>();
         if (!string.IsNullOrEmpty(ids))

@@ -64,7 +64,7 @@
                 CustomerEmail="@change.CustomerEmail"
                 CategoryIds="@selectedCategoryIds"
                 AllCategories="@categories"
-                CategoryRemoved="OnCategoryRemoved" ReadOnly="@(!CanManage)">
+                CategoryRemoved="OnCategoryRemoved" ReadOnly="@(IsChangeLocked || isUpdating)">
                 <SecondaryMetadataContent>
                     @if (change.ImplementationStartAt.HasValue)
                     {
@@ -288,7 +288,7 @@
 @code {
     private async Task ConfirmNavigation(LocationChangingContext context)
     {
-        if (hasChanges && await DialogService.ShowMessageBox("Unsaved changes", "Leave this ticket and discard unsaved changes?", yesText: "Discard changes", cancelText: "Keep editing") != true)
+        if (hasChanges && await DialogService.ShowMessageBoxAsync("Unsaved changes", "Leave this ticket and discard unsaved changes?", yesText: "Discard changes", cancelText: "Keep editing") != true)
             context.PreventNavigation();
     }
 

@@ -37,9 +37,9 @@
         @foreach (var id in SelectedCategoryIds.OrderBy(x => names.GetValueOrDefault(x)?.Name ?? x.ToString()))
         {
             var category = names.GetValueOrDefault(id);
-            <MudChip T="Guid" @key="id" Value="id" Closeable="@(!ReadOnly && !creating)" Size="Size.Small"
+            <MudChip T="Guid" @key="id" Value="id" Size="Size.Small"
                      Variant="Variant.Outlined" Color="@(category is null || !category.IsActive ? Color.Warning : Color.Default)"
-                     OnClose="() => RemoveCategory(id)">
+                     OnClose="@(ReadOnly || creating ? default(EventCallback<MudChip<Guid>>) : EventCallback.Factory.Create<MudChip<Guid>>(this, () => RemoveCategory(id)))">
                 @(category is null ? (loading ? "Loading category…" : $"Unavailable category ({id.ToString()[..8]})") : category.Name)
                 @if (category is not null && !category.IsActive) { <span> (inactive)</span> }
             </MudChip>
@@ -74,6 +74,7 @@
 
     protected override async Task OnParametersSetAsync()
     {
+        canCreate = CurrentUserAccessProfile.FromClaims((await AuthenticationState.GetAuthenticationStateAsync()).User).IsHelpdeskAdmin;
         var key = $"{ScopeKey}:{OrganizationId}:{RequestedType}:{string.Join(',', SelectedCategoryIds.Order())}";
         if (key == parameterKey) return;
         parameterKey = key;
@@ -87,7 +88,6 @@
         names.Clear();
         try
         {
-            canCreate = CurrentUserAccessProfile.FromClaims((await AuthenticationState.GetAuthenticationStateAsync()).User).IsHelpdeskAdmin;
             foreach (var batch in SelectedCategoryIds.ToArray().Chunk(100))
             {
                 var result = await Api.GetFromJsonAsync<List<TicketCategoryDto>>($"api/v1/categories?ids={string.Join(',', batch)}{ScopeQuery}", token) ?? new();
@@ -153,9 +153,9 @@
         var name = searchText;
         var key = parameterKey;
         var token = scopeCancellation.Token;
-        var confirmed = await DialogService.ShowMessageBox("Create service category",
+        var confirmed = await DialogService.ShowMessageBoxAsync("Create service category",
             $"Create “{name}” in the category catalogue? The ticket assignment will be applied when you save the ticket.", yesText: "Create category", cancelText: "Cancel");
-        if (confirmed != true || key != parameterKey || token.IsCancellationRequested) return;
+        if (confirmed != true || ReadOnly || !canCreate || key != parameterKey || token.IsCancellationRequested) return;
         creating = true;
         error = null;
         try
