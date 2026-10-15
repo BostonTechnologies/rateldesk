@@ -9,8 +9,8 @@
 <section class="operations-console">
     <MudText Typo="Typo.h5" HtmlTag="h1">Operations console</MudText>
     <div class="operations-tabs" role="tablist" aria-label="Operations">
-        <a role="tab" id="sla-tab" aria-controls="operations-panel" aria-selected="@(!WorkflowActive ? "true" : "false")" href="@TabUrl(false)" @onkeydown="@(e => NavigateTab(e, false))">SLA</a>
-        <a role="tab" id="workflow-tab" aria-controls="operations-panel" aria-selected="@(WorkflowActive ? "true" : "false")" href="@TabUrl(true)" @onkeydown="@(e => NavigateTab(e, true))">Workflows</a>
+        <a @ref="slaTab" role="tab" id="sla-tab" tabindex="@(!WorkflowActive ? 0 : -1)" aria-controls="operations-panel" aria-selected="@(!WorkflowActive ? "true" : "false")" href="@TabUrl(false)" @onkeydown="@(e => NavigateTab(e, false))">SLA</a>
+        <a @ref="workflowTab" role="tab" id="workflow-tab" tabindex="@(WorkflowActive ? 0 : -1)" aria-controls="operations-panel" aria-selected="@(WorkflowActive ? "true" : "false")" href="@TabUrl(true)" @onkeydown="@(e => NavigateTab(e, true))">Workflows</a>
     </div>
     <div role="tabpanel" id="operations-panel" aria-labelledby="@(WorkflowActive ? "workflow-tab" : "sla-tab")">
         @if (!WorkflowActive)
@@ -62,6 +62,8 @@
     [SupplyParameterFromQuery(Name = "metric")] public int? Metric { get; set; }
     [CascadingParameter] private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
     private bool preferWorkflows;
+    private ElementReference slaTab;
+    private ElementReference workflowTab;
     private string Path => new Uri(Navigation.Uri).AbsolutePath.TrimEnd('/').ToLowerInvariant();
     private bool WorkflowActive => Path is "/ops/workflows" or "/ops/hangfire" ||
         (Path != "/ops/slas" && (Tab == "workflows" || (Tab is null && preferWorkflows)));
@@ -73,11 +75,12 @@
         preferWorkflows = user is not null && !new[] { "Incident.Write", "Incident.Manager", "Request.Write", "Request.Manager", "Change.Write", "Change.Manager", "HelpdeskAdmin" }.Any(user.IsInRole);
     }
 
-    private void NavigateTab(KeyboardEventArgs e, bool workflows)
+    private async Task NavigateTab(KeyboardEventArgs e, bool workflows)
     {
-        if (e.Key is "ArrowLeft" or "ArrowRight") Navigation.NavigateTo(TabUrl(!workflows));
-        else if (e.Key == "Home") Navigation.NavigateTo(TabUrl(false));
-        else if (e.Key == "End") Navigation.NavigateTo(TabUrl(true));
+        bool? next = e.Key switch { "ArrowLeft" or "ArrowRight" => !workflows, "Home" => false, "End" => true, _ => null };
+        if (next is null) return;
+        Navigation.NavigateTo(TabUrl(next.Value));
+        await (next.Value ? workflowTab : slaTab).FocusAsync();
     }
     private string TabUrl(bool workflows) => ConsoleUrl(new Dictionary<string, object?> { ["tab"] = workflows ? "workflows" : "sla", ["view"] = null });
     private string JobsUrl(bool open) => ConsoleUrl(new Dictionary<string, object?> { ["tab"] = "workflows", ["view"] = open ? "background-jobs" : null });

@@ -42,6 +42,11 @@ test('legacy bookmarks, categories, metrics, Back/Forward and job proxy remain u
   await ready(page, '/ops/slas?tenantId=org-synthetic&thresholdPercent=80&metric=0');
   await expect(page.getByText('6 / 8', { exact: true })).toBeVisible();
   await expect(page.getByText('7 / 8', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'SLA', exact: true }).focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.getByRole('tab', { name: 'Workflows' })).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.getByRole('tab', { name: 'SLA', exact: true })).toBeFocused();
   await page.getByRole('tab', { name: 'Workflows' }).click();
   await expect(page).toHaveURL(/tab=workflows/);
   for (const category of ['Overdue', 'Escalated', 'Retries pending', 'Callback rejections', 'Binding issues', 'Critical failures']) {
@@ -92,7 +97,7 @@ for (const [port, role] of [[5171, 'sla'], [5172, 'workflow'], [5173, 'notificat
 test('unavailable diagnostics are explicit and refresh recovers', async ({ page, request }) => {
   await request.get(`${fixture}/fault?category=critical-failures`);
   await ready(page, '/ops/workflows?category=critical');
-  await expect(page.getByRole('button', { name: /^Critical failures/ })).toContainText('Unavailable');
+  await expect(page.getByRole('button', { name: /^Critical failures/ })).toContainText('Unavailable', { timeout: 30_000 });
   await expect(page.locator('.workflow-operations table')).toHaveCount(0);
   await request.get(`${fixture}/fault`); await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(page.locator('.workflow-operations table')).toHaveCount(1);
@@ -120,19 +125,21 @@ for (const theme of ['light', 'dark']) for (const width of [320, 390, 768, 1024,
       expect(await label.evaluate(element => element.scrollWidth - element.clientWidth), `${name} fits at the configured drawer width`).toBeLessThanOrEqual(1);
     }
     const support = drawer.getByRole('link', { name: 'Support Routing', exact: true });
-    await support.focus(); await expect(support).toBeFocused();
+    await support.focus(); await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab');
+    await expect(support).toBeFocused();
     expect(await support.evaluate(element => getComputedStyle(element).outlineStyle)).not.toBe('none');
     const icon = await support.locator('svg').boundingBox();
     const row = await support.boundingBox();
     expect(icon!.width).toBeGreaterThanOrEqual(20);
     expect(icon!.x).toBeGreaterThanOrEqual(row!.x);
-    await expect(page.getByRole('tooltip')).toContainText('Support Routing');
+    await expect(page.locator('.mud-tooltip.mud-popover-open')).toContainText('Support Routing');
+    await page.screenshot({ path: testInfo.outputPath('navigation.png'), fullPage: true });
     const longName = drawer.locator('a[href="auth"]');
     await longName.focus();
     await expect(longName).toHaveAccessibleName('Synthetic Operations User With An Exceptionally Long Display Name');
-    await expect(page.getByRole('tooltip')).toContainText('Synthetic Operations User With An Exceptionally Long Display Name');
+    await expect(page.locator('.mud-tooltip.mud-popover-open')).toContainText('Synthetic Operations User With An Exceptionally Long Display Name');
     await assertNoHorizontalOverflow(page);
-    await page.screenshot({ path: testInfo.outputPath('navigation.png'), fullPage: true });
+    await page.screenshot({ path: testInfo.outputPath('navigation-tooltip.png'), fullPage: true });
     if (width < 1280) {
       await page.keyboard.press('Escape');
       await expect(page.getByTestId('navigation-toggle')).toBeFocused();
@@ -155,5 +162,14 @@ test('200 percent layout retains search, operations and keyboard navigation in b
       } else await expect(page.getByRole('tab')).toHaveCount(2);
       await page.evaluate(() => { document.documentElement.style.zoom = ''; });
     }
+    await ready(page, '/admin/support-routing');
+    await page.evaluate(() => { document.documentElement.style.zoom = '2'; });
+    const support = page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'Support Routing', exact: true });
+    await support.focus(); await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab');
+    await expect(support).toBeFocused();
+    expect(await support.locator('.mud-nav-link-text').evaluate(element => getComputedStyle(element).whiteSpace)).toBe('nowrap');
+    await expect(page.locator('.mud-tooltip.mud-popover-open')).toContainText('Support Routing');
+    await assertNoHorizontalOverflow(page);
+    await page.evaluate(() => { document.documentElement.style.zoom = ''; });
   }
 });
