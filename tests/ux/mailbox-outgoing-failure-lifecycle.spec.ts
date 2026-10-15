@@ -324,11 +324,20 @@ test('published incoming and outgoing outages isolate mailboxes and repair faile
   expect(route.currentMailboxId).toBe(global.id);
   expect(route.originalMailboxAddress).toBe('support@tenant-a.example.test');
   expect(route.currentMailboxAddress).toBe('global@tenant-b.example.test');
-  await page.goto('/admin/pending-emails');
+  await page.goto(`/admin/pending-emails?search=${encodeURIComponent(beforeRevertIncident.trackingId)}`);
   await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
-  page.once('dialog', dialog => dialog.accept());
-  await page.getByRole('row').filter({ hasText: beforeRevertIncident.id })
-    .getByRole('button', { name: 'Review sender and retry' }).click();
+  const heldTicketLink = page.getByRole('link', { name: beforeRevertIncident.trackingId, exact: true });
+  await expect(heldTicketLink).toHaveAttribute('href', `/incidents/${beforeRevertIncident.id}`);
+  const heldRow = page.getByRole('row').filter({ has: heldTicketLink });
+  await expect(heldRow).toHaveCount(1);
+  const routeConfirmation = page.waitForEvent('dialog');
+  const reviewRoute = heldRow.getByRole('button', { name: 'Review / retry', exact: true }).click();
+  const routeDialog = await routeConfirmation;
+  expect(routeDialog.type()).toBe('confirm');
+  expect(routeDialog.message()).toContain('The original sender was support@tenant-a.example.test.');
+  expect(routeDialog.message()).toContain('The current ticket route is global@tenant-b.example.test');
+  await routeDialog.accept();
+  await reviewRoute;
   await expect(page.getByText('Delivery queued with the confirmed current sender.')).toBeVisible();
   await expect.poll(() => requesterMail().filter(message => message.subject.includes(beforeRevertIncident.trackingId) &&
     message.from.includes('global@tenant-b.example.test')).length,
