@@ -89,3 +89,54 @@ test('unavailable diagnostics are explicit and refresh recovers', async ({ page,
   await request.get(`${fixture}/fault`); await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(page.locator('.workflow-operations table')).toHaveCount(1);
 });
+
+for (const theme of ['light', 'dark']) for (const width of [320, 390, 768, 1024, 1440, 1920]) {
+  test(`navigation single-line labels and keyboard ${theme} ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 1100 });
+    await page.evaluate(theme => localStorage.setItem('helpdesk.theme.preference', theme), theme);
+    await ready(page, '/admin/support-routing');
+    const drawer = page.getByTestId('app-navigation-drawer');
+    if (width < 1280) await page.getByTestId('navigation-toggle').click();
+    await expect(drawer.getByRole('link', { name: 'Support Routing', exact: true })).toBeVisible();
+    const emails = drawer.getByRole('button', { name: 'Email Settings', exact: true });
+    await emails.click();
+    const labels = drawer.locator('.mud-nav-link-text');
+    const wrapped = await labels.evaluateAll(elements => elements.filter(element => {
+      if (!element.getClientRects().length) return false;
+      const style = getComputedStyle(element);
+      return style.whiteSpace !== 'nowrap' || element.getBoundingClientRect().height > parseFloat(style.lineHeight) + 2;
+    }).map(element => element.textContent));
+    expect(wrapped).toEqual([]);
+    const support = drawer.getByRole('link', { name: 'Support Routing', exact: true });
+    await support.focus(); await expect(support).toBeFocused();
+    await expect(page.getByRole('tooltip')).toContainText('Support Routing');
+    const longName = drawer.locator('a[href="auth"]');
+    await longName.focus();
+    await expect(longName).toHaveAccessibleName('Synthetic Operations User With An Exceptionally Long Display Name');
+    await expect(page.getByRole('tooltip')).toContainText('Synthetic Operations User With An Exceptionally Long Display Name');
+    await assertNoHorizontalOverflow(page);
+    await page.screenshot({ path: testInfo.outputPath('navigation.png'), fullPage: true });
+    if (width < 1280) {
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('navigation-toggle')).toBeFocused();
+      await expect(drawer).toHaveClass(/mud-drawer--closed/);
+    }
+  });
+}
+
+test('200 percent layout retains search, operations and keyboard navigation in both themes', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1200 });
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => localStorage.setItem('helpdesk.theme.preference', theme), theme);
+    for (const route of ['/self-service', '/ops/slas', '/ops/workflows']) {
+      await ready(page, route);
+      await page.evaluate(() => { document.documentElement.style.zoom = '2'; });
+      await assertNoHorizontalOverflow(page);
+      if (route === '/self-service') {
+        await page.getByRole('textbox', { name: 'Search services and requests' }).fill('hardware');
+        await expect(page.locator('.self-service-catalog-card')).toHaveCount(1);
+      } else await expect(page.getByRole('tab')).toHaveCount(2);
+      await page.evaluate(() => { document.documentElement.style.zoom = ''; });
+    }
+  }
+});

@@ -62,6 +62,7 @@ h1[tabindex="-1"]:focus
 
 .helpdesk-nav-drawer.mud-drawer
 {
+    max-width: calc(100vw - 16px);
     top: var(--helpdesk-appbar-height) !important;
     height: calc(100dvh - var(--helpdesk-appbar-height)) !important;
     border-right: 1px solid var(--helpdesk-surface-border);

@@ -41,10 +41,12 @@
 }
 
 .helpdesk-nav ::deep .mud-nav-link .mud-nav-link-text {
-    margin-left: 10px;
+    margin-left: 8px;
+    flex: 1 1 auto;
     min-width: 0;
-    white-space: normal;
-    overflow-wrap: anywhere;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     line-height: 1.3;
     letter-spacing: 0;
 }
@@ -74,8 +76,8 @@
 }
 
 .helpdesk-nav ::deep .mud-collapse-container {
-    margin-left: 0.45rem;
-    padding-left: 0.3rem;
+    margin-left: 0.25rem;
+    padding-left: 0.2rem;
     border-left: 1px solid var(--mud-palette-divider);
 }
 
@@ -99,4 +101,25 @@
     .helpdesk-nav ::deep .mud-collapse-container .mud-nav-link {
         min-height: 44px;
     }
+}
+
+.helpdesk-nav ::deep .helpdesk-nav-tooltip {
+    display: block;
+    min-width: 0;
+    width: 100%;
+}
+
+.helpdesk-nav ::deep .mud-nav-item,
+.helpdesk-nav ::deep .mud-nav-group,
+.helpdesk-nav ::deep .mud-nav-link {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.helpdesk-nav ::deep .helpdesk-nav-group-label {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }

@@ -197,6 +197,17 @@ public sealed class NavMenuRenderedTests
     }
 
     [Fact]
+    public void Long_names_remain_complete_and_all_menu_links_supply_tooltips()
+    {
+        using var context = Context("HelpdeskAdmin");
+        var menu = context.Render<NavMenu>();
+        Assert.All(menu.FindAll(".mud-nav-link-text"), label => Assert.False(string.IsNullOrWhiteSpace(label.GetAttribute("title"))));
+        var account = menu.Find("a[href='auth']");
+        Assert.Equal("A very long account name for the customer support team", account.TextContent.Trim());
+        Assert.Contains(menu.FindComponents<MudTooltip>(), tooltip => tooltip.Instance.Text == "A very long account name for the customer support team" && tooltip.Instance.ShowOnFocus);
+    }
+
+    [Fact]
     public async Task Real_link_click_notifies_the_drawer_navigation_receiver()
     {
         using var context = Context();
