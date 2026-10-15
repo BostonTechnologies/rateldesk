@@ -77,7 +77,9 @@ public partial class IncidentCcRecipientsEndpointsTests
         await _incidentRepo.CreateAsync(new Incident { Id = "inc-display", Title = "Synthetic", TrackingId = "UX-164", OriginalEmailHtml = html, OriginalEmailText = text });
         using var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "HelpdeskAdmin");
-        var peek = await client.GetFromJsonAsync<JsonElement>("/api/v1/incidents/inc-display/peek");
+        using var response = await client.GetAsync("/api/v1/incidents/inc-display/peek");
+        Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+        var peek = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(text, peek.GetProperty("text").GetString());
         Assert.Equal(400, peek.GetProperty("snippetText").GetString()!.Length);
         Assert.DoesNotContain("<script", peek.GetProperty("html").GetString());

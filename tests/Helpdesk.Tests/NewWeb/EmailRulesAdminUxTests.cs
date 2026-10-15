@@ -24,9 +24,9 @@ public class EmailRulesAdminUxTests
     }
 
     [Fact]
-    public void NavMenu_LinksEmailRulesUnderAdminEmailSettings()
+    public async Task NavMenu_LinksEmailRulesUnderAdminEmailSettings()
     {
-        using var context = NavigationContext("HelpdeskAdmin");
+        await using var context = NavigationContext("HelpdeskAdmin");
         context.Services.GetRequiredService<NavigationManager>().NavigateTo("/admin/email-rules");
         var menu = context.Render<NavMenu>();
         var administration = Assert.Single(menu.FindComponents<MudNavGroup>(), group => group.Instance.Title == "Administration");
@@ -48,9 +48,9 @@ public class EmailRulesAdminUxTests
     [InlineData("Tenant.Roles.Assign")]
     [InlineData("Tenant.Settings.Manage")]
     [InlineData("Incident.Read")]
-    public void NavMenu_HidesEmailRulesAndEmailSettingsFromNonAdministrators(string role)
+    public async Task NavMenu_HidesEmailRulesAndEmailSettingsFromNonAdministrators(string role)
     {
-        using var context = NavigationContext(role);
+        await using var context = NavigationContext(role);
         context.Services.GetRequiredService<NavigationManager>().NavigateTo("/admin/email-rules");
         var menu = context.Render<NavMenu>();
 
