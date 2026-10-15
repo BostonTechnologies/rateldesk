@@ -200,10 +200,9 @@ for (const module of ['incidents', 'requests', 'changes']) {
   test(`${module} pending SLA dialog cannot apply to a newly opened ticket`, async ({ page, request }) => {
     await open(page, module);
     await page.getByRole('button', { name: 'Pause SLA', exact: true }).click();
+    await page.getByRole('textbox', { name: /^Reason/ }).fill('Old modal must not target new ticket');
     await routeWithoutReload(page, `/${module}/${module}-2`);
     await expect(page).toHaveURL(new RegExp(`${module}-2$`));
-    await page.getByRole('textbox', { name: /^Reason/ }).fill('Old modal must not target new ticket');
-    await page.getByRole('button', { name: 'Pause', exact: true }).click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(selected(page)).toContainText('R&D');
     expect((await (await request.get(`${fixture}/state`)).json()).slaActions).toEqual([]);
