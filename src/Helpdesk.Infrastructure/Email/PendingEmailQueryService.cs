@@ -27,7 +27,7 @@ public sealed class PendingEmailQueryService(HelpdeskDbContext db)
                     from effect in effects.DefaultIfEmpty()
                     join organization in db.Organizations.AsNoTracking() on ticket.OrganizationId equals organization.Id into organizations
                     from organization in organizations.DefaultIfEmpty()
-                    join mailbox in db.EmailInboxSettings.AsNoTracking() on effect.DispatchGroup equals "mailbox:" + mailbox.Id.ToString().Replace("-", "") into mailboxes
+                    join mailbox in db.EmailInboxSettings.AsNoTracking() on effect.DispatchGroup equals "mailbox:" + mailbox.Id.ToString().Replace("-", "").ToLower() into mailboxes
                     from mailbox in mailboxes.DefaultIfEmpty()
                     where delivery.EventType == TimelineEventType.EmailDelivery &&
                         delivery.EmailStatus != EmailDeliveryStatus.Removed &&
