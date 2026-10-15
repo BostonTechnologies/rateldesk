@@ -61,7 +61,7 @@
         <MudAlert Severity="Severity.Error" Class="my-2">@error</MudAlert>
     }
     <div class="pending-mail-actions my-2">
-        <MudText Typo="Typo.body2">@total deliveries · @selected.Count selected records on this page</MudText>
+        <MudText Typo="Typo.body2">@(error is null ? $"{total} deliveries · {selected.Count} selected records on this page" : "Delivery count unavailable")</MudText>
         <MudButton OnClick='() => ActAsync("retry", selected.ToArray())' Disabled="@(loading || selected.Count == 0)">Retry selected</MudButton>
         <MudButton OnClick='() => ActAsync("cancel", selected.ToArray())' Disabled="@(loading || selected.Count == 0)">Cancel selected</MudButton>
         <MudButton OnClick='() => ActAsync("remove", selected.ToArray())' Disabled="@(loading || selected.Count == 0)">Remove selected</MudButton>
@@ -89,8 +89,8 @@
         <NoRecordsContent><MudText>@(error is null ? "No deliveries match these filters." : "Delivery list unavailable. Refresh to try again.")</MudText></NoRecordsContent>
     </MudTable>
     <div class="pending-mail-actions mt-2" aria-label="Delivery pages">
-        <MudButton OnClick="PreviousPage" Disabled="@(loading || page == 0)">Previous</MudButton>
-        <MudText Typo="Typo.body2">Page @(page + 1) of @Math.Max(1, (total + pageSize - 1) / pageSize)</MudText>
+        <MudButton OnClick="PreviousPage" Disabled="@(loading || error is not null || page == 0)">Previous</MudButton>
+        <MudText Typo="Typo.body2">@(error is null ? $"Page {page + 1} of {Math.Max(1, (total + pageSize - 1) / pageSize)}" : "Page unavailable")</MudText>
         <MudButton OnClick="NextPage" Disabled="@(loading || (page + 1) * pageSize >= total)">Next</MudButton>
         <MudSelect T="int" Label="Rows per page" Value="pageSize" ValueChanged="PageSizeChanged" Margin="Margin.Dense" Class="pending-mail-page-size">
             <MudSelectItem Value="25">25</MudSelectItem><MudSelectItem Value="50">50</MudSelectItem><MudSelectItem Value="100">100</MudSelectItem>

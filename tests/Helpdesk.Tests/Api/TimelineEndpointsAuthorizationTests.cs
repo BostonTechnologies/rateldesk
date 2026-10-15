@@ -152,6 +152,11 @@ public sealed class TimelineEndpointsAuthorizationTests
         var page = await harness.Client.GetFromJsonAsync<PendingEmailPage>("/api/v1/timeline/pending?page=0&pageSize=25&descending=true&sort=created");
         Assert.Equal(1, page!.Total);
         Assert.Equal("INC-SYNTHETIC", Assert.Single(page.Items).TrackingId);
+        var cancelled = await harness.Client.GetFromJsonAsync<PendingEmailPage>("/api/v1/timeline/pending?status=Cancelled");
+        Assert.Equal(1, cancelled!.Total);
+        Assert.Equal(EmailDeliveryStatus.Cancelled, Assert.Single(cancelled.Items).EmailStatus);
+        var organizations = await harness.Client.GetFromJsonAsync<List<PendingEmailOrganization>>("/api/v1/timeline/pending/organizations?take=1000");
+        Assert.Equal(50, organizations!.Count);
     }
 
     private sealed class TimelineEndpointsHarness : IAsyncDisposable
@@ -228,6 +233,7 @@ public sealed class TimelineEndpointsAuthorizationTests
         {
             await using var scope = _app.Services.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            db.Organizations.AddRange(Enumerable.Range(0, 75).Select(i => new Organization { Id = $"synthetic-org-{i}", Name = $"Synthetic organization {i:D2}" }));
             db.Incidents.Add(new Incident { Id = "ticket-a", TrackingId = "INC-SYNTHETIC", Title = "Synthetic ticket" });
             await db.SaveChangesAsync();
         }
