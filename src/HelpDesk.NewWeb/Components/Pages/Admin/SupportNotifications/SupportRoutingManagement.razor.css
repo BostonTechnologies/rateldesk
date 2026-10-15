@@ -1,0 +1,5 @@
+.support-routing-workspace { min-width: 0; }
+.support-routing-workspace ::deep .mud-stack-row { flex-wrap: wrap; }
+.support-routing-workspace ::deep .mud-typography { overflow-wrap: anywhere; }
+.support-routing-workspace ::deep .routing-editor-controls { border: 0; margin: 0; padding: 0; min-width: 0; }
+.support-routing-workspace ::deep .mud-tabs { max-width: 100%; }
