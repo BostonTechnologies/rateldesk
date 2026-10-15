@@ -5,6 +5,14 @@ activity tabs dependency `8de40d2`. All content, accounts and image tokens in
 these fixtures are synthetic. Current behavior and the actual per-ticket API
 and authorization inventory are documented in [Ticket email display](../customization/email-display.md).
 
+## Later integrated evidence
+
+The [integrated acceptance receipt](workspace-0.1.1.md#integrated-evidence-superseding-earlier-receipts)
+records hosted **13 email browser + 4 native 200% zoom passes** at `16963fa` and
+the passing full .NET suite, including the owning tests described below. The
+isolated Debug measurements and CSS zoom results retain their historical scope;
+they are not substituted for the native check or final-head release gates.
+
 ## Reproduction and rendered result
 
 The before fixture applies the pre-change `.ticket-message-body` blanket

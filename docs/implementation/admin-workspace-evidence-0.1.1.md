@@ -2,6 +2,14 @@
 
 Captured 2026-10-15 for issues [#171](https://github.com/BostonTechnologies/RatelDesk/issues/171), [#172](https://github.com/BostonTechnologies/RatelDesk/issues/172), [#173](https://github.com/BostonTechnologies/RatelDesk/issues/173) and [#174](https://github.com/BostonTechnologies/RatelDesk/issues/174). Current usage is documented in the [administration workspaces guide](../deployment/admin-workspaces.md).
 
+## Later integrated evidence
+
+The [integrated acceptance receipt](workspace-0.1.1.md#integrated-evidence-superseding-earlier-receipts)
+supersedes the validation status below: hosted source `16963fa` passed **14 admin
+browser cases + 4 native 200% zoom cases**, and the full .NET/provider gates passed.
+The screenshots and Debug badge caveat below retain their original isolated
+source boundary. These results do not establish release publication or promotion.
+
 ## Source and validation receipt
 
 The before captures use the original UI at `origin/main` commit `4e3023c`, built in Release with only the shared version advanced to `0.1.1`. The after captures use the isolated `codex/workspace-admin` Debug worktree: final source change `38c06f6`, final fixture revision `ee767c2`. Its unchanged version file still displays **`v0.1.1-beta.22`**. The differing badges reflect separate build inputs; these captures are UI evidence, not proof of an integrated stable release or promotion.

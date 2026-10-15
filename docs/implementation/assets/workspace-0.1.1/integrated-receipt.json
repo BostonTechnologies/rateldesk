@@ -1,0 +1,874 @@
+{
+  "recorded_utc": "2026-10-15T07:26:43Z",
+  "kind": "Consolidated observed evidence; not a release or promotion receipt",
+  "product_source_sha": "16963fa07129b5fe8862c623edd06f16155b2ef3",
+  "local_sdk": "10.0.400",
+  "hosted_sdk": "10.0.402",
+  "hosted_sdk_policy": "global.json rollForward=latestFeature",
+  "local_integrated_build": {
+    "configuration": "Release",
+    "warnings": 57,
+    "errors": 0,
+    "seconds": 301.04,
+    "command": "dotnet build Helpdesk.sln --configuration Release --no-restore -m:1 -nr:false -p:UseSharedCompilation=false -p:SourceRevisionId=16963fa07129b5fe8862c623edd06f16155b2ef3"
+  },
+  "version_validation": {
+    "evaluated_projects": 14,
+    "compiled_assemblies": 14,
+    "passed": 14,
+    "version": "0.1.1",
+    "suffix": "",
+    "assembly_and_file_version": "0.1.1.0",
+    "build_timestamp": "2026-10-15T06:53:50Z"
+  },
+  "local_final_provider_regressions": {
+    "passed": 22,
+    "failed": 0,
+    "skipped": 0,
+    "ticket_filter_cases": 20,
+    "category_assignment_cases": 2
+  },
+  "local_final_ui_api_regressions": {
+    "passed": 44,
+    "failed": 0,
+    "skipped": 0
+  },
+  "hosted_normal": {
+    "run_id": 38695061632,
+    "run_number": 595,
+    "head_sha": "16963fa07129b5fe8862c623edd06f16155b2ef3",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 116289693577,
+        "name": "Public disclosure gate",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695061632/job/116289693577"
+      },
+      {
+        "id": 116289693793,
+        "name": "Incident receiver HTTP and provider acceptance",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695061632/job/116289693793"
+      },
+      {
+        "id": 116289693823,
+        "name": ".NET validation",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695061632/job/116289693823"
+      },
+      {
+        "id": 116289693993,
+        "name": "Layout and reference validation",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695061632/job/116289693993"
+      },
+      {
+        "id": 116289694005,
+        "name": "External PostgreSQL Compose configuration",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695061632/job/116289694005"
+      },
+      {
+        "id": 116289694613,
+        "name": "Docker build (${{ matrix.name }})",
+        "status": "completed",
+        "conclusion": "skipped",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695061632/job/116289694613"
+      },
+      {
+        "id": 116289694690,
+        "name": "Playwright UX validation",
+        "status": "completed",
+        "conclusion": "skipped",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695061632/job/116289694690"
+      },
+      {
+        "id": 116289694904,
+        "name": "Compose startup validation",
+        "status": "completed",
+        "conclusion": "skipped",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695061632/job/116289694904"
+      },
+      {
+        "id": 116289695051,
+        "name": "Release asset rehearsal",
+        "status": "completed",
+        "conclusion": "skipped",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695061632/job/116289695051"
+      },
+      {
+        "id": 116289695260,
+        "name": "Mailbox lifecycle acceptance",
+        "status": "completed",
+        "conclusion": "skipped",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695061632/job/116289695260"
+      },
+      {
+        "id": 116289695470,
+        "name": "Compose PostgreSQL setup validation",
+        "status": "completed",
+        "conclusion": "skipped",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695061632/job/116289695470"
+      },
+      {
+        "id": 116289695836,
+        "name": "Release archive runtime (${{ matrix.rid }})",
+        "status": "completed",
+        "conclusion": "skipped",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695061632/job/116289695836"
+      },
+      {
+        "id": 116289744048,
+        "name": "Workspace browser acceptance (${{ matrix.suite }})",
+        "status": "completed",
+        "conclusion": "skipped",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695061632/job/116289744048"
+      }
+    ],
+    "dotnet_summary": "2026-10-15T07:11:52.8133730Z Passed!  - Failed:     0, Passed:  2121, Skipped:     8, Total:  2129, Duration: 16 m 46 s - Helpdesk.Tests.dll (net10.0)",
+    "provider": {
+      "passed": 128,
+      "failed": 0,
+      "skipped": 0
+    },
+    "skip_basis": "Eight existing platform/disabled test cases unchanged vs origin/main; eight optional deep job skips are separate workflow conditions.",
+    "log": "/workspace/work/validation/ci-38695061632-job-116289693823.log",
+    "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695061632"
+  },
+  "hosted_deep": {
+    "run_id": 38695205537,
+    "head_sha": "16963fa07129b5fe8862c623edd06f16155b2ef3",
+    "conclusion": "failure",
+    "jobs": [
+      {
+        "id": 116290050777,
+        "name": "Mailbox lifecycle acceptance",
+        "status": "completed",
+        "conclusion": "failure",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695205537/job/116290050777"
+      },
+      {
+        "id": 116290050988,
+        "name": "Incident receiver HTTP and provider acceptance",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695205537/job/116290050988"
+      },
+      {
+        "id": 116290051027,
+        "name": "Workspace browser acceptance (assignee)",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695205537/job/116290051027"
+      },
+      {
+        "id": 116290051044,
+        "name": "Layout and reference validation",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695205537/job/116290051044"
+      },
+      {
+        "id": 116290051063,
+        "name": "Workspace browser acceptance (ticket-filters)",
+        "status": "completed",
+        "conclusion": "failure",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695205537/job/116290051063"
+      },
+      {
+        "id": 116290051109,
+        "name": "Workspace browser acceptance (email)",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695205537/job/116290051109"
+      },
+      {
+        "id": 116290051160,
+        "name": "Docker build (api)",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695205537/job/116290051160"
+      },
+      {
+        "id": 116290051171,
+        "name": "Public disclosure gate",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695205537/job/116290051171"
+      },
+      {
+        "id": 116290051175,
+        "name": "External PostgreSQL Compose configuration",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695205537/job/116290051175"
+      },
+      {
+        "id": 116290051177,
+        "name": ".NET validation",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695205537/job/116290051177"
+      },
+      {
+        "id": 116290051222,
+        "name": "Release asset rehearsal",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695205537/job/116290051222"
+      },
+      {
+        "id": 116290051229,
+        "name": "Docker build (mcp-http)",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695205537/job/116290051229"
+      },
+      {
+        "id": 116290051242,
+        "name": "Playwright UX validation",
+        "status": "completed",
+        "conclusion": "failure",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695205537/job/116290051242"
+      },
+      {
+        "id": 116290051252,
+        "name": "Docker build (web)",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695205537/job/116290051252"
+      },
+      {
+        "id": 116290051256,
+        "name": "Compose PostgreSQL setup validation",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695205537/job/116290051256"
+      },
+      {
+        "id": 116290051280,
+        "name": "Workspace browser acceptance (pending-mail)",
+        "status": "completed",
+        "conclusion": "failure",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695205537/job/116290051280"
+      },
+      {
+        "id": 116290051329,
+        "name": "Workspace browser acceptance (operations)",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695205537/job/116290051329"
+      },
+      {
+        "id": 116290051391,
+        "name": "Compose startup validation",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695205537/job/116290051391"
+      },
+      {
+        "id": 116290051403,
+        "name": "Workspace browser acceptance (admin)",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695205537/job/116290051403"
+      },
+      {
+        "id": 116290051458,
+        "name": "Workspace browser acceptance (details)",
+        "status": "completed",
+        "conclusion": "failure",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695205537/job/116290051458"
+      },
+      {
+        "id": 116290629304,
+        "name": "Release archive runtime (linux-arm64)",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695205537/job/116290629304"
+      },
+      {
+        "id": 116290629345,
+        "name": "Release archive runtime (win-x64)",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695205537/job/116290629345"
+      },
+      {
+        "id": 116290629377,
+        "name": "Release archive runtime (linux-x64)",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695205537/job/116290629377"
+      }
+    ],
+    "dotnet": {
+      "passed": 2121,
+      "failed": 0,
+      "skipped": 8,
+      "total": 2129,
+      "duration": "12m32s",
+      "skip_basis": "All eight skips match origin/main platform/disabled test declarations; /workspace/work/validation/baseline-test-skips.json"
+    },
+    "provider": {
+      "passed": 128,
+      "failed": 0,
+      "skipped": 0
+    },
+    "browser_failures": [
+      {
+        "suite": "details",
+        "passed": 34,
+        "failed": 3,
+        "triage": "Search debounce and localStorage assertion synchronization; owner details."
+      },
+      {
+        "suite": "ticket-filters",
+        "passed": 32,
+        "failed": 1,
+        "triage": "Incident subject now opens preview; use actual row navigation, owner filters."
+      },
+      {
+        "suite": "pending-mail",
+        "passed": 11,
+        "failed": 1,
+        "triage": "Competing native dialog listeners; owner mail."
+      },
+      {
+        "suite": "baseline setup",
+        "passed": 0,
+        "failed": 1,
+        "triage": "Inactive credentials tab; commits6c88a90 and e2182e9, full local setup journey now1/1pass."
+      },
+      {
+        "suite": "mailbox lifecycle",
+        "passed_stages": 3,
+        "failed_stages": 1,
+        "triage": "Outgoing repair selector matches obsolete raw incident UUID; owner mail notified; later stages unexecuted."
+      }
+    ],
+    "browser_passes": [
+      {
+        "suite": "assignee",
+        "passed": 16
+      },
+      {
+        "suite": "email",
+        "passed": 13,
+        "native_zoom_passed": 4
+      },
+      {
+        "suite": "operations",
+        "passed": 30,
+        "native_zoom_passed": 4
+      },
+      {
+        "suite": "admin",
+        "passed": 14,
+        "native_zoom_passed": 4
+      }
+    ],
+    "limitations": "This run failed and is not final acceptance. Source/test corrections are being verified and batched for a new final head.",
+    "url": "https://github.com/BostonTechnologies/RatelDesk/actions/runs/38695205537"
+  },
+  "frozen_binary_browser_rerun": {
+    "test_source_sha": "34210f041b1f23f4bf66fbbbd0827658aa75b49b",
+    "product_source_sha": "16963fa07129b5fe8862c623edd06f16155b2ef3",
+    "product_source_attestation": "Release build source explicitly supplied by root; unchanged product source verified against test HEAD.",
+    "test_only_changes_since_product_build": [
+      "tests/ux/pending-mail.spec.ts",
+      "tests/ux/setup.spec.ts",
+      "tests/ux/ticket-details.spec.ts",
+      "tests/ux/ticket-filters.spec.ts"
+    ],
+    "selected_suites": [
+      "ticket-filters",
+      "details",
+      "pending-mail"
+    ],
+    "expected_invocations": 6,
+    "started_utc": "20261015T070718Z",
+    "sdk": "10.0.400",
+    "node": "v24.19.0",
+    "playwright": "Version 1.63.0",
+    "release_output_sha256": {
+      "src/HelpDesk.NewWeb/bin/Release/net10.0/HelpDesk.NewWeb.dll": "9adb18005316dfe57f3db98b425f3c582fa2429338da223bf4c3011163d7b726",
+      "src/HelpDesk.NewWeb/bin/Release/net10.0/Helpdesk.Shared.dll": "780a6f82d8bd0e075fd442ca1c279fbdd08cdf8d96d4d593ccda7e90b8378b9e",
+      "src/HelpDesk.NewWeb/bin/Release/net10.0/Helpdesk.ServiceDefaults.dll": "a25adfb76884a38fb9dd57fb70876e6b449ddaa457a7108e4650b26bf13cc641",
+      "src/HelpDesk.NewWeb/bin/Release/net10.0/HelpDesk.NewWeb.staticwebassets.endpoints.json": "749fc946173f62c56e3919e7e179d5e12f4d8e686f2f51579a630ee75a1ad84d",
+      "src/HelpDesk.NewWeb/bin/Release/net10.0/HelpDesk.NewWeb.staticwebassets.runtime.json": "7e8cb8e38f6a832b7e593393f806e584d86baa80cbafa1fcd25a11df2a49cb95"
+    },
+    "network_quiet": true,
+    "workers": 1,
+    "retries": 0,
+    "suites": [
+      {
+        "suite": "ticket-filters",
+        "native_zoom": false,
+        "command": [
+          "node",
+          "node_modules/@playwright/test/cli.js",
+          "test",
+          "--config",
+          "playwright.ticket-filters.config.ts",
+          "--workers=1",
+          "--retries=0",
+          "--reporter=list,json",
+          "--output=/workspace/work/validation/browser-final-34210f041b1f/ticket-filters/artifacts"
+        ],
+        "evidence_directory": "/workspace/work/validation/browser-final-34210f041b1f/ticket-filters",
+        "scheduled": 33,
+        "status": "passed",
+        "reported": 33,
+        "passed": 33,
+        "failed": 0,
+        "skipped": 0,
+        "not_run": 0,
+        "flaky": 0,
+        "infrastructure_errors": 0,
+        "duration_ms": 107555.13,
+        "returncode": 0,
+        "success": true
+      },
+      {
+        "suite": "ticket-filters",
+        "native_zoom": true,
+        "command": [
+          "node",
+          "node_modules/@playwright/test/cli.js",
+          "test",
+          "--config",
+          "playwright.native-zoom.config.ts",
+          "--workers=1",
+          "--retries=0",
+          "--reporter=list,json",
+          "--output=/workspace/work/validation/browser-final-34210f041b1f/ticket-filters-native-200/artifacts"
+        ],
+        "evidence_directory": "/workspace/work/validation/browser-final-34210f041b1f/ticket-filters-native-200",
+        "scheduled": 4,
+        "status": "passed",
+        "reported": 4,
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0,
+        "not_run": 0,
+        "flaky": 0,
+        "infrastructure_errors": 0,
+        "duration_ms": 24820.108,
+        "returncode": 0,
+        "success": true
+      },
+      {
+        "suite": "details",
+        "native_zoom": false,
+        "command": [
+          "node",
+          "node_modules/@playwright/test/cli.js",
+          "test",
+          "--config",
+          "playwright.details.config.ts",
+          "--workers=1",
+          "--retries=0",
+          "--reporter=list,json",
+          "--output=/workspace/work/validation/browser-final-34210f041b1f/details/artifacts"
+        ],
+        "evidence_directory": "/workspace/work/validation/browser-final-34210f041b1f/details",
+        "scheduled": 37,
+        "status": "passed",
+        "reported": 37,
+        "passed": 37,
+        "failed": 0,
+        "skipped": 0,
+        "not_run": 0,
+        "flaky": 0,
+        "infrastructure_errors": 0,
+        "duration_ms": 108532.41100000001,
+        "returncode": 0,
+        "success": true
+      },
+      {
+        "suite": "details",
+        "native_zoom": true,
+        "command": [
+          "node",
+          "node_modules/@playwright/test/cli.js",
+          "test",
+          "--config",
+          "playwright.native-zoom.config.ts",
+          "--workers=1",
+          "--retries=0",
+          "--reporter=list,json",
+          "--output=/workspace/work/validation/browser-final-34210f041b1f/details-native-200/artifacts"
+        ],
+        "evidence_directory": "/workspace/work/validation/browser-final-34210f041b1f/details-native-200",
+        "scheduled": 4,
+        "status": "passed",
+        "reported": 4,
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0,
+        "not_run": 0,
+        "flaky": 0,
+        "infrastructure_errors": 0,
+        "duration_ms": 29331.632999999998,
+        "returncode": 0,
+        "success": true
+      },
+      {
+        "suite": "pending-mail",
+        "native_zoom": false,
+        "command": [
+          "node",
+          "node_modules/@playwright/test/cli.js",
+          "test",
+          "--config",
+          "playwright.pending-mail.config.ts",
+          "--workers=1",
+          "--retries=0",
+          "--reporter=list,json",
+          "--output=/workspace/work/validation/browser-final-34210f041b1f/pending-mail/artifacts"
+        ],
+        "evidence_directory": "/workspace/work/validation/browser-final-34210f041b1f/pending-mail",
+        "scheduled": 12,
+        "status": "passed",
+        "reported": 12,
+        "passed": 12,
+        "failed": 0,
+        "skipped": 0,
+        "not_run": 0,
+        "flaky": 0,
+        "infrastructure_errors": 0,
+        "duration_ms": 47741.216,
+        "returncode": 0,
+        "success": true
+      },
+      {
+        "suite": "pending-mail",
+        "native_zoom": true,
+        "command": [
+          "node",
+          "node_modules/@playwright/test/cli.js",
+          "test",
+          "--config",
+          "playwright.native-zoom.config.ts",
+          "--workers=1",
+          "--retries=0",
+          "--reporter=list,json",
+          "--output=/workspace/work/validation/browser-final-34210f041b1f/pending-mail-native-200/artifacts"
+        ],
+        "evidence_directory": "/workspace/work/validation/browser-final-34210f041b1f/pending-mail-native-200",
+        "scheduled": 4,
+        "status": "passed",
+        "reported": 4,
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0,
+        "not_run": 0,
+        "flaky": 0,
+        "infrastructure_errors": 0,
+        "duration_ms": 19460.025,
+        "returncode": 0,
+        "success": true
+      }
+    ],
+    "success": true,
+    "totals": {
+      "scheduled": 94,
+      "reported": 94,
+      "passed": 94,
+      "failed": 0,
+      "skipped": 0,
+      "not_run": 0,
+      "flaky": 0
+    },
+    "finished_utc": "2026-10-15T07:13:07.557192+00:00"
+  },
+  "detail_role_extension": {
+    "testCommit": "d5ecdb4",
+    "productCommit": "16963fa",
+    "productConfiguration": "Release",
+    "config": "playwright.details-roles.config.ts",
+    "passed": 7,
+    "failed": 0,
+    "skipped": 0,
+    "retries": 0,
+    "durationSeconds": 45.2,
+    "log": "/workspace/work/details-roles-browser-final.log",
+    "artifacts": "/workspace/work/validation/details-roles-16963-final/test-results",
+    "claims": {
+      "contributor": "Incident/Request/Change.User + Read scoped to org-1; Read scoped to org-2; customer_id customer-owner",
+      "manager": "Incident/Request/Change.Manager + Read scoped to org-1; Read scoped to org-2"
+    },
+    "apiAuthorizationEvidence": "Separate actual API/provider suites; this synthetic API verifies UI controls and observed requests only",
+    "integrated_test_commit": "f9679c4"
+  },
+  "latest_successful_workspace_cases": {
+    "functional": 162,
+    "native_zoom": 24,
+    "total": 186,
+    "source_boundary": "Combines each suite latest successful source-specific run, not one final-head hosted run; setup/mailbox lifecycle separate"
+  },
+  "native_screenshot_correction": {
+    "purpose": "Native screenshot artifact cropping correction; existing DOM/keyboard acceptance retained",
+    "productSource": "16963fa07129b5fe8862c623edd06f16155b2ef3",
+    "baseTestSource": "f9679c4",
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 13908.226999999999,
+    "coverage": "one light1280 native200% case over incident,request,change routes",
+    "images": [
+      {
+        "path": "/workspace/work/validation/native-capture-fix/artifacts/native-zoom-details-light--6b066--zoom-200-percent-at-1280px/-changes-changes-1-light-1280-native-200.png",
+        "width": 1280,
+        "height": 1000
+      },
+      {
+        "path": "/workspace/work/validation/native-capture-fix/artifacts/native-zoom-details-light--6b066--zoom-200-percent-at-1280px/-incidents-incidents-1-light-1280-native-200.png",
+        "width": 1280,
+        "height": 1000
+      },
+      {
+        "path": "/workspace/work/validation/native-capture-fix/artifacts/native-zoom-details-light--6b066--zoom-200-percent-at-1280px/-requests-requests-1-light-1280-native-200.png",
+        "width": 1280,
+        "height": 1000
+      }
+    ],
+    "nativeMeasurements": [
+      {
+        "zoom": 2,
+        "physicalWidth": 1280,
+        "layoutWidth": 640,
+        "theme": "light",
+        "capture": "physical viewport without CSS clip",
+        "captureWidth": 1280,
+        "captureHeight": 1000
+      },
+      {
+        "zoom": 2,
+        "physicalWidth": 1280,
+        "layoutWidth": 640,
+        "theme": "light",
+        "capture": "physical viewport without CSS clip",
+        "captureWidth": 1280,
+        "captureHeight": 1000
+      },
+      {
+        "zoom": 2,
+        "physicalWidth": 1280,
+        "layoutWidth": 640,
+        "theme": "light",
+        "capture": "physical viewport without CSS clip",
+        "captureWidth": 1280,
+        "captureHeight": 1000
+      }
+    ],
+    "oldArtifacts": "Previous fullPage screenshots clip physical rendering at CSSwidth; retain as historical artifacts, not complete visual evidence.24 prior DOM/keyboard cases remain valid.",
+    "remaining": "Final hosted6suite native rerun will generate corrected captures across all themes/widths/areas.",
+    "testCommit": "11925fac96caa0b3462afed21f9da09390998197",
+    "command": "HELPDESK_NATIVE_ZOOM_SUITE=details HELPDESK_DETAILS_CONFIGURATION=Release CI=1 node node_modules/@playwright/test/cli.js test --config /workspace/work/native-zoom-capture/playwright.native-capture.config.ts --grep 'details light native browser zoom 200 percent at 1280px' --workers=1 --retries=0 --reporter=list,json --output=/workspace/work/validation/native-capture-fix/artifacts",
+    "scratchHarnessNote": "The first scratch config inherited an incorrect relative Web startup path and executed zero tests. Correcting the scratch config to absolute existing Release paths produced the recorded1/1pass; product source/binaries were unchanged.",
+    "runtime": "Pinned SDK10.0.400; Chromium; DOTNET_PROCESSOR_COUNT2; no builds/Docker; root Release16963fa",
+    "test_commit": "11925fac96caa0b3462afed21f9da09390998197",
+    "integrated_test_commit": "dc9e03b",
+    "visually_reviewed": "Corrected request1280light PNG only; no claim all native screenshots visually reviewed",
+    "distinct_acceptance_cases_added": 0
+  },
+  "baseline_general_ux_at_snapshot": {
+    "status": "running",
+    "planned_cases": 35,
+    "test_source": "f9679c4",
+    "product_source": "16963fa",
+    "passing_result_claimed": false
+  },
+  "local_setup_repair": {
+    "product_source_sha": "16963fa07129b5fe8862c623edd06f16155b2ef3",
+    "test_commits": [
+      "6c88a90",
+      "e2182e9"
+    ],
+    "suite": "tests/ux/setup.spec.ts",
+    "result": {
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "duration_reported": "1.5m"
+    },
+    "harness": "/workspace/work/validation/setup-only-tab-rehearsal.sh",
+    "harness_notes": "Existing run-ux-local.sh first-run setup function, exits before Docker; root Release binaries published with --no-build --no-restore; explicit agent setup spec/config.",
+    "log": "/workspace/work/validation/setup-tab-rehearsal-2.log",
+    "report": "/workspace/work/validation/setup-tab-rehearsal-2/setup-report",
+    "checks": [
+      "SQLite first-run wizard",
+      "API supervisor restart",
+      "public Scalar reference",
+      "explicit API & MCP credentials tab",
+      "credential access wizard and one-time-secret disclosure",
+      "reader/writer identity isolation",
+      "read-only UI and server-side 403 vs permitted writes",
+      "live revocation redirects and 401",
+      "MFA enrollment",
+      "TOTP sign-in",
+      "recovery code sign-in"
+    ],
+    "build_performed": false,
+    "docker_started": false,
+    "process_cleanup_verified": true,
+    "verified_setup_test_source": "e2182e9",
+    "later_root_integration_commit": "6a00cb2",
+    "source_boundary": "The verified setup test file comes from the email worktree at e2182e9, against product16963fa; it is not pinned to browser test source34210f0."
+  },
+  "local_mailbox_repair": {
+    "status": "passed",
+    "productSourceRevision": "16963fa07129b5fe8862c623edd06f16155b2ef3",
+    "productVersionVerification": "API and Web assembly metadata verified before publishing; --no-build --no-restore publishing only",
+    "testSourceRevision": "1199e7424ced6d625efef8c50e62aa6a5dd25fd7",
+    "owningTestFixCommit": "0692c01",
+    "integratedTestCommit": "1199e7424ced6d625efef8c50e62aa6a5dd25fd7",
+    "runner": "/workspace/work/validation/mailbox-repair-local.sh",
+    "canonicalCommand": "HELPDESK_MAILBOX_PUBLISH_NO_BUILD=true HELPDESK_MAILBOX_SPEC=tests/ux/mailbox-{outgoing-failure,pop}-lifecycle.spec.ts bash tools/ci/run-mailbox-lifecycle.sh",
+    "stages": [
+      {
+        "name": "outgoing-failure",
+        "stats": {
+          "total": 1,
+          "expected": 1,
+          "unexpected": 0,
+          "flaky": 0,
+          "skipped": 0,
+          "ok": true
+        },
+        "durationMs": 75837.787,
+        "testSourceRevision": "1199e7424ced6d625efef8c50e62aa6a5dd25fd7",
+        "log": "/workspace/work/validation/mailbox-repair-local/outgoing-failure.log",
+        "report": "/workspace/work/validation/mailbox-repair-local/outgoing-failure/report/index.html"
+      },
+      {
+        "name": "pop",
+        "stats": {
+          "total": 1,
+          "expected": 1,
+          "unexpected": 0,
+          "flaky": 0,
+          "skipped": 0,
+          "ok": true
+        },
+        "durationMs": 162393.664,
+        "testSourceRevision": "1199e7424ced6d625efef8c50e62aa6a5dd25fd7",
+        "log": "/workspace/work/validation/mailbox-repair-local/pop.log",
+        "report": "/workspace/work/validation/mailbox-repair-local/pop/report/index.html"
+      }
+    ],
+    "totalPassed": 2,
+    "totalFailed": 0,
+    "fixture": "Synthetic GreenMail + disposable PostgreSQL only",
+    "realRecipientsUsed": false,
+    "fixturesCleanedUp": true,
+    "rootProductRebuilt": false,
+    "historicalFailure": "Hosted run38695205537 job116290050777 at16963fa timed out on old UUID text and old retry button selectors; this receipt covers the corrected local outage and POP stages only, not the entire hosted lifecycle job.",
+    "preservedAssertions": "Mailbox isolation, disabled/failed sender, explicit current route/revision confirmation, recipient and single-delivery checks retained; dialog sender/revision checks strengthened."
+  },
+  "local_stable_package_rehearsal": {
+    "status": "passed",
+    "version": "0.1.1",
+    "sourceRevision": "16963fa07129b5fe8862c623edd06f16155b2ef3",
+    "buildTimestamp": "2026-10-15T06:54:31Z",
+    "worktree": "/workspace/work/package-rehearsal-frozen",
+    "worktreeClean": true,
+    "commands": [
+      "bash /workspace/work/validation/package-rehearsal-isolated.sh",
+      "tools/ci/test-deployment-archive-compose-config.sh /workspace/work/validation/package-rehearsal-0.1.1-227gwCh5/rateldesk-deployment-0.1.1.tar.gz"
+    ],
+    "scratchRunnerDifferences": [
+      "cd into isolated detached worktree",
+      "invoke non-executable version validator with bash"
+    ],
+    "archiveCount": 7,
+    "toolArchiveCount": 6,
+    "deploymentArchiveCount": 1,
+    "checksumsPassed": 7,
+    "archiveContentLicenseAndDocumentationChecksPassed": 7,
+    "assemblyVersionAndSourceChecksPassed": 6,
+    "selfContainedArchitectureAndRuntimeChecksPassed": 6,
+    "nativeExecution": {
+      "rid": "linux-x64",
+      "tools": 2,
+      "processInvocations": 7,
+      "checks": [
+        "CLI --version",
+        "CLI --help",
+        "CLI setup exits78 withoutTTY",
+        "MCP --version",
+        "MCP --help",
+        "MCP setup exits78 withoutTTY",
+        "MCP initialize exactly one successful JSON-RPC response"
+      ]
+    },
+    "foreignPlatforms": {
+      "rids": [
+        "linux-arm64",
+        "win-x64"
+      ],
+      "validation": "archive contents, architecture, self-contained runtime, dependency RID, assembly metadata only",
+      "executed": false
+    },
+    "composeRendersPassed": 3,
+    "publication": {
+      "tagsCreated": false,
+      "releasesCreated": false,
+      "assetsUploaded": false,
+      "imagesPushed": false,
+      "containerDigestsFinalized": false
+    },
+    "evidence": [
+      "package.log",
+      "checksums.log",
+      "linux-x64-runtime.log",
+      "compiled-tool-versions.json",
+      "self-contained-platform-checks.json",
+      "compose-render.log",
+      "release-manifest.json",
+      "SHA256SUMS"
+    ],
+    "sourceBoundary": "This rehearsal uses the recorded frozen source. Later test-only dialog sequencing change ebb1819 is not included in these artifacts."
+  },
+  "hosted_archive_rehearsal": {
+    "version": "0.0.0-pr",
+    "native_execution": [
+      {
+        "rid": "linux-x64",
+        "runner": "ubuntu-latest",
+        "passed": true
+      },
+      {
+        "rid": "linux-arm64",
+        "runner": "ubuntu-24.04-arm",
+        "passed": true
+      },
+      {
+        "rid": "win-x64",
+        "runner": "windows-latest",
+        "passed": true
+      }
+    ],
+    "command": "tools/release/test-executable-archives.sh release-assets <rid>"
+  },
+  "pending": [
+    "35-case general baseline UX run at testsf9679c4/product16963fa",
+    "Corrected native screenshot captures across all six suites in final hosted rerun",
+    "Mailbox first-baseline activation and explicit deployment-policy blocked/running stages; complete sequential hosted lifecycle rerun",
+    "Final-head hosted gates after test/documentation fixes",
+    "Required review and normal integration merge",
+    "Exact merged-main CI",
+    "Stable tag/assets/images and anonymous distribution verification",
+    "Protected immutable-digest promotion and latest"
+  ],
+  "release_published": false,
+  "stable_promoted": false
+}

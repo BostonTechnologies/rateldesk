@@ -8,6 +8,15 @@ Customer is `Ticket.OrganizationId`. For is `CustomerId` on incidents/requests a
 
 Time filters use `from <= timestamp < to`, defaulting to updated time with creation fallback. Created time is selectable. Date-only To expands to the next local midnight; local DST gaps and ambiguous wall times are rejected. URLs preserve UTC instants and display timezone. URL navigation, Back/Forward, refresh, query cancellation and selection clearing share one state contract. See the [query contract](../contracts/ticket-list-queries.md), [shared UI](../../src/HelpDesk.NewWeb/Components/Shared/TicketListFilters.razor), [URL/time state](../../src/HelpDesk.NewWeb/Services/TicketListState.cs) and [SQL predicates](../../src/Helpdesk.API/Endpoints/Ticketing/TicketListQuery.cs).
 
+## Later integrated evidence
+
+The [integrated acceptance receipt](workspace-0.1.1.md#integrated-evidence-superseding-earlier-receipts)
+records the later **33 browser + 4 native 200% zoom passes**, with tests `34210f0`
+against frozen Release product `16963fa`, and **20/20 filter provider cases**
+passing in the final focused selection. The complete hosted .NET suite passed at
+`16963fa`. Historical 30-case results and screenshot source pins below remain
+unchanged; final-head release gates are tracked separately.
+
 ## Executed checks
 
 The real Blazor UI ran against the synthetic loopback API from `tests/ux/ticket-filter-fixture-api.mjs`. The final browser run passed **30**, failed **0**, skipped **0**, in **2.7 minutes**:
