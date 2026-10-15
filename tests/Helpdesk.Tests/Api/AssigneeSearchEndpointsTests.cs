@@ -274,7 +274,9 @@ public sealed class AssigneeSearchEndpointsTests
         {
             var kind = Request.Headers.Authorization.ToString().Split(' ').Last();
             var claims = new List<Claim> { new(ClaimTypes.Name, "Operator"), new("allowed_organization_id", "org") };
-            foreach (var module in new[] { "Incident", "Request", "Change" }) claims.Add(new Claim(ClaimTypes.Role, module + (kind == "reader" ? ".Read" : ".Write")));
+            foreach (var module in kind == "request-only" ? new[] { "Request" } : new[] { "Incident", "Request", "Change" })
+                claims.Add(new Claim(ClaimTypes.Role, module + (kind is "reader" or "request-only" ? ".Read" : kind == "own" ? ".User" : ".Write")));
+            if (kind == "own") claims.Add(new Claim("customer_id", "contact"));
             if (kind == "admin") claims.Add(new Claim(ClaimTypes.Role, "HelpdeskAdmin"));
             return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(new ClaimsIdentity(claims, Scheme.Name)), Scheme.Name)));
         }

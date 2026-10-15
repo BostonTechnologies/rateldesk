@@ -39,7 +39,7 @@
 
     <TicketTable TTicket="RequestDto"
                  @key="tableKey"
-                 InitialPage="@(filters.Page - 1)" PageSize="filters.PageSize" QueryError="queryError"
+                 InitialPage="@(filters.Page - 1)" PageSize="filters.PageSize" QueryError="@queryError"
                  @ref="_table"
                  TicketType="requests"
                  CanEditItem="@(item => accessProfile?.CanManageRequest(item.OrganizationId) == true)"

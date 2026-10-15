@@ -82,6 +82,26 @@ public sealed class TicketListFiltersTests
         Assert.Empty(denied!.Items);
     }
 
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task Contributor_identity_and_module_grants_scope_both_tickets_and_facets(bool postgres)
+    {
+        await using var h = await Harness.Create(postgres); await Seed(h, "incidents");
+        await h.WithDb(async db => {
+            db.Customers.Add(new Customer { Id = "another-contact", Name = "Another contact", Email = "another@example.test", OrganizationId = "org" });
+            db.Incidents.Add(new Incident { Id = "another-ticket", Title = "synthetic other owner", TrackingId = "SYN-OTHER", OrganizationId = "org", CustomerId = "another-contact" });
+            await db.SaveChangesAsync();
+        });
+        h.Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "own");
+        Assert.Equal(42, Total(await Get(h, "incidents", "view=all&q=synthetic")));
+        Assert.Equal(0, Total(await Get(h, "incidents", "view=all&forId=another-contact")));
+        var own = await h.Client.GetFromJsonAsync<TicketFilterOptionsDto>("/api/v1/ticketing/filter-options?module=incident&dimension=for");
+        Assert.Equal("contact", Assert.Single(own!.Items).Id);
+        h.Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "request-only");
+        Assert.Equal(0, Total(await Get(h, "incidents", "view=all&q=synthetic")));
+        var denied = await h.Client.GetFromJsonAsync<TicketFilterOptionsDto>("/api/v1/ticketing/filter-options?module=incident&dimension=customer");
+        Assert.Empty(denied!.Items);
+    }
+
     private static int Total(JsonElement response) => response.GetProperty("totalCount").GetInt32();
     private static string[] Items(JsonElement response) => response.GetProperty("items").EnumerateArray().Select(item => item.GetProperty("id").GetString()!).ToArray();
     private static async Task<JsonElement> Get(Harness h, string module, string query)

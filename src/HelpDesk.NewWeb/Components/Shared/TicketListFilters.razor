@@ -13,7 +13,7 @@
         <div class="filter-grid" aria-label="Ticket filters">
             <TicketFilterLookup Module="@Module" Dimension="customer" Label="Customer" Selected="@(option => Add(State.CustomerOrgIds, option))" />
             <TicketFilterLookup @key="string.Join('|', State.CustomerOrgIds)" Module="@Module" Dimension="for" Label="For" OrganizationIds="State.CustomerOrgIds" Selected="@(option => Add(State.ForIds, option))" />
-            <TicketFilterLookup @key="("assignee" + string.Join('|', State.CustomerOrgIds))" Module="@Module" Dimension="assignee" Label="Assignee" OrganizationIds="State.CustomerOrgIds" Selected="@(option => Add(State.AssigneeIds, option))" />
+            <TicketFilterLookup @key="AssigneeScopeKey" Module="@Module" Dimension="assignee" Label="Assignee" OrganizationIds="State.CustomerOrgIds" Selected="@(option => Add(State.AssigneeIds, option))" />
             <MudSelect T="string" Label="State" MultiSelection="true" SelectedValues="State.States" SelectedValuesChanged="StatesChanged" Variant="Variant.Outlined" Margin="Margin.Dense">
                 @foreach (var value in StateOptions) { <MudSelectItem T="string" Value="@value">@value</MudSelectItem> }
             </MudSelect>
@@ -21,17 +21,17 @@
                 @foreach (var value in Enum.GetNames<TicketPriority>()) { <MudSelectItem T="string" Value="@value">@value</MudSelectItem> }
             </MudSelect>
             <MudCheckBox T="bool" Value="State.Unassigned" ValueChanged="UnassignedChanged" Label="Unassigned" />
-            <MudSelect T="string" Label="View" Value="State.View" ValueChanged="ViewChanged" Variant="Variant.Outlined" Margin="Margin.Dense">
+            <MudSelect T="string" Label="View" Value="@State.View" ValueChanged="ViewChanged" Variant="Variant.Outlined" Margin="Margin.Dense">
                 <MudSelectItem Value="@("active")">Active</MudSelectItem><MudSelectItem Value="@("historic")">Historic</MudSelectItem><MudSelectItem Value="@("all")">All</MudSelectItem>
             </MudSelect>
-            <MudSelect T="string" Label="Time field" Value="State.TimeField" ValueChanged="TimeFieldChanged" Variant="Variant.Outlined" Margin="Margin.Dense">
+            <MudSelect T="string" Label="Time field" Value="@State.TimeField" ValueChanged="TimeFieldChanged" Variant="Variant.Outlined" Margin="Margin.Dense">
                 <MudSelectItem Value="@("updated")">Updated at</MudSelectItem><MudSelectItem Value="@("created")">Created at</MudSelectItem>
             </MudSelect>
             <MudTextField T="string" Label="From (inclusive)" @bind-Value="fromText" Placeholder="YYYY-MM-DD HH:mm" Variant="Variant.Outlined" Margin="Margin.Dense" />
             <MudTextField T="string" Label="To (exclusive)" @bind-Value="toText" Placeholder="YYYY-MM-DD HH:mm" Variant="Variant.Outlined" Margin="Margin.Dense" />
             <MudTextField T="string" Label="Timezone" @bind-Value="zoneText" Variant="Variant.Outlined" Margin="Margin.Dense" />
             <MudButton OnClick="ApplyTime" Variant="Variant.Outlined">Apply time range</MudButton>
-            <MudSelect T="string" Label="Sort by" Value="State.Sort" ValueChanged="SortChanged" Variant="Variant.Outlined" Margin="Margin.Dense">
+            <MudSelect T="string" Label="Sort by" Value="@State.Sort" ValueChanged="SortChanged" Variant="Variant.Outlined" Margin="Margin.Dense">
                 <MudSelectItem Value="@("updated")">Updated at</MudSelectItem><MudSelectItem Value="@("created")">Created at</MudSelectItem><MudSelectItem Value="@("trackingId")">Tracking ID</MudSelectItem><MudSelectItem Value="@("subject")">Subject</MudSelectItem><MudSelectItem Value="@("priority")">Priority</MudSelectItem><MudSelectItem Value="@("state")">State</MudSelectItem>
             </MudSelect>
             <MudCheckBox T="bool" Value="State.Descending" ValueChanged="DirectionChanged" Label="Descending" />
@@ -64,6 +64,7 @@
     private CancellationTokenSource? debounce;
     private readonly Dictionary<string, string> labels = [];
     private IEnumerable<string> StateOptions => Module == "change" ? Enum.GetNames<ChangeLifecycleState>() : Enum.GetNames<TicketState>();
+    private string AssigneeScopeKey => "assignee:" + string.Join('|', State.CustomerOrgIds);
     private string TimeLabel => State.TimeField == "created" ? "Created" : "Updated";
     private string Local(DateTimeOffset? value) { try { return value is null ? "" : TimeZoneInfo.ConvertTime(value.Value, TimeZoneInfo.FindSystemTimeZoneById(State.TimeZone)).ToString("yyyy-MM-dd HH:mm"); } catch (TimeZoneNotFoundException) { return value?.ToString("u") ?? ""; } }
     protected override void OnParametersSet() { if (!ReferenceEquals(previous, State)) { previous = State; fromText = Local(State.From); toText = Local(State.To); zoneText = State.TimeZone; } }

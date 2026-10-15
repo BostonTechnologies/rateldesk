@@ -115,6 +115,7 @@ internal sealed class TicketListQuery
         var prefix = char.ToUpperInvariant(module[0]) + module[1..];
         var read = access.OrganizationIdsFor(prefix + ".Read").Concat(access.OrganizationIdsFor(prefix + ".Write")).Concat(access.OrganizationIdsFor(prefix + ".Manager")).Distinct().ToArray();
         var own = access.OrganizationIdsFor(prefix + ".User").ToArray();
-        return query.Where(ticket => read.Contains(ticket.OrganizationId!) || (own.Contains(ticket.OrganizationId!) && access.CustomerId != null && ticket.CustomerId == access.CustomerId));
+        var hasCustomer = !string.IsNullOrWhiteSpace(access.CustomerId);
+        return query.Where(ticket => read.Contains(ticket.OrganizationId!) || (own.Contains(ticket.OrganizationId!) && hasCustomer && ticket.CustomerId == access.CustomerId));
     }
 }
