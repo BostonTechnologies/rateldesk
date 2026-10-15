@@ -53,6 +53,7 @@ http.createServer(async (req, res) => {
    return reply(payload);
   }
   if (path.startsWith('/api/v1/support/coverage/')) { const row = coverage.find(x => path.endsWith(x.id)); if (row) Object.assign(row, payload); return reply(row ?? {}); }
+  if (path.endsWith('/graph-settings/org-1/sync')) { const builtIn = { ...clone(datasets[0]), id: 'graph-users', name: 'Graph Users', sourceType: 1 }; datasets.push(builtIn); return reply([builtIn]); }
   if (path === '/api/v1/resources/datasets/graph-settings') { graph[payload.organizationId] = payload; return reply(payload); }
   if (/\/datasets\/[^/]+$/.test(path)) {
    const dataset = datasets.find(x => path.endsWith(x.id)); if (dataset) Object.assign(dataset, payload);

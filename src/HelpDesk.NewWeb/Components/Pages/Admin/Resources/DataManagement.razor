@@ -123,7 +123,7 @@
                     else
                     {
                         <MudText Typo="Typo.subtitle2" Class="mb-2">@(string.IsNullOrWhiteSpace(editor.Id) ? "New dataset" : editor.Name)</MudText>
-                        <MudTabs @bind-ActivePanelIndex="primaryTabIndex" KeepPanelsAlive="true" Rounded="false" Elevation="0" PanelClass="pt-2" Class="data-management-tabs">
+                        <MudTabs MinimumTabWidth="128px" @bind-ActivePanelIndex="primaryTabIndex" KeepPanelsAlive="true" Rounded="false" Elevation="0" PanelClass="pt-2" Class="data-management-tabs">
                             <MudTabPanel Text="Rows">
                                 @if (string.IsNullOrWhiteSpace(editor.Id))
                                 {
@@ -542,15 +542,16 @@
         finally { if (ReferenceEquals(rowSearchCancellation, cancellation)) rowSearchCancellation = null; }
     }
 
-    private async Task LoadOrganizationAsync()
+    private async Task LoadOrganizationAsync(bool preserveGraphDraft = false)
     {
+        var retainGraph = preserveGraphDraft && GraphDirty;
         var organization = selectedOrganizationId;
         var version = ++organizationVersion;
         datasetVersion++;
         rowSearchCancellation?.Cancel();
         datasets = new(); credentials = new(); rows = new(); lastCreatedApiKey = null;
         editor = DatasetEditorModel.New(organization); editorSnapshot = Serialize(editor);
-        graphSettings = new() { OrganizationId = organization ?? string.Empty }; graphSnapshot = string.Empty;
+        if (!retainGraph) { graphSettings = new() { OrganizationId = organization ?? string.Empty }; graphSnapshot = string.Empty; }
         newCredentialName = string.Empty;
         if (string.IsNullOrWhiteSpace(organization)) return;
         loading = true;
@@ -561,8 +562,7 @@
             var settings = await DatasetService.GetGraphSettingsAsync(organization) ?? new TenantGraphDatasetSettingsDto { OrganizationId = organization };
             if (disposed || version != organizationVersion || organization != selectedOrganizationId) return;
             datasets = definitions.ToList();
-            graphSettings = settings;
-            graphSnapshot = Serialize(graphSettings);
+            if (!retainGraph) { graphSettings = settings; graphSnapshot = Serialize(graphSettings); }
             await RefreshBuiltInRowCountsAsync();
             if (disposed || version != organizationVersion) return;
             var initial = datasets.FirstOrDefault(x => x.Id == selectedDatasetId) ?? CustomDatasets.FirstOrDefault();
@@ -589,15 +589,17 @@
         primaryTabIndex = 1;
     }
 
-    private async Task SelectDataset(string datasetId, bool confirm = true)
+    private async Task SelectDataset(string datasetId, bool confirm = true, bool preserveIngestDraft = false)
     {
         if (confirm && (datasetId == selectedDatasetId || !await CanLeaveAsync(false))) return;
+        var keepIngestDraft = preserveIngestDraft && datasetId == selectedDatasetId;
         var version = ++datasetVersion;
         var organization = selectedOrganizationId;
         selectedDatasetId = datasetId;
         datasetLoading = true;
         editor = DatasetEditorModel.New(organization); editorSnapshot = Serialize(editor);
-        lastCreatedApiKey = null; credentials = new(); rows = new(); newCredentialName = string.Empty;
+        if (!keepIngestDraft) { lastCreatedApiKey = null; newCredentialName = string.Empty; }
+        credentials = new(); rows = new();
         rowSearch = string.Empty; rowPage = 1;
         try
         {
@@ -688,7 +690,7 @@
         Snackbar.Add("Dataset saved.", Severity.Success);
         if (disposed) return;
         datasets = (await DatasetService.ListAsync(selectedOrganizationId!)).ToList();
-        await SelectDataset(saved.Id, false);
+        await SelectDataset(saved.Id, false, preserveIngestDraft: true);
     }
 
     private async Task DeleteDatasetAsync()
@@ -705,7 +707,7 @@
         {
             Snackbar.Add("Dataset deleted.", Severity.Success);
             selectedDatasetId = null;
-            await LoadOrganizationAsync();
+            await LoadOrganizationAsync(preserveGraphDraft: true);
         }
     }
 
@@ -804,7 +806,7 @@
             graphSnapshot = Serialize(graphSettings);
             await RefreshBuiltInRowCountsAsync();
             var firstVisibleBuiltIn = VisibleBuiltInDatasets.FirstOrDefault();
-            if (firstVisibleBuiltIn is not null && !DatasetDirty)
+            if (firstVisibleBuiltIn is not null && !DatasetDirty && string.IsNullOrEmpty(newCredentialName))
             {
                 await SelectDataset(firstVisibleBuiltIn.Id, false);
             }

@@ -39,19 +39,34 @@ test('synthetic before and after workspace evidence', async ({ page }, info) => 
     }
     await page.screenshot({ path: info.outputPath(`${baseline ? 'before' : 'after'}-${name}-${theme}-${width}.png`), fullPage: true });
    }
-   if (!baseline) {
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await open(page, path);
-    await page.evaluate(() => document.documentElement.style.zoom = '2');
-    await page.screenshot({ path: info.outputPath(`after-${name}-${theme}-200-percent.png`), fullPage: true });
-    await page.evaluate(() => document.documentElement.style.zoom = '');
-   }
+
   }
  }
 });
 
 test.describe('focused admin tasks', () => {
  test.skip(baseline, 'Baseline is captured as before evidence only.');
+ test('200 percent desktop viewport scaling keeps each workspace reachable', async ({ page }, info) => {
+  test.setTimeout(120_000);
+  const cdp = await page.context().newCDPSession(page);
+  for (const theme of ['light', 'dark']) {
+   await page.evaluate(value => localStorage.setItem('helpdesk.theme.preference', value), theme);
+   for (const [name, path, , selector] of routes) {
+    await open(page, path);
+    // Desktop zoom at 200% has half the CSS viewport and twice the device-pixel ratio.
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width: 720, height: 450, deviceScaleFactor: 2, mobile: false });
+    await expect(page.locator('html')).toHaveAttribute('data-helpdesk-theme', theme);
+    expect(await page.evaluate(() => ({ width: innerWidth, ratio: devicePixelRatio }))).toEqual({ width: 720, ratio: 2 });
+    await expect(page.locator(selector)).toBeVisible();
+    const tabs = page.getByRole('tab');
+    await tabs.last().focus(); await page.keyboard.press('Enter');
+    await expect(tabs.last()).toHaveAttribute('aria-selected', 'true');
+    await tabs.first().focus(); await page.keyboard.press('Enter');
+    await page.screenshot({ path: info.outputPath(`after-${name}-${theme}-200-percent.png`), fullPage: true });
+    await cdp.send('Emulation.clearDeviceMetricsOverride');
+   }
+  }
+ });
  test('every workspace tab is keyboard reachable without creating work', async ({ page, request }) => {
   await page.setViewportSize({ width: 320, height: 900 });
   for (const [, path] of routes) {
@@ -124,7 +139,7 @@ test.describe('focused admin tasks', () => {
   await expect(page.getByRole('textbox', { name: 'Dataset Name' })).toHaveValue('Draft inventory');
   await select(page, 'Organization', 'Birch Tenant');
   await page.getByRole('button', { name: 'Keep editing', exact: true }).click();
-  await expect(page.getByRole('combobox', { name: 'Organization', exact: true })).toHaveValue('Atlas Tenant');
+  await expect(page.getByRole('combobox', { name: 'Organization', exact: true })).toContainText('Atlas Tenant');
   await expect(page.getByRole('textbox', { name: 'Dataset Name' })).toHaveValue('Draft inventory');
   await select(page, 'Organization', 'Birch Tenant');
   await page.getByRole('button', { name: 'Discard', exact: true }).click();
@@ -145,14 +160,47 @@ test.describe('focused admin tasks', () => {
   expect((await (await request.get(`${fixture}/state`)).json()).saves).toHaveLength(0);
  });
  test('dataset save reloads the existing schema and retains both saved columns', async ({ page, request }) => {
-  await open(page, '/admin/resources/data-management'); await page.getByRole('tab', { name: 'Schema', exact: true }).click();
+  await open(page, '/admin/resources/data-management');
+  await page.getByRole('tab', { name: 'Ingest API', exact: true }).click();
+  await page.getByRole('textbox', { name: 'API key name', exact: true }).fill('unfinished-key');
+  await page.getByRole('tab', { name: 'Schema', exact: true }).click();
   await page.getByRole('textbox', { name: 'Dataset Name' }).fill('Saved inventory');
   await page.getByRole('button', { name: 'Save Dataset', exact: true }).click();
   await expect(page.getByText('Dataset saved.', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Ingest API', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'API key name', exact: true })).toHaveValue('unfinished-key');
+  await page.getByRole('textbox', { name: 'API key name', exact: true }).fill('');
+  await page.getByRole('tab', { name: 'Rows', exact: true }).click();
   await page.reload(); await page.getByRole('tab', { name: 'Schema', exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'Dataset Name' })).toHaveValue('Saved inventory');
   const state = await (await request.get(`${fixture}/state`)).json();
   expect(state.saves).toHaveLength(1); expect(state.saves[0].payload.columns.map(x => x.name)).toEqual(['id', 'name']);
+ });
+ test('dataset deletion preserves unrelated Graph draft and sync preserves API key draft', async ({ page, request }) => {
+  await open(page, '/admin/resources/data-management');
+  await page.getByRole('tab', { name: 'Graph sync', exact: true }).click();
+  await page.getByRole('button', { name: 'Connector settings', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Client Id', exact: true }).fill('unsaved-connector');
+  await page.getByRole('tab', { name: 'Schema', exact: true }).click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(page.getByText('Dataset deleted.', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Graph sync', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Client Id', exact: true })).toHaveValue('unsaved-connector');
+  await page.getByRole('button', { name: 'Revert settings', exact: true }).click();
+  await request.get(`${fixture}/reset`); await page.reload();
+  await page.getByRole('tab', { name: 'Graph sync', exact: true }).click();
+  await page.getByRole('button', { name: 'Connector settings', exact: true }).click();
+  await page.getByLabel('Users', { exact: true }).check();
+  await page.getByRole('button', { name: 'Save Graph Settings', exact: true }).click();
+  await expect(page.getByText('Graph settings saved.', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Ingest API', exact: true }).click();
+  await page.getByRole('textbox', { name: 'API key name', exact: true }).fill('unsaved-key');
+  await page.getByRole('tab', { name: 'Graph sync', exact: true }).click();
+  await page.getByRole('button', { name: 'Sync Built-Ins', exact: true }).click();
+  await expect(page.getByText('Synced 1 built-in datasets.', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Ingest API', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'API key name', exact: true })).toHaveValue('unsaved-key');
  });
  test('late SLA response remains bound to the previous tenant', async ({ page, request }) => {
   await request.get(`${fixture}/fault?mode=slow-tenant`);
@@ -175,7 +223,7 @@ test.describe('focused admin tasks', () => {
   await page.getByRole('tab', { name: 'Reporting', exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'Timezone', exact: true })).toHaveValue('UTC');
   await select(page, 'Tenant', 'Birch Tenant'); await page.getByRole('button', { name: 'Keep editing' }).click();
-  await expect(page.getByRole('combobox', { name: 'Tenant', exact: true })).toHaveValue('Atlas Tenant');
+  await expect(page.getByRole('combobox', { name: 'Tenant', exact: true })).toContainText('Atlas Tenant');
   await request.get(`${fixture}/fault?mode=save`); await page.getByRole('button', { name: 'Save subscription' }).click();
   await expect(page.getByText('Subscription could not be saved. Your edits are retained.')).toBeVisible();
   await page.getByRole('button', { name: 'Save subscription' }).click();
