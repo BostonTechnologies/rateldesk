@@ -79,3 +79,9 @@
 .data-management-page ::deep .mud-typography, .data-management-page ::deep code { overflow-wrap: anywhere; }
 .data-management-page ::deep .data-management-list { max-height: 28rem; overflow-y: auto; }
 .data-management-page ::deep .mud-stack-row { flex-wrap: wrap; }
+
+.data-management-page ::deep .data-management-rows-table { max-height: 28rem; overflow: auto; }
+.data-management-page ::deep .data-management-rows-table table { min-width: 40rem; }
+.data-management-page ::deep .data-management-rows-table th,
+.data-management-page ::deep .data-management-rows-table td { white-space: nowrap; }
+.data-management-page ::deep .data-management-json { white-space: pre-wrap; overflow-wrap: anywhere; }

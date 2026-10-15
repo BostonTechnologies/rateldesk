@@ -78,7 +78,7 @@
     }
 
     <MudTabs Rounded="false" PanelClass="pt-2" KeepPanelsAlive="true">
-        <MudTabPanel Text="Routes and rules" Icon="@Icons.Material.Filled.AccountTree">
+        <MudTabPanel Text="Routing">
             <MudStack Spacing="3">
                 <MudSelect T="string" @bind-Value="routingConcern" Disabled="editing" Label="Routing concern" Variant="Variant.Outlined" Margin="Margin.Dense">
                     <MudSelectItem T="string" Value='@("coverage")'>Support coverage</MudSelectItem>
@@ -103,14 +103,14 @@
                 }
             </MudStack>
         </MudTabPanel>
-        <MudTabPanel Text="Support Groups" Icon="@Icons.Material.Filled.SupportAgent">
+        <MudTabPanel Text="Support groups">
             <SupportGroupMembersPanel @key="selectedOrganizationId" BusyChanged="OnEditingChanged" Groups="supportGroups"
                                       Organizations="organizations"
                                       Users="users"
                                       DefaultOwningOrganizationId="DefaultOwningOrganizationId"
                                       OnChanged="ReloadRoutingDataAsync" />
         </MudTabPanel>
-        <MudTabPanel Text="Diagnostics and defaults" Icon="@Icons.Material.Filled.Build">
+        <MudTabPanel Text="Diagnostics">
                 <MudGrid>            <MudItem xs="12" md="3">
                 <MudSelect T="SupportNotificationEventType"
                            Value="@selectedEventType"

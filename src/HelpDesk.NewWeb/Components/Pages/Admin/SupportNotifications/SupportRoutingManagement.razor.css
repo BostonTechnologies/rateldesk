@@ -3,3 +3,10 @@
 .support-routing-workspace ::deep .mud-typography { overflow-wrap: anywhere; }
 .support-routing-workspace ::deep .routing-editor-controls { border: 0; margin: 0; padding: 0; min-width: 0; }
 .support-routing-workspace ::deep .mud-tabs { max-width: 100%; }
+
+.support-routing-workspace ::deep .mud-table .mud-button-root { min-width: 0; padding-inline: .5rem; }
+@media (max-width: 600px) {
+    .support-routing-workspace ::deep .mud-table table { table-layout: fixed; width: 100%; }
+    .support-routing-workspace ::deep .mud-table-cell { white-space: normal; overflow-wrap: anywhere; flex-wrap: wrap; gap: .35rem; }
+    .support-routing-workspace ::deep .mud-table-cell .mud-stack-row { min-width: 0; }
+}

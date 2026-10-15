@@ -14,7 +14,7 @@
 <NavigationLock ConfirmExternalNavigation="@showEditor" OnBeforeInternalNavigation="ConfirmNavigationAsync" />
 
 <div class="role-workspace"><MudPaper Class="helpdesk-content-surface pa-3">
-    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2 role-toolbar">
         <MudStack Spacing="0">
             <MudText Typo="Typo.h4" HtmlTag="h1" Class="helpdesk-page-title">Roles & Permissions</MudText>
             <MudText Typo="Typo.body2" Color="Color.Secondary">Permissions apply only in the organization shown on each assignment.</MudText>
@@ -98,11 +98,12 @@
                     </MudStack>
                 </MudTd>
                 <MudTd DataLabel="Scope / owner">
-                    <MudText>@ScopeLabel(context.Scope)</MudText>
+                    <MudStack Spacing="0"><MudText>@ScopeLabel(context.Scope)</MudText>
                     @if (!string.IsNullOrWhiteSpace(context.OwnerOrganizationId))
                     {
                         <MudText Typo="Typo.caption" Color="Color.Secondary">@OrganizationLabel(context.OwnerOrganizationId)</MudText>
                     }
+                    </MudStack>
                 </MudTd>
                 <MudTd DataLabel="Permissions">
                     <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => OpenPermissions(context)">@context.Permissions.Count permission@(context.Permissions.Count == 1 ? string.Empty : "s")</MudButton>
