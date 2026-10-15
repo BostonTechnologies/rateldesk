@@ -7,3 +7,4 @@ guidance is linked from the [documentation index](../README.md).
 - [Beta4 integration progress and reconciliation](beta4-integration-progress.md)
 - [Documentation path migration](documentation-migration.md)
 - [Single-origin navigation route map and verification](single-origin-navigation.md)
+- [Isolated ticket email display and synthetic browser evidence](email-display-164.md)
