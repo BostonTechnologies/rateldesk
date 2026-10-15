@@ -1307,3 +1307,14 @@ h1[tabindex="-1"]:focus
         max-width: calc(100vw - 16px);
     }
 }
+
+.incident-preview-popover[data-email-css-zoom="true"]
+{
+    position: fixed !important;
+    left: 8px !important;
+    right: 8px !important;
+    top: 8px !important;
+    transform: none !important;
+    width: min(600px, calc(100% - 16px)) !important;
+    max-width: calc(100% - 16px);
+}

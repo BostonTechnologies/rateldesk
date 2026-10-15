@@ -65,6 +65,7 @@
 
     public void Dispose()
     {
+        if (_disposed) return;
         _disposed = true;
         _loadCts?.Cancel();
         _loadCts?.Dispose();

@@ -96,6 +96,18 @@ test.describe('actual Blazor email boundary', () => {
     await page.getByRole('button', { name: 'Close preview' }).press('Escape');
     await expect(preview(page)).toBeFocused(); await context.close();
   });
+  test('CSS 200 percent zoom keeps enlarged preview controls and scrolling inside the viewport', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await ready(page, '/incidents');
+    await page.evaluate(() => document.documentElement.style.zoom = '2');
+    await preview(page).focus(); await preview(page).press('Enter');
+    await expect(frame(page).getByText('Readable original foreground')).toBeVisible();
+    await expect(page.locator('.incident-preview-popover')).toHaveAttribute('data-email-css-zoom', 'true');
+    const bounds = await page.getByRole('dialog', { name: 'Email preview' }).boundingBox();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0); expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(1280);
+    expect(bounds!.y).toBeGreaterThanOrEqual(0); expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(900);
+    await page.getByRole('button', { name: 'Close preview' }).press('Escape'); await expect(preview(page)).toBeFocused();
+  });
   test('loading, retry and empty are distinct; request detail uses its own plain text API', async ({ page, request }) => {
     await request.get(`${fixture}/mode?value=slow`); await ready(page, '/incidents'); await preview(page).focus();
     await expect(page.getByRole('status').filter({ hasText: 'Loading content' })).toBeVisible();

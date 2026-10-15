@@ -60,9 +60,10 @@
             if (_binding is not null) { await _binding.InvokeVoidAsync("dispose"); await _binding.DisposeAsync(); _binding = null; }
             if (_plain || string.IsNullOrWhiteSpace(Html)) return;
             _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/email-content.js");
-            if (_disposed) return;
+            if (_disposed) { await _module.DisposeAsync(); _module = null; return; }
             _reference ??= DotNetObjectReference.Create(this);
             _binding = await _module.InvokeAsync<IJSObjectReference>("observe", _frame, _reference);
+            if (_disposed) { await _binding.InvokeVoidAsync("dispose"); await _binding.DisposeAsync(); _binding = null; }
         }
         catch (JSDisconnectedException) { }
         catch (TaskCanceledException) { }
@@ -71,6 +72,7 @@
     [JSInvokable] public Task DismissPreview() => OnEscape.InvokeAsync();
     public async ValueTask DisposeAsync()
     {
+        if (_disposed) return;
         _disposed = true;
         try
         {
