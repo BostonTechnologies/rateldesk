@@ -185,11 +185,13 @@ public sealed class AssigneeSearchEndpointsTests
         foreach (var module in new[] { "incident", "request", "change" })
         {
             var path = $"/api/v1/{module}s/{module}";
-            (await h.Client.PutAsJsonAsync(path, new { CategoryIds = new[] { retained, added } })).EnsureSuccessStatusCode();
+            using var updated = await h.Client.PutAsJsonAsync(path, new { CategoryIds = new[] { retained, added } });
+            Assert.True(updated.IsSuccessStatusCode, $"{module} update: {(int)updated.StatusCode} {await updated.Content.ReadAsStringAsync()}");
             Assert.Equal(HttpStatusCode.BadRequest, (await h.Client.PutAsJsonAsync(path, new { CategoryIds = new[] { retained, added, foreign } })).StatusCode);
             using var reloaded = System.Text.Json.JsonDocument.Parse(await h.Client.GetStringAsync(path));
             Assert.Equal(new[] { retained, added }.Order(), reloaded.RootElement.GetProperty("categoryIds").EnumerateArray().Select(x => x.GetGuid()).Order());
-            (await h.Client.PutAsJsonAsync(path, new { CategoryIds = new[] { added } })).EnsureSuccessStatusCode();
+            using var removed = await h.Client.PutAsJsonAsync(path, new { CategoryIds = new[] { added } });
+            Assert.True(removed.IsSuccessStatusCode, $"{module} remove: {(int)removed.StatusCode} {await removed.Content.ReadAsStringAsync()}");
             Assert.Equal(HttpStatusCode.BadRequest, (await h.Client.PutAsJsonAsync(path, new { CategoryIds = new[] { retained, added } })).StatusCode);
         }
         await h.WithDb(async db => Assert.Equal(3, await db.TicketCategories.CountAsync()));
