@@ -161,7 +161,7 @@ public sealed class AssigneeSearchEndpointsTests
         Assert.Equal(HttpStatusCode.Forbidden, (await h.Client.GetAsync("/api/v1/ticketing/assignees/current?module=incident&organizationId=other&ticketId=incident")).StatusCode);
     }
 
-    private sealed class Harness(WebApplication app, HttpClient client, SqliteConnection? sqlite, PostgreSqlContainer? postgres) : IAsyncDisposable
+    internal sealed class Harness(WebApplication app, HttpClient client, SqliteConnection? sqlite, PostgreSqlContainer? postgres) : IAsyncDisposable
     {
         public HttpClient Client { get; } = client;
         public static async Task<Harness> Create(bool usePostgres = false)

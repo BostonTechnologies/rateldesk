@@ -1,0 +1,84 @@
+import {test,expect} from '@playwright/test';
+import {selectTheme} from './auth';
+const fixture='http://127.0.0.1:18330/fixture';
+test.beforeEach(async({page,request})=>{await request.get(fixture+'/reset');await page.goto('/auth/development');});
+for(const module of ['incidents','requests','changes']) {
+ test(`${module} filters the full dataset, clears selection and restores URL with Back`,async({page,request})=>{
+  await page.goto('/'+module);
+  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive','true');
+  await expect(page.getByText('1-25 of 60')).toBeVisible();
+  await expect(page.getByText(/AI (involved|origin) only/)).toHaveCount(0);
+  await page.locator('tbody input[type=checkbox]').first().check();
+  await expect(page.getByText('1 selected',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Filters (0)'}).click();
+  await page.getByLabel('Customer', {exact:true}).fill('Beta');
+  await page.getByText('Beta customer',{exact:true}).last().click();
+  await expect(page.getByText('1-25 of 30')).toBeVisible();
+  await expect(page.getByText('1 selected',{exact:true})).toHaveCount(0);
+  await expect(page).toHaveURL(/customerOrgId=org-b/);
+  await page.getByRole('textbox',{name:'Search tickets'}).fill('59');
+  await expect(page.getByText('1-1 of 1')).toBeVisible();
+  await expect(page.getByText('Synthetic ticket 59',{exact:true})).toBeVisible();
+  await page.goBack();
+  await expect(page.getByText('1-25 of 30')).toBeVisible();
+  await page.goForward();
+  await expect(page.getByText('Synthetic ticket 59',{exact:true})).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('Synthetic ticket 59',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Clear all',exact:true}).click();
+  await expect(page.getByText('1-25 of 60')).toBeVisible();
+  const state=await(await request.get(fixture+'/state')).json();
+  expect(state.queries.every((q:string)=>!q.includes('aiOnly')&&!q.includes('aiInvolved'))).toBeTruthy();
+  await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
+ });
+}
+test('cancelled search cannot replace newer data; error differs from no matches',async({page,request})=>{
+ await page.goto('/incidents');
+ await expect(page.getByText('1-25 of 60')).toBeVisible();
+ const search=page.getByRole('textbox',{name:'Search tickets'});
+ await search.fill('slow');
+ await expect.poll(async()=>JSON.stringify(await(await request.get(fixture+'/state')).json())).toContain('q=slow');
+ await search.fill('59');await expect(page.getByText('Synthetic ticket 59',{exact:true})).toBeVisible();
+ await page.waitForTimeout(1300);await expect(page.getByText('Synthetic ticket 59',{exact:true})).toBeVisible();
+ await request.get(fixture+'/fault?mode=error');await search.fill('58');
+ await expect(page.getByText('Unable to load tickets. Check the filters and try again.')).toBeVisible();
+ await page.getByRole('button',{name:'Retry',exact:true}).click();await expect(page.getByText('Synthetic ticket 58',{exact:true})).toBeVisible();
+ await search.fill('missing');await expect(page.getByText('No tickets match these filters.')).toBeVisible();
+});
+for(const width of [320,768,1440,1920]) for(const theme of ['light','dark']) {
+ test(`responsive filter panel ${width}px ${theme}`,async({page},info)=>{
+  await page.setViewportSize({width,height:900});
+  await page.goto('/requests');await expect(page.getByText('1-25 of 60')).toBeVisible();
+  await selectTheme(page,theme==='dark'?'Dark':'Light');
+  await page.getByRole('button',{name:'Filters (0)'}).click();
+  await expect(page.getByLabel('From (inclusive)')).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBeTruthy();
+  await page.screenshot({path:info.outputPath(`filters-${width}-${theme}.png`),fullPage:true});
+ });
+}
+
+test('multi-dimension controls, time validation, sorting and page size use server query state',async({page,request})=>{
+ await page.goto('/incidents');await expect(page.getByText('1-25 of 60')).toBeVisible();
+ await page.getByRole('button',{name:'Filters (0)'}).click();
+ await page.getByLabel('For',{exact:true}).fill('Contact');await page.getByText('Contact (contact@example.test)',{exact:true}).last().click();
+ await page.getByLabel('Priority',{exact:true}).click();await page.getByRole('option',{name:'High',exact:true}).click();await page.keyboard.press('Escape');
+ await expect(page.getByText('1-25 of 30')).toBeVisible();
+ await page.getByLabel('State',{exact:true}).click();await page.getByRole('option',{name:'New',exact:true}).click();await page.keyboard.press('Escape');
+ await page.getByLabel('Unassigned',{exact:true}).check();
+ await page.getByLabel('Assignee',{exact:true}).fill('technician');await page.getByText('Synthetic technician',{exact:true}).last().click();
+ await page.getByLabel('From (inclusive)').fill('2026-10-16');await page.getByLabel('To (exclusive)').fill('2026-10-14');
+ await page.getByRole('button',{name:'Apply time range'}).click();await expect(page.getByText('From must be earlier than To.')).toBeVisible();
+ await page.getByLabel('From (inclusive)').fill('2026-10-15');await page.getByLabel('To (exclusive)').fill('2026-10-15');
+ await page.getByLabel('Timezone',{exact:true}).fill('Africa/Johannesburg');await page.getByRole('button',{name:'Apply time range'}).click();
+ await expect(page.getByText('1-25 of 30')).toBeVisible();
+ await page.getByLabel('Sort by',{exact:true}).click();await page.getByRole('option',{name:'Tracking ID',exact:true}).click();
+ await page.getByLabel('Descending',{exact:true}).uncheck();
+ await expect(page.getByText('SYN-000',{exact:true})).toBeVisible();
+ await page.locator('.mud-table-pagination-select').click();await page.getByRole('option',{name:'50',exact:true}).click();
+ await expect(page.getByText('1-30 of 30')).toBeVisible();
+ const queries=(await(await request.get(fixture+'/state')).json()).queries;const last=new URL(queries.at(-1),'http://fixture.test');
+ expect(last.searchParams.get('pageSize')).toBe('50');expect(last.searchParams.get('page')).toBe('1');
+ expect(last.searchParams.get('forId')).toBe('contact');expect(last.searchParams.get('assigneeId')).toBe('staff');
+ expect(last.searchParams.get('stateValues')).toBe('New');expect(last.searchParams.get('priority')).toBe('High');
+ expect(last.searchParams.get('from')).toContain('2026-10-14T22:00:00');expect(last.searchParams.get('to')).toContain('2026-10-15T22:00:00');
+});

@@ -1,0 +1,8 @@
+.ticket-filters { min-width: 0; margin-block: .75rem; }
+.filter-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.filter-toolbar ::deep .mud-input-control { flex: 1 1 15rem; max-width: 30rem; min-width: 0; }
+.filter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: .5rem .75rem; margin-top: .75rem; }
+.filter-grid > * { min-width: 0; }
+.filter-help { font-size: .75rem; color: var(--mud-palette-text-secondary); margin: .5rem 0; }
+.filter-chips { display: flex; flex-wrap: wrap; gap: .25rem; }
+.filter-chips ::deep .mud-chip { max-width: 100%; height: auto; min-height: 24px; overflow-wrap: anywhere; }

@@ -1,3 +1,4 @@
+using Helpdesk.API.Endpoints.Ticketing;
 using Helpdesk.Application.Events;
 using Helpdesk.Application.Messaging;
 using AppTicketServices = Helpdesk.Application.Services.Tickets;
@@ -762,6 +763,8 @@ public static class RequestEndpoints
         [FromServices] HelpdeskDbContext db,
         [FromServices] ICurrentUserAccessService accessService,
         ClaimsPrincipal user,
+        HttpRequest httpRequest,
+        CancellationToken cancellationToken,
         [FromQuery] int? page,
         [FromQuery] int? pageSize,
         [FromQuery] TicketState? state = null,
@@ -772,13 +775,15 @@ public static class RequestEndpoints
         [FromQuery] bool summaryOnly = false,
         [FromQuery] string? q = null)
     {
-        var effectivePageSize = pageSize ?? 10;
+        if (!TicketListQuery.TryParse(httpRequest.Query, false, out var filters, out var filterError)) return Results.BadRequest(new { error = filterError });
+        page = page.HasValue ? Math.Clamp(page.Value, 1, 1_000_000) : null;
+        var effectivePageSize = Math.Clamp(pageSize ?? 10, 1, 100);
 
         var query =
-            from r in db.Requests.AsNoTracking()
+            from r in filters.Apply(db.Requests.AsNoTracking(), false)
             join c in db.Customers.AsNoTracking() on r.CustomerId equals c.Id into rc
             from c in rc.DefaultIfEmpty()
-            join o in db.Organizations.AsNoTracking() on c!.OrganizationId equals o.Id into co
+            join o in db.Organizations.AsNoTracking() on r.OrganizationId equals o.Id into co
             from o in co.DefaultIfEmpty()
             select new
             {
@@ -789,7 +794,7 @@ public static class RequestEndpoints
                 CustomerEmail = c != null ? c.Email : null
             };
 
-        var access = await accessService.ResolveAsync(user);
+        var access = await accessService.ResolveAsync(user, cancellationToken);
         if (!access.IsHelpdeskAdmin)
         {
             var tenantReadOrganizationIds = access.OrganizationIdsFor(Helpdesk.Shared.Auth.HelpdeskPermissions.RequestRead)
@@ -805,21 +810,24 @@ public static class RequestEndpoints
                  x.CustomerId == access.CustomerId));
         }
 
-        if (state is not null)
+        if (!filters.ExplicitStates)
         {
-            query = query.Where(x => x.Request.State == state);
-        }
-        else if (historicOnly)
-        {
-            query = query.Where(x => x.Request.State == TicketState.Resolved);
-        }
-        else if (activeOnly)
-        {
-            query = query.Where(x => x.Request.State != TicketState.Resolved);
-        }
-        else
-        {
-            query = query.Where(x => x.Request.State != TicketState.Resolved);
+            if (state is not null)
+            {
+                query = query.Where(x => x.Request.State == state);
+            }
+            else if (historicOnly || httpRequest.Query["view"] == "historic")
+            {
+                query = query.Where(x => x.Request.State == TicketState.Resolved);
+            }
+            else if (activeOnly)
+            {
+                query = query.Where(x => x.Request.State != TicketState.Resolved);
+            }
+            else
+            {
+                query = query.Where(x => x.Request.State != TicketState.Resolved);
+            }
         }
 
         if (aiOnly)
@@ -831,28 +839,27 @@ public static class RequestEndpoints
 
         if (!string.IsNullOrWhiteSpace(q))
         {
-            var like = $"%{q.Trim()}%";
+            var like = "%" + q.Trim().Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_") + "%";
             query = db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL"
                 ? query.Where(x =>
-                    EF.Functions.ILike(x.Request.Title, like) ||
-                    EF.Functions.ILike(x.Request.Description, like) ||
-                    EF.Functions.ILike(x.Request.TrackingId, like) ||
-                    EF.Functions.ILike(x.OrgName!, like) ||
-                    EF.Functions.ILike(x.CustomerName!, like) ||
-                    EF.Functions.ILike(x.CustomerEmail!, like))
+                    EF.Functions.ILike(x.Request.Title, like, "\\") ||
+                    EF.Functions.ILike(x.Request.Description, like, "\\") ||
+                    EF.Functions.ILike(x.Request.TrackingId, like, "\\") ||
+                    EF.Functions.ILike(x.OrgName!, like, "\\") ||
+                    EF.Functions.ILike(x.CustomerName!, like, "\\") ||
+                    EF.Functions.ILike(x.CustomerEmail!, like, "\\"))
                 : query.Where(x =>
-                    EF.Functions.Like(x.Request.Title, like) ||
-                    EF.Functions.Like(x.Request.Description, like) ||
-                    EF.Functions.Like(x.Request.TrackingId, like) ||
-                    EF.Functions.Like(x.OrgName!, like) ||
-                    EF.Functions.Like(x.CustomerName!, like) ||
-                    EF.Functions.Like(x.CustomerEmail!, like));
+                    EF.Functions.Like(x.Request.Title, like, "\\") ||
+                    EF.Functions.Like(x.Request.Description, like, "\\") ||
+                    EF.Functions.Like(x.Request.TrackingId, like, "\\") ||
+                    EF.Functions.Like(x.OrgName!, like, "\\") ||
+                    EF.Functions.Like(x.CustomerName!, like, "\\") ||
+                    EF.Functions.Like(x.CustomerEmail!, like, "\\"));
         }
 
-        var totalCount = includeTotal ? await query.CountAsync() : 0;
+        var totalCount = includeTotal ? await query.CountAsync(cancellationToken) : 0;
 
-        var orderedQuery = query
-            .OrderByDescending(x => x.Request.UpdatedAt ?? x.Request.CreatedAt)
+        var orderedQuery = filters.Order(query, "Request")
             .Select(x => new
             {
                 x.Request.OrganizationId,
@@ -862,7 +869,7 @@ public static class RequestEndpoints
                 x.Request.Priority,
                 x.Request.State,
                 x.Request.CreatedAt,
-                x.Request.UpdatedAt,
+                UpdatedAt = x.Request.UpdatedAt ?? x.Request.CreatedAt,
                 x.Request.TrackingId,
                 x.Request.AssignedToId,
                 x.Request.LastReplierName,
@@ -884,8 +891,8 @@ public static class RequestEndpoints
             ? await orderedQuery
                 .Skip((page.Value - 1) * effectivePageSize)
                 .Take(effectivePageSize)
-                .ToListAsync()
-            : await orderedQuery.ToListAsync();
+                .ToListAsync(cancellationToken)
+            : await orderedQuery.ToListAsync(cancellationToken);
 
         var requestIds = rawItems.Select(x => x.Id).ToList();
         if (summaryOnly)

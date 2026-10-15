@@ -1,0 +1,102 @@
+@using HelpDesk.NewWeb.Services
+@using Helpdesk.Shared.DTOs
+@implements IDisposable
+<div class="ticket-filters">
+    <div class="filter-toolbar">
+        <MudTextField T="string" Value="@State.Search" ValueChanged="SearchChanged" Placeholder="Search tickets" aria-label="Search tickets"
+                      MaxLength="200" Immediate="true" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Margin="Margin.Dense" Variant="Variant.Outlined" />
+        <MudButton OnClick="@(() => expanded = !expanded)" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.FilterList" aria-expanded="@expanded">Filters (@State.ActiveCount)</MudButton>
+        <MudButton OnClick="Clear" Disabled="@(State.ActiveCount == 0 && State.Search.Length == 0 && State.View == "active" && State.ValidationError is null)">Clear all</MudButton>
+    </div>
+    @if (expanded)
+    {
+        <div class="filter-grid" aria-label="Ticket filters">
+            <TicketFilterLookup Module="@Module" Dimension="customer" Label="Customer" Selected="@(option => Add(State.CustomerOrgIds, option))" />
+            <TicketFilterLookup @key="string.Join('|', State.CustomerOrgIds)" Module="@Module" Dimension="for" Label="For" OrganizationIds="State.CustomerOrgIds" Selected="@(option => Add(State.ForIds, option))" />
+            <TicketFilterLookup @key="("assignee" + string.Join('|', State.CustomerOrgIds))" Module="@Module" Dimension="assignee" Label="Assignee" OrganizationIds="State.CustomerOrgIds" Selected="@(option => Add(State.AssigneeIds, option))" />
+            <MudSelect T="string" Label="State" MultiSelection="true" SelectedValues="State.States" SelectedValuesChanged="StatesChanged" Variant="Variant.Outlined" Margin="Margin.Dense">
+                @foreach (var value in StateOptions) { <MudSelectItem T="string" Value="@value">@value</MudSelectItem> }
+            </MudSelect>
+            <MudSelect T="string" Label="Priority" MultiSelection="true" SelectedValues="State.Priorities" SelectedValuesChanged="PrioritiesChanged" Variant="Variant.Outlined" Margin="Margin.Dense">
+                @foreach (var value in Enum.GetNames<TicketPriority>()) { <MudSelectItem T="string" Value="@value">@value</MudSelectItem> }
+            </MudSelect>
+            <MudCheckBox T="bool" Value="State.Unassigned" ValueChanged="UnassignedChanged" Label="Unassigned" />
+            <MudSelect T="string" Label="View" Value="State.View" ValueChanged="ViewChanged" Variant="Variant.Outlined" Margin="Margin.Dense">
+                <MudSelectItem Value="@("active")">Active</MudSelectItem><MudSelectItem Value="@("historic")">Historic</MudSelectItem><MudSelectItem Value="@("all")">All</MudSelectItem>
+            </MudSelect>
+            <MudSelect T="string" Label="Time field" Value="State.TimeField" ValueChanged="TimeFieldChanged" Variant="Variant.Outlined" Margin="Margin.Dense">
+                <MudSelectItem Value="@("updated")">Updated at</MudSelectItem><MudSelectItem Value="@("created")">Created at</MudSelectItem>
+            </MudSelect>
+            <MudTextField T="string" Label="From (inclusive)" @bind-Value="fromText" Placeholder="YYYY-MM-DD HH:mm" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            <MudTextField T="string" Label="To (exclusive)" @bind-Value="toText" Placeholder="YYYY-MM-DD HH:mm" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            <MudTextField T="string" Label="Timezone" @bind-Value="zoneText" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            <MudButton OnClick="ApplyTime" Variant="Variant.Outlined">Apply time range</MudButton>
+            <MudSelect T="string" Label="Sort by" Value="State.Sort" ValueChanged="SortChanged" Variant="Variant.Outlined" Margin="Margin.Dense">
+                <MudSelectItem Value="@("updated")">Updated at</MudSelectItem><MudSelectItem Value="@("created")">Created at</MudSelectItem><MudSelectItem Value="@("trackingId")">Tracking ID</MudSelectItem><MudSelectItem Value="@("subject")">Subject</MudSelectItem><MudSelectItem Value="@("priority")">Priority</MudSelectItem><MudSelectItem Value="@("state")">State</MudSelectItem>
+            </MudSelect>
+            <MudCheckBox T="bool" Value="State.Descending" ValueChanged="DirectionChanged" Label="Descending" />
+        </div>
+        <p class="filter-help">Customer is the ticket organization. For is @(Module == "change" ? "the requested-for user" : "the customer contact"). Times use @State.TimeZone; date-only To includes that whole local day.</p>
+    }
+    <p class="filter-help" role="status">@(State.States.Count > 0 ? "Selected states replace the active/historic view restriction." : State.View == "all" ? "Showing all lifecycle states." : State.View == "historic" ? "Historic view: completed tickets only." : "Active view: completed tickets are excluded.")</p>
+    @if (error is not null) { <MudAlert Severity="Severity.Error" Dense="true">@error</MudAlert> }
+    <div class="filter-chips" aria-label="Applied filters">
+        @foreach (var values in new[] { ("Customer", State.CustomerOrgIds), ("For", State.ForIds), ("State", State.States), ("Assignee", State.AssigneeIds), ("Priority", State.Priorities) })
+        {
+            @foreach (var id in values.Item2.ToArray())
+            {
+                <MudChip T="string" Size="Size.Small" OnClose="@(() => Remove(values.Item2, id))">@values.Item1: @(labels.GetValueOrDefault(id, id))</MudChip>
+            }
+        }
+        @if (State.Unassigned) { <MudChip T="string" Size="Size.Small" OnClose="@(() => UnassignedChanged(false))">Unassigned</MudChip> }
+        @if (State.From.HasValue) { <MudChip T="string" Size="Size.Small" OnClose="ClearFrom">@TimeLabel from @Local(State.From)</MudChip> }
+        @if (State.To.HasValue) { <MudChip T="string" Size="Size.Small" OnClose="ClearTo">@TimeLabel before @Local(State.To)</MudChip> }
+    </div>
+</div>
+@code {
+    [Parameter] public string Module { get; set; } = "incident";
+    [Parameter] public TicketListState State { get; set; } = new();
+    [Parameter] public EventCallback Changed { get; set; }
+    private bool expanded;
+    private string? error;
+    private string fromText = "", toText = "", zoneText = "UTC";
+    private TicketListState? previous;
+    private CancellationTokenSource? debounce;
+    private readonly Dictionary<string, string> labels = [];
+    private IEnumerable<string> StateOptions => Module == "change" ? Enum.GetNames<ChangeLifecycleState>() : Enum.GetNames<TicketState>();
+    private string TimeLabel => State.TimeField == "created" ? "Created" : "Updated";
+    private string Local(DateTimeOffset? value) { try { return value is null ? "" : TimeZoneInfo.ConvertTime(value.Value, TimeZoneInfo.FindSystemTimeZoneById(State.TimeZone)).ToString("yyyy-MM-dd HH:mm"); } catch (TimeZoneNotFoundException) { return value?.ToString("u") ?? ""; } }
+    protected override void OnParametersSet() { if (!ReferenceEquals(previous, State)) { previous = State; fromText = Local(State.From); toText = Local(State.To); zoneText = State.TimeZone; } }
+    private async Task SearchChanged(string value)
+    {
+        State.Search = value; debounce?.Cancel(); debounce?.Dispose(); debounce = new(); var token = debounce.Token;
+        try { await Task.Delay(300, token); await Changed.InvokeAsync(); } catch (OperationCanceledException) { }
+    }
+    private Task Add(List<string> values, TicketFilterOptionDto option) { if (values.Count >= 20 || values.Contains(option.Id)) return Task.CompletedTask; values.Add(option.Id); labels[option.Id] = option.Label; return Changed.InvokeAsync(); }
+    private Task Remove(List<string> values, string id) { values.Remove(id); return Changed.InvokeAsync(); }
+    private Task StatesChanged(IEnumerable<string> values) { State.States = values.ToList(); if (State.States.Count > 0) State.View = "all"; return Changed.InvokeAsync(); }
+    private Task PrioritiesChanged(IEnumerable<string> values) { State.Priorities = values.ToList(); return Changed.InvokeAsync(); }
+    private Task UnassignedChanged(bool value) { State.Unassigned = value; return Changed.InvokeAsync(); }
+    private Task ViewChanged(string value) { State.View = value; State.States.Clear(); return Changed.InvokeAsync(); }
+    private Task TimeFieldChanged(string value) { State.TimeField = value; return Changed.InvokeAsync(); }
+    private Task SortChanged(string value) { State.Sort = value; return Changed.InvokeAsync(); }
+    private Task DirectionChanged(bool value) { State.Descending = value; return Changed.InvokeAsync(); }
+    private Task ClearFrom() { State.From = null; fromText = ""; return Changed.InvokeAsync(); }
+    private Task ClearTo() { State.To = null; toText = ""; return Changed.InvokeAsync(); }
+    private Task Clear()
+    {
+        debounce?.Cancel(); State.Search = ""; State.CustomerOrgIds.Clear(); State.ForIds.Clear(); State.States.Clear(); State.AssigneeIds.Clear(); State.Priorities.Clear(); State.Unassigned = false; State.From = State.To = null; State.View = "active"; State.ValidationError = null; fromText = toText = ""; error = null;
+        return Changed.InvokeAsync();
+    }
+    private async Task ApplyTime()
+    {
+        try
+        {
+            var from = TicketListState.LocalBoundary(fromText, zoneText, false); var to = TicketListState.LocalBoundary(toText, zoneText, true);
+            if (from >= to) throw new FormatException("From must be earlier than To.");
+            State.From = from; State.To = to; State.TimeZone = zoneText; State.ValidationError = null; error = null; await Changed.InvokeAsync();
+        }
+        catch (Exception ex) when (ex is FormatException or TimeZoneNotFoundException or InvalidTimeZoneException or ArgumentOutOfRangeException) { error = ex.Message; }
+    }
+    public void Dispose() { debounce?.Cancel(); debounce?.Dispose(); }
+}

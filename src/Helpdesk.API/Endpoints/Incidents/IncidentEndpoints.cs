@@ -1,3 +1,4 @@
+using Helpdesk.API.Endpoints.Ticketing;
 using Helpdesk.API.Background;
 using Helpdesk.API.Authentication;
 using Helpdesk.API.Services;
@@ -47,6 +48,8 @@ public static class IncidentEndpoints
             [FromServices] HelpdeskDbContext db,
             [FromServices] ICurrentUserAccessService accessService,
             ClaimsPrincipal user,
+            HttpRequest httpRequest,
+            CancellationToken cancellationToken,
             int page = 1,
             int pageSize = 10,
             [FromQuery] TicketState? state = null,
@@ -59,11 +62,14 @@ public static class IncidentEndpoints
             string? requesterEmail = null,
             string? q = null) =>
         {
+            if (!TicketListQuery.TryParse(httpRequest.Query, false, out var filters, out var filterError)) return Results.BadRequest(new { error = filterError });
+            page = Math.Clamp(page, 1, 1_000_000);
+            pageSize = Math.Clamp(pageSize, 1, 100);
             var query =
-                from i in db.Incidents.AsNoTracking()
+                from i in filters.Apply(db.Incidents.AsNoTracking(), false)
                 join c in db.Customers.AsNoTracking() on i.CustomerId equals c.Id into ic
                 from c in ic.DefaultIfEmpty()
-                join o in db.Organizations.AsNoTracking() on c!.OrganizationId equals o.Id into co
+                join o in db.Organizations.AsNoTracking() on i.OrganizationId equals o.Id into co
                 from o in co.DefaultIfEmpty()
                 select new
                 {
@@ -74,7 +80,7 @@ public static class IncidentEndpoints
                     CustomerEmail = c != null ? c.Email : null
                 };
 
-            var access = await accessService.ResolveAsync(user);
+            var access = await accessService.ResolveAsync(user, cancellationToken);
             if (!access.IsHelpdeskAdmin)
             {
                 var tenantReadOrganizationIds = access.OrganizationIdsFor(Helpdesk.Shared.Auth.HelpdeskPermissions.IncidentRead)
@@ -110,49 +116,51 @@ public static class IncidentEndpoints
                     (x.CustomerEmail != null && x.CustomerEmail.ToLower() == requestedEmail));
             }
 
-            if (state is not null)
+            if (!filters.ExplicitStates)
             {
-                query = query.Where(x => x.Incident.State == state);
-            }
-            else if (historicOnly)
-            {
-                query = query.Where(x => x.Incident.State == TicketState.Resolved);
-            }
-            else if (activeOnly)
-            {
-                query = query.Where(x => x.Incident.State != TicketState.Resolved);
-            }
-            else
-            {
-                query = query.Where(x => x.Incident.State != TicketState.Resolved);
+                if (state is not null)
+                {
+                    query = query.Where(x => x.Incident.State == state);
+                }
+                else if (historicOnly || httpRequest.Query["view"] == "historic")
+                {
+                    query = query.Where(x => x.Incident.State == TicketState.Resolved);
+                }
+                else if (activeOnly)
+                {
+                    query = query.Where(x => x.Incident.State != TicketState.Resolved);
+                }
+                else
+                {
+                    query = query.Where(x => x.Incident.State != TicketState.Resolved);
+                }
             }
 
             if (!string.IsNullOrWhiteSpace(q))
             {
-                var like = $"%{q.Trim()}%";
+                var like = "%" + q.Trim().Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_") + "%";
                 query = db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL"
                     ? query.Where(x =>
-                        EF.Functions.ILike(x.Incident.Title, like) ||
-                        EF.Functions.ILike(x.Incident.Description, like) ||
-                        EF.Functions.ILike(x.Incident.TrackingId, like) ||
-                        EF.Functions.ILike(x.OrgName!, like) ||
-                        EF.Functions.ILike(x.CustomerName!, like) ||
-                        EF.Functions.ILike(x.Incident.RequesterEmail!, like) ||
-                        EF.Functions.ILike(x.CustomerEmail!, like))
+                        EF.Functions.ILike(x.Incident.Title, like, "\\") ||
+                        EF.Functions.ILike(x.Incident.Description, like, "\\") ||
+                        EF.Functions.ILike(x.Incident.TrackingId, like, "\\") ||
+                        EF.Functions.ILike(x.OrgName!, like, "\\") ||
+                        EF.Functions.ILike(x.CustomerName!, like, "\\") ||
+                        EF.Functions.ILike(x.Incident.RequesterEmail!, like, "\\") ||
+                        EF.Functions.ILike(x.CustomerEmail!, like, "\\"))
                     : query.Where(x =>
-                        EF.Functions.Like(x.Incident.Title, like) ||
-                        EF.Functions.Like(x.Incident.Description, like) ||
-                        EF.Functions.Like(x.Incident.TrackingId, like) ||
-                        EF.Functions.Like(x.OrgName!, like) ||
-                        EF.Functions.Like(x.CustomerName!, like) ||
-                        EF.Functions.Like(x.Incident.RequesterEmail!, like) ||
-                        EF.Functions.Like(x.CustomerEmail!, like));
+                        EF.Functions.Like(x.Incident.Title, like, "\\") ||
+                        EF.Functions.Like(x.Incident.Description, like, "\\") ||
+                        EF.Functions.Like(x.Incident.TrackingId, like, "\\") ||
+                        EF.Functions.Like(x.OrgName!, like, "\\") ||
+                        EF.Functions.Like(x.CustomerName!, like, "\\") ||
+                        EF.Functions.Like(x.Incident.RequesterEmail!, like, "\\") ||
+                        EF.Functions.Like(x.CustomerEmail!, like, "\\"));
             }
 
-            var totalCount = includeTotal ? await query.CountAsync() : 0;
+            var totalCount = includeTotal ? await query.CountAsync(cancellationToken) : 0;
 
-            var rawItems = await query
-                .OrderByDescending(x => x.Incident.UpdatedAt ?? x.Incident.CreatedAt)
+            var rawItems = await filters.Order(query, "Incident")
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
                 .Select(x => new
@@ -172,7 +180,7 @@ public static class IncidentEndpoints
                     x.Incident.LastReplierName,
                     x.Incident.AssignedToId
                 })
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             var incidentIds = rawItems.Select(x => x.Id).ToList();
             if (summaryOnly)
