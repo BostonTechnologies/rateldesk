@@ -124,6 +124,8 @@ test('first-run setup initializes, survives restart, and supports isolated scope
   // Login starts with an empty browser cookie jar. An earlier API login cannot mask failure.
   await page.context().clearCookies();
   await page.goto('/');
+  // FocusOnNavigate marks the interactive portal render, after prerender hydration.
+  await expect(page.getByRole('heading', { level: 1, name: 'Welcome to Browser Wizard RatelDesk', exact: true })).toBeFocused();
   await page.getByRole('link', { name: 'Admin sign-in' }).click();
   await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByTestId('local-login-form')).toHaveAttribute('data-interactive', 'true');
