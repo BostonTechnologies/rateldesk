@@ -63,8 +63,19 @@ test('bounded selection, cancelled confirmation, mixed results, removal and refr
   await ready(page);
   await page.locator('.pending-mail thead input[type="checkbox"]').check();
   await expect(page.getByText('1205 deliveries · 25 selected records on this page')).toBeVisible();
-  page.once('dialog', dialog => dialog.dismiss());
-  await page.getByRole('button', { name: 'Cancel selected', exact: true }).click();
+  // A Blazor click may complete before its server-side confirmation reaches the browser.
+  // Finish dismissing that dialog before registering a handler for the next action.
+  const cancellationHandled = new Promise<void>((resolve, reject) => {
+    page.once('dialog', async dialog => {
+      try {
+        expect(dialog.type()).toBe('confirm');
+        expect(dialog.message()).toContain('25 explicitly selected record(s)');
+        await dialog.dismiss();
+        resolve();
+      } catch (error) { reject(error); }
+    });
+  });
+  await Promise.all([cancellationHandled, page.getByRole('button', { name: 'Cancel selected', exact: true }).click()]);
   expect((await (await request.get(`${fixture}/state`)).json()).actions).toHaveLength(0);
   page.on('dialog', dialog => dialog.type() === 'prompt' ? dialog.accept('Synthetic operator review') : dialog.accept());
   await page.getByRole('button', { name: 'Retry selected', exact: true }).click();
