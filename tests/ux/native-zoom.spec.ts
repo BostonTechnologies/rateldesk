@@ -1,5 +1,5 @@
 import { chromium, expect, test } from '@playwright/test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 const suite = process.env.HELPDESK_NATIVE_ZOOM_SUITE!;
@@ -60,8 +60,28 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
           await expect(page.frameLocator('iframe[title="Original email content"]').first().getByText('Readable original foreground')).toBeVisible();
         }
         await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(2);
-        await page.screenshot({ path: info.outputPath(`${route.replaceAll('/', '-')}-${theme}-${width}-native-200.png`), fullPage: true });
-        await info.attach(`${route}-native-zoom`, { body: JSON.stringify({ zoom, physicalWidth: width, layoutWidth: await page.evaluate(() => innerWidth), theme }), contentType: 'application/json' });
+        // Playwright's fullPage screenshot supplies a CSS-pixel clip. Chromium
+        // native zoom applies that clip to device pixels, truncating the right
+        // half at 200%. Capture the physical viewport without a clip instead.
+        await page.evaluate(() => scrollTo(0, 0));
+        await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
+        const cdp = await context.newCDPSession(page);
+        let screenshot: Buffer;
+        try {
+          const capture = await cdp.send('Page.captureScreenshot', {
+            format: 'png', fromSurface: true, captureBeyondViewport: false
+          });
+          screenshot = Buffer.from(capture.data, 'base64');
+        } finally {
+          await cdp.detach();
+        }
+        const captureWidth = screenshot.readUInt32BE(16);
+        const captureHeight = screenshot.readUInt32BE(20);
+        expect(captureWidth).toBe(width);
+        expect(captureHeight).toBe(1000);
+        await writeFile(info.outputPath(`${route.replaceAll('/', '-')}-${theme}-${width}-native-200.png`), screenshot);
+        await info.attach(`${route}-native-zoom`, { body: JSON.stringify({ zoom, physicalWidth: width, layoutWidth: await page.evaluate(() => innerWidth), theme,
+          capture: 'physical viewport without CSS clip', captureWidth, captureHeight }), contentType: 'application/json' });
       }
     } finally {
       await context.close();
