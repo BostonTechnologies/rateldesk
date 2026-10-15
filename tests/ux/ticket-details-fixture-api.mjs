@@ -19,7 +19,7 @@ function reset() {
   tickets = Object.fromEntries(['incidents', 'requests', 'changes'].map(module => [module, {
     id: `${module}-1`, subject: 'Picker incident', title: `Picker ${module}`, description: 'Fixture ticket',
     trackingId: 'UX-146', organizationId: 'org-1', state: 0, priority: 1, lifecycleState: 0,
-    categoryIds: [categoryOne, categoryTwo], createdAt: "2026-10-01T10:00:00Z", updatedAt: "2026-10-02T12:00:00Z", sla: { status: 1, responseRemainingSeconds: 600, resolutionRemainingSeconds: 3600, responsePercentUsed: 30, resolutionPercentUsed: 40 }, assignedToId: null, implementorUserId: null, requestedForUserId: 'user-0',
+    categoryIds: [categoryOne, categoryTwo], ccRecipients: ['observer@example.test'], createdAt: "2026-10-01T10:00:00Z", updatedAt: "2026-10-02T12:00:00Z", sla: { status: 1, responseRemainingSeconds: 600, resolutionRemainingSeconds: 3600, responsePercentUsed: 30, resolutionPercentUsed: 40 }, assignedToId: null, implementorUserId: null, requestedForUserId: 'user-0',
     requestedForUserName: 'Alpha 00', requestedForUserEmail: 'alpha0@example.test', approverUserIds: [],
     approvers: [], approvals: [], changeTemplate: {}, templateValidationErrors: [], isTemplateComplete: false
   }]));

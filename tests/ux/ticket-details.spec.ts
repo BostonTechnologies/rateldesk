@@ -112,6 +112,8 @@ for (const module of ['incidents', 'requests', 'changes']) {
     await expect(selected(page).locator('.mud-chip-close-button')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Save Changes', exact: true })).toBeDisabled();
     await expect(page.getByRole('tab', { name: 'AI Assistant' })).toHaveCount(0);
+    await page.getByRole('tab', { name: /Listeners/ }).click();
+    await expect(page.getByRole('tabpanel', { name: /Listeners/ }).locator('.mud-chip-close-button')).toHaveCount(0);
     await noOverflow(page);
   });
 }
@@ -294,4 +296,15 @@ test('late attachment callback cannot replace counts after A B A navigation', as
   await page.getByRole('tab', { name: 'Messages', exact: true }).click();
   await expect(page.getByRole('tab', { name: 'Messages', exact: true })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('tab', { name: /Attachments/ }).locator('.activity-count')).toHaveAttribute('aria-label', '0 items');
+});
+
+
+test('authorized listener removal refreshes the exact inline count from one to zero', async ({ page, request }) => {
+  await open(page);
+  await page.getByRole('tab', { name: /Listeners/ }).click();
+  const tab = page.getByRole('tab', { name: /Listeners/ });
+  await expect(tab.locator('.activity-count')).toHaveAttribute('aria-label', '1 items');
+  await page.getByRole('tabpanel', { name: /Listeners/ }).locator('.mud-chip-close-button').click();
+  await expect(tab.locator('.activity-count')).toHaveAttribute('aria-label', '0 items');
+  expect((await (await request.get(`${fixture}/state`)).json()).tickets.incidents.ccRecipients).toEqual([]);
 });
