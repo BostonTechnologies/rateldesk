@@ -167,14 +167,16 @@
         var id = Uri.EscapeDataString(TicketId);
         await Task.WhenAll(AvailableTabs.Where(x => x.HasCount).Select(async tab =>
         {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+            timeout.CancelAfter(TimeSpan.FromSeconds(3));
             try
             {
                 var count = tab.Id == "relations"
-                    ? (await api.GetFromJsonAsync<List<TicketRelationDto>>($"api/v1/incidents/{id}/relations", token))?.Count ?? 0
-                    : await api.GetFromJsonAsync<int>($"api/v1/{type}/{id}/{tab.Id}/count", token);
+                    ? (await api.GetFromJsonAsync<List<TicketRelationDto>>($"api/v1/incidents/{id}/relations", timeout.Token))?.Count ?? 0
+                    : await api.GetFromJsonAsync<int>($"api/v1/{type}/{id}/{tab.Id}/count", timeout.Token);
                 if (!token.IsCancellationRequested) counts[tab.Id] = count;
             }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException) { if (!token.IsCancellationRequested) unavailableCounts.Add(tab.Id); }
             catch (HttpRequestException) { if (!token.IsCancellationRequested) unavailableCounts.Add(tab.Id); }
             catch (System.Text.Json.JsonException) { if (!token.IsCancellationRequested) unavailableCounts.Add(tab.Id); }
         }));

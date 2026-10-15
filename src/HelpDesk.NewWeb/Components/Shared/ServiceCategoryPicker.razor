@@ -118,12 +118,17 @@
             if (cancellation.IsCancellationRequested || version != searchVersion) return Array.Empty<TicketCategoryDto>();
             exactMatch = result.Any(x => string.Equals(Normalize(x.Name), Normalize(value), StringComparison.OrdinalIgnoreCase));
             searchComplete = true;
+            await InvokeAsync(StateHasChanged);
             return result.DistinctBy(x => x.Id).ToArray();
         }
         catch (OperationCanceledException) { return Array.Empty<TicketCategoryDto>(); }
         catch (HttpRequestException)
         {
-            if (version == searchVersion) error = "Unable to search categories. Try again.";
+            if (version == searchVersion)
+            {
+                error = "Unable to search categories. Try again.";
+                await InvokeAsync(StateHasChanged);
+            }
             return Array.Empty<TicketCategoryDto>();
         }
     }
@@ -136,7 +141,11 @@
         await SelectedCategoryIdsChanged.InvokeAsync(ids);
         searchText = string.Empty;
         searchComplete = false;
-        if (autocomplete is not null) await autocomplete.ClearAsync();
+        if (autocomplete is not null)
+        {
+            await autocomplete.ClearAsync();
+            await autocomplete.CloseMenuAsync();
+        }
     }
 
     private Task RemoveCategory(Guid id)

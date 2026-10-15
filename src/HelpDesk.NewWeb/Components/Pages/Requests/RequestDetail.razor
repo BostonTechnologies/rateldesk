@@ -391,8 +391,15 @@ else
             || item.Category.Contains(workflowSearch, StringComparison.OrdinalIgnoreCase))
         .ToList();
 
-    protected override async Task OnInitializedAsync()
+    private string? loadedRequestId;
+    protected override async Task OnParametersSetAsync()
     {
+        if (loadedRequestId == Id) return;
+        loadedRequestId = Id;
+        var loadingId = Id;
+        loading = true;
+        hasChanges = false;
+        isUpdating = false;
         try
         {
             var requestTask = HelpdeskApi.GetFromJsonAsync<RequestDto>($"api/v1/requests/{Id}");
@@ -404,6 +411,7 @@ else
 
             await Task.WhenAll(requestTask, categoriesTask, requestTasksTask, workflowTimelineTask, rolesTask);
 
+            if (loadingId != Id) return;
             originalRequest = await requestTask;
             categories = await categoriesTask ?? new();
             categories = categories
@@ -423,12 +431,13 @@ else
         }
         catch (Exception ex)
         {
+            if (loadingId != Id) return;
             Snackbar.Add($"Error loading data: {ex.Message}", Severity.Error);
             request = null;
         }
         finally
         {
-            loading = false;
+            if (loadingId == Id) loading = false;
         }
     }
 
@@ -528,6 +537,7 @@ else
     {
         if (!CanManage || request is null || !hasChanges) return;
 
+        var savingTicketId = Id;
         isUpdating = true;
 
         try
@@ -539,11 +549,13 @@ else
                 CategoryIds = selectedCategoryIds.ToList()
             };
 
-            var response = await HelpdeskApi.PutAsJsonAsync($"api/v1/requests/{Id}", updateDto);
+            var response = await HelpdeskApi.PutAsJsonAsync($"api/v1/requests/{savingTicketId}", updateDto);
 
+            if (savingTicketId != Id) return;
             if (response.IsSuccessStatusCode)
             {
                 var updated = await response.Content.ReadFromJsonAsync<RequestDto>();
+                if (savingTicketId != Id) return;
                 if (updated is not null)
                 {
                     originalRequest = CloneRequest(updated);
@@ -566,7 +578,7 @@ else
         }
         finally
         {
-            isUpdating = false;
+            if (savingTicketId == Id) isUpdating = false;
         }
     }
 
@@ -664,22 +676,26 @@ else
 
     private async Task LoadTasksAsync()
     {
+        var ticketId = Id;
         tasksLoading = true;
         try
         {
-            tasks = await HelpdeskApi.GetFromJsonAsync<List<RequestTaskDto>>($"api/v1/requests/{Id}/tasks") ?? new();
+            var loaded = await HelpdeskApi.GetFromJsonAsync<List<RequestTaskDto>>($"api/v1/requests/{ticketId}/tasks") ?? new();
+            if (ticketId == Id) tasks = loaded;
         }
         finally
         {
-            tasksLoading = false;
+            if (ticketId == Id) tasksLoading = false;
         }
     }
 
     private async Task LoadTeamMembersAsync()
     {
+        var ticketId = Id;
         try
         {
             var users = await HelpdeskApi.GetFromJsonAsync<List<UserDto>>($"api/v1/ticketing/assignees?module=request&organizationId={Uri.EscapeDataString(request?.OrganizationId ?? string.Empty)}") ?? new();
+            if (ticketId != Id) return;
             userDisplayNames = users
                 .Where(u => !string.IsNullOrWhiteSpace(u.Id))
                 .GroupBy(u => u.Id)
@@ -690,7 +706,7 @@ else
         }
         catch
         {
-            userDisplayNames = new(StringComparer.OrdinalIgnoreCase);
+            if (ticketId == Id) userDisplayNames = new(StringComparer.OrdinalIgnoreCase);
         }
     }
 
@@ -872,6 +888,7 @@ else
 
     private async Task LoadWorkflowTimelineAsync(bool reset)
     {
+        var ticketId = Id;
         workflowTimelineLoading = true;
         try
         {
@@ -884,7 +901,7 @@ else
 
             var url = BuildWorkflowTimelineUrl(workflowPage);
             var page = await HelpdeskApi.GetFromJsonAsync<PagedResponse<WorkflowTimelineItemDto>>(url);
-            if (page is null)
+            if (page is null || ticketId != Id)
             {
                 return;
             }
@@ -894,6 +911,7 @@ else
         }
         catch
         {
+            if (ticketId != Id) return;
             if (reset)
             {
                 workflowTimeline.Clear();
@@ -902,7 +920,7 @@ else
         }
         finally
         {
-            workflowTimelineLoading = false;
+            if (ticketId == Id) workflowTimelineLoading = false;
         }
     }
 

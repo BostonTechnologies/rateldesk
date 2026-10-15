@@ -1,6 +1,7 @@
 @using Helpdesk.Shared.Services
 @inject AuthenticationStateProvider AccessAuthenticationState
 @page "/changes/{Id}"
+@implements IDisposable
 @attribute [Authorize(Roles = "Change.User,Change.Read,Change.Write,Change.Manager,HelpdeskAdmin")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 
@@ -309,7 +310,8 @@
     private List<TicketCategoryDto> categories = new();
     private HashSet<Guid> selectedCategoryIds = new();
     private bool loading = true;
-    private bool hasLoaded;
+    private string? loadedChangeId;
+    private CancellationTokenSource loadCancellation = new();
     private bool isUpdating;
     private bool hasChanges;
     private string? loadError;
@@ -320,25 +322,23 @@
     private TimeSpan? implementationEndTime;
     private bool IsChangeLocked => !CanManage || (change is not null && change.LifecycleState != ChangeLifecycleState.Draft);
 
-    protected override void OnParametersSet()
+    protected override async Task OnParametersSetAsync()
     {
+        if (loadedChangeId == Id) return;
+        loadedChangeId = Id;
+        hasChanges = false;
+        isUpdating = false;
+        loading = true;
         renderBoundary?.Recover();
-    }
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (!firstRender || hasLoaded)
-        {
-            return;
-        }
-
-        hasLoaded = true;
         await LoadChangeAsync();
-        await InvokeAsync(StateHasChanged);
     }
+
+    public void Dispose() { loadCancellation.Cancel(); loadCancellation.Dispose(); }
 
     private async Task LoadChangeAsync()
     {
+        loadCancellation.Cancel(); loadCancellation.Dispose(); loadCancellation = new();
+        var token = loadCancellation.Token;
         Logger.LogInformation(
             "Loading change detail. ChangeId={ChangeId} Route={Route} TraceId={TraceId}",
             Id,
@@ -347,10 +347,11 @@
 
         try
         {
-            var changeTask = HelpdeskApi.GetFromJsonAsync<ChangeDto>($"api/v1/changes/{Id}");
-            var categoriesTask = HelpdeskApi.GetFromJsonAsync<List<TicketCategoryDto>>($"api/v1/categories?type={(int)TicketCategoryType.Change}");
+            var changeTask = HelpdeskApi.GetFromJsonAsync<ChangeDto>($"api/v1/changes/{Id}", token);
+            var categoriesTask = HelpdeskApi.GetFromJsonAsync<List<TicketCategoryDto>>($"api/v1/categories?type={(int)TicketCategoryType.Change}", token);
             accessProfile = CurrentUserAccessProfile.FromClaims((await AccessAuthenticationState.GetAuthenticationStateAsync()).User);
             await Task.WhenAll(changeTask, categoriesTask);
+            token.ThrowIfCancellationRequested();
 
             originalChange = await changeTask;
             categories = await categoriesTask ?? new();
@@ -366,8 +367,9 @@
             {
                 change = CloneChange(originalChange);
                 organizations = CanManage
-                    ? await HelpdeskApi.GetFromJsonAsync<List<OrganizationDto>>("api/v1/ticketing/organizations?module=change") ?? new()
+                    ? await HelpdeskApi.GetFromJsonAsync<List<OrganizationDto>>("api/v1/ticketing/organizations?module=change", token) ?? new()
                     : new();
+                token.ThrowIfCancellationRequested();
                 change.ChangeTemplate ??= new ChangeTemplateDto();
                 SyncImplementationWindowEditors(change);
                 selectedCategoryIds = change.CategoryIds.ToHashSet();
@@ -384,6 +386,7 @@
                 NavigationManager.Uri,
                 Activity.Current?.TraceId.ToString());
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception ex)
         {
             Logger.LogError(
@@ -401,7 +404,7 @@
         }
         finally
         {
-            loading = false;
+            if (!token.IsCancellationRequested) loading = false;
         }
     }
 
@@ -664,17 +667,20 @@
     {
         if (!CanManage || change is null || !hasChanges) return;
 
+        var savingTicketId = Id;
         isUpdating = true;
 
         try
         {
             var updateDto = BuildUpdateDto();
 
-            var response = await HelpdeskApi.PutAsJsonAsync($"api/v1/changes/{Id}", updateDto);
+            var response = await HelpdeskApi.PutAsJsonAsync($"api/v1/changes/{savingTicketId}", updateDto);
 
+            if (savingTicketId != Id) return;
             if (response.IsSuccessStatusCode)
             {
                 var updated = await response.Content.ReadFromJsonAsync<ChangeDto>();
+                if (savingTicketId != Id) return;
                 if (updated is not null)
                 {
                     originalChange = CloneChange(updated);
@@ -702,7 +708,7 @@
         }
         finally
         {
-            isUpdating = false;
+            if (savingTicketId == Id) isUpdating = false;
         }
     }
 

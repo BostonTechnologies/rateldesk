@@ -177,6 +177,9 @@ else
 
         loading = true;
         loadedIncidentId = Id;
+        var loadingId = Id;
+        hasChanges = false;
+        isUpdating = false;
         activityTabsKey++;
 
         try
@@ -187,6 +190,7 @@ else
 
             await Task.WhenAll(incidentTask, categoriesTask);
 
+            if (loadingId != Id) return;
             originalIncident = await incidentTask;
             categories = await categoriesTask ?? new();
             categories = categories
@@ -206,12 +210,13 @@ else
         }
         catch (Exception ex)
         {
+            if (loadingId != Id) return;
             Snackbar.Add($"Error loading data: {ex.Message}", Severity.Error);
             incident = null;
         }
         finally
         {
-            loading = false;
+            if (loadingId == Id) loading = false;
         }
     }
 
@@ -318,6 +323,7 @@ else
     {
         if (!CanManage || incident is null || !hasChanges) return;
 
+        var savingTicketId = Id;
         isUpdating = true;
 
         try
@@ -331,11 +337,13 @@ else
                 CategoryIds = selectedCategoryIds.ToList()
             };
 
-            var response = await HelpdeskApi.PutAsJsonAsync($"api/v1/incidents/{Id}", updateDto);
+            var response = await HelpdeskApi.PutAsJsonAsync($"api/v1/incidents/{savingTicketId}", updateDto);
 
+            if (savingTicketId != Id) return;
             if (response.IsSuccessStatusCode)
             {
                 var updated = await response.Content.ReadFromJsonAsync<IncidentDto>();
+                if (savingTicketId != Id) return;
                 if (updated is not null)
                 {
                     originalIncident = CloneIncident(updated);
@@ -363,7 +371,7 @@ else
         }
         finally
         {
-            isUpdating = false;
+            if (savingTicketId == Id) isUpdating = false;
         }
     }
 

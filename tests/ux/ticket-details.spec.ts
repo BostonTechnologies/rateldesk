@@ -28,7 +28,7 @@ for (const module of ['incidents', 'requests', 'changes']) {
     await open(page, module);
     await addLiteral(page);
     expect((await (await request.get(`${fixture}/state`)).json()).saves).toHaveLength(0);
-    await selected(page).locator('.mud-chip').filter({ hasText: 'Network Operations' }).locator('.mud-chip-close').click();
+    await selected(page).locator('.mud-chip').filter({ hasText: 'Network Operations' }).locator('.mud-chip-close-button').click();
     await page.getByRole('button', { name: 'Save Changes', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Save Changes', exact: true })).toBeDisabled();
     let state = await (await request.get(`${fixture}/state`)).json();
@@ -37,7 +37,7 @@ for (const module of ['incidents', 'requests', 'changes']) {
     expect(state.categorySearches).toContain('R&D + 100%_\\');
     await page.reload();
     await expect(selected(page)).toContainText('R&D');
-    await selected(page).locator('.mud-chip').filter({ hasText: 'Historical selection' }).locator('.mud-chip-close').click();
+    await selected(page).locator('.mud-chip').filter({ hasText: 'Historical selection' }).locator('.mud-chip-close-button').click();
     await page.getByRole('button', { name: 'Revert', exact: true }).click();
     await expect(selected(page)).toContainText('Historical selection');
     await expect(selected(page)).toContainText('R&D');
@@ -107,7 +107,7 @@ for (const module of ['incidents', 'requests', 'changes']) {
   test(`${module} reader sees hydrated categories and no mutation or AI controls`, async ({ page }) => {
     await open(page, module, 'https://127.0.0.1:5191');
     await expect(categorySearch(page)).toBeDisabled();
-    await expect(selected(page).locator('.mud-chip-close')).toHaveCount(0);
+    await expect(selected(page).locator('.mud-chip-close-button')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Save Changes', exact: true })).toBeDisabled();
     await expect(page.getByRole('tab', { name: 'AI Assistant' })).toHaveCount(0);
     await noOverflow(page);
@@ -125,6 +125,8 @@ for (const width of [320, 768, 1920]) {
       expect(Object.values(bounds).every(Boolean)).toBe(true);
     }
     await page.screenshot({ path: testInfo.outputPath(`details-${width}-dark.png`), fullPage: true });
+    // Keep the effective CSS viewport at least 320px while exercising 200% reflow.
+    await page.setViewportSize({ width: Math.max(width, 640), height: 1000 });
     await page.evaluate(() => { document.documentElement.style.zoom = '2'; });
     await noOverflow(page);
     await page.getByRole('tab', { name: /Relations/ }).scrollIntoViewIfNeeded();
@@ -137,7 +139,7 @@ for (const module of ['incidents', 'requests', 'changes']) {
   test(`${module} authorized SLA pause and resume remain available`, async ({ page }) => {
     await open(page, module);
     await page.getByRole('button', { name: 'Pause SLA', exact: true }).click();
-    await page.getByRole('textbox', { name: 'Reason', exact: true }).fill('Synthetic pause reason');
+    await page.getByRole('textbox', { name: /^Reason/ }).fill('Synthetic pause reason');
     await page.getByRole('button', { name: 'Pause', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Resume SLA', exact: true })).toBeVisible();
     await expect(page.getByText('Pause reason: Synthetic pause reason')).toBeVisible();
@@ -146,22 +148,27 @@ for (const module of ['incidents', 'requests', 'changes']) {
   });
 }
 
-test('changing ticket during an outstanding search hydrates the new selection', async ({ page, request }) => {
-  await open(page);
-  await categorySearch(page).fill('slow');
-  await expect.poll(async () => (await (await request.get(`${fixture}/state`)).json()).categorySearches.includes('slow')).toBe(true);
-  await page.evaluate(() => { const link = document.createElement('a'); link.href = '/incidents/incidents-2'; link.textContent = 'Other fixture ticket'; document.body.appendChild(link); });
-  await page.getByRole('link', { name: 'Other fixture ticket' }).click();
-  await expect(selected(page)).toContainText('R&D');
-  await expect(selected(page)).not.toContainText('Network Operations');
-  await expect(selected(page)).not.toContainText('Historical selection');
-  await expect(selected(page)).not.toContainText('Stale result');
-});
+for (const module of ['incidents', 'requests', 'changes']) {
+  test(`${module} changing ticket during an outstanding search hydrates the new selection`, async ({ page, request }) => {
+    await open(page, module);
+    await categorySearch(page).fill('slow');
+    await expect.poll(async () => (await (await request.get(`${fixture}/state`)).json()).categorySearches.includes('slow')).toBe(true);
+    // Use a real intercepted anchor to exercise same-component parameter navigation.
+    const link = page.getByRole('link', { name: 'Home', exact: true });
+    await link.evaluate((element, href) => element.setAttribute('href', href), `/${module}/${module}-2`);
+    await link.click();
+    await expect(page).toHaveURL(new RegExp(`${module}/${module}-2$`));
+    await expect(selected(page)).toContainText('R&D');
+    await expect(selected(page)).not.toContainText('Network Operations');
+    await expect(selected(page)).not.toContainText('Historical selection');
+    await expect(selected(page)).not.toContainText('Stale result');
+  });
+}
 
 test('submitted changes retain lifecycle assignment restrictions', async ({ page, request }) => {
   await request.get(`${fixture}/fault?mode=locked`);
   await open(page, 'changes');
   await expect(categorySearch(page)).toBeDisabled();
-  await expect(selected(page).locator('.mud-chip-close')).toHaveCount(0);
-  await expect(page.locator('.ticket-header-category-chip .mud-chip-close')).toHaveCount(0);
+  await expect(selected(page).locator('.mud-chip-close-button')).toHaveCount(0);
+  await expect(page.locator('.ticket-header-category-chip .mud-chip-close-button')).toHaveCount(0);
 });

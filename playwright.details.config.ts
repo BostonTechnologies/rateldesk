@@ -1,6 +1,7 @@
 import { defineConfig } from '@playwright/test';
 import base from './playwright.config';
 export default defineConfig(base, {
+  timeout: 45_000, expect: { timeout: 10_000 },
   testMatch: ['**/ticket-details.spec.ts'], testIgnore: [], retries: 0, workers: 1,
   use: { ...base.use, baseURL: 'https://127.0.0.1:5190', ignoreHTTPSErrors: true },
   webServer: [

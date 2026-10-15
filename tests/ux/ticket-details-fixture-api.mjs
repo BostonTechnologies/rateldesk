@@ -93,7 +93,7 @@ http.createServer(async (req, res) => {
     }
     if (action === ticket.id) return reply(ticket);
     if (action === `${module}-2`) return reply({ ...ticket, id: `${module}-2`, categoryIds: [categoryThree] });
-    if (action?.endsWith('/peek')) return reply({ incidentId: ticket.id, description: 'Fixture message', emailBody: '<p>Fixture message</p>' });
+    if (action?.endsWith('/peek')) return reply({ incidentId: ticket.id, text: 'Fixture message', html: '<p>Fixture message</p>' });
     if (action?.endsWith('/timeline/count')) return reply(0);
     if (action?.endsWith('/attachments/count')) return reply(1200);
     if (action?.endsWith('/listeners/count')) return fault === 'counts' ? reply({}, 503) : reply(12);
