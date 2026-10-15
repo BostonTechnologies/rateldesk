@@ -80,17 +80,29 @@ test.describe('focused admin tasks', () => {
   await expect(page.getByRole('tab', { name: 'Custom roles (1)' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByText('synthetic-custom', { exact: true })).toBeVisible();
   await expect(page.getByText('builtin-reader', { exact: true })).not.toBeVisible();
-  await page.getByRole('button', { name: '2 permissions' }).click();
+  const permissions = page.getByRole('button', { name: '2 permissions', exact: true });
+  await permissions.click();
   await expect(page.getByRole('dialog')).toContainText('Read requests');
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
-  await page.getByRole('tab', { name: 'Built-in roles (1)' }).focus(); await page.keyboard.press('Enter');
+  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(page.getByRole('dialog')).toBeHidden();
+  // Dialog disposal restores focus asynchronously; finish that handoff before
+  // moving to a tab so Enter cannot activate the permissions opener again.
+  await expect(permissions).toBeFocused();
+  const builtInTab = page.getByRole('tab', { name: 'Built-in roles (1)' });
+  await builtInTab.focus();
+  await expect(builtInTab).toBeFocused();
+  await builtInTab.press('Enter');
+  await expect(builtInTab).toHaveAttribute('aria-selected', 'true');
   await expect(page).toHaveURL(/tab=built-in/);
   await expect(page.getByText('builtin-reader', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Edit role' })).toHaveCount(0);
-  await page.getByRole('button', { name: '1250 assignments' }).click();
+  const assignments = page.getByRole('button', { name: '1250 assignments', exact: true });
+  await assignments.click();
   await page.getByRole('dialog').getByRole('tab', { name: 'Assignments', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('Synthetic Operator');
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(page.getByRole('dialog')).toBeHidden();
+  await expect(assignments).toBeFocused();
   await reload(page); await expect(page.getByText('builtin-reader', { exact: true })).toBeVisible();
   await page.goBack(); await expect(page.getByText('synthetic-custom', { exact: true })).toBeVisible();
   await page.getByRole('textbox', { name: 'Search roles' }).fill('does-not-match');
