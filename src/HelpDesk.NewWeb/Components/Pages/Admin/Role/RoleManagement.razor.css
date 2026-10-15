@@ -8,8 +8,13 @@
     cursor: default;
 }
 
-.role-management-table :deep(.mud-table-cell) {
-    padding-top: 0.875rem;
-    padding-bottom: 0.875rem;
+.role-management-table ::deep .mud-table-cell {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
     vertical-align: top;
 }
+
+.role-workspace { min-width: 0; }
+.role-workspace ::deep .mud-stack-row { flex-wrap: wrap; }
+.role-workspace ::deep .mud-typography { overflow-wrap: anywhere; }
+.role-workspace ::deep .mud-tabs { max-width: 100%; }

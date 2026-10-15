@@ -6,23 +6,35 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject IDialogService DialogService
 @inject AuthenticationStateProvider AuthenticationState
+@inject NavigationManager Navigation
+@using Microsoft.AspNetCore.Components.Routing
 
 <PageTitle>Roles & Permissions</PageTitle>
 
-<MudPaper Class="helpdesk-content-surface pa-4">
+<NavigationLock ConfirmExternalNavigation="@showEditor" OnBeforeInternalNavigation="ConfirmNavigationAsync" />
+
+<div class="role-workspace"><MudPaper Class="helpdesk-content-surface pa-3">
     <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
         <MudStack Spacing="0">
             <MudText Typo="Typo.h4" HtmlTag="h1" Class="helpdesk-page-title">Roles & Permissions</MudText>
             <MudText Typo="Typo.body2" Color="Color.Secondary">Permissions apply only in the organization shown on each assignment.</MudText>
         </MudStack>
         <MudSpacer />
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="StartCreate">Create custom role</MudButton>
+        @if (activeTab == 0)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" Disabled="@(showEditor || saving)" OnClick="StartCreate">Create custom role</MudButton>
+        }
     </MudStack>
 
     @if (!string.IsNullOrWhiteSpace(error))
     {
         <MudAlert Severity="Severity.Error" Dense="true" Class="mb-3">@error</MudAlert>
     }
+
+    <MudTabs ActivePanelIndex="activeTab" ActivePanelIndexChanged="ChangeTab" Rounded="false" Elevation="0" Class="role-tabs">
+        <MudTabPanel Text="@($"Custom roles ({roles.Count(x => !x.IsBuiltIn)})")" />
+        <MudTabPanel Text="@($"Built-in roles ({roles.Count(x => x.IsBuiltIn)})")" />
+    </MudTabs>
 
     @if (showEditor)
     {
@@ -51,7 +63,7 @@
                 </MudItem>
             </MudGrid>
             <MudStack Row="true" Justify="Justify.FlexEnd" Class="mt-3">
-                <MudButton OnClick="CancelEdit">Cancel</MudButton>
+                <MudButton OnClick="CancelEdit" Disabled="saving">Cancel</MudButton>
                 <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="saving" OnClick="SaveAsync">@(saving ? "Saving…" : "Save role")</MudButton>
             </MudStack>
         </MudPaper>
@@ -63,8 +75,8 @@
     }
     else
     {
-        <MudTextField T="string" @bind-Value="searchText" Label="Search roles" Immediate="true" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Class="helpdesk-list-search mb-3" />
-        <MudTable Items="FilteredRoles" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Class="role-management-table">
+        <MudTextField T="string" @bind-Value="searchText" Label="Search roles" MaxLength="200" Immediate="true" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Class="helpdesk-list-search mb-3" />
+        <MudTable Items="FilteredRoles" RowsPerPage="25" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Class="role-management-table">
             <HeaderContent>
                 <MudTh>Role</MudTh>
                 <MudTh>Scope / owner</MudTh>
@@ -77,7 +89,7 @@
                     <MudStack Spacing="0" Class="role-row-heading">
                         <MudText Typo="Typo.subtitle2">@context.Name</MudText>
                         <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Key</MudText>
-                        @if (context.IsProtected)
+                        @if (context.IsBuiltIn)
                         {
                             <MudTooltip Text="Built-in roles are protected and cannot be edited or deleted.">
                                 <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Lock" Class="role-protected-status">Built-in</MudChip>
@@ -93,26 +105,23 @@
                     }
                 </MudTd>
                 <MudTd DataLabel="Permissions">
-                    @foreach (var permission in context.Permissions.Take(3))
-                    {
-                        <MudChip T="string" Size="Size.Small" Class="mr-1 mb-1">@PermissionLabel(permission)</MudChip>
-                    }
-                    @if (context.Permissions.Count > 3) { <MudText Typo="Typo.caption">+@(context.Permissions.Count - 3) more</MudText> }
+                    <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => OpenPermissions(context)">@context.Permissions.Count permission@(context.Permissions.Count == 1 ? string.Empty : "s")</MudButton>
                 </MudTd>
                 <MudTd DataLabel="Explicit assignments"><MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => OpenAssignments(context)">@context.AssignmentCount assignment@(context.AssignmentCount == 1 ? string.Empty : "s")</MudButton></MudTd>
                 <MudTd>
-                    @if (!context.IsProtected)
+                    @if (!context.IsProtected && !context.IsBuiltIn)
                     {
-                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Title="Edit role" Color="Color.Primary" OnClick="() => StartEdit(context)" />
-                        <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Title="Clone role" Color="Color.Primary" OnClick="() => StartClone(context)" />
-                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Title="Delete role" Color="Color.Error" Disabled="@(context.AssignmentCount > 0)" OnClick="() => DeleteAsync(context)" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Title="Edit role" Disabled="@(showEditor || saving)" Color="Color.Primary" OnClick="() => StartEdit(context)" />
+                        <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Title="Clone role" Disabled="@(showEditor || saving)" Color="Color.Primary" OnClick="() => StartClone(context)" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Title="Delete role" Color="Color.Error" Disabled="@(showEditor || saving || context.AssignmentCount > 0)" OnClick="() => DeleteAsync(context)" />
                     }
                 </MudTd>
             </RowTemplate>
-            <NoRecordsContent><MudText Class="pa-4">No role definitions are available.</MudText></NoRecordsContent>
+            <NoRecordsContent><MudText Class="pa-3">@(string.IsNullOrWhiteSpace(searchText) ? (activeTab == 0 ? "No custom roles yet. Create a role to define permissions for an organization." : "No built-in roles are available.") : "No roles match this search.")</MudText></NoRecordsContent>
+            <PagerContent><MudTablePager PageSizeOptions="@(new[] { 25, 50, 100 })" /></PagerContent>
         </MudTable>
     }
-</MudPaper>
+</MudPaper></div>
 
 @code {
     private IReadOnlyList<PermissionOption> PermissionOptions => (isInstanceAdministrator
@@ -134,11 +143,32 @@
     private HashSet<string> draftPermissions = new(StringComparer.OrdinalIgnoreCase);
     private bool isInstanceAdministrator;
     private string searchText = string.Empty;
-    private IEnumerable<RoleDefinition> FilteredRoles => string.IsNullOrWhiteSpace(searchText)
-        ? roles
-        : roles.Where(role => role.Name.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
-                              role.Key.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
-                              (!string.IsNullOrWhiteSpace(role.OwnerOrganizationId) && OrganizationLabel(role.OwnerOrganizationId).Contains(searchText, StringComparison.OrdinalIgnoreCase)));
+    [SupplyParameterFromQuery(Name = "tab")] public string? Tab { get; set; }
+    private int activeTab;
+    private IEnumerable<RoleDefinition> FilteredRoles => roles
+        .Where(role => role.IsBuiltIn == (activeTab == 1))
+        .Where(role => string.IsNullOrWhiteSpace(searchText) || role.Name.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+            role.Key.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+            (!string.IsNullOrWhiteSpace(role.OwnerOrganizationId) && OrganizationLabel(role.OwnerOrganizationId).Contains(searchText, StringComparison.OrdinalIgnoreCase)))
+        .OrderBy(role => role.Name, StringComparer.OrdinalIgnoreCase);
+
+    protected override void OnParametersSet() => activeTab = Tab == "built-in" ? 1 : 0;
+
+    private void ChangeTab(int index)
+    {
+        activeTab = index;
+        Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("tab", index == 1 ? "built-in" : "custom"));
+    }
+
+    private async Task ConfirmNavigationAsync(LocationChangingContext context)
+    {
+        if (!showEditor || new Uri(context.TargetLocation).AbsolutePath == new Uri(Navigation.Uri).AbsolutePath) return;
+        if (saving || await DialogService.ShowMessageBoxAsync("Discard role edits?", "Your unsaved role changes will be lost.", yesText: "Discard", cancelText: "Keep editing") != true)
+            context.PreventNavigation();
+    }
+
+    private Task<bool?> OpenPermissions(RoleDefinition role) => DialogService.ShowMessageBoxAsync(
+        $"Permissions · {role.Name}", string.Join("\n", role.Permissions.Select(PermissionLabel)), yesText: "Close");
 
     protected override async Task OnInitializedAsync()
     {
@@ -200,6 +230,7 @@
 
     private async Task SaveAsync()
     {
+        if (saving) return;
         saving = true;
         error = null;
         try
@@ -238,6 +269,8 @@
 
     private async Task DeleteAsync(RoleDefinition role)
     {
+        if (role.IsBuiltIn || role.IsProtected || saving || showEditor) return;
+        if (await DialogService.ShowMessageBoxAsync("Delete role?", $"Delete '{role.Name}'? Existing assigned roles cannot be deleted.", yesText: "Delete", cancelText: "Cancel") != true) return;
         error = null;
         var response = await HelpdeskApi.DeleteAsync($"api/v1/admin/role-definitions/{role.Id}");
         if (response.IsSuccessStatusCode)
