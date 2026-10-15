@@ -12,6 +12,10 @@ async function open(page: Page, path: string) {
  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true', { timeout: 20_000 });
  await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
 }
+async function reload(page: Page) {
+ await page.reload();
+ await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true', { timeout: 20_000 });
+}
 async function select(page: Page, label: string, name: string) {
  await page.getByRole('combobox', { name: label, exact: true }).click();
  await page.getByRole('option', { name, exact: true }).click();
@@ -99,7 +103,7 @@ test.describe('focused admin tasks', () => {
   await page.getByRole('dialog').getByRole('tab', { name: 'Assignments', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('Synthetic Operator');
   await page.getByRole('button', { name: 'Close', exact: true }).click();
-  await page.reload(); await expect(page.getByText('builtin-reader', { exact: true })).toBeVisible();
+  await reload(page); await expect(page.getByText('builtin-reader', { exact: true })).toBeVisible();
   await page.goBack(); await expect(page.getByText('synthetic-custom', { exact: true })).toBeVisible();
   await page.getByRole('textbox', { name: 'Search roles' }).fill('does-not-match');
   await expect(page.getByText('No roles match this search.')).toBeVisible();
@@ -108,7 +112,7 @@ test.describe('focused admin tasks', () => {
   await request.get(`${fixture}/fault?mode=no-custom`); await open(page, '/admin/roles');
   await expect(page.getByText('No custom roles yet. Create a role to define permissions for an organization.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Create custom role' })).toBeVisible();
-  await request.get(`${fixture}/reset`); await request.get(`${fixture}/fault?mode=many-roles`); await page.reload();
+  await request.get(`${fixture}/reset`); await request.get(`${fixture}/fault?mode=many-roles`); await reload(page);
   await expect(page.locator('.role-management-table tbody tr')).toHaveCount(25);
   await page.getByRole('button', { name: 'Next page', exact: true }).click();
   await page.getByRole('textbox', { name: 'Search roles' }).fill('Custom role 59');
@@ -175,7 +179,7 @@ test.describe('focused admin tasks', () => {
   await expect(page.getByRole('textbox', { name: 'API key name', exact: true })).toHaveValue('unfinished-key');
   await page.getByRole('textbox', { name: 'API key name', exact: true }).fill('');
   await page.getByRole('tab', { name: 'Rows', exact: true }).click();
-  await page.reload(); await page.getByRole('tab', { name: 'Schema', exact: true }).click();
+  await reload(page); await page.getByRole('tab', { name: 'Schema', exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'Dataset Name' })).toHaveValue('Saved inventory');
   const state = await (await request.get(`${fixture}/state`)).json();
   expect(state.saves).toHaveLength(1); expect(state.saves[0].payload.columns.map(x => x.name)).toEqual(['id', 'name']);
@@ -192,7 +196,7 @@ test.describe('focused admin tasks', () => {
   await page.getByRole('tab', { name: 'Graph sync', exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'Client Id', exact: true })).toHaveValue('unsaved-connector');
   await page.getByRole('button', { name: 'Revert settings', exact: true }).click();
-  await request.get(`${fixture}/reset`); await page.reload();
+  await request.get(`${fixture}/reset`); await reload(page);
   await page.getByRole('tab', { name: 'Graph sync', exact: true }).click();
   await page.getByText('Connector settings', { exact: true }).click();
   await page.getByLabel('Users', { exact: true }).check();
