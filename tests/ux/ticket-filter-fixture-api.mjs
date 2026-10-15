@@ -1,6 +1,6 @@
 // Synthetic transport for the actual Blazor list. Provider/authorization tests own SQL evidence.
 import http from 'node:http';
-let queries = [], fault = '';
+let queries = [], details = [], fault = '';
 const rows = Array.from({length: 65}, (_, i) => ({ id: `row-${i}`, title: `Synthetic ticket ${i}`, subject: `Synthetic ticket ${i}`,
   trackingId: `SYN-${String(i).padStart(3, '0')}`, description: 'Synthetic fixture', organizationId: i % 2 ? 'org-b' : 'org-a',
   customerOrgName: i % 2 ? 'Beta customer' : 'Alpha customer', customerId: 'contact', customerName: 'Contact', customerEmail: 'contact@example.test',
@@ -12,8 +12,8 @@ http.createServer(async (req,res) => {
  const url = new URL(req.url, 'http://127.0.0.1'); const q = url.searchParams;
  const reply = (body,status=200) => {res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(body));};
  if (url.pathname === '/fixture/health') return reply({ok:true});
- if (url.pathname === '/fixture/reset') { queries=[];fault='';return reply({ok:true}); }
- if (url.pathname === '/fixture/state') return reply({queries});
+ if (url.pathname === '/fixture/reset') { queries=[];details=[];fault='';return reply({ok:true}); }
+ if (url.pathname === '/fixture/state') return reply({queries,details});
  if (url.pathname === '/fixture/fault') { fault=q.get('mode');return reply({ok:true}); }
  if (url.pathname.endsWith('/system/token')) {
   const enc=v=>Buffer.from(JSON.stringify(v)).toString('base64url');
@@ -24,6 +24,17 @@ http.createServer(async (req,res) => {
  if(url.pathname==='/api/v1/branding') return reply({applicationName:'RatelDesk'});
  if(url.pathname==='/api/v1/ticketing/filter-options') return reply({items:(options[q.get('dimension')]??[]).filter(o=>(!q.has('selectedId')||q.getAll('selectedId').includes(o.id))&&o.label.toLowerCase().includes((q.get('q')??'').toLowerCase())),hasMore:false});
  if(url.pathname.endsWith('/assignees/current')) return reply(null);
+ if(url.pathname==='/api/v1/ticketing/organizations') return reply(options.customer.map(o=>({id:o.id,name:o.label,state:0})));
+ if(url.pathname.endsWith('/change-participants')) return reply({organizationId:'org-b',requestedForUsers:[],approverUsers:[],implementorUsers:[]});
+ const detail=url.pathname.match(/^\/api\/v1\/(incidents|requests|changes)\/(row-\d+)$/);
+ if(detail) {
+  const row=rows.find(r=>r.id===detail[2]);
+  if(!row) return reply({error:'Synthetic ticket not found'},404);
+  details.push(url.pathname);
+  return reply({...row,approverUserIds:[],approvers:[],approvals:[],changeTemplate:{},templateValidationErrors:[],isTemplateComplete:false,ccRecipients:[]});
+ }
+ if(url.pathname.endsWith('/workflow-timeline')) return reply({items:[],totalCount:0});
+ if(url.pathname.endsWith('/chat-capabilities')) return reply({enabled:false,reason:'Synthetic fixture'});
  if(url.pathname.match(/^\/api\/v1\/(incidents|requests|changes)\/?$/)) {
   queries.push(url.pathname+url.search);
   if(fault==='error'){fault='';return reply({error:'Synthetic rejected query'},400);}

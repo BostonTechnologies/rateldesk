@@ -6,6 +6,32 @@ test.beforeEach(async({page,request})=>{
  await request.get(fixture+'/reset');await page.goto('/auth/development',{waitUntil:'domcontentloaded'});
 });
 for(const module of ['incidents','requests','changes']) {
+ test(`${module} opening a ticket and browser Back restores the exact filtered page`,async({page,request})=>{
+  const listUrl=`/${module}?customerOrgId=org-b&q=Synthetic&page=2&pageSize=25&sort=trackingId&descending=false`;
+  await page.goto(listUrl);
+  await expect(page.getByText('26-30 of 30')).toBeVisible();
+  await expect(page.getByRole('textbox',{name:'Search tickets'})).toHaveValue('Synthetic');
+  await expect(page.getByRole('button',{name:'Remove Customer: Beta customer',exact:true})).toBeVisible();
+  const originalUrl=page.url();
+  const originalRows=await page.locator('tbody tr').allTextContents();
+  await page.locator('tbody input[type=checkbox]').first().check();
+  await expect(page.getByText('1 selected',{exact:true})).toBeVisible();
+  await page.getByText('Synthetic ticket 51',{exact:true}).click();
+  await expect(page).toHaveURL(new RegExp(`/${module}/row-51\\?`));
+  expect(new URL(page.url()).searchParams.get('returnUrl')).toBe(new URL(originalUrl).pathname+new URL(originalUrl).search);
+  await expect(page.getByText('SYN-051',{exact:true})).toBeVisible();
+  await expect(page.getByText('Synthetic ticket 51',{exact:true})).toBeVisible();
+  await expect.poll(async()=>(await(await request.get(fixture+'/state')).json()).details).toContain(`/api/v1/${module}/row-51`);
+  await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
+  await page.goBack();
+  await expect(page).toHaveURL(originalUrl);
+  await expect(page.getByText('26-30 of 30')).toBeVisible();
+  await expect(page.getByRole('textbox',{name:'Search tickets'})).toHaveValue('Synthetic');
+  await expect(page.getByRole('button',{name:'Remove Customer: Beta customer',exact:true})).toBeVisible();
+  expect(await page.locator('tbody tr').allTextContents()).toEqual(originalRows);
+  await expect(page.getByText('1 selected',{exact:true})).toHaveCount(0);
+  await expect(page.locator('tbody input[type=checkbox]:checked')).toHaveCount(0);
+ });
  test(`${module} filters the full dataset, clears selection and restores URL with Back`,async({page,request})=>{
   await page.goto('/'+module);
   await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive','true');
