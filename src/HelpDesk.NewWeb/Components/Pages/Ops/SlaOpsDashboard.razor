@@ -55,6 +55,11 @@
             </MudItem>
         </MudGrid>
 
+        @if (tenantLookupError is not null)
+        {
+            <MudAlert Severity="Severity.Warning">@tenantLookupError Refresh to retry.</MudAlert>
+        }
+
         @if (!string.IsNullOrWhiteSpace(loadError))
         {
             <MudAlert Severity="Severity.Error">@loadError Refresh to retry.</MudAlert>
@@ -191,6 +196,8 @@
     private CancellationTokenSource? refresh;
     private DateTimeOffset? lastRefreshed;
     private string? loadError;
+    private string? tenantLookupError;
+    private bool tenantsLoaded;
     private string? appliedQuery;
     private bool showBreached;
     private bool loading;
@@ -213,12 +220,7 @@
             user.Claims.Any(c => (c.Type == ClaimTypes.Role || c.Type == "roles") &&
                 string.Equals(c.Value, "HelpdeskAdmin", StringComparison.OrdinalIgnoreCase));
 
-        if (isHelpdeskAdmin)
-        {
-            try { tenants = await HelpdeskApi.GetFromJsonAsync<List<TenantLookupDto>>("api/v1/admin/tenants/lookup", lifetime.Token) ?? new(); }
-            catch (HttpRequestException) { loadError = "Tenant lookup is unavailable."; }
-        }
-        else
+        if (!isHelpdeskAdmin)
         {
             selectedTenantId = user.FindFirstValue("organization_id");
         }
@@ -278,32 +280,55 @@
         refresh?.Cancel();
         refresh?.Dispose();
         var current = refresh = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        // Capture before awaiting: a newer refresh can dispose this source while its handler finishes.
+        var token = current.Token;
         loading = true;
         loadError = null;
         try
         {
             var now = DateTimeOffset.UtcNow;
             var from = now.AddDays(-7);
+            var complianceUrl = BuildComplianceUrl(from, now);
+            var breachedUrl = BuildBreachedUrl();
+            var nearBreachUrl = BuildNearBreachUrl(selectedThreshold, selectedMetric);
+            var nearNinetyUrl = BuildNearBreachUrl(90, SlaMetricType.Resolution, 1);
+
+            if (isHelpdeskAdmin && !tenantsLoaded)
+            {
+                try
+                {
+                    var nextTenants = await HelpdeskApi.GetFromJsonAsync<List<TenantLookupDto>>("api/v1/admin/tenants/lookup", token) ?? new();
+                    token.ThrowIfCancellationRequested();
+                    tenants = nextTenants;
+                    tenantsLoaded = true;
+                    tenantLookupError = null;
+                }
+                catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException)
+                {
+                    if (current == refresh) tenantLookupError = "Tenant lookup is unavailable.";
+                }
+            }
+            token.ThrowIfCancellationRequested();
 
             var nextSummary = await HelpdeskApi.GetFromJsonAsync<SlaComplianceSummaryDto>(
-                BuildComplianceUrl(from, now), current.Token) ?? new SlaComplianceSummaryDto();
+                complianceUrl, token) ?? new SlaComplianceSummaryDto();
 
             var nextBreached = await HelpdeskApi.GetFromJsonAsync<PagedResult<SlaTicketRowDto>>(
-                BuildBreachedUrl(), current.Token) ?? new PagedResult<SlaTicketRowDto>();
+                breachedUrl, token) ?? new PagedResult<SlaTicketRowDto>();
 
             var nextNearBreach = await HelpdeskApi.GetFromJsonAsync<PagedResult<SlaTicketRowDto>>(
-                BuildNearBreachUrl(selectedThreshold, selectedMetric), current.Token) ?? new PagedResult<SlaTicketRowDto>();
+                nearBreachUrl, token) ?? new PagedResult<SlaTicketRowDto>();
 
             var nearNinety = await HelpdeskApi.GetFromJsonAsync<PagedResult<SlaTicketRowDto>>(
-                BuildNearBreachUrl(90, SlaMetricType.Resolution, 1), current.Token) ?? new PagedResult<SlaTicketRowDto>();
-            current.Token.ThrowIfCancellationRequested();
+                nearNinetyUrl, token) ?? new PagedResult<SlaTicketRowDto>();
+            token.ThrowIfCancellationRequested();
             summary = nextSummary;
             breached = nextBreached;
             nearBreach = nextNearBreach;
             nearNinetyCount = nearNinety.Total;
             lastRefreshed = DateTimeOffset.UtcNow;
         }
-        catch (OperationCanceledException) when (current.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException) { if (current == refresh) loadError = "SLA data is unavailable."; }
         finally
         {
