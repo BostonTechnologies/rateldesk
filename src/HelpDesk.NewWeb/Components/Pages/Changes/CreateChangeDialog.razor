@@ -134,6 +134,11 @@
                                                               Value="@model.ImplementorUserId" Label="Implementor" AllowUnassigned="false"
                                                               Busy="participantsLoading" SelectionChanged="@(user => model.ImplementorUserId = user?.Id)" />
                                         </MudItem>
+                                        <MudItem xs="12">
+                                            <ServiceCategoryPicker RequestedType="TicketCategoryType.Change" OrganizationId="@model.OrganizationId"
+                                                                   SelectedCategoryIds="@((model.CategoryIds ?? new()).ToHashSet())"
+                                                                   SelectedCategoryIdsChanged="@(ids => model.CategoryIds = ids.ToList())" />
+                                        </MudItem>
 
                                         <MudItem xs="12" sm="6">
                                             <ChangeFieldHelp Label="Approvers"
@@ -290,6 +295,7 @@
     {
         model.OrganizationId = string.IsNullOrWhiteSpace(value) ? null : value;
         model.RequestedForUserId = null;
+        model.CategoryIds = new();
         model.ImplementorUserId = null;
         model.ApproverUserIds = new List<string>();
         selectedApproverIds.Clear();

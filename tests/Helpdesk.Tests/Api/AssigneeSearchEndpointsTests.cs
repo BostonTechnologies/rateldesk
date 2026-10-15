@@ -161,6 +161,37 @@ public sealed class AssigneeSearchEndpointsTests
         Assert.Equal(HttpStatusCode.Forbidden, (await h.Client.GetAsync("/api/v1/ticketing/assignees/current?module=incident&organizationId=other&ticketId=incident")).StatusCode);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Category_assignments_preserve_existing_inactive_ids_and_reject_new_foreign_ids(bool postgres)
+    {
+        await using var h = await Harness.Create(postgres);
+        var retained = Guid.NewGuid(); var added = Guid.NewGuid(); var foreign = Guid.NewGuid();
+        await h.WithDb(async db =>
+        {
+            db.TicketCategories.AddRange(
+                new TicketCategory { Id = retained, Name = "Historical selection", Type = Helpdesk.Shared.Enums.TicketCategoryType.Service, IsActive = false },
+                new TicketCategory { Id = added, Name = "Shared selection", Type = Helpdesk.Shared.Enums.TicketCategoryType.Service },
+                new TicketCategory { Id = foreign, Name = "Foreign selection", Type = Helpdesk.Shared.Enums.TicketCategoryType.Service, TenantId = Guid.NewGuid() });
+            db.IncidentCategoryLinks.Add(new IncidentCategoryLink { IncidentId = "incident", TicketCategoryId = retained });
+            db.RequestCategoryLinks.Add(new RequestCategoryLink { RequestId = "request", TicketCategoryId = retained });
+            db.ChangeCategoryLinks.Add(new ChangeCategoryLink { ChangeId = "change", TicketCategoryId = retained });
+            await db.SaveChangesAsync();
+        });
+        foreach (var module in new[] { "incident", "request", "change" })
+        {
+            var path = $"/api/v1/{module}s/{module}";
+            (await h.Client.PutAsJsonAsync(path, new { CategoryIds = new[] { retained, added } })).EnsureSuccessStatusCode();
+            Assert.Equal(HttpStatusCode.BadRequest, (await h.Client.PutAsJsonAsync(path, new { CategoryIds = new[] { retained, added, foreign } })).StatusCode);
+            using var reloaded = System.Text.Json.JsonDocument.Parse(await h.Client.GetStringAsync(path));
+            Assert.Equal(new[] { retained, added }.Order(), reloaded.RootElement.GetProperty("categoryIds").EnumerateArray().Select(x => x.GetGuid()).Order());
+            (await h.Client.PutAsJsonAsync(path, new { CategoryIds = new[] { added } })).EnsureSuccessStatusCode();
+            Assert.Equal(HttpStatusCode.BadRequest, (await h.Client.PutAsJsonAsync(path, new { CategoryIds = new[] { retained, added } })).StatusCode);
+        }
+        await h.WithDb(async db => Assert.Equal(3, await db.TicketCategories.CountAsync()));
+    }
+
     internal sealed class Harness(WebApplication app, HttpClient client, SqliteConnection? sqlite, PostgreSqlContainer? postgres) : IAsyncDisposable
     {
         public HttpClient Client { get; } = client;

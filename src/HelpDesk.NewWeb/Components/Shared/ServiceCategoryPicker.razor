@@ -1,94 +1,179 @@
 @using Helpdesk.Shared.DTOs.Category
 @using Helpdesk.Shared.Enums
-
+@using Helpdesk.Shared.Services
+@implements IDisposable
 @inject IHttpClientFactory HttpClientFactory
+@inject AuthenticationStateProvider AuthenticationState
+@inject IDialogService DialogService
 
-<MudAutocomplete T="TicketCategoryDto"
-                 Label="Add Service Category" Disabled="@ReadOnly"
-                 SearchFunc="Search"
-                 ToStringFunc="x => x?.Name"
-                 ValueChanged="AddCategory"
-                 Clearable="true"
-                 Dense="@Dense"
-                 Margin="@Margin"
-                 Variant="Variant.Outlined" />
-
-<MudChipSet T="TicketCategoryDto" Dense="true" Class="mt-1">
-
-    @foreach (var cat in SelectedCategories)
+<div class="service-category-picker" aria-busy="@loading.ToString().ToLowerInvariant()">
+    <MudAutocomplete T="TicketCategoryDto" @ref="autocomplete"
+                     Label="Add service category" Disabled="@(ReadOnly || creating)"
+                     SearchFunc="Search" TextChanged="OnSearchTextChanged"
+                     ToStringFunc="x => x?.Name" ValueChanged="AddCategory"
+                     Clearable="true" ResetValueOnEmptyText="true" CoerceText="false"
+                     DebounceInterval="250" MaxItems="30" MaxLength="120"
+                     Dense="@Dense" Margin="@Margin" Variant="Variant.Outlined">
+        <ItemTemplate Context="category">
+            <span>@category.Name</span>
+            @if (SelectedCategoryIds.Contains(category.Id))
+            {
+                <span class="category-selected">Selected</span>
+            }
+        </ItemTemplate>
+    </MudAutocomplete>
+    @if (!string.IsNullOrEmpty(error))
     {
-        <MudChip T="TicketCategoryDto"
-                 Closeable="@(!ReadOnly)"
-                 Size="Size.Small"
-                 Variant="Variant.Outlined"
-                 OnClose="() => RemoveCategory(cat.Id)">
-
-            @cat.Name
-
-        </MudChip>
+        <MudText Typo="Typo.caption" Color="Color.Error" role="alert">@error</MudText>
     }
-
-</MudChipSet>
+    @if (canCreate && !ReadOnly && !string.IsNullOrWhiteSpace(searchText) && searchComplete && !exactMatch)
+    {
+        <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add"
+                   Class="category-create" Disabled="@creating" OnClick="CreateCategory">
+            Add “@searchText”
+        </MudButton>
+    }
+    <div class="selected-categories" aria-label="Selected service categories" aria-live="polite">
+        @foreach (var id in SelectedCategoryIds.OrderBy(x => names.GetValueOrDefault(x)?.Name ?? x.ToString()))
+        {
+            var category = names.GetValueOrDefault(id);
+            <MudChip T="Guid" @key="id" Value="id" Closeable="@(!ReadOnly && !creating)" Size="Size.Small"
+                     Variant="Variant.Outlined" Color="@(category is null || !category.IsActive ? Color.Warning : Color.Default)"
+                     OnClose="() => RemoveCategory(id)">
+                @(category is null ? (loading ? "Loading category…" : $"Unavailable category ({id.ToString()[..8]})") : category.Name)
+                @if (category is not null && !category.IsActive) { <span> (inactive)</span> }
+            </MudChip>
+        }
+        @if (!loading && SelectedCategoryIds.Count == 0)
+        {
+            <MudText Typo="Typo.caption" Color="Color.Secondary">No service categories</MudText>
+        }
+    </div>
+</div>
 
 @code {
     [Parameter] public bool ReadOnly { get; set; }
     [Parameter] public TicketCategoryType RequestedType { get; set; }
+    [Parameter] public string? OrganizationId { get; set; }
+    [Parameter] public string? ScopeKey { get; set; }
     [Parameter] public HashSet<Guid> SelectedCategoryIds { get; set; } = new();
     [Parameter] public EventCallback<HashSet<Guid>> SelectedCategoryIdsChanged { get; set; }
     [Parameter] public bool Dense { get; set; } = true;
     [Parameter] public Margin Margin { get; set; } = Margin.None;
 
-    private List<TicketCategoryDto> SelectedCategories = new();
+    private readonly Dictionary<Guid, TicketCategoryDto> names = new();
+    private MudAutocomplete<TicketCategoryDto>? autocomplete;
+    private CancellationTokenSource scopeCancellation = new();
+    private string? parameterKey;
+    private string searchText = string.Empty;
+    private string? error;
+    private bool loading, creating, canCreate, searchComplete, exactMatch;
+    private int searchVersion;
+    private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
+    private string ScopeQuery => Guid.TryParse(OrganizationId, out var tenantId) ? $"&tenantId={tenantId}" : string.Empty;
 
-    private async Task<IEnumerable<TicketCategoryDto>> Search(string value)
+    protected override async Task OnParametersSetAsync()
     {
-        var api = HttpClientFactory.CreateClient("HelpdeskApi");
-
-        var url = $"api/v1/categories?type={(int)RequestedType}";
-
-        if (!string.IsNullOrWhiteSpace(value))
-            url += $"&search={value}";
-
-        return await api.GetFromJsonAsync<List<TicketCategoryDto>>(url)
-            ?? new();
+        var key = $"{ScopeKey}:{OrganizationId}:{RequestedType}:{string.Join(',', SelectedCategoryIds.Order())}";
+        if (key == parameterKey) return;
+        parameterKey = key;
+        scopeCancellation.Cancel();
+        scopeCancellation.Dispose();
+        scopeCancellation = new();
+        var token = scopeCancellation.Token;
+        searchVersion++;
+        searchComplete = false;
+        loading = true;
+        names.Clear();
+        try
+        {
+            canCreate = CurrentUserAccessProfile.FromClaims((await AuthenticationState.GetAuthenticationStateAsync()).User).IsHelpdeskAdmin;
+            foreach (var batch in SelectedCategoryIds.ToArray().Chunk(100))
+            {
+                var result = await Api.GetFromJsonAsync<List<TicketCategoryDto>>($"api/v1/categories?ids={string.Join(',', batch)}{ScopeQuery}", token) ?? new();
+                if (token.IsCancellationRequested) return;
+                foreach (var category in result) names[category.Id] = category;
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (HttpRequestException) { if (!token.IsCancellationRequested) error = "Some selected categories could not be loaded. Their assignments are preserved."; }
+        finally { if (!token.IsCancellationRequested) loading = false; }
     }
 
-    private Task<IEnumerable<TicketCategoryDto>> Search(string value, CancellationToken token)
+    private void OnSearchTextChanged(string value)
     {
-        return Search(value);
+        searchText = Normalize(value);
+        searchComplete = false;
+        error = null;
     }
 
-    private async Task AddCategory(TicketCategoryDto cat)
+    private async Task<IEnumerable<TicketCategoryDto>> Search(string value, CancellationToken token)
     {
-        if (cat == null)
-            return;
-
-        if (SelectedCategories.Any(x => x.Id == cat.Id))
-            return;
-
-        SelectedCategories.Add(cat);
-
-        await NotifyChanged();
+        var version = ++searchVersion;
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(token, scopeCancellation.Token);
+        try
+        {
+            var result = await Api.GetFromJsonAsync<List<TicketCategoryDto>>(
+                $"api/v1/categories?type={(int)RequestedType}&take=30&search={Uri.EscapeDataString(value ?? string.Empty)}{ScopeQuery}", cancellation.Token) ?? new();
+            if (cancellation.IsCancellationRequested || version != searchVersion) return Array.Empty<TicketCategoryDto>();
+            exactMatch = result.Any(x => string.Equals(Normalize(x.Name), Normalize(value), StringComparison.OrdinalIgnoreCase));
+            searchComplete = true;
+            return result.DistinctBy(x => x.Id).ToArray();
+        }
+        catch (OperationCanceledException) { return Array.Empty<TicketCategoryDto>(); }
+        catch (HttpRequestException)
+        {
+            if (version == searchVersion) error = "Unable to search categories. Try again.";
+            return Array.Empty<TicketCategoryDto>();
+        }
     }
 
-    private async Task RemoveCategory(Guid id)
+    private async Task AddCategory(TicketCategoryDto? category)
     {
-        SelectedCategories.RemoveAll(x => x.Id == id);
-
-        await NotifyChanged();
+        if (category is null || ReadOnly || !category.IsActive) return;
+        names[category.Id] = category;
+        var ids = new HashSet<Guid>(SelectedCategoryIds) { category.Id };
+        await SelectedCategoryIdsChanged.InvokeAsync(ids);
+        searchText = string.Empty;
+        searchComplete = false;
+        if (autocomplete is not null) await autocomplete.ClearAsync();
     }
 
-    private async Task NotifyChanged()
+    private Task RemoveCategory(Guid id)
     {
-        await SelectedCategoryIdsChanged.InvokeAsync(
-            SelectedCategories.Select(x => x.Id).ToHashSet()
-        );
+        if (ReadOnly || creating) return Task.CompletedTask;
+        var ids = new HashSet<Guid>(SelectedCategoryIds);
+        ids.Remove(id);
+        return SelectedCategoryIdsChanged.InvokeAsync(ids);
     }
 
-    protected override void OnParametersSet()
+    private async Task CreateCategory()
     {
-        SelectedCategories = SelectedCategories
-            .Where(x => SelectedCategoryIds.Contains(x.Id))
-            .ToList();
+        if (!canCreate || ReadOnly || creating || string.IsNullOrWhiteSpace(searchText)) return;
+        var name = searchText;
+        var key = parameterKey;
+        var token = scopeCancellation.Token;
+        var confirmed = await DialogService.ShowMessageBox("Create service category",
+            $"Create “{name}” in the category catalogue? The ticket assignment will be applied when you save the ticket.", yesText: "Create category", cancelText: "Cancel");
+        if (confirmed != true || key != parameterKey || token.IsCancellationRequested) return;
+        creating = true;
+        error = null;
+        try
+        {
+            using var response = await Api.PostAsJsonAsync("api/v1/categories", new CreateTicketCategoryDto
+            {
+                Name = name, Type = RequestedType,
+                TenantId = Guid.TryParse(OrganizationId, out var tenantId) ? tenantId : null
+            }, token);
+            response.EnsureSuccessStatusCode();
+            var category = await response.Content.ReadFromJsonAsync<TicketCategoryDto>(token);
+            if (!token.IsCancellationRequested && key == parameterKey) await AddCategory(category);
+        }
+        catch (OperationCanceledException) { }
+        catch (HttpRequestException) { if (!token.IsCancellationRequested) error = "Category could not be created. Check your permissions or the category catalogue and try again."; }
+        finally { creating = false; }
     }
+
+    private static string Normalize(string? value) => string.Join(" ", (value ?? string.Empty).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+    public void Dispose() { scopeCancellation.Cancel(); scopeCancellation.Dispose(); }
 }

@@ -19,7 +19,8 @@
             Priority = model.Priority,
             OrganizationId = model.OrganizationId,
             CustomerId = model.CustomerId,
-            AssignedToId = model.AssignedToId
+            AssignedToId = model.AssignedToId,
+            CategoryIds = model.CategoryIds.ToList()
         };
 
         return HelpdeskApi.PostAsJsonAsync("api/v1/requests", dto);

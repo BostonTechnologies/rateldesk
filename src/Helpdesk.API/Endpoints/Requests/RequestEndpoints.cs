@@ -221,7 +221,7 @@ public static class RequestEndpoints
                 db,
                 categoryIds,
                 TicketCategoryType.Request,
-                token);
+                token, dto.OrganizationId);
             if (validation is not null)
             {
                 return validation;
@@ -386,7 +386,8 @@ public static class RequestEndpoints
                     db,
                     categoryIds,
                     TicketCategoryType.Request,
-                    token);
+                    token, existing.OrganizationId,
+                    await db.RequestCategoryLinks.Where(x => x.RequestId == id).Select(x => x.TicketCategoryId).ToListAsync(token));
                 if (validation is not null)
                 {
                     return validation;
@@ -1019,16 +1020,21 @@ public static class RequestEndpoints
         HelpdeskDbContext db,
         IReadOnlyCollection<Guid> categoryIds,
         TicketCategoryType requestedType,
-        CancellationToken token)
+        CancellationToken token,
+        string? organizationId,
+        IReadOnlyCollection<Guid>? existingIds = null)
     {
         if (categoryIds.Count == 0)
         {
             return null;
         }
 
+        var tenantId = Guid.TryParse(organizationId, out var parsedTenantId) ? parsedTenantId : (Guid?)null;
+        var preservedIds = existingIds ?? Array.Empty<Guid>();
         var found = await db.TicketCategories
             .AsNoTracking()
-            .Where(x => categoryIds.Contains(x.Id) && x.IsActive)
+            .Where(x => categoryIds.Contains(x.Id) &&
+                (preservedIds.Contains(x.Id) || (x.IsActive && (x.TenantId == null || x.TenantId == tenantId))))
             .Select(x => new { x.Id, x.Type })
             .ToListAsync(token);
 
@@ -1037,7 +1043,7 @@ public static class RequestEndpoints
             return Results.BadRequest("One or more category IDs are invalid.");
         }
 
-        if (found.Any(x => x.Type != requestedType && x.Type != TicketCategoryType.Service))
+        if (found.Any(x => !preservedIds.Contains(x.Id) && x.Type != requestedType && x.Type != TicketCategoryType.Service))
         {
             return Results.BadRequest($"Categories must match type '{requestedType}' or 'Service'.");
         }
