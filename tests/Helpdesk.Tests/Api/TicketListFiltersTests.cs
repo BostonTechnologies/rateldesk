@@ -27,6 +27,7 @@ public sealed class TicketListFiltersTests
         var forId = module == "changes" ? "late" : "contact";
         Assert.Equal(42, Total(await Get(h, module, $"view=all&q=synthetic&customerOrgId=org&forId={forId}")));
         Assert.Equal(0, Total(await Get(h, module, "view=all&forId=not-a-contact")));
+        Assert.Equal(42, Total(await Get(h, module, $"view=all&q=synthetic&customerOrgId=org&customerOrgId=missing&forId={forId}&forId=missing")));
         Assert.Equal(21, Total(await Get(h, module, "view=all&q=synthetic&unassigned=true")));
         Assert.Equal(21, Total(await Get(h, module, "view=all&q=synthetic&assigneeId=external")));
         Assert.Equal(42, Total(await Get(h, module, "view=all&q=synthetic&assigneeId=external&unassigned=true")));
@@ -62,6 +63,7 @@ public sealed class TicketListFiltersTests
         var range = "view=all&q=synthetic&from=2026-03-29T00%3A00%3A00Z&to=2026-03-29T01%3A00%3A00Z";
         Assert.Equal(21, Total(await Get(h, module, range)));
         Assert.Equal(0, Total(await Get(h, module, range + "&timeField=created")));
+        Assert.Equal(42, Total(await Get(h, module, "view=all&q=synthetic&timeField=created&from=2026-01-01T00:00:00Z&to=2026-01-02T00:00:00Z")));
         Assert.Equal(21, Total(await Get(h, module, "view=all&q=synthetic&from=2026-03-29T02%3A00%3A00%2B02%3A00&to=2026-03-29T03%3A00%3A00%2B02%3A00")));
         foreach (var invalid in new[] { "sort=sql", "stateValues=999", "priority=999", "timeField=closed", "from=2026-01-01", "from=2026-03-29T01:00:00Z&to=2026-03-29T00:00:00Z", "unassigned=maybe", "q=" + new string('a', 201) })
             Assert.Equal(HttpStatusCode.BadRequest, (await h.Client.GetAsync($"/api/v1/{module}?{invalid}")).StatusCode);
@@ -100,6 +102,20 @@ public sealed class TicketListFiltersTests
         Assert.Equal(0, Total(await Get(h, "incidents", "view=all&q=synthetic")));
         var denied = await h.Client.GetFromJsonAsync<TicketFilterOptionsDto>("/api/v1/ticketing/filter-options?module=incident&dimension=customer");
         Assert.Empty(denied!.Items);
+    }
+
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task Legacy_null_lifecycle_matches_displayed_Draft_and_updated_falls_back_to_creation(bool postgres)
+    {
+        await using var h = await Harness.Create(postgres);
+        await h.WithDb(async db => {
+            // The column has a default, so persist then update to exercise a legacy null row.
+            db.Changes.Add(new Change { Id = "legacy-change", Title = "legacy null lifecycle", TrackingId = "LEGACY-1", OrganizationId = "org", CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) });
+            await db.SaveChangesAsync();
+            await db.Changes.Where(change => change.Id == "legacy-change").ExecuteUpdateAsync(setters => setters.SetProperty(change => change.LifecycleState, (ChangeLifecycleState?)null));
+        });
+        var result = await Get(h, "changes", "q=legacy&stateValues=Draft&from=2026-01-01T00:00:00Z&to=2026-01-02T00:00:00Z");
+        Assert.Equal("legacy-change", Assert.Single(Items(result)));
     }
 
     private static int Total(JsonElement response) => response.GetProperty("totalCount").GetInt32();

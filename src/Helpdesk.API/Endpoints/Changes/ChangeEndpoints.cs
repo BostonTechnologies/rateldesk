@@ -1676,7 +1676,7 @@ public static class ChangeEndpoints
                 ImplementorUserId = x.ImplementorUserId,
                 ApproverUserIds = x.ApproverUserIds
             }),
-            CancellationToken.None);
+            cancellationToken);
         if (summaryOnly)
         {
             var summaryItems = rawItems.Select(x => new ChangeDto
@@ -1727,7 +1727,7 @@ public static class ChangeEndpoints
             .GroupBy(link => link.ChangeId)
             .ToDictionaryAsync(
                 g => g.Key,
-                g => g.Select(link => link.TicketCategoryId).ToList());
+                g => g.Select(link => link.TicketCategoryId).ToList(), cancellationToken);
         var items = rawItems.Select(i => new ChangeDto
         {
             OrganizationId = i.OrganizationId,

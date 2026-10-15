@@ -4,7 +4,7 @@
 <div class="filter-lookup">
     <MudAutocomplete T="TicketFilterOptionDto" Label="@Label" Variant="Variant.Outlined" Margin="Margin.Dense"
                      SearchFunc="Search" ToStringFunc="@(option => option?.Label ?? string.Empty)" Value="@choice" ValueChanged="Choose"
-                     MaxItems="20" MinCharacters="0" DebounceInterval="250" ResetValueOnEmptyText="true" Clearable="true" CoerceText="false">
+                     MaxItems="20" MaxLength="200" MinCharacters="0" DebounceInterval="250" ResetValueOnEmptyText="true" Clearable="true" CoerceText="false">
         <NoItemsTemplate><MudText Class="pa-2">No matching options.</MudText></NoItemsTemplate>
         <MoreItemsTemplate><MudText Class="pa-2">Refine your search for more options.</MudText></MoreItemsTemplate>
     </MudAutocomplete>
@@ -32,10 +32,15 @@
             var result = await HttpClientFactory.CreateClient("HelpdeskApi").GetFromJsonAsync<TicketFilterOptionsDto>(url, cancellation.Token);
             if (disposed || cancellation.IsCancellationRequested) return [];
             hasMore = result?.HasMore == true;
+            await InvokeAsync(StateHasChanged);
             return result?.Items ?? [];
         }
         catch (OperationCanceledException) { return []; }
-        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException) { if (!disposed && !cancellation.IsCancellationRequested) failed = true; return []; }
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException)
+        {
+            if (!disposed && !cancellation.IsCancellationRequested) { failed = true; await InvokeAsync(StateHasChanged); }
+            return [];
+        }
     }
     private async Task Choose(TicketFilterOptionDto? option) { if (option is null) return; await Selected.InvokeAsync(option); choice = null; }
     public void Dispose() { disposed = true; pending?.Cancel(); pending?.Dispose(); }

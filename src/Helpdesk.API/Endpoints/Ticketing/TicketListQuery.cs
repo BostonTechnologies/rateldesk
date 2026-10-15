@@ -82,7 +82,7 @@ internal sealed class TicketListQuery
             ? query.Where(ticket => AssigneeIds.Contains(EF.Property<string>(ticket, nameof(Change.ImplementorUserId))) || (Unassigned && EF.Property<string?>(ticket, nameof(Change.ImplementorUserId)) == null))
             : query.Where(ticket => AssigneeIds.Contains(ticket.AssignedToId!) || (Unassigned && ticket.AssignedToId == null));
         if (States.Length > 0) query = changes
-            ? query.Where(ticket => EF.Property<ChangeLifecycleState?>(ticket, nameof(Change.LifecycleState)).HasValue && States.Contains((int)EF.Property<ChangeLifecycleState?>(ticket, nameof(Change.LifecycleState))!.Value))
+            ? query.Where(ticket => States.Contains((int)(EF.Property<ChangeLifecycleState?>(ticket, nameof(Change.LifecycleState)) ?? ChangeLifecycleState.Draft)))
             : query.Where(ticket => States.Contains((int)ticket.State));
         if (Priorities.Length > 0) query = query.Where(ticket => Priorities.Contains(ticket.Priority));
         if (From is { } from) query = TimeField == "created" ? query.Where(ticket => ticket.CreatedAt >= from) : query.Where(ticket => (ticket.UpdatedAt ?? ticket.CreatedAt) >= from);

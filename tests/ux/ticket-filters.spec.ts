@@ -45,10 +45,10 @@ test('cancelled search cannot replace newer data; error differs from no matches'
  await page.getByRole('button',{name:'Retry',exact:true}).click();await expect(page.getByText('Synthetic ticket 58',{exact:true})).toBeVisible();
  await search.fill('missing');await expect(page.getByText('No tickets match these filters.')).toBeVisible();
 });
-for(const width of [320,768,1440,1920]) for(const theme of ['light','dark']) {
- test(`responsive filter panel ${width}px ${theme}`,async({page},info)=>{
+for(const module of ['incidents','requests','changes']) for(const width of [320,768,1440,1920]) for(const theme of ['light','dark']) {
+ test(`responsive ${module} filter panel ${width}px ${theme}`,async({page},info)=>{
   await page.setViewportSize({width,height:900});
-  await page.goto('/requests');await expect(page.getByText('1-25 of 60')).toBeVisible();
+  await page.goto('/'+module);await expect(page.getByText('1-25 of 60')).toBeVisible();
   await selectTheme(page,theme==='dark'?'Dark':'Light');
   await page.getByRole('button',{name:'Filters (0)'}).click();
   await expect(page.getByLabel('From (inclusive)')).toBeVisible();

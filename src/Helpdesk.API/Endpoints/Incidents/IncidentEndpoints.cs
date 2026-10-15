@@ -218,7 +218,7 @@ public static class IncidentEndpoints
                 .GroupBy(link => link.IncidentId)
                 .ToDictionaryAsync(
                     g => g.Key,
-                    g => g.Select(link => link.TicketCategoryId).ToList());
+                    g => g.Select(link => link.TicketCategoryId).ToList(), cancellationToken);
             var items = rawItems.Select(x => new IncidentDto
             {
                 OrganizationId = x.OrganizationId,

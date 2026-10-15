@@ -23,7 +23,7 @@ internal static class TicketFilterEndpoints
                 _ => TicketListQuery.Authorized(db.Changes.AsNoTracking(), access, module)
             };
             var selectedOrganizations = request.Query["customerOrgId"].ToArray();
-            if (selectedOrganizations.Length > 20) return Results.BadRequest();
+            if (selectedOrganizations.Length > 20 || selectedOrganizations.Any(id => string.IsNullOrWhiteSpace(id) || id.Length > 200)) return Results.BadRequest();
             if (selectedOrganizations.Length > 0) tickets = tickets.Where(ticket => selectedOrganizations.Contains(ticket.OrganizationId));
             var organizationIds = tickets.Select(ticket => ticket.OrganizationId).Distinct();
             IQueryable<TicketFilterOptionDto> options;

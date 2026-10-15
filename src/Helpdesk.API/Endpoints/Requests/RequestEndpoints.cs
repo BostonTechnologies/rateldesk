@@ -940,7 +940,7 @@ public static class RequestEndpoints
             .GroupBy(link => link.RequestId)
             .ToDictionaryAsync(
                 g => g.Key,
-                g => g.Select(link => link.TicketCategoryId).ToList());
+                g => g.Select(link => link.TicketCategoryId).ToList(), cancellationToken);
         var sourceTicketIds = rawItems
             .Select(x => x.SourceTicketId)
             .Where(x => !string.IsNullOrWhiteSpace(x))
@@ -951,7 +951,7 @@ public static class RequestEndpoints
             : await db.Tickets
                 .AsNoTracking()
                 .Where(x => sourceTicketIds.Contains(x.Id))
-                .ToDictionaryAsync(x => x.Id, x => x.TrackingId);
+                .ToDictionaryAsync(x => x.Id, x => x.TrackingId, cancellationToken);
 
         var items = rawItems.Select(i => new RequestDto
         {
