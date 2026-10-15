@@ -260,6 +260,14 @@ jobs:
           npx playwright test --config playwright.${{ matrix.suite }}.config.ts
           --output=artifacts/e2e/workspace-${{ matrix.suite }}/test-results
 
+      - name: Verify native Chromium zoom at 200 percent
+        if: matrix.suite != 'assignee'
+        env:
+          HELPDESK_NATIVE_ZOOM_SUITE: ${{ matrix.suite }}
+        run: >-
+          npx playwright test --config playwright.native-zoom.config.ts
+          --output=artifacts/e2e/workspace-${{ matrix.suite }}/native-zoom
+
       - name: Upload workspace browser evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
