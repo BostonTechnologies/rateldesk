@@ -13,6 +13,9 @@ async function open(page: Page, module = 'incidents', origin = 'https://127.0.0.
 }
 async function addLiteral(page: Page) {
   await categorySearch(page).fill('R&D + 100%_\\');
+  // An option from the initial empty search can remain visible during debounce.
+  // Wait for the literal query to reach the API before choosing that option.
+  await expect.poll(async () => (await (await page.request.get(`${fixture}/state`)).json()).categorySearches).toContain('R&D + 100%_\\');
   await page.getByRole('option', { name: /R&D/ }).click();
   await expect(selected(page)).toContainText('R&D');
 }
@@ -105,9 +108,11 @@ test('semantic selection ignores legacy indices and retains a visited panel whil
   await attachments.click();
   await expect(attachments).toHaveAttribute('aria-selected', 'true');
   await page.getByRole('tab', { name: 'Messages', exact: true }).click();
-  expect(await page.locator('[role=tabpanel][hidden]').count()).toBe(1);
+  await expect(page.getByRole('tab', { name: 'Messages', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('[role=tabpanel][hidden]')).toHaveCount(1);
   await page.getByRole('tab', { name: /Listeners/ }).click();
-  expect(await page.evaluate(() => localStorage.getItem('ticket-tabs-selection:v2:incidents:incidents-1'))).toBe('listeners');
+  await expect(page.getByRole('tab', { name: /Listeners/ })).toHaveAttribute('aria-selected', 'true');
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('ticket-tabs-selection:v2:incidents:incidents-1'))).toBe('listeners');
   await page.reload();
   await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true', { timeout: 30_000 });
   await expect(page.getByRole('tab', { name: /Listeners/ })).toHaveAttribute('aria-selected', 'true');
