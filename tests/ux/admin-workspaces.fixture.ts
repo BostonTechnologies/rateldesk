@@ -62,6 +62,14 @@ test.describe('focused admin tasks', () => {
      const tab = el.getBoundingClientRect(); const strip = el.closest('.mud-tabs-tabbar-content')!.getBoundingClientRect();
      return tab.left >= strip.left - 2 && tab.right <= strip.right + 2;
     })).toBe(true);
+    if (path.endsWith('/data-management') && await tabs.nth(index).innerText() === 'SCHEMA') {
+     await expect(page.getByRole('textbox', { name: 'Column name', exact: true }).first()).toBeVisible();
+     await expect(page.getByRole('combobox', { name: 'Column data type', exact: true }).first()).toBeVisible();
+     await expect(page.getByRole('checkbox', { name: 'Use as key column', exact: true }).first()).toBeVisible();
+     await expect(page.getByRole('checkbox', { name: 'Use as display column', exact: true }).first()).toBeVisible();
+     await expect(page.getByRole('checkbox', { name: 'Search this column', exact: true }).first()).toBeVisible();
+     await expect(page.getByRole('button', { name: 'Remove column id', exact: true })).toBeVisible();
+    }
    }
   }
   expect((await (await request.get(`${fixture}/state`)).json()).saves).toHaveLength(0);

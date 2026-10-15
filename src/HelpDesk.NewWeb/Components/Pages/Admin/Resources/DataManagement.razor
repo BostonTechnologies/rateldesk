@@ -157,19 +157,19 @@
                                                     <MudTh></MudTh>
                                                 </HeaderContent>
                                                 <RowTemplate>
-                                                    <MudTd><MudTextField @bind-Value="context.Name" Margin="Margin.Dense" Immediate="true" /></MudTd>
-                                                    <MudTd>
-                                                        <MudSelect T="DatasetColumnDataType" @bind-Value="context.DataType" Margin="Margin.Dense" Dense="true">
+                                                    <MudTd DataLabel="Name"><MudTextField @bind-Value="context.Name" Margin="Margin.Dense" Immediate="true" aria-label="Column name" /></MudTd>
+                                                    <MudTd DataLabel="Type">
+                                                        <MudSelect T="DatasetColumnDataType" @bind-Value="context.DataType" Margin="Margin.Dense" Dense="true" aria-label="Column data type">
                                                             @foreach (var type in Enum.GetValues<DatasetColumnDataType>())
                                                             {
                                                                 <MudSelectItem T="DatasetColumnDataType" Value="@type">@type</MudSelectItem>
                                                             }
                                                         </MudSelect>
                                                     </MudTd>
-                                                    <MudTd><MudCheckBox T="bool" Value="@string.Equals(editor.KeyColumn, context.Name, StringComparison.OrdinalIgnoreCase)" ValueChanged="@((bool value) => { if (value) editor.KeyColumn = context.Name; })" Dense="true" /></MudTd>
-                                                    <MudTd><MudCheckBox T="bool" Value="@string.Equals(editor.DisplayColumn, context.Name, StringComparison.OrdinalIgnoreCase)" ValueChanged="@((bool value) => { if (value) editor.DisplayColumn = context.Name; })" Dense="true" /></MudTd>
-                                                    <MudTd><MudCheckBox T="bool" @bind-Value="context.IsSearchable" Dense="true" /></MudTd>
-                                                    <MudTd><MudIconButton Icon="@Icons.Material.Filled.Delete" OnClick="@(() => RemoveColumn(context))" /></MudTd>
+                                                    <MudTd DataLabel="Key"><MudCheckBox T="bool" aria-label="Use as key column" Value="@string.Equals(editor.KeyColumn, context.Name, StringComparison.OrdinalIgnoreCase)" ValueChanged="@((bool value) => { if (value) editor.KeyColumn = context.Name; })" Dense="true" /></MudTd>
+                                                    <MudTd DataLabel="Display"><MudCheckBox T="bool" aria-label="Use as display column" Value="@string.Equals(editor.DisplayColumn, context.Name, StringComparison.OrdinalIgnoreCase)" ValueChanged="@((bool value) => { if (value) editor.DisplayColumn = context.Name; })" Dense="true" /></MudTd>
+                                                    <MudTd DataLabel="Search"><MudCheckBox T="bool" aria-label="Search this column" @bind-Value="context.IsSearchable" Dense="true" /></MudTd>
+                                                    <MudTd DataLabel="Actions"><MudIconButton Icon="@Icons.Material.Filled.Delete" aria-label="@($"Remove column {context.Name}")" OnClick="@(() => RemoveColumn(context))" /></MudTd>
                                                 </RowTemplate>
                                             </MudTable>
 
