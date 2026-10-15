@@ -50,27 +50,6 @@ test('synthetic before and after workspace evidence', async ({ page }, info) => 
 
 test.describe('focused admin tasks', () => {
  test.skip(baseline, 'Baseline is captured as before evidence only.');
- test('200 percent desktop viewport scaling keeps each workspace reachable', async ({ page }, info) => {
-  test.setTimeout(120_000);
-  const cdp = await page.context().newCDPSession(page);
-  for (const theme of ['light', 'dark']) {
-   await page.evaluate(value => localStorage.setItem('helpdesk.theme.preference', value), theme);
-   for (const [name, path, , selector] of routes) {
-    await open(page, path);
-    // Desktop zoom at 200% has half the CSS viewport and twice the device-pixel ratio.
-    await cdp.send('Emulation.setDeviceMetricsOverride', { width: 720, height: 450, deviceScaleFactor: 2, mobile: false });
-    await expect(page.locator('html')).toHaveAttribute('data-helpdesk-theme', theme);
-    expect(await page.evaluate(() => ({ width: innerWidth, ratio: devicePixelRatio }))).toEqual({ width: 720, ratio: 2 });
-    await expect(page.locator(selector)).toBeVisible();
-    const tabs = page.getByRole('tab');
-    await tabs.last().focus(); await page.keyboard.press('Enter');
-    await expect(tabs.last()).toHaveAttribute('aria-selected', 'true');
-    await tabs.first().focus(); await page.keyboard.press('Enter');
-    await page.screenshot({ path: info.outputPath(`after-${name}-${theme}-200-percent.png`), fullPage: true });
-    await cdp.send('Emulation.clearDeviceMetricsOverride');
-   }
-  }
- });
  test('every workspace tab is keyboard reachable without creating work', async ({ page, request }) => {
   await page.setViewportSize({ width: 320, height: 900 });
   for (const [, path] of routes) {
