@@ -27,11 +27,11 @@ results only when explicitly marked passed; planned case counts are not passes.
 | #168 | Shared `ServiceCategoryPicker`, create/detail forms and existing `TicketCategoryEndpoints`: hydrate saved IDs, bounded cancellable encoded search, explicit authorized Add action, unavailable selections retained, existing category relationships preserved. | Category browser journeys passed within the 34-case detail suite. `TicketCategoryEndpointsTests`: 6 SQLite/PostgreSQL cases passed, including concurrent duplicates. Two category-assignment provider cases await the corrected harness rerun. |
 | #169 | Shared `TicketActivityTabs`: semantic persisted selection, lazy applicable panels, inline count pills, accessible keyboard tab/panel associations and preserved message overrides. | The 34-case detail suite passed semantic restoration, keyboard use, lazy/retained panels, template drafts, count states/bounds and stale child-callback regressions. |
 | #170 | `Pages/Ops/OperationsConsole` presents exactly SLA and Workflows tabs; original SLA/Workflow/Hangfire views keep independent authorization, legacy paths/query state and actions. Six workflow categories use one focused table. Notifications moves once to Operations for every authenticated user. | `WorkflowOpsDashboardTests`, role/category rendered tests and `playwright.operations.config.ts`: 70 component cases and 30 browser cases passed after the review fixes described below. Route/permission/metric inventory is in [Operations console](../deployment/operations-console.md). |
-| #171 | `Pages/Admin/Resources/DataManagement`: compact organization/dataset rail and Rows/Schema/Graph sync/Ingest API capabilities, existing schema, keys, sync/schedule details and explicit destructive confirmations retained. | `playwright.admin.config.ts` and existing dataset API authorization tests; final browser/integrated results pending. Inventory: `docs/deployment/admin-workspaces.md`. |
-| #172 | `Pages/Admin/SupportNotifications/SupportRoutingManagement` and shared administration panels: Routing, Support groups and Diagnostics with shared context, one explicit bootstrap action, unchanged coverage/subscription/recipient resolver semantics and permissions. | Admin browser suite plus existing resolver/bootstrap tests; final results pending. |
-| #173 | `Pages/Admin/Role/RoleManagement`: Custom roles first, Built-in roles second, search/paging and permission details, preserved protected role/assignment API rules. | Admin browser and existing role-definition/assignment tests; final results pending. |
-| #174 | `Pages/Admin/SLA/TenantSlaSettingsAdmin` and shared SLA panels: Policies, Working calendars and Reporting; shared tenant context, explicit calendar Save/Revert and retained full report metadata, calculations and historical deadlines. | Admin browser plus existing SLA resolver/business-time/scheduler tests; final results pending. |
-| #175 | `PendingEmails`, shared pending DTOs, API timeline query/actions and outbox services: SQL search/filter/count/page at 25/50/100, bounded organization lookup, explicit selected actions, transactional audited tombstones and submission fencing. Sender/revision/non-delivery/partial-recipient previews remain. Legacy unscoped retry-all returns 409 directing callers to selected actions. | `playwright.pending-mail.config.ts`: 11 passed; native zoom: 4 passed. `PendingEmailQueueTests`: 12 planned SQLite/PostgreSQL cases; transport gates and API authorization/mixed-action tests await integrated execution. Both providers receive additive browse indexes; existing timeline content is retained. |
+| #171 | `Pages/Admin/Resources/DataManagement`: compact organization/dataset rail and Rows/Schema/Graph sync/Ingest API capabilities, existing schema, keys, sync/schedule details and explicit destructive confirmations retained. | `playwright.admin.config.ts` and existing dataset API authorization tests; 14 owning browser cases passed; final integrated results pending. Inventory: `docs/deployment/admin-workspaces.md`. |
+| #172 | `Pages/Admin/SupportNotifications/SupportRoutingManagement` and shared administration panels: Routing, Support groups and Diagnostics with shared context, one explicit bootstrap action, unchanged coverage/subscription/recipient resolver semantics and permissions. | Admin browser suite: 14 passed; existing resolver/bootstrap integration results pending. |
+| #173 | `Pages/Admin/Role/RoleManagement`: Custom roles first, Built-in roles second, search/paging and permission details, preserved protected role/assignment API rules. | Admin browser suite: 14 passed; existing role-definition/assignment integration results pending. |
+| #174 | `Pages/Admin/SLA/TenantSlaSettingsAdmin` and shared SLA panels: Policies, Working calendars and Reporting; shared tenant context, explicit calendar Save/Revert and retained full report metadata, calculations and historical deadlines. | Admin browser suite: 14 passed; existing SLA resolver/business-time/scheduler integration results pending. |
+| #175 | `PendingEmails`, shared pending DTOs, API timeline query/actions and outbox services: SQL search/filter/count/page at 25/50/100, bounded organization lookup, explicit selected actions, transactional audited tombstones and submission fencing. Sender/revision/non-delivery/partial-recipient previews remain. Legacy unscoped retry-all returns 409 directing callers to selected actions. | `playwright.pending-mail.config.ts`: 11 passed; native zoom: 4 passed. `PendingEmailQueueTests`: 12 SQLite/PostgreSQL cases passed; `TimelineEndpointsAuthorizationTests`: 6 passed. Final-candidate transport and integrated checks remain pending. Both providers receive additive browse indexes; existing timeline content is retained. |
 | #176 | `Layout/NavMenu`, `HelpdeskNavLink`, `HelpdeskNavGroup`, `TenantAdministrationNavigation`, theme drawer sizing and scoped navigation CSS: single-line common labels, balanced indentation, stable icon/focus geometry, accessible full-name tooltip and responsive drawer. | `NavMenuRenderedTests`; Operations browser matrix passed at 320–1920px in both themes, including keyboard focus, long account name and mobile Escape. Native zoom acceptance remains separately tracked below. |
 | #177 | Root `Directory.Build.props` retains prefix 0.1.1 with empty suffix in integration; cumulative `docs/release-notes/0.1.1.md` and existing release/promotion workflows own final acceptance. | All shipped-project evaluated versions, full solution/provider/upgrade checks, exact merged-main CI, tag/publication and protected promotion remain pending here. No release/merge claim is made. |
 
@@ -194,6 +194,22 @@ Responsive dark incident views: [320px](assets/workspace-0.1.1/details/details-3
 [768px](assets/workspace-0.1.1/details/details-768-dark.png),
 [1920px](assets/workspace-0.1.1/details/details-1920-dark.png).
 
+Administration evidence and the complete capability mapping are linked in the
+[administration receipt](admin-workspace-evidence-0.1.1.md). Its final owning
+browser run passed 14 cases without retries; native zoom and combined-source
+acceptance remain separate.
+
+Pending-mail comparisons use the preserved baseline and the owning implementation
+against synthetic deliveries at 1440px. They show the old unbounded list and the
+new 25-row page, query controls and explicit queue actions. The owning browser
+suite passed 11 cases; these isolated UI captures do not establish final package
+version or actual SMTP delivery. Real provider tests use fake mail transports.
+
+| Pending mail | Before | After |
+| --- | --- | --- |
+| Light | [Baseline](assets/workspace-0.1.1/pending-mail/pending-before-light-desktop.png) | [Paged queue](assets/workspace-0.1.1/pending-mail/pending-light-1440.png) |
+| Dark | [Baseline](assets/workspace-0.1.1/pending-mail/pending-before-dark-desktop.png) | [Paged queue](assets/workspace-0.1.1/pending-mail/pending-dark-1440.png) |
+
 ## Remaining integrated acceptance
 
 The preserved hosted required-provider gate at
@@ -210,8 +226,8 @@ provider validation remain pending; it is not substituted for those gates.
   mail each reported 4 passing cases (light/dark, 1280/1920px); Operations,
   administration, details and filters native results are pending here.
 - The owning detail browser suite passed all 34 cases after review fixes; its
-  final combined-source checks remain pending. Final admin browser results and
-  review follow-ups are pending. The ticket-filter browser suite reported 30
+  final combined-source checks remain pending. Administration passed 14 cases
+  after review and accessible schema-label fixes. The ticket-filter browser suite reported 30
   passing cases; its integrated provider/component results remain pending.
   Their provisional or interrupted runs are not counted as acceptance.
 - Full pinned-SDK `dotnet build Helpdesk.sln` / `dotnet test Helpdesk.sln`, both
@@ -219,7 +235,8 @@ provider validation remain pending; it is not substituted for those gates.
   #147/#161 regressions and final combined-source browser checks are pending.
 - Beta.22-to-stable upgrade verification must retain settings, identities,
   tickets, assignments, category relationships, mail states and migration
-  histories on SQLite and PostgreSQL. Results are pending.
+  histories on SQLite and PostgreSQL. Both provider cases passed in the focused
+  integration run; final-candidate full-suite evidence is tracked separately.
 - Required PR/main checks and approvals, one normal integration merge, exact
   merged-main CI, immutable stable tag/assets/images, anonymous verification and
   the separate protected stable/latest promotion are not established by this
