@@ -38,6 +38,16 @@ for(const module of ['incidents','requests','changes']) {
   await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
  });
 }
+test('Back during pending search preserves the restored page and URL',async({page})=>{
+ await page.goto('/incidents?page=2');await expect(page.getByText('26-50 of 60')).toBeVisible();
+ const search=page.getByRole('textbox',{name:'Search tickets'});
+ await search.fill('59');await expect(page.getByText('Synthetic ticket 59',{exact:true})).toBeVisible();
+ await search.fill('pending');await page.goBack();
+ await expect(page.getByText('26-50 of 60')).toBeVisible();
+ await page.waitForTimeout(500);
+ await expect(page).toHaveURL(/page=2/);await expect(search).toHaveValue('');
+ await expect(page.getByText('26-50 of 60')).toBeVisible();
+});
 test('cancelled search cannot replace newer data; error differs from no matches',async({page,request})=>{
  await page.goto('/incidents');
  await expect(page.getByText('1-25 of 60')).toBeVisible();

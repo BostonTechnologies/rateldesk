@@ -24,6 +24,8 @@ internal static class TicketFilterEndpoints
             };
             var selectedOrganizations = request.Query["customerOrgId"].ToArray();
             if (selectedOrganizations.Length > 20 || selectedOrganizations.Any(id => string.IsNullOrWhiteSpace(id) || id.Length > 200)) return Results.BadRequest();
+            var selectedIds = request.Query["selectedId"].ToArray();
+            if (selectedIds.Length > 20 || selectedIds.Any(id => string.IsNullOrWhiteSpace(id) || id.Length > 200)) return Results.BadRequest();
             if (selectedOrganizations.Length > 0) tickets = tickets.Where(ticket => selectedOrganizations.Contains(ticket.OrganizationId));
             var organizationIds = tickets.Select(ticket => ticket.OrganizationId).Distinct();
             IQueryable<TicketFilterOptionDto> options;
@@ -43,7 +45,23 @@ internal static class TicketFilterEndpoints
                         .Where(change => selectedOrganizations.Length == 0 || selectedOrganizations.Contains(change.OrganizationId)).Select(change => change.RequestedForUserId);
                     users = db.Users.AsNoTracking().Where(candidate => ids.Contains(candidate.Id));
                 }
-                else users = AssigneeQueries.Eligible(db, module, db.Organizations.AsNoTracking().Where(organization => organizationIds.Contains(organization.Id)));
+                else
+                {
+                    users = AssigneeQueries.Eligible(db, module, db.Organizations.AsNoTracking().Where(organization => organizationIds.Contains(organization.Id)));
+                    if (selectedIds.Length > 0)
+                    {
+                        // Restored filters may refer to former assignees. Resolve their labels only
+                        // when an authorized ticket still references them; normal suggestions keep
+                        // the assignment picker's eligibility rules.
+                        var eligibleIds = users.Select(candidate => candidate.Id);
+                        var assignedIds = module == "change"
+                            ? TicketListQuery.Authorized(db.Changes.AsNoTracking(), access, module)
+                                .Where(change => selectedOrganizations.Length == 0 || selectedOrganizations.Contains(change.OrganizationId)).Select(change => change.ImplementorUserId)
+                            : tickets.Select(ticket => ticket.AssignedToId);
+                        users = db.Users.AsNoTracking().Where(candidate => eligibleIds.Contains(candidate.Id) || assignedIds.Contains(candidate.Id));
+                    }
+                }
+                if (selectedIds.Length > 0) users = users.Where(candidate => selectedIds.Contains(candidate.Id));
                 users = AssigneeQueries.Search(db, users, q);
                 options = users.Select(candidate => new TicketFilterOptionDto(candidate.Id, candidate.Name + " (" + candidate.Email + ")"));
             }
@@ -54,6 +72,7 @@ internal static class TicketFilterEndpoints
                     ? options.Where(option => EF.Functions.ILike(option.Label, pattern, "\\"))
                     : options.Where(option => EF.Functions.Like(option.Label, pattern, "\\"));
             }
+            if (selectedIds.Length > 0) options = options.Where(option => selectedIds.Contains(option.Id));
             var limit = Math.Clamp(take ?? 20, 1, 50);
             var items = await options.OrderBy(option => option.Label).ThenBy(option => option.Id).Take(limit + 1).ToListAsync(token);
             var hasMore = items.Count > limit;

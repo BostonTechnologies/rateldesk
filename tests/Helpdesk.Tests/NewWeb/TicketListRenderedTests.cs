@@ -30,6 +30,7 @@ public sealed class TicketListRenderedTests
         Assert.DoesNotContain("AI involved only", page.Markup); Assert.DoesNotContain("AI origin only", page.Markup);
         Assert.All(handler.Requests, url => { Assert.DoesNotContain("aiInvolved", url); Assert.DoesNotContain("aiOnly", url); });
         Assert.Contains("Filters (2)", page.Markup); Assert.Contains("No tickets match these filters.", page.Markup);
+        page.WaitForAssertion(() => Assert.Contains("Remove Customer: Named organization", page.Markup));
         page.FindAll("button").Single(button => button.TextContent.Contains("Clear all")).Click();
         page.WaitForAssertion(() => Assert.Contains("Filters (0)", page.Markup));
         Assert.DoesNotContain("customerOrgId", navigation.Uri); Assert.DoesNotContain("search=", navigation.Uri);
@@ -41,6 +42,8 @@ public sealed class TicketListRenderedTests
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             Requests.Add(request.RequestUri!.PathAndQuery);
+            if (request.RequestUri.AbsolutePath.EndsWith("/filter-options"))
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { items = new[] { new { id = "org", label = "Named organization" } }, hasMore = false }) });
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { items = Array.Empty<object>(), totalCount = 0 }) });
         }
     }

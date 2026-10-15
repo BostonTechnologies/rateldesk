@@ -85,6 +85,37 @@ public sealed class TicketListFiltersTests
     }
 
     [Theory][InlineData(false)][InlineData(true)]
+    public async Task Restored_labels_are_bounded_authorized_and_retain_former_assignees(bool postgres)
+    {
+        await using var h = await Harness.Create(postgres);
+        await h.WithDb(async db => {
+            db.Users.AddRange(new User { Id = "former", Name = "Former assignee", Email = "former@example.test", OrganizationId = "other" },
+                new User { Id = "secret-assignee", Name = "Secret assignee", Email = "secret@example.test", OrganizationId = "other" });
+            foreach (var module in new[] { "incident", "request", "change" })
+            {
+                Ticket ticket = module switch { "incident" => new Incident(), "request" => new Helpdesk.Shared.Models.Request(), _ => new Change { ImplementorUserId = "former" } };
+                ticket.Id = "former-" + module; ticket.Title = "Former assignment"; ticket.TrackingId = "FORMER-" + module;
+                ticket.OrganizationId = "org"; ticket.AssignedToId = "former"; db.Add(ticket);
+            }
+            db.Incidents.Add(new Incident { Id = "secret-assignment", Title = "Secret assignment", TrackingId = "SECRET", OrganizationId = "other", AssignedToId = "secret-assignee" });
+            await db.SaveChangesAsync();
+        });
+        h.Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "reader");
+        foreach (var module in new[] { "incident", "request", "change" })
+        {
+            var normal = await h.Client.GetFromJsonAsync<TicketFilterOptionsDto>($"/api/v1/ticketing/filter-options?module={module}&dimension=assignee&q=Former");
+            Assert.Empty(normal!.Items);
+            var restored = await h.Client.GetFromJsonAsync<TicketFilterOptionsDto>($"/api/v1/ticketing/filter-options?module={module}&dimension=assignee&selectedId=former&selectedId=secret-assignee");
+            Assert.Equal("former", Assert.Single(restored!.Items).Id);
+            Assert.Contains("Former assignee", restored.Items[0].Label);
+            var organizations = await h.Client.GetFromJsonAsync<TicketFilterOptionsDto>($"/api/v1/ticketing/filter-options?module={module}&dimension=customer&selectedId=org&selectedId=other");
+            Assert.Equal("org", Assert.Single(organizations!.Items).Id);
+        }
+        var oversized = string.Concat(Enumerable.Repeat("&selectedId=former", 21));
+        Assert.Equal(HttpStatusCode.BadRequest, (await h.Client.GetAsync("/api/v1/ticketing/filter-options?module=incident&dimension=assignee" + oversized)).StatusCode);
+    }
+
+    [Theory][InlineData(false)][InlineData(true)]
     public async Task Contributor_identity_and_module_grants_scope_both_tickets_and_facets(bool postgres)
     {
         await using var h = await Harness.Create(postgres); await Seed(h, "incidents");

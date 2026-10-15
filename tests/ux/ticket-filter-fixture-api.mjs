@@ -22,7 +22,7 @@ http.createServer(async (req,res) => {
  }
  if(url.pathname==='/api/v1/auth/me') return reply({isAuthenticated:true,name:'Synthetic operator',email:'Synthetic operator',userId:'filter-operator',customerId:null,primaryOrganizationId:null,primaryOrganizationName:null,isHelpdeskAdmin:true,roleBundles:['HelpdeskAdmin'],permissions:[],allowedOrganizationIds:['org-a','org-b'],managedOrganizationIds:[]});
  if(url.pathname==='/api/v1/branding') return reply({applicationName:'RatelDesk'});
- if(url.pathname==='/api/v1/ticketing/filter-options') return reply({items:(options[q.get('dimension')]??[]).filter(o=>o.label.toLowerCase().includes((q.get('q')??'').toLowerCase())),hasMore:false});
+ if(url.pathname==='/api/v1/ticketing/filter-options') return reply({items:(options[q.get('dimension')]??[]).filter(o=>(!q.has('selectedId')||q.getAll('selectedId').includes(o.id))&&o.label.toLowerCase().includes((q.get('q')??'').toLowerCase())),hasMore:false});
  if(url.pathname.endsWith('/assignees/current')) return reply(null);
  if(url.pathname.match(/^\/api\/v1\/(incidents|requests|changes)\/?$/)) {
   queries.push(url.pathname+url.search);

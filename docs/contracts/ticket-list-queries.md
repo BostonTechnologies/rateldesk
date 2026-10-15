@@ -52,6 +52,11 @@ share the same eligible-user predicates as the assignment picker; lookup does
 not grant write permissions. All lookup values are encoded, requests cancel on
 query changes, and no complete user directory is downloaded.
 
+Repeated `selectedId` values (maximum 20) resolve readable labels for restored
+filter chips within the same authorization scope. Former assignees are available
+only when an authorized ticket still references them. This does not change
+normal assignment suggestions or assignment write validation.
+
 The workspace keeps filters, view, sort, page and size in its URL. Back/Forward
 restores that state; detail links carry a local `returnUrl`. Filter changes reset
 to page one and clear bulk selections. A later response cannot overwrite a newer
