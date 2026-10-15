@@ -1,0 +1,6 @@
+.pending-mail { min-width: 0; }
+.pending-mail-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap: .5rem; }
+.pending-mail-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; min-width: 0; }
+.pending-mail-page-size { max-width: 9rem; }
+.pending-mail ::deep td, .pending-mail dd { overflow-wrap: anywhere; }
+.pending-mail dd { margin-left: 1rem; }

@@ -79,3 +79,49 @@ Previously failed beta.2 email effects and timeline entries remain in their fail
 The feature suite covers Graph SDK HTTP/MIME fixtures, isolated TLS IMAP/POP3 servers, real adapter-to-ticket persistence, acknowledgment recovery, mixed 10+3 routing, tenant conflicts, leases/restarts, credential boundaries and both database upgrade paths. These fixtures use synthetic accounts; they are not live Exchange or hosted mailbox acceptance. PR validation executes the .NET suite and the mailbox Playwright cases alongside setup, authorization, AI Assistant, image and Compose gates. The PR records the exact results and screenshot artifacts.
 
 Before enabling a real source, the mailbox administrator must grant the provider-specific permissions, verify delivery/forwarding and retention, use the read-only connection test, and send a controlled new message and reply. Confirm the intended organization, one ticket/reply, expected attachments and successful provider disposition in inbound diagnostics. Live provider throttling, tenant-specific consent and external delivery rules still require that operator acceptance.
+
+## Pending delivery queue
+
+Administrators open `/admin/pending-emails` to search ticket tracking references,
+subjects and recipients. Filtering and totals apply to the complete database
+before sorting and paging. Pages contain 25 rows by default, with 50 and 100
+available; the API rejects larger pages. Status, organization ID, mailbox sender,
+recipient, error code and created-time filters combine with AND. Created-time
+bounds use UTC and include both endpoints. Equal endpoints select that instant.
+The URL retains filters, sorting and page for browser Back/Forward.
+
+Selection covers the explicit records on the current page, at most 100. Changing
+filters/pages or refreshing clears selection. Bulk actions confirm the selected
+count and return an outcome for every record. Retry keeps the existing sender
+binding; sender adoption, mailbox/outgoing revision changes, partial acceptance,
+and unknown submission outcomes still require individual review. Legacy records
+without an outbox owner can be retried individually after confirmation; bulk
+retry leaves them for review.
+
+**Cancel delivery** persists cancellation before submission. The worker rechecks
+its owner, lease and fence immediately before SMTP `SendAsync` or Graph
+`SendMail`. Once submission starts, cancellation returns a conflict; after an
+unknown outcome or partial acceptance, it requires review. Expired submission
+claims remain held for verification after a worker restart. Claims made by older
+workers without this submission gate are also held against cancellation.
+
+**Remove queue entry** persists a queue tombstone and blocks future dispatch.
+It does not recall previously accepted or uncertain mail. Active submission
+cannot be removed until its outcome is recorded or its lease expires. The
+outbox payload, original delivery outcome, recipients, message text, timeline,
+ticket, worklogs and attachments remain intact. Ownerless legacy deliveries use
+a delivery-status tombstone. Actor, UTC action time and operator reason are
+recorded in the activity audit. Repeating cancel/remove is idempotent.
+
+The 0.1.1 migration adds a browse index on PostgreSQL and a computed UTC ordering
+column plus index on SQLite. It does not rewrite historical delivery content or
+retry metadata. Stop old application workers before rolling back from 0.1.1:
+previous versions do not understand the appended cancellation, removal and
+submission states. Keep 0.1.1 workers while these states exist.
+
+Validation uses migrated SQLite/PostgreSQL synthetic queues and fake SMTP/Graph
+transports. The focused rendered browser suite is
+`npx playwright test --config playwright.pending-mail.config.ts`; set
+`HELPDESK_PENDING_MAIL_CONFIGURATION=Release` for a Release Web build. Its
+loopback fixture is presentation evidence, while the .NET suites verify real
+API authorization and database state transitions.

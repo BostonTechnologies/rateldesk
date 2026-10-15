@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Security.Claims;
 using Helpdesk.Shared.DTOs.Worklog;
+using Helpdesk.Shared.DTOs.Email;
 using Helpdesk.Shared.Models;
 
 namespace HelpDesk.NewWeb.Services;
@@ -18,6 +19,8 @@ public interface ITimelineApiClient
     Task RetryWithCurrentRouteAsync(Guid id, ConfirmMailboxRouteRetryRequest request);
     Task<int> GetPendingCountAsync();
     Task<List<TicketTimelineEventDto>> GetFailedAsync();
+    Task<PendingEmailPage> SearchPendingAsync(PendingEmailQuery query, CancellationToken ct = default);
+    Task<PendingEmailActionResponse> ApplyPendingActionAsync(PendingEmailActionRequest request, CancellationToken ct = default);
 }
 
 public class TimelineApiClient(
@@ -119,6 +122,32 @@ public class TimelineApiClient(
             return new();
 
         return await response.Content.ReadFromJsonAsync<List<TicketTimelineEventDto>>() ?? new();
+    }
+
+    public async Task<PendingEmailPage> SearchPendingAsync(PendingEmailQuery query, CancellationToken ct = default)
+    {
+        var values = new Dictionary<string, string?>
+        {
+            ["search"] = query.Search, ["status"] = query.Status?.ToString(), ["organizationId"] = query.OrganizationId,
+            ["sender"] = query.Sender, ["recipient"] = query.Recipient, ["reason"] = query.Reason,
+            ["from"] = query.From?.ToUniversalTime().ToString("O"), ["to"] = query.To?.ToUniversalTime().ToString("O"),
+            ["sort"] = query.Sort, ["descending"] = query.Descending.ToString(), ["page"] = query.Page.ToString(),
+            ["pageSize"] = query.PageSize.ToString()
+        };
+        using var request = CreateUserScopedRequest(HttpMethod.Get,
+            Microsoft.AspNetCore.WebUtilities.QueryHelpers.AddQueryString("/api/v1/timeline/pending", values));
+        using var response = await _client.SendAsync(request, ct);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<PendingEmailPage>(ct) ?? throw new HttpRequestException("Empty delivery response.");
+    }
+
+    public async Task<PendingEmailActionResponse> ApplyPendingActionAsync(PendingEmailActionRequest action, CancellationToken ct = default)
+    {
+        using var request = CreateUserScopedRequest(HttpMethod.Post, "/api/v1/timeline/pending/actions");
+        request.Content = JsonContent.Create(action);
+        using var response = await _client.SendAsync(request, ct);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<PendingEmailActionResponse>(ct) ?? throw new HttpRequestException("Empty action response.");
     }
 
     private HttpRequestMessage CreateUserScopedRequest(HttpMethod method, string uri)
