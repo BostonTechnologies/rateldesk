@@ -280,13 +280,13 @@ test('long assignee and 26 selected category labels remain usable at 320px', asy
 
 
 test('late attachment callback cannot replace counts after A B A navigation', async ({ page, request }) => {
-  await open(page);
+  await open(page, 'requests');
   await request.get(`${fixture}/fault?mode=hold-attachments`);
   await page.getByRole('tab', { name: /Attachments/ }).click();
   await expect.poll(async () => (await (await request.get(`${fixture}/state`)).json()).held).toContain('attachments');
-  await routeWithoutReload(page, '/incidents/incidents-2');
+  await routeWithoutReload(page, '/requests/requests-2');
   await expect(selected(page)).toContainText('R&D');
-  await routeWithoutReload(page, '/incidents/incidents-1');
+  await routeWithoutReload(page, '/requests/requests-1');
   await expect(selected(page)).toContainText('Historical selection');
   await page.getByRole('tab', { name: /Attachments/ }).click();
   await expect(page.getByRole('tab', { name: /Attachments/ }).locator('.activity-count')).toHaveAttribute('aria-label', '0 items');
