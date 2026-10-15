@@ -89,7 +89,7 @@
                          Size="Size.Small"
                          Variant="Variant.Outlined"
                          Color="Color.Default"
-                         Closeable="@(!ReadOnly)" OnClose="() => RemoveCategory(category.Id)">
+                         OnClose="@(ReadOnly ? default(EventCallback<MudChip<TicketCategoryDto>>) : EventCallback.Factory.Create<MudChip<TicketCategoryDto>>(this, () => RemoveCategory(category.Id)))">
                     @category.Name
                 </MudChip>
             }

@@ -1,6 +1,7 @@
 @page "/admin/resources/data-management"
 @attribute [Authorize(Roles = "HelpdeskAdmin,DataManagement.Admin")]
 @implements IAsyncDisposable
+@using Microsoft.AspNetCore.Components.Routing
 @using System.Net.Http.Json
 @using System.Text.Json.Nodes
 @using BlazorMonaco.Editor
@@ -21,24 +22,29 @@
 
 <PageTitle>Data Management</PageTitle>
 
-<MudContainer MaxWidth="MaxWidth.False" Class="py-4 data-management-page">
+<NavigationLock ConfirmExternalNavigation="@(busy || HasUnsavedChanges)" OnBeforeInternalNavigation="ConfirmNavigationAsync" />
+<div class="data-management-page">
+<MudContainer MaxWidth="MaxWidth.False" Class="py-3">
+<fieldset disabled="@(busy || loading || datasetLoading)" class="data-editor-controls">
     <MudStack Spacing="3">
         <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="data-management-header">
             <MudStack Spacing="0">
-                <MudText Typo="Typo.h4">Data Management</MudText>
-                <MudText Typo="Typo.body2">Tenant datasets for self-service request bindings and scripted ingestion.</MudText>
+                <MudText Typo="Typo.h5" HtmlTag="h1">Data Management</MudText>
+                <MudText Typo="Typo.body2">Manage dataset schemas, rows and ingestion.</MudText>
             </MudStack>
             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="PrepareNewDataset" Disabled="@string.IsNullOrWhiteSpace(selectedOrganizationId)">
                 New Dataset
             </MudButton>
         </MudStack>
 
-        <MudGrid Spacing="3">
-            <MudItem xs="12" md="4">
-                <MudPaper Class="pa-3 data-management-rail">
+        @if (busy || loading) { <MudProgressLinear Indeterminate="true" /> }
+        @if (loadError is not null) { <MudAlert Severity="Severity.Error">@loadError</MudAlert> }
+        <MudGrid Spacing="2">
+            <MudItem xs="12" md="3">
+                <MudPaper Class="pa-2 data-management-rail" Elevation="0">
                     @if (organizations.Count > 1 || isHelpdeskAdmin)
                     {
-                        <MudSelect T="string" Label="Organization" Value="selectedOrganizationId" ValueChanged="OnOrganizationChanged" Variant="Variant.Outlined" Margin="Margin.Dense">
+                        <MudSelect @key="organizationSelectorVersion" T="string" Label="Organization" Value="selectedOrganizationId" ValueChanged="OnOrganizationChanged" Variant="Variant.Outlined" Margin="Margin.Dense">
                             @foreach (var organization in organizations.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
                             {
                                 <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
@@ -108,107 +114,29 @@
                 </MudPaper>
             </MudItem>
 
-            <MudItem xs="12" md="8">
-                <MudPaper Class="pa-3 data-management-workspace">
+            <MudItem xs="12" md="9">
+                <MudPaper Class="pa-2 data-management-workspace" Elevation="0">
                     @if (string.IsNullOrWhiteSpace(selectedOrganizationId))
                     {
                         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">Select an organization to manage datasets.</MudAlert>
                     }
                     else
                     {
-                        <MudTabs @bind-ActivePanelIndex="primaryTabIndex" Rounded="false" Elevation="0" PanelClass="pt-3" Class="data-management-tabs data-management-tabs-primary">
-                            <MudTabPanel Text="Built-in">
-                                <MudText Typo="Typo.subtitle2">Graph ingestion</MudText>
-                                <MudText Typo="Typo.body2" Class="mb-2">Configure and sync tenant built-in datasets from Microsoft Graph.</MudText>
-                                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mb-3">
-                                    Use Sync Built-Ins to test the connector, then configure the tenant Hangfire schedule from Sync Settings.
-                                </MudAlert>
-                                <MudGrid>
-                                    <MudItem xs="12" md="4"><MudTextField @bind-Value="graphSettings.TenantId" Label="Tenant Id" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-                                    <MudItem xs="12" md="4"><MudTextField @bind-Value="graphSettings.ClientId" Label="Client Id" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-                                    <MudItem xs="12" md="4"><MudTextField @bind-Value="graphSettings.ClientSecret" Label="Client Secret" Variant="Variant.Outlined" Margin="Margin.Dense" InputType="InputType.Password" /></MudItem>
-                                </MudGrid>
-                                <MudStack Row="true" Spacing="2" Class="mt-2 data-management-checkboxes">
-                                    <MudCheckBox @bind-Value="graphSettings.EnableUsers" Label="Users" />
-                                    <MudCheckBox @bind-Value="graphSettings.EnableDevices" Label="Devices" />
-                                    <MudCheckBox @bind-Value="graphSettings.EnableGroups" Label="Groups" />
-                                    <MudCheckBox @bind-Value="graphSettings.EnableSharePointSites" Label="SharePoint Sites" />
-                                </MudStack>
-                                <MudStack Row="true" Spacing="2" Class="mt-3 data-management-actions">
-                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveGraphSettingsAsync">Save Graph Settings</MudButton>
-                                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Settings" OnClick="OpenGraphSyncSettingsAsync">Sync Settings</MudButton>
-                                    <MudButton Variant="Variant.Outlined" OnClick="SyncBuiltInsAsync">Sync Built-Ins</MudButton>
-                                    @if (isHelpdeskAdmin)
-                                    {
-                                        <MudButton Variant="Variant.Text" Href="/ops/hangfire">Hangfire Ops</MudButton>
-                                        <MudButton Variant="Variant.Text" Href="@HangfireDashboardUrl" Target="_blank">Hangfire Dashboard</MudButton>
-                                    }
-                                </MudStack>
-
-                                <MudGrid Class="mt-3">
-                                    <MudItem xs="12" lg="6">
-                                        <MudPaper Variant="Variant.Outlined" Class="pa-3">
-                                            <MudText Typo="Typo.subtitle2">Sync Status</MudText>
-                                            <MudText Typo="Typo.body2">Last result: @(graphSettings.LastSyncStatus ?? "Not run yet")</MudText>
-                                            @if (!string.IsNullOrWhiteSpace(graphSettings.LastSyncMessage))
-                                            {
-                                                <MudText Typo="Typo.body2">Message: @graphSettings.LastSyncMessage</MudText>
-                                            }
-                                            <MudText Typo="Typo.caption" Class="d-block mt-2">Users: @FormatSyncStamp(graphSettings.LastUsersSyncUtc)</MudText>
-                                            <MudText Typo="Typo.caption" Class="d-block">Devices: @FormatSyncStamp(graphSettings.LastDevicesSyncUtc)</MudText>
-                                            <MudText Typo="Typo.caption" Class="d-block">Groups: @FormatSyncStamp(graphSettings.LastGroupsSyncUtc)</MudText>
-                                            <MudText Typo="Typo.caption" Class="d-block">SharePoint Sites: @FormatSyncStamp(graphSettings.LastSharePointSitesSyncUtc)</MudText>
-                                        </MudPaper>
-                                    </MudItem>
-                                    <MudItem xs="12" lg="6">
-                                        <MudPaper Variant="Variant.Outlined" Class="pa-3">
-                                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                                                <MudText Typo="Typo.subtitle2">Hangfire Schedule</MudText>
-                                                <MudChip T="string"
-                                                         Size="Size.Small"
-                                                         Variant="Variant.Outlined"
-                                                         Color="@(graphSettings.HangfireEnabled ? Color.Success : Color.Warning)">
-                                                    @(graphSettings.HangfireEnabled ? "Runtime Enabled" : "Runtime Disabled")
-                                                </MudChip>
-                                            </MudStack>
-                                            <MudText Typo="Typo.body2" Class="mt-2">Tenant schedule: @(graphSettings.BackgroundSyncEnabled ? "Enabled" : "Disabled")</MudText>
-                                            <MudText Typo="Typo.body2">Cron: @graphSettings.BackgroundSyncCronExpression</MudText>
-                                            <MudText Typo="Typo.body2">Registered: @(graphSettings.BackgroundSyncRegistered ? "Yes" : "No")</MudText>
-                                            <MudText Typo="Typo.caption" Class="d-block">Storage provider: @graphSettings.HangfireStorageProvider.</MudText>
-                                            <MudText Typo="Typo.caption" Class="d-block">Queue: @(graphSettings.BackgroundSyncQueueName ?? "n/a")</MudText>
-                                            <MudText Typo="Typo.caption" Class="d-block">Last run: @FormatSyncStamp(graphSettings.BackgroundSyncLastExecutionUtc)</MudText>
-                                            <MudText Typo="Typo.caption" Class="d-block">Next run: @FormatSyncStamp(graphSettings.BackgroundSyncNextExecutionUtc)</MudText>
-                                            @if (!graphSettings.HangfireEnabled)
-                                            {
-                                                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mt-2">
-                                                    Tenant schedule settings are saved in the database, but recurring Graph sync will not register until ops enables the global runtime.
-                                                </MudAlert>
-                                            }
-                                        </MudPaper>
-                                    </MudItem>
-                                </MudGrid>
-
-                                <MudDivider Class="my-4" />
-                                <MudText Typo="Typo.subtitle2">Built-in rows</MudText>
-                                @if (!SelectedDatasetIsBuiltIn)
+                        <MudText Typo="Typo.subtitle2" Class="mb-2">@(string.IsNullOrWhiteSpace(editor.Id) ? "New dataset" : editor.Name)</MudText>
+                        <MudTabs MinimumTabWidth="128px" @bind-ActivePanelIndex="primaryTabIndex" KeepPanelsAlive="true" Rounded="false" Elevation="0" PanelClass="pt-2" Class="data-management-tabs">
+                            <MudTabPanel Text="Rows">
+                                @if (string.IsNullOrWhiteSpace(editor.Id))
                                 {
-                                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mt-2">
-                                        Select an enabled built-in Graph dataset with ingested rows from the left list.
-                                    </MudAlert>
+                                    <MudText>Select a dataset or save a new schema to browse rows.</MudText>
                                 }
-                                else
-                                {
-                                    @RowsBrowser()
-                                }
+                                else { @RowsBrowser() }
                             </MudTabPanel>
+                            <MudTabPanel Text="Schema">
 
-                            <MudTabPanel Text="Custom Data">
-                                <MudTabs @bind-ActivePanelIndex="customTabIndex" Rounded="false" Elevation="0" PanelClass="pt-3" Class="data-management-tabs data-management-tabs-compact">
-                                    <MudTabPanel Text="Dataset">
                                         @if (SelectedDatasetIsBuiltIn)
                                         {
                                             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                                                Built-in datasets are managed from the Built-in tab. Select a custom dataset or create a new one to edit schema.
+                                                Built-in datasets are managed from the Graph sync tab. Select a custom dataset or create a new one to edit schema.
                                             </MudAlert>
                                         }
                                         else
@@ -229,19 +157,19 @@
                                                     <MudTh></MudTh>
                                                 </HeaderContent>
                                                 <RowTemplate>
-                                                    <MudTd><MudTextField @bind-Value="context.Name" Margin="Margin.Dense" Immediate="true" /></MudTd>
-                                                    <MudTd>
-                                                        <MudSelect T="DatasetColumnDataType" @bind-Value="context.DataType" Margin="Margin.Dense" Dense="true">
+                                                    <MudTd DataLabel="Name"><MudTextField @bind-Value="context.Name" Margin="Margin.Dense" Immediate="true" aria-label="Column name" /></MudTd>
+                                                    <MudTd DataLabel="Type">
+                                                        <MudSelect T="DatasetColumnDataType" @bind-Value="context.DataType" Margin="Margin.Dense" Dense="true" aria-label="Column data type">
                                                             @foreach (var type in Enum.GetValues<DatasetColumnDataType>())
                                                             {
                                                                 <MudSelectItem T="DatasetColumnDataType" Value="@type">@type</MudSelectItem>
                                                             }
                                                         </MudSelect>
                                                     </MudTd>
-                                                    <MudTd><MudCheckBox T="bool" Value="@string.Equals(editor.KeyColumn, context.Name, StringComparison.OrdinalIgnoreCase)" ValueChanged="@((bool value) => { if (value) editor.KeyColumn = context.Name; })" Dense="true" /></MudTd>
-                                                    <MudTd><MudCheckBox T="bool" Value="@string.Equals(editor.DisplayColumn, context.Name, StringComparison.OrdinalIgnoreCase)" ValueChanged="@((bool value) => { if (value) editor.DisplayColumn = context.Name; })" Dense="true" /></MudTd>
-                                                    <MudTd><MudCheckBox T="bool" @bind-Value="context.IsSearchable" Dense="true" /></MudTd>
-                                                    <MudTd><MudIconButton Icon="@Icons.Material.Filled.Delete" OnClick="@(() => RemoveColumn(context))" /></MudTd>
+                                                    <MudTd DataLabel="Key"><MudCheckBox T="bool" aria-label="Use as key column" Value="@string.Equals(editor.KeyColumn, context.Name, StringComparison.OrdinalIgnoreCase)" ValueChanged="@((bool value) => { if (value) editor.KeyColumn = context.Name; })" Dense="true" /></MudTd>
+                                                    <MudTd DataLabel="Display"><MudCheckBox T="bool" aria-label="Use as display column" Value="@string.Equals(editor.DisplayColumn, context.Name, StringComparison.OrdinalIgnoreCase)" ValueChanged="@((bool value) => { if (value) editor.DisplayColumn = context.Name; })" Dense="true" /></MudTd>
+                                                    <MudTd DataLabel="Search"><MudCheckBox T="bool" aria-label="Search this column" @bind-Value="context.IsSearchable" Dense="true" /></MudTd>
+                                                    <MudTd DataLabel="Actions"><MudIconButton Icon="@Icons.Material.Filled.Delete" aria-label="@($"Remove column {context.Name}")" OnClick="@(() => RemoveColumn(context))" /></MudTd>
                                                 </RowTemplate>
                                             </MudTable>
 
@@ -249,33 +177,17 @@
                                             <MudSwitch @bind-Value="editor.IsActive" Label="Active" Class="mt-3" />
 
                                             <MudStack Row="true" Spacing="2" Class="mt-4">
-                                                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveDatasetAsync">Save Dataset</MudButton>
+                                                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => RunActionAsync(SaveDatasetAsync))">Save Dataset</MudButton>
+                                                <MudButton OnClick="RevertDataset">Revert</MudButton>
                                                 @if (!string.IsNullOrWhiteSpace(editor.Id))
                                                 {
-                                                    <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="DeleteDatasetAsync">Delete</MudButton>
+                                                    <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="@(() => RunActionAsync(DeleteDatasetAsync))">Delete</MudButton>
                                                 }
                                             </MudStack>
                                         }
-                                    </MudTabPanel>
+                            </MudTabPanel>
+                            <MudTabPanel Text="Ingest API">
 
-                                    <MudTabPanel Text="Rows">
-                                        @if (SelectedDatasetIsBuiltIn)
-                                        {
-                                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                                                Built-in rows are available from the Built-in tab.
-                                            </MudAlert>
-                                        }
-                                        else if (string.IsNullOrWhiteSpace(editor.Id))
-                                        {
-                                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">Save the dataset before browsing rows.</MudAlert>
-                                        }
-                                        else
-                                        {
-                                            @RowsBrowser()
-                                        }
-                                    </MudTabPanel>
-
-                                    <MudTabPanel Text="API">
                                         @if (SelectedDatasetIsBuiltIn)
                                         {
                                             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
@@ -290,7 +202,7 @@
                                         {
                                             <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Class="data-management-actions">
                                                 <MudTextField @bind-Value="newCredentialName" Label="API key name" Variant="Variant.Outlined" Margin="Margin.Dense" />
-                                                <MudButton Variant="Variant.Filled" OnClick="CreateCredentialAsync">Create Key</MudButton>
+                                                <MudButton Variant="Variant.Filled" OnClick="@(() => RunActionAsync(CreateCredentialAsync))">Create Key</MudButton>
                                             </MudStack>
 
                                             @if (!string.IsNullOrWhiteSpace(lastCreatedApiKey))
@@ -311,14 +223,14 @@
                                                             </MudStack>
                                                             @if (credential.IsActive)
                                                             {
-                                                                <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="@(() => RevokeCredentialAsync(credential.Id))">Revoke</MudButton>
+                                                                <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="@(() => RunActionAsync(() => RevokeCredentialAsync(credential.Id)))">Revoke</MudButton>
                                                             }
                                                         </MudStack>
                                                     </MudListItem>
                                                 }
                                             </MudList>
 
-                                            <MudDivider Class="my-4" />
+                                            <MudExpansionPanels Elevation="0"><MudExpansionPanel Text="Ingest script examples">
                                             <MudText Typo="Typo.subtitle2">Ingest Samples</MudText>
                                             <MudText Typo="Typo.body2" Class="mb-2">Samples update from the selected custom dataset columns.</MudText>
 
@@ -375,9 +287,85 @@
                                                     <MudProgressCircular Size="Size.Small" Indeterminate="true" />
                                                 </div>
                                             }
+                                            </MudExpansionPanel></MudExpansionPanels>
                                         }
-                                    </MudTabPanel>
-                                </MudTabs>
+                            </MudTabPanel>
+                            <MudTabPanel Text="Graph sync">
+
+                                <MudText Typo="Typo.subtitle2">Graph ingestion</MudText>
+                                <MudText Typo="Typo.body2" Class="mb-2">Configure and sync tenant built-in datasets from Microsoft Graph.</MudText>
+                                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mb-3">
+                                    Use Sync Built-Ins to test the connector, then configure the tenant Hangfire schedule from Sync Settings.
+                                </MudAlert>
+                                <MudExpansionPanels Elevation="0"><MudExpansionPanel Text="Connector settings">
+                                <MudGrid>
+                                    <MudItem xs="12" md="4"><MudTextField @bind-Value="graphSettings.TenantId" Label="Tenant Id" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                                    <MudItem xs="12" md="4"><MudTextField @bind-Value="graphSettings.ClientId" Label="Client Id" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                                    <MudItem xs="12" md="4"><MudTextField @bind-Value="graphSettings.ClientSecret" Label="Client Secret" Variant="Variant.Outlined" Margin="Margin.Dense" InputType="InputType.Password" /></MudItem>
+                                </MudGrid>
+                                <MudStack Row="true" Spacing="2" Class="mt-2 data-management-checkboxes">
+                                    <MudCheckBox @bind-Value="graphSettings.EnableUsers" Label="Users" />
+                                    <MudCheckBox @bind-Value="graphSettings.EnableDevices" Label="Devices" />
+                                    <MudCheckBox @bind-Value="graphSettings.EnableGroups" Label="Groups" />
+                                    <MudCheckBox @bind-Value="graphSettings.EnableSharePointSites" Label="SharePoint Sites" />
+                                </MudStack>
+                                </MudExpansionPanel></MudExpansionPanels>
+                                <MudStack Row="true" Spacing="2" Class="mt-3 data-management-actions">
+                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => RunActionAsync(SaveGraphSettingsAsync))">Save Graph Settings</MudButton>
+                                    <MudButton OnClick="RevertGraph">Revert settings</MudButton>
+                                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Settings" OnClick="@(() => RunActionAsync(OpenGraphSyncSettingsAsync))">Sync Settings</MudButton>
+                                    <MudButton Variant="Variant.Outlined" OnClick="@(() => RunActionAsync(SyncBuiltInsAsync))">Sync Built-Ins</MudButton>
+                                    @if (isHelpdeskAdmin)
+                                    {
+                                        <MudButton Variant="Variant.Text" Href="/ops/hangfire">Hangfire Ops</MudButton>
+                                        <MudButton Variant="Variant.Text" Href="@HangfireDashboardUrl" Target="_blank">Hangfire Dashboard</MudButton>
+                                    }
+                                </MudStack>
+
+                                <MudExpansionPanels Elevation="0"><MudExpansionPanel Text="Sync status and schedule details">
+                                <MudGrid Class="mt-3">
+                                    <MudItem xs="12" lg="6">
+                                        <MudPaper Variant="Variant.Outlined" Class="pa-3">
+                                            <MudText Typo="Typo.subtitle2">Sync Status</MudText>
+                                            <MudText Typo="Typo.body2">Last result: @(graphSettings.LastSyncStatus ?? "Not run yet")</MudText>
+                                            @if (!string.IsNullOrWhiteSpace(graphSettings.LastSyncMessage))
+                                            {
+                                                <MudText Typo="Typo.body2">Message: @graphSettings.LastSyncMessage</MudText>
+                                            }
+                                            <MudText Typo="Typo.caption" Class="d-block mt-2">Users: @FormatSyncStamp(graphSettings.LastUsersSyncUtc)</MudText>
+                                            <MudText Typo="Typo.caption" Class="d-block">Devices: @FormatSyncStamp(graphSettings.LastDevicesSyncUtc)</MudText>
+                                            <MudText Typo="Typo.caption" Class="d-block">Groups: @FormatSyncStamp(graphSettings.LastGroupsSyncUtc)</MudText>
+                                            <MudText Typo="Typo.caption" Class="d-block">SharePoint Sites: @FormatSyncStamp(graphSettings.LastSharePointSitesSyncUtc)</MudText>
+                                        </MudPaper>
+                                    </MudItem>
+                                    <MudItem xs="12" lg="6">
+                                        <MudPaper Variant="Variant.Outlined" Class="pa-3">
+                                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                                <MudText Typo="Typo.subtitle2">Hangfire Schedule</MudText>
+                                                <MudChip T="string"
+                                                         Size="Size.Small"
+                                                         Variant="Variant.Outlined"
+                                                         Color="@(graphSettings.HangfireEnabled ? Color.Success : Color.Warning)">
+                                                    @(graphSettings.HangfireEnabled ? "Runtime Enabled" : "Runtime Disabled")
+                                                </MudChip>
+                                            </MudStack>
+                                            <MudText Typo="Typo.body2" Class="mt-2">Tenant schedule: @(graphSettings.BackgroundSyncEnabled ? "Enabled" : "Disabled")</MudText>
+                                            <MudText Typo="Typo.body2">Cron: @graphSettings.BackgroundSyncCronExpression</MudText>
+                                            <MudText Typo="Typo.body2">Registered: @(graphSettings.BackgroundSyncRegistered ? "Yes" : "No")</MudText>
+                                            <MudText Typo="Typo.caption" Class="d-block">Storage provider: @graphSettings.HangfireStorageProvider.</MudText>
+                                            <MudText Typo="Typo.caption" Class="d-block">Queue: @(graphSettings.BackgroundSyncQueueName ?? "n/a")</MudText>
+                                            <MudText Typo="Typo.caption" Class="d-block">Last run: @FormatSyncStamp(graphSettings.BackgroundSyncLastExecutionUtc)</MudText>
+                                            <MudText Typo="Typo.caption" Class="d-block">Next run: @FormatSyncStamp(graphSettings.BackgroundSyncNextExecutionUtc)</MudText>
+                                            @if (!graphSettings.HangfireEnabled)
+                                            {
+                                                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mt-2">
+                                                    Tenant schedule settings are saved in the database, but recurring Graph sync will not register until ops enables the global runtime.
+                                                </MudAlert>
+                                            }
+                                        </MudPaper>
+                                    </MudItem>
+                                </MudGrid>
+                                </MudExpansionPanel></MudExpansionPanels>
                             </MudTabPanel>
                         </MudTabs>
                     }
@@ -385,84 +373,11 @@
             </MudItem>
         </MudGrid>
     </MudStack>
+</fieldset>
 </MudContainer>
+</div>
 
-<style>
-    .data-management-header {
-        gap: 1rem;
-        flex-wrap: wrap;
-    }
 
-    .data-management-rail,
-    .data-management-workspace {
-        min-height: 304px;
-    }
-
-    .data-management-list .mud-list-item {
-        border-radius: 8px;
-    }
-
-    .dataset-list-item {
-        width: 100%;
-    }
-
-    .dataset-list-item-selected {
-        background: rgba(92, 79, 240, 0.08);
-        border-radius: 8px;
-    }
-
-    .data-management-tabs .mud-tabs-toolbar {
-        min-height: 34px;
-    }
-
-    .data-management-tabs .mud-tab {
-        min-height: 34px;
-        padding: 6px 14px;
-        font-size: 0.82rem;
-        font-weight: 700;
-    }
-
-    .data-management-tabs-primary > .mud-tabs-toolbar .mud-tab {
-        text-transform: none;
-    }
-
-    .data-management-tabs-compact .mud-tab {
-        padding-inline: 12px;
-    }
-
-    .data-management-actions,
-    .data-management-checkboxes {
-        flex-wrap: wrap;
-    }
-
-    .data-management-rows-table {
-        overflow-x: auto;
-    }
-
-    .data-management-child-row > td {
-        padding: 0 0 1rem 0;
-        border-bottom: none;
-    }
-
-    .data-management-row-card {
-        background: rgba(92, 79, 240, 0.04);
-        border-top: 1px solid rgba(92, 79, 240, 0.12);
-    }
-
-    .data-management-json {
-        margin: 0;
-        white-space: pre-wrap;
-        font-size: 0.75rem;
-        max-width: 100%;
-    }
-
-    .data-management-monaco {
-        height: 260px;
-        border: 1px solid var(--mud-palette-divider);
-        border-radius: 8px;
-        overflow: hidden;
-    }
-</style>
 
 @code {
     private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
@@ -483,7 +398,44 @@
     private TenantGraphDatasetSettingsDto graphSettings = new();
     private DatasetEditorModel editor = DatasetEditorModel.New();
     private int primaryTabIndex;
-    private int customTabIndex;
+    private bool busy;
+    private bool loading;
+    private bool datasetLoading;
+    private bool disposed;
+    private string? loadError;
+    private int organizationVersion;
+    private int organizationSelectorVersion;
+    private int datasetVersion;
+    private int rowPage = 1;
+    private CancellationTokenSource? rowSearchCancellation;
+    private string editorSnapshot = "";
+    private string graphSnapshot = "";
+    private bool DatasetDirty => editorSnapshot.Length > 0 && Serialize(editor) != editorSnapshot;
+    private bool GraphDirty => graphSnapshot.Length > 0 && Serialize(graphSettings) != graphSnapshot;
+    private bool HasUnsavedChanges => DatasetDirty || GraphDirty || !string.IsNullOrEmpty(newCredentialName);
+    private static string Serialize<T>(T value) => System.Text.Json.JsonSerializer.Serialize(value);
+    private void RevertDataset() { if (editorSnapshot.Length > 0) editor = System.Text.Json.JsonSerializer.Deserialize<DatasetEditorModel>(editorSnapshot)!; }
+    private void RevertGraph() { if (graphSnapshot.Length > 0) graphSettings = System.Text.Json.JsonSerializer.Deserialize<TenantGraphDatasetSettingsDto>(graphSnapshot)!; }
+    private async Task<bool> CanLeaveAsync(bool includeGraph = true)
+    {
+        if (busy) return false;
+        if (!DatasetDirty && string.IsNullOrEmpty(newCredentialName) && (!includeGraph || !GraphDirty)) return true;
+        return await DialogService.ShowMessageBoxAsync("Discard dataset edits?", "Unsaved changes in this context will be lost.", yesText: "Discard", cancelText: "Keep editing") == true;
+    }
+    private async Task ConfirmNavigationAsync(LocationChangingContext context)
+    {
+        if (!await CanLeaveAsync()) context.PreventNavigation();
+    }
+    private async Task RunActionAsync(Func<Task> action)
+    {
+        if (busy || disposed || loading || datasetLoading) return;
+        busy = true;
+        loadError = null;
+        try { await action(); }
+        catch { if (!disposed) loadError = "The operation failed. Your edits are retained; try again."; }
+        finally { busy = false; }
+    }
+
     private bool isHelpdeskAdmin;
     private readonly string bashEditorId = $"data-management-bash-sample-{Guid.NewGuid():N}";
     private readonly string powershellEditorId = $"data-management-powershell-sample-{Guid.NewGuid():N}";
@@ -547,7 +499,10 @@
 
     private async Task OnOrganizationChanged(string? organizationId)
     {
+        if (organizationId == selectedOrganizationId) return;
+        if (!await CanLeaveAsync()) { organizationSelectorVersion++; return; }
         selectedOrganizationId = organizationId;
+        selectedDatasetId = null;
         await LoadOrganizationAsync();
     }
 
@@ -560,73 +515,109 @@
     private async Task OnRowSearchChanged(string value)
     {
         rowSearch = value;
-        if (!string.IsNullOrWhiteSpace(editor.Id))
+        rowPage = 1;
+        await LoadRowsAsync();
+    }
+    private async Task OnRowPageChanged(int page) { rowPage = page; await LoadRowsAsync(); }
+    private async Task LoadRowsAsync()
+    {
+        rowSearchCancellation?.Cancel();
+        rowSearchCancellation?.Dispose();
+        using var cancellation = new CancellationTokenSource();
+        rowSearchCancellation = cancellation;
+        var datasetId = editor.Id;
+        var version = datasetVersion;
+        if (string.IsNullOrEmpty(datasetId)) return;
+        try
         {
-            rows = await DatasetService.GetRowsAsync(editor.Id, rowSearch, 1, 50);
-            datasetRowCounts[editor.Id] = rows.Total;
+            await Task.Delay(200, cancellation.Token);
+            var result = await DatasetService.GetRowsAsync(datasetId, rowSearch, rowPage, 50, cancellation.Token);
+            if (disposed || cancellation.IsCancellationRequested || version != datasetVersion || datasetId != editor.Id) return;
+            rows = result;
+            if (string.IsNullOrWhiteSpace(rowSearch)) datasetRowCounts[datasetId] = rows.Total;
             selectedRowPreviewId = null;
         }
+        catch (OperationCanceledException) { }
+        catch { if (!disposed && version == datasetVersion) loadError = "Rows could not be loaded. Change the search or page to retry."; }
+        finally { if (ReferenceEquals(rowSearchCancellation, cancellation)) rowSearchCancellation = null; }
     }
 
-    private async Task LoadOrganizationAsync()
+    private async Task LoadOrganizationAsync(bool preserveGraphDraft = false)
     {
-        if (string.IsNullOrWhiteSpace(selectedOrganizationId))
+        var retainGraph = preserveGraphDraft && GraphDirty;
+        var organization = selectedOrganizationId;
+        var version = ++organizationVersion;
+        datasetVersion++;
+        rowSearchCancellation?.Cancel();
+        datasets = new(); credentials = new(); rows = new(); lastCreatedApiKey = null;
+        editor = DatasetEditorModel.New(organization); editorSnapshot = Serialize(editor);
+        if (!retainGraph) { graphSettings = new() { OrganizationId = organization ?? string.Empty }; graphSnapshot = string.Empty; }
+        newCredentialName = string.Empty;
+        if (string.IsNullOrWhiteSpace(organization)) return;
+        loading = true;
+        loadError = null;
+        try
         {
-            return;
+            var definitions = await DatasetService.ListAsync(organization);
+            var settings = await DatasetService.GetGraphSettingsAsync(organization) ?? new TenantGraphDatasetSettingsDto { OrganizationId = organization };
+            if (disposed || version != organizationVersion || organization != selectedOrganizationId) return;
+            datasets = definitions.ToList();
+            if (!retainGraph) { graphSettings = settings; graphSnapshot = Serialize(graphSettings); }
+            await RefreshBuiltInRowCountsAsync();
+            if (disposed || version != organizationVersion) return;
+            var initial = datasets.FirstOrDefault(x => x.Id == selectedDatasetId) ?? CustomDatasets.FirstOrDefault();
+            if (initial is not null) await SelectDataset(initial.Id, false);
+            else ResetNewDataset();
         }
-
-        datasets = (await DatasetService.ListAsync(selectedOrganizationId)).ToList();
-        graphSettings = await DatasetService.GetGraphSettingsAsync(selectedOrganizationId) ?? new TenantGraphDatasetSettingsDto { OrganizationId = selectedOrganizationId };
-        await RefreshBuiltInRowCountsAsync();
-
-        var selectedStillAvailable = !string.IsNullOrWhiteSpace(selectedDatasetId) && datasets.Any(x => string.Equals(x.Id, selectedDatasetId, StringComparison.OrdinalIgnoreCase));
-        if (selectedStillAvailable)
-        {
-            await SelectDataset(selectedDatasetId!);
-            return;
-        }
-
-        var firstCustom = CustomDatasets.FirstOrDefault();
-        if (firstCustom is not null)
-        {
-            await SelectDataset(firstCustom.Id);
-        }
-        else
-        {
-            PrepareNewDataset();
-        }
+        catch { if (!disposed && version == organizationVersion) loadError = "Datasets could not be loaded. Select the organization again or reload to retry."; }
+        finally { if (version == organizationVersion) loading = false; }
     }
 
-    private void PrepareNewDataset()
+    private async Task PrepareNewDataset()
     {
+        if (await CanLeaveAsync(false)) ResetNewDataset();
+    }
+    private void ResetNewDataset()
+    {
+        datasetVersion++;
         lastCreatedApiKey = null;
         selectedDatasetId = null;
         editor = DatasetEditorModel.New(selectedOrganizationId);
-        rows = new PagedResult<DatasetRowDto>();
-        credentials = new();
+        editorSnapshot = Serialize(editor);
+        rows = new(); credentials = new(); newCredentialName = string.Empty;
         selectedRowPreviewId = null;
         primaryTabIndex = 1;
-        customTabIndex = 0;
     }
 
-    private async Task SelectDataset(string datasetId)
+    private async Task SelectDataset(string datasetId, bool confirm = true, bool preserveIngestDraft = false)
     {
+        if (confirm && (datasetId == selectedDatasetId || !await CanLeaveAsync(false))) return;
+        var keepIngestDraft = preserveIngestDraft && datasetId == selectedDatasetId;
+        var version = ++datasetVersion;
+        var organization = selectedOrganizationId;
         selectedDatasetId = datasetId;
-        var dataset = await DatasetService.GetAsync(datasetId);
-        if (dataset is null)
+        datasetLoading = true;
+        editor = DatasetEditorModel.New(organization); editorSnapshot = Serialize(editor);
+        if (!keepIngestDraft) { lastCreatedApiKey = null; newCredentialName = string.Empty; }
+        credentials = new(); rows = new();
+        rowSearch = string.Empty; rowPage = 1;
+        try
         {
-            return;
+            var dataset = await DatasetService.GetAsync(datasetId);
+            if (dataset is null || disposed || version != datasetVersion || organization != selectedOrganizationId) return;
+            var result = await DatasetService.GetRowsAsync(datasetId, null, 1, 50);
+            var keys = dataset.SourceType == DatasetSourceType.Custom ? await DatasetService.GetCredentialsAsync(datasetId) : Array.Empty<DatasetIngestCredentialDto>();
+            if (disposed || version != datasetVersion || organization != selectedOrganizationId) return;
+            editor = DatasetEditorModel.FromDto(dataset);
+            editorSnapshot = Serialize(editor);
+            rows = result;
+            datasetRowCounts[datasetId] = rows.Total;
+            credentials = keys.ToList();
+            selectedRowPreviewId = null;
+            primaryTabIndex = 0;
         }
-
-        editor = DatasetEditorModel.FromDto(dataset);
-        rows = await DatasetService.GetRowsAsync(datasetId, rowSearch, 1, 50);
-        datasetRowCounts[datasetId] = rows.Total;
-        credentials = dataset.SourceType == DatasetSourceType.Custom
-            ? (await DatasetService.GetCredentialsAsync(datasetId)).ToList()
-            : new List<DatasetIngestCredentialDto>();
-        lastCreatedApiKey = null;
-        selectedRowPreviewId = null;
-        primaryTabIndex = dataset.SourceType == DatasetSourceType.Custom ? 1 : 0;
+        catch { if (!disposed && version == datasetVersion) { loadError = "The dataset could not be loaded. Select it again to retry."; selectedDatasetId = null; } }
+        finally { if (version == datasetVersion) datasetLoading = false; }
     }
 
     private void AddColumn()
@@ -697,8 +688,9 @@
         }
 
         Snackbar.Add("Dataset saved.", Severity.Success);
-        await LoadOrganizationAsync();
-        await SelectDataset(saved.Id);
+        if (disposed) return;
+        datasets = (await DatasetService.ListAsync(selectedOrganizationId!)).ToList();
+        await SelectDataset(saved.Id, false, preserveIngestDraft: true);
     }
 
     private async Task DeleteDatasetAsync()
@@ -708,11 +700,14 @@
             return;
         }
 
+        var total = (await DatasetService.GetRowsAsync(editor.Id, null, 1, 1)).Total;
+        if (await DialogService.ShowMessageBoxAsync("Delete dataset?", $"Delete '{editor.Name}' and its {total} row(s) in {SelectedOrganizationName}? Ingest credentials will no longer work.", yesText: "Delete", cancelText: "Cancel") != true || disposed) return;
+
         if (await DatasetService.DeleteAsync(editor.Id))
         {
             Snackbar.Add("Dataset deleted.", Severity.Success);
             selectedDatasetId = null;
-            await LoadOrganizationAsync();
+            await LoadOrganizationAsync(preserveGraphDraft: true);
         }
     }
 
@@ -742,6 +737,7 @@
             return;
         }
 
+        if (await DialogService.ShowMessageBoxAsync("Revoke ingest key?", "Scripts using this key will no longer be able to ingest rows.", yesText: "Revoke", cancelText: "Cancel") != true || disposed) return;
         if (await DatasetService.RevokeCredentialAsync(editor.Id, credentialId))
         {
             credentials = (await DatasetService.GetCredentialsAsync(editor.Id)).ToList();
@@ -757,11 +753,15 @@
 
         graphSettings.OrganizationId = selectedOrganizationId;
         var saved = await DatasetService.SaveGraphSettingsAsync(graphSettings);
+        if (saved is null) { loadError = "Graph settings could not be saved. Your edits are retained."; return; }
         if (saved is not null)
         {
+            if (disposed) return;
             graphSettings = saved;
+            graphSnapshot = Serialize(saved);
             Snackbar.Add("Graph settings saved.", Severity.Success);
-            await LoadOrganizationAsync();
+            datasets = (await DatasetService.ListAsync(selectedOrganizationId!)).ToList();
+            await RefreshBuiltInRowCountsAsync();
         }
     }
 
@@ -782,6 +782,7 @@
             return;
         }
 
+        if (disposed) return;
         graphSettings.BackgroundSyncEnabled = updated.BackgroundSyncEnabled;
         graphSettings.BackgroundSyncCronExpression = updated.BackgroundSyncCronExpression;
         await SaveGraphSettingsAsync();
@@ -794,15 +795,20 @@
             return;
         }
 
+        if (GraphDirty) { loadError = "Save or revert Graph settings before syncing."; return; }
         try
         {
             var synced = await DatasetService.SyncBuiltInsAsync(selectedOrganizationId);
             Snackbar.Add($"Synced {synced.Count} built-in datasets.", Severity.Success);
-            await LoadOrganizationAsync();
+            if (disposed) return;
+            datasets = (await DatasetService.ListAsync(selectedOrganizationId)).ToList();
+            graphSettings = await DatasetService.GetGraphSettingsAsync(selectedOrganizationId) ?? graphSettings;
+            graphSnapshot = Serialize(graphSettings);
+            await RefreshBuiltInRowCountsAsync();
             var firstVisibleBuiltIn = VisibleBuiltInDatasets.FirstOrDefault();
-            if (firstVisibleBuiltIn is not null)
+            if (firstVisibleBuiltIn is not null && !DatasetDirty && string.IsNullOrEmpty(newCredentialName) && string.IsNullOrEmpty(lastCreatedApiKey))
             {
-                await SelectDataset(firstVisibleBuiltIn.Id);
+                await SelectDataset(firstVisibleBuiltIn.Id, false);
             }
         }
         catch (Exception ex)
@@ -813,10 +819,12 @@
 
     private async Task RefreshBuiltInRowCountsAsync()
     {
+        var version = organizationVersion;
         datasetRowCounts.Clear();
-        foreach (var dataset in datasets.Where(x => x.SourceType != DatasetSourceType.Custom && IsBuiltInEnabled(x.SourceType)))
+        foreach (var dataset in datasets.Where(x => x.SourceType != DatasetSourceType.Custom && IsBuiltInEnabled(x.SourceType)).ToList())
         {
             var result = await DatasetService.GetRowsAsync(dataset.Id, null, 1, 1);
+            if (disposed || version != organizationVersion) return;
             datasetRowCounts[dataset.Id] = result.Total;
         }
     }
@@ -1008,7 +1016,7 @@
         else
         {
             <div class="data-management-rows-table">
-                <MudTable Items="rows.Items" Dense="true" Hover="true" Breakpoint="Breakpoint.None">
+                <MudTable Items="rows.Items" RowsPerPage="50" Dense="true" Hover="true" Breakpoint="Breakpoint.None">
                     <HeaderContent>
                         <MudTh></MudTh>
                         <MudTh>Key</MudTh>
@@ -1065,6 +1073,7 @@
                 </MudTable>
             </div>
         }
+        <MudPagination Count="@Math.Max(1, (rows.Total + 49) / 50)" Selected="rowPage" SelectedChanged="OnRowPageChanged" Class="mt-2" />
     </div>;
 
     private StandaloneEditorConstructionOptions BuildCodeSampleOptions(string language, string value) =>
@@ -1081,6 +1090,10 @@
 
     public async ValueTask DisposeAsync()
     {
+        disposed = true;
+        organizationVersion++; datasetVersion++;
+        rowSearchCancellation?.Cancel();
+        rowSearchCancellation?.Dispose();
         bashEditor?.Dispose();
         powershellEditor?.Dispose();
         if (monacoLoaderModule is not null)

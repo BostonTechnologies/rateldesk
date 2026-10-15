@@ -1,0 +1,86 @@
+@implements IAsyncDisposable
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<div class="email-content" data-testid="email-content">
+    @if (!string.IsNullOrWhiteSpace(Html))
+    {
+        <div class="email-content-controls" role="group" aria-label="Email display">
+            <button type="button" class="email-view-button" aria-pressed="@(!_plain ? "true" : "false")" @onclick="() => _plain = false">Original email</button>
+            <button type="button" class="email-view-button" aria-pressed="@(_plain ? "true" : "false")" @onclick="() => _plain = true">Plain text</button>
+        </div>
+    }
+    @if (_plain || string.IsNullOrWhiteSpace(Html))
+    {
+        <pre class="email-plain-text">@_document.Text</pre>
+    }
+    else
+    {
+        <iframe @ref="_frame" class="email-original" title="Original email content" sandbox="allow-scripts"
+                referrerpolicy="no-referrer" srcdoc="@_document.Html" @key="_document.Html"></iframe>
+        @if (_document.BlockedImages > 0)
+        {
+            <p class="email-image-note">External images are blocked for privacy. Unavailable inline images are shown by their description.</p>
+        }
+        @if (_document.Links.Count > 0)
+        {
+            <details class="email-links">
+                <summary>Email links (@_document.Links.Count)</summary>
+                <ul>@foreach (var link in _document.Links) { <li><a href="@link.Url" target="_blank" rel="noopener noreferrer">@link.Text <span>(opens a new tab)</span></a></li> }</ul>
+            </details>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public string? Html { get; set; }
+    [Parameter] public string? Text { get; set; }
+    [Parameter] public EventCallback OnEscape { get; set; }
+    private bool _plain;
+    private EmailDisplayDocument.Result _document = new("", "", [], 0);
+    private (string?, string?) _previous;
+    private ElementReference _frame;
+    private IJSObjectReference? _module;
+    private IJSObjectReference? _binding;
+    private DotNetObjectReference<EmailContent>? _reference;
+    private bool _disposed;
+
+    protected override void OnParametersSet()
+    {
+        if (_previous == (Html, Text)) return;
+        _previous = (Html, Text);
+        _document = EmailDisplayDocument.Create(Html, Text, Navigation.BaseUri);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_disposed) return;
+        try
+        {
+            if (_binding is not null) { await _binding.InvokeVoidAsync("dispose"); await _binding.DisposeAsync(); _binding = null; }
+            if (_plain || string.IsNullOrWhiteSpace(Html)) return;
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/email-content.js");
+            if (_disposed) { await _module.DisposeAsync(); _module = null; return; }
+            _reference ??= DotNetObjectReference.Create(this);
+            _binding = await _module.InvokeAsync<IJSObjectReference>("observe", _frame, _reference);
+            if (_disposed) { await _binding.InvokeVoidAsync("dispose"); await _binding.DisposeAsync(); _binding = null; }
+        }
+        catch (JSDisconnectedException) { }
+        catch (TaskCanceledException) { }
+    }
+
+    [JSInvokable] public Task DismissPreview() => OnEscape.InvokeAsync();
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        try
+        {
+            if (_binding is not null) { await _binding.InvokeVoidAsync("dispose"); await _binding.DisposeAsync(); }
+            if (_module is not null) await _module.DisposeAsync();
+        }
+        catch (JSDisconnectedException) { }
+        catch (TaskCanceledException) { }
+        _reference?.Dispose();
+    }
+}

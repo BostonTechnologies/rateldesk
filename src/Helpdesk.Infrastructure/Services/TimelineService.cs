@@ -40,7 +40,8 @@ public class TimelineService(
             .FirstOrDefaultAsync(x =>
                 x.Id == timelineEventId &&
                 x.EventType == TimelineEventType.EmailDelivery &&
-                x.EmailStatus == EmailDeliveryStatus.Failed,
+                x.EmailStatus == EmailDeliveryStatus.Failed &&
+                !_db.Set<MailboxOutboxEffect>().Any(o => o.DeliveryEventId == x.Id && o.State == MailboxEffectState.Removed),
                 ct);
 
         if (evt == null)
@@ -48,6 +49,8 @@ public class TimelineService(
 
         if (mailboxOutbox is not null && await mailboxOutbox.RetryForTimelineAsync(timelineEventId, ct))
             return;
+
+        if (!evt.IsRetryable) throw new InvalidOperationException("This delivery requires individual outcome review.");
 
         var durable = _emailService is IDurableEmailService { QueuesDelivery: true };
         if (durable && effectContext is null)
@@ -59,12 +62,16 @@ public class TimelineService(
             .Select(x => x.CcRecipients)
             .FirstOrDefaultAsync(ct) ?? new List<string>();
 
-        evt.RetryCount++;
-        evt.LastRetryUtc = DateTimeOffset.UtcNow;
-        evt.RetryError = null;
-        evt.EmailStatus = EmailDeliveryStatus.Pending;
+        // Compare-and-swap prevents a stale legacy retry from overwriting a cancellation/removal.
+        var claimed = await _db.TicketTimelineEvents.Where(x => x.Id == timelineEventId &&
+                x.EventType == TimelineEventType.EmailDelivery && x.EmailStatus == EmailDeliveryStatus.Failed)
+            .ExecuteUpdateAsync(update => update.SetProperty(x => x.EmailStatus, EmailDeliveryStatus.Pending)
+                .SetProperty(x => x.RetryCount, x => x.RetryCount + 1)
+                .SetProperty(x => x.LastRetryUtc, DateTimeOffset.UtcNow)
+                .SetProperty(x => x.RetryError, (string?)null), ct);
+        if (claimed != 1) throw new InvalidOperationException("Delivery changed before retry; refresh first.");
+        await _db.Entry(evt).ReloadAsync(ct);
 
-        await _db.SaveChangesAsync(ct);
         await _timelineEventBus.PublishAsync(ToDto(evt, ccRecipients));
 
         var previousTimelineId = effectContext?.TimelineDeliveryId;
@@ -112,7 +119,7 @@ public class TimelineService(
             .Where(x =>
                 x.EventType == TimelineEventType.EmailDelivery &&
                 x.EmailStatus == EmailDeliveryStatus.Failed)
-            .Select(x => x.Id)
+            .OrderBy(x => x.Id).Select(x => x.Id).Take(100)
             .ToListAsync(ct);
 
         var success = 0;
@@ -142,7 +149,8 @@ public class TimelineService(
         return _db.TicketTimelineEvents
             .CountAsync(x =>
                 x.EventType == TimelineEventType.EmailDelivery &&
-                x.EmailStatus == EmailDeliveryStatus.Failed,
+                x.EmailStatus == EmailDeliveryStatus.Failed &&
+                !_db.Set<MailboxOutboxEffect>().Any(o => o.DeliveryEventId == x.Id && o.State == MailboxEffectState.Removed),
                 ct);
     }
 

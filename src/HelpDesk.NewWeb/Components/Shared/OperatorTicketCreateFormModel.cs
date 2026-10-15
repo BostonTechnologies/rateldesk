@@ -9,5 +9,6 @@ public sealed class OperatorTicketCreateFormModel
     public TicketPriority Priority { get; set; } = TicketPriority.Low;
     public string? OrganizationId { get; set; }
     public string? CustomerId { get; set; }
+    public HashSet<Guid> CategoryIds { get; set; } = new();
     public string? AssignedToId { get; set; }
 }

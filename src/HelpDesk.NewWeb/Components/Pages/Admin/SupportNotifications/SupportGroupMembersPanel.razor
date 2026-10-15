@@ -1,3 +1,4 @@
+@inherits HelpDesk.NewWeb.Components.Shared.Admin.AdminActionPanelBase
 @using HelpDesk.NewWeb.Services
 @using Helpdesk.Shared.DTOs.Organization
 @using Helpdesk.Shared.DTOs.SupportNotifications
@@ -6,7 +7,8 @@
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 
-<MudPaper Class="pa-4">
+<MudPaper Class="pa-2" Elevation="0">
+<fieldset disabled="@IsBusy" class="routing-editor-controls">
     <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
         <div>
             <MudText Typo="Typo.h6">Support Groups</MudText>
@@ -17,7 +19,7 @@
                    Color="Color.Primary"
                    Size="Size.Small"
                    StartIcon="@Icons.Material.Filled.Add"
-                   OnClick="OpenCreateGroupDialogAsync">
+                   OnClick="@(() => RunActionAsync(OpenCreateGroupDialogAsync))">
             Add Group
         </MudButton>
     </MudStack>
@@ -45,7 +47,7 @@
         </MudItem>
     </MudGrid>
 
-    <MudTable Items="FilteredGroups" Dense="true" Hover="true" T="SupportGroupDto">
+    <MudTable Items="FilteredGroups" Dense="true" Hover="true" T="SupportGroupDto" RowsPerPage="25">
         <HeaderContent>
             <MudTh>Name</MudTh>
             <MudTh>Owner</MudTh>
@@ -66,22 +68,24 @@
             </MudTd>
             <MudTd Class="text-end">
                 <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="1">
-                    <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Edit" OnClick="() => OpenEditGroupDialogAsync(context)">Edit</MudButton>
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Edit" OnClick="@(() => RunActionAsync(() => OpenEditGroupDialogAsync(context)))">Edit</MudButton>
                     <MudButton Size="Size.Small"
                                Variant="Variant.Outlined"
                                Color="@(context.IsEnabled ? Color.Warning : Color.Success)"
-                               OnClick="() => ToggleGroupAsync(context)">
+                               OnClick="@(() => RunActionAsync(() => ToggleGroupAsync(context)))">
                         @(context.IsEnabled ? "Disable" : "Enable")
                     </MudButton>
-                    <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Groups" OnClick="() => OpenMembersDialogAsync(context)">Manage Members</MudButton>
-                    <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" StartIcon="@Icons.Material.Filled.Delete" OnClick="() => DeleteGroupAsync(context)">Delete</MudButton>
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Groups" OnClick="@(() => RunActionAsync(() => OpenMembersDialogAsync(context)))">Manage Members</MudButton>
+                    <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" StartIcon="@Icons.Material.Filled.Delete" OnClick="@(() => RunActionAsync(() => DeleteGroupAsync(context)))">Delete</MudButton>
                 </MudStack>
             </MudTd>
         </RowTemplate>
         <NoRecordsContent>
             <MudText Typo="Typo.body2" Class="text-secondary">No support groups match the current filters.</MudText>
         </NoRecordsContent>
+        <PagerContent><MudTablePager PageSizeOptions="@(new[] { 25, 50, 100 })" /></PagerContent>
     </MudTable>
+</fieldset>
 </MudPaper>
 
 @code {
@@ -113,10 +117,10 @@
             ["Organizations"] = Organizations,
             ["DefaultOwningOrganizationId"] = ownerFilter ?? DefaultOwningOrganizationId
         };
-        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, BackdropClick = false, CloseOnEscapeKey = false };
         var dialog = await DialogService.ShowAsync<SupportGroupDialog>("Create Support Group", parameters, options);
         var result = await dialog.Result;
-        if (result.Canceled || result.Data is not SupportGroupDialog.SupportGroupFormModel model)
+        if (IsDisposed || result?.Canceled != false || result.Data is not SupportGroupDialog.SupportGroupFormModel model)
         {
             return;
         }
@@ -147,10 +151,10 @@
             ["Organizations"] = Organizations,
             ["DefaultOwningOrganizationId"] = DefaultOwningOrganizationId
         };
-        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, BackdropClick = false, CloseOnEscapeKey = false };
         var dialog = await DialogService.ShowAsync<SupportGroupDialog>("Edit Support Group", parameters, options);
         var result = await dialog.Result;
-        if (result.Canceled || result.Data is not SupportGroupDialog.SupportGroupFormModel model)
+        if (IsDisposed || result?.Canceled != false || result.Data is not SupportGroupDialog.SupportGroupFormModel model)
         {
             return;
         }
@@ -185,7 +189,7 @@
         var options = new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true, CloseButton = true };
         var dialog = await DialogService.ShowAsync<SupportGroupMembersDialog>("Manage Members", parameters, options);
         var result = await dialog.Result;
-        if (!result.Canceled && result.Data is true)
+        if (!IsDisposed && result?.Canceled == false && result.Data is true)
         {
             await OnChanged.InvokeAsync();
         }
@@ -217,7 +221,7 @@
             $"Delete '{group.Name}'?",
             yesText: "Delete",
             cancelText: "Cancel");
-        if (confirm != true)
+        if (IsDisposed || confirm != true)
         {
             return;
         }

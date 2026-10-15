@@ -1,0 +1,12 @@
+.tenant-sla-workspace { min-width: 0; }
+.tenant-sla-workspace ::deep .tenant-context { max-width: 28rem; min-width: min(100%, 14rem); }
+.tenant-sla-workspace ::deep .mud-stack-row { flex-wrap: wrap; }
+.tenant-sla-workspace ::deep .mud-typography { overflow-wrap: anywhere; }
+.tenant-sla-workspace ::deep .sla-editor-controls { border: 0; padding: 0; margin: 0; min-width: 0; }
+.tenant-sla-workspace ::deep .sla-table-wrap { overflow-x: auto; max-width: 100%; }
+.tenant-sla-workspace ::deep .sla-compact-table th,
+.tenant-sla-workspace ::deep .sla-compact-table td { padding: .35rem .5rem; overflow-wrap: anywhere; }
+
+@media (max-width: 600px) {
+    .tenant-sla-workspace ::deep .mud-tab { font-size: .75rem; padding-inline: .5rem; }
+}

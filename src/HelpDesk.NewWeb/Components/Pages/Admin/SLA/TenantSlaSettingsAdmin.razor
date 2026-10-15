@@ -1,35 +1,87 @@
 @page "/admin/tenant-sla-settings"
 @attribute [Authorize(Roles = "HelpdeskAdmin")]
 @inject IHttpClientFactory HttpClientFactory
+@inject IDialogService DialogService
 @using Helpdesk.Shared.DTOs.Organization
 @using Helpdesk.Shared.DTOs.Sla
+@using Microsoft.AspNetCore.Components.Routing
 
 <PageTitle>Tenant SLA Settings</PageTitle>
-
-<MudStack Spacing="3">
-    <TenantSlaSettingsPanel TenantId="@tenantId" TenantIdChanged="OnTenantChanged" Tenants="@tenants" Calendars="@calendars" />
-    <TenantWorkingCalendarsPanel TenantId="@tenantId" Tenants="@tenants" CalendarsChanged="LoadCalendarsAsync" />
-    <TenantSlaPoliciesPanel TenantId="@tenantId" Tenants="@tenants" />
-    <TenantSlaReportingPanel TenantId="@tenantId" Tenants="@tenants" />
-</MudStack>
+<NavigationLock ConfirmExternalNavigation="HasUnsavedChanges" OnBeforeInternalNavigation="ConfirmNavigationAsync" />
+<div class="tenant-sla-workspace helpdesk-content-surface pa-3">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+        <MudText Typo="Typo.h5" HtmlTag="h1">Tenant SLA Settings</MudText>
+        <MudSpacer />
+        <MudSelect @key="tenantSelectorVersion" T="string" Label="Tenant" Value="tenantId" ValueChanged="OnTenantChanged" Disabled="busy" Variant="Variant.Outlined" Margin="Margin.Dense" Class="tenant-context">
+            @foreach (var tenant in tenants)
+            {
+                <MudSelectItem T="string" Value="@tenant.Id">@tenant.Name</MudSelectItem>
+            }
+        </MudSelect>
+    </MudStack>
+    @if (error is not null) { <MudAlert Severity="Severity.Error">@error</MudAlert> }
+    @if (loading) { <MudProgressLinear Indeterminate="true" /> }
+    else if (tenantId is null) { <MudText>Select a tenant to manage SLA settings.</MudText> }
+    else
+    {
+        <MudTabs MinimumTabWidth="128px" @key="tenantId" KeepPanelsAlive="true" Rounded="false" Elevation="0" PanelClass="pt-2">
+            <MudTabPanel Text="Policies">
+                <TenantSlaPoliciesPanel TenantId="@tenantId" Tenants="@tenants" BusyChanged="OnBusyChanged" />
+            </MudTabPanel>
+            <MudTabPanel Text="Working calendars">
+                <TenantSlaSettingsPanel @ref="settingsPanel" TenantId="@tenantId" Calendars="@calendars" BusyChanged="OnBusyChanged" DraftChanged="OnDraftChanged" />
+                <TenantWorkingCalendarsPanel TenantId="@tenantId" Tenants="@tenants" CalendarsChanged="LoadCalendarsAsync" BusyChanged="OnBusyChanged" />
+            </MudTabPanel>
+            <MudTabPanel Text="Reporting">
+                <TenantSlaReportingPanel DraftChanged="OnDraftChanged" @ref="reportingPanel" TenantId="@tenantId" Tenants="@tenants" BusyChanged="OnBusyChanged" />
+            </MudTabPanel>
+        </MudTabs>
+    }
+</div>
 
 @code {
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
     private string? tenantId;
+    private int tenantSelectorVersion;
     private List<TenantLookupDto> tenants = new();
     private List<WorkingCalendarDto> calendars = new();
+    private TenantSlaSettingsPanel? settingsPanel;
+    private TenantSlaReportingPanel? reportingPanel;
+    private int busyActions;
+    private bool busy => busyActions > 0;
+    private bool loading = true;
+    private string? error;
+    private bool HasUnsavedChanges => busy || settingsPanel?.HasUnsavedChanges == true || reportingPanel?.HasUnsavedChanges == true;
+    private void OnDraftChanged() { }
+    private void OnBusyChanged(bool value) => busyActions = Math.Max(0, busyActions + (value ? 1 : -1));
 
     protected override async Task OnInitializedAsync()
     {
-        tenants = await HelpdeskApi.GetFromJsonAsync<List<TenantLookupDto>>("api/v1/admin/tenants/lookup") ?? new();
-        tenantId = tenants.FirstOrDefault()?.Id;
-        await LoadCalendarsAsync();
+        try
+        {
+            tenants = await HelpdeskApi.GetFromJsonAsync<List<TenantLookupDto>>("api/v1/admin/tenants/lookup") ?? new();
+            tenantId = tenants.FirstOrDefault()?.Id;
+            await LoadCalendarsAsync();
+        }
+        catch { error = "Tenant SLA settings could not be loaded. Reload to try again."; }
+        finally { loading = false; }
+    }
+
+    private async Task<bool> CanLeaveAsync() => !busy && (!HasUnsavedChanges ||
+        await DialogService.ShowMessageBoxAsync("Discard SLA edits?", "Unsaved calendar settings or report subscription edits will be lost.", yesText: "Discard", cancelText: "Keep editing") == true);
+
+    private async Task ConfirmNavigationAsync(LocationChangingContext context)
+    {
+        if (!await CanLeaveAsync()) context.PreventNavigation();
     }
 
     private async Task OnTenantChanged(string? value)
     {
+        if (value == tenantId) return;
+        if (!await CanLeaveAsync()) { tenantSelectorVersion++; return; }
         tenantId = value;
-        await LoadCalendarsAsync();
+        settingsPanel = null;
+        reportingPanel = null;
     }
 
     private async Task LoadCalendarsAsync()

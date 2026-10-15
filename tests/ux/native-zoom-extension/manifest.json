@@ -1,0 +1,1 @@
+{"manifest_version":3,"name":"RatelDesk synthetic browser zoom acceptance","version":"1.0","permissions":["tabs"],"background":{"service_worker":"background.js"}}

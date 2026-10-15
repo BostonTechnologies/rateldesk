@@ -124,6 +124,8 @@ test('first-run setup initializes, survives restart, and supports isolated scope
   // Login starts with an empty browser cookie jar. An earlier API login cannot mask failure.
   await page.context().clearCookies();
   await page.goto('/');
+  // FocusOnNavigate marks the interactive portal render, after prerender hydration.
+  await expect(page.getByRole('heading', { level: 1, name: 'Welcome to Browser Wizard RatelDesk', exact: true })).toBeFocused();
   await page.getByRole('link', { name: 'Admin sign-in' }).click();
   await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByTestId('local-login-form')).toHaveAttribute('data-interactive', 'true');
@@ -167,6 +169,8 @@ test('first-run setup initializes, survives restart, and supports isolated scope
   await page.goto('/account/integration-credentials');
   await expect(page.getByTestId('integration-credentials-page')).toHaveAttribute('data-interactive', 'true');
   await expect(page.getByRole('heading', { name: 'Integration credentials', exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'API & MCP credentials', exact: true }).click();
+  await expect(page.getByRole('tab', { name: 'API & MCP credentials', exact: true })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByTestId('integration-credential-create')).toBeEnabled();
   await page.getByTestId('integration-credential-create').click();
   await expect(page.getByLabel('Name', { exact: true })).toBeVisible();
@@ -180,7 +184,7 @@ test('first-run setup initializes, survives restart, and supports isolated scope
   await permissions.click();
   await page.getByRole('button', { name: 'Review credential', exact: true }).click();
   await expect(page.getByText('Review before creating', { exact: true })).toBeVisible();
-  await expect(page.getByText('The secret is displayed once.')).toBeVisible();
+  await expect(page.getByText("Credentials use your account's permissions. Each new secret is displayed once.", { exact: true })).toBeVisible();
   await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
 
   const headers = { 'X-Requested-With': 'XMLHttpRequest' };

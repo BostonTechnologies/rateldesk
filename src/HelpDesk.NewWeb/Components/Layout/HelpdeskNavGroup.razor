@@ -2,7 +2,8 @@
 @inject NavigationManager Navigation
 
 <MudNavGroup Title="@Title" Icon="@Icon" Expanded="@expanded" ExpandedChanged="OnExpandedChanged">
-    @ChildContent
+    <TitleContent><span class="helpdesk-nav-group-label" title="@Title">@Title</span></TitleContent>
+    <ChildContent>@ChildContent</ChildContent>
 </MudNavGroup>
 
 @code {

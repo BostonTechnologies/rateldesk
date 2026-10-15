@@ -1,76 +1,73 @@
+@implements IDisposable
 @inject IHttpClientFactory HttpClientFactory
 
-<MudPaper Class="pa-3 ticket-message-container">
-    @if (!_peekLoaded)
+<MudPaper Class="pa-3 ticket-message-container" Elevation="0">
+    @if (_loading)
     {
-        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-            <MudProgressCircular Indeterminate="true" />
-            <MudText>Loading email…</MudText>
-        </MudStack>
+        <div role="status"><MudProgressCircular Indeterminate="true" Size="Size.Small" /> Loading content…</div>
+    }
+    else if (_error)
+    {
+        <div role="alert">Unable to load this content. <MudButton Size="Size.Small" OnClick="LoadAsync">Retry</MudButton></div>
+    }
+    else if (_content is not null && (!string.IsNullOrWhiteSpace(_content.Html) || !string.IsNullOrWhiteSpace(_content.Text)))
+    {
+        @if (!string.IsNullOrWhiteSpace(_content.From) || _content.ReceivedUtc is not null)
+        {
+            <MudText Typo="Typo.caption" Class="mb-2">From: @(_content.From ?? "—") · @_content.ReceivedUtc?.ToLocalTime().ToString("g")</MudText>
+        }
+        <EmailContent Html="@_content.Html" Text="@_content.Text" OnEscape="OnEscape" />
     }
     else
     {
-        @if (!string.IsNullOrWhiteSpace(_peekFrom) || !string.IsNullOrWhiteSpace(_peekReceived))
-        {
-            <MudText Typo="Typo.caption" Class="mb-2">From: @(_peekFrom ?? "—") · @_peekReceived</MudText>
-        }
-
-        <div class="ticket-message-body">
-            @if (!string.IsNullOrWhiteSpace(_peekHtml))
-            {
-                @((MarkupString)_peekHtml)
-            }
-            else if (!string.IsNullOrWhiteSpace(_peekText))
-            {
-                <pre style="white-space: pre-wrap">@_peekText</pre>
-            }
-            else
-            {
-                <MudText>No content available.</MudText>
-            }
-        </div>
+        <MudText>No content available.</MudText>
     }
 </MudPaper>
 
 @code {
     [Parameter] public string TicketId { get; set; } = string.Empty;
+    [Parameter] public string TicketType { get; set; } = "incidents";
+    [Parameter] public EventCallback OnEscape { get; set; }
+    private bool _loading, _error, _disposed;
+    private TicketMessageContent? _content;
+    private (string, string)? _loadedKey;
+    private CancellationTokenSource? _loadCts;
 
-    private bool _peekLoaded;
-    private string? _peekHtml;
-    private string? _peekText;
-    private string? _peekFrom;
-    private string? _peekReceived;
-
-    private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
-
-    protected override async Task OnInitializedAsync()
+    protected override Task OnParametersSetAsync()
     {
+        var key = (TicketType, TicketId);
+        if (_loadedKey == key) return Task.CompletedTask;
+        _loadedKey = key;
+        return LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loadCts?.Cancel();
+        _loadCts?.Dispose();
+        var cancellation = _loadCts = new CancellationTokenSource();
+        _loading = true; _error = false; _content = null;
         try
         {
-            var peek = await HelpdeskApi.GetFromJsonAsync<IncidentPeekDto>($"api/v1/incidents/{TicketId}/peek");
-            if (peek is not null)
-            {
-                _peekHtml = peek.Html ?? string.Empty;
-                _peekText = peek.SnippetText;
-                _peekFrom = peek.From;
-                _peekReceived = peek.ReceivedUtc?.ToLocalTime().ToString("g");
-            }
+            var content = await TicketMessageContent.LoadAsync(HttpClientFactory.CreateClient("HelpdeskApi"), TicketType, TicketId, cancellation.Token);
+            if (!_disposed && ReferenceEquals(_loadCts, cancellation)) _content = content;
         }
-        catch
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException or NotSupportedException or OperationCanceledException)
         {
-            // Keep empty state on preview errors.
+            if (!_disposed && ReferenceEquals(_loadCts, cancellation)) _error = true;
         }
         finally
         {
-            _peekLoaded = true;
+            if (!_disposed && ReferenceEquals(_loadCts, cancellation)) _loading = false;
         }
     }
 
-    private sealed class IncidentPeekDto
+    public void Dispose()
     {
-        public string? Html { get; set; }
-        public string? From { get; set; }
-        public DateTimeOffset? ReceivedUtc { get; set; }
-        public string? SnippetText { get; set; }
+        if (_disposed) return;
+        _disposed = true;
+        _loadCts?.Cancel();
+        _loadCts?.Dispose();
     }
 }

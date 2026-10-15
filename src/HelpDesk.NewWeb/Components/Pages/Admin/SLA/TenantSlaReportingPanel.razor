@@ -1,3 +1,5 @@
+@inherits HelpDesk.NewWeb.Components.Shared.Admin.AdminActionPanelBase
+@inject IDialogService DialogService
 @inject IHttpClientFactory HttpClientFactory
 @inject ISnackbar Snackbar
 @using Helpdesk.Shared.DTOs.Customer
@@ -7,16 +9,20 @@
 @using Helpdesk.Shared.DTOs.User
 @using Helpdesk.Shared.Enums
 
-<MudPaper Class="pa-4">
-    <MudText Typo="Typo.h6" Class="mb-3">SLA Reporting</MudText>
 
-    @if (string.IsNullOrWhiteSpace(TenantId))
+<MudPaper Class="pa-2" Elevation="0">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+        <MudText Typo="Typo.subtitle2">Report subscriptions</MudText>
+        <MudSpacer />
+        <MudButton OnClick="LoadAsync" Disabled="@(IsBusy || loading)" Variant="Variant.Outlined" Size="Size.Small">Refresh</MudButton>
+        <MudButton OnClick="StartCreate" Disabled="@(IsBusy || showEditor || string.IsNullOrWhiteSpace(TenantId))" Color="Color.Primary" Variant="Variant.Filled" Size="Size.Small">Create subscription</MudButton>
+    </MudStack>
+    @if (error is not null) { <MudAlert Severity="Severity.Error">@error</MudAlert> }
+    @if (loading) { <MudProgressLinear Indeterminate="true" /> }
+    @if (showEditor)
     {
-        <MudText Typo="Typo.body2" Color="Color.Secondary">Select a tenant to manage SLA reporting.</MudText>
-    }
-    else
-    {
-        <MudText Typo="Typo.subtitle2" Class="mb-2">Create Subscription</MudText>
+        <fieldset disabled="@IsBusy" class="sla-editor-controls">
+        <MudText Typo="Typo.subtitle2">@(string.IsNullOrEmpty(draft.Id) ? "New subscription" : "Edit subscription")</MudText>
         <MudGrid Spacing="2">
             <MudItem xs="12" sm="4">
                 <MudSelect T="ReportFrequency" Label="Frequency" @bind-Value="draft.Frequency" Dense="true" Margin="Margin.Dense">
@@ -63,234 +69,154 @@
             </MudItem>
         </MudGrid>
 
-        <MudButton OnClick="CreateAsync" Color="Color.Primary" Variant="Variant.Filled" Size="Size.Small" Class="mt-2">Create</MudButton>
 
-        <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-4 mb-2">
-            <MudText Typo="Typo.subtitle2">Subscriptions</MudText>
-            <MudSpacer />
-            <MudButton OnClick="LoadAsync" Color="Color.Default" Variant="Variant.Outlined" Size="Size.Small">Refresh</MudButton>
+        <MudSwitch T="bool" @bind-Value="draft.IsActive" Label="Active" />
+        <MudStack Row="true" Class="my-3">
+            <MudButton OnClick="@(() => RunActionAsync(SaveDraftAsync))" Disabled="IsBusy" Color="Color.Primary" Variant="Variant.Filled">Save subscription</MudButton>
+            <MudButton OnClick="CancelEdit" Disabled="IsBusy">Cancel</MudButton>
         </MudStack>
-
-        <div class="sla-table-wrap">
-            <MudTable Items="FilteredSubscriptions" Dense="true" Hover="true" Breakpoint="Breakpoint.None" Class="sla-compact-table">
-                <HeaderContent>
-                    <MudTh>Frequency</MudTh>
-                    <MudTh>Time</MudTh>
-                    <MudTh>Recipients</MudTh>
-                    <MudTh>Active</MudTh>
-                    <MudTh Class="sla-actions"></MudTh>
-                </HeaderContent>
-                <RowTemplate>
-                    <MudTd>@context.Frequency</MudTd>
-                    <MudTd>
-                        <MudTimePicker Label="Time"
-                                       Time="context.SendTimeLocal"
-                                       TimeChanged="@(value => UpdateSubscriptionTimeAsync(context, value))"
-                                       PickerVariant="PickerVariant.Dialog"
-                                       Dense="true"
-                                       Margin="Margin.Dense"
-                                       Disabled="@IsSaving(context)" />
-                    </MudTd>
-                    <MudTd Class="sla-recipients-cell">
-                        <MudSelect T="string"
-                                   Label="Recipients"
-                                   MultiSelection="true"
-                                   Dense="true"
-                                   Margin="Margin.Dense"
-                                   SelectedValues="@GetRecipientEmails(context)"
-                                   SelectedValuesChanged="@(values => UpdateSubscriptionRecipientsAsync(context, values))"
-                                   Disabled="@IsSaving(context)">
-                            @foreach (var recipient in GetRecipientOptions(context.TenantId, GetRecipientEmails(context)))
-                            {
-                                <MudSelectItem T="string" Value="@recipient.Email">@recipient.Label</MudSelectItem>
-                            }
-                        </MudSelect>
-                    </MudTd>
-                    <MudTd>
-                        <MudIconButton Icon="@(context.IsActive ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
-                                       Color="@(context.IsActive ? Color.Success : Color.Default)"
-                                       Size="Size.Small"
-                                       Disabled="@IsSaving(context)"
-                                       aria-label="@(context.IsActive ? "Disable subscription" : "Enable subscription")"
-                                       OnClick="() => ToggleAsync(context)" />
-                    </MudTd>
-                    <MudTd Class="sla-actions">
-                        @if (IsSaving(context))
-                        {
-                            <MudProgressCircular Size="Size.Small" Indeterminate="true" />
-                        }
-                        <MudIconButton Icon="@Icons.Material.Filled.Delete"
-                                       Color="Color.Error"
-                                       Size="Size.Small"
-                                       Disabled="@IsSaving(context)"
-                                       OnClick="() => DeleteAsync(context)" />
-                    </MudTd>
-                </RowTemplate>
-            </MudTable>
-        </div>
+        </fieldset>
     }
+    <div class="sla-table-wrap">
+        <MudTable Items="FilteredSubscriptions" Dense="true" Hover="true" RowsPerPage="25" Breakpoint="Breakpoint.Sm" Class="sla-compact-table">
+            <HeaderContent><MudTh>Schedule</MudTh><MudTh>Recipients</MudTh><MudTh>Lookback</MudTh><MudTh>Active</MudTh><MudTh>Actions</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Schedule">@context.Frequency @(context.Frequency == ReportFrequency.Weekly ? context.WeeklyDay?.ToString() : "") · @context.SendTimeLocal.ToString(@"hh\:mm")<MudText Typo="Typo.caption">@context.TimeZoneId</MudText></MudTd>
+                <MudTd DataLabel="Recipients">@string.Join(", ", context.Targets.Select(x => x.Value))</MudTd>
+                <MudTd DataLabel="Lookback">@context.LookbackDays days</MudTd>
+                <MudTd DataLabel="Active">@(context.IsActive ? "Yes" : "No")</MudTd>
+                <MudTd DataLabel="Actions">
+                    <MudButton Size="Size.Small" OnClick="() => StartEdit(context)" Disabled="@(IsBusy || showEditor)">Edit</MudButton>
+                    <MudButton Size="Size.Small" OnClick="@(() => RunActionAsync(() => ToggleAsync(context)))" Disabled="@(IsBusy || showEditor)">@(context.IsActive ? "Disable" : "Enable")</MudButton>
+                    <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => RunActionAsync(() => DeleteAsync(context)))" Disabled="@(IsBusy || showEditor)">Delete</MudButton>
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText Class="pa-2">No report subscriptions for this tenant.</MudText></NoRecordsContent>
+            <PagerContent><MudTablePager PageSizeOptions="@(new[] { 25, 50, 100 })" /></PagerContent>
+        </MudTable>
+    </div>
 </MudPaper>
 
 @code {
+    [Parameter] public EventCallback DraftChanged { get; set; }
     [Parameter] public string? TenantId { get; set; }
     [Parameter] public List<TenantLookupDto> Tenants { get; set; } = new();
-
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
     private List<SlaReportSubscriptionDto> subscriptions = new();
     private List<UserDto> users = new();
     private List<CustomerDto> customers = new();
-    private HashSet<string> savingRows = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> draftRecipientEmails = new(StringComparer.OrdinalIgnoreCase);
-    private string? loadedTenantId;
     private SlaReportSubscriptionDto draft = NewDraft();
+    private bool showEditor;
+    private bool loading;
+    private string? error;
+    private int loadVersion;
+    public bool HasUnsavedChanges => showEditor;
     private IEnumerable<SlaReportSubscriptionDto> FilteredSubscriptions => subscriptions
         .Where(x => string.Equals(x.TenantId, TenantId, StringComparison.OrdinalIgnoreCase))
-        .OrderBy(x => x.Frequency)
-        .ThenBy(x => x.SendTimeLocal);
+        .OrderBy(x => x.Frequency).ThenBy(x => x.SendTimeLocal);
 
     protected override async Task OnInitializedAsync()
     {
-        users = await HelpdeskApi.GetFromJsonAsync<List<UserDto>>("api/v1/users") ?? new();
-        customers = await HelpdeskApi.GetFromJsonAsync<List<CustomerDto>>("api/v1/customers") ?? new();
-        await LoadAsync();
-    }
-
-    protected override void OnParametersSet()
-    {
-        if (string.Equals(loadedTenantId, TenantId, StringComparison.Ordinal))
+        try
         {
-            return;
+            users = await HelpdeskApi.GetFromJsonAsync<List<UserDto>>("api/v1/users") ?? new();
+            customers = await HelpdeskApi.GetFromJsonAsync<List<CustomerDto>>("api/v1/customers") ?? new();
+            if (!IsDisposed) await LoadAsync();
         }
-
-        loadedTenantId = TenantId;
-        draft = NewDraft();
-        draft.TenantId = TenantId ?? string.Empty;
-        draftRecipientEmails.Clear();
+        catch { error = "Report recipients could not be loaded. Reload to try again."; }
     }
 
     private async Task LoadAsync()
     {
-        subscriptions = await HelpdeskApi.GetFromJsonAsync<List<SlaReportSubscriptionDto>>("api/v1/sla-report-subscriptions") ?? new();
-        savingRows.Clear();
-    }
-
-    private void OnDraftSendTimeChanged(TimeSpan? value)
-    {
-        if (value.HasValue)
-        {
-            draft.SendTimeLocal = value.Value;
-        }
-    }
-
-    private void OnDraftRecipientsChanged(IEnumerable<string>? values)
-    {
-        draftRecipientEmails = ToEmailSet(values);
-        draft.Targets = ToEmailTargets(draftRecipientEmails);
-    }
-
-    private async Task CreateAsync()
-    {
-        if (string.IsNullOrWhiteSpace(TenantId))
-        {
-            Snackbar.Add("Tenant is required.", Severity.Error);
-            return;
-        }
-
-        draft.TenantId = TenantId;
-        draft.Targets = ToEmailTargets(draftRecipientEmails);
-        if (draft.Targets.Count == 0)
-        {
-            Snackbar.Add("At least one recipient is required.", Severity.Error);
-            return;
-        }
-
-        var response = await HelpdeskApi.PostAsJsonAsync("api/v1/sla-report-subscriptions", draft);
-        if (!response.IsSuccessStatusCode)
-        {
-            var error = await response.Content.ReadAsStringAsync();
-            Snackbar.Add($"Failed to save: {error}", Severity.Error);
-            return;
-        }
-
-        Snackbar.Add("Subscription created.", Severity.Success);
-        draft = NewDraft();
-        draft.TenantId = TenantId;
-        draftRecipientEmails.Clear();
-        await LoadAsync();
-    }
-
-    private async Task ToggleAsync(SlaReportSubscriptionDto dto)
-    {
-        dto.IsActive = !dto.IsActive;
-        await SaveSubscriptionAsync(dto);
-    }
-
-    private async Task UpdateSubscriptionTimeAsync(SlaReportSubscriptionDto dto, TimeSpan? value)
-    {
-        if (!value.HasValue || value.Value == dto.SendTimeLocal)
-        {
-            return;
-        }
-
-        dto.SendTimeLocal = value.Value;
-        await SaveSubscriptionAsync(dto);
-    }
-
-    private async Task UpdateSubscriptionRecipientsAsync(SlaReportSubscriptionDto dto, IEnumerable<string>? values)
-    {
-        var selected = ToEmailSet(values);
-        if (selected.Count == 0)
-        {
-            Snackbar.Add("At least one recipient is required.", Severity.Error);
-            await LoadAsync();
-            return;
-        }
-
-        dto.Targets = ToEmailTargets(selected);
-        await SaveSubscriptionAsync(dto);
-    }
-
-    private async Task SaveSubscriptionAsync(SlaReportSubscriptionDto dto)
-    {
-        if (!savingRows.Add(dto.Id))
-        {
-            return;
-        }
-
+        var version = ++loadVersion;
+        loading = true;
         try
         {
-            var response = await HelpdeskApi.PutAsJsonAsync($"api/v1/sla-report-subscriptions/{dto.Id}", dto);
-            if (!response.IsSuccessStatusCode)
-            {
-                var error = await response.Content.ReadAsStringAsync();
-                Snackbar.Add($"Failed to save: {error}", Severity.Error);
-                await LoadAsync();
-                return;
-            }
+            var result = await HelpdeskApi.GetFromJsonAsync<List<SlaReportSubscriptionDto>>("api/v1/sla-report-subscriptions") ?? new();
+            if (!IsDisposed && version == loadVersion) { subscriptions = result; error = null; }
         }
-        finally
-        {
-            savingRows.Remove(dto.Id);
-        }
+        catch { if (!IsDisposed && version == loadVersion) error = "Report subscriptions could not be loaded."; }
+        finally { if (version == loadVersion) loading = false; }
     }
 
-    private async Task DeleteAsync(SlaReportSubscriptionDto dto)
+    private async Task StartCreate()
     {
-        var response = await HelpdeskApi.DeleteAsync($"api/v1/sla-report-subscriptions/{dto.Id}");
-        if (!response.IsSuccessStatusCode)
-        {
-            var error = await response.Content.ReadAsStringAsync();
-            Snackbar.Add($"Delete failed: {error}", Severity.Error);
-            return;
-        }
-
-        await LoadAsync();
+        draft = NewDraft();
+        draft.Id = string.Empty;
+        draft.TenantId = TenantId ?? string.Empty;
+        draftRecipientEmails.Clear();
+        showEditor = true;
+        error = null;
+        await DraftChanged.InvokeAsync();
     }
-
-    private bool IsSaving(SlaReportSubscriptionDto dto)
+    private async Task StartEdit(SlaReportSubscriptionDto subscription)
     {
-        return !string.IsNullOrWhiteSpace(dto.Id) && savingRows.Contains(dto.Id);
+        if (subscription.TenantId != TenantId || IsBusy || showEditor) return;
+        draft = Clone(subscription);
+        draftRecipientEmails = GetRecipientEmails(draft);
+        showEditor = true;
+        error = null;
+        await DraftChanged.InvokeAsync();
     }
+    private async Task CancelEdit() { showEditor = false; error = null; await DraftChanged.InvokeAsync(); }
+    private void OnDraftSendTimeChanged(TimeSpan? value) { if (value.HasValue) draft.SendTimeLocal = value.Value; }
+    private void OnDraftRecipientsChanged(IEnumerable<string>? values) => draftRecipientEmails = ToEmailSet(values);
+
+    private async Task SaveDraftAsync()
+    {
+        var tenant = TenantId;
+        if (IsDisposed || string.IsNullOrWhiteSpace(tenant) || draft.TenantId != tenant) return;
+        var payload = Clone(draft);
+        payload.Targets = payload.Targets.Where(x => x.Type != RecipientTargetType.Email).Concat(ToEmailTargets(draftRecipientEmails)).ToList();
+        if (payload.Targets.Count == 0) { error = "At least one recipient is required."; return; }
+        if (payload.LookbackDays < 1 || payload.SendTimeLocal < TimeSpan.Zero || payload.SendTimeLocal >= TimeSpan.FromDays(1))
+        { error = "Choose a valid send time and a lookback of at least one day."; return; }
+        try { TimeZoneInfo.FindSystemTimeZoneById(payload.TimeZoneId); }
+        catch { error = "Enter a valid timezone identifier."; return; }
+        try
+        {
+            using var response = string.IsNullOrEmpty(payload.Id)
+                ? await HelpdeskApi.PostAsJsonAsync("api/v1/sla-report-subscriptions", payload)
+                : await HelpdeskApi.PutAsJsonAsync($"api/v1/sla-report-subscriptions/{Uri.EscapeDataString(payload.Id)}", payload);
+            if (IsDisposed || tenant != TenantId) return;
+            if (!response.IsSuccessStatusCode) { error = "Subscription could not be saved. Your edits are retained."; return; }
+            showEditor = false;
+            await DraftChanged.InvokeAsync();
+            Snackbar.Add("Subscription saved.", Severity.Success);
+            await LoadAsync();
+        }
+        catch { if (!IsDisposed) error = "Subscription could not be saved. Your edits are retained."; }
+    }
+
+    private async Task ToggleAsync(SlaReportSubscriptionDto subscription)
+    {
+        if (IsDisposed || subscription.TenantId != TenantId) return;
+        var payload = Clone(subscription);
+        payload.IsActive = !payload.IsActive;
+        try
+        {
+            using var response = await HelpdeskApi.PutAsJsonAsync($"api/v1/sla-report-subscriptions/{Uri.EscapeDataString(payload.Id)}", payload);
+            if (!response.IsSuccessStatusCode) { error = "Subscription could not be updated."; return; }
+            if (!IsDisposed) await LoadAsync();
+        }
+        catch { if (!IsDisposed) error = "Subscription could not be updated."; }
+    }
+
+    private async Task DeleteAsync(SlaReportSubscriptionDto subscription)
+    {
+        if (subscription.TenantId != TenantId || await DialogService.ShowMessageBoxAsync("Delete subscription?", "Delete this report schedule?", yesText: "Delete", cancelText: "Cancel") != true || IsDisposed) return;
+        try
+        {
+            using var response = await HelpdeskApi.DeleteAsync($"api/v1/sla-report-subscriptions/{Uri.EscapeDataString(subscription.Id)}");
+            if (!response.IsSuccessStatusCode) { error = "Subscription could not be deleted."; return; }
+            if (!IsDisposed) await LoadAsync();
+        }
+        catch { if (!IsDisposed) error = "Subscription could not be deleted."; }
+    }
+
+    private static SlaReportSubscriptionDto Clone(SlaReportSubscriptionDto value) =>
+        System.Text.Json.JsonSerializer.Deserialize<SlaReportSubscriptionDto>(System.Text.Json.JsonSerializer.Serialize(value))!;
 
     private IEnumerable<RecipientOption> GetRecipientOptions(string? tenantId, IEnumerable<string>? selectedEmails = null)
     {
@@ -379,25 +305,3 @@
 
     private sealed record RecipientOption(string Email, string Label);
 }
-
-<style>
-    .sla-table-wrap {
-        overflow-x: auto;
-    }
-
-    .sla-compact-table th,
-    .sla-compact-table td {
-        white-space: nowrap;
-        padding: 4px 8px;
-        vertical-align: middle;
-    }
-
-    .sla-recipients-cell {
-        min-width: 320px;
-    }
-
-    .sla-actions {
-        width: 80px;
-        text-align: right;
-    }
-</style>

@@ -1,0 +1,6 @@
+.incident-preview-trigger { padding: 0; border: 0; background: transparent; color: var(--mud-palette-primary); font: inherit; text-align: start; cursor: help; max-width: 100%; overflow-wrap: anywhere; }
+.incident-preview-trigger:focus-visible, .incident-preview-close:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 2px; }
+.incident-preview-body { width: min(600px, calc(100vw - 32px)); max-height: min(600px, calc(100dvh - 80px)); overflow: auto; overscroll-behavior: contain; }
+.incident-preview-heading { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .25rem; font-size: .8rem; position: sticky; top: 0; background: var(--mud-palette-surface); z-index: 1; }
+.incident-preview-close { font: inherit; color: var(--mud-palette-primary); background: transparent; border: 1px solid var(--mud-palette-divider); border-radius: 4px; padding: .25rem .5rem; cursor: pointer; }
+.incident-preview-body ::deep .ticket-message-container { min-height: 0; max-height: none; overflow: visible; }

@@ -1,15 +1,27 @@
-.role-row-heading {
+.role-workspace ::deep .role-row-heading {
     gap: 0.125rem;
 }
 
-.role-protected-status {
+.role-workspace ::deep .role-protected-status {
     align-self: flex-start;
     margin-top: 0.25rem;
     cursor: default;
 }
 
-.role-management-table :deep(.mud-table-cell) {
-    padding-top: 0.875rem;
-    padding-bottom: 0.875rem;
+.role-workspace ::deep .role-management-table .mud-table-cell {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
     vertical-align: top;
+}
+
+.role-workspace { min-width: 0; }
+.role-workspace ::deep .mud-stack-row { flex-wrap: wrap; }
+.role-workspace ::deep .mud-typography { overflow-wrap: anywhere; }
+.role-workspace ::deep .mud-tabs { max-width: 100%; }
+
+@media (max-width: 600px) {
+    .role-workspace ::deep .role-tabs .mud-tab { font-size: .75rem; padding-inline: .5rem; }
+    .role-workspace ::deep .role-toolbar { flex-direction: column !important; align-items: flex-start !important; }
+    .role-workspace ::deep .role-toolbar > .mud-spacer { display: none; }
+    .role-workspace ::deep .role-toolbar .mud-button-root { white-space: nowrap; }
 }

@@ -25,13 +25,13 @@ public sealed class NavMenuRenderedTests
     ];
 
     [Fact]
-    public void Instance_administrator_retains_every_destination_once_including_account_integration()
+    public async Task Instance_administrator_retains_every_destination_once_including_account_integration()
     {
-        using var context = Context("HelpdeskAdmin");
+        await using var context = Context("HelpdeskAdmin");
         var menu = context.Render<NavMenu>();
         var expected = Account.Concat(GlobalAdministration).Concat([
             "self-service", "self-service/my-requests", "incidents", "requests", "tasks", "changes",
-            "/ops/slas", "/ops/workflows", "/ops/hangfire", "assets", "/admin/resources/data-management"
+            "/ops", "assets", "/admin/resources/data-management"
         ]).OrderBy(route => route).ToArray();
 
         Assert.Equal(expected, Hrefs(menu));
@@ -53,21 +53,21 @@ public sealed class NavMenuRenderedTests
     [Theory]
     [InlineData("SelfService.User", "self-service,self-service/my-requests", "Portal")]
     [InlineData("Incident.Read", "incidents", "Workspace")]
-    [InlineData("Incident.Manager", "incidents,/ops/slas", "Workspace,Operations")]
+    [InlineData("Incident.Manager", "incidents,/ops", "Workspace,Operations")]
     [InlineData("Request.User", "requests", "Workspace")]
-    [InlineData("Request.Read", "requests,tasks,/ops/workflows", "Workspace,Operations")]
-    [InlineData("Request.Manager", "requests,tasks,/ops/slas,/ops/workflows", "Workspace,Operations")]
+    [InlineData("Request.Read", "requests,tasks,/ops", "Workspace,Operations")]
+    [InlineData("Request.Manager", "requests,tasks,/ops", "Workspace,Operations")]
     [InlineData("Change.Read", "changes", "Workspace")]
-    [InlineData("Change.Manager", "changes,/ops/slas", "Workspace,Operations")]
+    [InlineData("Change.Manager", "changes,/ops", "Workspace,Operations")]
     [InlineData("DataManagement.Admin", "/admin/resources/data-management", "Resources")]
     [InlineData("Tenant.Roles.Assign", "/admin/users,/admin/organizations,/admin/roles", "Administration,Accounts & Orgs")]
     [InlineData("Tenant.Settings.Manage", "/admin/organizations", "Administration,Accounts & Orgs")]
-    public void Scoped_roles_keep_exact_leaf_visibility_and_hide_empty_groups(string role, string routes, string groups)
+    public async Task Scoped_roles_keep_exact_leaf_visibility_and_hide_empty_groups(string role, string routes, string groups)
     {
-        using var context = Context(role);
+        await using var context = Context(role);
         var menu = context.Render<NavMenu>();
         Assert.Equal(Account.Concat(routes.Split(',')).OrderBy(route => route), Hrefs(menu));
-        Assert.Equal(groups.Split(',').OrderBy(title => title), menu.FindComponents<MudNavGroup>().Select(group => group.Instance.Title).OrderBy(title => title));
+        Assert.Equal(groups.Split(',').Append("Operations").Distinct().OrderBy(title => title), menu.FindComponents<MudNavGroup>().Select(group => group.Instance.Title).OrderBy(title => title));
         if (!groups.Contains("Administration", StringComparison.Ordinal))
             Assert.DoesNotContain("Administration", menu.FindAll(".nav-section-heading").Select(element => element.TextContent));
     }
@@ -89,16 +89,16 @@ public sealed class NavMenuRenderedTests
     [InlineData("/requests/create", "requests")]
     [InlineData("/tasks/edit/example", "tasks")]
     [InlineData("/changes/example", "changes")]
-    [InlineData("/ops/slas/details/example", "/ops/slas")]
+    [InlineData("/ops/slas/details/example", "/ops")]
     [InlineData("/admin/email-rules/edit/example", "/admin/email-rules")]
     [InlineData("/account/integration-credentials/approve?code=SAFE-CODE", "/account/integration-credentials")]
     [InlineData("/account/authenticator", "auth")]
     [InlineData("/account/change-password", "auth")]
     [InlineData("/admin/categories0", "/admin/categories")]
     [InlineData("/admin/tenants/42/branding", "/admin/branding")]
-    public void Actual_framework_anchors_select_only_the_owning_leaf(string location, string expectedHref)
+    public async Task Actual_framework_anchors_select_only_the_owning_leaf(string location, string expectedHref)
     {
-        using var context = Context("HelpdeskAdmin");
+        await using var context = Context("HelpdeskAdmin");
         context.Services.GetRequiredService<NavigationManager>().NavigateTo(location);
         var menu = context.Render<NavMenu>();
         AssertCurrent(menu, expectedHref);
@@ -109,9 +109,9 @@ public sealed class NavMenuRenderedTests
     [InlineData("/admin/automation-extra")]
     [InlineData("/incidents-old")]
     [InlineData("/admin/tenants/42/details")]
-    public void Route_prefixes_require_a_path_segment_boundary(string location)
+    public async Task Route_prefixes_require_a_path_segment_boundary(string location)
     {
-        using var context = Context("HelpdeskAdmin");
+        await using var context = Context("HelpdeskAdmin");
         context.Services.GetRequiredService<NavigationManager>().NavigateTo(location);
         var menu = context.Render<NavMenu>();
         Assert.Empty(menu.FindAll("a.active"));
@@ -126,9 +126,9 @@ public sealed class NavMenuRenderedTests
     [InlineData("/admin/users", "Administration,Accounts & Orgs")]
     [InlineData("/admin/email-rules", "Administration,Email Settings")]
     [InlineData("/settings/connectivity", "Administration,Automation")]
-    public void Deep_links_expand_required_parent_groups(string route, string expandedTitles)
+    public async Task Deep_links_expand_required_parent_groups(string route, string expandedTitles)
     {
-        using var context = Context("HelpdeskAdmin");
+        await using var context = Context("HelpdeskAdmin");
         context.Services.GetRequiredService<NavigationManager>().NavigateTo(route);
         var menu = context.Render<NavMenu>();
         Assert.Equal(expandedTitles.Split(',').OrderBy(title => title), menu.FindComponents<MudNavGroup>().Where(group => group.Find("button").GetAttribute("aria-expanded") == "true").Select(group => group.Instance.Title).OrderBy(title => title));
@@ -138,7 +138,7 @@ public sealed class NavMenuRenderedTests
     [Fact]
     public async Task Collapse_survives_rerender_query_and_permission_updates_and_back_navigation_opens_the_owner()
     {
-        using var context = Context("HelpdeskAdmin");
+        await using var context = Context("HelpdeskAdmin");
         var navigation = context.Services.GetRequiredService<NavigationManager>();
         navigation.NavigateTo("/admin/email-rules");
         var menu = context.Render<NavMenu>();
@@ -172,9 +172,9 @@ public sealed class NavMenuRenderedTests
     }
 
     [Fact]
-    public void Delegated_administration_expands_on_legacy_organization_alias_without_duplicate_global_routes()
+    public async Task Delegated_administration_expands_on_legacy_organization_alias_without_duplicate_global_routes()
     {
-        using var context = Context("Tenant.Roles.Assign");
+        await using var context = Context("Tenant.Roles.Assign");
         context.Services.GetRequiredService<NavigationManager>().NavigateTo("/tenant-administration?organizationId=example");
         var menu = context.Render<NavMenu>();
         AssertCurrent(menu, "/admin/organizations");
@@ -185,21 +185,32 @@ public sealed class NavMenuRenderedTests
     }
 
     [Fact]
-    public void Account_integration_remains_reachable_without_business_roles_and_logout_removes_authorized_destinations()
+    public async Task Account_integration_remains_reachable_without_business_roles_and_logout_removes_authorized_destinations()
     {
-        using var context = Context();
+        await using var context = Context();
         var menu = context.Render<NavMenu>();
         Assert.Equal(Account.OrderBy(route => route), Hrefs(menu));
-        Assert.Empty(menu.FindComponents<MudNavGroup>());
+        Assert.Equal("Operations", Assert.Single(menu.FindComponents<MudNavGroup>()).Instance.Title);
         var authorization = context.Authorization;
         authorization.SetNotAuthorized();
         menu.WaitForAssertion(() => Assert.Equal(new[] { "/login", "home" }.OrderBy(route => route), Hrefs(menu)));
     }
 
     [Fact]
+    public async Task Long_names_remain_complete_and_all_menu_links_supply_tooltips()
+    {
+        await using var context = Context("HelpdeskAdmin");
+        var menu = context.Render<NavMenu>();
+        Assert.All(menu.FindAll("a .mud-nav-link-text"), label => Assert.False(string.IsNullOrWhiteSpace(label.GetAttribute("title"))));
+        var account = menu.Find("a[href='auth']");
+        Assert.Equal("A very long account name for the customer support team", account.TextContent.Trim());
+        Assert.Contains(menu.FindComponents<MudTooltip>(), tooltip => tooltip.Instance.Text == "A very long account name for the customer support team" && tooltip.Instance.ShowOnFocus);
+    }
+
+    [Fact]
     public async Task Real_link_click_notifies_the_drawer_navigation_receiver()
     {
-        using var context = Context();
+        await using var context = Context();
         var receiver = new Receiver();
         var link = context.Render<CascadingValue<INavigationEventReceiver>>(parameters => parameters
             .Add(parameter => parameter.Value, receiver)

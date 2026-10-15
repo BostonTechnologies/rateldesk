@@ -172,15 +172,24 @@ test('mailbox POP3 lifecycle: dedicated IMAP and POP3 work without any global ma
   const disabledDelivery = (await failedDeliveries()).find(item => item.ticketId === disabledIncident.id)!;
   const retryPreview = await (await page.request.get(
     `/api/v1/timeline/${disabledDelivery.id}/outgoing-retry-preview`)).json() as
-    { canRetry: boolean; mailboxAddress: string; currentOutgoingVersion: number };
+    { canRetry: boolean; mailboxAddress: string; originalOutgoingVersion: number; currentOutgoingVersion: number };
   expect(retryPreview.canRetry).toBe(true);
   expect(retryPreview.mailboxAddress).toBe('pop@tenant-c.example.test');
-  await page.goto('/admin/pending-emails');
+  await page.goto(`/admin/pending-emails?search=${encodeURIComponent(disabledIncident.trackingId)}`);
   await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
-  await expect(page.getByText(disabledIncident.id, { exact: true })).toBeVisible();
-  page.once('dialog', dialog => dialog.accept());
-  await page.getByRole('row').filter({ hasText: disabledIncident.id })
-    .getByRole('button', { name: 'Review sender and retry' }).click();
+  const disabledTicketLink = page.getByRole('link', { name: disabledIncident.trackingId, exact: true });
+  await expect(disabledTicketLink).toHaveAttribute('href', `/incidents/${disabledIncident.id}`);
+  const disabledRow = page.getByRole('row').filter({ has: disabledTicketLink });
+  await expect(disabledRow).toHaveCount(1);
+  const senderConfirmation = page.waitForEvent('dialog');
+  const reviewSender = disabledRow.getByRole('button', { name: 'Review / retry', exact: true }).click();
+  const senderDialog = await senderConfirmation;
+  expect(senderDialog.type()).toBe('confirm');
+  expect(senderDialog.message()).toContain('pop@tenant-c.example.test');
+  expect(senderDialog.message()).toContain('Adopt incoming revision');
+  expect(senderDialog.message()).toContain(`outgoing revision ${retryPreview.originalOutgoingVersion} → ${retryPreview.currentOutgoingVersion}`);
+  await senderDialog.accept();
+  await reviewSender;
   await expect(page.getByText('Delivery queued with the confirmed sender revisions.')).toBeVisible();
   await expect.poll(() => (fixture('messages', ['--account', 'requester-c']) as MailMessage[]).filter(message =>
     message.subject.includes(disabledIncident.trackingId) &&

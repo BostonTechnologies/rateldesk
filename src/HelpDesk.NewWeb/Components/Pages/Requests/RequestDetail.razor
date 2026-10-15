@@ -1,6 +1,7 @@
 @using Helpdesk.Shared.Services
 @inject AuthenticationStateProvider AccessAuthenticationState
 @page "/requests/{Id}"
+@implements IDisposable
 @attribute [Authorize(Roles = "Request.User,Request.Read,Request.Write,Request.Manager,HelpdeskAdmin")]
 
 @inject IHttpClientFactory HttpClientFactory
@@ -18,6 +19,8 @@
 @using Helpdesk.Shared.Enums
 @using Helpdesk.Shared.Models
 @using Microsoft.AspNetCore.Components.Authorization
+
+<NavigationLock ConfirmExternalNavigation="@hasChanges" OnBeforeInternalNavigation="ConfirmNavigation" />
 
 <PageTitle>Request: @(request?.Title ?? "...")</PageTitle>
 
@@ -45,7 +48,7 @@ else
                 CustomerEmail="@request.CustomerEmail"
                 CategoryIds="@selectedCategoryIds"
                 AllCategories="@categories"
-                CategoryRemoved="OnCategoryRemoved" ReadOnly="@(!CanManage)">
+                CategoryRemoved="OnCategoryRemoved" ReadOnly="@(!CanManage || isUpdating)">
             </HelpDesk.NewWeb.Components.Shared.TicketHeader>
 
             @if (!string.IsNullOrWhiteSpace(request.WorkflowStatus))
@@ -248,15 +251,10 @@ else
         </MudItem>
 
         <MudItem xs="12" md="3" Class="d-flex flex-column">
-            <MudCard Class="position-sticky compact-details-card" Style="top: 16px;">
-                    <MudCardHeader>
-                        <CardHeaderContent>
-                            <MudText Typo="Typo.subtitle1">Details</MudText>
-                        </CardHeaderContent>
-                    </MudCardHeader>
-                    <MudCardContent>
-                        <MudGrid>
-                            <MudItem xs="12">
+            <TicketDetailsPanel>
+                <ChildContent>
+                        <MudGrid Spacing="2">
+                            <MudItem xs="12" sm="6" md="12" xl="6">
                                 <MudSelect T="TicketState" Value="@request.State" ValueChanged="OnStateChanged"
                                            Dense="true"
                                            Margin="Margin.Dense"
@@ -269,7 +267,7 @@ else
                                     }
                                 </MudSelect>
                             </MudItem>
-                            <MudItem xs="12">
+                            <MudItem xs="12" sm="6" md="12" xl="6">
                                 <MudSelect T="TicketPriority" Value="@request.Priority" ValueChanged="OnPriorityChanged"
                                            Dense="true"
                                            Margin="Margin.Dense"
@@ -283,15 +281,19 @@ else
                                 </MudSelect>
                             </MudItem>
                             <MudItem xs="12">
+                                <AssigneeSelector Module="request" OrganizationId="@request.OrganizationId" TicketId="@request.Id"
+                                                  Value="@request.AssignedToId" ReadOnly="true" />
+                            </MudItem>
+                            <MudItem xs="12">
                                 <HelpDesk.NewWeb.Components.Shared.ServiceCategoryPicker
-                                    RequestedType="TicketCategoryType.Request"
+                                    RequestedType="TicketCategoryType.Request" OrganizationId="@request.OrganizationId" ScopeKey="@request.Id"
                                     SelectedCategoryIds="@selectedCategoryIds"
-                                    SelectedCategoryIdsChanged="OnCategorySelectionChanged" ReadOnly="@(!CanManage)"
+                                    SelectedCategoryIdsChanged="OnCategorySelectionChanged" ReadOnly="@(!CanManage || isUpdating)"
                                     Dense="true"
                                     Margin="Margin.Dense" />
                             </MudItem>
                             <MudItem xs="12">
-                                <MudTextField T="string" Label="Created" Variant="Variant.Outlined" Dense="true" Margin="Margin.Dense" ReadOnly="true" Value="@request.CreatedAt.ToString("g")" />
+                                <p class="details-metadata">Created: @(request.CreatedAt.ToString("g"))</p>
                             </MudItem>
                             @if (!string.IsNullOrWhiteSpace(request.SourceTicketId))
                             {
@@ -318,37 +320,14 @@ else
                             @if (request.Sla is not null)
                             {
                                 <MudItem xs="12">
-                                    <MudDivider Class="my-2" />
-                                    <MudText Typo="Typo.subtitle2" Class="mb-1">SLA</MudText>
-                                    <MudChip T="string" Color="@GetSlaStatusColor(request.Sla.Status)" Variant="Variant.Filled" Size="Size.Small">
-                                        @request.Sla.Status
-                                    </MudChip>
-                                    <MudText Typo="Typo.caption" Class="d-block mt-2">
-                                        Response remaining: @FormatRemaining(request.Sla.ResponseRemainingSeconds)
-                                    </MudText>
-                                    <MudProgressLinear Value="@request.Sla.ResponsePercentUsed" Color="Color.Info" Class="mb-2" />
-                                    <MudText Typo="Typo.caption" Class="d-block">
-                                        Resolution remaining: @FormatRemaining(request.Sla.ResolutionRemainingSeconds)
-                                    </MudText>
-                                    <MudProgressLinear Value="@request.Sla.ResolutionPercentUsed" Color="Color.Warning" Class="mb-2" />
-                                    @if (!string.IsNullOrWhiteSpace(request.Sla.PauseReason))
-                                    {
-                                        <MudText Typo="Typo.caption">Reason: @request.Sla.PauseReason</MudText>
-                                    }
-                                    @if (request.Sla.Status == SlaStatus.InProgress)
-                                    {
-                                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Class="mt-2" Disabled="@(!CanManage)" OnClick="PauseSlaAsync">Pause SLA</MudButton>
-                                    }
-                                    else if (request.Sla.Status == SlaStatus.Paused)
-                                    {
-                                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Success" Class="mt-2" Disabled="@(!CanManage)" OnClick="ResumeSlaAsync">Resume SLA</MudButton>
-                                    }
+                                    <TicketSlaSummary Sla="@request.Sla" CanManage="@CanManage" Busy="@isUpdating"
+                                                      OnPause="PauseSlaAsync" OnResume="ResumeSlaAsync" />
                                 </MudItem>
                             }
                         </MudGrid>
-                    </MudCardContent>
+                    </ChildContent>
 
-                    <MudCardActions Class="px-4 pb-4">
+                    <Actions>
                         <MudButton OnClick="RevertChanges"
                                    Disabled="!CanManage || !hasChanges || isUpdating">Revert</MudButton>
                         <MudButton OnClick="SaveChangesAsync"
@@ -361,13 +340,19 @@ else
                             }
                             Save Changes
                         </MudButton>
-                    </MudCardActions>
-            </MudCard>
+                    </Actions>
+            </TicketDetailsPanel>
         </MudItem>
     </MudGrid>
 }
 
 @code {
+    private async Task ConfirmNavigation(LocationChangingContext context)
+    {
+        if (hasChanges && await DialogService.ShowMessageBoxAsync("Unsaved changes", "Leave this ticket and discard unsaved changes?", yesText: "Discard changes", cancelText: "Keep editing") != true)
+            context.PreventNavigation();
+    }
+
     private CurrentUserAccessProfile? accessProfile;
     private bool CanManage => accessProfile?.CanManageRequest(request?.OrganizationId) == true;
     private bool CanContribute => request is not null && accessProfile?.CanContributeRequest(request.OrganizationId, request.CustomerId, request.CustomerEmail) == true;
@@ -407,12 +392,32 @@ else
             || item.Category.Contains(workflowSearch, StringComparison.OrdinalIgnoreCase))
         .ToList();
 
-    protected override async Task OnInitializedAsync()
+    private string? loadedRequestId;
+    private int ticketVersion, workflowVersion, refreshVersion;
+    private bool disposed;
+    private CancellationTokenSource ticketLifetime = new();
+    private bool IsCurrent(int version) => !disposed && version == ticketVersion;
+    public void Dispose() { disposed = true; ticketVersion++; ticketLifetime.Cancel(); ticketLifetime.Dispose(); }
+
+    protected override async Task OnParametersSetAsync()
     {
+        if (loadedRequestId == Id) return;
+        loadedRequestId = Id;
+        request = null; originalRequest = null; selectedCategoryIds = new();
+        var version = ++ticketVersion;
+        ticketLifetime.Cancel(); ticketLifetime.Dispose(); ticketLifetime = new();
+        var token = ticketLifetime.Token;
+        taskActionInProgress = false;
+        tasks = new(); userDisplayNames.Clear();
+        workflowVersion++;
+        workflowTimeline.Clear();
+        loading = true;
+        hasChanges = false;
+        isUpdating = false;
         try
         {
-            var requestTask = HelpdeskApi.GetFromJsonAsync<RequestDto>($"api/v1/requests/{Id}");
-            var categoriesTask = HelpdeskApi.GetFromJsonAsync<List<TicketCategoryDto>>($"api/v1/categories?type={(int)TicketCategoryType.Request}");
+            var requestTask = HelpdeskApi.GetFromJsonAsync<RequestDto>($"api/v1/requests/{Id}", token);
+            var categoriesTask = HelpdeskApi.GetFromJsonAsync<List<TicketCategoryDto>>($"api/v1/categories?type={(int)TicketCategoryType.Request}", token);
             var requestTasksTask = LoadTasksAsync();
             var workflowTimelineTask = LoadWorkflowTimelineAsync(reset: true);
             var rolesTask = ResolveRolesAsync();
@@ -420,6 +425,7 @@ else
 
             await Task.WhenAll(requestTask, categoriesTask, requestTasksTask, workflowTimelineTask, rolesTask);
 
+            if (!IsCurrent(version)) return;
             originalRequest = await requestTask;
             categories = await categoriesTask ?? new();
             categories = categories
@@ -439,12 +445,13 @@ else
         }
         catch (Exception ex)
         {
+            if (!IsCurrent(version)) return;
             Snackbar.Add($"Error loading data: {ex.Message}", Severity.Error);
             request = null;
         }
         finally
         {
-            loading = false;
+            if (IsCurrent(version)) loading = false;
         }
     }
 
@@ -465,6 +472,7 @@ else
             CustomerName = source.CustomerName,
             CustomerEmail = source.CustomerEmail,
             CategoryIds = source.CategoryIds.ToList(),
+            AssignedToId = source.AssignedToId,
             ServiceId = source.ServiceId,
             RequestFormId = source.RequestFormId,
             PayloadJson = source.PayloadJson,
@@ -515,7 +523,7 @@ else
         hasChanges = true;
     }
 
-    private async Task OnCategoryRemoved(Guid id)
+    private void OnCategoryRemoved(Guid id)
     {
         if (request is null) return;
 
@@ -523,7 +531,6 @@ else
         request.CategoryIds = selectedCategoryIds.ToList();
         hasChanges = true;
 
-        await SaveChangesAsync();
     }
 
     private void RevertChanges()
@@ -542,8 +549,12 @@ else
 
     private async Task SaveChangesAsync()
     {
-        if (!CanManage || request is null || !hasChanges) return;
+        if (!CanManage || isUpdating || request is null || !hasChanges) return;
 
+        var savingTicketId = Id;
+        var version = ticketVersion;
+        var token = ticketLifetime.Token;
+        refreshVersion++;
         isUpdating = true;
 
         try
@@ -555,11 +566,13 @@ else
                 CategoryIds = selectedCategoryIds.ToList()
             };
 
-            var response = await HelpdeskApi.PutAsJsonAsync($"api/v1/requests/{Id}", updateDto);
+            using var response = await HelpdeskApi.PutAsJsonAsync($"api/v1/requests/{savingTicketId}", updateDto, token);
 
+            if (!IsCurrent(version)) return;
             if (response.IsSuccessStatusCode)
             {
-                var updated = await response.Content.ReadFromJsonAsync<RequestDto>();
+                var updated = await response.Content.ReadFromJsonAsync<RequestDto>(token);
+                if (!IsCurrent(version)) return;
                 if (updated is not null)
                 {
                     originalRequest = CloneRequest(updated);
@@ -572,63 +585,70 @@ else
             }
             else
             {
-                var error = await response.Content.ReadAsStringAsync();
+                var error = await response.Content.ReadAsStringAsync(token);
+                if (!IsCurrent(version)) return;
                 Snackbar.Add($"Error saving request: {error}", Severity.Error);
             }
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"A client-side error occurred: {ex.Message}", Severity.Error);
+            if (IsCurrent(version)) Snackbar.Add($"A client-side error occurred: {ex.Message}", Severity.Error);
         }
         finally
         {
-            isUpdating = false;
+            if (IsCurrent(version)) { isUpdating = false; refreshVersion++; }
         }
     }
 
     private async Task HandleWorklogAdded()
     {
+        var version = ticketVersion;
         try
         {
             await RefreshRequestAndTasksAsync();
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error refreshing request: {ex.Message}", Severity.Error);
+            if (IsCurrent(version)) Snackbar.Add($"Error refreshing request: {ex.Message}", Severity.Error);
         }
     }
 
     private async Task PauseSlaAsync()
     {
+        if (!CanManage || isUpdating) return;
+        var version = ticketVersion;
+        var ticketId = Id;
+        var token = ticketLifetime.Token;
         var dialog = await DialogService.ShowAsync<HelpDesk.NewWeb.Components.Shared.SlaPauseDialog>(
-            "Pause SLA",
-            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+            "Pause SLA", new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
         var result = await dialog.Result;
-        if (result.Canceled || result.Data is not PauseSlaRequest requestBody)
+        if (!IsCurrent(version) || !CanManage || result.Canceled || result.Data is not PauseSlaRequest requestBody) return;
+        try
         {
-            return;
+            using var response = await HelpdeskApi.PostAsJsonAsync($"api/v1/tickets/{ticketId}/sla/pause", requestBody, token);
+            if (!IsCurrent(version)) return;
+            if (!response.IsSuccessStatusCode) { Snackbar.Add("Failed to pause SLA.", Severity.Error); return; }
+            await HandleWorklogAdded();
         }
-
-        var response = await HelpdeskApi.PostAsJsonAsync($"api/v1/tickets/{Id}/sla/pause", requestBody);
-        if (!response.IsSuccessStatusCode)
-        {
-            Snackbar.Add("Failed to pause SLA.", Severity.Error);
-            return;
-        }
-
-        await HandleWorklogAdded();
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (HttpRequestException) { if (IsCurrent(version)) Snackbar.Add("Failed to pause SLA.", Severity.Error); }
     }
 
     private async Task ResumeSlaAsync()
     {
-        var response = await HelpdeskApi.PostAsJsonAsync($"api/v1/tickets/{Id}/sla/resume", new ResumeSlaRequest());
-        if (!response.IsSuccessStatusCode)
+        if (!CanManage || isUpdating) return;
+        var version = ticketVersion;
+        var ticketId = Id;
+        var token = ticketLifetime.Token;
+        try
         {
-            Snackbar.Add("Failed to resume SLA.", Severity.Error);
-            return;
+            using var response = await HelpdeskApi.PostAsJsonAsync($"api/v1/tickets/{ticketId}/sla/resume", new ResumeSlaRequest(), token);
+            if (!IsCurrent(version)) return;
+            if (!response.IsSuccessStatusCode) { Snackbar.Add("Failed to resume SLA.", Severity.Error); return; }
+            await HandleWorklogAdded();
         }
-
-        await HandleWorklogAdded();
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (HttpRequestException) { if (IsCurrent(version)) Snackbar.Add("Failed to resume SLA.", Severity.Error); }
     }
 
     private static string FormatRemaining(long totalSeconds)
@@ -680,22 +700,30 @@ else
 
     private async Task LoadTasksAsync()
     {
+        var ticketId = Id;
+        var version = ticketVersion;
+        var token = ticketLifetime.Token;
         tasksLoading = true;
         try
         {
-            tasks = await HelpdeskApi.GetFromJsonAsync<List<RequestTaskDto>>($"api/v1/requests/{Id}/tasks") ?? new();
+            var loaded = await HelpdeskApi.GetFromJsonAsync<List<RequestTaskDto>>($"api/v1/requests/{ticketId}/tasks", token) ?? new();
+            if (IsCurrent(version)) tasks = loaded;
         }
         finally
         {
-            tasksLoading = false;
+            if (IsCurrent(version)) tasksLoading = false;
         }
     }
 
     private async Task LoadTeamMembersAsync()
     {
+        var ticketId = Id;
+        var version = ticketVersion;
+        var token = ticketLifetime.Token;
         try
         {
-            var users = await HelpdeskApi.GetFromJsonAsync<List<UserDto>>($"api/v1/ticketing/assignees?module=request&organizationId={Uri.EscapeDataString(request?.OrganizationId ?? string.Empty)}") ?? new();
+            var users = await HelpdeskApi.GetFromJsonAsync<List<UserDto>>($"api/v1/ticketing/assignees?module=request&organizationId={Uri.EscapeDataString(request?.OrganizationId ?? string.Empty)}", token) ?? new();
+            if (!IsCurrent(version)) return;
             userDisplayNames = users
                 .Where(u => !string.IsNullOrWhiteSpace(u.Id))
                 .GroupBy(u => u.Id)
@@ -706,7 +734,7 @@ else
         }
         catch
         {
-            userDisplayNames = new(StringComparer.OrdinalIgnoreCase);
+            if (IsCurrent(version)) userDisplayNames = new(StringComparer.OrdinalIgnoreCase);
         }
     }
 
@@ -741,6 +769,7 @@ else
 
     private async Task CompleteTaskAsync(RequestTaskDto task)
     {
+        var version = ticketVersion;
         var dialog = await DialogService.ShowAsync<CompleteRequestTaskDialog>(
             "Complete Task",
             new DialogParameters
@@ -750,10 +779,7 @@ else
             new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
 
         var result = await dialog.Result;
-        if (result.Canceled)
-        {
-            return;
-        }
+        if (!IsCurrent(version) || result.Canceled) return;
 
         await ExecuteTaskActionAsync(task.Id, "complete", "Task completed.");
     }
@@ -791,46 +817,65 @@ else
 
     private async Task ExecuteTaskActionAsync(string taskId, string action, string successMessage)
     {
+        var task = tasks.FirstOrDefault(x => x.Id == taskId);
+        if (taskActionInProgress || task is null || !CanOperateTask(task)) return;
+        var version = ticketVersion;
+        var token = ticketLifetime.Token;
         taskActionInProgress = true;
         try
         {
-            var response = await HelpdeskApi.PostAsJsonAsync($"api/v1/request-tasks/{taskId}/{action}", new { });
+            using var response = await HelpdeskApi.PostAsJsonAsync($"api/v1/request-tasks/{taskId}/{action}", new { }, token);
+            if (!IsCurrent(version)) return;
             if (!response.IsSuccessStatusCode)
             {
-                var error = await response.Content.ReadAsStringAsync();
-                Snackbar.Add(string.IsNullOrWhiteSpace(error) ? $"Failed to {action} task." : error, Severity.Error);
+                var error = await response.Content.ReadAsStringAsync(token);
+                if (IsCurrent(version)) Snackbar.Add(string.IsNullOrWhiteSpace(error) ? $"Failed to {action} task." : error, Severity.Error);
                 return;
             }
-
             await RefreshRequestAndTasksAsync();
-            Snackbar.Add(successMessage, Severity.Success);
+            if (IsCurrent(version)) Snackbar.Add(successMessage, Severity.Success);
         }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Failed to {action} task: {ex.Message}", Severity.Error);
-        }
-        finally
-        {
-            taskActionInProgress = false;
-        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception ex) { if (IsCurrent(version)) Snackbar.Add($"Failed to {action} task: {ex.Message}", Severity.Error); }
+        finally { if (IsCurrent(version)) taskActionInProgress = false; }
     }
 
     private async Task RefreshRequestAndTasksAsync()
     {
-        var updatedTask = HelpdeskApi.GetFromJsonAsync<RequestDto>($"api/v1/requests/{Id}");
-        var tasksTask = HelpdeskApi.GetFromJsonAsync<List<RequestTaskDto>>($"api/v1/requests/{Id}/tasks");
+        if (isUpdating) return;
+        var version = ticketVersion;
+        var refresh = ++refreshVersion;
+        var token = ticketLifetime.Token;
+        var ticketId = Id;
+        var updatedTask = HelpdeskApi.GetFromJsonAsync<RequestDto>($"api/v1/requests/{ticketId}", token);
+        var tasksTask = HelpdeskApi.GetFromJsonAsync<List<RequestTaskDto>>($"api/v1/requests/{ticketId}/tasks", token);
         var workflowTask = LoadWorkflowTimelineAsync(reset: true);
         await Task.WhenAll(updatedTask, tasksTask, workflowTask);
-
+        if (!IsCurrent(version) || refresh != refreshVersion || isUpdating) return;
         var updated = await updatedTask;
         if (updated is not null)
         {
-            originalRequest = CloneRequest(updated);
-            request = CloneRequest(updated);
-            selectedCategoryIds = updated.CategoryIds.ToHashSet();
-            hasChanges = false;
+            // Worklog, task and SLA refreshes update metadata without discarding the details draft.
+            if (hasChanges && request is not null && originalRequest is not null)
+            {
+                var draft = request;
+                var baseline = originalRequest;
+                request = CloneRequest(updated);
+                request.State = draft.State;
+                request.Priority = draft.Priority;
+                request.CategoryIds = selectedCategoryIds.ToList();
+                originalRequest = CloneRequest(updated);
+                originalRequest.State = baseline.State;
+                originalRequest.Priority = baseline.Priority;
+                originalRequest.CategoryIds = baseline.CategoryIds.ToList();
+            }
+            else
+            {
+                originalRequest = CloneRequest(updated);
+                request = CloneRequest(updated);
+                selectedCategoryIds = updated.CategoryIds.ToHashSet();
+            }
         }
-
         tasks = await tasksTask ?? new List<RequestTaskDto>();
     }
 
@@ -888,6 +933,9 @@ else
 
     private async Task LoadWorkflowTimelineAsync(bool reset)
     {
+        var version = ticketVersion;
+        var queryVersion = ++workflowVersion;
+        var token = ticketLifetime.Token;
         workflowTimelineLoading = true;
         try
         {
@@ -897,29 +945,18 @@ else
                 workflowTimeline.Clear();
                 workflowHasMore = false;
             }
-
             var url = BuildWorkflowTimelineUrl(workflowPage);
-            var page = await HelpdeskApi.GetFromJsonAsync<PagedResponse<WorkflowTimelineItemDto>>(url);
-            if (page is null)
-            {
-                return;
-            }
-
+            var page = await HelpdeskApi.GetFromJsonAsync<PagedResponse<WorkflowTimelineItemDto>>(url, token);
+            if (page is null || !IsCurrent(version) || queryVersion != workflowVersion) return;
             workflowTimeline.AddRange(page.Items ?? []);
             workflowHasMore = workflowTimeline.Count < page.TotalCount;
         }
         catch
         {
-            if (reset)
-            {
-                workflowTimeline.Clear();
-                workflowHasMore = false;
-            }
+            if (!IsCurrent(version) || queryVersion != workflowVersion) return;
+            if (reset) { workflowTimeline.Clear(); workflowHasMore = false; }
         }
-        finally
-        {
-            workflowTimelineLoading = false;
-        }
+        finally { if (IsCurrent(version) && queryVersion == workflowVersion) workflowTimelineLoading = false; }
     }
 
     private string BuildWorkflowTimelineUrl(int page)

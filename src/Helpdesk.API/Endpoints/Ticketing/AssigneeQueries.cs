@@ -7,8 +7,14 @@ namespace Helpdesk.API.Endpoints.Ticketing;
 internal static class AssigneeQueries
 {
     // These predicates mirror mutation validation. Filter before searching/paging.
-    internal static IQueryable<User> Eligible(HelpdeskDbContext db, string module, Helpdesk.Shared.Models.Organization organization)
+    internal static IQueryable<User> Eligible(HelpdeskDbContext db, string module, Helpdesk.Shared.Models.Organization organization) =>
+        Eligible(db, module, db.Organizations.Where(candidate => candidate.Id == organization.Id));
+
+    internal static IQueryable<User> Eligible(HelpdeskDbContext db, string module, IQueryable<Helpdesk.Shared.Models.Organization> organizations)
     {
+        var organizationIds = organizations.Select(organization => organization.Id);
+        var supportIds = organizations.Select(organization => organization.ItSupportOrganizationId == null || organization.ItSupportOrganizationId.Trim() == ""
+            ? organization.Id : organization.ItSupportOrganizationId);
         var users = db.Users.AsNoTracking();
         return module switch
         {
@@ -17,13 +23,11 @@ internal static class AssigneeQueries
                  join supportGroup in db.SupportGroups on member.SupportGroupId equals supportGroup.Id
                  join coverage in db.OrganizationSupportCoverages on supportGroup.Id equals coverage.SupportGroupId
                  where member.UserId == user.Id && member.IsEnabled && supportGroup.IsEnabled &&
-                       coverage.IsEnabled && coverage.CustomerOrganizationId == organization.Id
+                       coverage.IsEnabled && organizationIds.Contains(coverage.CustomerOrganizationId)
                  select member.Id).Any()),
-            "request" => users.Where(user => user.OrganizationId == organization.Id),
-            "change" => users.Where(user =>
-                user.OrganizationId == (string.IsNullOrWhiteSpace(organization.ItSupportOrganizationId)
-                    ? organization.Id : organization.ItSupportOrganizationId) ||
-                user.Role == "HelpdeskAdmin" || user.Role == "Technician"),
+            "request" => users.Where(user => organizationIds.Contains(user.OrganizationId!)),
+            "change" => users.Where(user => supportIds.Contains(user.OrganizationId) ||
+                (organizations.Any() && (user.Role == "HelpdeskAdmin" || user.Role == "Technician"))),
             _ => throw new ArgumentOutOfRangeException(nameof(module))
         };
     }

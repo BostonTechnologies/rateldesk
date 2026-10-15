@@ -9,12 +9,14 @@ test.beforeEach(async ({ page, request }) => {
 
 async function openChat(page, theme: 'Light' | 'Dark' = 'Light') {
   await page.addInitScript((selectedTheme) => {
-    localStorage.setItem('ticket-tabs-index:incidents:ux-chat', '4');
     localStorage.setItem('helpdesk.theme.preference', selectedTheme.toLowerCase());
   }, theme);
   await page.goto('/incidents/ux-chat', { waitUntil: 'domcontentloaded' });
+  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+  const aiTab = page.getByRole('tab', { name: 'AI Assistant', exact: true });
+  await aiTab.click();
   const composer = page.getByTestId('ai-assistant-composer');
-  await expect(page.getByRole('tab', { name: /AI Assistant/ })).toHaveAttribute('aria-selected', 'true');
+  await expect(aiTab).toHaveAttribute('aria-selected', 'true');
   await expect(composer).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.documentElement.dataset.helpdeskTheme)).toBe(theme.toLowerCase());
 }

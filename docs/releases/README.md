@@ -2,6 +2,22 @@
 
 RatelDesk has one repository-owned release line. The root `Directory.Build.props` is the source of truth for `VersionPrefix` and `VersionSuffix`. Applications and release outputs inherit those values. Prereleases remain immutable.
 
+## 0.1.1 — stable workspace release
+
+The source targets `0.1.1` with an empty root prerelease suffix. The
+[cumulative release notes](../release-notes/0.1.1.md) cover changes since 0.1.0,
+including workspace filtering, email rendering, compact administration and
+durable pending-mail controls. The beta.22 upgrade regression runs on both
+SQLite and PostgreSQL and compares preserved business rows across migration
+and restart.
+
+The release epic and release-engineering issue stay open until publication and
+protected promotion are verified. Before creating `v0.1.1`, inspect both
+accepted aliases (`v0.1.1` and `RatelDesk-0.1.1`) and all release pages, confirm
+the exact merged-main CI, and evaluate every shipped project's version.
+Stage and publish through the existing workflows below; source notes or a
+successful PR build do not establish a public stable release.
+
 ## 0.1.1-beta.20 — pairing-code cutover
 
 Account → Integration credentials → System connections now uses Generate a

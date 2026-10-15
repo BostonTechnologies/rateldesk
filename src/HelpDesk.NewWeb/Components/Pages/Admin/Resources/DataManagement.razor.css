@@ -1,0 +1,87 @@
+
+    .data-management-page ::deep .data-management-header {
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .data-management-page ::deep .data-management-rail,
+    .data-management-page ::deep .data-management-workspace {
+        min-height: 304px;
+    }
+
+    .data-management-page ::deep .data-management-list .mud-list-item {
+        border-radius: 8px;
+    }
+
+    .data-management-page ::deep .dataset-list-item {
+        width: 100%;
+    }
+
+    .data-management-page ::deep .dataset-list-item-selected {
+        background: rgba(92, 79, 240, 0.08);
+        border-radius: 8px;
+    }
+
+    .data-management-page ::deep .data-management-tabs .mud-tabs-toolbar {
+        min-height: 34px;
+    }
+
+    .data-management-page ::deep .data-management-tabs .mud-tab {
+        min-height: 34px;
+        padding: 6px 14px;
+        font-size: 0.82rem;
+        font-weight: 700;
+    }
+
+    .data-management-page ::deep .data-management-tabs-primary > .mud-tabs-toolbar .mud-tab {
+        text-transform: none;
+    }
+
+    .data-management-page ::deep .data-management-tabs-compact .mud-tab {
+        padding-inline: 12px;
+    }
+
+    .data-management-page ::deep .data-management-actions,
+    .data-management-page ::deep .data-management-checkboxes {
+        flex-wrap: wrap;
+    }
+
+    .data-management-page ::deep .data-management-rows-table {
+        overflow-x: auto;
+    }
+
+    .data-management-page ::deep .data-management-child-row > td {
+        padding: 0 0 1rem 0;
+        border-bottom: none;
+    }
+
+    .data-management-page ::deep .data-management-row-card {
+        background: rgba(92, 79, 240, 0.04);
+        border-top: 1px solid rgba(92, 79, 240, 0.12);
+    }
+
+    .data-management-page ::deep .data-management-json {
+        margin: 0;
+        white-space: pre-wrap;
+        font-size: 0.75rem;
+        max-width: 100%;
+    }
+
+    .data-management-page ::deep .data-management-monaco {
+        height: 260px;
+        border: 1px solid var(--mud-palette-divider);
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+.data-management-page { min-width: 0; }
+.data-management-page ::deep .data-editor-controls { border: 0; padding: 0; margin: 0; min-width: 0; }
+.data-management-page ::deep .mud-typography, .data-management-page ::deep code { overflow-wrap: anywhere; }
+.data-management-page ::deep .data-management-list { max-height: 28rem; overflow-y: auto; }
+.data-management-page ::deep .mud-stack-row { flex-wrap: wrap; }
+
+.data-management-page ::deep .data-management-rows-table { max-height: 28rem; overflow: auto; }
+.data-management-page ::deep .data-management-rows-table table { min-width: 40rem; }
+.data-management-page ::deep .data-management-rows-table th,
+.data-management-page ::deep .data-management-rows-table td { white-space: nowrap; }
+.data-management-page ::deep .data-management-json { white-space: pre-wrap; overflow-wrap: anywhere; }

@@ -1,0 +1,156 @@
+{
+  "implementationCommit": "4ad221e",
+  "activityTabsDependency": "8de40d2",
+  "environment": {
+    "sdk": "10.0.400",
+    "node": "24.19.0",
+    "browser": "Chrome for Testing 153.0.8010.12",
+    "os": "Linux",
+    "configuration": "Debug",
+    "DOTNET_PROCESSOR_COUNT": 2,
+    "api": "loopback synthetic fixture; no production recipients"
+  },
+  "results": {
+    "startTime": "2026-10-15T06:09:16.104Z",
+    "duration": 75024.26299999999,
+    "expected": 13,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "computedStyles": [
+    {
+      "foreground": "rgb(237, 241, 245)",
+      "background": "rgb(255, 255, 255)",
+      "phase": "before",
+      "contrastRatio": 1.135
+    },
+    {
+      "theme": "light",
+      "width": 320,
+      "computed": {
+        "foreground": "rgb(32, 32, 32)",
+        "background": "rgb(255, 255, 255)"
+      },
+      "phase": "after",
+      "contrastRatio": 16.293
+    },
+    {
+      "theme": "light",
+      "width": 768,
+      "computed": {
+        "foreground": "rgb(32, 32, 32)",
+        "background": "rgb(255, 255, 255)"
+      },
+      "phase": "after",
+      "contrastRatio": 16.293
+    },
+    {
+      "theme": "light",
+      "width": 1920,
+      "computed": {
+        "foreground": "rgb(32, 32, 32)",
+        "background": "rgb(255, 255, 255)"
+      },
+      "phase": "after",
+      "contrastRatio": 16.293
+    },
+    {
+      "theme": "dark",
+      "width": 320,
+      "computed": {
+        "foreground": "rgb(32, 32, 32)",
+        "background": "rgb(255, 255, 255)"
+      },
+      "phase": "after",
+      "contrastRatio": 16.293
+    },
+    {
+      "theme": "dark",
+      "width": 768,
+      "computed": {
+        "foreground": "rgb(32, 32, 32)",
+        "background": "rgb(255, 255, 255)"
+      },
+      "phase": "after",
+      "contrastRatio": 16.293
+    },
+    {
+      "theme": "dark",
+      "width": 1920,
+      "computed": {
+        "foreground": "rgb(32, 32, 32)",
+        "background": "rgb(255, 255, 255)"
+      },
+      "phase": "after",
+      "contrastRatio": 16.293
+    }
+  ],
+  "testCases": [
+    {
+      "name": "synthetic pre-fix computed styles reproduce pale foreground on original light canvas",
+      "status": "passed",
+      "durationMs": 1293
+    },
+    {
+      "name": "light 320px original email preserves colours and blocks active content",
+      "status": "passed",
+      "durationMs": 12065
+    },
+    {
+      "name": "light 768px original email preserves colours and blocks active content",
+      "status": "passed",
+      "durationMs": 3299
+    },
+    {
+      "name": "light 1920px original email preserves colours and blocks active content",
+      "status": "passed",
+      "durationMs": 3604
+    },
+    {
+      "name": "dark 320px original email preserves colours and blocks active content",
+      "status": "passed",
+      "durationMs": 2196
+    },
+    {
+      "name": "dark 768px original email preserves colours and blocks active content",
+      "status": "passed",
+      "durationMs": 2585
+    },
+    {
+      "name": "dark 1920px original email preserves colours and blocks active content",
+      "status": "passed",
+      "durationMs": 2853
+    },
+    {
+      "name": "hover remains interactive; keyboard Escape from focused iframe dismisses without navigation",
+      "status": "passed",
+      "durationMs": 2628
+    },
+    {
+      "name": "dark email keeps its own colours; theme changes keep the open detail readable",
+      "status": "passed",
+      "durationMs": 2866
+    },
+    {
+      "name": "missing authored colour pairs get readable defaults",
+      "status": "passed",
+      "durationMs": 2166
+    },
+    {
+      "name": "200 percent equivalent layout viewport keeps preview reachable and scrollable",
+      "status": "passed",
+      "durationMs": 4843
+    },
+    {
+      "name": "CSS 200 percent zoom keeps enlarged preview controls and scrolling inside the viewport",
+      "status": "passed",
+      "durationMs": 4010
+    },
+    {
+      "name": "loading, retry and empty are distinct; request detail uses its own plain text API",
+      "status": "passed",
+      "durationMs": 14605
+    }
+  ]
+}

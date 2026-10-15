@@ -1,4 +1,3 @@
-@page "/ops/slas"
 @attribute [Authorize(Roles = "Incident.Write,Incident.Manager,Request.Write,Request.Manager,Change.Write,Change.Manager,HelpdeskAdmin")]
 @using System.Security.Claims
 @using Helpdesk.Shared.DTOs
@@ -8,12 +7,13 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject NavigationManager NavigationManager
 
-<PageTitle>SLA Ops Dashboard</PageTitle>
+@implements IDisposable
 
-<MudPaper Class="pa-4">
+<div class="sla-operations">
     <MudStack Spacing="3">
         <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
-            <MudText Typo="Typo.h5">SLA Operations</MudText>
+            <MudText Typo="Typo.subtitle1">SLA overview</MudText>
+            <MudText Typo="Typo.caption">@(lastRefreshed is null ? "Not yet refreshed" : $"Refreshed {lastRefreshed.Value.ToLocalTime():g}")</MudText>
             <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="@loading" OnClick="RefreshAsync">Refresh</MudButton>
         </MudStack>
 
@@ -21,7 +21,7 @@
             @if (isHelpdeskAdmin)
             {
                 <MudItem xs="12" sm="6" md="3">
-                    <MudSelect T="string" Label="Tenant" Value="selectedTenantId" ValueChanged="OnTenantChanged" Clearable="true" Dense="true">
+                    <MudSelect T="string" Label="Tenant" Value="selectedTenantId" ValueChanged="OnTenantChanged" Clearable="true" Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense">
                         <MudSelectItem T="string" Value="@((string?)null)">All Tenants</MudSelectItem>
                         @foreach (var tenant in tenants)
                         {
@@ -32,7 +32,7 @@
             }
 
             <MudItem xs="12" sm="6" md="3">
-                <MudSelect T="TicketType?" Label="Ticket Type" Value="selectedTicketType" ValueChanged="OnTicketTypeChanged" Dense="true" Clearable="true">
+                <MudSelect T="TicketType?" Label="Ticket Type" Value="selectedTicketType" ValueChanged="OnTicketTypeChanged" Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
                     <MudSelectItem T="TicketType?" Value="@(null)">All Types</MudSelectItem>
                     <MudSelectItem T="TicketType?" Value="TicketType.Incident">Incident</MudSelectItem>
                     <MudSelectItem T="TicketType?" Value="TicketType.Request">Request</MudSelectItem>
@@ -41,25 +41,40 @@
             </MudItem>
 
             <MudItem xs="12" sm="6" md="3">
-                <MudSelect T="int" Label="Near-Breach Threshold" Value="selectedThreshold" ValueChanged="OnThresholdChanged" Dense="true">
+                <MudSelect T="int" Label="Near-Breach Threshold" Value="selectedThreshold" ValueChanged="OnThresholdChanged" Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense">
                     <MudSelectItem T="int" Value="80">80%</MudSelectItem>
                     <MudSelectItem T="int" Value="90">90%</MudSelectItem>
                 </MudSelect>
             </MudItem>
 
             <MudItem xs="12" sm="6" md="3">
-                <MudSelect T="SlaMetricType" Label="Metric" Value="selectedMetric" ValueChanged="OnMetricChanged" Dense="true">
+                <MudSelect T="SlaMetricType" Label="Metric" Value="selectedMetric" ValueChanged="OnMetricChanged" Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense">
                     <MudSelectItem T="SlaMetricType" Value="SlaMetricType.Response">Response</MudSelectItem>
                     <MudSelectItem T="SlaMetricType" Value="SlaMetricType.Resolution">Resolution</MudSelectItem>
                 </MudSelect>
             </MudItem>
         </MudGrid>
 
+        @if (tenantLookupError is not null)
+        {
+            <MudAlert Severity="Severity.Warning">@tenantLookupError Refresh to retry.</MudAlert>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(loadError))
+        {
+            <MudAlert Severity="Severity.Error">@loadError Refresh to retry.</MudAlert>
+        }
+        else if (loading)
+        {
+            <MudProgressLinear Indeterminate="true" />
+        }
+        else if (lastRefreshed is not null)
+        {
         <MudGrid>
             <MudItem xs="12" sm="6" md="3">
                 <MudPaper Class="pa-3">
                     <MudText Typo="Typo.caption" Class="mud-text-secondary">Resolution Compliance (Last 7 days)</MudText>
-                    <MudText Typo="Typo.h5">@summary.ResolutionCompliancePercent.ToString("0.##")%</MudText>
+                    <MudText Typo="Typo.h6">@summary.ResolutionCompliancePercent.ToString("0.##")%</MudText>
                     <MudText Typo="Typo.caption">@summary.CompletedWithinResolutionSla / @summary.CompletedTotal</MudText>
                 </MudPaper>
             </MudItem>
@@ -67,7 +82,7 @@
             <MudItem xs="12" sm="6" md="3">
                 <MudPaper Class="pa-3">
                     <MudText Typo="Typo.caption" Class="mud-text-secondary">Response Compliance (Last 7 days)</MudText>
-                    <MudText Typo="Typo.h5">@summary.ResponseCompliancePercent.ToString("0.##")%</MudText>
+                    <MudText Typo="Typo.h6">@summary.ResponseCompliancePercent.ToString("0.##")%</MudText>
                     <MudText Typo="Typo.caption">@summary.CompletedWithinResponseSla / @summary.CompletedTotal</MudText>
                 </MudPaper>
             </MudItem>
@@ -75,21 +90,28 @@
             <MudItem xs="12" sm="6" md="3">
                 <MudPaper Class="pa-3">
                     <MudText Typo="Typo.caption" Class="mud-text-secondary">Breached (Open)</MudText>
-                    <MudText Typo="Typo.h5">@breached.Total</MudText>
+                    <MudText Typo="Typo.h6">@breached.Total</MudText>
                 </MudPaper>
             </MudItem>
 
             <MudItem xs="12" sm="6" md="3">
                 <MudPaper Class="pa-3">
                     <MudText Typo="Typo.caption" Class="mud-text-secondary">Near Breach >= 90% (Open)</MudText>
-                    <MudText Typo="Typo.h5">@nearNinetyCount</MudText>
+                    <MudText Typo="Typo.h6">@nearNinetyCount</MudText>
                 </MudPaper>
             </MudItem>
         </MudGrid>
 
+        <div class="sla-result-selection" role="group" aria-label="SLA ticket view">
+            <MudButton Variant="@(!showBreached ? Variant.Filled : Variant.Outlined)" Color="Color.Primary" Size="Size.Small" OnClick="@(() => showBreached = false)">Near breach (@nearBreach.Total)</MudButton>
+            <MudButton Variant="@(showBreached ? Variant.Filled : Variant.Outlined)" Color="Color.Primary" Size="Size.Small" OnClick="@(() => showBreached = true)">Breached (@breached.Total)</MudButton>
+        </div>
+        @if (!showBreached)
+        {
         <MudPaper Class="pa-3">
             <MudText Typo="Typo.h6" Class="mb-2">Near Breach (@($">= {selectedThreshold}%"))</MudText>
             <MudTable T="SlaTicketRowDto" Items="nearBreach.Items" Dense="true" Hover="true" Loading="@loading">
+                <NoRecordsContent><MudText Typo="Typo.body2">No matching tickets.</MudText></NoRecordsContent>
                 <HeaderContent>
                     <MudTh>Ticket</MudTh>
                     <MudTh>Title</MudTh>
@@ -103,25 +125,29 @@
                     <MudTh></MudTh>
                 </HeaderContent>
                 <RowTemplate>
-                    <MudTd>@(context.TicketNumber ?? context.TicketId)</MudTd>
-                    <MudTd><span class="truncate-title">@context.Title</span></MudTd>
+                    <MudTd DataLabel="Ticket">@(context.TicketNumber ?? context.TicketId)</MudTd>
+                    <MudTd DataLabel="Title"><span class="truncate-title">@context.Title</span></MudTd>
                     @if (isHelpdeskAdmin)
                     {
-                        <MudTd>@context.TenantId</MudTd>
+                        <MudTd DataLabel="Tenant">@context.TenantId</MudTd>
                     }
-                    <MudTd>@(selectedMetric == SlaMetricType.Response ? context.ResponsePercentUsed : context.ResolutionPercentUsed)%</MudTd>
-                    <MudTd>@FormatRemaining(selectedMetric == SlaMetricType.Response ? context.ResponseRemainingSeconds : context.ResolutionRemainingSeconds)</MudTd>
-                    <MudTd>@(selectedMetric == SlaMetricType.Response ? context.ResponseDueAt.ToLocalTime().ToString("g") : context.ResolutionDueAt.ToLocalTime().ToString("g"))</MudTd>
-                    <MudTd>
+                    <MudTd DataLabel="% Used">@(selectedMetric == SlaMetricType.Response ? context.ResponsePercentUsed : context.ResolutionPercentUsed)%</MudTd>
+                    <MudTd DataLabel="Remaining">@FormatRemaining(selectedMetric == SlaMetricType.Response ? context.ResponseRemainingSeconds : context.ResolutionRemainingSeconds)</MudTd>
+                    <MudTd DataLabel="Due At">@(selectedMetric == SlaMetricType.Response ? context.ResponseDueAt.ToLocalTime().ToString("g") : context.ResolutionDueAt.ToLocalTime().ToString("g"))</MudTd>
+                    <MudTd DataLabel="Actions">
                         <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" Href="@BuildTicketLink(context)">Open</MudButton>
                     </MudTd>
                 </RowTemplate>
             </MudTable>
         </MudPaper>
+        }
 
+        @if (showBreached)
+        {
         <MudPaper Class="pa-3">
             <MudText Typo="Typo.h6" Class="mb-2">Breached Tickets</MudText>
             <MudTable T="SlaTicketRowDto" Items="breached.Items" Dense="true" Hover="true" Loading="@loading">
+                <NoRecordsContent><MudText Typo="Typo.body2">No matching tickets.</MudText></NoRecordsContent>
                 <HeaderContent>
                     <MudTh>Ticket</MudTh>
                     <MudTh>Title</MudTh>
@@ -134,41 +160,46 @@
                     <MudTh></MudTh>
                 </HeaderContent>
                 <RowTemplate>
-                    <MudTd>@(context.TicketNumber ?? context.TicketId)</MudTd>
-                    <MudTd><span class="truncate-title">@context.Title</span></MudTd>
+                    <MudTd DataLabel="Ticket">@(context.TicketNumber ?? context.TicketId)</MudTd>
+                    <MudTd DataLabel="Title"><span class="truncate-title">@context.Title</span></MudTd>
                     @if (isHelpdeskAdmin)
                     {
-                        <MudTd>@context.TenantId</MudTd>
+                        <MudTd DataLabel="Tenant">@context.TenantId</MudTd>
                     }
-                    <MudTd>
+                    <MudTd DataLabel="Status">
                         <MudChip T="string" Color="Color.Error" Size="Size.Small">Breached</MudChip>
                     </MudTd>
-                    <MudTd>@context.ResolutionDueAt.ToLocalTime().ToString("g")</MudTd>
-                    <MudTd>
+                    <MudTd DataLabel="Due At">@context.ResolutionDueAt.ToLocalTime().ToString("g")</MudTd>
+                    <MudTd DataLabel="Actions">
                         <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" Href="@BuildTicketLink(context)">Open</MudButton>
                     </MudTd>
                 </RowTemplate>
             </MudTable>
         </MudPaper>
+        }
+        }
     </MudStack>
-</MudPaper>
+</div>
 
-<style>
-    .truncate-title {
-        max-width: 420px;
-        display: inline-block;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        vertical-align: bottom;
-    }
-</style>
+
 
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
 
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
 
+    [Parameter] public string? TenantId { get; set; }
+    [Parameter] public int? TicketTypeFilter { get; set; }
+    [Parameter] public int? Threshold { get; set; }
+    [Parameter] public int? Metric { get; set; }
+    private readonly CancellationTokenSource lifetime = new();
+    private CancellationTokenSource? refresh;
+    private DateTimeOffset? lastRefreshed;
+    private string? loadError;
+    private string? tenantLookupError;
+    private bool tenantsLoaded;
+    private string? appliedQuery;
+    private bool showBreached;
     private bool loading;
     private bool isHelpdeskAdmin;
     private string? selectedTenantId;
@@ -189,66 +220,119 @@
             user.Claims.Any(c => (c.Type == ClaimTypes.Role || c.Type == "roles") &&
                 string.Equals(c.Value, "HelpdeskAdmin", StringComparison.OrdinalIgnoreCase));
 
-        if (isHelpdeskAdmin)
-        {
-            tenants = await HelpdeskApi.GetFromJsonAsync<List<TenantLookupDto>>("api/v1/admin/tenants/lookup") ?? new();
-        }
-        else
+        if (!isHelpdeskAdmin)
         {
             selectedTenantId = user.FindFirstValue("organization_id");
         }
 
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var query = $"{TenantId}|{TicketTypeFilter}|{Threshold}|{Metric}";
+        if (query == appliedQuery) return;
+        appliedQuery = query;
+        if (isHelpdeskAdmin) selectedTenantId = TenantId;
+        selectedTicketType = TicketTypeFilter.HasValue && Enum.IsDefined(typeof(TicketType), TicketTypeFilter.Value) ? (TicketType)TicketTypeFilter.Value : null;
+        selectedThreshold = Threshold is 80 or 90 ? Threshold.Value : 90;
+        selectedMetric = Metric.HasValue && Enum.IsDefined(typeof(SlaMetricType), Metric.Value) ? (SlaMetricType)Metric.Value : SlaMetricType.Resolution;
         await RefreshAsync();
     }
 
-    private async Task OnTenantChanged(string? tenantId)
+    private Task OnTenantChanged(string? tenantId)
     {
         selectedTenantId = tenantId;
-        await RefreshAsync();
+        NavigationManager.NavigateTo(NavigationManager.GetUriWithQueryParameters(new Dictionary<string, object?> {
+            ["tenantId"] = selectedTenantId, ["ticketType"] = (int?)selectedTicketType,
+            ["thresholdPercent"] = selectedThreshold, ["metric"] = (int)selectedMetric }));
+        return Task.CompletedTask;
     }
 
-    private async Task OnTicketTypeChanged(TicketType? ticketType)
+    private Task OnTicketTypeChanged(TicketType? ticketType)
     {
         selectedTicketType = ticketType;
-        await RefreshAsync();
+        NavigationManager.NavigateTo(NavigationManager.GetUriWithQueryParameters(new Dictionary<string, object?> {
+            ["tenantId"] = selectedTenantId, ["ticketType"] = (int?)selectedTicketType,
+            ["thresholdPercent"] = selectedThreshold, ["metric"] = (int)selectedMetric }));
+        return Task.CompletedTask;
     }
 
-    private async Task OnThresholdChanged(int threshold)
+    private Task OnThresholdChanged(int threshold)
     {
         selectedThreshold = threshold;
-        await RefreshAsync();
+        NavigationManager.NavigateTo(NavigationManager.GetUriWithQueryParameters(new Dictionary<string, object?> {
+            ["tenantId"] = selectedTenantId, ["ticketType"] = (int?)selectedTicketType,
+            ["thresholdPercent"] = selectedThreshold, ["metric"] = (int)selectedMetric }));
+        return Task.CompletedTask;
     }
 
-    private async Task OnMetricChanged(SlaMetricType metric)
+    private Task OnMetricChanged(SlaMetricType metric)
     {
         selectedMetric = metric;
-        await RefreshAsync();
+        NavigationManager.NavigateTo(NavigationManager.GetUriWithQueryParameters(new Dictionary<string, object?> {
+            ["tenantId"] = selectedTenantId, ["ticketType"] = (int?)selectedTicketType,
+            ["thresholdPercent"] = selectedThreshold, ["metric"] = (int)selectedMetric }));
+        return Task.CompletedTask;
     }
 
     private async Task RefreshAsync()
     {
+        refresh?.Cancel();
+        refresh?.Dispose();
+        var current = refresh = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        // Capture before awaiting: a newer refresh can dispose this source while its handler finishes.
+        var token = current.Token;
         loading = true;
+        loadError = null;
         try
         {
             var now = DateTimeOffset.UtcNow;
             var from = now.AddDays(-7);
+            var complianceUrl = BuildComplianceUrl(from, now);
+            var breachedUrl = BuildBreachedUrl();
+            var nearBreachUrl = BuildNearBreachUrl(selectedThreshold, selectedMetric);
+            var nearNinetyUrl = BuildNearBreachUrl(90, SlaMetricType.Resolution, 1);
 
-            summary = await HelpdeskApi.GetFromJsonAsync<SlaComplianceSummaryDto>(
-                BuildComplianceUrl(from, now)) ?? new SlaComplianceSummaryDto();
+            if (isHelpdeskAdmin && !tenantsLoaded)
+            {
+                try
+                {
+                    var nextTenants = await HelpdeskApi.GetFromJsonAsync<List<TenantLookupDto>>("api/v1/admin/tenants/lookup", token) ?? new();
+                    token.ThrowIfCancellationRequested();
+                    tenants = nextTenants;
+                    tenantsLoaded = true;
+                    tenantLookupError = null;
+                }
+                catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException)
+                {
+                    if (current == refresh) tenantLookupError = "Tenant lookup is unavailable.";
+                }
+            }
+            token.ThrowIfCancellationRequested();
 
-            breached = await HelpdeskApi.GetFromJsonAsync<PagedResult<SlaTicketRowDto>>(
-                BuildBreachedUrl()) ?? new PagedResult<SlaTicketRowDto>();
+            var nextSummary = await HelpdeskApi.GetFromJsonAsync<SlaComplianceSummaryDto>(
+                complianceUrl, token) ?? new SlaComplianceSummaryDto();
 
-            nearBreach = await HelpdeskApi.GetFromJsonAsync<PagedResult<SlaTicketRowDto>>(
-                BuildNearBreachUrl(selectedThreshold, selectedMetric)) ?? new PagedResult<SlaTicketRowDto>();
+            var nextBreached = await HelpdeskApi.GetFromJsonAsync<PagedResult<SlaTicketRowDto>>(
+                breachedUrl, token) ?? new PagedResult<SlaTicketRowDto>();
+
+            var nextNearBreach = await HelpdeskApi.GetFromJsonAsync<PagedResult<SlaTicketRowDto>>(
+                nearBreachUrl, token) ?? new PagedResult<SlaTicketRowDto>();
 
             var nearNinety = await HelpdeskApi.GetFromJsonAsync<PagedResult<SlaTicketRowDto>>(
-                BuildNearBreachUrl(90, SlaMetricType.Resolution, 1)) ?? new PagedResult<SlaTicketRowDto>();
+                nearNinetyUrl, token) ?? new PagedResult<SlaTicketRowDto>();
+            token.ThrowIfCancellationRequested();
+            summary = nextSummary;
+            breached = nextBreached;
+            nearBreach = nextNearBreach;
             nearNinetyCount = nearNinety.Total;
+            lastRefreshed = DateTimeOffset.UtcNow;
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException) { if (current == refresh) loadError = "SLA data is unavailable."; }
         finally
         {
-            loading = false;
+            if (current == refresh) loading = false;
         }
     }
 
@@ -326,6 +410,8 @@
             _ => $"/incidents/{row.TicketId}"
         };
     }
+
+    public void Dispose() { lifetime.Cancel(); refresh?.Dispose(); lifetime.Dispose(); }
 
     private static string FormatRemaining(long seconds)
     {

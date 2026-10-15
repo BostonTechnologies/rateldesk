@@ -109,7 +109,7 @@
         try
         {
             categories = await HelpdeskApi.GetFromJsonAsync<List<TicketCategoryDto>>(
-                $"api/v1/categories?type={(int)selectedType}") ?? new();
+                $"api/v1/categories?type={(int)selectedType}&allScopes=true&includeInactive=true") ?? new();
         }
         catch (Exception ex)
         {

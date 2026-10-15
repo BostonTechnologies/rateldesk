@@ -3893,6 +3893,8 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("EventType", "EmailStatus", "CreatedUtc", "Id");
+
                     b.ToTable("TicketTimelineEvents");
                 });
 

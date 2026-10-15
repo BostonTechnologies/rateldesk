@@ -111,14 +111,16 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // Release includes automatic service issuance, signed code pairing, named mappings,
         // the preserved Netclaw administration and business APIs, and the three
         // scoped assignee search/current-label/change-implementor operations, and
-        // eight browser-approved integration-credential pairing operations;
+        // eight browser-approved integration-credential pairing operations,
+        // ticket filter suggestions and three bounded pending-email operations
+        // (search, organization lookup and confirmed actions);
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(404, operationCount);
+        Assert.Equal(408, operationCount);
 #else
-        Assert.Equal(403, operationCount);
+        Assert.Equal(407, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         var identityGroup = Assert.Single(document.RootElement.GetProperty("x-tagGroups").EnumerateArray(),
@@ -144,17 +146,21 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
             Assert.Equal(["Integration Credential Pairing"], pairingOperation.GetProperty("tags").EnumerateArray().Select(tag => tag.GetString()).OfType<string>().ToArray());
             Assert.Equal(requiresSession ? new[] { "JwtBearer", "LocalSession" } : [], SecuritySchemes(document, path, method));
         }
-        var assigneeOperations = new[]
+        var workspaceOperations = new[]
         {
             ("/api/v1/ticketing/assignees/search", "get", "Ticket Lookups"),
             ("/api/v1/ticketing/assignees/current", "get", "Ticket Lookups"),
-            ("/api/v1/changes/{id}/assignee", "post", "Changes")
+            ("/api/v1/changes/{id}/assignee", "post", "Changes"),
+            ("/api/v1/ticketing/filter-options", "get", "Ticket Lookups"),
+            ("/api/v1/timeline/pending", "get", "Timeline"),
+            ("/api/v1/timeline/pending/organizations", "get", "Timeline"),
+            ("/api/v1/timeline/pending/actions", "post", "Timeline")
         };
-        foreach (var (path, method, expectedTag) in assigneeOperations)
+        foreach (var (path, method, expectedTag) in workspaceOperations)
         {
-            Assert.True(paths.TryGetProperty(path, out var assigneePath), $"Missing documented assignee path: {path}");
-            Assert.True(assigneePath.TryGetProperty(method, out var assigneeOperation));
-            Assert.Equal([expectedTag], assigneeOperation.GetProperty("tags").EnumerateArray().Select(tag => tag.GetString()).OfType<string>().ToArray());
+            Assert.True(paths.TryGetProperty(path, out var workspacePath), $"Missing documented workspace path: {path}");
+            Assert.True(workspacePath.TryGetProperty(method, out var workspaceOperation));
+            Assert.Equal([expectedTag], workspaceOperation.GetProperty("tags").EnumerateArray().Select(tag => tag.GetString()).OfType<string>().ToArray());
             Assert.Equal(["IntegrationCredential", "JwtBearer", "LocalSession"], SecuritySchemes(document, path, method));
         }
         Assert.DoesNotContain(paths.EnumerateObject(), path => path.Name.Contains("service-link", StringComparison.Ordinal) || path.Name.Contains("service-clients", StringComparison.Ordinal));

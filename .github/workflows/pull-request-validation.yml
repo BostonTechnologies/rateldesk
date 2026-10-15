@@ -210,6 +210,83 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  workspace-ux:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance }}
+    name: Workspace browser acceptance (${{ matrix.suite }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [assignee, email, ticket-filters, details, operations, admin, pending-mail]
+    env:
+      HELPDESK_ASSIGNEE_CONFIGURATION: Release
+      HELPDESK_EMAIL_CONFIGURATION: Release
+      HELPDESK_FILTERS_CONFIGURATION: Release
+      HELPDESK_DETAILS_CONFIGURATION: Release
+      HELPDESK_OPERATIONS_CONFIGURATION: Release
+      HELPDESK_ADMIN_CONFIGURATION: Release
+      HELPDESK_PENDING_MAIL_CONFIGURATION: Release
+    steps:
+      - name: Check out triggering commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up .NET SDK from global.json
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          global-json-file: global.json
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Build the real Web application
+        run: |
+          dotnet dev-certs https --quiet
+          dotnet build src/HelpDesk.NewWeb/HelpDesk.NewWeb.csproj --configuration Release
+
+      - name: Install browser dependencies
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Exercise synthetic workspace interactions and rendered layout
+        env:
+          PLAYWRIGHT_HTML_OUTPUT_DIR: artifacts/e2e/workspace-${{ matrix.suite }}/report
+        run: >-
+          npx playwright test --config playwright.${{ matrix.suite }}.config.ts
+          --output=artifacts/e2e/workspace-${{ matrix.suite }}/test-results
+
+      - name: Verify native Chromium zoom at 200 percent
+        if: matrix.suite != 'assignee'
+        env:
+          HELPDESK_NATIVE_ZOOM_SUITE: ${{ matrix.suite }}
+        run: >-
+          npx playwright test --config playwright.native-zoom.config.ts
+          --output=artifacts/e2e/workspace-${{ matrix.suite }}/native-zoom
+
+      - name: Verify contributor and manager ticket ownership controls
+        if: matrix.suite == 'details'
+        env:
+          PLAYWRIGHT_HTML_OUTPUT_DIR: artifacts/e2e/workspace-details/roles-report
+        run: >-
+          npx playwright test --config playwright.details-roles.config.ts
+          --output=artifacts/e2e/workspace-details/roles
+
+      - name: Upload workspace browser evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: workspace-browser-${{ matrix.suite }}
+          path: |
+            artifacts/e2e/workspace-${{ matrix.suite }}
+            test-results
+          if-no-files-found: error
+          retention-days: 14
+
   mailbox-lifecycle:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance }}
     name: Mailbox lifecycle acceptance

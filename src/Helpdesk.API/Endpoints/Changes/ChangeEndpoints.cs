@@ -260,7 +260,7 @@ public static class ChangeEndpoints
                 db,
                 categoryIds,
                 TicketCategoryType.Change,
-                token);
+                token, dto.OrganizationId);
             if (validation is not null)
             {
                 return validation;
@@ -606,7 +606,8 @@ public static class ChangeEndpoints
                     db,
                     categoryIds,
                     TicketCategoryType.Change,
-                    token);
+                    token, existing.OrganizationId,
+                    await db.ChangeCategoryLinks.Where(x => x.ChangeId == id).Select(x => x.TicketCategoryId).ToListAsync(token));
                 if (validation is not null)
                 {
                     return validation;
@@ -1526,6 +1527,8 @@ public static class ChangeEndpoints
         [FromServices] HelpdeskDbContext db,
         [FromServices] ICurrentUserAccessService accessService,
         ClaimsPrincipal user,
+        HttpRequest httpRequest,
+        CancellationToken cancellationToken,
         [FromQuery] int? page,
         [FromQuery] int? pageSize,
         [FromQuery] TicketState? state = null,
@@ -1536,10 +1539,11 @@ public static class ChangeEndpoints
         [FromQuery] bool summaryOnly = false,
         [FromQuery] string? q = null)
     {
-        var effectivePageSize = pageSize ?? 10;
+        if (!TicketListQuery.TryParse(httpRequest.Query, true, out var filters, out var filterError)) return Results.BadRequest(new { error = filterError });
+        page = page.HasValue ? Math.Clamp(page.Value, 1, 1_000_000) : null;
+        var effectivePageSize = Math.Clamp(pageSize ?? 10, 1, 100);
 
-        var query = db.Changes
-            .AsNoTracking()
+        var query = filters.Apply(db.Changes.AsNoTracking(), true)
             .Select(c => new
             {
                 Change = c,
@@ -1557,7 +1561,7 @@ public static class ChangeEndpoints
                     .FirstOrDefault()
             });
 
-        var access = await accessService.ResolveAsync(user);
+        var access = await accessService.ResolveAsync(user, cancellationToken);
         if (!access.IsHelpdeskAdmin)
         {
             var tenantReadOrganizationIds = access.OrganizationIdsFor(Helpdesk.Shared.Auth.HelpdeskPermissions.ChangeRead)
@@ -1578,53 +1582,55 @@ public static class ChangeEndpoints
             query = query.Where(x => x.Change.State == state);
         }
 
-        if (lifecycleState is not null)
+        if (!filters.ExplicitStates)
         {
-            query = query.Where(x => x.Change.LifecycleState == lifecycleState);
-        }
-        else if (historicOnly)
-        {
-            query = query.Where(x =>
-                x.Change.LifecycleState == ChangeLifecycleState.ImplementedSuccess ||
-                x.Change.LifecycleState == ChangeLifecycleState.ImplementedBackedOut);
-        }
-        else if (activeOnly)
-        {
-            query = query.Where(x =>
-                x.Change.LifecycleState != ChangeLifecycleState.ImplementedSuccess &&
-                x.Change.LifecycleState != ChangeLifecycleState.ImplementedBackedOut);
-        }
-        else
-        {
-            query = query.Where(x =>
-                x.Change.LifecycleState != ChangeLifecycleState.ImplementedSuccess &&
-                x.Change.LifecycleState != ChangeLifecycleState.ImplementedBackedOut);
+            if (lifecycleState is not null)
+            {
+                query = query.Where(x => x.Change.LifecycleState == lifecycleState);
+            }
+            else if (historicOnly || httpRequest.Query["view"] == "historic")
+            {
+                query = query.Where(x =>
+                    x.Change.LifecycleState == ChangeLifecycleState.ImplementedSuccess ||
+                    x.Change.LifecycleState == ChangeLifecycleState.ImplementedBackedOut);
+            }
+            else if (activeOnly)
+            {
+                query = query.Where(x =>
+                    x.Change.LifecycleState != ChangeLifecycleState.ImplementedSuccess &&
+                    x.Change.LifecycleState != ChangeLifecycleState.ImplementedBackedOut);
+            }
+            else
+            {
+                query = query.Where(x =>
+                    x.Change.LifecycleState != ChangeLifecycleState.ImplementedSuccess &&
+                    x.Change.LifecycleState != ChangeLifecycleState.ImplementedBackedOut);
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(q))
         {
-            var like = $"%{q.Trim()}%";
+            var like = "%" + q.Trim().Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_") + "%";
             query = db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL"
                 ? query.Where(x =>
-                    EF.Functions.ILike(x.Change.Title, like) ||
-                    EF.Functions.ILike(x.Change.Description, like) ||
-                    EF.Functions.ILike(x.Change.TrackingId, like) ||
-                    (x.OrgName != null && EF.Functions.ILike(x.OrgName, like)) ||
-                    (x.CustomerName != null && EF.Functions.ILike(x.CustomerName, like)) ||
-                    (x.CustomerEmail != null && EF.Functions.ILike(x.CustomerEmail, like)))
+                    EF.Functions.ILike(x.Change.Title, like, "\\") ||
+                    EF.Functions.ILike(x.Change.Description, like, "\\") ||
+                    EF.Functions.ILike(x.Change.TrackingId, like, "\\") ||
+                    (x.OrgName != null && EF.Functions.ILike(x.OrgName, like, "\\")) ||
+                    (x.CustomerName != null && EF.Functions.ILike(x.CustomerName, like, "\\")) ||
+                    (x.CustomerEmail != null && EF.Functions.ILike(x.CustomerEmail, like, "\\")))
                 : query.Where(x =>
-                    EF.Functions.Like(x.Change.Title, like) ||
-                    EF.Functions.Like(x.Change.Description, like) ||
-                    EF.Functions.Like(x.Change.TrackingId, like) ||
-                    (x.OrgName != null && EF.Functions.Like(x.OrgName, like)) ||
-                    (x.CustomerName != null && EF.Functions.Like(x.CustomerName, like)) ||
-                    (x.CustomerEmail != null && EF.Functions.Like(x.CustomerEmail, like)));
+                    EF.Functions.Like(x.Change.Title, like, "\\") ||
+                    EF.Functions.Like(x.Change.Description, like, "\\") ||
+                    EF.Functions.Like(x.Change.TrackingId, like, "\\") ||
+                    (x.OrgName != null && EF.Functions.Like(x.OrgName, like, "\\")) ||
+                    (x.CustomerName != null && EF.Functions.Like(x.CustomerName, like, "\\")) ||
+                    (x.CustomerEmail != null && EF.Functions.Like(x.CustomerEmail, like, "\\")));
         }
 
-        var totalCount = includeTotal ? await query.CountAsync() : 0;
+        var totalCount = includeTotal ? await query.CountAsync(cancellationToken) : 0;
 
-        var orderedQuery = query
-            .OrderByDescending(x => x.Change.UpdatedAt ?? x.Change.CreatedAt)
+        var orderedQuery = filters.Order(query, "Change")
             .Select(x => new
             {
                 x.Change.OrganizationId,
@@ -1635,7 +1641,7 @@ public static class ChangeEndpoints
                 x.Change.State,
                 x.Change.LifecycleState,
                 x.Change.CreatedAt,
-                x.Change.UpdatedAt,
+                UpdatedAt = x.Change.UpdatedAt ?? x.Change.CreatedAt,
                 x.Change.TrackingId,
                 x.Change.AssignedToId,
                 x.Change.LastReplierName,
@@ -1657,8 +1663,8 @@ public static class ChangeEndpoints
             ? await orderedQuery
                 .Skip((page.Value - 1) * effectivePageSize)
                 .Take(effectivePageSize)
-                .ToListAsync()
-            : await orderedQuery.ToListAsync();
+                .ToListAsync(cancellationToken)
+            : await orderedQuery.ToListAsync(cancellationToken);
 
         var changeIds = rawItems.Select(x => x.Id).ToList();
         var participantLookup = await BuildParticipantLookupAsync(
@@ -1669,7 +1675,7 @@ public static class ChangeEndpoints
                 ImplementorUserId = x.ImplementorUserId,
                 ApproverUserIds = x.ApproverUserIds
             }),
-            CancellationToken.None);
+            cancellationToken);
         if (summaryOnly)
         {
             var summaryItems = rawItems.Select(x => new ChangeDto
@@ -1720,7 +1726,7 @@ public static class ChangeEndpoints
             .GroupBy(link => link.ChangeId)
             .ToDictionaryAsync(
                 g => g.Key,
-                g => g.Select(link => link.TicketCategoryId).ToList());
+                g => g.Select(link => link.TicketCategoryId).ToList(), cancellationToken);
         var items = rawItems.Select(i => new ChangeDto
         {
             OrganizationId = i.OrganizationId,
@@ -2531,16 +2537,21 @@ public static class ChangeEndpoints
         HelpdeskDbContext db,
         IReadOnlyCollection<Guid> categoryIds,
         TicketCategoryType requestedType,
-        CancellationToken token)
+        CancellationToken token,
+        string? organizationId,
+        IReadOnlyCollection<Guid>? existingIds = null)
     {
         if (categoryIds.Count == 0)
         {
             return null;
         }
 
+        var tenantId = Guid.TryParse(organizationId, out var parsedTenantId) ? parsedTenantId : (Guid?)null;
+        var preservedIds = existingIds ?? Array.Empty<Guid>();
         var found = await db.TicketCategories
             .AsNoTracking()
-            .Where(x => categoryIds.Contains(x.Id) && x.IsActive)
+            .Where(x => categoryIds.Contains(x.Id) &&
+                (preservedIds.Contains(x.Id) || (x.IsActive && (x.TenantId == null || x.TenantId == tenantId))))
             .Select(x => new { x.Id, x.Type })
             .ToListAsync(token);
 
@@ -2549,7 +2560,7 @@ public static class ChangeEndpoints
             return Results.BadRequest("One or more category IDs are invalid.");
         }
 
-        if (found.Any(x => x.Type != requestedType && x.Type != TicketCategoryType.Service))
+        if (found.Any(x => !preservedIds.Contains(x.Id) && x.Type != requestedType && x.Type != TicketCategoryType.Service))
         {
             return Results.BadRequest($"Categories must match type '{requestedType}' or 'Service'.");
         }

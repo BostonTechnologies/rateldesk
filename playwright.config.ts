@@ -12,7 +12,11 @@ const testIgnore = process.env.HELPDESK_E2E_RUN_SETUP_WIZARD === 'true'
 
 export default defineConfig({
   testDir: './tests/ux',
-  testIgnore: [...testIgnore, '**/login-presentation.spec.ts', '**/assignee-picker.spec.ts'],
+  // These suites own synthetic API hosts and role-specific Web instances. Their
+  // dedicated configurations run in the workspace-ux acceptance job.
+  testIgnore: [...testIgnore, '**/login-presentation.spec.ts', '**/assignee-picker.spec.ts',
+    '**/email-display.spec.ts', '**/ticket-filters.spec.ts', '**/ticket-details.spec.ts', '**/ticket-details-roles.spec.ts',
+    '**/operations-workspace.spec.ts', '**/pending-mail.spec.ts', '**/native-zoom.spec.ts'],
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,

@@ -1,0 +1,37 @@
+@using Helpdesk.Shared.DTOs.Sla
+@using Helpdesk.Shared.Enums
+<section class="sla-summary" aria-label="Service level agreement">
+    <div class="sla-heading">
+        <MudText Typo="Typo.subtitle2">SLA</MudText>
+        <MudChip T="string" Color="@StatusColor" Variant="Variant.Outlined" Size="Size.Small">@Sla.Status</MudChip>
+    </div>
+    <div class="sla-row"><span>Response</span><span>@(Sla.ResponseBreached ? "Breached" : FormatRemaining(Sla.ResponseRemainingSeconds))</span></div>
+    <MudProgressLinear Value="@Sla.ResponsePercentUsed" Color="@(Sla.ResponseBreached ? Color.Error : Color.Info)" aria-label="Response time used" />
+    <div class="sla-row"><span>Resolution</span><span>@(Sla.ResolutionBreached ? "Breached" : FormatRemaining(Sla.ResolutionRemainingSeconds))</span></div>
+    <MudProgressLinear Value="@Sla.ResolutionPercentUsed" Color="@(Sla.ResolutionBreached ? Color.Error : Color.Warning)" aria-label="Resolution time used" />
+    @if (!string.IsNullOrWhiteSpace(Sla.PauseReason))
+    {
+        <MudText Typo="Typo.body2">Pause reason: @Sla.PauseReason</MudText>
+    }
+    @if (CanManage && Sla.Status == SlaStatus.InProgress)
+    {
+        <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="@Busy" OnClick="OnPause">Pause SLA</MudButton>
+    }
+    else if (CanManage && Sla.Status == SlaStatus.Paused)
+    {
+        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Success" Disabled="@Busy" OnClick="OnResume">Resume SLA</MudButton>
+    }
+</section>
+@code {
+    [Parameter, EditorRequired] public TicketSlaDto Sla { get; set; } = default!;
+    [Parameter] public bool CanManage { get; set; }
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public EventCallback OnPause { get; set; }
+    [Parameter] public EventCallback OnResume { get; set; }
+    private Color StatusColor => Sla.Status switch { SlaStatus.Paused => Color.Warning, SlaStatus.Breached => Color.Error, SlaStatus.Completed => Color.Success, _ => Color.Info };
+    private static string FormatRemaining(long seconds)
+    {
+        var time = TimeSpan.FromSeconds(Math.Max(seconds, 0));
+        return time.TotalDays >= 1 ? $"{(int)time.TotalDays}d {time.Hours}h remaining" : time.TotalHours >= 1 ? $"{(int)time.TotalHours}h {time.Minutes}m remaining" : $"{Math.Max(0, time.Minutes)}m remaining";
+    }
+}

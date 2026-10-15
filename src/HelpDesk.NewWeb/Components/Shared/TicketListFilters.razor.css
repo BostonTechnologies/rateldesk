@@ -1,0 +1,11 @@
+.ticket-filters { min-width: 0; margin-block: .75rem; }
+.filter-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.filter-toolbar ::deep .mud-input-control { flex: 1 1 15rem; max-width: 30rem; min-width: 0; }
+.filter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: .5rem .75rem; margin-top: .75rem; }
+.filter-grid > * { min-width: 0; }
+.filter-help { font-size: .75rem; color: var(--mud-palette-text-secondary); margin: .5rem 0; }
+.filter-chips { display: flex; flex-wrap: wrap; gap: .25rem; }
+
+.filter-chip { display: inline-flex; align-items: center; gap: .35rem; max-width: 100%; min-height: 26px; padding: .15rem .5rem; border: 1px solid var(--mud-palette-lines-default); border-radius: 1rem; background: var(--mud-palette-surface); color: var(--mud-palette-text-primary); font: inherit; font-size: .75rem; cursor: pointer; }
+.filter-chip span:first-child { min-width: 0; overflow-wrap: anywhere; text-align: start; }
+.filter-chip:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 2px; }

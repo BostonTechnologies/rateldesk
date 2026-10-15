@@ -1,0 +1,5 @@
+.sla-summary { border-top: 1px solid var(--mud-palette-lines-default); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.sla-heading, .sla-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sla-row { font-size: .875rem; }
+.sla-heading ::deep .mud-chip { margin: 0; }
+.sla-summary ::deep .mud-button-root { align-self: flex-start; min-height: 36px; }

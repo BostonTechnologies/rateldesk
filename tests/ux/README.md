@@ -46,3 +46,14 @@ saved value. Clearing the query must leave the selection intact. Use the separat
 Unassigned action for incidents/requests; changes require an implementor. In a
 create/detail form, selection stays local until Create/Save Changes, and Cancel or
 Revert discards it. Check Escape, Tab and arrow/Enter behavior as well.
+
+## Ticket filter interaction
+
+After building `src/HelpDesk.NewWeb`, run
+`npx playwright test --config playwright.ticket-filters.config.ts`.
+This focused suite runs the real Blazor lists against synthetic loopback records
+and captures responsive light/dark screenshots. It covers all three modules,
+complete-dataset searches, URL restoration, cancellation and failures. API
+predicate, bounds, authorization and SQLite/PostgreSQL evidence lives in
+`TicketListFiltersTests`; timezone/DST and query roundtrips live in
+`TicketListStateTests`.
