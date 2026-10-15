@@ -12,7 +12,7 @@
     <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
         <MudText Typo="Typo.h5" HtmlTag="h1">Tenant SLA Settings</MudText>
         <MudSpacer />
-        <MudSelect T="string" Label="Tenant" Value="tenantId" ValueChanged="OnTenantChanged" Disabled="busy" Variant="Variant.Outlined" Margin="Margin.Dense" Class="tenant-context">
+        <MudSelect @key="tenantSelectorVersion" T="string" Label="Tenant" Value="tenantId" ValueChanged="OnTenantChanged" Disabled="busy" Variant="Variant.Outlined" Margin="Margin.Dense" Class="tenant-context">
             @foreach (var tenant in tenants)
             {
                 <MudSelectItem T="string" Value="@tenant.Id">@tenant.Name</MudSelectItem>
@@ -42,6 +42,7 @@
 @code {
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
     private string? tenantId;
+    private int tenantSelectorVersion;
     private List<TenantLookupDto> tenants = new();
     private List<WorkingCalendarDto> calendars = new();
     private TenantSlaSettingsPanel? settingsPanel;
@@ -76,7 +77,8 @@
 
     private async Task OnTenantChanged(string? value)
     {
-        if (value == tenantId || !await CanLeaveAsync()) return;
+        if (value == tenantId) return;
+        if (!await CanLeaveAsync()) { tenantSelectorVersion++; return; }
         tenantId = value;
         settingsPanel = null;
         reportingPanel = null;

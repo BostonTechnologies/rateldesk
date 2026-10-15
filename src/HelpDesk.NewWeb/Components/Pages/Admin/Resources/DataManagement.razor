@@ -44,7 +44,7 @@
                 <MudPaper Class="pa-2 data-management-rail" Elevation="0">
                     @if (organizations.Count > 1 || isHelpdeskAdmin)
                     {
-                        <MudSelect T="string" Label="Organization" Value="selectedOrganizationId" ValueChanged="OnOrganizationChanged" Variant="Variant.Outlined" Margin="Margin.Dense">
+                        <MudSelect @key="organizationSelectorVersion" T="string" Label="Organization" Value="selectedOrganizationId" ValueChanged="OnOrganizationChanged" Variant="Variant.Outlined" Margin="Margin.Dense">
                             @foreach (var organization in organizations.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
                             {
                                 <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
@@ -404,6 +404,7 @@
     private bool disposed;
     private string? loadError;
     private int organizationVersion;
+    private int organizationSelectorVersion;
     private int datasetVersion;
     private int rowPage = 1;
     private CancellationTokenSource? rowSearchCancellation;
@@ -498,7 +499,8 @@
 
     private async Task OnOrganizationChanged(string? organizationId)
     {
-        if (organizationId == selectedOrganizationId || !await CanLeaveAsync()) return;
+        if (organizationId == selectedOrganizationId) return;
+        if (!await CanLeaveAsync()) { organizationSelectorVersion++; return; }
         selectedOrganizationId = organizationId;
         selectedDatasetId = null;
         await LoadOrganizationAsync();
