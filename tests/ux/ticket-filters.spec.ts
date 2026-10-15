@@ -89,7 +89,7 @@ test('multi-dimension controls, time validation, sorting and page size use serve
  await page.getByLabel('From (inclusive)').fill('2026-10-15');await page.getByLabel('To (exclusive)').fill('2026-10-15');
  await page.getByLabel('Timezone',{exact:true}).fill('Africa/Johannesburg');await page.getByRole('button',{name:'Apply time range'}).click();
  await expect(page.getByText('1-25 of 30')).toBeVisible();
- await page.getByLabel('Sort by',{exact:true}).click();await page.getByRole('option',{name:'Tracking ID',exact:true}).click();
+ await page.getByRole('combobox',{name:'Sort by',exact:true}).click();await page.getByRole('option',{name:'Tracking ID',exact:true}).click();
  await page.getByLabel('Descending',{exact:true}).uncheck();
  await expect(page.getByText('SYN-000',{exact:true})).toBeVisible();
  await page.locator('.mud-table-pagination-select').click();await page.getByRole('option',{name:'50',exact:true}).click();
