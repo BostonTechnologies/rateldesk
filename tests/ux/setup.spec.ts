@@ -167,6 +167,8 @@ test('first-run setup initializes, survives restart, and supports isolated scope
   await page.goto('/account/integration-credentials');
   await expect(page.getByTestId('integration-credentials-page')).toHaveAttribute('data-interactive', 'true');
   await expect(page.getByRole('heading', { name: 'Integration credentials', exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'API & MCP credentials', exact: true }).click();
+  await expect(page.getByRole('tab', { name: 'API & MCP credentials', exact: true })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByTestId('integration-credential-create')).toBeEnabled();
   await page.getByTestId('integration-credential-create').click();
   await expect(page.getByLabel('Name', { exact: true })).toBeVisible();
