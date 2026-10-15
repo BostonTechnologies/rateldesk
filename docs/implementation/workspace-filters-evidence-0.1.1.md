@@ -40,6 +40,8 @@ Release builds use the same Playwright command with `HELPDESK_FILTERS_CONFIGURAT
 
 All captures contain synthetic identities and tickets. Before uses preserved main `4e3023c` UI with only its version suffix changed to 0.1.1. After uses the real shared filters and the same synthetic data. The committed set is eight desktop PNGs; the full receipt additionally identifies all responsive captures. Full-page mobile images are tall because 25 ticket rows render as cards. Element-only mobile images may include the sticky header during automatic screenshot scrolling, so the full-page images are the evidence for those widths.
 
+The isolated builds have different version badges: before displays `v0.1.1` from the version-only baseline publish; after retains the branch's inherited `v0.1.1-beta.22`. These screenshots establish filter behavior and appearance. The integrated release browser suite and native snapshots separately verify the final stable release identity. The image bytes are unmodified captures.
+
 | List and theme, 1440 × 900 viewport | Before | After |
 | --- | --- | --- |
 | Incidents, light | [Before](assets/workspace-filters-0.1.1/before-incidents-light-1440.png) | [After](assets/workspace-filters-0.1.1/after-incidents-light-1440.png) |
