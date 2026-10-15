@@ -1,7 +1,8 @@
 // Loopback-only synthetic data. Real endpoint authorization is covered by .NET API tests.
 import http from 'node:http';
 let mode = 'light', calls = [];
-const light = `<div style="background-color:#ffffff;color:#202020;padding:16px"><h2>Synthetic service notice</h2><p>Readable original foreground</p><table style="background-color:#fff8dc;color:#302010"><tr><td>Priority</td><td>Normal</td></tr></table><p><a href="https://example.test/help">Help documentation</a></p><img src="cid:missing" alt="Missing diagram"><img src="https://tracker.example.test/pixel" alt="Remote logo"><p style="color:#303030">Synthetic Support · example.test</p><p>${'Long content '.repeat(120)}</p><script>parent.emailExploit=true</script><img src=x onerror="parent.emailExploit=true"><style>body{background:url(https://tracker.example.test/css)}</style><iframe src="https://tracker.example.test/embed"></iframe></div>`;
+const light = `<div style="background-color:#ffffff;color:#202020;padding:16px"><h2>Synthetic service notice</h2><p>Readable original foreground</p><table style="background-color:#fff8dc;color:#302010"><tr><td>Priority</td><td>Normal</td></tr></table><p><a href="https://example.test/help">Help documentation</a></p><img src="/api/incidents/incidents-1/images/inline.png?token=synthetic" alt="Inline diagram"><img src="cid:missing" alt="Missing diagram"><img src="https://tracker.example.test/pixel" alt="Remote logo"><p style="color:#303030">Synthetic Support · example.test</p><p>${'Long content '.repeat(120)}</p><script>window.emailExploit=true;parent.emailExploit=true</script><img src=x onerror="window.emailExploit=true;parent.emailExploit=true"><style>body{background:url(https://tracker.example.test/css)}</style><iframe src="https://tracker.example.test/embed"></iframe></div>`;
+const defaults = `<div style="background-color:#161616"><p>Background-only default</p></div><div style="color:#eeeeee"><p>Foreground-only default</p></div><p>Unstyled readable default</p>`;
 const dark = `<body style="background-color:#161616;color:#eeeeee"><h2>Synthetic dark notice</h2><p>Readable dark foreground</p></body>`;
 const ticket = module => ({ id: `${module}-1`, subject: 'Synthetic service notice', title: 'Synthetic service notice', description: '<b>Literal description</b>', trackingId: 'UX-164', organizationId: 'org-1', state: 0, priority: 1, lifecycleState: 0, categoryIds: [], assignedToId: null, implementorUserId: null, requestedForUserId: 'user-1', requestedForUserName: 'Synthetic User', approverUserIds: [], approvers: [], approvals: [], changeTemplate: {}, templateValidationErrors: [], isTemplateComplete: false });
 http.createServer(async (req, res) => {
@@ -12,6 +13,7 @@ http.createServer(async (req, res) => {
   if (url.pathname === '/fixture/mode') { mode = url.searchParams.get('value'); return reply({ ok: true }); }
   if (url.pathname === '/fixture/state') return reply({ mode, calls });
   calls.push(url.pathname);
+  if (url.pathname === '/api/incidents/incidents-1/images/inline.png' && url.searchParams.get('token') === 'synthetic') { res.writeHead(200, { 'Content-Type': 'image/png' }); return res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64')); }
   if (url.pathname.endsWith('/system/token')) {
     const encode = value => Buffer.from(JSON.stringify(value)).toString('base64url');
     return reply({ token: `${encode({ alg: 'none' })}.${encode({ sub: 'synthetic-operator', auth_mode: 'development', preferred_username: 'Synthetic Operator', roles: ['HelpdeskAdmin'], allowed_organization_id: 'org-1', exp: Math.floor(Date.now()/1000)+3600 })}.fixture` });
@@ -28,7 +30,7 @@ http.createServer(async (req, res) => {
     if (!action) return reply({ items: [ticket(module)], totalCount: 1 });
     if (action?.endsWith('/peek')) {
       if (mode === 'failure') return reply({ error: 'Synthetic unavailable' }, 503);
-      const payload = { html: mode === 'empty' || mode === 'plain' ? '' : mode === 'dark' ? dark : light, text: mode === 'empty' ? '' : 'Synthetic complete plain text. ' + 'Full message '.repeat(50), from: 'sender@example.test', receivedUtc: '2026-10-15T08:00:00Z' };
+      const payload = { html: mode === 'empty' || mode === 'plain' ? '' : mode === 'dark' ? dark : mode === 'defaults' ? defaults : light, text: mode === 'empty' ? '' : 'Synthetic complete plain text. ' + 'Full message '.repeat(50), from: 'sender@example.test', receivedUtc: '2026-10-15T08:00:00Z' };
       if (mode === 'slow') return setTimeout(() => reply(payload), 1500);
       return reply(payload);
     }

@@ -33,9 +33,12 @@ test.describe('actual Blazor email boundary', () => {
         await expect(original.locator('table')).toHaveCSS('background-color', 'rgb(255, 248, 220)');
         await expect(original.locator('iframe,form,object,[onerror],[href]')).toHaveCount(0);
         expect(await page.evaluate(() => (window as any).emailExploit)).toBeUndefined();
+        expect(await original.locator("body").evaluate(() => (window as any).emailExploit)).toBeUndefined();
         expect(tracking).toEqual([]);
+        await expect(original.locator('img[alt="Inline diagram"]')).toBeVisible();
+        await expect.poll(() => original.locator('img[alt="Inline diagram"]').evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
         const bounds = await page.getByRole('dialog', { name: 'Email preview' }).boundingBox();
-        expect(bounds!.width).toBeLessThanOrEqual(width); expect(bounds!.x).toBeGreaterThanOrEqual(0);
+        expect(bounds!.width).toBeLessThanOrEqual(width); expect(bounds!.x).toBeGreaterThanOrEqual(0); expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
         await info.attach('after-computed-style', { body: JSON.stringify({ theme, width, computed }), contentType: 'application/json' });
         await page.screenshot({ path: info.outputPath(`after-${theme}-${width}.png`), fullPage: true });
         await page.getByRole('button', { name: 'Plain text', exact: true }).click();
@@ -52,6 +55,12 @@ test.describe('actual Blazor email boundary', () => {
     await expect(frame(page).getByText('Readable original foreground')).toBeVisible();
     await page.getByRole('dialog', { name: 'Email preview' }).hover(); await page.waitForTimeout(250);
     await expect(page.getByRole('dialog', { name: 'Email preview' })).toBeVisible();
+    const isolated = await page.locator('iframe[title="Original email content"]').evaluate((iframe: HTMLIFrameElement) => {
+      try { void iframe.contentWindow!.document; return false; } catch { return true; }
+    });
+    expect(isolated).toBe(true);
+    await page.evaluate(() => { window.postMessage({ type: 'rateldesk-email-escape' }, '*'); window.postMessage({ type: 'rateldesk-email-size', height: 99999 }, '*'); });
+    await expect(page.getByRole('dialog', { name: 'Email preview' })).toBeVisible();
     await frame(page).getByText('Readable original foreground').click();
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog', { name: 'Email preview' })).toHaveCount(0);
@@ -65,6 +74,27 @@ test.describe('actual Blazor email boundary', () => {
       await expect(frame(page).locator('body > div')).toHaveCSS('background-color', 'rgb(22, 22, 22)');
       await expect(frame(page).locator('body > div')).toHaveCSS('color', 'rgb(238, 238, 238)');
     }
+  });
+  test('missing authored colour pairs get readable defaults', async ({ page, request }) => {
+    await request.get(`${fixture}/mode?value=defaults`); await ready(page, '/incidents/incidents-1');
+    await expect(frame(page).getByText('Background-only default')).toHaveCSS('color', 'rgb(255, 255, 255)');
+    await expect(frame(page).locator('body > div').nth(0)).toHaveCSS('background-color', 'rgb(22, 22, 22)');
+    await expect(frame(page).locator('body > div').nth(1)).toHaveCSS('background-color', 'rgb(17, 17, 17)');
+    await expect(frame(page).getByText('Foreground-only default')).toHaveCSS('color', 'rgb(238, 238, 238)');
+    await expect(frame(page).getByText('Unstyled readable default')).toHaveCSS('color', 'rgb(17, 17, 17)');
+  });
+  test('200 percent equivalent layout viewport keeps preview reachable and scrollable', async ({ browser, request }) => {
+    await request.get(`${fixture}/reset`);
+    const context = await browser.newContext({ viewport: { width: 640, height: 450 }, deviceScaleFactor: 2, ignoreHTTPSErrors: true });
+    const page = await context.newPage();
+    await page.goto('https://127.0.0.1:5166/auth/development'); await ready(page, 'https://127.0.0.1:5166/incidents');
+    await preview(page).focus(); await preview(page).press('Enter');
+    await expect(page.getByRole('button', { name: 'Close preview' })).toBeFocused();
+    await expect(frame(page).getByText('Readable original foreground')).toBeVisible();
+    const bounds = await page.getByRole('dialog', { name: 'Email preview' }).boundingBox();
+    expect(bounds!.height).toBeLessThanOrEqual(450); expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(640);
+    await page.getByRole('button', { name: 'Close preview' }).press('Escape');
+    await expect(preview(page)).toBeFocused(); await context.close();
   });
   test('loading, retry and empty are distinct; request detail uses its own plain text API', async ({ page, request }) => {
     await request.get(`${fixture}/mode?value=slow`); await ready(page, '/incidents'); await preview(page).focus();

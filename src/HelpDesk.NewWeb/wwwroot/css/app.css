@@ -1291,3 +1291,19 @@ h1[tabindex="-1"]:focus
 @media (max-width: 600px) {
     .assignee-popup { left: 12px !important; width: calc(100vw - 24px) !important; min-width: 0 !important; }
 }
+
+/* MudPopover renders its portal outside CSS isolation. Bound the email preview
+   independently of a narrow table cell's horizontal anchor position. */
+@media (max-width: 700px)
+{
+    .incident-preview-popover
+    {
+        position: fixed !important;
+        left: 8px !important;
+        right: 8px !important;
+        top: 8px !important;
+        transform: none !important;
+        width: calc(100vw - 16px) !important;
+        max-width: calc(100vw - 16px);
+    }
+}
