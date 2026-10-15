@@ -123,6 +123,9 @@ for (const theme of ['light', 'dark']) for (const width of [320, 390, 768, 1024,
     for (const name of ['Support Routing', 'Tenant SLA Settings', 'Mailbox Configuration']) {
       const label = drawer.getByRole('link', { name, exact: true }).locator('.mud-nav-link-text');
       expect(await label.evaluate(element => element.scrollWidth - element.clientWidth), `${name} fits at the configured drawer width`).toBeLessThanOrEqual(1);
+      await label.evaluate(element => { (element as HTMLElement).style.fontFamily = 'Arial, sans-serif'; });
+      expect(await label.evaluate(element => element.scrollWidth - element.clientWidth), `${name} also fits with a fallback font`).toBeLessThanOrEqual(1);
+      await label.evaluate(element => { (element as HTMLElement).style.fontFamily = ''; });
     }
     const support = drawer.getByRole('link', { name: 'Support Routing', exact: true });
     await support.focus(); await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab');

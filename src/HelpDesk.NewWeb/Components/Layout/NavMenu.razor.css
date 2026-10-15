@@ -76,8 +76,8 @@
 }
 
 .helpdesk-nav ::deep .mud-collapse-container {
-    margin-left: 0.25rem;
-    padding-left: 0.2rem;
+    margin-left: 0.125rem;
+    padding-left: 0.125rem;
     border-left: 1px solid var(--mud-palette-divider);
 }
 
