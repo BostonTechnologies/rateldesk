@@ -1,4 +1,3 @@
-using Helpdesk.API.Endpoints.Ticketing;
 using Helpdesk.Application.Events;
 using Helpdesk.Application.Messaging;
 using Helpdesk.Application.Services.Changes;

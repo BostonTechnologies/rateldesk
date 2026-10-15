@@ -183,7 +183,7 @@ public static class TimelineEndpoints
                 if (!allowed) { results.Add(new(id, "Unavailable", "Delivery is unavailable in your authorized scope.")); continue; }
                 try { results.Add(await actions.ApplyAsync(id, request.Action, actor, request.Reason.Trim(), ct)); }
                 catch (Exception error) when (error is DbUpdateException or InvalidOperationException ||
-                    error is System.Data.Common.DbException)
+                    error is global::System.Data.Common.DbException)
                 {
                     db.ChangeTracker.Clear();
                     results.Add(new(id, "Conflict", "The action could not be committed. Refresh before trying again."));

@@ -155,7 +155,7 @@ public static class TicketCategoryEndpoints
 
         // Serialize catalogue writes across API replicas. SQLite's serializable transaction
         // acquires its write lock; PostgreSQL needs a table lock for the absent-row case.
-        await using var transaction = await db.Database.BeginTransactionAsync(db.Database.IsNpgsql() ? System.Data.IsolationLevel.ReadCommitted : System.Data.IsolationLevel.Serializable, cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(db.Database.IsNpgsql() ? global::System.Data.IsolationLevel.ReadCommitted : global::System.Data.IsolationLevel.Serializable, cancellationToken);
         if (db.Database.IsNpgsql())
             await db.Database.ExecuteSqlRawAsync("LOCK TABLE \"TicketCategories\" IN SHARE ROW EXCLUSIVE MODE", cancellationToken);
         var existing = await FindDuplicate(db, name, dto.Type, targetTenantId, cancellationToken);
@@ -192,7 +192,7 @@ public static class TicketCategoryEndpoints
         if (string.IsNullOrWhiteSpace(dto.Name) || NormalizeName(dto.Name).Length > 120 || !Enum.IsDefined(dto.Type))
             return Results.BadRequest("A valid category type and a name of 1 to 120 characters are required.");
         var tenantId = ParseTenantId(tenant.TenantId);
-        await using var transaction = await db.Database.BeginTransactionAsync(db.Database.IsNpgsql() ? System.Data.IsolationLevel.ReadCommitted : System.Data.IsolationLevel.Serializable);
+        await using var transaction = await db.Database.BeginTransactionAsync(db.Database.IsNpgsql() ? global::System.Data.IsolationLevel.ReadCommitted : global::System.Data.IsolationLevel.Serializable);
         if (db.Database.IsNpgsql()) await db.Database.ExecuteSqlRawAsync("LOCK TABLE \"TicketCategories\" IN SHARE ROW EXCLUSIVE MODE");
         var entity = await db.TicketCategories.FirstOrDefaultAsync(x => x.Id == id);
         if (entity is null)
