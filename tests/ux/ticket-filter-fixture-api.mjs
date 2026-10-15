@@ -20,13 +20,13 @@ http.createServer(async (req,res) => {
   const roles=req.headers['x-system-secret']==='filter-reader'?['Incident.Read','Request.Read','Change.Read']:['HelpdeskAdmin'];
   return reply({token:`${enc({alg:'none'})}.${enc({sub:'filter-operator',auth_mode:'development',preferred_username:'Synthetic operator',roles,allowed_organization_id:['org-a','org-b'],exp:Math.floor(Date.now()/1000)+3600})}.fixture`});
  }
- if(url.pathname==='/api/v1/auth/me') return reply({isAuthenticated:true,name:'Synthetic operator',email:'operator@example.test',isHelpdeskAdmin:true,roleBundles:['HelpdeskAdmin'],permissions:[],allowedOrganizationIds:['org-a','org-b'],managedOrganizationIds:[]});
+ if(url.pathname==='/api/v1/auth/me') return reply({isAuthenticated:true,name:'Synthetic operator',email:'Synthetic operator',userId:'filter-operator',customerId:null,primaryOrganizationId:null,primaryOrganizationName:null,isHelpdeskAdmin:true,roleBundles:['HelpdeskAdmin'],permissions:[],allowedOrganizationIds:['org-a','org-b'],managedOrganizationIds:[]});
  if(url.pathname==='/api/v1/branding') return reply({applicationName:'RatelDesk'});
  if(url.pathname==='/api/v1/ticketing/filter-options') return reply({items:(options[q.get('dimension')]??[]).filter(o=>o.label.toLowerCase().includes((q.get('q')??'').toLowerCase())),hasMore:false});
  if(url.pathname.endsWith('/assignees/current')) return reply(null);
  if(url.pathname.match(/^\/api\/v1\/(incidents|requests|changes)\/?$/)) {
   queries.push(url.pathname+url.search);
-  if(fault==='error'){fault='';return reply({error:'Synthetic unavailable'},503);}
+  if(fault==='error'){fault='';return reply({error:'Synthetic rejected query'},400);}
   if(q.get('q')==='slow') await new Promise(resolve=>setTimeout(resolve,1200));
   let filtered=rows.filter(r=>q.get('view')==='all'||(q.get('view')==='historic'?r.state===6:r.state!==6));
   if(q.get('q')) filtered=q.get('q')==='slow'?[rows[0]]:filtered.filter(r=>r.title.toLowerCase().includes(q.get('q').toLowerCase()));

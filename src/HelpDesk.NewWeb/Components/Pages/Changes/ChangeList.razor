@@ -63,7 +63,7 @@
                                   OrganizationId="@change.OrganizationId" AssignedToId="@change.ImplementorUserId"
                                   SelectedName="@change.ImplementorUserName" SelectedEmail="@change.ImplementorUserEmail"
                                   ReadOnly="@(accessProfile?.CanManageChange(change.OrganizationId) != true || change.LifecycleState != ChangeLifecycleState.Draft)"
-                                  AssignmentChanged="@(user => UpdateImplementor(change, user))" />
+                                  AssignmentChanged="@(async user => { UpdateImplementor(change, user); if (filters.AssigneeIds.Count > 0 || filters.Unassigned || filters.From.HasValue || filters.To.HasValue) await Reload(); })" />
         </AssigneeTemplate>
         <CustomerTemplate Context="change">
             @RenderRequestedFor(change)

@@ -76,7 +76,7 @@
                 TicketId="@request.Id"
                 TicketType="requests"
                 AssignedToId="@request.AssignedToId"
-                AssignedToIdChanged="@(x => request.AssignedToId = x)"
+                AssignedToIdChanged="@(async x => { request.AssignedToId = x; if (filters.AssigneeIds.Count > 0 || filters.Unassigned || filters.From.HasValue || filters.To.HasValue) await Reload(); })"
                 />
         </AssigneeTemplate>
         <CustomerTemplate Context="request">
@@ -88,7 +88,7 @@
                 CustomerId="@request.CustomerId"
                 CustomerName="@request.CustomerName"
                 CustomerEmail="@request.CustomerEmail"
-                CustomerChanged="@(selection => UpdateCustomer(request, selection))" />
+                CustomerChanged="@(async selection => { UpdateCustomer(request, selection); if (filters.ForIds.Count > 0 || filters.CustomerOrgIds.Count > 0 || filters.From.HasValue || filters.To.HasValue) await Reload(); })" />
         </CustomerTemplate>
     </TicketTable>
 </MudPaper>

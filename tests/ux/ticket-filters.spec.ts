@@ -1,7 +1,10 @@
 import {test,expect} from '@playwright/test';
-import {selectTheme} from './auth';
 const fixture='http://127.0.0.1:18330/fixture';
-test.beforeEach(async({page,request})=>{await request.get(fixture+'/reset');await page.goto('/auth/development');});
+test.beforeEach(async({page,request})=>{
+ page.on('pageerror',error=>console.error('Browser error:',error.message));
+ page.on('console',message=>{if(message.type()==='error')console.error('Browser console:',message.text());});
+ await request.get(fixture+'/reset');await page.goto('/auth/development',{waitUntil:'domcontentloaded'});
+});
 for(const module of ['incidents','requests','changes']) {
  test(`${module} filters the full dataset, clears selection and restores URL with Back`,async({page,request})=>{
   await page.goto('/'+module);
@@ -12,7 +15,7 @@ for(const module of ['incidents','requests','changes']) {
   await expect(page.getByText('1 selected',{exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Filters (0)'}).click();
   await page.getByLabel('Customer', {exact:true}).fill('Beta');
-  await page.getByText('Beta customer',{exact:true}).last().click();
+  await page.getByRole('option',{name:'Beta customer',exact:true}).click();
   await expect(page.getByText('1-25 of 30')).toBeVisible();
   await expect(page.getByText('1 selected',{exact:true})).toHaveCount(0);
   await expect(page).toHaveURL(/customerOrgId=org-b/);
@@ -25,6 +28,9 @@ for(const module of ['incidents','requests','changes']) {
   await expect(page.getByText('Synthetic ticket 59',{exact:true})).toBeVisible();
   await page.reload();
   await expect(page.getByText('Synthetic ticket 59',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Remove Customer: Beta customer',exact:true}).focus();
+  await page.keyboard.press('Enter');
+  await expect(page).not.toHaveURL(/customerOrgId/);
   await page.getByRole('button',{name:'Clear all',exact:true}).click();
   await expect(page.getByText('1-25 of 60')).toBeVisible();
   const state=await(await request.get(fixture+'/state')).json();
@@ -47,12 +53,14 @@ test('cancelled search cannot replace newer data; error differs from no matches'
 });
 for(const module of ['incidents','requests','changes']) for(const width of [320,768,1440,1920]) for(const theme of ['light','dark']) {
  test(`responsive ${module} filter panel ${width}px ${theme}`,async({page},info)=>{
+  await page.addInitScript(value=>localStorage.setItem('helpdesk.theme.preference',value),theme);
   await page.setViewportSize({width,height:900});
   await page.goto('/'+module);await expect(page.getByText('1-25 of 60')).toBeVisible();
-  await selectTheme(page,theme==='dark'?'Dark':'Light');
+  await expect(page.locator('html')).toHaveAttribute('data-helpdesk-theme',theme);
   await page.getByRole('button',{name:'Filters (0)'}).click();
   await expect(page.getByLabel('From (inclusive)')).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBeTruthy();
+  await page.locator('.ticket-filters').screenshot({path:info.outputPath(`filters-panel-${width}-${theme}.png`)});
   await page.screenshot({path:info.outputPath(`filters-${width}-${theme}.png`),fullPage:true});
  });
 }
@@ -60,12 +68,12 @@ for(const module of ['incidents','requests','changes']) for(const width of [320,
 test('multi-dimension controls, time validation, sorting and page size use server query state',async({page,request})=>{
  await page.goto('/incidents');await expect(page.getByText('1-25 of 60')).toBeVisible();
  await page.getByRole('button',{name:'Filters (0)'}).click();
- await page.getByLabel('For',{exact:true}).fill('Contact');await page.getByText('Contact (contact@example.test)',{exact:true}).last().click();
+ await page.getByLabel('For',{exact:true}).fill('Contact');await page.getByRole('option',{name:'Contact (contact@example.test)',exact:true}).click();
  await page.getByLabel('Priority',{exact:true}).click();await page.getByRole('option',{name:'High',exact:true}).click();await page.keyboard.press('Escape');
  await expect(page.getByText('1-25 of 30')).toBeVisible();
  await page.getByLabel('State',{exact:true}).click();await page.getByRole('option',{name:'New',exact:true}).click();await page.keyboard.press('Escape');
  await page.getByLabel('Unassigned',{exact:true}).check();
- await page.getByLabel('Assignee',{exact:true}).fill('technician');await page.getByText('Synthetic technician',{exact:true}).last().click();
+ await page.getByLabel('Assignee',{exact:true}).fill('technician');await page.getByRole('option',{name:'Synthetic technician',exact:true}).click();
  await page.getByLabel('From (inclusive)').fill('2026-10-16');await page.getByLabel('To (exclusive)').fill('2026-10-14');
  await page.getByRole('button',{name:'Apply time range'}).click();await expect(page.getByText('From must be earlier than To.')).toBeVisible();
  await page.getByLabel('From (inclusive)').fill('2026-10-15');await page.getByLabel('To (exclusive)').fill('2026-10-15');
