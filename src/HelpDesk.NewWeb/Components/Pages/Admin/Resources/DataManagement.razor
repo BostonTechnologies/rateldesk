@@ -806,7 +806,7 @@
             graphSnapshot = Serialize(graphSettings);
             await RefreshBuiltInRowCountsAsync();
             var firstVisibleBuiltIn = VisibleBuiltInDatasets.FirstOrDefault();
-            if (firstVisibleBuiltIn is not null && !DatasetDirty && string.IsNullOrEmpty(newCredentialName))
+            if (firstVisibleBuiltIn is not null && !DatasetDirty && string.IsNullOrEmpty(newCredentialName) && string.IsNullOrEmpty(lastCreatedApiKey))
             {
                 await SelectDataset(firstVisibleBuiltIn.Id, false);
             }
