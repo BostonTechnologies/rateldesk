@@ -1,4 +1,3 @@
-@page "/ops/workflows"
 @attribute [Authorize(Roles = "Request.Read,Request.Write,Request.Execute,Request.Manager,HelpdeskAdmin")]
 
 @using System.Net.Http.Json
@@ -11,62 +10,40 @@
 
 @inject IHttpClientFactory HttpClientFactory
 @inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+@implements IDisposable
 
-<PageTitle>Workflow Ops Dashboard</PageTitle>
 
-<MudPaper Class="pa-4">
+
+<div class="workflow-operations">
     <MudStack Spacing="3">
         <MudStack Row="true" AlignItems="AlignItems.Center">
-            <MudText Typo="Typo.h5">Workflow Operations</MudText>
+            <MudText Typo="Typo.subtitle1">Workflow diagnostics</MudText>
+            <MudText Typo="Typo.caption">@(lastRefreshed is null ? "Not yet refreshed" : $"Refreshed {lastRefreshed.Value.ToLocalTime():g}")</MudText>
             <MudSpacer />
             <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" Disabled="@loading" OnClick="LoadAllAsync">Refresh</MudButton>
         </MudStack>
 
-        <MudGrid>
-            <MudItem xs="12" sm="6" md="3">
-                <MudPaper Class="pa-3">
-                    <MudText Typo="Typo.caption">Overdue Tasks</MudText>
-                    <MudText Typo="Typo.h5">@overdue.TotalCount</MudText>
-                </MudPaper>
-            </MudItem>
-            <MudItem xs="12" sm="6" md="3">
-                <MudPaper Class="pa-3">
-                    <MudText Typo="Typo.caption">Escalated Tasks</MudText>
-                    <MudText Typo="Typo.h5">@escalated.TotalCount</MudText>
-                </MudPaper>
-            </MudItem>
-            @if (isAdmin)
+        <div class="workflow-categories" role="group" aria-label="Workflow issue categories">
+            @foreach (var category in Categories.Where(c => isAdmin || c.Key != "retries"))
             {
-                <MudItem xs="12" sm="6" md="3">
-                    <MudPaper Class="pa-3">
-                        <MudText Typo="Typo.caption">Retries Pending</MudText>
-                        <MudText Typo="Typo.h5">@retriesPending.TotalCount</MudText>
-                    </MudPaper>
-                </MudItem>
+                <MudButton Variant="@(SelectedCategory == category.Key ? Variant.Filled : Variant.Outlined)"
+                           Color="Color.Primary" Size="Size.Small" aria-pressed="@(SelectedCategory == category.Key ? "true" : "false")"
+                           OnClick="@(() => SelectCategory(category.Key))">@category.Label <span class="workflow-count">@CountLabel(category.Key)</span></MudButton>
             }
-            <MudItem xs="12" sm="6" md="3">
-                <MudPaper Class="pa-3">
-                    <MudText Typo="Typo.caption">Critical Failures (24h)</MudText>
-                    <MudText Typo="Typo.h5">@criticalFailures.TotalCount</MudText>
-                </MudPaper>
-            </MudItem>
-            <MudItem xs="12" sm="6" md="3">
-                <MudPaper Class="pa-3">
-                    <MudText Typo="Typo.caption">External orchestration Callback Rejections (7d)</MudText>
-                    <MudText Typo="Typo.h5">@callbackRejections.TotalCount</MudText>
-                </MudPaper>
-            </MudItem>
-            <MudItem xs="12" sm="6" md="3">
-                <MudPaper Class="pa-3">
-                    <MudText Typo="Typo.caption">Binding Issues</MudText>
-                    <MudText Typo="Typo.h5">@bindingIssues.TotalCount</MudText>
-                </MudPaper>
-            </MudItem>
-        </MudGrid>
-
-        <MudPaper Class="pa-3">
+        </div>
+        @if (errors.TryGetValue(SelectedCategory, out var selectedError))
+        {
+            <MudAlert Severity="Severity.Warning">@selectedError Refresh to retry.</MudAlert>
+        }
+        else
+        {
+        @if (SelectedCategory == "overdue")
+            {
+            <MudPaper Class="pa-3">
             <MudText Typo="Typo.h6" Class="mb-2">Overdue</MudText>
             <MudTable T="TaskOpsRowDto" Items="overdue.Items" Dense="true" Hover="true" Loading="@loading">
+                <NoRecordsContent><MudText Typo="Typo.body2">No matching issues.</MudText></NoRecordsContent>
                 <HeaderContent>
                     <MudTh>Request</MudTh>
                     <MudTh>Task</MudTh>
@@ -85,10 +62,14 @@
                 </RowTemplate>
             </MudTable>
         </MudPaper>
+            }
 
-        <MudPaper Class="pa-3">
+        @if (SelectedCategory == "escalated")
+            {
+            <MudPaper Class="pa-3">
             <MudText Typo="Typo.h6" Class="mb-2">Escalated</MudText>
             <MudTable T="TaskOpsRowDto" Items="escalated.Items" Dense="true" Hover="true" Loading="@loading">
+                <NoRecordsContent><MudText Typo="Typo.body2">No matching issues.</MudText></NoRecordsContent>
                 <HeaderContent>
                     <MudTh>Request</MudTh>
                     <MudTh>Task</MudTh>
@@ -107,12 +88,16 @@
                 </RowTemplate>
             </MudTable>
         </MudPaper>
+            }
 
         @if (isAdmin)
         {
+            @if (SelectedCategory == "retries")
+            {
             <MudPaper Class="pa-3">
                 <MudText Typo="Typo.h6" Class="mb-2">Retries Pending</MudText>
                 <MudTable T="TaskOpsRowDto" Items="retriesPending.Items" Dense="true" Hover="true" Loading="@loading">
+                <NoRecordsContent><MudText Typo="Typo.body2">No matching issues.</MudText></NoRecordsContent>
                     <HeaderContent>
                         <MudTh>Request</MudTh>
                         <MudTh>Task</MudTh>
@@ -136,11 +121,15 @@
                     </RowTemplate>
                 </MudTable>
             </MudPaper>
+            }
         }
 
-        <MudPaper Class="pa-3">
+        @if (SelectedCategory == "critical")
+            {
+            <MudPaper Class="pa-3">
             <MudText Typo="Typo.h6" Class="mb-2">Critical Failures (24h)</MudText>
             <MudTable T="TaskOpsRowDto" Items="criticalFailures.Items" Dense="true" Hover="true" Loading="@loading">
+                <NoRecordsContent><MudText Typo="Typo.body2">No matching issues.</MudText></NoRecordsContent>
                 <HeaderContent>
                     <MudTh>Request</MudTh>
                     <MudTh>Task</MudTh>
@@ -159,10 +148,14 @@
                 </RowTemplate>
             </MudTable>
         </MudPaper>
+            }
 
-        <MudPaper Class="pa-3">
+        @if (SelectedCategory == "callbacks")
+            {
+            <MudPaper Class="pa-3">
             <MudText Typo="Typo.h6" Class="mb-2">External orchestration Callback Rejections (7d)</MudText>
             <MudTable T="OrchestrationCallbackRejectionOpsDto" Items="callbackRejections.Items" Dense="true" Hover="true" Loading="@loading">
+                <NoRecordsContent><MudText Typo="Typo.body2">No matching issues.</MudText></NoRecordsContent>
                 <HeaderContent>
                     <MudTh>When</MudTh>
                     <MudTh>Reason</MudTh>
@@ -181,10 +174,14 @@
                 </RowTemplate>
             </MudTable>
         </MudPaper>
+            }
 
-        <MudPaper Class="pa-3">
+        @if (SelectedCategory == "bindings")
+            {
+            <MudPaper Class="pa-3">
             <MudText Typo="Typo.h6" Class="mb-2">Binding Issues</MudText>
             <MudTable T="AutomationBindingIssueOpsDto" Items="bindingIssues.Items" Dense="true" Hover="true" Loading="@loading">
+                <NoRecordsContent><MudText Typo="Typo.body2">No matching issues.</MudText></NoRecordsContent>
                 <HeaderContent>
                     <MudTh>Service</MudTh>
                     <MudTh>Request Form</MudTh>
@@ -207,13 +204,30 @@
                 </RowTemplate>
             </MudTable>
         </MudPaper>
+            }
+        }
     </MudStack>
-</MudPaper>
+</div>
 
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
 
+    [Parameter] public string? Category { get; set; }
+    private readonly CancellationTokenSource lifetime = new();
+    private readonly Dictionary<string, string> errors = new();
+    private DateTimeOffset? lastRefreshed;
+    private bool disposed;
+    private string selectedCategory = "critical";
+    private string SelectedCategory => Categories.Any(c => c.Key == Category && (isAdmin || c.Key != "retries")) ? Category! : selectedCategory;
+    private static readonly (string Key, string Label)[] Categories = [
+        ("critical", "Critical failures (24h)"), ("overdue", "Overdue"), ("escalated", "Escalated"),
+        ("retries", "retries"), ("callbacks", "Callback rejections (7d)"), ("bindings", "bindings") ];
+    private void SelectCategory(string key) => Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("category", key));
+    private int Count(string key) => key switch {
+        "overdue" => overdue.TotalCount, "escalated" => escalated.TotalCount, "retries" => retriesPending.TotalCount,
+        "critical" => criticalFailures.TotalCount, "callbacks" => callbackRejections.TotalCount, _ => bindingIssues.TotalCount };
+    private string CountLabel(string key) => errors.ContainsKey(key) ? "Unavailable" : loading ? "…" : Count(key).ToString();
     private bool loading;
     private bool isAdmin;
     private PagedResponse<TaskOpsRowDto> overdue = new();
@@ -240,22 +254,23 @@
     private async Task LoadAllAsync()
     {
         loading = true;
+        errors.Clear();
         try
         {
-            var overdueTask = LoadPagedOrEmptyAsync<TaskOpsRowDto>("api/v1/ops/tasks/overdue?page=1&pageSize=25", "Overdue tasks");
-            var escalatedTask = LoadPagedOrEmptyAsync<TaskOpsRowDto>("api/v1/ops/tasks/escalated?page=1&pageSize=25", "Escalated tasks");
+            var overdueTask = LoadPagedOrEmptyAsync<TaskOpsRowDto>("api/v1/ops/tasks/overdue?page=1&pageSize=25", "overdue");
+            var escalatedTask = LoadPagedOrEmptyAsync<TaskOpsRowDto>("api/v1/ops/tasks/escalated?page=1&pageSize=25", "escalated");
             var criticalTask = LoadPagedOrEmptyAsync<TaskOpsRowDto>(
                 $"api/v1/ops/tasks/critical-failures?sinceUtc={Uri.EscapeDataString(DateTimeOffset.UtcNow.AddDays(-1).ToString("O"))}&page=1&pageSize=25",
-                "Critical failures");
+                "critical");
             var callbackRejectionsTask = LoadPagedOrEmptyAsync<OrchestrationCallbackRejectionOpsDto>(
                 "api/v1/ops/tasks/orchestration/callback-rejections?page=1&pageSize=25&lookbackDays=7",
-                "Callback rejections");
+                "callbacks");
             var bindingIssuesTask = LoadPagedOrEmptyAsync<AutomationBindingIssueOpsDto>(
                 "api/v1/ops/tasks/orchestration/binding-issues?page=1&pageSize=25",
-                "Binding issues");
+                "bindings");
 
             var retriesTask = isAdmin
-                ? LoadPagedOrEmptyAsync<TaskOpsRowDto>("api/v1/ops/tasks/retries-pending?page=1&pageSize=25", "Retries pending")
+                ? LoadPagedOrEmptyAsync<TaskOpsRowDto>("api/v1/ops/tasks/retries-pending?page=1&pageSize=25", "retries")
                 : Task.FromResult(new PagedResponse<TaskOpsRowDto>());
 
             await Task.WhenAll(overdueTask, escalatedTask, retriesTask, criticalTask, callbackRejectionsTask, bindingIssuesTask);
@@ -266,7 +281,11 @@
             criticalFailures = await criticalTask;
             callbackRejections = await callbackRejectionsTask;
             bindingIssues = await bindingIssuesTask;
+            if (disposed) return;
+            lastRefreshed = DateTimeOffset.UtcNow;
+            if (Category is null) selectedCategory = Categories.FirstOrDefault(c => (isAdmin || c.Key != "retries") && Count(c.Key) > 0).Key ?? "critical";
         }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
         finally
         {
             loading = false;
@@ -277,17 +296,16 @@
     {
         try
         {
-            return await HelpdeskApi.GetFromJsonAsync<PagedResponse<T>>(url) ?? new PagedResponse<T>();
+            return await HelpdeskApi.GetFromJsonAsync<PagedResponse<T>>(url, lifetime.Token) ?? new PagedResponse<T>();
         }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { throw; }
         catch (HttpRequestException ex)
         {
-            Snackbar.Add(ex.StatusCode is null
-                ? $"{label} could not be loaded right now."
-                : $"{label} could not be loaded right now ({(int)ex.StatusCode}).", Severity.Warning);
+            errors[label] = ex.StatusCode is null ? "These diagnostics could not be loaded right now." : $"These diagnostics could not be loaded right now ({(int)ex.StatusCode}).";
         }
         catch
         {
-            Snackbar.Add($"{label} could not be loaded right now.", Severity.Warning);
+            errors[label] = "These diagnostics could not be loaded right now.";
         }
 
         return new PagedResponse<T>();
@@ -318,6 +336,8 @@
         => string.IsNullOrWhiteSpace(correlationId)
             ? "/notifications?category=DomainEvent.Orchestration"
             : $"/notifications?category=DomainEvent.Orchestration&correlationId={Uri.EscapeDataString(correlationId)}";
+
+    public void Dispose() { disposed = true; lifetime.Cancel(); lifetime.Dispose(); }
 
     private static Color GetBindingIssueColor(AutomationBindingIssueOpsDto binding)
     {

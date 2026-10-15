@@ -31,7 +31,7 @@ public sealed class NavMenuRenderedTests
         var menu = context.Render<NavMenu>();
         var expected = Account.Concat(GlobalAdministration).Concat([
             "self-service", "self-service/my-requests", "incidents", "requests", "tasks", "changes",
-            "/ops/slas", "/ops/workflows", "/ops/hangfire", "assets", "/admin/resources/data-management"
+            "/ops", "assets", "/admin/resources/data-management"
         ]).OrderBy(route => route).ToArray();
 
         Assert.Equal(expected, Hrefs(menu));
@@ -53,12 +53,12 @@ public sealed class NavMenuRenderedTests
     [Theory]
     [InlineData("SelfService.User", "self-service,self-service/my-requests", "Portal")]
     [InlineData("Incident.Read", "incidents", "Workspace")]
-    [InlineData("Incident.Manager", "incidents,/ops/slas", "Workspace,Operations")]
+    [InlineData("Incident.Manager", "incidents,/ops", "Workspace,Operations")]
     [InlineData("Request.User", "requests", "Workspace")]
-    [InlineData("Request.Read", "requests,tasks,/ops/workflows", "Workspace,Operations")]
-    [InlineData("Request.Manager", "requests,tasks,/ops/slas,/ops/workflows", "Workspace,Operations")]
+    [InlineData("Request.Read", "requests,tasks,/ops", "Workspace,Operations")]
+    [InlineData("Request.Manager", "requests,tasks,/ops", "Workspace,Operations")]
     [InlineData("Change.Read", "changes", "Workspace")]
-    [InlineData("Change.Manager", "changes,/ops/slas", "Workspace,Operations")]
+    [InlineData("Change.Manager", "changes,/ops", "Workspace,Operations")]
     [InlineData("DataManagement.Admin", "/admin/resources/data-management", "Resources")]
     [InlineData("Tenant.Roles.Assign", "/admin/users,/admin/organizations,/admin/roles", "Administration,Accounts & Orgs")]
     [InlineData("Tenant.Settings.Manage", "/admin/organizations", "Administration,Accounts & Orgs")]
@@ -67,7 +67,7 @@ public sealed class NavMenuRenderedTests
         using var context = Context(role);
         var menu = context.Render<NavMenu>();
         Assert.Equal(Account.Concat(routes.Split(',')).OrderBy(route => route), Hrefs(menu));
-        Assert.Equal(groups.Split(',').OrderBy(title => title), menu.FindComponents<MudNavGroup>().Select(group => group.Instance.Title).OrderBy(title => title));
+        Assert.Equal(groups.Split(',').Append("Operations").Distinct().OrderBy(title => title), menu.FindComponents<MudNavGroup>().Select(group => group.Instance.Title).OrderBy(title => title));
         if (!groups.Contains("Administration", StringComparison.Ordinal))
             Assert.DoesNotContain("Administration", menu.FindAll(".nav-section-heading").Select(element => element.TextContent));
     }
@@ -89,7 +89,7 @@ public sealed class NavMenuRenderedTests
     [InlineData("/requests/create", "requests")]
     [InlineData("/tasks/edit/example", "tasks")]
     [InlineData("/changes/example", "changes")]
-    [InlineData("/ops/slas/details/example", "/ops/slas")]
+    [InlineData("/ops/slas/details/example", "/ops")]
     [InlineData("/admin/email-rules/edit/example", "/admin/email-rules")]
     [InlineData("/account/integration-credentials/approve?code=SAFE-CODE", "/account/integration-credentials")]
     [InlineData("/account/authenticator", "auth")]
@@ -190,7 +190,7 @@ public sealed class NavMenuRenderedTests
         using var context = Context();
         var menu = context.Render<NavMenu>();
         Assert.Equal(Account.OrderBy(route => route), Hrefs(menu));
-        Assert.Empty(menu.FindComponents<MudNavGroup>());
+        Assert.Equal("Operations", Assert.Single(menu.FindComponents<MudNavGroup>()).Instance.Title);
         var authorization = context.Authorization;
         authorization.SetNotAuthorized();
         menu.WaitForAssertion(() => Assert.Equal(new[] { "/login", "home" }.OrderBy(route => route), Hrefs(menu)));

@@ -2,6 +2,7 @@
 
 - [Self-hosting](self-hosting.md): first-run setup, providers, security,
   authentication, storage, upgrades and recovery.
+- [Operations console](operations-console.md): SLA, workflow diagnostics, background jobs and notifications.
 - [Web gateway](web-gateway.md): API and optional HTTP MCP routing through one
   public origin, explicit overrides and proxy behavior.
 - [HTTP MCP deployment](../mcp-http/deployment.md): coordinated host settings,

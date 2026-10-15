@@ -1,0 +1,89 @@
+@page "/ops"
+@page "/ops/slas"
+@page "/ops/workflows"
+@page "/ops/hangfire"
+@attribute [Authorize(Roles = "Incident.Write,Incident.Manager,Request.Read,Request.Write,Request.Execute,Request.Manager,Change.Write,Change.Manager,HelpdeskAdmin")]
+@inject NavigationManager Navigation
+
+<PageTitle>Operations console</PageTitle>
+<section class="operations-console">
+    <MudText Typo="Typo.h5" HtmlTag="h1">Operations console</MudText>
+    <div class="operations-tabs" role="tablist" aria-label="Operations">
+        <a role="tab" id="sla-tab" aria-controls="operations-panel" aria-selected="@(!WorkflowActive ? "true" : "false")" href="@TabUrl(false)" @onkeydown="@(e => NavigateTab(e, false))">SLA</a>
+        <a role="tab" id="workflow-tab" aria-controls="operations-panel" aria-selected="@(WorkflowActive ? "true" : "false")" href="@TabUrl(true)" @onkeydown="@(e => NavigateTab(e, true))">Workflows</a>
+    </div>
+    <div role="tabpanel" id="operations-panel" aria-labelledby="@(WorkflowActive ? "workflow-tab" : "sla-tab")">
+        @if (!WorkflowActive)
+        {
+            <AuthorizeView Roles="Incident.Write,Incident.Manager,Request.Write,Request.Manager,Change.Write,Change.Manager,HelpdeskAdmin">
+                <Authorized><SlaOpsDashboard TenantId="@TenantId" TicketTypeFilter="@TicketTypeFilter" Threshold="@Threshold" Metric="@Metric" /></Authorized>
+                <NotAuthorized><MudAlert Severity="Severity.Info">SLA operations are not available with your permissions.</MudAlert></NotAuthorized>
+            </AuthorizeView>
+        }
+        else
+        {
+            <AuthorizeView Roles="Request.Read,Request.Write,Request.Execute,Request.Manager,HelpdeskAdmin">
+                <Authorized>
+                    @if (!BackgroundJobsActive)
+                    {
+                        <WorkflowOpsDashboard Category="@Category" />
+                    }
+                </Authorized>
+                <NotAuthorized><MudAlert Severity="Severity.Info">Workflow diagnostics are not available with your permissions.</MudAlert></NotAuthorized>
+            </AuthorizeView>
+            <AuthorizeView Roles="HelpdeskAdmin">
+                <Authorized>
+                <div class="operations-advanced">
+                    <a href="@JobsUrl(!BackgroundJobsActive)" aria-expanded="@(BackgroundJobsActive ? "true" : "false")">Advanced / Background jobs</a>
+                    @if (BackgroundJobsActive)
+                    {
+                        <HangfireOpsDashboard />
+                    }
+                </div>
+                </Authorized>
+                <NotAuthorized>
+                    @if (BackgroundJobsActive)
+                    {
+                        <MudAlert Severity="Severity.Info">Background jobs are not available with your permissions.</MudAlert>
+                    }
+                </NotAuthorized>
+            </AuthorizeView>
+        }
+    </div>
+</section>
+
+@code {
+    [SupplyParameterFromQuery(Name = "tab")] public string? Tab { get; set; }
+    [SupplyParameterFromQuery(Name = "view")] public string? View { get; set; }
+    [SupplyParameterFromQuery(Name = "category")] public string? Category { get; set; }
+    [SupplyParameterFromQuery(Name = "tenantId")] public string? TenantId { get; set; }
+    [SupplyParameterFromQuery(Name = "ticketType")] public int? TicketTypeFilter { get; set; }
+    [SupplyParameterFromQuery(Name = "thresholdPercent")] public int? Threshold { get; set; }
+    [SupplyParameterFromQuery(Name = "metric")] public int? Metric { get; set; }
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+    private bool preferWorkflows;
+    private string Path => new Uri(Navigation.Uri).AbsolutePath.TrimEnd('/');
+    private bool WorkflowActive => Path is "/ops/workflows" or "/ops/hangfire" ||
+        (Path != "/ops/slas" && (Tab == "workflows" || (Tab is null && preferWorkflows)));
+    private bool BackgroundJobsActive => Path == "/ops/hangfire" || View == "background-jobs";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = AuthenticationStateTask is null ? null : (await AuthenticationStateTask).User;
+        preferWorkflows = user is not null && !new[] { "Incident.Write", "Incident.Manager", "Request.Write", "Request.Manager", "Change.Write", "Change.Manager", "HelpdeskAdmin" }.Any(user.IsInRole);
+    }
+
+    private void NavigateTab(KeyboardEventArgs e, bool workflows)
+    {
+        if (e.Key is "ArrowLeft" or "ArrowRight") Navigation.NavigateTo(TabUrl(!workflows));
+        else if (e.Key == "Home") Navigation.NavigateTo(TabUrl(false));
+        else if (e.Key == "End") Navigation.NavigateTo(TabUrl(true));
+    }
+    private string TabUrl(bool workflows) => ConsoleUrl(new Dictionary<string, object?> { ["tab"] = workflows ? "workflows" : "sla", ["view"] = null });
+    private string JobsUrl(bool open) => ConsoleUrl(new Dictionary<string, object?> { ["tab"] = "workflows", ["view"] = open ? "background-jobs" : null });
+    private string ConsoleUrl(IReadOnlyDictionary<string, object?> values)
+    {
+        var current = new Uri(Navigation.GetUriWithQueryParameters(values));
+        return "/ops" + current.Query + current.Fragment;
+    }
+}

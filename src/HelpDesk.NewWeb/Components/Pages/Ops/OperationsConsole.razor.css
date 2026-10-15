@@ -1,0 +1,6 @@
+.operations-console { min-width: 0; }
+.operations-tabs { display: flex; gap: 1rem; border-bottom: 1px solid var(--helpdesk-surface-border); margin-block: .5rem 1rem; }
+.operations-tabs a { padding: .6rem .75rem; color: var(--mud-palette-text-secondary); text-decoration: none; border-bottom: 2px solid transparent; }
+.operations-tabs a[aria-selected="true"] { color: var(--mud-palette-primary); border-bottom-color: currentColor; font-weight: 600; }
+.operations-advanced { margin-block: 1rem; border-top: 1px solid var(--helpdesk-surface-border); padding-top: .75rem; }
+.operations-advanced summary { cursor: pointer; }
