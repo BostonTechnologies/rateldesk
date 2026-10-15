@@ -1,6 +1,7 @@
 {
   "scripts": {
     "test:ux:ai-assistant": "playwright test --config playwright.ai-assistant.config.ts",
+    "test:ux:email": "playwright test --config playwright.email.config.ts",
     "test:ux:assignee": "playwright test --config playwright.assignee.config.ts",
     "test:ux": "playwright test",
     "test:ux:headed": "playwright test --headed"

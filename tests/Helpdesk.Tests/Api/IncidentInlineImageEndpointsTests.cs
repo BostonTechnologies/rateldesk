@@ -66,3 +66,31 @@ public partial class IncidentCcRecipientsEndpointsTests
         }
     }
 }
+
+public partial class IncidentCcRecipientsEndpointsTests
+{
+    [Fact]
+    public async Task Peek_ReturnsCompletePlainTextAndSanitizedHtmlWithoutChangingStoredMessage()
+    {
+        var text = new string('x', 1000);
+        const string html = "<body style='color:#222;background-color:#fff'><p>Original</p><script>alert(1)</script></body>";
+        await _incidentRepo.CreateAsync(new Incident { Id = "inc-display", Title = "Synthetic", TrackingId = "UX-164", OriginalEmailHtml = html, OriginalEmailText = text });
+        using var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "HelpdeskAdmin");
+        var peek = await client.GetFromJsonAsync<JsonElement>("/api/v1/incidents/inc-display/peek");
+        Assert.Equal(text, peek.GetProperty("text").GetString());
+        Assert.Equal(400, peek.GetProperty("snippetText").GetString()!.Length);
+        Assert.DoesNotContain("<script", peek.GetProperty("html").GetString());
+        Assert.Contains("background-color", peek.GetProperty("html").GetString());
+        Assert.Equal(html, (await _incidentRepo.GetAsync("inc-display"))!.OriginalEmailHtml);
+    }
+
+    [Fact]
+    public async Task Peek_DoesNotBroadenExistingAdministrativeAccess()
+    {
+        await _incidentRepo.CreateAsync(new Incident { Id = "inc-private-preview", Title = "Synthetic", TrackingId = "UX-164", OriginalEmailText = "Restricted content" });
+        using var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "Incident.Read");
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/v1/incidents/inc-private-preview/peek")).StatusCode);
+    }
+}
