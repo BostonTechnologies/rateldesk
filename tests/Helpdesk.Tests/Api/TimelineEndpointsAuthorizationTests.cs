@@ -67,6 +67,22 @@ public sealed class TimelineEndpointsAuthorizationTests
         Assert.Equal(HttpStatusCode.Forbidden, retryRoute.StatusCode);
     }
 
+    [Theory]
+    [InlineData("/api/v1/timeline")]
+    [InlineData("/api/timeline")]
+    public async Task Unscoped_bulk_retry_cannot_bypass_selected_delivery_review(string route)
+    {
+        await using var harness = await TimelineEndpointsHarness.CreateAsync();
+        harness.Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "admin-user");
+
+        var response = await harness.Client.PostAsync($"{route}/retry-all", null);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Contains("/pending/actions", await response.Content.ReadAsStringAsync());
+        await harness.Timeline.DidNotReceiveWithAnyArgs().RetryAllFailedEmailsAsync(default!, default);
+        await harness.Timeline.DidNotReceiveWithAnyArgs().RetryEmailAsync(default, default!, default);
+    }
+
     [Fact]
     public async Task Administrator_sees_durable_smtp_recipient_results_on_failed_delivery()
     {
@@ -172,6 +188,7 @@ public sealed class TimelineEndpointsAuthorizationTests
         }
 
         public HttpClient Client { get; }
+        public ITimelineService Timeline => _app.Services.GetRequiredService<ITimelineService>();
 
         public static async Task<TimelineEndpointsHarness> CreateAsync()
         {

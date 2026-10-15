@@ -102,22 +102,16 @@ public static class TimelineEndpoints
                 : Results.Conflict(result);
         }).WithName($"RetryTimelineWithCurrentRoute{nameSuffix}");
 
-        group.MapPost("/retry-all",
-            async (
-                HttpContext context,
-                ITimelineService service,
-                CancellationToken ct) =>
-            {
-                var userId = ResolveUserId(context);
-                if (string.IsNullOrWhiteSpace(userId))
-                    return Results.Unauthorized();
-
-                var count = await service.RetryAllFailedEmailsAsync(userId, ct);
-                return Results.Ok(count);
-            })
+        group.MapPost("/retry-all", (HttpContext context) =>
+            string.IsNullOrWhiteSpace(ResolveUserId(context))
+                ? Results.Unauthorized()
+                : Results.Conflict(new
+                {
+                    message = "Select and confirm up to 100 deliveries through /pending/actions. Deliveries requiring sender or outcome review must be reviewed individually."
+                }))
             .WithName($"RetryAllTimelineEmails{nameSuffix}")
-            .WithSummary("Retry all failed timeline email deliveries")
-            .WithDescription("Retries all currently failed email delivery timeline events.");
+            .WithSummary("Unscoped bulk retry is no longer supported")
+            .WithDescription("Returns a conflict directing callers to confirmed, explicitly selected pending delivery actions.");
 
         group.MapGet("/pending-count",
             async (
