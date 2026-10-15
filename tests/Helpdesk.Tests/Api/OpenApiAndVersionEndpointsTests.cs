@@ -111,14 +111,15 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // Release includes automatic service issuance, signed code pairing, named mappings,
         // the preserved Netclaw administration and business APIs, and the three
         // scoped assignee search/current-label/change-implementor operations, and
-        // eight browser-approved integration-credential pairing operations;
+        // eight browser-approved integration-credential pairing operations,
+        // ticket filter suggestions and two bounded pending-email operations;
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(404, operationCount);
+        Assert.Equal(407, operationCount);
 #else
-        Assert.Equal(403, operationCount);
+        Assert.Equal(406, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         var identityGroup = Assert.Single(document.RootElement.GetProperty("x-tagGroups").EnumerateArray(),
@@ -148,7 +149,10 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         {
             ("/api/v1/ticketing/assignees/search", "get", "Ticket Lookups"),
             ("/api/v1/ticketing/assignees/current", "get", "Ticket Lookups"),
-            ("/api/v1/changes/{id}/assignee", "post", "Changes")
+            ("/api/v1/changes/{id}/assignee", "post", "Changes"),
+            ("/api/v1/ticketing/filter-options", "get", "Ticket Lookups"),
+            ("/api/v1/timeline/pending", "get", "Timeline"),
+            ("/api/v1/timeline/pending/actions", "post", "Timeline")
         };
         foreach (var (path, method, expectedTag) in assigneeOperations)
         {
