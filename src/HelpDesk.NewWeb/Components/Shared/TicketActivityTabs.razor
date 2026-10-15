@@ -24,6 +24,7 @@
     </div>
     @foreach (var tab in AvailableTabs.Where(x => visited.Contains(x.Id)))
     {
+        var panelVersion = scopeVersion;
         <div @key="@(scope + tab.Id)" id="@PanelId(tab.Id)" role="tabpanel" aria-labelledby="@TabId(tab.Id)"
              tabindex="0" hidden="@(activeTab != tab.Id)" class="activity-panel">
             @switch (tab.Id)
@@ -34,19 +35,19 @@
                     break;
                 case "timeline":
                     <TicketTimeline ReadOnly="@(!CanContribute)" TicketId="@TicketId" TicketType="@TicketType"
-                                    PublicMode="@PublicMode" OnWorklogAdded="OnWorklogAdded" OnTimelineLoaded="OnTimelineLoaded" />
+                                    PublicMode="@PublicMode" OnWorklogAdded="@(() => panelVersion == scopeVersion ? OnWorklogAdded.InvokeAsync() : Task.CompletedTask)" OnTimelineLoaded="@(items => OnTimelineLoaded(panelVersion, items))" />
                     break;
                 case "attachments":
-                    <TicketAttachments ReadOnly="@(!CanContribute)" TicketId="@TicketId" OnAttachmentsLoaded="OnAttachmentsLoaded" />
+                    <TicketAttachments ReadOnly="@(!CanContribute)" TicketId="@TicketId" OnAttachmentsLoaded="@(items => OnAttachmentsLoaded(panelVersion, items))" />
                     break;
                 case "listeners":
-                    <TicketListeners ReadOnly="@(!CanManage)" TicketId="@TicketId" TicketType="@TicketType" OnListenersLoaded="OnListenersLoaded" />
+                    <TicketListeners ReadOnly="@(!CanManage)" TicketId="@TicketId" TicketType="@TicketType" OnListenersLoaded="@(items => OnListenersLoaded(panelVersion, items))" />
                     break;
                 case "ai":
                     <AiAssistantChat TicketId="@TicketId" TicketType="@TicketType" />
                     break;
                 case "relations":
-                    <TicketRelations ReadOnly="@(!CanManage)" TicketId="@TicketId" TicketType="@TicketType" OnRelationsLoaded="OnRelationsLoaded" />
+                    <TicketRelations ReadOnly="@(!CanManage)" TicketId="@TicketId" TicketType="@TicketType" OnRelationsLoaded="@(items => OnRelationsLoaded(panelVersion, items))" />
                     break;
             }
         </div>
@@ -89,6 +90,7 @@
     private readonly string instanceId = $"activity-{Guid.NewGuid():N}";
     private string activeTab = "messages";
     private string? scope;
+    private long scopeVersion;
     private bool restoreSelection;
     private CancellationTokenSource cancellation = new();
     private bool IsIncidentType => string.Equals(TicketType, "incidents", StringComparison.OrdinalIgnoreCase);
@@ -105,6 +107,7 @@
         {
             cancellation.Cancel(); cancellation.Dispose(); cancellation = new();
             scope = nextScope;
+            scopeVersion++;
             activeTab = "messages";
             visited.Clear(); visited.Add(activeTab);
             counts.Clear(); unavailableCounts.Clear();
@@ -120,12 +123,12 @@
     {
         if (!restoreSelection) return;
         restoreSelection = false;
-        var expectedScope = scope;
+        var expectedVersion = scopeVersion;
         try
         {
             // Numeric legacy indices are deliberately ignored: optional tabs change their meaning.
             var stored = await JS.InvokeAsync<string?>("localStorage.getItem", StorageKey);
-            if (scope == expectedScope && AvailableTabs.Any(x => x.Id == stored))
+            if (scopeVersion == expectedVersion && AvailableTabs.Any(x => x.Id == stored))
             {
                 activeTab = stored!; visited.Add(activeTab); StateHasChanged();
             }
@@ -182,11 +185,14 @@
         }));
     }
 
-    private void OnTimelineLoaded(List<TicketTimelineEventDto> events) => counts["timeline"] =
-        string.Equals(TicketType, "changes", StringComparison.OrdinalIgnoreCase) ? events.Count : events.Count(x => !IsSystemEvent(x));
-    private void OnAttachmentsLoaded(List<AttachmentDto> attachments) => counts["attachments"] = attachments.Count;
-    private void OnListenersLoaded(int count) => counts["listeners"] = count;
-    private void OnRelationsLoaded(int count) => counts["relations"] = count;
+    private void OnTimelineLoaded(long version, List<TicketTimelineEventDto> events)
+    {
+        if (version != scopeVersion) return;
+        counts["timeline"] = string.Equals(TicketType, "changes", StringComparison.OrdinalIgnoreCase) ? events.Count : events.Count(x => !IsSystemEvent(x));
+    }
+    private void OnAttachmentsLoaded(long version, List<AttachmentDto> attachments) { if (version == scopeVersion) counts["attachments"] = attachments.Count; }
+    private void OnListenersLoaded(long version, int count) { if (version == scopeVersion) counts["listeners"] = count; }
+    private void OnRelationsLoaded(long version, int count) { if (version == scopeVersion) counts["relations"] = count; }
     private static bool IsSystemEvent(TicketTimelineEventDto e) =>
         string.Equals(e.CreatedByUserId, "system", StringComparison.OrdinalIgnoreCase) ||
         e.EventType is TimelineEventType.EmailDelivery or TimelineEventType.StatusChange or TimelineEventType.AssignmentChange or TimelineEventType.SystemNotification;

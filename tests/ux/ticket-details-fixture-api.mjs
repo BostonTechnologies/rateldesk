@@ -74,6 +74,7 @@ http.createServer(async (req, res) => {
     return reply(categories.filter(x => x.isActive && x.name.toLowerCase().includes(q.toLowerCase())).slice(0, 30));
   }
   if (/\/api\/v1\/tickets\/[^/]+\/sla\/(pause|resume)$/.test(url.pathname)) { slaActions.push(url.pathname); const pause = url.pathname.endsWith('/pause'); Object.values(tickets).forEach(ticket => { ticket.sla.status = pause ? 2 : 1; ticket.sla.pauseReason = pause ? 'Synthetic pause reason' : null; }); return reply({}); }
+  if (/\/api\/v1\/tickets\/[^/]+\/attachments$/.test(url.pathname)) { if (fault === 'hold-attachments') { fault = ''; await hold('attachments'); return reply([{ id: '79000000-0000-0000-0000-000000000099', fileName: 'Stale count.txt', sizeBytes: 1 }]); } return reply([]); }
   const match = url.pathname.match(/^\/api\/v1\/(incidents|requests|changes)(?:\/(.*))?$/);
   if (match) {
     const [, module, action] = match;

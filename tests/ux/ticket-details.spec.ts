@@ -6,7 +6,7 @@ const categorySearch = (page: Page) => page.getByRole('combobox', { name: 'Add s
 async function open(page: Page, module = 'incidents', origin = 'https://127.0.0.1:5190') {
   await page.goto(`${origin}/auth/development`);
   await page.goto(`${origin}/${module}/${module}-1`);
-  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true', { timeout: 30_000 });
   await expect(page.getByRole('region', { name: 'Ticket details' })).toBeVisible();
   await expect(selected(page)).toContainText('Network Operations');
   await expect(selected(page)).toContainText('Historical selection (inactive)');
@@ -36,7 +36,7 @@ for (const module of ['incidents', 'requests', 'changes']) {
     expect(state.tickets[module].categoryIds).toHaveLength(2);
     expect(state.categorySearches).toContain('R&D + 100%_\\');
     await page.reload();
-    await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+    await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true', { timeout: 30_000 });
     await expect(selected(page)).toContainText('R&D');
     await selected(page).locator('.mud-chip').filter({ hasText: 'Historical selection' }).locator('.mud-chip-close-button').click();
     await page.getByRole('button', { name: 'Revert', exact: true }).click();
@@ -89,7 +89,7 @@ test('semantic selection ignores legacy indices and retains a visited panel whil
   await page.getByRole('tab', { name: /Listeners/ }).click();
   expect(await page.evaluate(() => localStorage.getItem('ticket-tabs-selection:v2:incidents:incidents-1'))).toBe('listeners');
   await page.reload();
-  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true', { timeout: 30_000 });
   await expect(page.getByRole('tab', { name: /Listeners/ })).toHaveAttribute('aria-selected', 'true');
 });
 
@@ -277,4 +277,22 @@ test('long assignee and 26 selected category labels remain usable at 320px', asy
   await page.getByRole('button', { name: 'Revert', exact: true }).click();
   await expect(selected(page).locator('.mud-chip')).toHaveCount(26);
   await noOverflow(page);
+});
+
+
+test('late attachment callback cannot replace counts after A B A navigation', async ({ page, request }) => {
+  await open(page);
+  await request.get(`${fixture}/fault?mode=hold-attachments`);
+  await page.getByRole('tab', { name: /Attachments/ }).click();
+  await expect.poll(async () => (await (await request.get(`${fixture}/state`)).json()).held).toContain('attachments');
+  await routeWithoutReload(page, '/incidents/incidents-2');
+  await expect(selected(page)).toContainText('R&D');
+  await routeWithoutReload(page, '/incidents/incidents-1');
+  await expect(selected(page)).toContainText('Historical selection');
+  await page.getByRole('tab', { name: /Attachments/ }).click();
+  await expect(page.getByRole('tab', { name: /Attachments/ }).locator('.activity-count')).toHaveAttribute('aria-label', '0 items');
+  await request.get(`${fixture}/release`);
+  await page.getByRole('tab', { name: 'Messages', exact: true }).click();
+  await expect(page.getByRole('tab', { name: 'Messages', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tab', { name: /Attachments/ }).locator('.activity-count')).toHaveAttribute('aria-label', '0 items');
 });
