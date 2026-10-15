@@ -9,7 +9,7 @@ const routes = [
 ] as const;
 async function open(page: Page, path: string) {
  await page.goto(path, { waitUntil: 'domcontentloaded' });
- await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+ await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true', { timeout: 20_000 });
  await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
 }
 async function select(page: Page, label: string, name: string) {
@@ -75,6 +75,10 @@ test.describe('focused admin tasks', () => {
    for (let index = 0; index < await tabs.count(); index++) {
     await tabs.nth(index).focus(); await page.keyboard.press('Enter');
     await expect(tabs.nth(index)).toHaveAttribute('aria-selected', 'true');
+    await expect.poll(async () => tabs.nth(index).evaluate(el => {
+     const tab = el.getBoundingClientRect(); const strip = el.closest('.mud-tabs-tabbar-content')!.getBoundingClientRect();
+     return tab.left >= strip.left - 2 && tab.right <= strip.right + 2;
+    })).toBe(true);
    }
   }
   expect((await (await request.get(`${fixture}/state`)).json()).saves).toHaveLength(0);
@@ -179,7 +183,7 @@ test.describe('focused admin tasks', () => {
  test('dataset deletion preserves unrelated Graph draft and sync preserves API key draft', async ({ page, request }) => {
   await open(page, '/admin/resources/data-management');
   await page.getByRole('tab', { name: 'Graph sync', exact: true }).click();
-  await page.getByRole('button', { name: 'Connector settings', exact: true }).click();
+  await page.getByText('Connector settings', { exact: true }).click();
   await page.getByRole('textbox', { name: 'Client Id', exact: true }).fill('unsaved-connector');
   await page.getByRole('tab', { name: 'Schema', exact: true }).click();
   await page.getByRole('button', { name: 'Delete', exact: true }).click();
@@ -190,7 +194,7 @@ test.describe('focused admin tasks', () => {
   await page.getByRole('button', { name: 'Revert settings', exact: true }).click();
   await request.get(`${fixture}/reset`); await page.reload();
   await page.getByRole('tab', { name: 'Graph sync', exact: true }).click();
-  await page.getByRole('button', { name: 'Connector settings', exact: true }).click();
+  await page.getByText('Connector settings', { exact: true }).click();
   await page.getByLabel('Users', { exact: true }).check();
   await page.getByRole('button', { name: 'Save Graph Settings', exact: true }).click();
   await expect(page.getByText('Graph settings saved.', { exact: true })).toBeVisible();

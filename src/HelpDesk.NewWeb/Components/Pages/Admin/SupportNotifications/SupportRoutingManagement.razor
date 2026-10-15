@@ -77,7 +77,7 @@
         <MudProgressLinear Indeterminate="true" Class="mb-4" />
     }
 
-    <MudTabs Rounded="false" PanelClass="pt-2" KeepPanelsAlive="true">
+    <MudTabs MinimumTabWidth="128px" Rounded="false" PanelClass="pt-2" KeepPanelsAlive="true">
         <MudTabPanel Text="Routing">
             <MudStack Spacing="3">
                 <MudSelect T="string" @bind-Value="routingConcern" Disabled="editing" Label="Routing concern" Variant="Variant.Outlined" Margin="Margin.Dense">

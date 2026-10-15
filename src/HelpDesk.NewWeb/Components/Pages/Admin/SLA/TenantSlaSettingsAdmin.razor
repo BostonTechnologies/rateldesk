@@ -24,7 +24,7 @@
     else if (tenantId is null) { <MudText>Select a tenant to manage SLA settings.</MudText> }
     else
     {
-        <MudTabs @key="tenantId" KeepPanelsAlive="true" Rounded="false" Elevation="0" PanelClass="pt-2">
+        <MudTabs MinimumTabWidth="128px" @key="tenantId" KeepPanelsAlive="true" Rounded="false" Elevation="0" PanelClass="pt-2">
             <MudTabPanel Text="Policies">
                 <TenantSlaPoliciesPanel TenantId="@tenantId" Tenants="@tenants" BusyChanged="OnBusyChanged" />
             </MudTabPanel>

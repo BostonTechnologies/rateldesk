@@ -6,3 +6,7 @@
 .tenant-sla-workspace ::deep .sla-table-wrap { overflow-x: auto; max-width: 100%; }
 .tenant-sla-workspace ::deep .sla-compact-table th,
 .tenant-sla-workspace ::deep .sla-compact-table td { padding: .35rem .5rem; overflow-wrap: anywhere; }
+
+@media (max-width: 600px) {
+    .tenant-sla-workspace ::deep .mud-tab { font-size: .75rem; padding-inline: .5rem; }
+}

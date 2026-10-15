@@ -31,7 +31,7 @@
         <MudAlert Severity="Severity.Error" Dense="true" Class="mb-3">@error</MudAlert>
     }
 
-    <MudTabs ActivePanelIndex="activeTab" ActivePanelIndexChanged="ChangeTab" Rounded="false" Elevation="0" Class="role-tabs">
+    <MudTabs MinimumTabWidth="128px" ActivePanelIndex="activeTab" ActivePanelIndexChanged="ChangeTab" Rounded="false" Elevation="0" Class="role-tabs">
         <MudTabPanel Text="@($"Custom roles ({roles.Count(x => !x.IsBuiltIn)})")" />
         <MudTabPanel Text="@($"Built-in roles ({roles.Count(x => x.IsBuiltIn)})")" />
     </MudTabs>

@@ -20,6 +20,7 @@
 .role-workspace ::deep .mud-tabs { max-width: 100%; }
 
 @media (max-width: 600px) {
+    .role-workspace ::deep .role-tabs .mud-tab { font-size: .75rem; padding-inline: .5rem; }
     .role-workspace ::deep .role-toolbar { flex-direction: column !important; align-items: flex-start !important; }
     .role-workspace ::deep .role-toolbar > .mud-spacer { display: none; }
     .role-workspace ::deep .role-toolbar .mud-button-root { white-space: nowrap; }

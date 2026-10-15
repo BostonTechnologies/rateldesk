@@ -6,6 +6,7 @@
 
 .support-routing-workspace ::deep .mud-table .mud-button-root { min-width: 0; padding-inline: .5rem; }
 @media (max-width: 600px) {
+    .support-routing-workspace ::deep .mud-tab { font-size: .75rem; padding-inline: .5rem; }
     .support-routing-workspace ::deep .mud-table table { table-layout: fixed; width: 100%; }
     .support-routing-workspace ::deep .mud-table-cell { white-space: normal; overflow-wrap: anywhere; flex-wrap: wrap; gap: .35rem; }
     .support-routing-workspace ::deep .mud-table-cell .mud-stack-row { min-width: 0; }
