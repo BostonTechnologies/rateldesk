@@ -50,7 +50,7 @@ test('synthetic before and after workspace evidence', async ({ page }, info) => 
 
 test.describe('focused admin tasks', () => {
  test.skip(baseline, 'Baseline is captured as before evidence only.');
- test('every workspace tab is keyboard reachable without creating work', async ({ page, request }) => {
+ test('every workspace tab is keyboard reachable without creating work', async ({ page, request }, info) => {
   await page.setViewportSize({ width: 320, height: 900 });
   for (const [, path] of routes) {
    await open(page, path);
@@ -62,13 +62,14 @@ test.describe('focused admin tasks', () => {
      const tab = el.getBoundingClientRect(); const strip = el.closest('.mud-tabs-tabbar-content')!.getBoundingClientRect();
      return tab.left >= strip.left - 2 && tab.right <= strip.right + 2;
     })).toBe(true);
-    if (path.endsWith('/data-management') && await tabs.nth(index).innerText() === 'SCHEMA') {
+    if (path.endsWith('/data-management') && (await tabs.nth(index).innerText()).trim().toLowerCase() === 'schema') {
      await expect(page.getByRole('textbox', { name: 'Column name', exact: true }).first()).toBeVisible();
      await expect(page.getByRole('combobox', { name: 'Column data type', exact: true }).first()).toBeVisible();
      await expect(page.getByRole('checkbox', { name: 'Use as key column', exact: true }).first()).toBeVisible();
      await expect(page.getByRole('checkbox', { name: 'Use as display column', exact: true }).first()).toBeVisible();
      await expect(page.getByRole('checkbox', { name: 'Search this column', exact: true }).first()).toBeVisible();
      await expect(page.getByRole('button', { name: 'Remove column id', exact: true })).toBeVisible();
+     await page.screenshot({ path: info.outputPath('after-dataset-schema-light-320.png'), fullPage: true });
     }
    }
   }
@@ -212,7 +213,7 @@ test.describe('focused admin tasks', () => {
   await expect(page.getByRole('tab')).toHaveCount(3);
   await page.getByRole('tab', { name: 'Reporting', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Save subscription' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByRole('tabpanel', { name: 'Reporting', exact: true }).getByRole('button', { name: 'Edit', exact: true }).click();
   await page.getByRole('textbox', { name: 'Timezone', exact: true }).fill('UTC');
   await page.getByRole('tab', { name: 'Policies', exact: true }).click();
   await page.getByRole('tab', { name: 'Reporting', exact: true }).click();
