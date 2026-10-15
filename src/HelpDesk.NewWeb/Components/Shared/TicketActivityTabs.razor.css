@@ -1,45 +1,10 @@
-/* Keep full width behavior */
-.w-100 {
-    width: 100%;
-}
-
-.mud-tabs {
-    width: 100%;
-}
-
-
-/* Reduce overall tab bar height */
-:deep(.mud-tabs-toolbar) {
-    min-height: 34px;
-}
-
-
-/* Reduce individual tab height */
-:deep(.mud-tab) {
-    min-height: 34px;
-    padding-top: 3px;
-    padding-bottom: 3px;
-    /* KEEP this — prevents badge clipping */
-    overflow: visible !important;
-}
-
-
-/* Reduce tab label padding */
-:deep(.mud-tab-content) {
-    padding-top: 2px;
-    padding-bottom: 2px;
-    font-size: 0.85rem;
-}
-
-
-/* Reduce icon size slightly */
-:deep(.mud-tab .mud-icon-root) {
-    font-size: 18px;
-}
-
-
-/* Keep badge visible and slightly compact */
-:deep(.mud-tab .mud-badge-root) {
-    margin-left: 4px;
-    transform: scale(0.9);
-}
+.ticket-activity-tabs { width: 100%; min-width: 0; border: 1px solid var(--mud-palette-lines-default); border-radius: var(--mud-default-borderradius); }
+.activity-tab-strip { display: flex; max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; border-bottom: 1px solid var(--mud-palette-lines-default); }
+.activity-tab { display: inline-flex; align-items: center; flex: 0 0 auto; gap: 6px; min-height: 44px; padding: 8px 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--mud-palette-text-secondary); font: inherit; font-size: .875rem; white-space: nowrap; cursor: pointer; }
+.activity-tab.active { border-bottom-color: var(--mud-palette-primary); color: var(--mud-palette-primary); background: var(--mud-palette-action-default-hover); }
+.activity-tab:hover { background: var(--mud-palette-action-default-hover); }
+.activity-tab:focus-visible, .activity-panel:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: -3px; }
+.activity-count { display: inline-flex; justify-content: center; min-width: 24px; padding: 1px 6px; border-radius: 12px; background: var(--mud-palette-action-default-hover); color: var(--mud-palette-text-primary); font-variant-numeric: tabular-nums; font-size: .75rem; line-height: 1.5; }
+.activity-panel { padding: 16px; min-width: 0; overflow-wrap: anywhere; }
+.activity-panel[hidden] { display: none; }
+@media (max-width: 600px) { .activity-panel { padding: 12px; } }

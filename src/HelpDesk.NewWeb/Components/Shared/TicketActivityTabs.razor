@@ -1,100 +1,57 @@
 @using Helpdesk.Shared.DTOs.Attachment
 @using Helpdesk.Shared.DTOs.Worklog
 @using Helpdesk.Shared.Enums
-
+@implements IDisposable
 @inject IJSRuntime JS
 @inject IHttpClientFactory HttpClientFactory
 
-<MudTabs Elevation="0"
-         Rounded="false"
-         Border="true"
-         Class="@($"w-100 ticket-activity-tabs {Class}")"
-         TabPanelClass="pa-4"
-         Color="Color.Default"
-         ActivePanelIndex="@activePanelIndex"
-         ActivePanelIndexChanged="OnPanelChanged"
-         ApplyEffectsToContainer="false">
-
-    <MudTabPanel Text="@MessagesTabText"
-                 Icon="@Icons.Material.Filled.Email"
-                 BadgeDot="true"
-                 BadgeColor="Color.Primary">
-        @if (IsPanelActive(0) && MessagesContent is not null)
+<div class="ticket-activity-tabs @Class">
+    <div class="activity-tab-strip" role="tablist" aria-label="Ticket activity">
+        @foreach (var tab in AvailableTabs)
         {
-            @MessagesContent
+            <button @key="tab.Id" @ref="tab.Element" type="button" role="tab" id="@TabId(tab.Id)"
+                    aria-controls="@PanelId(tab.Id)" aria-selected="@((activeTab == tab.Id).ToString().ToLowerInvariant())"
+                    tabindex="@(activeTab == tab.Id ? 0 : -1)" class="activity-tab @(activeTab == tab.Id ? "active" : "")"
+                    @onclick="() => SelectTab(tab.Id)" @onkeydown="e => NavigateTabs(e, tab.Id)">
+                <MudIcon Icon="@tab.Icon" Size="Size.Small" aria-hidden="true" />
+                <span>@(tab.Id == "messages" ? MessagesTabText : tab.Label)</span>
+                @if (tab.HasCount)
+                {
+                    <span class="activity-count" aria-label="@CountLabel(tab.Id)">@CountText(tab.Id)</span>
+                }
+            </button>
         }
-        else if (IsPanelActive(0))
-        {
-            <TicketMessages TicketId="@TicketId" />
-        }
-    </MudTabPanel>
-
-    <MudTabPanel Text="Timeline"
-                 Icon="@Icons.Material.Filled.AccessTime"
-                 BadgeData="@TimelineBadge"
-                 BadgeColor="Color.Primary">
-        @if (IsPanelActive(1))
-        {
-            <TicketTimeline ReadOnly="@(!CanContribute)" TicketId="@TicketId"
-                            TicketType="@TicketType"
-                            PublicMode="@PublicMode"
-                            OnWorklogAdded="OnWorklogAdded"
-                            OnTimelineLoaded="OnTimelineLoaded" />
-        }
-    </MudTabPanel>
-
-    <MudTabPanel Text="Attachments"
-                 Icon="@Icons.Material.Filled.AttachFile"
-                 BadgeData="@AttachmentBadge"
-                 BadgeColor="Color.Info">
-        @if (IsPanelActive(2))
-        {
-            <TicketAttachments ReadOnly="@(!CanContribute)" TicketId="@TicketId"
-                               OnAttachmentsLoaded="OnAttachmentsLoaded" />
-        }
-    </MudTabPanel>
-
-    <MudTabPanel Text="Listeners"
-                 Icon="@Icons.Material.Filled.People"
-                 BadgeData="@ListenersBadge"
-                 BadgeColor="Color.Secondary">
-        @if (IsPanelActive(3))
-        {
-            <TicketListeners ReadOnly="@(!CanManage)" TicketId="@TicketId"
-                             TicketType="@TicketType"
-                             OnListenersLoaded="OnListenersLoaded" />
-        }
-    </MudTabPanel>
-
-    @if (CanManage)
+    </div>
+    @foreach (var tab in AvailableTabs.Where(x => visited.Contains(x.Id)))
     {
-    <MudTabPanel Text="AI Assistant"
-                 Icon="@Icons.Material.Filled.AutoAwesome"
-                 BadgeColor="Color.Secondary">
-        @if (IsPanelActive(4))
-        {
-            <AiAssistantChat @key="TicketId" TicketId="@TicketId" TicketType="@TicketType" />
-        }
-    </MudTabPanel>
-
-    }
-
-    @if (IsIncidentType)
-    {
-        <MudTabPanel Text="Relations"
-                     Icon="@Icons.Material.Filled.AccountTree"
-                     BadgeData="@RelationsBadge"
-                     BadgeColor="Color.Primary">
-            @if (IsPanelActive(CanManage ? 5 : 4))
+        <div @key="@(scope + tab.Id)" id="@PanelId(tab.Id)" role="tabpanel" aria-labelledby="@TabId(tab.Id)"
+             tabindex="0" hidden="@(activeTab != tab.Id)" class="activity-panel">
+            @switch (tab.Id)
             {
-                <TicketRelations ReadOnly="@(!CanManage)" TicketId="@TicketId"
-                                 TicketType="@TicketType"
-                                 OnRelationsLoaded="OnRelationsLoaded" />
+                case "messages":
+                    @if (MessagesContent is not null) { @MessagesContent }
+                    else { <TicketMessages TicketId="@TicketId" TicketType="@TicketType" /> }
+                    break;
+                case "timeline":
+                    <TicketTimeline ReadOnly="@(!CanContribute)" TicketId="@TicketId" TicketType="@TicketType"
+                                    PublicMode="@PublicMode" OnWorklogAdded="OnWorklogAdded" OnTimelineLoaded="OnTimelineLoaded" />
+                    break;
+                case "attachments":
+                    <TicketAttachments ReadOnly="@(!CanContribute)" TicketId="@TicketId" OnAttachmentsLoaded="OnAttachmentsLoaded" />
+                    break;
+                case "listeners":
+                    <TicketListeners ReadOnly="@(!CanManage)" TicketId="@TicketId" TicketType="@TicketType" OnListenersLoaded="OnListenersLoaded" />
+                    break;
+                case "ai":
+                    <AiAssistantChat TicketId="@TicketId" TicketType="@TicketType" />
+                    break;
+                case "relations":
+                    <TicketRelations ReadOnly="@(!CanManage)" TicketId="@TicketId" TicketType="@TicketType" OnRelationsLoaded="OnRelationsLoaded" />
+                    break;
             }
-        </MudTabPanel>
+        </div>
     }
-
-</MudTabs>
+</div>
 
 @code {
     [Parameter] public string TicketId { get; set; } = string.Empty;
@@ -108,134 +65,128 @@
     [Parameter] public string MessagesTabText { get; set; } = "Messages";
     [Parameter] public RenderFragment? MessagesContent { get; set; }
 
-    private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
-    private int TimelineCount;
-    private int AttachmentCount;
-    private int ListenersCount;
-    private int RelationsCount;
-    private int activePanelIndex;
-
-    private string TimelineBadge => TimelineCount.ToString();
-    private string AttachmentBadge => AttachmentCount.ToString();
-    private string ListenersBadge => ListenersCount.ToString();
-    private string RelationsBadge => RelationsCount.ToString();
-    private bool IsIncidentType => string.Equals(TicketType, "incidents", StringComparison.OrdinalIgnoreCase);
-
-    protected override async Task OnInitializedAsync()
+    private sealed class Tab(string id, string label, string icon, bool hasCount = false)
     {
-        await PreloadBadgeCountsAsync();
+        public string Id { get; } = id;
+        public string Label { get; } = label;
+        public string Icon { get; } = icon;
+        public bool HasCount { get; } = hasCount;
+        public ElementReference Element;
+    }
+    private readonly List<Tab> tabs = new()
+    {
+        new("messages", "Messages", Icons.Material.Filled.Email),
+        new("timeline", "Timeline", Icons.Material.Filled.AccessTime, true),
+        new("attachments", "Attachments", Icons.Material.Filled.AttachFile, true),
+        new("listeners", "Listeners", Icons.Material.Filled.People, true),
+        new("ai", "AI Assistant", Icons.Material.Filled.AutoAwesome),
+        new("relations", "Relations", Icons.Material.Filled.AccountTree, true)
+    };
+    private IEnumerable<Tab> AvailableTabs => tabs.Where(x => (x.Id != "ai" || CanManage && !PublicMode) && (x.Id != "relations" || IsIncidentType));
+    private readonly Dictionary<string, int?> counts = new();
+    private readonly HashSet<string> unavailableCounts = new();
+    private readonly HashSet<string> visited = new() { "messages" };
+    private readonly string instanceId = $"activity-{Guid.NewGuid():N}";
+    private string activeTab = "messages";
+    private string? scope;
+    private bool restoreSelection;
+    private CancellationTokenSource cancellation = new();
+    private bool IsIncidentType => string.Equals(TicketType, "incidents", StringComparison.OrdinalIgnoreCase);
+    private string TabId(string id) => $"{instanceId}-{id}";
+    private string PanelId(string id) => $"{instanceId}-{id}-panel";
+    private string StorageKey => $"ticket-tabs-selection:v2:{TicketType}:{TicketId}";
+    private string CountText(string id) => counts.GetValueOrDefault(id) is int count ? (count > 999 ? "999+" : count.ToString()) : unavailableCounts.Contains(id) ? "—" : "…";
+    private string CountLabel(string id) => counts.GetValueOrDefault(id) is int count ? $"{count} items" : unavailableCounts.Contains(id) ? "Count unavailable" : "Loading count";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var nextScope = $"{TicketType}:{TicketId}:{OrganizationId}:{PublicMode}";
+        if (nextScope != scope)
+        {
+            cancellation.Cancel(); cancellation.Dispose(); cancellation = new();
+            scope = nextScope;
+            activeTab = "messages";
+            visited.Clear(); visited.Add(activeTab);
+            counts.Clear(); unavailableCounts.Clear();
+            restoreSelection = true;
+            await PreloadCounts(cancellation.Token);
+        }
+        if (!AvailableTabs.Any(x => x.Id == activeTab)) activeTab = "messages";
+        visited.RemoveWhere(id => !AvailableTabs.Any(x => x.Id == id));
+        visited.Add(activeTab);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender)
-            return;
-
+        if (!restoreSelection) return;
+        restoreSelection = false;
+        var expectedScope = scope;
         try
         {
-            var stored = await JS.InvokeAsync<string?>("localStorage.getItem", GetStorageKey());
-            if (int.TryParse(stored, out var storedIndex) && storedIndex >= 0)
+            // Numeric legacy indices are deliberately ignored: optional tabs change their meaning.
+            var stored = await JS.InvokeAsync<string?>("localStorage.getItem", StorageKey);
+            if (scope == expectedScope && AvailableTabs.Any(x => x.Id == stored))
             {
-                activePanelIndex = storedIndex;
-                StateHasChanged();
+                activeTab = stored!; visited.Add(activeTab); StateHasChanged();
             }
         }
-        catch
+        catch (JSException) { }
+        catch (InvalidOperationException) { }
+    }
+
+    private async Task SelectTab(string id)
+    {
+        if (!AvailableTabs.Any(x => x.Id == id)) return;
+        activeTab = id; visited.Add(id);
+        try { await JS.InvokeVoidAsync("localStorage.setItem", StorageKey, id); }
+        catch (JSException) { }
+    }
+
+    private async Task NavigateTabs(KeyboardEventArgs e, string id)
+    {
+        var available = AvailableTabs.ToList();
+        var index = available.FindIndex(x => x.Id == id);
+        var next = e.Key switch
         {
-            // Ignore storage failures and keep default tab.
-        }
+            "ArrowRight" => (index + 1) % available.Count,
+            "ArrowLeft" => (index + available.Count - 1) % available.Count,
+            "Home" => 0,
+            "End" => available.Count - 1,
+            _ => -1
+        };
+        if (next < 0) return;
+        await SelectTab(available[next].Id);
+        await available[next].Element.FocusAsync();
     }
 
-    private async Task OnPanelChanged(int index)
+    private async Task PreloadCounts(CancellationToken token)
     {
-        activePanelIndex = index;
-
-        try
+        if (string.IsNullOrEmpty(TicketId)) return;
+        var api = HttpClientFactory.CreateClient("HelpdeskApi");
+        var type = Uri.EscapeDataString(TicketType);
+        var id = Uri.EscapeDataString(TicketId);
+        await Task.WhenAll(AvailableTabs.Where(x => x.HasCount).Select(async tab =>
         {
-            await JS.InvokeVoidAsync("localStorage.setItem", GetStorageKey(), index.ToString());
-        }
-        catch
-        {
-            // Ignore storage failures.
-        }
+            try
+            {
+                var count = tab.Id == "relations"
+                    ? (await api.GetFromJsonAsync<List<TicketRelationDto>>($"api/v1/incidents/{id}/relations", token))?.Count ?? 0
+                    : await api.GetFromJsonAsync<int>($"api/v1/{type}/{id}/{tab.Id}/count", token);
+                if (!token.IsCancellationRequested) counts[tab.Id] = count;
+            }
+            catch (OperationCanceledException) { }
+            catch (HttpRequestException) { if (!token.IsCancellationRequested) unavailableCounts.Add(tab.Id); }
+            catch (System.Text.Json.JsonException) { if (!token.IsCancellationRequested) unavailableCounts.Add(tab.Id); }
+        }));
     }
 
-    private string GetStorageKey() => $"ticket-tabs-index:{TicketType}:{TicketId}";
-
-    private bool IsPanelActive(int index) => activePanelIndex == index;
-
-    private async Task PreloadBadgeCountsAsync()
-    {
-        try
-        {
-            if (string.IsNullOrWhiteSpace(TicketId))
-                return;
-
-            var timelineTask =
-                HelpdeskApi.GetFromJsonAsync<int>(
-                    $"api/v1/{TicketType}/{TicketId}/timeline/count");
-
-            var attachmentTask =
-                HelpdeskApi.GetFromJsonAsync<int>(
-                    $"api/v1/{TicketType}/{TicketId}/attachments/count");
-
-            var listenersTask =
-                HelpdeskApi.GetFromJsonAsync<int>(
-                    $"api/v1/{TicketType}/{TicketId}/listeners/count");
-
-            var relationsTask = IsIncidentType
-                ? HelpdeskApi.GetFromJsonAsync<List<TicketRelationDto>>($"api/v1/incidents/{TicketId}/relations")
-                : Task.FromResult<List<TicketRelationDto>?>(new());
-
-            await Task.WhenAll(timelineTask, attachmentTask, listenersTask, relationsTask);
-
-            TimelineCount = timelineTask.Result;
-            AttachmentCount = attachmentTask.Result;
-            ListenersCount = listenersTask.Result;
-            RelationsCount = relationsTask.Result?.Count ?? 0;
-
-            StateHasChanged();
-        }
-        catch
-        {
-            // Ignore failures to avoid breaking UI
-        }
-    }
-
-    private void OnTimelineLoaded(List<TicketTimelineEventDto> events)
-    {
-        TimelineCount = string.Equals(TicketType, "changes", StringComparison.OrdinalIgnoreCase)
-            ? events.Count
-            : events.Count(x => !IsSystemEvent(x));
-        StateHasChanged();
-    }
-
-    private void OnAttachmentsLoaded(List<AttachmentDto> attachments)
-    {
-        AttachmentCount = attachments.Count;
-        StateHasChanged();
-    }
-
-    private void OnListenersLoaded(int count)
-    {
-        ListenersCount = count;
-        StateHasChanged();
-    }
-
-    private void OnRelationsLoaded(int count)
-    {
-        RelationsCount = count;
-        StateHasChanged();
-    }
-
-    private static bool IsSystemEvent(TicketTimelineEventDto e)
-    {
-        if (string.Equals(e.CreatedByUserId, "system", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        return e.EventType is TimelineEventType.EmailDelivery
-            or TimelineEventType.StatusChange
-            or TimelineEventType.AssignmentChange
-            or TimelineEventType.SystemNotification;
-    }
+    private void OnTimelineLoaded(List<TicketTimelineEventDto> events) => counts["timeline"] =
+        string.Equals(TicketType, "changes", StringComparison.OrdinalIgnoreCase) ? events.Count : events.Count(x => !IsSystemEvent(x));
+    private void OnAttachmentsLoaded(List<AttachmentDto> attachments) => counts["attachments"] = attachments.Count;
+    private void OnListenersLoaded(int count) => counts["listeners"] = count;
+    private void OnRelationsLoaded(int count) => counts["relations"] = count;
+    private static bool IsSystemEvent(TicketTimelineEventDto e) =>
+        string.Equals(e.CreatedByUserId, "system", StringComparison.OrdinalIgnoreCase) ||
+        e.EventType is TimelineEventType.EmailDelivery or TimelineEventType.StatusChange or TimelineEventType.AssignmentChange or TimelineEventType.SystemNotification;
+    public void Dispose() { cancellation.Cancel(); cancellation.Dispose(); }
 }
