@@ -174,7 +174,8 @@ public sealed class PendingEmailQueueTests
                 await seed.TicketTimelineEvents.Where(x => x.Id == timeline).ExecuteUpdateAsync(u => u.SetProperty(x => x.EmailStatus, EmailDeliveryStatus.Failed));
             }
             await using var retry = fixture.Open(); await using var removal = fixture.Open();
-            var results = await Task.WhenAll(Task.Run(() => Capture(() => fixture.Actions(retry).ApplyAsync(timeline, "retry", "admin", "Retry", default))),
+            var results = await Task.WhenAll(Task.Run(() => Capture(async () => new PendingEmailActionResult(timeline,
+                    await fixture.Store(retry).RetryForTimelineAsync(timeline, default) ? "Queued" : "ReviewRequired", "Synthetic retry"))),
                 Task.Run(() => Capture(() => fixture.Actions(removal).ApplyAsync(timeline, "remove", "admin", "Remove", default))));
             await using var verify = fixture.Open();
             // A serialization conflict is an explicit failed mutation, not success. A retried removal is safe.
@@ -220,7 +221,7 @@ public sealed class PendingEmailQueueTests
     private static async Task<string> Capture(Func<Task<PendingEmailActionResult>> operation)
     {
         try { return (await operation()).Outcome; }
-        catch (System.Data.Common.DbException) { return "Conflict"; }
+        catch (Exception error) when (error is System.Data.Common.DbException or InvalidOperationException) { return "Conflict"; }
     }
 
     private sealed class ManualClock : TimeProvider

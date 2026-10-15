@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Helpdesk.Application.Services.Email;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.DTOs.Email;
 using Helpdesk.Shared.Enums;
@@ -17,11 +18,20 @@ public sealed class PendingEmailActions(HelpdeskDbContext db, MailboxOutboxStore
         {
             try
             {
+                var owner = await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleOrDefaultAsync(x => x.DeliveryEventId == id, ct);
+                if (owner is null) return new(id, "ReviewRequired", "Legacy delivery requires individual sender review.");
+                var email = JsonSerializer.Deserialize<IngressEmailEffect>(owner.Payload);
+                if (email?.MailboxId is null || email.MailboxConfigurationVersion is null || email.OutgoingConfigurationVersion is null)
+                    return new(id, "ReviewRequired", "Sender binding requires individual review.");
+                var sender = await new MailboxSenderResolver(db).ResolveAsync(email.TicketId, email.OrganizationId, ct);
+                if (sender.Status != "Ready" || sender.Mailbox?.Id != email.MailboxId ||
+                    sender.Mailbox.Version != email.MailboxConfigurationVersion || sender.Outgoing?.Version != email.OutgoingConfigurationVersion)
+                    return new(id, "ReviewRequired", "Sender route or revision changed. Review the current sender before retrying.");
                 return await store.RetryForTimelineAsync(id, ct, actor, reason)
                     ? new(id, "Queued", "Delivery queued using its existing sender binding.")
                     : new(id, "ReviewRequired", "Legacy delivery requires individual sender review.");
             }
-            catch (InvalidOperationException)
+            catch (Exception error) when (error is InvalidOperationException or JsonException)
             {
                 return new(id, "ReviewRequired", "State changed or sender, recipient or outcome review is required. Open delivery details.");
             }

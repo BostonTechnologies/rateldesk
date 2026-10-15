@@ -78,7 +78,8 @@ public sealed class PendingEmailQueryService(HelpdeskDbContext db)
                 RetryCount = x.Delivery.RetryCount, MessageText = x.Delivery.MessageText,
                 DeliveryErrorCode = x.Effect?.LastErrorCode ?? x.Delivery.RetryError,
                 Sender = x.Mailbox?.MailboxAddress, QueueState = x.Effect?.State.ToString() ?? "Legacy",
-                IsRetryable = x.Delivery.IsRetryable && (x.Effect is null || x.Effect.State is MailboxEffectState.Exhausted or MailboxEffectState.NeedsReview),
+                IsRetryable = x.Delivery.IsRetryable && (x.Effect is null || x.Effect.State is MailboxEffectState.Exhausted or MailboxEffectState.NeedsReview) &&
+                    x.Effect?.LastErrorCode is not ("SenderRouteChanged" or "DispatchOutcomeUnknown" or "SubmissionOutcomeUnknown" or "SmtpPartialRecipientAcceptance"),
                 CanCancel = PendingEmailActions.CanCancel(x.Effect, x.Delivery.EmailStatus, x.Delivery.RetryError) && x.Delivery.EmailStatus != EmailDeliveryStatus.Cancelled,
                 CanRemove = x.Effect is null ? x.Delivery.EmailStatus != EmailDeliveryStatus.Pending :
                     x.Effect.State != MailboxEffectState.Submitting && (x.Effect.State != MailboxEffectState.InFlight ||
