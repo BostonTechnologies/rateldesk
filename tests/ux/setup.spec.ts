@@ -182,7 +182,7 @@ test('first-run setup initializes, survives restart, and supports isolated scope
   await permissions.click();
   await page.getByRole('button', { name: 'Review credential', exact: true }).click();
   await expect(page.getByText('Review before creating', { exact: true })).toBeVisible();
-  await expect(page.getByText('The secret is displayed once.')).toBeVisible();
+  await expect(page.getByText("Credentials use your account's permissions. Each new secret is displayed once.", { exact: true })).toBeVisible();
   await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
 
   const headers = { 'X-Requested-With': 'XMLHttpRequest' };
