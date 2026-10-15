@@ -64,6 +64,22 @@ public sealed class AssigneeSearchEndpointsTests
     }
 
     [Fact]
+    public async Task Normal_request_list_includes_human_and_AI_provenance_and_legacy_filter_remains_explicit()
+    {
+        await using var h = await Harness.Create();
+        await h.WithDb(async db => {
+            db.Requests.AddRange(
+                new TicketRequest { Id = "human-origin", Title = "Same synthetic request", OrganizationId = "org", TrackingId = "REQ-HUMAN" },
+                new TicketRequest { Id = "ai-origin", Title = "Same synthetic request", OrganizationId = "org", TrackingId = "REQ-AI", SourceAutomationBindingId = "synthetic-binding" });
+            await db.SaveChangesAsync();
+        });
+        var normal = await h.Client.GetFromJsonAsync<Helpdesk.Shared.DTOs.PagedResponse<Helpdesk.Shared.DTOs.Request.RequestDto>>("/api/v1/requests?q=Same%20synthetic&summaryOnly=true");
+        Assert.Equal(new[] { "ai-origin", "human-origin" }, normal!.Items.Select(x => x.Id).Order());
+        var legacy = await h.Client.GetFromJsonAsync<Helpdesk.Shared.DTOs.PagedResponse<Helpdesk.Shared.DTOs.Request.RequestDto>>("/api/v1/requests?q=Same%20synthetic&summaryOnly=true&aiOnly=true");
+        Assert.Equal("ai-origin", Assert.Single(legacy!.Items).Id);
+    }
+
+    [Fact]
     public async Task Incident_candidates_and_saves_require_enabled_coverage_even_for_external_technicians()
     {
         await using var h = await Harness.Create();

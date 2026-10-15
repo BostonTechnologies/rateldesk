@@ -1,5 +1,6 @@
 # Contracts
 
+- [Ticket list queries](ticket-list-queries.md)
 - [System pairing protocol v1](bostec-pairing.v1.md)
 - [RatelDesk incident-create v1](rateldesk-incident-create.v1.md),
   [schema](rateldesk-incident-create.v1.json),

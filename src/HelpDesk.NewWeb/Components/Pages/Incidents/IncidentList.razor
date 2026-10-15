@@ -40,11 +40,6 @@
                       OnKeyUp="@(async _ => await DebouncedReload())"
                       Class="helpdesk-list-search" />
 
-        <MudCheckBox T="bool"
-                     @bind-Value="aiInvolvedOnly"
-                     Color="Color.Primary">
-            AI involved only
-        </MudCheckBox>
     </div>
 
     <TicketTable TTicket="IncidentDto"
@@ -113,7 +108,6 @@
     private string? search;
     private CancellationTokenSource? _debounceCts;
     private HashSet<IncidentDto> _selected = new();
-    private bool aiInvolvedOnly;
     private bool historicOnly;
     private string? appliedQuerySearch;
     private IReadOnlyList<TicketTable<IncidentDto>.BulkActionOption> AvailableBulkActions =>
@@ -150,8 +144,6 @@
         else if (ActiveOnly)
             url += "&activeOnly=true";
 
-        if (aiInvolvedOnly)
-            url += "&aiInvolved=true";
 
         if (!string.IsNullOrWhiteSpace(search))
             url += $"&q={Uri.EscapeDataString(search)}";

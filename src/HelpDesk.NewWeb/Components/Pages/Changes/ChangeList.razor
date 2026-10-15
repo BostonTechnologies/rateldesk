@@ -43,11 +43,6 @@
                       OnKeyUp="@(async _ => await DebouncedReload())"
                       Class="helpdesk-list-search" />
 
-        <MudCheckBox T="bool"
-                     @bind-Value="aiInvolvedOnly"
-                     Color="Color.Primary">
-            AI involved only
-        </MudCheckBox>
     </div>
 
     <TicketTable TTicket="ChangeDto"
@@ -103,7 +98,6 @@
     private string? search;
     private CancellationTokenSource? _debounceCts;
     private HashSet<ChangeDto> _selected = new();
-    private bool aiInvolvedOnly;
     private bool historicOnly;
     private string? appliedQuerySearch;
 
@@ -123,10 +117,6 @@
         var pageSize = state.PageSize <= 0 ? 10 : state.PageSize;
         var url = $"api/v1/changes?page={page}&pageSize={pageSize}";
 
-        if (aiInvolvedOnly)
-        {
-            url += "&aiInvolved=true";
-        }
 
         if (ActiveOnly)
         {
