@@ -9,6 +9,12 @@ namespace Helpdesk.API.Endpoints.Ticketing;
 
 internal static class TicketFilterEndpoints
 {
+    private sealed class FilterOption
+    {
+        public required string Id { get; init; }
+        public required string Label { get; init; }
+    }
+
     internal static void MapTicketFilterEndpoints(this RouteGroupBuilder group)
     {
         group.MapGet("/filter-options", async (string module, string dimension, string? q, int? take,
@@ -28,13 +34,13 @@ internal static class TicketFilterEndpoints
             if (selectedIds.Length > 20 || selectedIds.Any(id => string.IsNullOrWhiteSpace(id) || id.Length > 200)) return Results.BadRequest();
             if (selectedOrganizations.Length > 0) tickets = tickets.Where(ticket => selectedOrganizations.Contains(ticket.OrganizationId));
             var organizationIds = tickets.Select(ticket => ticket.OrganizationId).Distinct();
-            IQueryable<TicketFilterOptionDto> options;
+            IQueryable<FilterOption> options;
             if (dimension == "customer")
-                options = db.Organizations.AsNoTracking().Where(organization => organizationIds.Contains(organization.Id)).Select(organization => new TicketFilterOptionDto(organization.Id, organization.Name));
+                options = db.Organizations.AsNoTracking().Where(organization => organizationIds.Contains(organization.Id)).Select(organization => new FilterOption { Id = organization.Id, Label = organization.Name });
             else if (dimension == "for" && module != "change")
             {
                 var ids = tickets.Select(ticket => ticket.CustomerId);
-                options = db.Customers.AsNoTracking().Where(customer => ids.Contains(customer.Id)).Select(customer => new TicketFilterOptionDto(customer.Id, customer.Name + " (" + customer.Email + ")"));
+                options = db.Customers.AsNoTracking().Where(customer => ids.Contains(customer.Id)).Select(customer => new FilterOption { Id = customer.Id, Label = customer.Name + " (" + customer.Email + ")" });
             }
             else
             {
@@ -63,7 +69,7 @@ internal static class TicketFilterEndpoints
                 }
                 if (selectedIds.Length > 0) users = users.Where(candidate => selectedIds.Contains(candidate.Id));
                 users = AssigneeQueries.Search(db, users, q);
-                options = users.Select(candidate => new TicketFilterOptionDto(candidate.Id, candidate.Name + " (" + candidate.Email + ")"));
+                options = users.Select(candidate => new FilterOption { Id = candidate.Id, Label = candidate.Name + " (" + candidate.Email + ")" });
             }
             if (dimension == "customer" || (dimension == "for" && module != "change"))
             {
@@ -74,7 +80,8 @@ internal static class TicketFilterEndpoints
             }
             if (selectedIds.Length > 0) options = options.Where(option => selectedIds.Contains(option.Id));
             var limit = Math.Clamp(take ?? 20, 1, 50);
-            var items = await options.OrderBy(option => option.Label).ThenBy(option => option.Id).Take(limit + 1).ToListAsync(token);
+            var items = await options.OrderBy(option => option.Label).ThenBy(option => option.Id).Take(limit + 1)
+                .Select(option => new TicketFilterOptionDto(option.Id, option.Label)).ToListAsync(token);
             var hasMore = items.Count > limit;
             if (hasMore) items.RemoveAt(limit);
             return Results.Ok(new TicketFilterOptionsDto(items, hasMore));
