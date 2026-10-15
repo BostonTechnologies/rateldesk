@@ -276,7 +276,7 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
         }
         if (actor is not null)
         {
-            db.ActivityLogs.Add(new ActivityLog { UserId = actor, RelatedEntityId = timelineId.ToString("D"),
+            db.ActivityLogs.Add(new ActivityLog { TicketId = email.TicketId, UserId = actor, RelatedEntityId = timelineId.ToString("D"),
                 Timestamp = timeProvider.GetUtcNow().UtcDateTime,
                 Message = $"Email queue retry. TimelineId={timelineId:D}; Fence={row.Fence}; Reason={reason ?? "Manual retry"}; existing sender binding retained." });
             await db.SaveChangesAsync(ct);
