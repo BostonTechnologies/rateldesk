@@ -1,4 +1,4 @@
-import { chromium, expect, test } from '@playwright/test';
+import { chromium, expect, test, type Page } from '@playwright/test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -12,6 +12,21 @@ const routes: Record<string, string[]> = {
   'pending-mail': ['/admin/pending-emails']
 };
 const ports: Record<string, number> = { admin: 18500, details: 18600, email: 18304, 'ticket-filters': 18330, operations: 18400, 'pending-mail': 18700 };
+async function settleFiniteAnimations(page: Page) {
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  });
+  // CDP capture does not perform Playwright's animation settlement. Await real
+  // finite transitions (including preview opacity), without disabling them or
+  // waiting forever for an intentionally looping loading indicator.
+  await expect.poll(() => page.evaluate(() => document.getAnimations().filter(animation =>
+    animation.playState !== 'finished' && animation.playState !== 'idle' &&
+    Number.isFinite(animation.effect?.getComputedTiming().endTime)
+  ).length)).toBe(0);
+  await page.evaluate(() => new Promise<void>(resolve =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+}
 for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
   test(`${suite} ${theme} native browser zoom 200 percent at ${width}px`, async ({ baseURL, request }, info) => {
     await request.get(`http://127.0.0.1:${ports[suite]}/fixture/reset`);
@@ -40,6 +55,12 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
         expect(zoom).toBe(2);
         // This verifies browser layout zoom, not CSS zoom or deviceScaleFactor.
         await expect.poll(() => page.evaluate(() => innerWidth)).toBe(width / 2);
+        // Both native test widths become narrower than the shell's Lg drawer
+        // breakpoint after zoom. Wait for the real responsive close operation,
+        // rather than capturing or interacting through a half-translated drawer.
+        const drawer = page.getByTestId('app-navigation-drawer');
+        await expect.poll(() => drawer.evaluate(element => element.getBoundingClientRect().right)).toBeLessThanOrEqual(1);
+        await settleFiniteAnimations(page);
         await expect(page.locator('html')).toHaveAttribute('data-helpdesk-theme', theme);
         await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
         const tabs = page.getByRole('tab');
@@ -65,6 +86,8 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
         // half at 200%. Capture the physical viewport without a clip instead.
         await page.evaluate(() => scrollTo(0, 0));
         await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
+        await settleFiniteAnimations(page);
+        await expect.poll(() => drawer.evaluate(element => element.getBoundingClientRect().right)).toBeLessThanOrEqual(1);
         const cdp = await context.newCDPSession(page);
         let screenshot: Buffer;
         try {
