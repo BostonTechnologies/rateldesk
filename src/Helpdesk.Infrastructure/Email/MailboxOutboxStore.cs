@@ -16,6 +16,9 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
     public async Task<MailboxOutboxEffect> QueueDirectAsync(IngressEmailEffect email, CancellationToken ct)
     {
         if (context.IsActive) throw new InvalidOperationException("Ingress mail must use its receipt transaction.");
+        if (email.TimelineDeliveryId is { } existingId && await db.TicketTimelineEvents.AsNoTracking()
+            .AnyAsync(x => x.Id == existingId && (x.EmailStatus == EmailDeliveryStatus.Cancelled || x.EmailStatus == EmailDeliveryStatus.Removed), ct))
+            throw new InvalidOperationException("Cancelled or removed delivery cannot be queued again.");
         var now = timeProvider.GetUtcNow();
         var row = new MailboxOutboxEffect
         {
@@ -89,7 +92,7 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
         var limit = Math.Clamp(count, 1, 64);
         var due = db.Set<MailboxOutboxEffect>().AsNoTracking()
             .Where(x => (x.State == MailboxEffectState.Pending && x.AvailableUnixMilliseconds <= now)
-                || (x.State == MailboxEffectState.InFlight && x.LeaseExpiresUnixMilliseconds <= now));
+                || ((x.State == MailboxEffectState.InFlight || x.State == MailboxEffectState.Submitting) && x.LeaseExpiresUnixMilliseconds <= now));
         var other = await due.Where(x => x.Kind != MailboxEffectKind.Email)
             .OrderBy(x => x.AvailableUnixMilliseconds).ThenBy(x => x.EffectKey)
             .Take(Math.Min(4, limit)).Select(x => x.Id).ToListAsync(ct);
@@ -116,9 +119,9 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
     {
         var now = timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
         var row = await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
-        if (row is null || row.State is MailboxEffectState.Completed or MailboxEffectState.Exhausted or MailboxEffectState.NeedsReview)
+        if (row is null || row.State is MailboxEffectState.Completed or MailboxEffectState.Exhausted or MailboxEffectState.NeedsReview or MailboxEffectState.Cancelled or MailboxEffectState.Removed)
             return null;
-        if (row.Kind == MailboxEffectKind.Email && row.State == MailboxEffectState.InFlight &&
+        if (row.Kind == MailboxEffectKind.Email && row.State is (MailboxEffectState.InFlight or MailboxEffectState.Submitting) &&
             row.LeaseExpiresUnixMilliseconds <= now)
         {
             await HoldExpiredEmailAsync(row, now, ct);
@@ -129,12 +132,14 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
             await ExhaustExpiredAsync(row, now, ct);
             return null;
         }
+        // Older workers have no submission gate. Their unexpired claims must remain non-cancellable.
+        if (row.Kind == MailboxEffectKind.Email) owner = "pre-submit:" + owner;
         var nextFence = checked(row.Fence + 1);
         var expires = checked(now + (long)ClaimDuration.TotalMilliseconds);
         var changed = await db.Set<MailboxOutboxEffect>()
             .Where(x => x.Id == id && x.Fence == row.Fence && x.Attempts < MaximumAttempts
                 && ((x.State == MailboxEffectState.Pending && x.AvailableUnixMilliseconds <= now)
-                    || (x.State == MailboxEffectState.InFlight && x.LeaseExpiresUnixMilliseconds <= now)))
+                    || ((x.State == MailboxEffectState.InFlight || x.State == MailboxEffectState.Submitting) && x.LeaseExpiresUnixMilliseconds <= now)))
             .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.Owner, owner)
                 .SetProperty(x => x.Fence, nextFence).SetProperty(x => x.State, MailboxEffectState.InFlight)
                 .SetProperty(x => x.Attempts, x => x.Attempts + 1)
@@ -147,6 +152,17 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
         row.Attempts++;
         row.LeaseExpiresUnixMilliseconds = expires;
         return row;
+    }
+
+    /// <summary>Linearization point before transport submission. Cancellation and this CAS have one winner.</summary>
+    public async Task<bool> TryBeginSubmissionAsync(MailboxOutboxEffect claim, CancellationToken ct)
+    {
+        var now = timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
+        return await db.Set<MailboxOutboxEffect>()
+            .Where(x => x.Id == claim.Id && x.Kind == MailboxEffectKind.Email &&
+                x.State == MailboxEffectState.InFlight && x.Owner == claim.Owner && x.Fence == claim.Fence &&
+                x.LeaseExpiresUnixMilliseconds > now)
+            .ExecuteUpdateAsync(update => update.SetProperty(x => x.State, MailboxEffectState.Submitting), ct) == 1;
     }
 
     public Task<bool> CompleteAsync(MailboxOutboxEffect claim, bool succeeded, string? errorCode, CancellationToken ct) =>
@@ -173,7 +189,7 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var changed = await db.Set<MailboxOutboxEffect>()
             .Where(x => x.Id == claim.Id && x.Owner == claim.Owner && x.Fence == claim.Fence
-                && x.State == MailboxEffectState.InFlight && x.LeaseExpiresUnixMilliseconds > milliseconds)
+                && (x.State == MailboxEffectState.InFlight || x.State == MailboxEffectState.Submitting) && x.LeaseExpiresUnixMilliseconds > milliseconds)
             .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.State, state)
                 .SetProperty(x => x.Owner, (string?)null).SetProperty(x => x.LeaseExpiresUnixMilliseconds, 0L)
                 .SetProperty(x => x.AvailableUnixMilliseconds, nextAttempt)
@@ -187,7 +203,7 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
         return true;
     }
 
-    public async Task<bool> RetryForTimelineAsync(Guid timelineId, CancellationToken ct)
+    public async Task<bool> RetryForTimelineAsync(Guid timelineId, CancellationToken ct, string? actor = null, string? reason = null)
     {
         var row = await db.Set<MailboxOutboxEffect>().AsNoTracking().SingleOrDefaultAsync(x => x.DeliveryEventId == timelineId, ct);
         if (row is null)
@@ -258,6 +274,13 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
             if (supportChanged != 1)
                 throw new InvalidOperationException("Support notification changed during retry; refresh before trying again.");
         }
+        if (actor is not null)
+        {
+            db.ActivityLogs.Add(new ActivityLog { UserId = actor, RelatedEntityId = timelineId.ToString("D"),
+                Timestamp = timeProvider.GetUtcNow().UtcDateTime,
+                Message = $"Email queue retry. TimelineId={timelineId:D}; Fence={row.Fence}; Reason={reason ?? "Manual retry"}; existing sender binding retained." });
+            await db.SaveChangesAsync(ct);
+        }
         await transaction.CommitAsync(ct);
         return true;
     }
@@ -267,7 +290,7 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var changed = await db.Set<MailboxOutboxEffect>()
             .Where(x => x.Id == row.Id && x.Fence == row.Fence && x.Attempts >= MaximumAttempts
-                && ((x.State == MailboxEffectState.InFlight && x.LeaseExpiresUnixMilliseconds <= now)
+                && (((x.State == MailboxEffectState.InFlight || x.State == MailboxEffectState.Submitting) && x.LeaseExpiresUnixMilliseconds <= now)
                     || x.State == MailboxEffectState.Pending))
             .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.State, MailboxEffectState.Exhausted)
                 .SetProperty(x => x.Owner, (string?)null).SetProperty(x => x.LastErrorCode, "DispatchOutcomeUnknown"), ct);
@@ -285,7 +308,7 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var changed = await db.Set<MailboxOutboxEffect>()
             .Where(x => x.Id == row.Id && x.Kind == MailboxEffectKind.Email &&
-                x.State == MailboxEffectState.InFlight && x.Fence == row.Fence && x.Owner == row.Owner &&
+                (x.State == MailboxEffectState.InFlight || x.State == MailboxEffectState.Submitting) && x.Fence == row.Fence && x.Owner == row.Owner &&
                 x.LeaseExpiresUnixMilliseconds <= now)
             .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.State, MailboxEffectState.NeedsReview)
                 .SetProperty(x => x.Owner, (string?)null)

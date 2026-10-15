@@ -21,7 +21,8 @@ public sealed class GraphMailboxSender
     public async Task<MailboxSubmissionResult> SendAsync(EmailInboxSettings mailbox,
         MailboxOutgoingSettings outgoing, IEnumerable<string> recipients, IEnumerable<string>? cc,
         string subject, string html, IEnumerable<EmailAttachmentData>? attachments,
-        CancellationToken ct, IEnumerable<string>? bcc = null)
+        CancellationToken ct, IEnumerable<string>? bcc = null,
+        Func<CancellationToken, Task<bool>>? beginSubmission = null)
     {
         if (!outgoing.Enabled || mailbox.Archived)
             return new("Needs configuration", "OutgoingDisabled");
@@ -71,6 +72,8 @@ public sealed class GraphMailboxSender
             var graph = clientFactory(mailbox);
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(TimeSpan.FromSeconds(30));
+            if (beginSubmission is not null && !await beginSubmission(timeout.Token))
+                return new("Needs review", "DeliveryFenceChanged");
             await graph.Users[mailbox.MailboxAddress].SendMail.PostAsync(
                 new Microsoft.Graph.Users.Item.SendMail.SendMailPostRequestBody
                     { Message = message, SaveToSentItems = true }, cancellationToken: timeout.Token);

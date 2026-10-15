@@ -25,6 +25,21 @@ namespace Helpdesk.Tests.Infrastructure.Email;
 public sealed class SmtpMailboxSenderTests
 {
     [Fact]
+    public async Task Cancellation_gate_runs_after_SMTP_authentication_and_prevents_message_submission()
+    {
+        await using var server = new SmtpFixture();
+        var (sender, mailbox, outgoing) = CreateSender(server.Port);
+        var gates = 0;
+        var result = await sender.SendAsync(mailbox, outgoing, ["recipient@example.test"], [], "Synthetic", "<p>Body</p>", [], Guid.NewGuid(), default,
+            beginSubmission: _ => { gates++; return Task.FromResult(false); });
+        await server.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, gates); Assert.Equal("DeliveryFenceChanged", result.ErrorCode);
+        Assert.Contains(server.Commands, x => x.StartsWith("AUTH", StringComparison.Ordinal));
+        Assert.DoesNotContain(server.Commands, x => x.StartsWith("MAIL FROM", StringComparison.Ordinal));
+        Assert.DoesNotContain("DATA", server.Commands); Assert.Empty(server.Message);
+    }
+
+    [Fact]
     public async Task Approved_route_then_repaired_global_sender_submits_original_delivery_once()
     {
         await using var rejecting = new SmtpFixture(authStatus: 535);

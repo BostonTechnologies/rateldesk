@@ -8,6 +8,8 @@ using Helpdesk.API.Endpoints.Timeline;
 using Helpdesk.Application.Timeline;
 using Helpdesk.Application.Services.Email;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Email;
+using Helpdesk.Shared.DTOs.Email;
 using Helpdesk.Shared.DTOs.Worklog;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.Enums;
@@ -35,6 +37,11 @@ public sealed class TimelineEndpointsAuthorizationTests
         await using var harness = await TimelineEndpointsHarness.CreateAsync();
 
         var pendingCount = await harness.Client.GetAsync("/api/v1/timeline/pending-count");
+        var pending = await harness.Client.GetAsync("/api/v1/timeline/pending?organizationId=another-organization");
+        var action = await harness.Client.PostAsJsonAsync("/api/v1/timeline/pending/actions",
+            new PendingEmailActionRequest([Guid.NewGuid()], "cancel", "Cross scope attempt", true));
+        Assert.Equal(HttpStatusCode.Forbidden, pending.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, action.StatusCode);
         var failed = await harness.Client.GetAsync("/api/v1/timeline/failed");
         var retryAll = await harness.Client.PostAsync("/api/v1/timeline/retry-all", null);
         var retryOne = await harness.Client.PostAsync($"/api/v1/timeline/{Guid.NewGuid()}/retry", null);
@@ -122,6 +129,31 @@ public sealed class TimelineEndpointsAuthorizationTests
         Assert.Equal("Support notification already sent", result.DeliveryReviewReason);
     }
 
+    [Fact]
+    public async Task Administrator_bulk_action_returns_each_target_outcome_and_requires_explicit_bounded_confirmation()
+    {
+        await using var harness = await TimelineEndpointsHarness.CreateAsync();
+        harness.Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "admin-user");
+        var ready = new TicketTimelineEvent { TicketId = "ticket-a", EventType = TimelineEventType.EmailDelivery,
+            EmailStatus = EmailDeliveryStatus.Pending, EmailRecipient = "recipient@example.test" };
+        var unknown = new TicketTimelineEvent { TicketId = "ticket-a", EventType = TimelineEventType.EmailDelivery,
+            EmailStatus = EmailDeliveryStatus.Failed, EmailRecipient = "recipient@example.test" };
+        await harness.SeedAsync(ready, new() { DeliveryEventId = ready.Id, Kind = MailboxEffectKind.Email, EffectKey = "ready", Payload = "{}" });
+        await harness.SeedAsync(unknown, new() { DeliveryEventId = unknown.Id, Kind = MailboxEffectKind.Email, EffectKey = "unknown", Payload = "{}",
+            State = MailboxEffectState.NeedsReview, LastErrorCode = "SubmissionOutcomeUnknown" });
+        await harness.SeedTicketAsync();
+        var request = new PendingEmailActionRequest([ready.Id, unknown.Id, Guid.NewGuid()], "cancel", "Synthetic maintenance", true);
+        var response = await harness.Client.PostAsJsonAsync("/api/v1/timeline/pending/actions", request);
+        Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+        var result = (await response.Content.ReadFromJsonAsync<PendingEmailActionResponse>())!;
+        Assert.Equal(["Cancelled", "ReviewRequired", "Unavailable"], result.Results.Select(x => x.Outcome));
+        Assert.Equal(HttpStatusCode.BadRequest, (await harness.Client.PostAsJsonAsync("/api/v1/timeline/pending/actions", request with { Confirmed = false })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await harness.Client.PostAsJsonAsync("/api/v1/timeline/pending/actions", request with { Ids = Enumerable.Range(0, 101).Select(_ => Guid.NewGuid()).ToArray() })).StatusCode);
+        var page = await harness.Client.GetFromJsonAsync<PendingEmailPage>("/api/v1/timeline/pending?page=0&pageSize=25&descending=true&sort=created");
+        Assert.Equal(1, page!.Total);
+        Assert.Equal("INC-SYNTHETIC", Assert.Single(page.Items).TrackingId);
+    }
+
     private sealed class TimelineEndpointsHarness : IAsyncDisposable
     {
         private readonly WebApplication _app;
@@ -142,6 +174,10 @@ public sealed class TimelineEndpointsAuthorizationTests
             await connection.OpenAsync();
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
             builder.WebHost.UseTestServer();
+            builder.Services.AddSingleton(TimeProvider.System);
+            builder.Services.AddScoped<IIngressEffectContext, IngressEffectContext>();
+            builder.Services.AddScoped<MailboxOutboxStore>();
+            builder.Services.AddScoped<PendingEmailActions>();
             builder.Services.AddSingleton<ITimelineService>(Substitute.For<ITimelineService>());
             builder.Services.AddSingleton<IRepository<TicketTimelineEvent>>(Substitute.For<IRepository<TicketTimelineEvent>>());
             var tenant = Substitute.For<ITenantContext>();
@@ -185,6 +221,14 @@ public sealed class TimelineEndpointsAuthorizationTests
             db.TicketTimelineEvents.Add(delivery);
             db.Set<MailboxOutboxEffect>().Add(effect);
             if (support is not null) db.SupportNotificationDeliveries.Add(support);
+            await db.SaveChangesAsync();
+        }
+
+        public async Task SeedTicketAsync()
+        {
+            await using var scope = _app.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            db.Incidents.Add(new Incident { Id = "ticket-a", TrackingId = "INC-SYNTHETIC", Title = "Synthetic ticket" });
             await db.SaveChangesAsync();
         }
 

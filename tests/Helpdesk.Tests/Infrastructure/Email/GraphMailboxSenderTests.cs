@@ -22,6 +22,20 @@ namespace Helpdesk.Tests.Infrastructure.Email;
 public sealed class GraphMailboxSenderTests
 {
     [Fact]
+    public async Task Cancellation_gate_prevents_Graph_transport_submission()
+    {
+        using var transport = new GraphSendFixture(HttpStatusCode.Accepted);
+        var sender = new GraphMailboxSender(_ => new GraphServiceClient(new HttpClient(transport, false), new AnonymousAuthenticationProvider()));
+        var mailbox = new EmailInboxSettings { MailboxAddress = "support@example.test", ClientSecret = "synthetic-protected", Authentication = MailboxAuthentication.MicrosoftApplication };
+        var outgoing = new MailboxOutgoingSettings { Enabled = true, Transport = MailboxOutgoingTransport.Graph };
+        var gates = 0;
+        var result = await sender.SendAsync(mailbox, outgoing, ["recipient@example.test"], [], "Synthetic", "<p>Body</p>", [], default,
+            beginSubmission: _ => { gates++; return Task.FromResult(false); });
+        Assert.Equal(1, gates); Assert.Equal("DeliveryFenceChanged", result.ErrorCode);
+        Assert.Null(transport.Path); Assert.Empty(transport.Body);
+    }
+
+    [Fact]
     public async Task Same_source_Graph_credential_rotation_can_be_confirmed_for_one_queued_delivery()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");

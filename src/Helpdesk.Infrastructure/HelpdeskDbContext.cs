@@ -605,6 +605,18 @@ public class HelpdeskDbContext(
             entity.Property(x => x.SmtpUsername).HasMaxLength(320);
             entity.Property(x => x.DisplayName).HasMaxLength(200);
         });
+        modelBuilder.Entity<TicketTimelineEvent>(entity =>
+        {
+            if (isSqlite)
+            {
+                entity.Property<long>("CreatedUtcSortTicks")
+                    .HasComputedColumnSql("CAST(strftime('%s', substr(\"CreatedUtc\", 1, 19) || substr(\"CreatedUtc\", -6)) AS INTEGER) * 10000000 + CAST(substr((CASE WHEN substr(\"CreatedUtc\", 20, 1) = '.' THEN substr(\"CreatedUtc\", 21, length(\"CreatedUtc\") - 26) ELSE '' END) || '0000000', 1, 7) AS INTEGER) + 621355968000000000");
+                entity.HasIndex("EventType", "EmailStatus", "CreatedUtcSortTicks", "Id");
+            }
+            else
+                entity.HasIndex(x => new { x.EventType, x.EmailStatus, x.CreatedUtc, x.Id });
+        });
+
         modelBuilder.Entity<MailboxOutboxEffect>(entity =>
         {
             entity.HasKey(x => x.Id);
