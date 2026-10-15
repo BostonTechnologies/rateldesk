@@ -37,6 +37,28 @@ test('server paging, filter URL, Back and explicit selection scope', async ({ pa
   expect(state.requests.some((q: any) => q.page === '1')).toBe(true);
   expect(state.requests.some((q: any) => q.search === 'INC-SYN-0001' && q.page === '0')).toBe(true);
 });
+test('applied filter removal is reachable by Tab and resets URL, page and selection', async ({ page, request }) => {
+  await ready(page, '/admin/pending-emails?search=INC-SYN-0&page=1');
+  await expect(page.getByText('Page 2 of 40', { exact: true })).toBeVisible();
+  await page.locator('.pending-mail tbody input[type="checkbox"]').first().check();
+  await expect(page.getByText('999 deliveries · 1 selected records on this page')).toBeVisible();
+  await page.getByRole('button', { name: 'Apply filters', exact: true }).focus();
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('button', { name: 'Clear filters', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('button', { name: 'Remove filter search: INC-SYN-0', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByText('1205 deliveries · 0 selected records on this page')).toBeVisible();
+  await expect(page.getByText('Page 1 of 49', { exact: true })).toBeVisible();
+  expect(new URL(page.url()).searchParams.get('search')).toBeNull();
+  expect(new URL(page.url()).searchParams.get('page')).toBe('0');
+  const state = await (await request.get(`${fixture}/state`)).json();
+  expect(state.actions).toHaveLength(0);
+  expect(state.requests.at(-1).page).toBe('0');
+  expect(state.requests.at(-1).search ?? '').toBe('');
+});
 test('bounded selection, cancelled confirmation, mixed results, removal and refreshed totals', async ({ page, request }) => {
   await ready(page);
   await page.locator('.pending-mail thead input[type="checkbox"]').check();

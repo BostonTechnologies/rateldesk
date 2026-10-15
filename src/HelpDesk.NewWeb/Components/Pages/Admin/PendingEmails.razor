@@ -53,7 +53,8 @@
     <div class="pending-mail-actions" aria-label="Applied filters">
         @foreach (var chip in appliedFilters)
         {
-            <MudChip T="string" Size="Size.Small" OnClose="() => RemoveFilter(chip.Key)">@chip.Value</MudChip>
+            <MudButton Size="Size.Small" Variant="Variant.Outlined" EndIcon="@Icons.Material.Filled.Close"
+                aria-label="@($"Remove filter {chip.Value}")" OnClick="() => RemoveFilter(chip.Key)">@chip.Value</MudButton>
         }
     </div>
     @if (error is not null)
