@@ -1,13 +1,15 @@
 <AuthorizeView Roles="HelpdeskAdmin" Context="instanceAdmin">
     <NotAuthorized>
-        <AuthorizeView Roles="Tenant.Roles.Assign,Tenant.Settings.Manage" Context="delegatedAdmin">
+        <AuthorizeView Roles="Tenant.Users.Manage,Tenant.Roles.Assign,Tenant.Settings.Manage" Context="delegatedAdmin">
             <div class="nav-section-heading"><span>Administration</span></div>
             <HelpdeskNavGroup Title="Administration" Icon="@Icons.Material.Filled.AdminPanelSettings" RoutePrefixes="@AdministrationRoutes">
                 <HelpdeskNavGroup Title="Accounts &amp; Orgs" Icon="@Icons.Material.Filled.AccountTree" RoutePrefixes="@AccountRoutes">
                     <AuthorizeView Roles="Tenant.Users.Manage,Tenant.Roles.Assign" Context="teamAdministrator">
                         <HelpdeskNavLink Href="/admin/users" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Group" Title="Team">Team</HelpdeskNavLink>
                     </AuthorizeView>
-                    <HelpdeskNavLink Href="/admin/organizations" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Apartment" Aliases="@OrganizationAliases" Title="Organizations">Organizations</HelpdeskNavLink>
+                    <AuthorizeView Roles="Tenant.Roles.Assign,Tenant.Settings.Manage" Context="organizationAdministrator">
+                        <HelpdeskNavLink Href="/admin/organizations" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Apartment" Aliases="@OrganizationAliases" Title="Organizations">Organizations</HelpdeskNavLink>
+                    </AuthorizeView>
                 </HelpdeskNavGroup>
                 <AuthorizeView Roles="Tenant.Roles.Assign" Context="roleAdministrator">
                     <HelpdeskNavLink Href="/admin/roles" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Security" Title="Roles &amp; Permissions">Roles &amp; Permissions</HelpdeskNavLink>
