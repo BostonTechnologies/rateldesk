@@ -1,7 +1,7 @@
 <MudDialog MaxWidth="MaxWidth.Large" FullWidth="true">
     <DialogContent>
         <MudPaper Class="pa-4">
-            @((MarkupString)(Html ?? string.Empty))
+            <EmailContent Html="@Html" />
         </MudPaper>
     </DialogContent>
     <DialogActions>

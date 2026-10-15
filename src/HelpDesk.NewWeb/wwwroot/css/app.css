@@ -973,24 +973,6 @@ h1[tabindex="-1"]:focus
     overflow-wrap: anywhere;
 }
 
-.ticket-message-body :is(p, div, span, table, tbody, thead, tr, td, th, font, strong, b, em, i, u, li, ol, ul, blockquote, pre)
-{
-    color: var(--mud-palette-text-primary) !important;
-}
-
-.ticket-message-body a
-{
-    color: var(--mud-palette-primary) !important;
-    overflow-wrap: anywhere;
-    word-break: break-word;
-}
-
-.ticket-message-body img
-{
-    max-width: 100%;
-    height: auto;
-}
-
 @media (max-height: 800px)
 {
     .ticket-message-container

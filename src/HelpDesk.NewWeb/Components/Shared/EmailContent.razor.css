@@ -1,0 +1,10 @@
+.email-content { min-width: 0; max-width: 100%; }
+.email-content-controls { display: flex; gap: .25rem; margin-bottom: .5rem; }
+.email-view-button { color: var(--mud-palette-text-primary); background: transparent; border: 1px solid var(--mud-palette-divider); border-radius: 4px; padding: .25rem .5rem; font: inherit; font-size: .8rem; cursor: pointer; }
+.email-view-button[aria-pressed=true] { background: var(--mud-palette-action-default-hover); border-color: var(--mud-palette-primary); }
+.email-view-button:focus-visible, .email-links a:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 2px; }
+.email-original { display: block; width: 100%; min-height: 160px; height: 360px; border: 1px solid var(--mud-palette-divider); border-radius: 4px; background: #fff; }
+.email-plain-text { color: var(--mud-palette-text-primary); background: var(--mud-palette-surface); white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; margin: 0; }
+.email-image-note, .email-links { font-size: .75rem; margin: .5rem 0; color: var(--mud-palette-text-secondary); overflow-wrap: anywhere; }
+.email-links a { color: var(--mud-palette-primary); }
+.email-links ul { padding-inline-start: 1.25rem; }

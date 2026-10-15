@@ -469,7 +469,7 @@
                         </MudStack>
 
                         <div class="timeline-human-message ticket-message-body">
-                            @((MarkupString)(ev.MessageHtml ?? ev.MessageText ?? string.Empty))
+                            <EmailContent Html="@ev.MessageHtml" Text="@ev.MessageText" />
                         </div>
 
                         @if (!string.IsNullOrWhiteSpace(ev.MessageHtml))

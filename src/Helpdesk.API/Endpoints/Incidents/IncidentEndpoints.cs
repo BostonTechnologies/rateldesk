@@ -1152,7 +1152,8 @@ public static class IncidentEndpoints
 
             return Results.Ok(new IncidentPeekDto(
                 inc.Id, inc.Title, inc.EmailFrom, inc.EmailReceivedUtc, safeHtml,
-                string.IsNullOrWhiteSpace(text) ? null : text[..Math.Min(text.Length, 400)]
+                string.IsNullOrWhiteSpace(text) ? null : text[..Math.Min(text.Length, 400)],
+                text
             ));
         })
         .RequireAuthorization("HelpdeskAdmin")
@@ -1669,4 +1670,5 @@ internal sealed record IncidentPeekDto(
     string? From,
     DateTimeOffset? ReceivedUtc,
     string Html,
-    string? SnippetText);
+    string? SnippetText,
+    string? Text);
