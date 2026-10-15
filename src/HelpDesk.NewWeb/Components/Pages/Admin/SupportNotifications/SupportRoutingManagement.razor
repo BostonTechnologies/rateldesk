@@ -80,7 +80,7 @@
     <MudTabs Rounded="false" PanelClass="pt-2" KeepPanelsAlive="true">
         <MudTabPanel Text="Routes and rules" Icon="@Icons.Material.Filled.AccountTree">
             <MudStack Spacing="3">
-                <MudSelect T="string" @bind-Value="routingConcern" Label="Routing concern" Variant="Variant.Outlined" Margin="Margin.Dense">
+                <MudSelect T="string" @bind-Value="routingConcern" Disabled="editing" Label="Routing concern" Variant="Variant.Outlined" Margin="Margin.Dense">
                     <MudSelectItem T="string" Value='@("coverage")'>Support coverage</MudSelectItem>
                     <MudSelectItem T="string" Value='@("notifications")'>Notification rules</MudSelectItem>
                 </MudSelect>
@@ -200,12 +200,13 @@
     private string? appliedQueryOrganizationId;
     private SupportNotificationEventType selectedEventType = SupportNotificationEventType.TicketCreatedUnassigned;
     private bool loading;
-    private bool editing;
+    private int editingActions;
+    private bool editing => editingActions > 0;
     private bool disposed;
     private int routingVersion;
     private int previewVersion;
     private string routingConcern = "coverage";
-    private void OnEditingChanged(bool value) => editing = value;
+    private void OnEditingChanged(bool value) => editingActions = Math.Max(0, editingActions + (value ? 1 : -1));
     private void ConfirmNavigation(LocationChangingContext context)
     {
         if (editing) context.PreventNavigation();
@@ -394,7 +395,7 @@
     private async Task BootstrapDefaultsAsync()
     {
         if (editing || loading) return;
-        editing = true;
+        OnEditingChanged(true);
         try
         {
         var confirm = await DialogService.ShowMessageBoxAsync(
@@ -428,6 +429,6 @@
             Snackbar.Add(ex.Message, Severity.Error);
         }
         }
-        finally { editing = false; }
+        finally { OnEditingChanged(false); }
     }
 }

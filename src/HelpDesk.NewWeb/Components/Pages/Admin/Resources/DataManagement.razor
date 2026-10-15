@@ -532,7 +532,7 @@
             var result = await DatasetService.GetRowsAsync(datasetId, rowSearch, rowPage, 50, cancellation.Token);
             if (disposed || cancellation.IsCancellationRequested || version != datasetVersion || datasetId != editor.Id) return;
             rows = result;
-            datasetRowCounts[datasetId] = rows.Total;
+            if (string.IsNullOrWhiteSpace(rowSearch)) datasetRowCounts[datasetId] = rows.Total;
             selectedRowPreviewId = null;
         }
         catch (OperationCanceledException) { }
