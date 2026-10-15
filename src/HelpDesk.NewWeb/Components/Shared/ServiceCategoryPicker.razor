@@ -37,11 +37,18 @@
         @foreach (var id in SelectedCategoryIds.OrderBy(x => names.GetValueOrDefault(x)?.Name ?? x.ToString()))
         {
             var category = names.GetValueOrDefault(id);
+            var categoryLabel = category is null ? (loading ? "Loading category…" : $"Unavailable category ({id.ToString()[..8]})") : category.Name;
             <MudChip T="Guid" @key="id" Value="id" Size="Size.Small"
-                     Variant="Variant.Outlined" Color="@(category is null || !category.IsActive ? Color.Warning : Color.Default)"
-                     OnClose="@(ReadOnly || creating ? default(EventCallback<MudChip<Guid>>) : EventCallback.Factory.Create<MudChip<Guid>>(this, () => RemoveCategory(id)))">
-                @(category is null ? (loading ? "Loading category…" : $"Unavailable category ({id.ToString()[..8]})") : category.Name)
+                     Variant="Variant.Outlined" Color="@(category is null || !category.IsActive ? Color.Warning : Color.Default)">
+                @categoryLabel
                 @if (category is not null && !category.IsActive) { <span> (inactive)</span> }
+                @if (!ReadOnly && !creating)
+                {
+                    <button type="button" class="category-remove mud-chip-close-button" aria-label="@($"Remove category {categoryLabel}")"
+                            @onclick="() => RemoveCategory(id)" @onclick:stopPropagation="true">
+                        <MudIcon Icon="@Icons.Material.Filled.Cancel" Size="Size.Small" />
+                    </button>
+                }
             </MudChip>
         }
         @if (!loading && SelectedCategoryIds.Count == 0)

@@ -2,5 +2,8 @@
 .selected-categories { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
 .selected-categories ::deep .mud-chip { max-width: 100%; height: auto; min-height: 28px; margin: 0; }
 .selected-categories ::deep .mud-chip-content { white-space: normal; overflow-wrap: anywhere; }
+.category-remove { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 24px; height: 24px; margin-inline-start: 4px; padding: 2px; border: 0; border-radius: 50%; background: transparent; color: inherit; cursor: pointer; }
+.category-remove:hover { background: var(--mud-palette-action-default-hover); }
+.category-remove:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 2px; }
 .category-selected { margin-inline-start: 8px; color: var(--mud-palette-text-secondary); font-size: .875rem; }
 .category-create { margin-top: 8px; max-width: 100%; overflow-wrap: anywhere; }

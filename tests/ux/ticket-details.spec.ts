@@ -24,6 +24,26 @@ async function noOverflow(page: Page) {
 test.beforeEach(async ({ request }) => { await request.get(`${fixture}/reset`); });
 
 for (const module of ['incidents', 'requests', 'changes']) {
+  test(`${module} selected categories can be removed with Tab Enter and Space then reverted`, async ({ page, request }) => {
+    await open(page, module);
+    for (const [label, key] of [['Historical selection', 'Enter'], ['Network Operations', 'Space']]) {
+      const remove = selected(page).getByRole('button', { name: `Remove category ${label}`, exact: true });
+      await categorySearch(page).focus();
+      for (let step = 0; step < 6 && !await remove.evaluate(el => el === document.activeElement); step++) {
+        await page.keyboard.press('Tab');
+      }
+      await expect(remove).toBeFocused();
+      await page.keyboard.press(key);
+      await expect(remove).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Save Changes', exact: true })).toBeEnabled();
+    }
+    expect((await (await request.get(`${fixture}/state`)).json()).saves).toHaveLength(0);
+    await page.getByRole('button', { name: 'Revert', exact: true }).click();
+    await expect(selected(page).getByRole('button', { name: 'Remove category Historical selection', exact: true })).toBeVisible();
+    await expect(selected(page).getByRole('button', { name: 'Remove category Network Operations', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Save Changes', exact: true })).toBeDisabled();
+  });
+
   test(`${module} saved multiple IDs survive add remove save reload and revert`, async ({ page, request }) => {
     await open(page, module);
     await addLiteral(page);
