@@ -20,20 +20,22 @@ public sealed class WorkflowOpsDashboardTests
     [InlineData("retries")]
     [InlineData("callbacks")]
     [InlineData("bindings")]
-    public void Each_category_renders_one_focused_table(string category)
+    public async Task Each_category_renders_one_focused_table(string category)
     {
-        using var context = Context("HelpdeskAdmin", out var handler);
+        await using var context = Context("HelpdeskAdmin", out var handler);
         var page = context.Render<Dashboard>(p => p.Add(x => x.Category, category));
         page.WaitForAssertion(() => Assert.Single(page.FindAll("table")));
         Assert.Equal(6, page.FindAll(".workflow-categories button").Count);
+        Assert.Contains("Retries pending", page.Find(".workflow-categories").TextContent);
+        Assert.Contains("Binding issues", page.Find(".workflow-categories").TextContent);
         Assert.Equal(6, handler.Requests.Count);
         Assert.Contains("Refreshed", page.Markup);
     }
 
     [Fact]
-    public void Non_admin_does_not_load_or_offer_retry_diagnostics()
+    public async Task Non_admin_does_not_load_or_offer_retry_diagnostics()
     {
-        using var context = Context("Request.Read", out var handler);
+        await using var context = Context("Request.Read", out var handler);
         var page = context.Render<Dashboard>();
         page.WaitForAssertion(() => Assert.Single(page.FindAll("table")));
         Assert.Equal(5, page.FindAll(".workflow-categories button").Count);
@@ -42,9 +44,9 @@ public sealed class WorkflowOpsDashboardTests
     }
 
     [Fact]
-    public void Failed_category_is_unavailable_not_a_healthy_zero()
+    public async Task Failed_category_is_unavailable_not_a_healthy_zero()
     {
-        using var context = Context("HelpdeskAdmin", out var handler);
+        await using var context = Context("HelpdeskAdmin", out var handler);
         handler.Failure = true;
         var page = context.Render<Dashboard>();
         page.WaitForAssertion(() => Assert.Contains("Unavailable", page.Markup));
@@ -59,9 +61,9 @@ public sealed class WorkflowOpsDashboardTests
     [InlineData("Incident.Manager", "/ops/workflows", null, false)]
     [InlineData("Request.Read", "/ops/slas", null, false)]
     [InlineData("Incident.Manager", "/ops/hangfire", null, false)]
-    public void Console_loads_only_permitted_active_view(string role, string route, string? endpoint, bool jobs)
+    public async Task Console_loads_only_permitted_active_view(string role, string route, string? endpoint, bool jobs)
     {
-        using var context = Context(role, out var handler);
+        await using var context = Context(role, out var handler);
         context.Services.GetRequiredService<NavigationManager>().NavigateTo(route);
         var page = context.Render<ConsolePage>();
         page.WaitForAssertion(() => Assert.Equal(2, page.FindAll("[role='tab']").Count));

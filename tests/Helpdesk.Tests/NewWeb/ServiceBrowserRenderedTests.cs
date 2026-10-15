@@ -12,9 +12,9 @@ namespace Helpdesk.Tests.NewWeb;
 public sealed class ServiceBrowserRenderedTests
 {
     [Fact]
-    public void Search_filters_real_cards_and_clear_restores_catalogue()
+    public async Task Search_filters_real_cards_and_clear_restores_catalogue()
     {
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddSingleton<IHttpClientFactory>(new FixtureClient());

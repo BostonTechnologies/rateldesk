@@ -53,12 +53,12 @@
                     <MudTh></MudTh>
                 </HeaderContent>
                 <RowTemplate>
-                    <MudTd>@context.RequestTrackingId</MudTd>
-                    <MudTd>@context.TaskName</MudTd>
-                    <MudTd>@(context.AssignedToDisplayName ?? context.AssignedToId ?? "-")</MudTd>
-                    <MudTd>@context.DueAt?.LocalDateTime.ToString("g")</MudTd>
-                    <MudTd>@context.Status</MudTd>
-                    <MudTd><MudButton Variant="Variant.Text" Href="@($"/requests/{context.RequestId}")">Open</MudButton></MudTd>
+                    <MudTd DataLabel="Request">@context.RequestTrackingId</MudTd>
+                    <MudTd DataLabel="Task">@context.TaskName</MudTd>
+                    <MudTd DataLabel="Assignee">@(context.AssignedToDisplayName ?? context.AssignedToId ?? "-")</MudTd>
+                    <MudTd DataLabel="Due At">@context.DueAt?.LocalDateTime.ToString("g")</MudTd>
+                    <MudTd DataLabel="Status">@context.Status</MudTd>
+                    <MudTd DataLabel="Actions"><MudButton Variant="Variant.Text" Href="@($"/requests/{context.RequestId}")">Open</MudButton></MudTd>
                 </RowTemplate>
             </MudTable>
         </MudPaper>
@@ -79,12 +79,12 @@
                     <MudTh></MudTh>
                 </HeaderContent>
                 <RowTemplate>
-                    <MudTd>@context.RequestTrackingId</MudTd>
-                    <MudTd>@context.TaskName</MudTd>
-                    <MudTd>@(context.AssignedToDisplayName ?? context.AssignedToId ?? "-")</MudTd>
-                    <MudTd>@context.DueAt?.LocalDateTime.ToString("g")</MudTd>
-                    <MudTd>@context.Status</MudTd>
-                    <MudTd><MudButton Variant="Variant.Text" Href="@($"/requests/{context.RequestId}")">Open</MudButton></MudTd>
+                    <MudTd DataLabel="Request">@context.RequestTrackingId</MudTd>
+                    <MudTd DataLabel="Task">@context.TaskName</MudTd>
+                    <MudTd DataLabel="Assignee">@(context.AssignedToDisplayName ?? context.AssignedToId ?? "-")</MudTd>
+                    <MudTd DataLabel="Due At">@context.DueAt?.LocalDateTime.ToString("g")</MudTd>
+                    <MudTd DataLabel="Status">@context.Status</MudTd>
+                    <MudTd DataLabel="Actions"><MudButton Variant="Variant.Text" Href="@($"/requests/{context.RequestId}")">Open</MudButton></MudTd>
                 </RowTemplate>
             </MudTable>
         </MudPaper>
@@ -107,12 +107,12 @@
                         <MudTh></MudTh>
                     </HeaderContent>
                     <RowTemplate>
-                        <MudTd>@context.RequestTrackingId</MudTd>
-                        <MudTd>@context.TaskName</MudTd>
-                        <MudTd>@context.NextRetryAt?.LocalDateTime.ToString("g")</MudTd>
-                        <MudTd>@context.RetryCount</MudTd>
-                        <MudTd>@context.Status</MudTd>
-                        <MudTd>
+                        <MudTd DataLabel="Request">@context.RequestTrackingId</MudTd>
+                        <MudTd DataLabel="Task">@context.TaskName</MudTd>
+                        <MudTd DataLabel="Next Retry">@context.NextRetryAt?.LocalDateTime.ToString("g")</MudTd>
+                        <MudTd DataLabel="Retry Count">@context.RetryCount</MudTd>
+                        <MudTd DataLabel="Status">@context.Status</MudTd>
+                        <MudTd DataLabel="Actions">
                             <MudStack Row="true" Spacing="1">
                                 <MudButton Variant="Variant.Text" Href="@($"/requests/{context.RequestId}")">Open</MudButton>
                                 <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="@(async () => await RetryNowAsync(context.TaskId))">Retry now</MudButton>
@@ -139,12 +139,12 @@
                     <MudTh></MudTh>
                 </HeaderContent>
                 <RowTemplate>
-                    <MudTd>@context.RequestTrackingId</MudTd>
-                    <MudTd>@context.TaskName</MudTd>
-                    <MudTd>@context.FailurePolicy</MudTd>
-                    <MudTd>@context.FailureReason</MudTd>
-                    <MudTd>@context.Status</MudTd>
-                    <MudTd><MudButton Variant="Variant.Text" Href="@($"/requests/{context.RequestId}")">Open</MudButton></MudTd>
+                    <MudTd DataLabel="Request">@context.RequestTrackingId</MudTd>
+                    <MudTd DataLabel="Task">@context.TaskName</MudTd>
+                    <MudTd DataLabel="Failure Policy">@context.FailurePolicy</MudTd>
+                    <MudTd DataLabel="Reason">@context.FailureReason</MudTd>
+                    <MudTd DataLabel="Status">@context.Status</MudTd>
+                    <MudTd DataLabel="Actions"><MudButton Variant="Variant.Text" Href="@($"/requests/{context.RequestId}")">Open</MudButton></MudTd>
                 </RowTemplate>
             </MudTable>
         </MudPaper>
@@ -164,11 +164,11 @@
                     <MudTh></MudTh>
                 </HeaderContent>
                 <RowTemplate>
-                    <MudTd>@context.CreatedUtc.ToLocalTime().ToString("g")</MudTd>
-                    <MudTd>@context.ReasonCode</MudTd>
-                    <MudTd>@(context.CallerClientId ?? "-")</MudTd>
-                    <MudTd>@(context.CorrelationId ?? "-")</MudTd>
-                    <MudTd>
+                    <MudTd DataLabel="When">@context.CreatedUtc.ToLocalTime().ToString("g")</MudTd>
+                    <MudTd DataLabel="Reason">@context.ReasonCode</MudTd>
+                    <MudTd DataLabel="Caller">@(context.CallerClientId ?? "-")</MudTd>
+                    <MudTd DataLabel="Correlation">@(context.CorrelationId ?? "-")</MudTd>
+                    <MudTd DataLabel="Actions">
                         <MudButton Variant="Variant.Text" Href="@BuildNotificationsLink(context.CorrelationId)">Notifications</MudButton>
                     </MudTd>
                 </RowTemplate>
@@ -191,16 +191,16 @@
                     <MudTh>Last Sync</MudTh>
                 </HeaderContent>
                 <RowTemplate>
-                    <MudTd>@(context.ServiceName ?? context.ServiceId)</MudTd>
-                    <MudTd>@context.RequestFormTitle</MudTd>
-                    <MudTd>@(context.TaskName ?? context.TaskTemplateId.ToString())</MudTd>
-                    <MudTd>
+                    <MudTd DataLabel="Service">@(context.ServiceName ?? context.ServiceId)</MudTd>
+                    <MudTd DataLabel="Request Form">@context.RequestFormTitle</MudTd>
+                    <MudTd DataLabel="Task">@(context.TaskName ?? context.TaskTemplateId.ToString())</MudTd>
+                    <MudTd DataLabel="State">
                         <MudChip T="string" Size="Size.Small" Color="@GetBindingIssueColor(context)">
                             @(context.Enabled ? context.SyncState.ToString() : "Disabled")
                         </MudChip>
                     </MudTd>
-                    <MudTd>@(context.OrchestrationRequestDefinitionName ?? context.OrchestrationRequestDefinitionId)</MudTd>
-                    <MudTd>@context.LastSyncedAtUtc?.LocalDateTime.ToString("g")</MudTd>
+                    <MudTd DataLabel="External orchestration Target">@(context.OrchestrationRequestDefinitionName ?? context.OrchestrationRequestDefinitionId)</MudTd>
+                    <MudTd DataLabel="Last Sync">@context.LastSyncedAtUtc?.LocalDateTime.ToString("g")</MudTd>
                 </RowTemplate>
             </MudTable>
         </MudPaper>
@@ -222,7 +222,7 @@
     private string SelectedCategory => Categories.Any(c => c.Key == Category && (isAdmin || c.Key != "retries")) ? Category! : selectedCategory;
     private static readonly (string Key, string Label)[] Categories = [
         ("critical", "Critical failures (24h)"), ("overdue", "Overdue"), ("escalated", "Escalated"),
-        ("retries", "retries"), ("callbacks", "Callback rejections (7d)"), ("bindings", "bindings") ];
+        ("retries", "Retries pending"), ("callbacks", "Callback rejections (7d)"), ("bindings", "Binding issues") ];
     private void SelectCategory(string key) => Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("category", key));
     private int Count(string key) => key switch {
         "overdue" => overdue.TotalCount, "escalated" => escalated.TotalCount, "retries" => retriesPending.TotalCount,

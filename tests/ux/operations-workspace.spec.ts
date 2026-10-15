@@ -47,6 +47,7 @@ test('legacy bookmarks, categories, metrics, Back/Forward and job proxy remain u
   for (const category of ['Overdue', 'Escalated', 'Retries pending', 'Callback rejections', 'Binding issues', 'Critical failures']) {
     await page.getByRole('button', { name: new RegExp(`^${category}`) }).click();
     await expect(page.locator('.workflow-operations table')).toHaveCount(1);
+    if (category === 'Callback rejections') await expect(page.locator('.workflow-operations a[href*=correlationId]')).toHaveAttribute('href', '/notifications?category=DomainEvent.Orchestration&correlationId=synthetic%20correlation');
   }
   await page.goBack(); await expect(page.getByRole('button', { name: /^Binding issues/ })).toHaveAttribute('aria-pressed', 'true');
   await page.goForward(); await expect(page.getByRole('button', { name: /^Critical failures/ })).toHaveAttribute('aria-pressed', 'true');
@@ -54,6 +55,9 @@ test('legacy bookmarks, categories, metrics, Back/Forward and job proxy remain u
   await expect(page.getByRole('tab', { name: 'Workflows' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('link', { name: 'Open Dashboard' })).toHaveAttribute('href', '/hangfire');
   await expect(page.getByRole('tab')).toHaveCount(2);
+  await page.getByLabel('Enable global Hangfire runtime', { exact: true }).uncheck();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(async () => (await (await request.get(`${fixture}/state`)).json()).enabled).toBe(false);
   expect((await page.request.get('/hangfire/css/dashboard.css')).status()).toBe(200);
   expect((await page.request.post('/hangfire/jobs/enqueue', { data: 'synthetic' })).status()).toBe(200);
   const state = await (await request.get(`${fixture}/state`)).json();
@@ -77,6 +81,10 @@ for (const [port, role] of [[5171, 'sla'], [5172, 'workflow'], [5173, 'notificat
       expect(state.requests.some((r: any) => r.path.includes(role === 'sla' ? '/reports/sla/' : '/ops/tasks/'))).toBe(true);
       expect(state.requests.some((r: any) => r.path.includes(role === 'sla' ? '/ops/tasks/' : '/reports/sla/'))).toBe(false);
       expect((await page.request.get(`https://127.0.0.1:${port}/hangfire/css/dashboard.css`)).status()).toBe(401);
+      await request.get(`${fixture}/reset`);
+      await ready(page, `https://127.0.0.1:${port}/ops/${role === 'sla' ? 'workflows' : 'slas'}`);
+      await expect(page.getByText(/not available with your permissions/)).toBeVisible();
+      expect((await (await request.get(`${fixture}/state`)).json()).requests).toHaveLength(0);
     }
   });
 }
@@ -98,7 +106,7 @@ for (const theme of ['light', 'dark']) for (const width of [320, 390, 768, 1024,
     const drawer = page.getByTestId('app-navigation-drawer');
     if (width < 1280) await page.getByTestId('navigation-toggle').click();
     await expect(drawer.getByRole('link', { name: 'Support Routing', exact: true })).toBeVisible();
-    const emails = drawer.getByRole('button', { name: 'Email Settings', exact: true });
+    const emails = drawer.getByRole('button', { name: 'Toggle Email Settings', exact: true });
     await emails.click();
     const labels = drawer.locator('.mud-nav-link-text');
     const wrapped = await labels.evaluateAll(elements => elements.filter(element => {
@@ -107,8 +115,17 @@ for (const theme of ['light', 'dark']) for (const width of [320, 390, 768, 1024,
       return style.whiteSpace !== 'nowrap' || element.getBoundingClientRect().height > parseFloat(style.lineHeight) + 2;
     }).map(element => element.textContent));
     expect(wrapped).toEqual([]);
+    for (const name of ['Support Routing', 'Tenant SLA Settings', 'Mailbox Configuration']) {
+      const label = drawer.getByRole('link', { name, exact: true }).locator('.mud-nav-link-text');
+      expect(await label.evaluate(element => element.scrollWidth - element.clientWidth), `${name} fits at the configured drawer width`).toBeLessThanOrEqual(1);
+    }
     const support = drawer.getByRole('link', { name: 'Support Routing', exact: true });
     await support.focus(); await expect(support).toBeFocused();
+    expect(await support.evaluate(element => getComputedStyle(element).outlineStyle)).not.toBe('none');
+    const icon = await support.locator('svg').boundingBox();
+    const row = await support.boundingBox();
+    expect(icon!.width).toBeGreaterThanOrEqual(20);
+    expect(icon!.x).toBeGreaterThanOrEqual(row!.x);
     await expect(page.getByRole('tooltip')).toContainText('Support Routing');
     const longName = drawer.locator('a[href="auth"]');
     await longName.focus();

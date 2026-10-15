@@ -120,16 +120,16 @@
                     <MudTh></MudTh>
                 </HeaderContent>
                 <RowTemplate>
-                    <MudTd>@(context.TicketNumber ?? context.TicketId)</MudTd>
-                    <MudTd><span class="truncate-title">@context.Title</span></MudTd>
+                    <MudTd DataLabel="Ticket">@(context.TicketNumber ?? context.TicketId)</MudTd>
+                    <MudTd DataLabel="Title"><span class="truncate-title">@context.Title</span></MudTd>
                     @if (isHelpdeskAdmin)
                     {
-                        <MudTd>@context.TenantId</MudTd>
+                        <MudTd DataLabel="Tenant">@context.TenantId</MudTd>
                     }
-                    <MudTd>@(selectedMetric == SlaMetricType.Response ? context.ResponsePercentUsed : context.ResolutionPercentUsed)%</MudTd>
-                    <MudTd>@FormatRemaining(selectedMetric == SlaMetricType.Response ? context.ResponseRemainingSeconds : context.ResolutionRemainingSeconds)</MudTd>
-                    <MudTd>@(selectedMetric == SlaMetricType.Response ? context.ResponseDueAt.ToLocalTime().ToString("g") : context.ResolutionDueAt.ToLocalTime().ToString("g"))</MudTd>
-                    <MudTd>
+                    <MudTd DataLabel="% Used">@(selectedMetric == SlaMetricType.Response ? context.ResponsePercentUsed : context.ResolutionPercentUsed)%</MudTd>
+                    <MudTd DataLabel="Remaining">@FormatRemaining(selectedMetric == SlaMetricType.Response ? context.ResponseRemainingSeconds : context.ResolutionRemainingSeconds)</MudTd>
+                    <MudTd DataLabel="Due At">@(selectedMetric == SlaMetricType.Response ? context.ResponseDueAt.ToLocalTime().ToString("g") : context.ResolutionDueAt.ToLocalTime().ToString("g"))</MudTd>
+                    <MudTd DataLabel="Actions">
                         <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" Href="@BuildTicketLink(context)">Open</MudButton>
                     </MudTd>
                 </RowTemplate>
@@ -155,17 +155,17 @@
                     <MudTh></MudTh>
                 </HeaderContent>
                 <RowTemplate>
-                    <MudTd>@(context.TicketNumber ?? context.TicketId)</MudTd>
-                    <MudTd><span class="truncate-title">@context.Title</span></MudTd>
+                    <MudTd DataLabel="Ticket">@(context.TicketNumber ?? context.TicketId)</MudTd>
+                    <MudTd DataLabel="Title"><span class="truncate-title">@context.Title</span></MudTd>
                     @if (isHelpdeskAdmin)
                     {
-                        <MudTd>@context.TenantId</MudTd>
+                        <MudTd DataLabel="Tenant">@context.TenantId</MudTd>
                     }
-                    <MudTd>
+                    <MudTd DataLabel="Status">
                         <MudChip T="string" Color="Color.Error" Size="Size.Small">Breached</MudChip>
                     </MudTd>
-                    <MudTd>@context.ResolutionDueAt.ToLocalTime().ToString("g")</MudTd>
-                    <MudTd>
+                    <MudTd DataLabel="Due At">@context.ResolutionDueAt.ToLocalTime().ToString("g")</MudTd>
+                    <MudTd DataLabel="Actions">
                         <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" Href="@BuildTicketLink(context)">Open</MudButton>
                     </MudTd>
                 </RowTemplate>
@@ -304,7 +304,7 @@
             lastRefreshed = DateTimeOffset.UtcNow;
         }
         catch (OperationCanceledException) when (current.IsCancellationRequested) { }
-        catch (HttpRequestException) { if (current == refresh) loadError = "SLA data is unavailable."; }
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException) { if (current == refresh) loadError = "SLA data is unavailable."; }
         finally
         {
             if (current == refresh) loading = false;

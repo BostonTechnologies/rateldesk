@@ -62,7 +62,7 @@
     [SupplyParameterFromQuery(Name = "metric")] public int? Metric { get; set; }
     [CascadingParameter] private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
     private bool preferWorkflows;
-    private string Path => new Uri(Navigation.Uri).AbsolutePath.TrimEnd('/');
+    private string Path => new Uri(Navigation.Uri).AbsolutePath.TrimEnd('/').ToLowerInvariant();
     private bool WorkflowActive => Path is "/ops/workflows" or "/ops/hangfire" ||
         (Path != "/ops/slas" && (Tab == "workflows" || (Tab is null && preferWorkflows)));
     private bool BackgroundJobsActive => Path == "/ops/hangfire" || View == "background-jobs";

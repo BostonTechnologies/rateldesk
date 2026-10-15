@@ -15,7 +15,7 @@ http.createServer(async (req, res) => {
   }
   const token = (req.headers.authorization ?? '').split(' ')[1];
   const roles = token ? JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()).roles : [];
-  if (url.pathname === '/api/v1/auth/me') return reply({ isAuthenticated: true, name: 'Synthetic Operations User With An Exceptionally Long Display Name', userId: 'synthetic-operator', isHelpdeskAdmin: roles.includes('HelpdeskAdmin'), roleBundles: roles, permissions: [], primaryOrganizationId: 'org-synthetic', allowedOrganizationIds: ['org-synthetic'], managedOrganizationIds: [] });
+  if (url.pathname === '/api/v1/auth/me') return reply({ isAuthenticated: true, name: 'Synthetic Operations User With An Exceptionally Long Display Name', email: 'Synthetic Operations User With An Exceptionally Long Display Name', customerId: null, userId: 'synthetic-operator', isHelpdeskAdmin: roles.includes('HelpdeskAdmin'), roleBundles: roles, permissions: [], primaryOrganizationId: 'org-synthetic', allowedOrganizationIds: ['org-synthetic'], managedOrganizationIds: [] });
   if (url.pathname === '/api/v1/branding') return reply({ applicationName: 'RatelDesk', faviconUrl: '/favicon.ico' });
   if (url.pathname.startsWith('/api/v1/service-items')) return reply([
     { id: 'hardware', name: 'Hardware', description: 'Synthetic device requests', itemType: 0, availableRequestCount: 2 },
@@ -43,6 +43,7 @@ http.createServer(async (req, res) => {
     return reply({ enabled, queueName: 'default', dashboardPath: '/hangfire', runtimeSource: 'Synthetic fixture', storageProvider: 'Synthetic storage', recurringJobCount: 3, graphDatasetSyncJobCount: 2, updatedAtUtc: '2026-10-15T06:00:00Z', updatedBy: 'Synthetic operator' });
   }
   if (url.pathname.startsWith('/hangfire')) { requests.push({ path: url.pathname, method: req.method }); res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end('<title>Synthetic dashboard</title><p>Background dashboard fixture</p>'); }
+  if (url.pathname === '/api/v1/notifications') return reply({ items: [], totalCount: 0 });
   if (url.pathname.endsWith('/count')) return reply(0);
   if (url.pathname.includes('summary') || url.pathname.includes('status')) return reply({});
   if (url.pathname.includes('/stream')) { res.writeHead(200, { 'Content-Type': 'text/event-stream' }); return res.end(); }
