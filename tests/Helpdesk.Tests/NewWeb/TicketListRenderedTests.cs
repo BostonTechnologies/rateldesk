@@ -18,9 +18,9 @@ public sealed class TicketListRenderedTests
     [InlineData("incidents", typeof(IncidentList))]
     [InlineData("requests", typeof(RequestList))]
     [InlineData("changes", typeof(ChangeList))]
-    public void Lists_render_shared_controls_without_obsolete_AI_filters_and_restore_query(string module, Type component)
+    public async Task Lists_render_shared_controls_without_obsolete_AI_filters_and_restore_query(string module, Type component)
     {
-        using var context = new BunitContext(); context.Services.AddMudServices(); context.JSInterop.Mode = JSRuntimeMode.Loose;
+        await using var context = new BunitContext(); context.Services.AddMudServices(); context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization(); auth.SetAuthorized("Synthetic reader"); auth.SetRoles("Incident.Read", "Request.Read", "Change.Read");
         var handler = new FixtureClient(); context.Services.AddSingleton<IHttpClientFactory>(handler);
         var navigation = context.Services.GetRequiredService<NavigationManager>();
