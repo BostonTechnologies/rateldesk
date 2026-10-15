@@ -22,6 +22,8 @@
 @inject IErrorLoggingService ErrorLogger
 @inject ILogger<ChangeDetail> Logger
 
+<NavigationLock ConfirmExternalNavigation="@hasChanges" OnBeforeInternalNavigation="ConfirmNavigation" />
+
 <PageTitle>Change: @(change?.Title ?? "...")</PageTitle>
 
 <style>
@@ -117,15 +119,10 @@
         </MudItem>
 
         <MudItem xs="12" md="3" Class="d-flex flex-column">
-            <MudCard Class="position-sticky compact-details-card" Style="top: 16px;">
-                    <MudCardHeader>
-                        <CardHeaderContent>
-                            <MudText Typo="Typo.subtitle1">Details</MudText>
-                        </CardHeaderContent>
-                    </MudCardHeader>
-                    <MudCardContent>
-                        <MudGrid>
-                            <MudItem xs="12">
+            <TicketDetailsPanel>
+                <ChildContent>
+                        <MudGrid Spacing="2">
+                            <MudItem xs="12" sm="6" md="12" xl="6">
                                 <MudSelect T="ChangeLifecycleState" Value="@change.LifecycleState" ValueChanged="OnLifecycleStateChanged"
                                            Dense="true"
                                            Margin="Margin.Dense"
@@ -138,7 +135,7 @@
                                     }
                                 </MudSelect>
                             </MudItem>
-                            <MudItem xs="12">
+                            <MudItem xs="12" sm="6" md="12" xl="6">
                                 <MudSelect T="TicketPriority" Value="@change.Priority" ValueChanged="OnPriorityChanged"
                                            Dense="true"
                                            Margin="Margin.Dense"
@@ -210,27 +207,12 @@
                                                Disabled="@(isUpdating || IsChangeLocked)" />
                             </MudItem>
                             <MudItem xs="12">
-                                @if (IsChangeLocked)
-                                {
-                                    <MudChipSet T="string">
-                                        @foreach (var category in categories.Where(x => selectedCategoryIds.Contains(x.Id)))
-                                        {
-                                            <MudChip T="string" Closeable="false">@category.Name</MudChip>
-                                        }
-                                    </MudChipSet>
-                                }
-                                else
-                                {
-                                    <HelpDesk.NewWeb.Components.Shared.ServiceCategoryPicker
-                                        RequestedType="TicketCategoryType.Change"
-                                        SelectedCategoryIds="@selectedCategoryIds"
-                                        SelectedCategoryIdsChanged="OnCategorySelectionChanged" ReadOnly="@(!CanManage)"
-                                        Dense="true"
-                                        Margin="Margin.Dense" />
-                                }
+                                <ServiceCategoryPicker RequestedType="TicketCategoryType.Change" OrganizationId="@change.OrganizationId" ScopeKey="@change.Id"
+                                    SelectedCategoryIds="@selectedCategoryIds" SelectedCategoryIdsChanged="OnCategorySelectionChanged"
+                                    ReadOnly="@(IsChangeLocked || isUpdating)" Dense="true" Margin="Margin.Dense" />
                             </MudItem>
                             <MudItem xs="12">
-                                <MudTextField T="string" Label="Created" Variant="Variant.Outlined" Dense="true" Margin="Margin.Dense" ReadOnly="true" Value="@change.CreatedAt.ToString("g")" />
+                                <p class="details-metadata">Created: @(change.CreatedAt.ToString("g"))</p>
                             </MudItem>
                             @if (change.Approvals.Count > 0)
                             {
@@ -264,41 +246,14 @@
                             @if (change.Sla is not null)
                             {
                                 <MudItem xs="12">
-                                    <MudDivider Class="my-2" />
-                                    <MudText Typo="Typo.subtitle2" Class="mb-1">SLA</MudText>
-                                    <MudChip T="string" Color="@GetSlaStatusColor(change.Sla.Status)" Variant="Variant.Filled" Size="Size.Small">
-                                        @change.Sla.Status
-                                    </MudChip>
-                                    <MudText Typo="Typo.caption" Class="d-block mt-2">
-                                        Response remaining: @FormatRemaining(change.Sla.ResponseRemainingSeconds)
-                                    </MudText>
-                                    <MudProgressLinear Value="@change.Sla.ResponsePercentUsed" Color="Color.Info" Class="mb-2" />
-                                    <MudText Typo="Typo.caption" Class="d-block">
-                                        Resolution remaining: @FormatRemaining(change.Sla.ResolutionRemainingSeconds)
-                                    </MudText>
-                                    <MudProgressLinear Value="@change.Sla.ResolutionPercentUsed" Color="Color.Warning" Class="mb-2" />
-                                    @if (!string.IsNullOrWhiteSpace(change.Sla.PauseReason))
-                                    {
-                                        <MudText Typo="Typo.caption">Reason: @change.Sla.PauseReason</MudText>
-                                    }
-                                    @if (change.Sla.Status == SlaStatus.InProgress)
-                                    {
-                                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Class="mt-2" Disabled="@(!CanManage)" OnClick="PauseSlaAsync">Pause SLA</MudButton>
-                                    }
-                                    else if (change.Sla.Status == SlaStatus.Paused)
-                                    {
-                                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Success" Class="mt-2" Disabled="@(!CanManage)" OnClick="ResumeSlaAsync">Resume SLA</MudButton>
-                                    }
+                                    <TicketSlaSummary Sla="@change.Sla" CanManage="@CanManage" Busy="@isUpdating"
+                                                      OnPause="PauseSlaAsync" OnResume="ResumeSlaAsync" />
                                 </MudItem>
                             }
                         </MudGrid>
-                    </MudCardContent>
+                    </ChildContent>
 
-                    <MudCardActions Class="px-4 pb-4">
-                        @if (accessProfile?.CanApproveChange(change.OrganizationId) == true && change.LifecycleState == ChangeLifecycleState.PendingApproval)
-                        {
-                            <ChangeLifecycleStatePicker ChangeId="@change.Id" LifecycleState="@change.LifecycleState" CanApprove="true" ChangeUpdated="@(_ => LoadChangeAsync())" />
-                        }
+                    <Actions>
                         <MudButton OnClick="RevertChanges"
                                    Disabled="!CanManage || !hasChanges || isUpdating">Revert</MudButton>
                         <MudButton OnClick="SaveChangesAsync"
@@ -311,8 +266,14 @@
                             }
                             Save Changes
                         </MudButton>
-                    </MudCardActions>
-            </MudCard>
+                    </Actions>
+            <LifecycleActions>
+@if (accessProfile?.CanApproveChange(change.OrganizationId) == true && change.LifecycleState == ChangeLifecycleState.PendingApproval)
+                        {
+                            <ChangeLifecycleStatePicker ChangeId="@change.Id" LifecycleState="@change.LifecycleState" CanApprove="true" ChangeUpdated="@(_ => LoadChangeAsync())" />
+                        }
+                </LifecycleActions>
+            </TicketDetailsPanel>
         </MudItem>
     </MudGrid>
         }
@@ -325,6 +286,12 @@
 </ErrorBoundary>
 
 @code {
+    private async Task ConfirmNavigation(LocationChangingContext context)
+    {
+        if (hasChanges && await DialogService.ShowMessageBox("Unsaved changes", "Leave this ticket and discard unsaved changes?", yesText: "Discard changes", cancelText: "Keep editing") != true)
+            context.PreventNavigation();
+    }
+
     private CurrentUserAccessProfile? accessProfile;
     private bool CanManage => accessProfile?.CanManageChange(change?.OrganizationId) == true;
     private bool CanContribute => change is not null && accessProfile?.CanContributeChange(change.OrganizationId, change.CustomerId, change.CustomerEmail) == true;
@@ -650,7 +617,7 @@
         hasChanges = true;
     }
 
-    private async Task OnCategoryRemoved(Guid id)
+    private void OnCategoryRemoved(Guid id)
     {
         if (IsChangeLocked) return;
         if (change is null) return;
@@ -659,7 +626,6 @@
         change.CategoryIds = selectedCategoryIds.ToList();
         hasChanges = true;
 
-        await SaveChangesAsync();
     }
 
     private void RevertChanges()

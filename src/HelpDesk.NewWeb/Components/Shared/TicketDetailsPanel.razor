@@ -1,0 +1,17 @@
+<section class="ticket-details-panel" aria-label="Ticket details">
+    <header><MudText Typo="Typo.subtitle1">Details</MudText></header>
+    <div class="details-fields">@ChildContent</div>
+    @if (Actions is not null)
+    {
+        <div class="details-save-actions" aria-label="Save ticket changes">@Actions</div>
+    }
+    @if (LifecycleActions is not null)
+    {
+        <div class="details-lifecycle-actions" aria-label="Ticket lifecycle actions">@LifecycleActions</div>
+    }
+</section>
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public RenderFragment? Actions { get; set; }
+    [Parameter] public RenderFragment? LifecycleActions { get; set; }
+}

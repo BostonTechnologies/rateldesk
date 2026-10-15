@@ -16,6 +16,8 @@
 @using Helpdesk.Shared.Enums
 @using Helpdesk.Shared.Models
 
+<NavigationLock ConfirmExternalNavigation="@hasChanges" OnBeforeInternalNavigation="ConfirmNavigation" />
+
 <PageTitle>Incident: @(incident?.Subject ?? "...")</PageTitle>
 
 @if (loading)
@@ -56,15 +58,10 @@ else
         </MudItem>
 
         <MudItem xs="12" md="3" Class="d-flex flex-column">
-            <MudCard Class="position-sticky compact-details-card" Style="top: 16px;">
-                    <MudCardHeader>
-                        <CardHeaderContent>
-                            <MudText Typo="Typo.subtitle1">Details</MudText>
-                        </CardHeaderContent>
-                    </MudCardHeader>
-                    <MudCardContent>
-                        <MudGrid>
-                            <MudItem xs="12">
+            <TicketDetailsPanel>
+                <ChildContent>
+                        <MudGrid Spacing="2">
+                            <MudItem xs="12" sm="6" md="12" xl="6">
                                 <MudSelect T="TicketState" Value="@incident.State" ValueChanged="OnStateChanged"
                                            Dense="true"
                                            Margin="Margin.Dense"
@@ -77,7 +74,7 @@ else
                                     }
                                 </MudSelect>
                             </MudItem>
-                            <MudItem xs="12">
+                            <MudItem xs="12" sm="6" md="12" xl="6">
                                 <MudSelect T="TicketPriority" Value="@incident.Priority" ValueChanged="OnPriorityChanged"
                                            Dense="true"
                                            Margin="Margin.Dense"
@@ -91,62 +88,33 @@ else
                                 </MudSelect>
                             </MudItem>
                             <MudItem xs="12">
-                                <HelpDesk.NewWeb.Components.Shared.ServiceCategoryPicker
-                                    RequestedType="TicketCategoryType.Incident"
-                                    SelectedCategoryIds="@selectedCategoryIds"
-                                    SelectedCategoryIdsChanged="OnCategorySelectionChanged" ReadOnly="@(!CanManage)"
-                                    Dense="true"
-                                    Margin="Margin.Dense" />
-                            </MudItem>
-                            <MudItem xs="12">
-                                <MudTextField T="string" Label="Updated" Variant="Variant.Outlined" Dense="true" Margin="Margin.Dense" ReadOnly="true" Value="@incident.UpdatedAt?.ToString("g")" />
-                            </MudItem>
-                            <MudItem xs="12">
                                 <AssigneeSelector Module="incident" OrganizationId="@incident.OrganizationId" TicketId="@incident.Id"
                                                   Value="@incident.AssignedToId" ReadOnly="@(!CanManage)" Busy="isUpdating"
                                                   SelectionChanged="@(user => OnAssigneeChanged(user?.Id))" />
                             </MudItem>
+                            <MudItem xs="12">
+                                <HelpDesk.NewWeb.Components.Shared.ServiceCategoryPicker
+                                    RequestedType="TicketCategoryType.Incident" OrganizationId="@incident.OrganizationId" ScopeKey="@incident.Id"
+                                    SelectedCategoryIds="@selectedCategoryIds"
+                                    SelectedCategoryIdsChanged="OnCategorySelectionChanged" ReadOnly="@(!CanManage || isUpdating)"
+                                    Dense="true"
+                                    Margin="Margin.Dense" />
+                            </MudItem>
+                            <MudItem xs="12">
+                                <p class="details-metadata">Updated: @(incident.UpdatedAt?.ToString("g"))</p>
+                            </MudItem>
+
                             @if (incident.Sla is not null)
                             {
                                 <MudItem xs="12">
-                                    <MudDivider Class="my-2" />
-                                    <MudText Typo="Typo.subtitle2" Class="mb-1">SLA</MudText>
-                                    <MudChip T="string" Color="@GetSlaStatusColor(incident.Sla.Status)" Variant="Variant.Filled" Size="Size.Small">
-                                        @incident.Sla.Status
-                                    </MudChip>
-                                    <MudText Typo="Typo.caption" Class="d-block mt-2">
-                                        Response remaining: @FormatRemaining(incident.Sla.ResponseRemainingSeconds)
-                                    </MudText>
-                                    <MudProgressLinear Value="@incident.Sla.ResponsePercentUsed" Color="Color.Info" Class="mb-2" />
-                                    <MudText Typo="Typo.caption" Class="d-block">
-                                        Resolution remaining: @FormatRemaining(incident.Sla.ResolutionRemainingSeconds)
-                                    </MudText>
-                                    <MudProgressLinear Value="@incident.Sla.ResolutionPercentUsed" Color="Color.Warning" Class="mb-2" />
-                                    @if (!string.IsNullOrWhiteSpace(incident.Sla.PauseReason))
-                                    {
-                                        <MudText Typo="Typo.caption">Reason: @incident.Sla.PauseReason</MudText>
-                                    }
-                                    @if (incident.Sla.Status == SlaStatus.InProgress)
-                                    {
-                                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Class="mt-2" Disabled="@(!CanManage)" OnClick="PauseSlaAsync">Pause SLA</MudButton>
-                                    }
-                                    else if (incident.Sla.Status == SlaStatus.Paused)
-                                    {
-                                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Success" Class="mt-2" Disabled="@(!CanManage)" OnClick="ResumeSlaAsync">Resume SLA</MudButton>
-                                    }
+                                    <TicketSlaSummary Sla="@incident.Sla" CanManage="@CanManage" Busy="@isUpdating"
+                                                      OnPause="PauseSlaAsync" OnResume="ResumeSlaAsync" />
                                 </MudItem>
                             }
                         </MudGrid>
-                    </MudCardContent>
+                    </ChildContent>
 
-                    <MudCardActions Class="px-4 pb-4">
-                        <MudButton OnClick="OpenCloseLinkDialogAsync"
-                                   StartIcon="@Icons.Material.Filled.AccountTree"
-                                   Variant="Variant.Outlined"
-                                   Color="Color.Primary"
-                                   Disabled="@(!CanManage || isUpdating)">
-                            Close / Link
-                        </MudButton>
+                    <Actions>
                         <MudButton OnClick="RevertChanges"
                                    Disabled="!CanManage || !hasChanges || isUpdating">Revert</MudButton>
                         <MudButton OnClick="SaveChangesAsync"
@@ -159,13 +127,28 @@ else
                             }
                             Save Changes
                         </MudButton>
-                    </MudCardActions>
-            </MudCard>
+                    </Actions>
+            <LifecycleActions>
+<MudButton OnClick="OpenCloseLinkDialogAsync"
+                                   StartIcon="@Icons.Material.Filled.AccountTree"
+                                   Variant="Variant.Outlined"
+                                   Color="Color.Primary"
+                                   Disabled="@(!CanManage || isUpdating)">
+                            Close / Link
+                        </MudButton>
+                </LifecycleActions>
+            </TicketDetailsPanel>
         </MudItem>
     </MudGrid>
 }
 
 @code {
+    private async Task ConfirmNavigation(LocationChangingContext context)
+    {
+        if (hasChanges && await DialogService.ShowMessageBox("Unsaved changes", "Leave this ticket and discard unsaved changes?", yesText: "Discard changes", cancelText: "Keep editing") != true)
+            context.PreventNavigation();
+    }
+
     private CurrentUserAccessProfile? accessProfile;
     private bool CanManage => accessProfile?.CanManageIncident(incident?.OrganizationId) == true;
     private bool CanContribute => incident is not null && accessProfile?.CanContributeIncident(incident.OrganizationId, incident.CustomerId, incident.RequesterEmail) == true;
@@ -305,7 +288,7 @@ else
         hasChanges = true;
     }
 
-    private async Task OnCategoryRemoved(Guid id)
+    private void OnCategoryRemoved(Guid id)
     {
         if (incident is null) return;
 
@@ -313,7 +296,6 @@ else
         incident.CategoryIds = selectedCategoryIds.ToList();
         hasChanges = true;
 
-        await SaveChangesAsync();
     }
 
     private void RevertChanges()
