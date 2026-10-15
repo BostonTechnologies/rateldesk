@@ -140,6 +140,7 @@ for (const width of [320, 768, 1920]) {
 for (const module of ['incidents', 'requests', 'changes']) {
   test(`${module} authorized SLA pause and resume remain available`, async ({ page }) => {
     await open(page, module);
+    await addLiteral(page);
     await page.getByRole('button', { name: 'Pause SLA', exact: true }).click();
     await page.getByRole('textbox', { name: /^Reason/ }).fill('Synthetic pause reason');
     await page.getByRole('button', { name: 'Pause', exact: true }).click();
@@ -147,6 +148,8 @@ for (const module of ['incidents', 'requests', 'changes']) {
     await expect(page.getByText('Pause reason: Synthetic pause reason')).toBeVisible();
     await page.getByRole('button', { name: 'Resume SLA', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Pause SLA', exact: true })).toBeVisible();
+    await expect(selected(page)).toContainText('R&D');
+    await expect(page.getByRole('button', { name: 'Save Changes', exact: true })).toBeEnabled();
   });
 }
 
@@ -185,4 +188,79 @@ test('change template draft survives activity tab switches', async ({ page }) =>
   await page.getByRole('tab', { name: 'Change Template', exact: true }).click();
   await expect(draft).toHaveValue('Synthetic draft retained while reading activity');
   await expect(page.getByRole('button', { name: 'Save Changes', exact: true })).toBeEnabled();
+});
+
+
+async function routeWithoutReload(page: Page, path: string) {
+  await page.getByRole('link', { name: 'Home', exact: true }).evaluate((link, path) => {
+    link.setAttribute('href', path); (link as HTMLAnchorElement).click();
+  }, path);
+}
+for (const module of ['incidents', 'requests', 'changes']) {
+  test(`${module} pending SLA dialog cannot apply to a newly opened ticket`, async ({ page, request }) => {
+    await open(page, module);
+    await page.getByRole('button', { name: 'Pause SLA', exact: true }).click();
+    await routeWithoutReload(page, `/${module}/${module}-2`);
+    await expect(page).toHaveURL(new RegExp(`${module}-2$`));
+    await page.getByRole('textbox', { name: /^Reason/ }).fill('Old modal must not target new ticket');
+    await page.getByRole('button', { name: 'Pause', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(selected(page)).toContainText('R&D');
+    expect((await (await request.get(`${fixture}/state`)).json()).slaActions).toEqual([]);
+  });
+
+  test(`${module} late background refresh cannot replace another ticket`, async ({ page, request }) => {
+    await open(page, module);
+    await request.get(`${fixture}/fault?mode=hold-refresh`);
+    await page.getByRole('button', { name: 'Pause SLA', exact: true }).click();
+    await page.getByRole('textbox', { name: /^Reason/ }).fill('Synthetic pause reason');
+    await page.getByRole('button', { name: 'Pause', exact: true }).click();
+    await expect.poll(async () => (await (await request.get(`${fixture}/state`)).json()).held).toContain('refresh');
+    await routeWithoutReload(page, `/${module}/${module}-2`);
+    await expect(selected(page)).toContainText('R&D');
+    await request.get(`${fixture}/release`);
+    await page.getByRole('tab', { name: /Attachments/ }).click();
+    await expect(page.getByRole('tab', { name: /Attachments/ })).toHaveAttribute('aria-selected', 'true');
+    await expect(selected(page)).not.toContainText('Historical selection');
+    await expect(page.getByRole('button', { name: 'Save Changes', exact: true })).toBeDisabled();
+  });
+
+  test(`${module} old save response cannot clear a new draft after A B A navigation`, async ({ page, request }) => {
+    await open(page, module);
+    await addLiteral(page);
+    await request.get(`${fixture}/fault?mode=hold-save`);
+    await page.getByRole('button', { name: 'Save Changes', exact: true }).click();
+    await expect.poll(async () => (await (await request.get(`${fixture}/state`)).json()).held).toContain('save');
+    await routeWithoutReload(page, `/${module}/${module}-2`);
+    await page.getByRole('button', { name: 'Discard changes', exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`${module}-2$`));
+    await expect(selected(page)).toContainText('R&D');
+    await routeWithoutReload(page, `/${module}/${module}-1`);
+    await expect(selected(page)).toContainText('Historical selection');
+    await selected(page).locator('.mud-chip').filter({ hasText: 'Historical selection' }).locator('.mud-chip-close-button').click();
+    await expect(page.getByRole('button', { name: 'Save Changes', exact: true })).toBeEnabled();
+    await request.get(`${fixture}/release`);
+    await page.getByRole('tab', { name: /Attachments/ }).click();
+    await expect(page.getByRole('tab', { name: /Attachments/ })).toHaveAttribute('aria-selected', 'true');
+    await expect(selected(page)).not.toContainText('Historical selection');
+    await expect(page.getByRole('button', { name: 'Save Changes', exact: true })).toBeEnabled();
+  });
+}
+
+
+test('request workflow ignores a late response from the previous event group', async ({ page, request }) => {
+  await open(page, 'requests');
+  await page.getByRole('tab', { name: 'Workflow', exact: true }).click();
+  await request.get(`${fixture}/fault?mode=hold-workflow`);
+  await page.getByRole('combobox', { name: 'Event Group', exact: true }).click();
+  await page.getByRole('option', { name: 'Tasks', exact: true }).click();
+  await expect.poll(async () => (await (await request.get(`${fixture}/state`)).json()).held).toContain('workflow');
+  await page.getByRole('combobox', { name: 'Event Group', exact: true }).click();
+  await page.getByRole('option', { name: 'SLA', exact: true }).click();
+  await expect(page.getByText('SLA workflow event', { exact: true })).toBeVisible();
+  await request.get(`${fixture}/release`);
+  await page.getByRole('textbox', { name: 'Search', exact: true }).fill('workflow');
+  await page.getByRole('textbox', { name: 'Search', exact: true }).press('Tab');
+  await expect(page.getByText('Tasks workflow event', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('SLA workflow event', { exact: true })).toBeVisible();
 });

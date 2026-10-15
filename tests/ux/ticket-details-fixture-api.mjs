@@ -9,8 +9,12 @@ users.push({ id: 'late', name: 'Zulu Surname', email: 'late@example.test', role:
 const categoryOne = '79000000-0000-0000-0000-000000000001';
 const categoryTwo = '79000000-0000-0000-0000-000000000002';
 const categoryThree = '79000000-0000-0000-0000-000000000003';
-let categories, categorySearches, tickets, searches, completedQueries, saves, fault, reader;
+let categories, categorySearches, tickets, searches, completedQueries, saves, fault, reader, slaActions;
+let held = [];
+const hold = kind => new Promise(resolve => held.push({ kind, resolve }));
+function release() { const pending = held; held = []; pending.forEach(item => item.resolve()); }
 function reset() {
+  release(); slaActions = [];
   categories = [{ id: categoryOne, name: 'Network Operations', isActive: true, type: 0 }, { id: categoryTwo, name: 'Historical selection', isActive: false, type: 0 }, { id: categoryThree, name: 'R&D + 100%_\\', isActive: true, type: 0 }]; categorySearches = []; searches = []; completedQueries = []; saves = []; fault = ''; reader = false;
   tickets = Object.fromEntries(['incidents', 'requests', 'changes'].map(module => [module, {
     id: `${module}-1`, subject: 'Picker incident', title: `Picker ${module}`, description: 'Fixture ticket',
@@ -27,7 +31,8 @@ http.createServer(async (req, res) => {
   const body = async () => { let value = ''; for await (const part of req) value += part; return value ? JSON.parse(value) : {}; };
   if (url.pathname === '/fixture/health') return reply({ ok: true });
   if (url.pathname === '/fixture/reset') { reset(); return reply({ ok: true }); }
-  if (url.pathname === '/fixture/state') return reply({ searches, completedQueries, saves, tickets, categories, categorySearches });
+  if (url.pathname === '/fixture/state') return reply({ searches, completedQueries, saves, tickets, categories, categorySearches, slaActions, held: held.map(item => item.kind) });
+  if (url.pathname === '/fixture/release') { release(); return reply({ ok: true }); }
   if (url.pathname === '/fixture/fault') { fault = url.searchParams.get('mode') ?? ''; reader = fault === 'reader'; if (fault === 'locked') tickets.changes.lifecycleState = 1; return reply({ ok: true }); }
   if (url.pathname.endsWith('/system/token')) {
     const encode = value => Buffer.from(JSON.stringify(value)).toString('base64url');
@@ -68,7 +73,7 @@ http.createServer(async (req, res) => {
     if (q === 'slow') { await new Promise(resolve => setTimeout(resolve, 1000)); return reply([{ id: '79000000-0000-0000-0000-000000000009', name: 'Stale result', isActive: true, type: 0 }]); }
     return reply(categories.filter(x => x.isActive && x.name.toLowerCase().includes(q.toLowerCase())).slice(0, 30));
   }
-  if (/\/api\/v1\/tickets\/[^/]+\/sla\/(pause|resume)$/.test(url.pathname)) { const pause = url.pathname.endsWith('/pause'); Object.values(tickets).forEach(ticket => { ticket.sla.status = pause ? 2 : 1; ticket.sla.pauseReason = pause ? 'Synthetic pause reason' : null; }); return reply({}); }
+  if (/\/api\/v1\/tickets\/[^/]+\/sla\/(pause|resume)$/.test(url.pathname)) { slaActions.push(url.pathname); const pause = url.pathname.endsWith('/pause'); Object.values(tickets).forEach(ticket => { ticket.sla.status = pause ? 2 : 1; ticket.sla.pauseReason = pause ? 'Synthetic pause reason' : null; }); return reply({}); }
   const match = url.pathname.match(/^\/api\/v1\/(incidents|requests|changes)(?:\/(.*))?$/);
   if (match) {
     const [, module, action] = match;
@@ -89,10 +94,13 @@ http.createServer(async (req, res) => {
         }
       }
       if (action?.endsWith('/assignee')) return reply(users.find(user => user.id === value));
-      return reply(action === 'bulk/assign' ? { updated: 1 } : ticket);
+      const snapshot = structuredClone(ticket);
+      if (fault === 'hold-save') { fault = ''; await hold('save'); }
+      return reply(action === 'bulk/assign' ? { updated: 1 } : snapshot);
     }
-    if (action === ticket.id) return reply(ticket);
+    if (action === ticket.id) { const snapshot = structuredClone(ticket); if (fault === 'hold-refresh') { fault = ''; await hold('refresh'); } return reply(snapshot); }
     if (action === `${module}-2`) return reply({ ...ticket, id: `${module}-2`, categoryIds: [categoryThree] });
+    if (action?.endsWith('/workflow-timeline')) { const group = url.searchParams.get('categories')?.includes('Sla') ? 'SLA' : 'Tasks'; const snapshot = { items: [{ id: group, title: `${group} workflow event`, category: group, severity: 'Info', createdAt: '2026-10-01T10:00:00Z' }], totalCount: 1 }; if (fault === 'hold-workflow') { fault = ''; await hold('workflow'); } return reply(snapshot); }
     if (action?.endsWith('/peek')) return reply({ incidentId: ticket.id, text: 'Fixture message', html: '<p>Fixture message</p>' });
     if (action?.endsWith('/timeline/count')) return reply(0);
     if (action?.endsWith('/attachments/count')) return reply(1200);

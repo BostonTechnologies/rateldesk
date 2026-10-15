@@ -1,3 +1,4 @@
+@implements IDisposable
 @using Helpdesk.Shared.Services
 @inject AuthenticationStateProvider AccessAuthenticationState
 @page "/incidents/{Id}"
@@ -44,7 +45,7 @@ else
                 CustomerEmail="@incident.CustomerEmail"
                 CategoryIds="@selectedCategoryIds"
                 AllCategories="@categories"
-                CategoryRemoved="OnCategoryRemoved" ReadOnly="@(!CanManage)">
+                CategoryRemoved="OnCategoryRemoved" ReadOnly="@(!CanManage || isUpdating)">
             </HelpDesk.NewWeb.Components.Shared.TicketHeader>
 
             <TicketActivityTabs
@@ -163,6 +164,10 @@ else
     private bool isUpdating;
     private bool hasChanges;
     private int activityTabsKey;
+    private long ticketLifetime, refreshVersion;
+    private bool disposed;
+    private bool IsCurrent(long lifetime) => !disposed && lifetime == ticketLifetime;
+    public void Dispose() { disposed = true; ticketLifetime++; refreshVersion++; }
 
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
 
@@ -177,7 +182,9 @@ else
 
         loading = true;
         loadedIncidentId = Id;
-        var loadingId = Id;
+        incident = null; originalIncident = null; selectedCategoryIds = new();
+        var lifetime = ++ticketLifetime;
+        refreshVersion++;
         hasChanges = false;
         isUpdating = false;
         activityTabsKey++;
@@ -190,7 +197,7 @@ else
 
             await Task.WhenAll(incidentTask, categoriesTask);
 
-            if (loadingId != Id) return;
+            if (!IsCurrent(lifetime)) return;
             originalIncident = await incidentTask;
             categories = await categoriesTask ?? new();
             categories = categories
@@ -210,13 +217,13 @@ else
         }
         catch (Exception ex)
         {
-            if (loadingId != Id) return;
+            if (!IsCurrent(lifetime)) return;
             Snackbar.Add($"Error loading data: {ex.Message}", Severity.Error);
             incident = null;
         }
         finally
         {
-            if (loadingId == Id) loading = false;
+            if (IsCurrent(lifetime)) loading = false;
         }
     }
 
@@ -321,9 +328,11 @@ else
 
     private async Task SaveChangesAsync()
     {
-        if (!CanManage || incident is null || !hasChanges) return;
+        if (!CanManage || isUpdating || incident is null || !hasChanges) return;
 
         var savingTicketId = Id;
+        var lifetime = ticketLifetime;
+        refreshVersion++;
         isUpdating = true;
 
         try
@@ -339,11 +348,11 @@ else
 
             var response = await HelpdeskApi.PutAsJsonAsync($"api/v1/incidents/{savingTicketId}", updateDto);
 
-            if (savingTicketId != Id) return;
+            if (!IsCurrent(lifetime)) return;
             if (response.IsSuccessStatusCode)
             {
                 var updated = await response.Content.ReadFromJsonAsync<IncidentDto>();
-                if (savingTicketId != Id) return;
+                if (!IsCurrent(lifetime)) return;
                 if (updated is not null)
                 {
                     originalIncident = CloneIncident(updated);
@@ -362,16 +371,17 @@ else
             else
             {
                 var error = await response.Content.ReadAsStringAsync();
+                if (!IsCurrent(lifetime)) return;
                 Snackbar.Add($"Error saving incident: {error}", Severity.Error);
             }
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"A client-side error occurred: {ex.Message}", Severity.Error);
+            if (IsCurrent(lifetime)) Snackbar.Add($"A client-side error occurred: {ex.Message}", Severity.Error);
         }
         finally
         {
-            if (savingTicketId == Id) isUpdating = false;
+            if (IsCurrent(lifetime)) { isUpdating = false; refreshVersion++; }
         }
     }
 
@@ -387,6 +397,7 @@ else
             return;
         }
 
+        var lifetime = ticketLifetime;
         var parameters = new DialogParameters
         {
             ["SourceIncidentId"] = incident.Id,
@@ -401,7 +412,7 @@ else
 
         var dialog = await DialogService.ShowAsync<CloseLinkIncidentDialog>("Close / Link Incident", parameters, options);
         var result = await dialog.Result;
-        if (result.Canceled)
+        if (!IsCurrent(lifetime) || result.Canceled)
         {
             return;
         }
@@ -409,6 +420,7 @@ else
         if (result.Data is List<TicketRelationCreateResultDto> relationResults && relationResults.Count > 0)
         {
             await RefreshIncidentAsync();
+            if (!IsCurrent(lifetime)) return;
             activityTabsKey++;
 
             var relationCount = relationResults.Count;
@@ -425,54 +437,68 @@ else
 
     private async Task RefreshIncidentAsync()
     {
+        var lifetime = ticketLifetime;
+        var version = ++refreshVersion;
+        var ticketId = Id;
         try
         {
-            var updated = await HelpdeskApi.GetFromJsonAsync<IncidentDto>($"api/v1/incidents/{Id}");
-            if (updated is not null)
+            var updated = await HelpdeskApi.GetFromJsonAsync<IncidentDto>($"api/v1/incidents/{ticketId}");
+            if (!IsCurrent(lifetime) || version != refreshVersion || updated is null) return;
+            if (hasChanges || isUpdating)
             {
-                originalIncident = CloneIncident(updated);
-                incident = CloneIncident(updated);
-                selectedCategoryIds = updated.CategoryIds.ToHashSet();
-                hasChanges = false;
+                // Background activity and SLA updates must not replace the editable draft.
+                if (incident is not null) { incident.Sla = CloneIncident(updated).Sla; incident.UpdatedAt = updated.UpdatedAt; }
+                if (originalIncident is not null) { originalIncident.Sla = CloneIncident(updated).Sla; originalIncident.UpdatedAt = updated.UpdatedAt; }
+                return;
             }
+            originalIncident = CloneIncident(updated);
+            incident = CloneIncident(updated);
+            selectedCategoryIds = updated.CategoryIds.ToHashSet();
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error refreshing incident: {ex.Message}", Severity.Error);
+            if (IsCurrent(lifetime) && version == refreshVersion) Snackbar.Add($"Error refreshing incident: {ex.Message}", Severity.Error);
         }
     }
 
     private async Task PauseSlaAsync()
     {
+        if (!CanManage || isUpdating || incident is null) return;
+        var lifetime = ticketLifetime;
+        var ticketId = incident.Id;
         var dialog = await DialogService.ShowAsync<HelpDesk.NewWeb.Components.Shared.SlaPauseDialog>(
-            "Pause SLA",
-            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+            "Pause SLA", new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
         var result = await dialog.Result;
-        if (result.Canceled || result.Data is not PauseSlaRequest request)
+        if (!IsCurrent(lifetime) || !CanManage || isUpdating || result.Canceled || result.Data is not PauseSlaRequest requestBody) return;
+        try
         {
-            return;
+            using var response = await HelpdeskApi.PostAsJsonAsync($"api/v1/tickets/{ticketId}/sla/pause", requestBody);
+            if (!IsCurrent(lifetime)) return;
+            if (!response.IsSuccessStatusCode) { Snackbar.Add("Failed to pause SLA.", Severity.Error); return; }
+            await HandleWorklogAdded();
         }
-
-        var response = await HelpdeskApi.PostAsJsonAsync($"api/v1/tickets/{Id}/sla/pause", request);
-        if (!response.IsSuccessStatusCode)
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
         {
-            Snackbar.Add("Failed to pause SLA.", Severity.Error);
-            return;
+            if (IsCurrent(lifetime)) Snackbar.Add("Failed to pause SLA.", Severity.Error);
         }
-
-        await HandleWorklogAdded();
     }
 
     private async Task ResumeSlaAsync()
     {
-        var response = await HelpdeskApi.PostAsJsonAsync($"api/v1/tickets/{Id}/sla/resume", new ResumeSlaRequest());
-        if (!response.IsSuccessStatusCode)
+        if (!CanManage || isUpdating || incident is null) return;
+        var lifetime = ticketLifetime;
+        var ticketId = incident.Id;
+        try
         {
-            Snackbar.Add("Failed to resume SLA.", Severity.Error);
-            return;
+            using var response = await HelpdeskApi.PostAsJsonAsync($"api/v1/tickets/{ticketId}/sla/resume", new ResumeSlaRequest());
+            if (!IsCurrent(lifetime)) return;
+            if (!response.IsSuccessStatusCode) { Snackbar.Add("Failed to resume SLA.", Severity.Error); return; }
+            await HandleWorklogAdded();
         }
-
-        await HandleWorklogAdded();
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
+        {
+            if (IsCurrent(lifetime)) Snackbar.Add("Failed to resume SLA.", Severity.Error);
+        }
     }
 
     private static string FormatRemaining(long totalSeconds)

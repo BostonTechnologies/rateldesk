@@ -108,8 +108,8 @@
                                 Change details are read-only outside Draft. Move the change back to Draft to edit and resubmit approvals.
                             </MudAlert>
                         }
-                        <div class="@(IsChangeLocked ? "change-template-locked" : null)">
-                            <ChangeTemplateEditor ReadOnly="@IsChangeLocked" ChangeType="@(change.ChangeType ?? string.Empty)"
+                        <div class="@(IsChangeLocked || isUpdating ? "change-template-locked" : null)">
+                            <ChangeTemplateEditor ReadOnly="@(IsChangeLocked || isUpdating)" ChangeType="@(change.ChangeType ?? string.Empty)"
                                                   Model="@(change.ChangeTemplate ??= new ChangeTemplateDto())"
                                                   OnChanged="OnTemplateChanged"
                                                   ValidationErrors="@templateErrors" />
@@ -312,6 +312,9 @@
     private bool loading = true;
     private string? loadedChangeId;
     private CancellationTokenSource loadCancellation = new();
+    private long ticketLifetime, refreshVersion;
+    private bool disposed;
+    private bool IsCurrent(long lifetime) => !disposed && lifetime == ticketLifetime;
     private bool isUpdating;
     private bool hasChanges;
     private string? loadError;
@@ -326,6 +329,9 @@
     {
         if (loadedChangeId == Id) return;
         loadedChangeId = Id;
+        change = null; originalChange = null; selectedCategoryIds = new();
+        ticketLifetime++;
+        refreshVersion++;
         hasChanges = false;
         isUpdating = false;
         loading = true;
@@ -333,12 +339,13 @@
         await LoadChangeAsync();
     }
 
-    public void Dispose() { loadCancellation.Cancel(); loadCancellation.Dispose(); }
+    public void Dispose() { disposed = true; ticketLifetime++; refreshVersion++; loadCancellation.Cancel(); loadCancellation.Dispose(); }
 
     private async Task LoadChangeAsync()
     {
         loadCancellation.Cancel(); loadCancellation.Dispose(); loadCancellation = new();
         var token = loadCancellation.Token;
+        var lifetime = ticketLifetime;
         Logger.LogInformation(
             "Loading change detail. ChangeId={ChangeId} Route={Route} TraceId={TraceId}",
             Id,
@@ -389,6 +396,7 @@
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception ex)
         {
+            if (!IsCurrent(lifetime) || token.IsCancellationRequested) return;
             Logger.LogError(
                 ex,
                 "Failed to load change detail. ChangeId={ChangeId} Route={Route} TraceId={TraceId}",
@@ -398,13 +406,14 @@
             await SafeLogWebErrorAsync(
                 ex,
                 $"{nameof(ChangeDetail)}:{Id}:{NavigationManager.ToBaseRelativePath(NavigationManager.Uri)}");
+            if (!IsCurrent(lifetime) || token.IsCancellationRequested) return;
             loadError = "Unable to load this change right now. The error has been logged.";
             TryShowSnackbar($"Error loading data: {ex.Message}", Severity.Error);
             change = null;
         }
         finally
         {
-            if (!token.IsCancellationRequested) loading = false;
+            if (IsCurrent(lifetime) && !token.IsCancellationRequested) loading = false;
         }
     }
 
@@ -471,6 +480,7 @@
             RequestedForUserId = source.RequestedForUserId,
             RequestedForUserName = source.RequestedForUserName,
             RequestedForUserEmail = source.RequestedForUserEmail,
+            AssignedToId = source.AssignedToId,
             ImplementorUserId = source.ImplementorUserId,
             ImplementorUserName = source.ImplementorUserName,
             ImplementorUserEmail = source.ImplementorUserEmail,
@@ -665,9 +675,11 @@
 
     private async Task SaveChangesAsync()
     {
-        if (!CanManage || change is null || !hasChanges) return;
+        if (!CanManage || isUpdating || change is null || !hasChanges) return;
 
         var savingTicketId = Id;
+        var lifetime = ticketLifetime;
+        refreshVersion++;
         isUpdating = true;
 
         try
@@ -676,11 +688,11 @@
 
             var response = await HelpdeskApi.PutAsJsonAsync($"api/v1/changes/{savingTicketId}", updateDto);
 
-            if (savingTicketId != Id) return;
+            if (!IsCurrent(lifetime)) return;
             if (response.IsSuccessStatusCode)
             {
                 var updated = await response.Content.ReadFromJsonAsync<ChangeDto>();
-                if (savingTicketId != Id) return;
+                if (!IsCurrent(lifetime)) return;
                 if (updated is not null)
                 {
                     originalChange = CloneChange(updated);
@@ -695,8 +707,10 @@
             }
             else
             {
-                templateErrors = await ReadErrorsAsync(response);
+                var errors = await ReadErrorsAsync(response);
                 var error = await response.Content.ReadAsStringAsync();
+                if (!IsCurrent(lifetime)) return;
+                templateErrors = errors;
                 Snackbar.Add(
                     templateErrors.Count > 0 ? "Complete the required template fields or AI-review requirements before saving." : $"Error saving change: {error}",
                     Severity.Error);
@@ -704,33 +718,40 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"A client-side error occurred: {ex.Message}", Severity.Error);
+            if (IsCurrent(lifetime)) Snackbar.Add($"A client-side error occurred: {ex.Message}", Severity.Error);
         }
         finally
         {
-            if (savingTicketId == Id) isUpdating = false;
+            if (IsCurrent(lifetime)) { isUpdating = false; refreshVersion++; }
         }
     }
 
     private async Task HandleWorklogAdded()
     {
+        var lifetime = ticketLifetime;
+        var version = ++refreshVersion;
+        var ticketId = Id;
         try
         {
-            var updated = await HelpdeskApi.GetFromJsonAsync<ChangeDto>($"api/v1/changes/{Id}");
-            if (updated is not null)
+            var updated = await HelpdeskApi.GetFromJsonAsync<ChangeDto>($"api/v1/changes/{ticketId}");
+            if (!IsCurrent(lifetime) || version != refreshVersion || updated is null) return;
+            if (hasChanges || isUpdating)
             {
-                originalChange = CloneChange(updated);
-                change = CloneChange(updated);
-                change.ChangeTemplate ??= new ChangeTemplateDto();
-                SyncImplementationWindowEditors(change);
-                selectedCategoryIds = updated.CategoryIds.ToHashSet();
-                templateErrors = updated.TemplateValidationErrors.ToList();
-                hasChanges = false;
+                // Preserve the template, assignment and category draft while refreshing metadata.
+                if (change is not null) { change.Sla = CloneChange(updated).Sla; change.UpdatedAt = updated.UpdatedAt; change.Approvals = updated.Approvals; }
+                if (originalChange is not null) { originalChange.Sla = CloneChange(updated).Sla; originalChange.UpdatedAt = updated.UpdatedAt; originalChange.Approvals = updated.Approvals; }
+                return;
             }
+            originalChange = CloneChange(updated);
+            change = CloneChange(updated);
+            change.ChangeTemplate ??= new ChangeTemplateDto();
+            SyncImplementationWindowEditors(change);
+            selectedCategoryIds = updated.CategoryIds.ToHashSet();
+            templateErrors = updated.TemplateValidationErrors.ToList();
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error refreshing change: {ex.Message}", Severity.Error);
+            if (IsCurrent(lifetime) && version == refreshVersion) Snackbar.Add($"Error refreshing change: {ex.Message}", Severity.Error);
         }
     }
 
@@ -778,35 +799,42 @@
 
     private async Task PauseSlaAsync()
     {
+        if (!CanManage || isUpdating || change is null) return;
+        var lifetime = ticketLifetime;
+        var ticketId = change.Id;
         var dialog = await DialogService.ShowAsync<HelpDesk.NewWeb.Components.Shared.SlaPauseDialog>(
-            "Pause SLA",
-            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+            "Pause SLA", new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
         var result = await dialog.Result;
-        if (result.Canceled || result.Data is not PauseSlaRequest requestBody)
+        if (!IsCurrent(lifetime) || !CanManage || isUpdating || result.Canceled || result.Data is not PauseSlaRequest requestBody) return;
+        try
         {
-            return;
+            using var response = await HelpdeskApi.PostAsJsonAsync($"api/v1/tickets/{ticketId}/sla/pause", requestBody);
+            if (!IsCurrent(lifetime)) return;
+            if (!response.IsSuccessStatusCode) { Snackbar.Add("Failed to pause SLA.", Severity.Error); return; }
+            await HandleWorklogAdded();
         }
-
-        var response = await HelpdeskApi.PostAsJsonAsync($"api/v1/tickets/{Id}/sla/pause", requestBody);
-        if (!response.IsSuccessStatusCode)
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
         {
-            Snackbar.Add("Failed to pause SLA.", Severity.Error);
-            return;
+            if (IsCurrent(lifetime)) Snackbar.Add("Failed to pause SLA.", Severity.Error);
         }
-
-        await HandleWorklogAdded();
     }
 
     private async Task ResumeSlaAsync()
     {
-        var response = await HelpdeskApi.PostAsJsonAsync($"api/v1/tickets/{Id}/sla/resume", new ResumeSlaRequest());
-        if (!response.IsSuccessStatusCode)
+        if (!CanManage || isUpdating || change is null) return;
+        var lifetime = ticketLifetime;
+        var ticketId = change.Id;
+        try
         {
-            Snackbar.Add("Failed to resume SLA.", Severity.Error);
-            return;
+            using var response = await HelpdeskApi.PostAsJsonAsync($"api/v1/tickets/{ticketId}/sla/resume", new ResumeSlaRequest());
+            if (!IsCurrent(lifetime)) return;
+            if (!response.IsSuccessStatusCode) { Snackbar.Add("Failed to resume SLA.", Severity.Error); return; }
+            await HandleWorklogAdded();
         }
-
-        await HandleWorklogAdded();
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
+        {
+            if (IsCurrent(lifetime)) Snackbar.Add("Failed to resume SLA.", Severity.Error);
+        }
     }
 
     private static string FormatRemaining(long totalSeconds)

@@ -48,7 +48,7 @@ else
                 CustomerEmail="@request.CustomerEmail"
                 CategoryIds="@selectedCategoryIds"
                 AllCategories="@categories"
-                CategoryRemoved="OnCategoryRemoved" ReadOnly="@(!CanManage)">
+                CategoryRemoved="OnCategoryRemoved" ReadOnly="@(!CanManage || isUpdating)">
             </HelpDesk.NewWeb.Components.Shared.TicketHeader>
 
             @if (!string.IsNullOrWhiteSpace(request.WorkflowStatus))
@@ -403,6 +403,7 @@ else
     {
         if (loadedRequestId == Id) return;
         loadedRequestId = Id;
+        request = null; originalRequest = null; selectedCategoryIds = new();
         var version = ++ticketVersion;
         ticketLifetime.Cancel(); ticketLifetime.Dispose(); ticketLifetime = new();
         var token = ticketLifetime.Token;
