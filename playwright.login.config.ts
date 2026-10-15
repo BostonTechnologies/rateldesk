@@ -4,6 +4,8 @@ import base from './playwright.config';
 const modes = ['Local', 'Oidc', 'Hybrid'];
 export default defineConfig(base, {
   testMatch: '**/login-presentation.spec.ts', testIgnore: [], workers: 1, retries: 0,
+  // This suite has no retries; retain a trace for the first failed attempt.
+  use: { trace: 'retain-on-failure' },
   projects: modes.map((mode, index) => ({ name: mode, use: { baseURL: `http://127.0.0.1:${18500 + index}` } })),
   webServer: [
     {
