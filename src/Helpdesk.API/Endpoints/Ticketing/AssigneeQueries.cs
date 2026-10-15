@@ -7,10 +7,10 @@ namespace Helpdesk.API.Endpoints.Ticketing;
 internal static class AssigneeQueries
 {
     // These predicates mirror mutation validation. Filter before searching/paging.
-    internal static IQueryable<User> Eligible(HelpdeskDbContext db, string module, Organization organization) =>
+    internal static IQueryable<User> Eligible(HelpdeskDbContext db, string module, Helpdesk.Shared.Models.Organization organization) =>
         Eligible(db, module, db.Organizations.Where(candidate => candidate.Id == organization.Id));
 
-    internal static IQueryable<User> Eligible(HelpdeskDbContext db, string module, IQueryable<Organization> organizations)
+    internal static IQueryable<User> Eligible(HelpdeskDbContext db, string module, IQueryable<Helpdesk.Shared.Models.Organization> organizations)
     {
         var organizationIds = organizations.Select(organization => organization.Id);
         var supportIds = organizations.Select(organization => organization.ItSupportOrganizationId == null || organization.ItSupportOrganizationId.Trim() == ""
