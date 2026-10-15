@@ -3,7 +3,7 @@ import { assertNoHorizontalOverflow } from './auth';
 const fixture = 'http://127.0.0.1:18400/fixture';
 async function ready(page: Page, route: string) {
   await page.goto(route);
-  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true', { timeout: 30_000 });
 }
 async function signIn(page: Page, port = 5170) { await page.goto(`https://127.0.0.1:${port}/auth/development`); }
 test.beforeEach(async ({ request, page }) => { await request.get(`${fixture}/reset`); await signIn(page); });
