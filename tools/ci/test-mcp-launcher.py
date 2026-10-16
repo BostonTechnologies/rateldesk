@@ -201,6 +201,74 @@ class LauncherContracts(unittest.TestCase):
         self.assertFalse(any("up" in arguments for arguments in calls))
         self.assertEqual(launcher.read_private_json(deployment.output / "launcher-state.json")["phase"], "saved-apply-pending")
 
+    def test_runtime_recreated_after_successful_protocol_checks_cannot_complete_verification(self):
+        self.args.verify = True
+        deployment = self.deployment()
+        deployment.image = "fixture"
+        deployment.storage = {
+            purpose: {"type": "volume", "source": purpose + "-fixture", "target": target,
+                      "readOnly": False, "private": True, "uid": 10001}
+            for purpose, target in (("host", "/output"), ("client", "/var/lib/rateldesk/http-client"))}
+        identifier = "sha256:" + "a" * 64
+        deployment.proposal = {"services": {name: {"image": "fixture", "environment": {}} for name in launcher.SERVICE_NAMES},
+            "x-rateldesk-source-files": [launcher.file_record(self.source)], "x-rateldesk-storage": deployment.storage,
+            "x-rateldesk-image-ids": {name: identifier for name in launcher.SERVICE_NAMES}}
+        launcher.write_private(deployment.output / "effective-deployment.json", deployment.proposal)
+        launcher.write_private(deployment.output / "runtime-environment.json", {"services": {}})
+        launcher.write_private(deployment.output / "deployment.json", {"services": {}})
+        state = {"sources": deployment.proposal["x-rateldesk-source-files"], "exportHashes": {}, "storage": deployment.storage,
+                 "deploymentSha256": launcher.hashlib.sha256((deployment.output / "deployment.json").read_bytes()).hexdigest(),
+                 "sourceHash": launcher.hashlib.sha256((deployment.output / "effective-deployment.json").read_bytes()).hexdigest(),
+                 "phase": "end-to-end-verified"}
+        launcher.write_private(deployment.output / "launcher-state.json", state)
+        staged = {}
+        calls = []
+        class RecreatedRuntimeDocker:
+            def run(self, arguments, **kwargs):
+                calls.append(arguments)
+                if arguments[0] == "ps":
+                    service = next(item.rsplit("=", 1)[1] for item in arguments if item.startswith("label=com.docker.compose.service="))
+                    return (json.dumps(service) + "\n").encode()
+                if arguments[0] == "cp":
+                    return None
+                if arguments[0] == "rm":
+                    return b"removed"
+                if "observation-check" in arguments:
+                    current = staged["runtime-environment.json"]
+                    self.assert_current(current)
+                    raise launcher.Prerequisite("HOST_RUNTIME_MISMATCH")
+                raise AssertionError(arguments)
+            @staticmethod
+            def assert_current(current):
+                assert current["services"]["mcp-http"]["environment"]["Helpdesk__Mcp__Instance"] == "unreviewed"
+                assert current["x-rateldesk-observed-at-utc"].endswith("Z")
+            def inspect(self, service):
+                mounts = [] if service != "mcp-http" else [{"Type": "volume", "Name": store["source"],
+                    "Destination": store["target"], "RW": True} for store in deployment.storage.values()]
+                return {"Image": identifier, "Config": {"Image": "fixture", "Env": ["Helpdesk__Mcp__Instance=unreviewed"] if service == "mcp-http" else [],
+                    "Labels": {"com.docker.compose.oneoff": "false"}, "Cmd": [], "Entrypoint": ["dotnet"]}, "Mounts": mounts}
+        deployment.docker = RecreatedRuntimeDocker()
+        def stage(current, name):
+            staged[name] = launcher.read_private_json(current.output / name)
+        with patch.object(deployment, "prepare_storage"), patch.object(launcher, "stage_snapshot", side_effect=stage), \
+             patch.object(launcher.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)), \
+             self.assertRaisesRegex(launcher.Prerequisite, "runtime_revalidation"):
+            launcher.run_setup(deployment, self.args)
+        self.assertTrue(any("observation-check" in arguments for arguments in calls))
+        self.assertEqual(launcher.read_private_json(deployment.output / "launcher-state.json")["phase"], "applied-verify-pending")
+
+    def test_new_verify_demotes_previous_success_before_initial_docker_observation(self):
+        deployment = self.deployment()
+        launcher.write_private(deployment.output / "launcher-state.json", {"phase": "end-to-end-verified"})
+        def initial_observation_failure(**kwargs):
+            self.assertEqual(launcher.read_private_json(deployment.output / "launcher-state.json")["phase"], "applied-verify-pending")
+            raise launcher.Prerequisite("runtime_image_mismatch")
+        with patch.object(launcher, "Deployment", return_value=deployment), \
+             patch.object(deployment, "snapshot", side_effect=initial_observation_failure), \
+             self.assertRaisesRegex(launcher.Prerequisite, "runtime_image_mismatch"):
+            launcher.main(["--verify"])
+        self.assertEqual(launcher.read_private_json(deployment.output / "launcher-state.json")["phase"], "applied-verify-pending")
+
     def test_export_mutation_rejected_before_apply(self):
         deployment = self.deployment()
         content = b'{"services":{}}\n'

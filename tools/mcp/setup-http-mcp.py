@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import uuid
+from datetime import datetime, timezone
 try:
     import resource
 except ImportError:  # Unix host launchers normally have resource; byte checks remain portable.
@@ -747,7 +748,8 @@ class Deployment:
         return providers
 
     def observe_runtime(self, proposal):
-        observed = {"services": {}, "x-rateldesk-image-ids": {}, "x-rateldesk-protected-configuration": {}}
+        observed = {"services": {}, "x-rateldesk-image-ids": {}, "x-rateldesk-protected-configuration": {},
+                    "x-rateldesk-observed-at-utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}
         for name in SERVICE_NAMES:
             identifier, metadata = unique_container(self.docker, self.project, name, running=True)
             if not identifier:
@@ -1079,9 +1081,24 @@ def apply_saved(deployment):
     return 0
 
 
+def begin_verification(deployment):
+    if getattr(deployment, "verification_started", False):
+        return
+    path = deployment.output / "launcher-state.json"
+    if not path.is_file():
+        fail("generation_missing", "No approved saved generation exists. Run ordinary setup first.")
+    state = read_private_json(path)
+    state["phase"] = "applied-verify-pending"
+    state["verificationStartedAtUtc"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    write_private(path, state)
+    deployment.verification_started = True
+
+
 def run_setup(deployment, args):
     if args.apply:
         return apply_saved(deployment)
+    if args.verify:
+        begin_verification(deployment)
     deployment.prepare_storage(provision=not args.preflight)
     stage_snapshot(deployment, "effective-deployment.json")
     if args.verify:
@@ -1114,8 +1131,17 @@ def run_setup(deployment, args):
         if args.preflight or args.target == "http-client":
             return 0
         if args.verify:
-            # The host verify command returns success only after observed runtime,
-            # authenticated initialize/catalog/API status and verifier cleanup.
+            # Browser approval and protocol checks can take minutes. Re-inspect
+            # Docker now, rather than revalidating the earlier snapshot bytes.
+            deployment.observe_runtime(deployment.proposal)
+            stage_snapshot(deployment, "runtime-environment.json")
+            deployment.check_sources()
+            try:
+                deployment.docker.run(tooling_arguments(deployment) + ["--rm", deployment.image,
+                    "host", "observation-check", "--export-directory", HOST_TARGET], maximum=16384)
+            except Prerequisite:
+                fail("runtime_revalidation", "The final fresh Docker observation did not match the approved generation. Verification remains pending. Restore/recreate the reviewed deployment, then invoke --verify again; unchanged sources need no new host provisioning consent.")
+            deployment.check_sources()
             state["phase"] = "end-to-end-verified"
             write_private(deployment.output / "launcher-state.json", state)
             print("End-to-end verified. Applied configuration, real MCP catalog and API-backed status passed; temporary verifier cleanup completed.")
@@ -1155,6 +1181,8 @@ def main(argv=None):
         fail("mode_conflict", "Client setup verifies its own consumer. --verify, --apply and --preflight belong to host setup.")
     docker = Docker()
     deployment = Deployment(args, docker)
+    if args.verify:
+        begin_verification(deployment)
     proposal = deployment.snapshot(verify=args.verify)
     if args.apply:
         deployment.validate_resume_sources(proposal["x-rateldesk-source-files"], True)
