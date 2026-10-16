@@ -100,7 +100,10 @@ public sealed class PairingConnectionsPageTests
         Assert.Contains("Connected. The selected mapping and capabilities are active.", html);
         Assert.Contains("Office monitoring to support", html);
         Assert.DoesNotContain("system-connection-save-form", html);
-        Assert.DoesNotContain("ABCD-EFGH", html);
+        // Other approval panels use a synthetic example code as a placeholder.
+        // The consumed system-pairing input itself must not retain its value.
+        Assert.DoesNotContain("value=\"ABCD-EFGH\"", html);
+        Assert.Equal("", ReadField<string>(view.Panel, "pairingCode"));
     }
 
     [Fact]
