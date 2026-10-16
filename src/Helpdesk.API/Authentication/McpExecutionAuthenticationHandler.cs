@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Helpdesk.Infrastructure.Identity;
+using Helpdesk.API.Services.IntegrationCredentials;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -20,6 +21,7 @@ public sealed class McpExecutionAuthenticationHandler(
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
     public const string SchemeName = "McpExecution";
+    internal const string SetupOperationDeniedItem = "RatelDesk.SetupVerification.OperationDenied";
 
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
@@ -36,11 +38,25 @@ public sealed class McpExecutionAuthenticationHandler(
             .SingleOrDefaultAsync(candidate => candidate.Id == payload.CredentialId, Context.RequestAborted)
             .ConfigureAwait(false);
         if (credential is null || credential.RevokedAtUtc is not null || credential.ExpiresAtUtc <= DateTimeOffset.UtcNow ||
-            !string.Equals(credential.Purpose, IntegrationCredentialAuthenticationHandler.McpPurpose, StringComparison.Ordinal) ||
+            credential.Purpose is not (IntegrationCredentialAuthenticationHandler.McpPurpose or IntegrationCredentialIssuer.SetupVerificationPurpose) ||
             !string.Equals(credential.OwnerUserId, payload.OwnerUserId, StringComparison.Ordinal) ||
             !string.Equals(credential.McpResourceUri, payload.ResourceUri, StringComparison.Ordinal))
         {
             return AuthenticateResult.Fail("The delegated MCP execution credential is no longer valid.");
+        }
+
+        if (credential.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose &&
+            (credential.Permissions.Length != 0 || string.IsNullOrWhiteSpace(credential.OrganizationId) ||
+             credential.ExpiresAtUtc > credential.CreatedAtUtc.Add(IntegrationCredentialIssuer.SetupVerificationLifetime)))
+            return AuthenticateResult.Fail("The setup verification grant is invalid.");
+
+        // The source row, not a client flag or a mapped None permission, determines the boundary.
+        // Even a valid execution token cannot be replayed at another read-only/business endpoint.
+        if (credential.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose &&
+            (!HttpMethods.IsGet(Request.Method) || Request.Path != "/api/v1/auth/me" || Request.QueryString.HasValue))
+        {
+            Context.Items[SetupOperationDeniedItem] = true;
+            return AuthenticateResult.Fail("Setup verification permits only authenticated status.");
         }
 
         var owner = await identityDb.Users.AsNoTracking()
@@ -60,6 +76,7 @@ public sealed class McpExecutionAuthenticationHandler(
             new("integration_purpose", credential.Purpose),
             new("mcp_resource_uri", credential.McpResourceUri ?? string.Empty)
         };
+        if (credential.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose) claims.Add(new("setup_verification", "true"));
         if (!string.IsNullOrWhiteSpace(credential.OrganizationId))
             claims.Add(new Claim("integration_organization_id", credential.OrganizationId));
         foreach (var permission in credential.Permissions.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))

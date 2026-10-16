@@ -96,9 +96,18 @@ public sealed class HelpdeskAgentClient : IHelpdeskAgentClient
             "Helpdesk API request timed out.").ConfigureAwait(false);
         var text = await ReadResponseAsync(response.Content, requestCancellation.Token, cancellationToken, "api_request_timeout", "Helpdesk API response timed out.").ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
-            throw new AgentClientRemoteException("api_request_failed", $"Helpdesk API request failed with HTTP {(int)response.StatusCode}.", (int)response.StatusCode, null);
+            throw new AgentClientRemoteException("api_request_failed", $"Helpdesk API request failed with HTTP {(int)response.StatusCode}.", (int)response.StatusCode, null)
+            { CorrelationId = SafeCorrelation(response) };
 
         return string.IsNullOrWhiteSpace(text) ? null : JsonNode.Parse(text);
+    }
+
+    private static string? SafeCorrelation(HttpResponseMessage response)
+    {
+        if (!response.Headers.TryGetValues("X-Correlation-Id", out var values)) return null;
+        var entries = values.Take(2).ToArray();
+        var value = entries.Length == 1 ? entries[0] : null;
+        return value is { Length: > 0 and <= 128 } && !value.Contains("rdk_", StringComparison.OrdinalIgnoreCase) && !value.Contains("rdx_", StringComparison.OrdinalIgnoreCase) && value.All(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '_' or '.') ? value : null;
     }
 
     public async Task<JsonArray> GetHealthAsync(CancellationToken cancellationToken = default)

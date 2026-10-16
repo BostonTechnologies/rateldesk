@@ -10,6 +10,7 @@ public sealed class AgentClientRemoteException(string code, string message, int 
     public string Code { get; } = code;
     public int StatusCode { get; } = statusCode;
     public string? ResponseBody { get; } = responseBody;
+    public string? CorrelationId { get; init; }
 }
 
 public sealed record AgentClientConfiguration(

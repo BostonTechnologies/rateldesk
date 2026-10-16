@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using Helpdesk.Infrastructure.Identity;
+using Helpdesk.API.Services.IntegrationCredentials;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -37,15 +38,21 @@ public sealed class IntegrationCredentialAuthenticationHandler(
             return AuthenticateResult.Fail("The integration credential is malformed.");
 
         var credential = await identityDb.IntegrationCredentials
+            .AsNoTracking()
             .SingleOrDefaultAsync(candidate => candidate.Id == credentialId, Context.RequestAborted)
             .ConfigureAwait(false);
         if (credential is null ||
             credential.RevokedAtUtc is not null ||
             credential.ExpiresAtUtc <= DateTimeOffset.UtcNow ||
-            !string.Equals(credential.Purpose, ExpectedPurpose, StringComparison.Ordinal))
+            !(string.Equals(credential.Purpose, ExpectedPurpose, StringComparison.Ordinal) || (ExpectedPurpose == McpPurpose && credential.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose)))
         {
             return AuthenticateResult.Fail("The integration credential is not valid for this API.");
         }
+
+        if (credential.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose &&
+            (credential.Permissions.Length != 0 || string.IsNullOrWhiteSpace(credential.OrganizationId) ||
+             credential.ExpiresAtUtc > credential.CreatedAtUtc.Add(IntegrationCredentialIssuer.SetupVerificationLifetime)))
+            return AuthenticateResult.Fail("The setup verification grant is invalid.");
 
         var providedVerifier = SHA256.HashData(Encoding.UTF8.GetBytes(segments[2]));
         var storedVerifier = Convert.FromHexString(credential.SecretHash);
@@ -58,8 +65,13 @@ public sealed class IntegrationCredentialAuthenticationHandler(
         if (owner?.IsEnabled != true)
             return AuthenticateResult.Fail("The integration credential owner is disabled.");
 
-        credential.LastUsedAtUtc = DateTimeOffset.UtcNow;
-        await identityDb.SaveChangesAsync(Context.RequestAborted).ConfigureAwait(false);
+        // Do not retain a tracked authentication row across physical delete/revoke. The
+        // conditional update also closes the read-to-last-used race without recreating access.
+        var touched = await identityDb.IntegrationCredentials
+            .Where(candidate => candidate.Id == credential.Id && candidate.RevokedAtUtc == null && candidate.SecretHash == credential.SecretHash)
+            .ExecuteUpdateAsync(update => update.SetProperty(candidate => candidate.LastUsedAtUtc, DateTimeOffset.UtcNow), Context.RequestAborted)
+            .ConfigureAwait(false);
+        if (touched != 1) return AuthenticateResult.Fail("The integration credential is no longer valid.");
 
         var claims = new List<Claim>
         {
@@ -70,6 +82,7 @@ public sealed class IntegrationCredentialAuthenticationHandler(
             new("integration_credential_id", credential.Id.ToString("N")),
             new("integration_purpose", credential.Purpose)
         };
+        if (credential.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose) claims.Add(new("setup_verification", "true"));
         if (!string.IsNullOrWhiteSpace(credential.OrganizationId))
             claims.Add(new Claim("integration_organization_id", credential.OrganizationId));
         if (!string.IsNullOrWhiteSpace(credential.McpResourceUri))

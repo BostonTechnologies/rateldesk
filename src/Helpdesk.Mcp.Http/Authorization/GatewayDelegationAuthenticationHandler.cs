@@ -73,6 +73,7 @@ public sealed class GatewayDelegationAuthenticationHandler(
                 new("auth_mode", "mcp"),
                 new("token_use", "mcp_gateway")
             };
+            if (delegated.SetupVerification) claims.Add(new("setup_verification", "true"));
             if (!string.IsNullOrWhiteSpace(delegated.PrimaryOrganizationId))
                 claims.Add(new Claim("organization_id", delegated.PrimaryOrganizationId));
             foreach (var permission in delegated.Permissions ?? [])
@@ -185,7 +186,8 @@ public sealed class GatewayDelegationAuthenticationHandler(
         string? Name,
         string? PrimaryOrganizationId,
         string[]? Permissions,
-        string[]? AllowedOrganizationIds);
+        string[]? AllowedOrganizationIds)
+    { public bool SetupVerification { get; init; } }
 }
 
 /// <summary>Gets only the API-issued execution token for the active request.</summary>

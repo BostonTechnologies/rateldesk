@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using Helpdesk.API.Authentication;
+using Helpdesk.API.Services.IntegrationCredentials;
 using Helpdesk.API.Endpoints.Authentication;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Shared.Services;
@@ -68,6 +69,36 @@ public sealed class McpGatewayDelegationEndpointTests
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
+    [Fact]
+    public async Task Temporary_verifier_execution_permits_only_status_even_for_other_authenticated_none_operations()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var credential = await harness.CreateCredentialAsync("https://helpdesk.example/mcp", setup: true);
+        using var delegation = new HttpRequestMessage(HttpMethod.Post, "/api/v1/mcp/execution-token");
+        delegation.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential.Bearer);
+        delegation.Headers.Add(McpGatewayDelegationEndpoints.ResourceHeader, "https://helpdesk.example/mcp");
+        using var response = await harness.Client.SendAsync(delegation);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var delegated = (await response.Content.ReadFromJsonAsync<McpGatewayDelegationEndpoints.McpExecutionTokenResponse>())!;
+        Assert.True(delegated.SetupVerification); Assert.Empty(delegated.Permissions);
+        foreach (var path in new[] { "/business", "/api/v1/system/version", "/api/v1/auth/me?broader=true" })
+        {
+            using var forbidden = new HttpRequestMessage(HttpMethod.Get, path);
+            forbidden.Headers.Authorization = new AuthenticationHeaderValue("Bearer", delegated.AccessToken);
+            using var denied = await harness.Client.SendAsync(forbidden);
+            Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
+        }
+        using var status = new HttpRequestMessage(HttpMethod.Get, "/api/v1/auth/me");
+        status.Headers.Authorization = new AuthenticationHeaderValue("Bearer", delegated.AccessToken);
+        using var success = await harness.Client.SendAsync(status);
+        Assert.Equal(HttpStatusCode.OK, success.StatusCode);
+        await harness.RevokeAsync(credential.Id);
+        using var stale = new HttpRequestMessage(HttpMethod.Get, "/api/v1/auth/me");
+        stale.Headers.Authorization = new AuthenticationHeaderValue("Bearer", delegated.AccessToken);
+        using var revoked = await harness.Client.SendAsync(stale);
+        Assert.Equal(HttpStatusCode.Unauthorized, revoked.StatusCode);
+    }
+
     private sealed class Harness(WebApplication application) : IAsyncDisposable
     {
         public HttpClient Client { get; } = application.GetTestClient();
@@ -101,9 +132,12 @@ public sealed class McpGatewayDelegationEndpointTests
             });
             var application = builder.Build();
             application.UseAuthentication();
+            application.UseMiddleware<SetupVerificationExecutionBoundaryMiddleware>();
             application.UseAuthorization();
             application.MapMcpGatewayDelegationEndpoints();
             application.MapGet("/business", () => Results.Ok()).RequireAuthorization("ExecutionOnly");
+            application.MapGet("/api/v1/system/version", () => Results.Ok()).AllowAnonymous();
+            application.MapGet("/api/v1/auth/me", () => Results.Ok()).RequireAuthorization("ExecutionOnly");
             await application.StartAsync();
             await using (var scope = application.Services.CreateAsyncScope())
             {
@@ -116,7 +150,7 @@ public sealed class McpGatewayDelegationEndpointTests
             return new Harness(application);
         }
 
-        public async Task<(Guid Id, string Bearer)> CreateCredentialAsync(string resourceUri)
+        public async Task<(Guid Id, string Bearer)> CreateCredentialAsync(string resourceUri, bool setup = false)
         {
             var id = Guid.NewGuid();
             const string secret = "test-secret";
@@ -129,13 +163,13 @@ public sealed class McpGatewayDelegationEndpointTests
                 Name = "MCP test",
                 Prefix = "rdk_test",
                 SecretHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(secret))),
-                Purpose = IntegrationCredentialAuthenticationHandler.McpPurpose,
+                Purpose = setup ? IntegrationCredentialIssuer.SetupVerificationPurpose : IntegrationCredentialAuthenticationHandler.McpPurpose,
                 McpResourceUri = resourceUri,
                 OrganizationId = "org-a",
-                Permissions = "Incident.Read",
+                Permissions = setup ? "" : "Incident.Read",
                 CreatedAtUtc = DateTimeOffset.UtcNow,
                 CreatedAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                ExpiresAtUtc = DateTimeOffset.UtcNow.AddDays(1)
+                ExpiresAtUtc = setup ? DateTimeOffset.UtcNow.AddMinutes(4) : DateTimeOffset.UtcNow.AddDays(1)
             });
             await identity.SaveChangesAsync();
             return (id, $"rdk_{id:N}_{secret}");
@@ -163,6 +197,6 @@ public sealed class McpGatewayDelegationEndpointTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase));
 
         public Task<CurrentUserAccessProfile> ResolveAsync(System.Security.Claims.ClaimsPrincipal user, CancellationToken ct = default)
-            => Task.FromResult(Profile);
+            => Task.FromResult(user.HasClaim("setup_verification", "true") ? Profile with { Permissions = new HashSet<string>() } : Profile);
     }
 }

@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using Helpdesk.AgentClient;
 using Helpdesk.Mcp;
+using Helpdesk.Mcp.Tools;
 using Helpdesk.Setup;
 using Xunit;
 
@@ -61,7 +62,7 @@ public sealed class SetupProtocolTests
             using var body = JsonDocument.Parse(request.Body!);
             if (body.RootElement.GetProperty("method").GetString() == "notifications/initialized") return new(HttpStatusCode.Accepted);
             var id = body.RootElement.GetProperty("id").GetInt32();
-            var result = id == 1 ? JsonSerializer.Serialize(new { protocolVersion = "2025-11-25", capabilities = new { }, serverInfo = new { name = "RatelDesk", version = "1" } }) : "{\"structuredContent\":{\"success\":true,\"status\":\"ok\"}}";
+            var result = id == 1 ? JsonSerializer.Serialize(Initialization()) : id == 2 ? JsonSerializer.Serialize(Catalog()) : "{\"structuredContent\":{\"success\":true,\"status\":\"ok\"}}";
             var response = new HttpResponseMessage(HttpStatusCode.OK)
             { Content = new StreamContent(new OpenAfterDataStream($"event: message\ndata: {{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":{result}}}\n\n")) };
             response.Content.Headers.ContentType = new MediaTypeHeaderValue("text/event-stream");
@@ -73,8 +74,11 @@ public sealed class SetupProtocolTests
         Assert.Contains(checks, check => check.Name == "initialize" && check.Status == "passed");
         Assert.Contains(checks, check => check.Name == "authentication" && check.Status == "passed");
         Assert.Contains(checks, check => check.Name == "tool-result" && check.Status == "passed");
-        Assert.Equal(3, handler.Requests.Count);
-        using var tool = JsonDocument.Parse(handler.Requests[2].Body!);
+        Assert.Equal(4, handler.Requests.Count);
+        using var listing = JsonDocument.Parse(handler.Requests[2].Body!);
+        Assert.Equal("tools/list", listing.RootElement.GetProperty("method").GetString());
+        Assert.True(JsonSerializer.Serialize(Catalog()).Length > 65536, "Exercise the real production catalog, not a toy fixture.");
+        using var tool = JsonDocument.Parse(handler.Requests[3].Body!);
         Assert.Equal("helpdesk_auth", tool.RootElement.GetProperty("params").GetProperty("name").GetString());
         Assert.Equal("status", tool.RootElement.GetProperty("params").GetProperty("arguments").GetProperty("operation").GetString());
         Assert.False(tool.RootElement.GetProperty("params").GetProperty("arguments").GetProperty("confirm").GetBoolean());
@@ -89,7 +93,7 @@ public sealed class SetupProtocolTests
             using var body = JsonDocument.Parse(request.Body!);
             if (body.RootElement.GetProperty("method").GetString() == "notifications/initialized") return new(HttpStatusCode.Accepted);
             var id = body.RootElement.GetProperty("id").GetInt32();
-            return id == 1 ? Json(new { jsonrpc = "2.0", id, result = new { protocolVersion = "2025-11-25" } }) :
+            return id == 1 ? Json(new { jsonrpc = "2.0", id, result = Initialization() }) : id == 2 ? Json(new { jsonrpc = "2.0", id, result = Catalog() }) :
                 Json(new { jsonrpc = "2.0", id, result = new { isError = false, structuredContent = new { success = false, status = "access_denied" } } });
         }));
         var checks = await McpSetupDiagnostics.CheckHttpAsync(HttpProfile(), CancellationToken.None, http);
@@ -132,6 +136,88 @@ public sealed class SetupProtocolTests
         Assert.True(SetupCommands.IsCommand(["--profile", "default", "setup"]));
         Assert.False(SetupCommands.IsCommand(["--Helpdesk:Mcp:Instance", "setup"]));
         Assert.False(SetupCommands.IsCommand([]));
+    }
+
+    private static object Initialization(string version = "2025-11-25") => new { protocolVersion = version, capabilities = new { }, serverInfo = new { name = "RatelDesk", version = "1" } };
+    private static object Catalog() => new { tools = HelpdeskToolDefinitions.Create().Select(tool => tool.ProtocolTool).ToArray() };
+
+    [Theory]
+    [InlineData("unsupported-version")]
+    [InlineData("missing-info")]
+    [InlineData("bad-result")]
+    [InlineData("bad-catalog")]
+    [InlineData("oversized-catalog")]
+    [InlineData("bad-iserror")]
+    public async Task Malformed_protocol_or_catalog_never_reports_success(string failure)
+    {
+        using var http = new HttpClient(new Handler(request =>
+        {
+            using var body = JsonDocument.Parse(request.Body!);
+            var method = body.RootElement.GetProperty("method").GetString();
+            if (method == "notifications/initialized") return new(HttpStatusCode.Accepted);
+            var id = body.RootElement.GetProperty("id").GetInt32();
+            if (method == "initialize") return Json(new { jsonrpc = "2.0", id, result = failure switch
+            {
+                "unsupported-version" => Initialization("2099-01-01"), "missing-info" => (object)new { protocolVersion = "2025-11-25" },
+                "bad-result" => "invalid", _ => Initialization()
+            }});
+            if (method == "tools/list")
+            {
+                if (failure == "oversized-catalog") return new(HttpStatusCode.OK) { Content = new StringContent(new string('x', McpSetupDiagnostics.MaximumResponseCharacters + 1)) };
+                return Json(new { jsonrpc = "2.0", id, result = failure == "bad-catalog" ? (object)new { tools = new[] { new { name = "helpdesk_auth", inputSchema = new { type = "object" } } } } : Catalog() });
+            }
+            return Json(new { jsonrpc = "2.0", id, result = new { isError = "invalid", structuredContent = new { success = true } } });
+        }));
+        var checks = await McpSetupDiagnostics.CheckHttpAsync(HttpProfile(), default, http);
+        Assert.Contains(checks, check => check.Status == "failed");
+        Assert.DoesNotContain(checks, check => check.Name == "tool-result" && check.Status == "passed");
+    }
+
+    [Fact]
+    public async Task Full_catalog_pagination_and_safe_downstream_failure_preserve_reason_without_payload()
+    {
+        var tools = HelpdeskToolDefinitions.Create().Select(tool => tool.ProtocolTool).ToArray();
+        var handler = new Handler(request =>
+        {
+            using var body = JsonDocument.Parse(request.Body!);
+            var method = body.RootElement.GetProperty("method").GetString();
+            if (method == "notifications/initialized") return new(HttpStatusCode.Accepted);
+            var id = body.RootElement.GetProperty("id").GetInt32();
+            if (method == "initialize") return Json(new { jsonrpc = "2.0", id, result = Initialization() });
+            if (method == "tools/list") return id == 2 ? Json(new { jsonrpc = "2.0", id, result = new { tools = tools.Take(10), nextCursor = "page2" } }) : Json(new { jsonrpc = "2.0", id, result = new { tools = tools.Skip(10) } });
+            return Json(new { jsonrpc = "2.0", id, result = new { isError = false, structuredContent = new
+            { success = false, summary = "secret-raw-payload", correlationId = "0123456789abcdef", failure = new { code = "upstream_denied", upstreamStatus = 403 }, data = "private-data" } } });
+        });
+        using var http = new HttpClient(handler);
+        var checks = await McpSetupDiagnostics.CheckHttpAsync(HttpProfile(), default, http);
+        var failure = Assert.Single(checks, check => check.Name == "tool-result");
+        Assert.Contains(checks, check => check.Name == "catalog" && check.Status == "passed");
+        Assert.Equal("upstream_denied", failure.Code); Assert.Equal("api", failure.Layer); Assert.Equal(403, failure.UpstreamStatus);
+        Assert.Equal("0123456789abcdef", failure.CorrelationId); Assert.True(failure.TransportSucceeded); Assert.False(failure.OperationSucceeded);
+        Assert.NotNull(failure.NextAction); Assert.DoesNotContain("secret-raw-payload", JsonSerializer.Serialize(checks)); Assert.DoesNotContain("private-data", JsonSerializer.Serialize(checks));
+        using var page2 = JsonDocument.Parse(handler.Requests[3].Body!);
+        Assert.Equal("page2", page2.RootElement.GetProperty("params").GetProperty("cursor").GetString());
+    }
+
+    [Fact]
+    public async Task Probe_credentials_and_sessions_are_request_scoped_on_a_shared_http_client()
+    {
+        var handler = new Handler(request =>
+        {
+            using var body = JsonDocument.Parse(request.Body!);
+            var method = body.RootElement.GetProperty("method").GetString();
+            if (method == "notifications/initialized") return new(HttpStatusCode.Accepted);
+            var id = body.RootElement.GetProperty("id").GetInt32();
+            return Json(new { jsonrpc = "2.0", id, result = method == "initialize" ? Initialization() : method == "tools/list" ? Catalog() : (object)new { structuredContent = new { success = true } } });
+        });
+        using var http = new HttpClient(handler);
+        var first = HttpProfile() with { IntegrationCredential = "rdk_first_private" };
+        var second = HttpProfile() with { IntegrationCredential = "rdk_second_private" };
+        var results = await Task.WhenAll(McpSetupDiagnostics.CheckHttpAsync(first, default, http), McpSetupDiagnostics.CheckHttpAsync(second, default, http));
+        Assert.All(results, checks => Assert.Contains(checks, check => check.Name == "tool-result" && check.Status == "passed"));
+        Assert.Equal(4, handler.Requests.Count(request => request.Authorization == "Bearer rdk_first_private"));
+        Assert.Equal(4, handler.Requests.Count(request => request.Authorization == "Bearer rdk_second_private"));
+        Assert.Null(http.DefaultRequestHeaders.Authorization);
     }
 
     private static AgentClientConfiguration HttpProfile() => AgentClientConfiguration.Empty with

@@ -294,7 +294,7 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
             .Select(claim => claim.Value)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var requestedOrganizationId = user.FindFirstValue("integration_organization_id");
-        if (requestedPermissions.Count == 0 || string.IsNullOrWhiteSpace(requestedOrganizationId) ||
+        if ((requestedPermissions.Count == 0 && !user.HasClaim("integration_purpose", "mcp-setup")) || string.IsNullOrWhiteSpace(requestedOrganizationId) ||
             requestedPermissions.Any(permission => !HelpdeskPermissions.AssignablePermissions.Contains(permission, StringComparer.OrdinalIgnoreCase)))
             return Empty(true);
 
@@ -302,6 +302,20 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
             .SingleOrDefaultAsync(candidate => candidate.Id == requestedOrganizationId, ct);
         if (requestedOrganization?.State != Helpdesk.Shared.Models.EntityState.Enabled)
             return Empty(true);
+
+        // A server-issued setup identity has no business grants. Preserve only its reviewed
+        // organization after checking the owner's current authority, for authenticated status.
+        if (user.HasClaim("integration_purpose", "mcp-setup") && user.HasClaim("setup_verification", "true") && requestedPermissions.Count == 0)
+        {
+            if (!profile.IsHelpdeskAdmin && !profile.AllowedOrganizationIds.Contains(requestedOrganization.Id)) return Empty(true);
+            return profile with
+            {
+                PrimaryOrganizationId = requestedOrganization.Id, PrimaryOrganizationName = requestedOrganization.Name,
+                IsHelpdeskAdmin = false, CustomerId = null, RoleBundles = new HashSet<string>(), Permissions = new HashSet<string>(),
+                AllowedOrganizationIds = new HashSet<string> { requestedOrganization.Id }, ManagedOrganizationIds = new HashSet<string>(),
+                UsesScopedPermissions = true, ScopedPermissionGrants = new HashSet<ScopedPermissionGrant>()
+            };
+        }
 
         HashSet<ScopedPermissionGrant> effectiveGrants;
         if (profile.IsHelpdeskAdmin)
