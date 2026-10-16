@@ -4,6 +4,13 @@ using Helpdesk.Setup;
 
 internal static partial class HelpdeskCli
 {
+    private static Command BuildSetupCommand(CliRuntime runtime, GlobalOptions globals) => SetupCommands.CreateSetupCommand(
+        SetupTransport.Cli, globals.Profile, globals.ConfigPath, runtime.Error, seed: parse => AgentClientConfiguration.Empty with
+        {
+            ApiBaseUrl = parse.GetValue(globals.ApiBaseUrl), AuthentikTokenUrl = parse.GetValue(globals.TokenUrl),
+            AuthentikClientId = parse.GetValue(globals.ClientId), AuthentikUsername = parse.GetValue(globals.Username),
+            AuthentikScope = parse.GetValue(globals.Scope), AgentUserEmail = parse.GetValue(globals.AgentUserEmail)
+        });
     private static ConfigurationResolution ResolveLocalConfiguration(InvocationContext context, GlobalOptions globals)
     {
         try
