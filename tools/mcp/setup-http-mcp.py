@@ -68,6 +68,25 @@ def file_record(path):
     return {"path": str(path), "sha256": hashlib.sha256(read_bytes(path)).hexdigest()}
 
 
+def check_compose_dependencies(path):
+    # Compose owns parsing. This is only a conservative prerequisite guard for
+    # source dependencies which its rendered output no longer identifies.
+    content = read_bytes(path).decode("utf-8-sig")
+    dependency = False
+    try:
+        document = json.loads(content)
+        def visit(value):
+            if isinstance(value, dict):
+                return any(key in ("include", "extends") or visit(child) for key, child in value.items())
+            return isinstance(value, list) and any(visit(child) for child in value)
+        dependency = visit(document)
+    except ValueError:
+        dependency = bool(re.search(r"(?m)^\s*(?:['\"]?(?:include|extends)['\"]?)\s*:", content)
+                          or re.search(r"[{},]\s*['\"]?(?:include|extends)['\"]?\s*:", content))
+    if dependency:
+        fail("compose_dependency_unsupported", "Compose include/extends sources cannot be fully source-bound by this launcher. Use Docker Compose to export a complete private saved document with --no-interpolate --no-env-resolution --format json, register that document with the same deployment owner, then rerun setup against it.")
+
+
 def private_directory(path):
     path = Path(path)
     if path.is_symlink():
@@ -422,6 +441,8 @@ class Deployment:
             self.compose += ["-f", str(path)]
 
     def snapshot(self, verify=False):
+        for path in self.sources:
+            check_compose_dependencies(path)
         initial = [file_record(path) for path in self.sources + self.env_files]
         if self.args.ca_file:
             initial.append(file_record(self.args.ca_file))

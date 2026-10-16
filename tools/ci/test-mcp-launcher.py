@@ -104,6 +104,14 @@ class LauncherContracts(unittest.TestCase):
                 self.deployment()
         self.assertFalse((self.directory / ".rateldesk-http-mcp-fixture").exists())
 
+    def test_untracked_compose_dependencies_fail_with_complete_export_action(self):
+        for text in ('include:\n  - child.yml\n', '{"services":{"api":{"extends":{"file":"child.yml","service":"api"}}}}',
+                     'services: {api: {extends: {file: child.yml, service: api}}}'):
+            self.source.write_text(text)
+            with self.assertRaisesRegex(launcher.Prerequisite, "compose_dependency_unsupported") as failure:
+                launcher.check_compose_dependencies(self.source)
+            self.assertIn("--no-interpolate --no-env-resolution", str(failure.exception))
+
     def test_private_output_does_not_repair_existing_world_readable_storage(self):
         output = self.directory / "existing"
         output.mkdir(mode=0o755)
