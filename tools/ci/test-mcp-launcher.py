@@ -267,6 +267,35 @@ class LauncherContracts(unittest.TestCase):
         self.assertTrue(any("appsettings.Reviewed.json" in value for value in copied))
         self.assertFalse(any("appsettings.Unreviewed.json" in value for value in copied))
 
+    def test_service_env_file_change_during_full_render_is_rejected_before_approval(self):
+        environment = self.directory / "service.env"
+        environment.write_text("SOURCE=before\n")
+        self.args.image = "fixture"
+        deployment = self.deployment()
+        services = {name: {"image": "fixture", "environment": {}} for name in launcher.SERVICE_NAMES}
+        services["mcp-http"]["env_file"] = [{"path": str(environment), "required": True}]
+        class RacingDocker:
+            def json(self, arguments):
+                if arguments[0] == "compose":
+                    if "--no-env-resolution" not in arguments:
+                        environment.write_text("SOURCE=after\n")
+                    return json.loads(json.dumps({"services": services}))
+                if arguments[0] == "image":
+                    return {"Id": "sha256:" + "a" * 64, "Config": {"Env": [], "Entrypoint": ["dotnet"], "Cmd": []}}
+                raise AssertionError(arguments)
+            def run(self, arguments, **kwargs):
+                if arguments[0] == "create":
+                    return b"a" * 64
+                if arguments[0] == "cp":
+                    return None
+                if arguments[0] == "rm":
+                    return b"removed"
+                raise AssertionError(arguments)
+        deployment.docker = RacingDocker()
+        with self.assertRaisesRegex(launcher.Prerequisite, "sources_changed"):
+            deployment.snapshot()
+        self.assertFalse((deployment.output / "host-approval.json").exists())
+
     def test_forwarded_options_are_literal_arguments(self):
         args = launcher.parser().parse_args(["--", "--web-url", "https://desk.example.test", "--instance", "stage-$(touch ignored)"])
         self.assertEqual(args.wizard_options[1:], ["--web-url", "https://desk.example.test", "--instance", "stage-$(touch ignored)"])
