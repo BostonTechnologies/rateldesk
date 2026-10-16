@@ -225,7 +225,7 @@ def environment_map(values):
 def relevant_environment(values):
     environment = environment_map(values)
     result = [f"{key}={value}" for key, value in environment.items()
-              if key.casefold() == "apibaseurl" or key.casefold().startswith(RELEVANT_PREFIXES)]
+              if key.casefold() in ("apibaseurl", "contentroot") or key.casefold().startswith(RELEVANT_PREFIXES)]
     exclusions = environment.get("no_proxy", environment.get("NO_PROXY"))
     if exclusions is not None:
         result.append("NO_PROXY=" + exclusions)
@@ -241,6 +241,53 @@ def effective_environment(image, inline):
         else:
             result[canonical] = value
     return result
+
+
+def command_configuration(command):
+    """Read literal configuration arguments; the serving validator owns validity."""
+    result = {}
+    if not isinstance(command, list):
+        return result  # Custom shell dispatch is rejected by serving preflight.
+    if len(command) > 2048:
+        fail("command_oversized", "The saved service command exceeds its bounded argument count.")
+    index = 0
+    while index < len(command):
+        argument = command[index]
+        if not isinstance(argument, str) or len(argument) > 65536 or "\0" in argument:
+            fail("command_invalid", "The saved service command must contain bounded literal string arguments.")
+        key, separator, value = argument.lstrip("-/").partition("=")
+        if not separator and argument.startswith(("-", "/")):
+            index += 1
+            value = command[index] if index < len(command) else ""
+            if not isinstance(value, str) or len(value) > 65536 or "\0" in value:
+                fail("command_invalid", "The saved service command must contain bounded literal string arguments.")
+        if separator or argument.startswith(("-", "/")):
+            result[key.casefold()] = value
+        index += 1
+    return result
+
+
+def resolved_deployment_hash(document):
+    # Compose has already resolved paths, merges and interpolation. Only our
+    # observation metadata is outside the complete deployment's semantics.
+    complete = {key: value for key, value in document.items() if not key.startswith("x-rateldesk-")}
+    return hashlib.sha256(json.dumps(complete, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+
+
+def validate_content_root(name, service, environment, command, image_working_directory):
+    working_directory = service.get("working_dir") or image_working_directory or "/"
+    source = "Compose working_dir" if service.get("working_dir") else "image Config.WorkingDir"
+    if working_directory != "/app":
+        fail("content_root_unsupported", f"The {name} {source} selects an unsupported application directory. Host setup snapshots require /app. Restore the canonical application directory before setup; no approval or provider snapshot was created.")
+    # WebApplication owns provider interpretation. Do not silently read /app
+    # when an accepted host setting could select providers in another root.
+    roots = [("DOTNET_CONTENTROOT", environment.get("dotnet_contentroot")),
+             ("ASPNETCORE_CONTENTROOT", environment.get("aspnetcore_contentroot")),
+             ("contentRoot environment", environment.get("contentroot")),
+             ("command contentRoot", command.get("contentroot"))]
+    for source, value in roots:
+        if value is not None and value != "/app":
+            fail("content_root_unsupported", f"The {name} {source} selects an unsupported content root. Host setup snapshots require /app. Restore that owning setting before setup; alternate provider roots need an explicit supported snapshot implementation.")
 
 
 def json_configuration_value(document, wanted):
@@ -548,7 +595,7 @@ class Deployment:
             fail("image_missing", "Build the existing MCP image, then supply --image with that exact local image. Setup never downloads packages or invents an image family.")
         if services["mcp-http"].get("image") != self.image:
             fail("image_source_mismatch", "The saved MCP image and selected container disagree. Restore the actual source before setup.")
-        image_environment, image_ids, protected, image_entrypoints, image_commands = {}, {}, {}, {}, {}
+        image_environment, image_ids, protected, image_entrypoints, image_commands, image_working_directories = {}, {}, {}, {}, {}, {}
         self.provider_source_records = {}
         for name in SERVICE_NAMES:
             if name not in services:
@@ -570,8 +617,10 @@ class Deployment:
             image_environment[name] = relevant_environment(metadata.get("Config", {}).get("Env", []))
             image_entrypoints[name] = metadata.get("Config", {}).get("Entrypoint") or []
             image_commands[name] = metadata.get("Config", {}).get("Cmd") or []
+            image_working_directories[name] = metadata.get("Config", {}).get("WorkingDir", "")
             protected[name] = self.configuration_providers(name, services[name], image, source_paths,
-                                                           image_environment=image_environment[name], image_command=image_commands[name])
+                                                           image_environment=image_environment[name], image_command=image_commands[name],
+                                                           image_working_directory=image_working_directories[name])
         records = [file_record(path, optional=path in optional_paths) for path in dict.fromkeys(source_paths)]
         if len(records) > MAX_FILES:
             fail("sources_oversized", "The effective deployment has too many protected providers. Consolidate the saved sources before setup.")
@@ -584,6 +633,7 @@ class Deployment:
         proposal["x-rateldesk-image-ids"] = image_ids
         proposal["x-rateldesk-image-entrypoints"] = image_entrypoints
         proposal["x-rateldesk-image-commands"] = image_commands
+        proposal["x-rateldesk-image-working-directories"] = image_working_directories
         proposal["x-rateldesk-protected-configuration"] = protected
         proposal["x-rateldesk-deployment-manager"] = self.manager
         proposal["x-rateldesk-project-directory"] = str(self.directory)
@@ -641,17 +691,12 @@ class Deployment:
             fail("secret_reference_hash", "The protected secret could not be safely hashed as the serving identity. Restore its readable private file before approval.")
         return digest
 
-    def configuration_providers(self, name, service, image, source_paths, container=None, image_environment=None, image_command=None):
+    def configuration_providers(self, name, service, image, source_paths, container=None, image_environment=None, image_command=None, image_working_directory="/app"):
         environment = effective_environment(image_environment or [], service.get("environment", {}))
         deployment_environment = environment.get("dotnet_environment", environment.get("aspnetcore_environment", "Production"))
-        command = service.get("command", image_command or [])
-        if isinstance(command, list):
-            for index, argument in enumerate(command):
-                if not isinstance(argument, str):
-                    fail("command_invalid", "The saved service command must contain bounded literal string arguments.")
-                key, separator, value = argument.lstrip("-/").partition("=")
-                if key.casefold() == "environment":
-                    deployment_environment = value if separator else command[index + 1] if index + 1 < len(command) else ""
+        command = command_configuration(service.get("command", image_command or []))
+        validate_content_root(name, service, environment, command, image_working_directory)
+        deployment_environment = command.get("environment", deployment_environment)
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", deployment_environment):
             fail("environment_name", "The saved .NET environment name is invalid. Restore the serving environment before setup.")
         replacements = {}
@@ -678,7 +723,8 @@ class Deployment:
         try:
             for index in range(3 if name == "mcp-http" else 2):
                 if index == 2:
-                    selected = environment.get("helpdesk__mcp__configurationpath", selected_json_path)
+                    selected = command.get("helpdesk:mcp:configurationpath",
+                        environment.get("helpdesk__mcp__configurationpath", selected_json_path))
                     mcp_config = selected if isinstance(selected, str) and selected.strip() else environment.get("rateldesk_mcp_config")
                     if not mcp_config:
                         continue
@@ -749,6 +795,7 @@ class Deployment:
 
     def observe_runtime(self, proposal):
         observed = {"services": {}, "x-rateldesk-image-ids": {}, "x-rateldesk-protected-configuration": {},
+                    "x-rateldesk-image-working-directories": proposal.get("x-rateldesk-image-working-directories", {}),
                     "x-rateldesk-observed-at-utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}
         for name in SERVICE_NAMES:
             identifier, metadata = unique_container(self.docker, self.project, name, running=True)
@@ -761,12 +808,14 @@ class Deployment:
                        "image": metadata.get("Config", {}).get("Image"),
                        "command": metadata.get("Config", {}).get("Cmd") or [],
                        "entrypoint": metadata.get("Config", {}).get("Entrypoint") or [],
+                       "working_dir": metadata.get("Config", {}).get("WorkingDir", ""),
                        "volumes": [{"type": mount.get("Type"), "source": mount.get("Name") or mount.get("Source"),
                                     "target": mount.get("Destination"), "read_only": not mount.get("RW", False)}
                                    for mount in metadata.get("Mounts", [])]}
             observed["services"][name] = service
             observed["x-rateldesk-image-ids"][name] = image
-            observed["x-rateldesk-protected-configuration"][name] = self.configuration_providers(name, service, image, [], identifier)
+            observed["x-rateldesk-protected-configuration"][name] = self.configuration_providers(name, service, image, [], identifier,
+                image_working_directory=metadata.get("Config", {}).get("WorkingDir", ""))
         actual_mounts = observed["services"]["mcp-http"]["volumes"]
         storage = {}
         for purpose, target in (("host", HOST_TARGET), ("client", CLIENT_TARGET)):
@@ -975,6 +1024,8 @@ def check_effective_context(deployment, state):
         current = hashlib.sha256(read_bytes(deployment.output / "effective-deployment.json", MAX_BYTES)).hexdigest()
         if current != state.get("sourceHash", "").casefold():
             fail("approved_context_changed", "Effective interpolation, image defaults or protected providers changed after approval. Run ordinary setup to review the current effective deployment.")
+    elif resolved_deployment_hash(deployment.proposal) != state.get("resolvedDeploymentSha256"):
+        fail("approved_context_changed", "The imported complete deployment resolves differently from the reviewed export. Restore its approved interpolation context, or run ordinary setup to review the changed generation.")
 
 
 def export_complete_document(deployment, container, attempt):
@@ -1012,10 +1063,13 @@ def export_complete_document(deployment, container, attempt):
     command = ["compose", "--project-directory", str(deployment.directory), "--project-name", deployment.project]
     for path in deployment.env_files or [Path("/dev/null")]:
         command += ["--env-file", str(path)]
+    compose_context = command.copy()
     command += ["-f", str(deployment.output / ".compose-source.json"), "-f", str(deployment.output / ".export-patch.json"),
                 "config", "--no-interpolate", "--no-env-resolution", "--no-path-resolution", "--format", "json"]
     complete = deployment.docker.json(command)
     write_private(deployment.output / "deployment.json", complete)
+    resolved_complete = deployment.docker.json(compose_context + ["-f", str(deployment.output / "deployment.json"),
+        "config", "--format", "json"])
     deployment.check_sources()
     state = {"schemaVersion": 1, "project": deployment.project, "manager": deployment.manager,
              "sources": deployment.proposal["x-rateldesk-source-files"], "sourceHash": receipt["sourceHash"],
@@ -1023,6 +1077,7 @@ def export_complete_document(deployment, container, attempt):
              "mcpProposed": deployment.proposal.get("x-rateldesk-mcp-proposed", False),
              "proposalHash": receipt.get("proposalHash"), "exportHashes": export_hashes,
              "deploymentSha256": hashlib.sha256(read_bytes(deployment.output / "deployment.json", MAX_BYTES)).hexdigest(),
+             "resolvedDeploymentSha256": resolved_deployment_hash(resolved_complete),
              "phase": "saved-apply-pending", "storage": deployment.storage}
     write_private(deployment.output / "host-approval.json", raw_receipt)
     write_private(deployment.output / "launcher-state.json", state)

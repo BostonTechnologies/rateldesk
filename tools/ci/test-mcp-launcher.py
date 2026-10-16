@@ -245,7 +245,7 @@ class LauncherContracts(unittest.TestCase):
             def inspect(self, service):
                 mounts = [] if service != "mcp-http" else [{"Type": "volume", "Name": store["source"],
                     "Destination": store["target"], "RW": True} for store in deployment.storage.values()]
-                return {"Image": identifier, "Config": {"Image": "fixture", "Env": ["Helpdesk__Mcp__Instance=unreviewed"] if service == "mcp-http" else [],
+                return {"Image": identifier, "Config": {"Image": "fixture", "WorkingDir": "/app", "Env": ["Helpdesk__Mcp__Instance=unreviewed"] if service == "mcp-http" else [],
                     "Labels": {"com.docker.compose.oneoff": "false"}, "Cmd": [], "Entrypoint": ["dotnet"]}, "Mounts": mounts}
         deployment.docker = RecreatedRuntimeDocker()
         def stage(current, name):
@@ -288,6 +288,26 @@ class LauncherContracts(unittest.TestCase):
         state = {"sources": records, "sourceHash": digest.upper()}
         launcher.check_effective_context(deployment, state)
         launcher.write_private(deployment.output / "effective-deployment.json", {"environment": "changed"})
+        with self.assertRaisesRegex(launcher.Prerequisite, "approved_context_changed"):
+            launcher.check_effective_context(deployment, state)
+
+    def test_exact_complete_import_still_rejects_unrelated_effective_interpolation_drift(self):
+        self.source.write_text(json.dumps({"services": {"api": {"image": "fixture",
+            "environment": {"ConnectionStrings__Helpdesk": "${RATELDESK_FIXTURE_DB}"}},
+            "untouched": {"image": "fixture", "command": ["sleep", "3600"]}}}))
+        deployment = self.deployment()
+        deployment.docker = launcher.Docker()
+        records = [launcher.file_record(self.source)]
+        with patch.dict(os.environ, {"RATELDESK_FIXTURE_DB": "reviewed-private-database"}):
+            rendered = deployment.docker.json(deployment.compose + ["config", "--format", "json"])
+        state = {"sources": [{"path": str(self.source), "sha256": "original-source-before-complete-import"}],
+            "resolvedDeploymentSha256": launcher.resolved_deployment_hash(rendered)}
+        deployment.proposal = {**rendered, "x-rateldesk-source-files": records}
+        launcher.check_effective_context(deployment, state)
+        with patch.dict(os.environ, {"RATELDESK_FIXTURE_DB": "changed-private-database"}):
+            changed = deployment.docker.json(deployment.compose + ["config", "--format", "json"])
+        deployment.proposal = {**changed, "x-rateldesk-source-files": records}
+        self.assertEqual(records, [launcher.file_record(self.source)], "The complete source bytes did not change")
         with self.assertRaisesRegex(launcher.Prerequisite, "approved_context_changed"):
             launcher.check_effective_context(deployment, state)
 
@@ -390,6 +410,66 @@ class LauncherContracts(unittest.TestCase):
         self.assertTrue(any("appsettings.Reviewed.json" in value for value in copied))
         self.assertFalse(any("appsettings.Unreviewed.json" in value for value in copied))
 
+    def test_command_selected_configuration_path_overrides_lower_providers_and_explicit_clear(self):
+        deployment = self.deployment()
+        deployment.provider_source_records = {}
+        providers = {"/app/appsettings.json": b'{"Helpdesk":{"Mcp":{"ConfigurationPath":"/run/lower.json"}}}',
+                     "/run/cli.json": b'{"ApiBaseUrl":"http://private-api:8222/","CredentialMode":"gateway"}',
+                     "/run/legacy.json": b'{"ApiBaseUrl":"http://preserved-api:8222/","CredentialMode":"gateway"}'}
+        class CommandDocker:
+            def run(self, arguments, **kwargs):
+                if arguments[0] == "create":
+                    return b"a" * 64
+                if arguments[0] == "rm":
+                    return b"removed"
+                if arguments[0] == "cp":
+                    path = arguments[1].split(":", 1)[1]
+                    if path not in providers:
+                        return None
+                    Path(arguments[2]).write_bytes(providers[path])
+                    return b""
+                raise AssertionError(arguments)
+        deployment.docker = CommandDocker()
+        service = {"environment": {"Helpdesk__Mcp__ConfigurationPath": "/run/environment.json"},
+                   "command": ["--Helpdesk:Mcp:ConfigurationPath", "/run/cli.json"]}
+        result = deployment.configuration_providers("mcp-http", service, "fixture", [],
+            image_command=["--Helpdesk:Mcp:ConfigurationPath=/run/image.json"])
+        self.assertEqual([provider["path"] for provider in result], ["/app/appsettings.json", "/run/cli.json"])
+        service["command"] = ["--Helpdesk:Mcp:ConfigurationPath="]
+        service["environment"]["RATELDESK_MCP_CONFIG"] = "/run/legacy.json"
+        cleared = deployment.configuration_providers("mcp-http", service, "fixture", [])
+        self.assertEqual([provider["path"] for provider in cleared], ["/app/appsettings.json", "/run/legacy.json"])
+
+    def test_alternate_application_and_content_roots_fail_before_provider_reads(self):
+        alternate = self.directory / "alternate-appsettings.json"
+        alternate.write_text('{"Helpdesk":{"Mcp":{"AllowedOrigins":["https://reviewed.example.test","https://unreviewed.example.test"]}}}')
+        mount = {"type": "bind", "source": str(alternate), "target": "/alternate/appsettings.json"}
+        cases = [
+            ({"command": ["--contentRoot=/alternate"]}, [], [], "/app"),
+            ({"command": ["--ContentROOT", "/alternate"]}, [], [], "/app"),
+            ({}, [], ["--contentRoot=/alternate"], "/app"),
+            ({"environment": {"DOTNET_CONTENTROOT": "/alternate"}}, [], [], "/app"),
+            ({"environment": {"ASPNETCORE_CONTENTROOT": "/alternate"}}, [], [], "/app"),
+            ({"environment": {"contentRoot": "/alternate"}}, [], [], "/app"),
+            ({}, ["DOTNET_CONTENTROOT=/alternate"], [], "/app"),
+            ({"working_dir": "/alternate"}, [], [], "/app"),
+            ({}, [], [], "/alternate"),
+            ({}, [], [], ""),
+        ]
+        class NoProviderReads:
+            def run(self, arguments, **kwargs):
+                raise AssertionError("Alternate roots must be rejected before Docker create/cp")
+        for service, environment, command, working_directory in cases:
+            with self.subTest(service=service, image_environment=environment, image_command=command, image_working_directory=working_directory):
+                deployment = self.deployment()
+                deployment.docker = NoProviderReads()
+                service = {"environment": {}, "volumes": [mount], **service}
+                sources = []
+                with self.assertRaisesRegex(launcher.Prerequisite, "content_root_unsupported"):
+                    deployment.configuration_providers("mcp-http", service, "fixture", sources,
+                        image_environment=environment, image_command=command, image_working_directory=working_directory)
+                self.assertEqual(sources, [])
+
     def test_service_env_file_change_during_full_render_is_rejected_before_approval(self):
         environment = self.directory / "service.env"
         environment.write_text("SOURCE=before\n")
@@ -406,7 +486,7 @@ class LauncherContracts(unittest.TestCase):
                 raise AssertionError(arguments)
             def run(self, arguments, **kwargs):
                 if arguments[0] == "image":
-                    return json.dumps({"Id": "sha256:" + "a" * 64, "Config": {"Env": [], "Entrypoint": ["dotnet"], "Cmd": []}}).encode()
+                    return json.dumps({"Id": "sha256:" + "a" * 64, "Config": {"WorkingDir": "/app", "Env": [], "Entrypoint": ["dotnet"], "Cmd": []}}).encode()
                 if arguments[0] == "create":
                     return b"a" * 64
                 if arguments[0] == "cp":
@@ -434,7 +514,7 @@ class LauncherContracts(unittest.TestCase):
                 if arguments[0] == "compose":
                     return super().run(arguments, **kwargs)
                 if arguments[0] == "image":
-                    return json.dumps({"Id": "sha256:" + "a" * 64, "Config": {"Env": [], "Cmd": [], "Entrypoint": ["dotnet"]}}).encode()
+                    return json.dumps({"Id": "sha256:" + "a" * 64, "Config": {"WorkingDir": "/app", "Env": [], "Cmd": [], "Entrypoint": ["dotnet"]}}).encode()
                 if arguments[0] == "create":
                     return b"a" * 64
                 if arguments[0] == "cp":
