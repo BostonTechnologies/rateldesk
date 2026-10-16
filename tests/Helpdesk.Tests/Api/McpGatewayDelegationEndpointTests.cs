@@ -99,6 +99,33 @@ public sealed class McpGatewayDelegationEndpointTests
         Assert.Equal(HttpStatusCode.Unauthorized, revoked.StatusCode);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Physical_source_deletion_invalidates_already_issued_ordinary_and_temporary_execution_tokens(bool setup)
+    {
+        await using var harness = await Harness.CreateAsync();
+        var credential = await harness.CreateCredentialAsync("https://helpdesk.example/mcp", setup);
+        using var exchange = new HttpRequestMessage(HttpMethod.Post, "/api/v1/mcp/execution-token");
+        exchange.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential.Bearer);
+        exchange.Headers.Add(McpGatewayDelegationEndpoints.ResourceHeader, "https://helpdesk.example/mcp");
+        using var response = await harness.Client.SendAsync(exchange);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var delegated = (await response.Content.ReadFromJsonAsync<McpGatewayDelegationEndpoints.McpExecutionTokenResponse>())!;
+        var path = setup ? "/api/v1/auth/me" : "/business";
+        using (var allowed = new HttpRequestMessage(HttpMethod.Get, path))
+        {
+            allowed.Headers.Authorization = new AuthenticationHeaderValue("Bearer", delegated.AccessToken);
+            using var before = await harness.Client.SendAsync(allowed);
+            Assert.Equal(HttpStatusCode.OK, before.StatusCode);
+        }
+        await harness.DeleteAsync(credential.Id);
+        using var stale = new HttpRequestMessage(HttpMethod.Get, path);
+        stale.Headers.Authorization = new AuthenticationHeaderValue("Bearer", delegated.AccessToken);
+        using var after = await harness.Client.SendAsync(stale);
+        Assert.Equal(HttpStatusCode.Unauthorized, after.StatusCode);
+    }
+
     private sealed class Harness(WebApplication application) : IAsyncDisposable
     {
         public HttpClient Client { get; } = application.GetTestClient();
@@ -173,6 +200,13 @@ public sealed class McpGatewayDelegationEndpointTests
             });
             await identity.SaveChangesAsync();
             return (id, $"rdk_{id:N}_{secret}");
+        }
+
+        public async Task DeleteAsync(Guid id)
+        {
+            await using var scope = application.Services.CreateAsyncScope();
+            var identity = scope.ServiceProvider.GetRequiredService<RatelDeskIdentityDbContext>();
+            Assert.Equal(1, await identity.IntegrationCredentials.Where(credential => credential.Id == id).ExecuteDeleteAsync());
         }
 
         public async Task RevokeAsync(Guid id)
