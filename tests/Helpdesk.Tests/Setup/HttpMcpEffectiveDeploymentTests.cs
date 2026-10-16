@@ -301,6 +301,22 @@ public sealed class HttpMcpEffectiveDeploymentTests
         Assert.DoesNotContain("35", HostDeploymentWorkflow.Describe(failures), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Runtime_only_lower_provider_origin_cannot_expand_the_reviewed_browser_allowlist()
+    {
+        using var fixture = new Fixture();
+        fixture.WriteSource(Complete());
+        var proposal = HttpMcpEffectiveDeployment.Create(Settings);
+        var runtime = Complete();
+        Files(runtime, "mcp-http").Insert(0, Provider("/app/appsettings.json",
+            """{"Helpdesk":{"Mcp":{"AllowedOrigins":["https://desk.example.test:8443","https://unreviewed.example.test"]}}}"""));
+        // The running configuration is valid in isolation, but exceeds the
+        // exact browser origins approved for this deployment generation.
+        Assert.Empty(HttpMcpEffectiveDeployment.Validate(runtime, Settings));
+        fixture.WriteRuntime(runtime);
+        Assert.NotEmpty(HttpMcpEffectiveDeployment.Observe(proposal, fixture.Runtime));
+    }
+
     private static JsonObject Env(JsonObject source, string service) => source["services"]![service]!["environment"]!.AsObject();
     private static JsonArray Files(JsonObject source, string service) => source["x-rateldesk-protected-configuration"]![service]!.AsArray();
     private static JsonObject Provider(string path, string content) => new() { ["path"] = path, ["content"] = content, ["source"] = "synthetic private provider", ["sha256"] = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content))) };
