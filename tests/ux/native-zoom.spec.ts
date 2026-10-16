@@ -118,7 +118,10 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
         const captureHeight = screenshot.readUInt32BE(20);
         expect(captureWidth).toBe(width);
         expect(captureHeight).toBe(1000);
-        await writeFile(info.outputPath(`${route.replaceAll('/', '-')}-${theme}-${width}-native-200.png`), screenshot);
+        // Route queries remain part of navigation and evidence, but artifact
+        // paths must also be valid on Windows and GitHub's artifact service.
+        const routeFileName = route.replace(/[^a-zA-Z0-9._-]+/g, '-');
+        await writeFile(info.outputPath(`${routeFileName}-${theme}-${width}-native-200.png`), screenshot);
         await info.attach(`${route}-native-zoom`, { body: JSON.stringify({ zoom, physicalWidth: width, layoutWidth: await page.evaluate(() => innerWidth), theme,
           capture: 'physical viewport without CSS clip', captureWidth, captureHeight }), contentType: 'application/json' });
       }

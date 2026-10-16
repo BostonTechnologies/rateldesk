@@ -139,6 +139,26 @@ test('host and client codes never switch approval kind and host consent binds ex
  expect(calls.find((c: any) => c.path.endsWith('/host-proposals/approve')).payload).toMatchObject({ proposalHash: 'a'.repeat(64), sourceHash: 'b'.repeat(64), consent: true });
 });
 
+test('manual credential organization selection ignores the native status filter and reviews only exact grants', async ({ page }) => {
+ await open(page);
+ await expect(page.getByRole('combobox', { name: 'Status', exact: true }).getByRole('option', { name: 'All (25)', exact: true })).toHaveCount(1);
+ await page.getByTestId('integration-credential-create').click();
+ await page.getByLabel('Name', { exact: true }).fill('Synthetic manual credential');
+ await page.getByRole('button', { name: 'Choose access', exact: true }).click();
+ const organization = page.getByRole('combobox', { name: 'Organization', exact: true });
+ await organization.click();
+ await page.getByRole('listbox').getByRole('option', { name: 'Synthetic Beta', exact: true }).click();
+ await expect(organization).toHaveText('Synthetic Beta');
+ const permissions = page.getByTestId('credential-permission-selector');
+ await expect(permissions.getByRole('checkbox', { checked: true })).toHaveCount(0);
+ await permissions.getByRole('checkbox', { name: 'Incident.User', exact: true }).check();
+ await expect(permissions.getByRole('checkbox', { checked: true })).toHaveCount(1);
+ await page.getByRole('button', { name: 'Review credential', exact: true }).click();
+ await expect(page.getByText('Organization: Synthetic Beta', { exact: true })).toBeVisible();
+ await expect(page.getByText('Permissions: Incident User', { exact: true })).toBeVisible();
+ await expect(page.getByRole('button', { name: 'Create and reveal', exact: true })).toBeEnabled();
+});
+
 test('ordinary account cannot see host approval entry', async ({ page, request }) => {
  await page.goto('https://127.0.0.1:5191/auth/development');
  await open(page, 'https://127.0.0.1:5191/account/integration-credentials/approve?kind=host');

@@ -179,12 +179,17 @@ test('first-run setup initializes, survives restart, and supports isolated scope
   await expect(page.getByRole('combobox', { name: 'Organization', exact: true })).toBeVisible();
   const organization = page.getByRole('combobox', { name: 'Organization', exact: true });
   await organization.click();
-  await page.getByRole('option').first().click();
+  await page.getByRole('listbox').getByRole('option', { name: 'Browser Wizard Organization', exact: true }).click();
+  await expect(organization).toHaveText('Browser Wizard Organization');
   const permissions = page.getByTestId('credential-permission-selector');
   await expect(permissions).toBeVisible();
+  await expect(permissions.getByRole('checkbox', { checked: true })).toHaveCount(0);
   await permissions.getByRole('checkbox', { name: 'Incident.User', exact: true }).check();
+  await expect(permissions.getByRole('checkbox', { checked: true })).toHaveCount(1);
   await page.getByRole('button', { name: 'Review credential', exact: true }).click();
   await expect(page.getByText('Review before creating', { exact: true })).toBeVisible();
+  await expect(page.getByText('Organization: Browser Wizard Organization', { exact: true })).toBeVisible();
+  await expect(page.getByText('Permissions: Incident User', { exact: true })).toBeVisible();
   await expect(page.getByText("Credentials use your account's permissions. Each new secret is displayed once.", { exact: true })).toBeVisible();
   await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
 
