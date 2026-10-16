@@ -33,10 +33,16 @@ ROOT = Path(__file__).resolve().parents[2]
 LAUNCHER = ROOT / "tools/mcp/setup-http-mcp.sh"
 
 
+class CommandFailure(RuntimeError):
+    def __init__(self, arguments, completed):
+        super().__init__(f"Disposable {Path(arguments[0]).name} command failed (exit {completed.returncode}).")
+        self.detail = completed.stdout + b"\n" + completed.stderr
+
+
 def checked(arguments, *, cwd=None, input_data=None, timeout=240):
     completed = subprocess.run(arguments, cwd=cwd, input=input_data, capture_output=True, timeout=timeout)
     if completed.returncode:
-        raise RuntimeError(f"Disposable host acceptance command failed (exit {completed.returncode}); private fixture retained only for process cleanup.")
+        raise CommandFailure(arguments, completed)
     return completed.stdout
 
 
@@ -304,6 +310,29 @@ class Fixture:
             subprocess.run(["docker", "volume", "rm", name], capture_output=True, timeout=30)
         self.temporary.cleanup()
 
+    def record_failure(self, failure):
+        evidence = ROOT / "work" / "mcp-host-lifecycle" / self.project
+        evidence.mkdir(mode=0o700, parents=True, exist_ok=True)
+        evidence.chmod(0o700)
+        def save(name, content):
+            text = content.decode("utf-8", errors="replace") if isinstance(content, bytes) else content
+            for secret in (self.password, self.pfx_password, getattr(self, "ordinary_secret", "")):
+                if secret:
+                    text = text.replace(secret, "[redacted]")
+            text = re.sub(r"rdk_[A-Za-z0-9_.-]{10,}", "[redacted credential]", text)
+            target = evidence / name
+            descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(descriptor, "w") as stream:
+                stream.write(text[:4 * 1024 * 1024])
+        save("failure.txt", str(failure))
+        if isinstance(failure, CommandFailure):
+            save("command.txt", failure.detail)
+        for index, terminal in enumerate(self.terminals):
+            save(f"terminal-{index + 1}.txt", terminal.text())
+        logs = subprocess.run([*self.compose, "logs", "--no-color", "--tail", "120"], capture_output=True, timeout=30)
+        save("services.txt", logs.stdout + logs.stderr)
+        print(f"FAIL: private redacted acceptance evidence: {evidence}", flush=True)
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -316,6 +345,9 @@ def main():
         fixture = Fixture(args, existing)
         try:
             fixture.run()
+        except Exception as failure:
+            fixture.record_failure(failure)
+            raise
         finally:
             fixture.close()
 
