@@ -443,8 +443,11 @@ public sealed class HttpMcpEffectiveDeploymentTests
         });
     }
 
-    [Fact]
-    public async Task Post_verifier_observation_command_rejects_new_running_configuration_without_requesting_more_consent()
+    [Theory]
+    [InlineData("fresh")]
+    [InlineData("changed")]
+    [InlineData("stale")]
+    public async Task Post_verifier_observation_command_requires_a_fresh_matching_runtime_without_requesting_more_consent(string capture)
     {
         using var fixture = new Fixture();
         fixture.WriteSource(Complete());
@@ -455,23 +458,31 @@ public sealed class HttpMcpEffectiveDeploymentTests
         await workflow.SaveApprovedAsync(proposal,
             new(new string('a', 64), "ABCD-EFGH", Settings.PublicOrigin + "/account/integration-credentials/approve?kind=host", DateTimeOffset.UtcNow.AddMinutes(5), 1),
             fixture.ExportDirectory, false, CancellationToken.None);
-        fixture.WriteRuntime(Complete());
+        var probesCompletedAt = DateTimeOffset.UtcNow.AddSeconds(-1);
+        var originalRuntime = Complete();
+        originalRuntime["x-rateldesk-observed-at-utc"] = probesCompletedAt.AddSeconds(-1).ToString("O");
+        fixture.WriteRuntime(originalRuntime);
+        Assert.Empty(HttpMcpEffectiveDeployment.Observe(proposal, fixture.Runtime));
+        SecureConfigurationFiles.WriteAtomic(Path.Combine(fixture.ExportDirectory, "host-phase.json"), new JsonObject
+        {
+            ["phase"] = "verification-probes-passed", ["probesCompletedAtUtc"] = probesCompletedAt.ToString("O"),
+            ["sourceHash"] = proposal.SourceHash, ["proposalHash"] = proposal.ProposalHash
+        }.ToJsonString());
         Environment.SetEnvironmentVariable(HttpMcpEffectiveDeployment.RuntimeSourceVariable, fixture.Runtime);
         using var output = new StringWriter();
         using var error = new StringWriter();
         string[] arguments = ["host", "observation-check", "--export-directory", fixture.ExportDirectory];
-        Assert.Equal(0, await SetupCommands.InvokeAsync(arguments, SetupTransport.Http, output, error));
-        Assert.DoesNotContain("Temporary verification client", output.ToString() + error.ToString());
         // The host has captured the actual containers again after the verifier
-        // returned. A changed running option must prevent final completion.
-        var changed = Complete();
-        Env(changed, "mcp-http")["Helpdesk__Mcp__DelegationTimeoutSeconds"] = "35";
-        fixture.WriteRuntime(changed);
-        output.GetStringBuilder().Clear(); error.GetStringBuilder().Clear();
-        Assert.Equal(SetupRunner.ConfigurationError, await SetupCommands.InvokeAsync(arguments, SetupTransport.Http, output, error));
-        Assert.Contains("HOST_RUNTIME_MISMATCH", error.ToString());
+        // returned. Changed options and the earlier capture both prevent success.
+        var runtime = capture == "stale" ? originalRuntime : Complete();
+        if (capture != "stale") runtime["x-rateldesk-observed-at-utc"] = DateTimeOffset.UtcNow.ToString("O");
+        if (capture == "changed") Env(runtime, "mcp-http")["Helpdesk__Mcp__DelegationTimeoutSeconds"] = "35";
+        fixture.WriteRuntime(runtime);
+        Assert.Equal(capture == "fresh" ? 0 : SetupRunner.ConfigurationError,
+            await SetupCommands.InvokeAsync(arguments, SetupTransport.Http, output, error));
+        if (capture == "changed") Assert.Contains("HOST_RUNTIME_MISMATCH", error.ToString());
         Assert.DoesNotContain("Temporary verification client", output.ToString() + error.ToString());
-        Assert.DoesNotContain("end-to-end-verified", File.ReadAllText(Path.Combine(fixture.ExportDirectory, "host-phase.json")));
+        Assert.Equal(capture == "fresh", File.ReadAllText(Path.Combine(fixture.ExportDirectory, "host-phase.json")).Contains("end-to-end-verified", StringComparison.Ordinal));
         Assert.Equal(1, handler.Calls); // Only the original host approval poll used this transport.
     }
 
