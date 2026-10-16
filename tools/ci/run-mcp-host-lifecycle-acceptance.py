@@ -177,6 +177,7 @@ class Fixture:
                 "ASPNETCORE_Kestrel__Certificates__Default__Password": "${FIXTURE_PFX_PASSWORD}",
                 "ApiBaseUrl": "http://api:8222/", "WebGateway__PublicOrigin": self.origin,
                 "NO_PROXY": "desk.fixture.test,api,localhost,127.0.0.1",
+                "no_proxy": "desk.fixture.test,api,localhost,127.0.0.1",
                 "Authentication__Mode": "Local", "Authentication__AllowInsecureLocalhost": "true",
                 "DataProtection__KeyRingPath": "/fixture/keys", "DataProtection__ApplicationName": "RatelDesk"},
                 "volumes": ["state:/fixture", {"type": "bind", "source": str(pfx), "target": "/fixture-cert/fixture.pfx", "read_only": True}],
@@ -189,6 +190,7 @@ class Fixture:
             services["mcp-http"] = {"image": self.args.mcp_image, "user": "10001:10001", "environment": {
                 "ASPNETCORE_ENVIRONMENT": "Production", "ASPNETCORE_URLS": "http://+:8223",
                 "NO_PROXY": "desk.fixture.test,api,localhost,127.0.0.1",
+                "no_proxy": "desk.fixture.test,api,localhost,127.0.0.1",
                 "Helpdesk__Mcp__Instance": "synthetic-private-west", "Helpdesk__Mcp__ExpectedApiBaseUrl": "http://api:8222/",
                 "Helpdesk__Mcp__PublicResourceUri": self.origin + "/mcp", "Helpdesk__Mcp__AllowedOrigins__0": self.origin,
                 "Helpdesk__Mcp__AuthenticationMode": "gateway", "Helpdesk__Mcp__Outbound__ApiBaseUrl": "http://api:8222/",

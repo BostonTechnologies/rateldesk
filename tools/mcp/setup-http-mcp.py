@@ -213,8 +213,12 @@ def environment_map(values):
 
 def relevant_environment(values):
     environment = environment_map(values)
-    return [f"{key}={value}" for key, value in environment.items()
-            if key.casefold() == "apibaseurl" or key.casefold().startswith(RELEVANT_PREFIXES)]
+    result = [f"{key}={value}" for key, value in environment.items()
+              if key.casefold() == "apibaseurl" or key.casefold().startswith(RELEVANT_PREFIXES)]
+    exclusions = environment.get("no_proxy", environment.get("NO_PROXY"))
+    if exclusions is not None:
+        result.append("NO_PROXY=" + exclusions)
+    return result
 
 
 def effective_environment(image, inline):
