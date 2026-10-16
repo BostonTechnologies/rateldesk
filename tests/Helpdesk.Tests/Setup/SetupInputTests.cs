@@ -83,6 +83,25 @@ public sealed class SetupInputTests
         Assert.False(SetupInput.IsPersistentContainerStorage("/data/temporary/client", mounts));
     }
 
+    [Fact]
+    public void Container_preflight_accepts_Docker_host_overlay_bind_without_accepting_serving_overlay()
+    {
+        // Captured topology: the managed Docker host uses overlay, while its existing
+        // workspace directory is explicitly bind-mounted into the serving container.
+        var mounts = new[]
+        {
+            "90 1 0:42 / / rw,relatime - overlay overlay rw",
+            "94 90 0:42 /workspace/rateldesk/work/docker-acceptance /probe rw,relatime - overlay overlay rw",
+            "95 90 0:43 / /ephemeral rw,relatime - overlay overlay rw",
+            "96 90 0:42 /workspace/rateldesk/work/docker-acceptance /read-only ro,relatime - overlay overlay rw"
+        };
+        Assert.True(SetupInput.IsPersistentContainerStorage("/probe/state/profile.json", mounts));
+        Assert.False(SetupInput.IsPersistentContainerStorage("/probe-other/state", mounts));
+        Assert.False(SetupInput.IsPersistentContainerStorage("/tmp/state", mounts));
+        Assert.False(SetupInput.IsPersistentContainerStorage("/ephemeral/state", mounts));
+        Assert.False(SetupInput.IsPersistentContainerStorage("/read-only/state", mounts));
+    }
+
     [Theory]
     [InlineData("host", "http-client")]
     [InlineData("client", "http-host")]

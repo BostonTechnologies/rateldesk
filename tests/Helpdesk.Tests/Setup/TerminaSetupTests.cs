@@ -291,6 +291,24 @@ public sealed class TerminaSetupTests
         Assert.Contains("client-managed, unverified", terminal.Model.Detail.Value, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(SetupTransport.Cli)]
+    [InlineData(SetupTransport.Stdio)]
+    public async Task Native_client_does_not_adopt_HTTP_OAuth_authentication(SetupTransport transport)
+    {
+        var workflow = new FakeWorkflow { Stored = AgentClientConfiguration.Empty with
+        { ApiBaseUrl = "https://desk.example", ClientTransport = "http", HttpClientAuthentication = "oauth", McpResourceUri = "https://desk.example/mcp", OAuthAuthorizationServers = ["https://auth.example/issuer/"] } };
+        await using var terminal = await Wizard.StartAsync(workflow, new(transport));
+        Assert.Equal("browser", terminal.Model.Authentication);
+        await terminal.AdvanceToAuthenticationAsync();
+        Assert.Equal("manual", terminal.Model.Authentication);
+        await terminal.Application.InvokeAsync(() => terminal.Model.SelectAuthentication("oauth"));
+        terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
+        await terminal.WaitAsync(() => terminal.Model.Status.Value.Contains("require HTTP MCP transport", StringComparison.Ordinal));
+        Assert.Equal(SetupStep.Authentication, terminal.Model.Step.Value);
+        Assert.Equal(0, workflow.SaveCount);
+    }
+
     [Fact]
     public async Task Existing_API_profile_cannot_be_reused_for_HTTP_MCP_client()
     {
@@ -303,6 +321,22 @@ public sealed class TerminaSetupTests
         await terminal.WaitAsync(() => terminal.Model.Status.Value.Contains("API-purpose", StringComparison.Ordinal));
         Assert.Equal(SetupStep.Authentication, terminal.Model.Step.Value);
         Assert.Equal(0, workflow.SaveCount);
+    }
+
+    [Theory]
+    [InlineData(SetupTransport.Cli)]
+    [InlineData(SetupTransport.Stdio)]
+    public async Task Existing_HTTP_MCP_credential_cannot_be_reused_for_native_API_client(SetupTransport transport)
+    {
+        var workflow = new FakeWorkflow { Existing = true, Stored = AgentClientConfiguration.Empty with
+        { ApiBaseUrl = "https://desk.example", CredentialPurpose = "mcp", ClientTransport = "http", McpResourceUri = "https://desk.example/mcp", CredentialMode = "integration", IntegrationCredential = "rdk_http_private" } };
+        await using var terminal = await Wizard.StartAsync(workflow, new(transport));
+        await terminal.AdvanceToAuthenticationAsync();
+        terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
+        await terminal.WaitAsync(() => terminal.Model.Status.Value.Contains("require an API-purpose credential", StringComparison.Ordinal));
+        Assert.Equal(SetupStep.Authentication, terminal.Model.Step.Value);
+        Assert.Equal(0, workflow.SaveCount);
+        Assert.DoesNotContain("rdk_http_private", terminal.RecordedRender, StringComparison.Ordinal);
     }
 
     [Theory]

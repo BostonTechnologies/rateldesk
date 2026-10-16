@@ -47,7 +47,7 @@ public static class SetupInput
         {
             var mounted = IsPersistentContainerStorage(directory, File.ReadLines("/proc/self/mountinfo"));
             if (!mounted)
-                throw new AgentClientValidationException("Container setup storage requires a persistent mounted directory. Run the deployment archive's rateldesk-mcp-setup launcher on the Docker host.");
+                throw new AgentClientValidationException("Container setup storage requires a persistent mounted directory. Run ./setup-http-mcp.sh from the extracted deployment archive on the Docker host.");
         }
         var probe = Path.Combine(directory, $".setup-storage-{Guid.NewGuid():N}");
         try
@@ -82,8 +82,13 @@ public static class SetupInput
             // A nested tmpfs defeats a persistent parent mount; use the actual winning mount.
             selectedLength = mount.Length;
             var fileSystem = fields[separator + 1];
+            // Docker-in-Docker can expose a persistent host bind backed by overlay.
+            // Its non-root source subtree and separate mount boundary distinguish it
+            // from the serving container's own disposable overlay filesystem.
+            var mappedOverlay = fileSystem == "overlay" && fields[3] != "/" && Path.IsPathFullyQualified(fields[3]);
             persistent = mount != "/" && fields[5].Split(',').Contains("rw", StringComparer.Ordinal) &&
-                fileSystem is not ("tmpfs" or "ramfs" or "overlay" or "proc" or "sysfs" or "devtmpfs" or "devpts" or "cgroup" or "cgroup2" or
+                (fileSystem != "overlay" || mappedOverlay) &&
+                fileSystem is not ("tmpfs" or "ramfs" or "proc" or "sysfs" or "devtmpfs" or "devpts" or "cgroup" or "cgroup2" or
                     "mqueue" or "securityfs" or "debugfs" or "tracefs" or "hugetlbfs" or "configfs" or "autofs" or "nsfs" or "rpc_pipefs" or "pstore" or "fusectl");
         }
         return persistent;
