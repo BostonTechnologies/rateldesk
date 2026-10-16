@@ -1,5 +1,9 @@
 # Optional HTTP MCP transport
 
+Start with the short [server/client setup guide](../../../docs/mcp-http/setup.md)
+for the discoverable deployment-host launcher. The recipes below are advanced
+standalone/manual alternatives; preserve an existing stack's owner and sources.
+
 The canonical [HTTP MCP guides](../../../docs/mcp-http/README.md) cover complete
 configuration, environment-only setup, browser client approval, host exports,
 migration and verification. The [Web gateway guide](../../../docs/deployment/web-gateway.md)
