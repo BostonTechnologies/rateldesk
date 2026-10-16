@@ -192,3 +192,140 @@ test('selected inactive cleanup retains only partial failures and survives a fre
  const deleted = state.calls.filter((c: any) => c.method === 'DELETE'); expect(deleted).toHaveLength(3);
  expect(deleted.every((c: any) => /00000000000[23]\/record$/.test(c.path))).toBe(true);
 });
+
+async function assertSystemReviewFits(page: Page, name: string, width: number, height = 768) {
+ const dialog = page.getByRole('dialog', { name, exact: true });
+ await expect(dialog).toBeVisible();
+ const bounds = await dialog.boundingBox();
+ expect(bounds!.x).toBeGreaterThanOrEqual(0); expect(bounds!.y).toBeGreaterThanOrEqual(0);
+ expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width + 1);
+ expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(height + 1);
+ const footer = await dialog.locator('footer').boundingBox();
+ expect(footer!.y + footer!.height).toBeLessThanOrEqual(height + 1);
+ expect(await dialog.evaluate(el => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(2);
+ await assertNoHorizontalOverflow(page);
+ return dialog;
+}
+async function selectSystemChoice(page: Page, label: string, name: string) {
+ await page.getByRole('combobox', { name: label, exact: true }).click();
+ await page.getByRole('listbox').getByRole('option', { name, exact: true }).click();
+}
+for (const theme of ['light', 'dark']) for (const width of [390, 1366, 1920]) {
+ test(`compact system connections ${theme} ${width}px bounded reviews and authorized context`, async ({ page }, info) => {
+  await page.setViewportSize({ width, height: 768 });
+  await page.evaluate(value => localStorage.setItem('helpdesk.theme.preference', value), theme);
+  await open(page, '/account/integration-credentials?tab=connections&organizationId=org-b');
+  await expect(page.locator('html')).toHaveAttribute('data-helpdesk-theme', theme);
+  const panel = page.getByTestId('system-connections-panel');
+  await expect(panel.getByTestId('system-connection-row')).toHaveCount(7);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  if (width >= 1366) {
+   const drawer = page.getByTestId('app-navigation-drawer');
+   if (await drawer.evaluate(el => el.getBoundingClientRect().right) <= 1) await page.getByRole('button', { name: 'Toggle navigation', exact: true }).click();
+   await expect.poll(() => drawer.evaluate(el => el.getBoundingClientRect().right)).toBeGreaterThan(100);
+  }
+  const first = panel.locator('[data-connection-id="mapping-1"]');
+  const second = panel.locator('[data-connection-id="mapping-2"]');
+  const a = await first.boundingBox(), b = await second.boundingBox();
+  if (width === 1920) expect(Math.abs(a!.y - b!.y)).toBeLessThanOrEqual(2);
+  else expect(b!.y).toBeGreaterThan(a!.y + 10);
+  await expect(first).toContainText('Configured');
+  await expect(first).toContainText('Not tested. Configuration alone does not verify current access.');
+  await assertNoHorizontalOverflow(page);
+  await page.screenshot({ path: info.outputPath(`systems-list-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
+  await first.getByRole('button', { name: 'View', exact: true }).click();
+  let dialog = await assertSystemReviewFits(page, 'Connection configuration', width);
+  // A link to Beta never rewrites a saved Alpha mapping.
+  await expect(dialog.getByRole('combobox', { name: 'RatelDesk organization', exact: true })).toHaveText('Synthetic Alpha');
+  await expect(dialog.getByRole('combobox', { name: 'RatelDesk customer', exact: true })).toHaveText('Synthetic Alpha customer');
+  await expect(dialog.getByTestId('save-system-connection')).toBeVisible();
+  await page.screenshot({ path: info.outputPath(`systems-configuration-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
+  await dialog.getByRole('button', { name: 'Back to connections', exact: true }).click();
+  await expect(first.getByRole('button', { name: 'View', exact: true })).toBeFocused();
+  await panel.getByTestId('create-system-connection').click();
+  dialog = await assertSystemReviewFits(page, 'Create Connection', width);
+  await expect(dialog.locator('input')).toHaveCount(2);
+  await expect(dialog.getByLabel('Pairing code', { exact: true })).toHaveAttribute('type', 'password');
+  await expect(dialog.getByTestId('pair-and-connect')).toBeDisabled();
+  await page.screenshot({ path: info.outputPath(`systems-create-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).focus();
+  await page.keyboard.press('Escape'); await expect(dialog).toBeHidden();
+  await expect(panel.getByTestId('create-system-connection')).toBeFocused();
+  await panel.getByTestId('generate-pairing-code').click();
+  dialog = await assertSystemReviewFits(page, 'System pairing code', width);
+  await expect(dialog.getByLabel('Pairing code', { exact: true })).toHaveValue('FAKE-CODE');
+  await expect(dialog).toContainText('Single use');
+  await expect(dialog.getByRole('button', { name: 'Copy code', exact: true })).toBeVisible();
+  await page.screenshot({ path: info.outputPath(`systems-code-synthetic-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await first.getByTestId('delete-system-connection').click();
+  dialog = await assertSystemReviewFits(page, 'Delete system connection?', width);
+  await expect(dialog).toContainText('Synthetic system connection 1');
+  await expect(dialog.getByTestId('confirm-system-connection-delete')).toBeVisible();
+  await page.screenshot({ path: info.outputPath(`systems-delete-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await panel.getByRole('textbox', { name: 'Search system connections', exact: true }).fill('unfinished');
+  await expect(panel.getByTestId('system-connection-row')).toHaveCount(1);
+  await panel.getByRole('button', { name: 'Continue setup', exact: true }).click();
+  dialog = await assertSystemReviewFits(page, 'Systems paired', width);
+  await expect(dialog.getByRole('combobox', { name: 'RatelDesk organization', exact: true })).toHaveText('Synthetic Beta');
+  await expect(dialog.getByTestId('save-system-connection')).toBeDisabled();
+  await page.screenshot({ path: info.outputPath(`systems-resume-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
+ });
+}
+
+test('system connection context, interrupted save, durable resume and row-local retries preserve exact identities', async ({ page, request }) => {
+ await page.goto('/admin/automation/integration/orchestrator?organizationId=org-b');
+ await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true', { timeout: 20_000 });
+ const manage = page.getByTestId('manage-system-connections');
+ await expect(manage).toHaveAttribute('href', /organizationId=org-b/);
+ await manage.click();
+ await expect(page).toHaveURL(/organizationId=org-b/);
+ await expect(page.getByRole('dialog')).toHaveCount(0);
+ const panel = page.getByTestId('system-connections-panel');
+ await panel.locator('[data-connection-id="pair-awaiting"]').getByRole('button', { name: 'Continue setup', exact: true }).click();
+ const dialog = page.getByRole('dialog', { name: 'Systems paired', exact: true });
+ await expect(dialog.getByRole('combobox', { name: 'RatelDesk organization', exact: true })).toHaveText('Synthetic Beta');
+ await selectSystemChoice(page, 'NetRatel tenant', 'Synthetic monitoring');
+ await dialog.getByLabel('Connection name', { exact: true }).fill('Synthetic resumed connection');
+ await dialog.getByRole('checkbox', { name: 'Run automation — RatelDesk → NetRatel', exact: true }).check();
+ await request.get(`${fixture}/fault?mode=mapping-save`);
+ await dialog.getByTestId('save-system-connection').click();
+ await expect(dialog.getByRole('alert')).toContainText('Synthetic mapping save unavailable');
+ await expect(dialog.getByLabel('Connection name', { exact: true })).toHaveValue('Synthetic resumed connection');
+ await dialog.getByTestId('save-system-connection').click();
+ await expect(dialog).toBeHidden();
+ let state = await (await request.get(`${fixture}/state`)).json();
+ const saves = state.calls.filter((call: any) => call.method === 'PUT');
+ expect(saves).toHaveLength(2);
+ expect(saves[0].payload).toEqual(saves[1].payload);
+ expect(saves[1].payload).toMatchObject({ pairId: 'pair-awaiting', netRatelTenantId: 'tenant-a', ratelDeskOrganizationId: 'org-b', runAutomation: true });
+ const mappingId = saves[1].payload.id;
+ await page.reload();
+ await expect(panel.locator(`[data-connection-id="${mappingId}"]`)).toContainText('Synthetic resumed connection');
+ await expect(page.getByRole('dialog')).toHaveCount(0);
+ await panel.locator(`[data-connection-id="${mappingId}"]`).getByRole('button', { name: 'View', exact: true }).click();
+ await expect(page.getByRole('dialog').getByRole('combobox', { name: 'RatelDesk organization', exact: true })).toHaveText('Synthetic Beta');
+ await page.getByRole('dialog').getByRole('button', { name: 'Back to connections', exact: true }).click();
+ await open(page, '/account/integration-credentials?tab=connections&organizationId=unavailable-org');
+ await panel.locator('[data-connection-id="mapping-1"]').getByRole('button', { name: 'Add connection', exact: true }).click();
+ await expect(page.getByTestId('connection-organization-hint-error')).toBeVisible();
+ await expect(page.getByRole('dialog').getByRole('combobox', { name: 'RatelDesk organization', exact: true })).toHaveText('');
+ await expect(page.getByTestId('save-system-connection')).toBeDisabled();
+ await page.getByRole('dialog').getByRole('button', { name: 'Back to connections', exact: true }).click();
+ const first = panel.locator('[data-connection-id="mapping-1"]'), second = panel.locator('[data-connection-id="mapping-2"]');
+ await request.get(`${fixture}/fault?mode=system-test`);
+ await first.getByTestId('test-system-connection').click();
+ await expect(first).toContainText('Testing connection…');
+ await expect(first.getByTestId('connection-row-error')).toContainText('Synthetic connection test unavailable');
+ await expect(second.getByTestId('connection-row-error')).toHaveCount(0);
+ await first.getByTestId('test-system-connection').click();
+ await expect(first.getByTestId('connection-test-result')).toContainText('Synthetic authorized connection test passed');
+ await first.getByTestId('delete-system-connection').click();
+ await page.getByTestId('confirm-system-connection-delete').click();
+ await panel.getByRole('button', { name: 'Refresh connections', exact: true }).click();
+ await expect(first).toHaveCount(0);
+ await expect(second).toBeVisible();
+ state = await (await request.get(`${fixture}/state`)).json();
+ expect(state.systemConnections.some((connection: any) => connection.id === mappingId && connection.pairId === 'pair-awaiting')).toBe(true);
+});

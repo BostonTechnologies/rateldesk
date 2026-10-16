@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 const suite = process.env.HELPDESK_NATIVE_ZOOM_SUITE!;
 const routes: Record<string, string[]> = {
-  integrations: ['/account/integration-credentials?tab=credentials'],
+  integrations: ['/account/integration-credentials?tab=credentials', '/account/integration-credentials?tab=connections&organizationId=org-b'],
   admin: ['/admin/roles', '/admin/resources/data-management', '/admin/support-routing', '/admin/tenant-sla-settings'],
   details: ['/incidents/incidents-1', '/requests/requests-1', '/changes/changes-1'],
   email: ['/incidents'],
@@ -73,7 +73,27 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
           await tabs.nth(index).press('Enter');
           await expect(tabs.nth(index)).toHaveAttribute('aria-selected', 'true');
         }
-        if (suite === 'integrations') {
+        if (suite === 'integrations' && route.includes('tab=connections')) {
+          await page.getByRole('tab', { name: 'System connections', exact: true }).click();
+          const panel = page.getByTestId('system-connections-panel');
+          await expect(panel.getByTestId('system-connection-row')).toHaveCount(7);
+          await panel.locator('[data-connection-id="mapping-1"]').getByRole('button', { name: 'View', exact: true }).click();
+          const review = page.getByRole('dialog', { name: 'Connection configuration', exact: true });
+          await expect(review).toBeVisible();
+          await expect(review.getByRole('combobox', { name: 'RatelDesk organization', exact: true })).toHaveText('Synthetic Alpha');
+          const bounds = await review.boundingBox();
+          expect(bounds!.x).toBeGreaterThanOrEqual(0); expect(bounds!.y).toBeGreaterThanOrEqual(0);
+          expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width / 2 + 1);
+          expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(501);
+          const footer = await review.locator('footer').boundingBox();
+          expect(footer!.y + footer!.height).toBeLessThanOrEqual(501);
+          expect(await review.evaluate(el => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(2);
+          await expect(review.getByTestId('save-system-connection')).toBeVisible();
+          await review.getByRole('button', { name: 'Back to connections', exact: true }).focus();
+          await page.keyboard.press('Tab');
+          expect(await review.evaluate(el => el.contains(document.activeElement))).toBe(true);
+        }
+        if (suite === 'integrations' && !route.includes('tab=connections')) {
           await page.getByLabel('Client code', { exact: true }).fill('ABCD-TEST');
           await page.getByRole('button', { name: 'Review client', exact: true }).click();
           const review = page.getByRole('dialog', { name: 'Connection consent', exact: true });
