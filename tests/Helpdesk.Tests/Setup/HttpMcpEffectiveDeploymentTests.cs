@@ -257,7 +257,9 @@ public sealed class HttpMcpEffectiveDeploymentTests
     public async Task New_invocation_resumes_same_approved_generation_and_rejects_changed_export_or_source()
     {
         using var fixture = new Fixture();
-        fixture.WriteSource(Complete());
+        var source = Complete();
+        source["x-rateldesk-source-files"] = new JsonArray(new JsonObject { ["path"] = "/owner/compose.json", ["sha256"] = new string('d', 64) });
+        fixture.WriteSource(source);
         var proposal = HttpMcpEffectiveDeployment.Create(Settings);
         using var handler = new ApprovalTransport(proposal);
         using var client = new HttpClient(handler);
@@ -275,7 +277,12 @@ public sealed class HttpMcpEffectiveDeploymentTests
         SecureConfigurationFiles.WriteAtomic(exportPath, original + " ");
         Assert.Contains("HOST_EXPORT_CHANGED", Assert.Throws<AgentClientValidationException>(() => HostDeploymentWorkflow.ResumeApproved(fixture.ExportDirectory)).Message);
         SecureConfigurationFiles.WriteAtomic(exportPath, original);
-        var source = Complete();
+        // A real launcher also retains its reviewed complete manager document
+        // and generation receipt for the sole permitted import transition.
+        var document = new JsonObject { ["services"] = source["services"]!.DeepClone(), ["volumes"] = source["volumes"]!.DeepClone() }.ToJsonString();
+        SecureConfigurationFiles.WritePrivateDocument(Path.Combine(fixture.ExportDirectory, "deployment.json"), document);
+        SecureConfigurationFiles.WritePrivateDocument(Path.Combine(fixture.ExportDirectory, "launcher-state.json"),
+            new JsonObject { ["sourceHash"] = proposal.SourceHash, ["deploymentSha256"] = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(document))) }.ToJsonString());
         source["x-rateldesk-image-ids"]!["mcp-http"] = "sha256:" + new string('f', 64);
         fixture.WriteSource(source);
         Assert.Contains("HOST_SOURCE_CHANGED", Assert.Throws<AgentClientValidationException>(() => HostDeploymentWorkflow.ResumeApproved(fixture.ExportDirectory)).Message);
