@@ -311,6 +311,22 @@ class LauncherContracts(unittest.TestCase):
         with self.assertRaisesRegex(launcher.Prerequisite, "approved_context_changed"):
             launcher.check_effective_context(deployment, state)
 
+    def test_exact_complete_import_rejects_changed_selected_named_volume_secret_bytes(self):
+        deployment = self.deployment()
+        descriptor = {"type": "volume", "source": "fixture-existing-identity", "target": "/run/secrets",
+            "path": "/run/secrets/id", "sha256": "a" * 64}
+        document = {"services": {"mcp-http": {"image": "fixture", "environment": {
+            "Helpdesk__Mcp__Outbound__IntegrationCredentialFile": "/run/secrets/id"}}}}
+        state = {"sources": [{"path": str(self.source), "sha256": "source-before-exact-import"}],
+            "resolvedDeploymentSha256": launcher.resolved_deployment_hash(document), "secretMounts": [descriptor]}
+        deployment.proposal = {**document, "x-rateldesk-source-files": [launcher.file_record(self.source)],
+            "x-rateldesk-secret-mounts": [descriptor.copy()]}
+        launcher.check_effective_context(deployment, state)
+        deployment.proposal["x-rateldesk-secret-mounts"][0]["sha256"] = "b" * 64
+        self.assertEqual(launcher.resolved_deployment_hash(deployment.proposal), state["resolvedDeploymentSha256"])
+        with self.assertRaisesRegex(launcher.Prerequisite, "approved_secret_changed"):
+            launcher.check_effective_context(deployment, state)
+
     def test_image_environment_selects_correct_provider_and_explicit_configuration_path(self):
         deployment = self.deployment()
         deployment.provider_source_records = {}

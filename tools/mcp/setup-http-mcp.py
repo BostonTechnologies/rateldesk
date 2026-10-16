@@ -1017,6 +1017,8 @@ def check_saved_exports(deployment, state):
 
 
 def check_effective_context(deployment, state):
+    if state.get("secretMounts", []) != deployment.proposal.get("x-rateldesk-secret-mounts", []):
+        fail("approved_secret_changed", "A selected protected downstream secret differs from the reviewed generation. Restore the approved secret or run ordinary setup to review the changed identity before applying or verifying.")
     # Saved file hashes alone do not cover interpolation inherited from this host
     # process or updated image/provider defaults. Fence those unchanged-source
     # invocations with the original complete snapshot hash as well.
@@ -1078,6 +1080,7 @@ def export_complete_document(deployment, container, attempt):
              "proposalHash": receipt.get("proposalHash"), "exportHashes": export_hashes,
              "deploymentSha256": hashlib.sha256(read_bytes(deployment.output / "deployment.json", MAX_BYTES)).hexdigest(),
              "resolvedDeploymentSha256": resolved_deployment_hash(resolved_complete),
+             "secretMounts": deployment.proposal.get("x-rateldesk-secret-mounts", []),
              "phase": "saved-apply-pending", "storage": deployment.storage}
     write_private(deployment.output / "host-approval.json", raw_receipt)
     write_private(deployment.output / "launcher-state.json", state)
