@@ -557,7 +557,9 @@ class Deployment:
                 fail("image_missing", f"The saved {name} service needs a built local image reference before setup.")
             image_bytes = self.docker.run(["image", "inspect", "--format", "{{json .}}", image], optional=True)
             if image_bytes is None:
-                official = re.fullmatch(r"ghcr\.io/bostontechnologies/rateldesk-(?:api|web|mcp-http)(?::[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?|@sha256:[a-f0-9]{64})", image)
+                official = any(re.fullmatch(re.escape(prefix) + r"(?::[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?|@sha256:[a-f0-9]{64})", image)
+                               for prefix in ("ghcr.io/bostontechnologies/rateldesk-api", "ghcr.io/bostontechnologies/rateldesk-web",
+                                              "ghcr.io/bostontechnologies/rateldesk-mcp-http"))
                 if not official or self.args.preflight:
                     fail("image_unavailable", "The exact serving image is not available locally. Build the saved image, or pull the verified exact release image before read-only preflight. Setup never substitutes another version.")
                 self.docker.run(["pull", image], maximum=65536)
