@@ -173,6 +173,34 @@ public sealed class SetupProtocolTests
         Assert.DoesNotContain(checks, check => check.Name == "tool-result" && check.Status == "passed");
     }
 
+    [Theory]
+    [InlineData("application/json")]
+    [InlineData("text/event-stream")]
+    public async Task Chunked_oversized_catalog_is_rejected_by_the_reader_without_waiting_for_stream_end(string mediaType)
+    {
+        using var http = new HttpClient(new Handler(request =>
+        {
+            using var body = JsonDocument.Parse(request.Body!);
+            var method = body.RootElement.GetProperty("method").GetString();
+            if (method == "notifications/initialized") return new(HttpStatusCode.Accepted);
+            var id = body.RootElement.GetProperty("id").GetInt32();
+            if (method == "initialize") return Json(new { jsonrpc = "2.0", id, result = Initialization() });
+            Assert.Equal("tools/list", method);
+            var oversized = (mediaType == "text/event-stream" ? "data: " : "") + new string('x', McpSetupDiagnostics.MaximumResponseCharacters + 1);
+            var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new OpenAfterDataStream(oversized)) };
+            response.Content.Headers.ContentType = new MediaTypeHeaderValue(mediaType);
+            Assert.Null(response.Content.Headers.ContentLength);
+            return response;
+        }));
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var checks = await McpSetupDiagnostics.CheckHttpAsync(HttpProfile(), deadline.Token, http);
+        Assert.Contains(checks, check => check.Name == "initialize" && check.Status == "passed");
+        var failed = Assert.Single(checks, check => check.Name == "catalog");
+        Assert.Equal("failed", failed.Status); Assert.Equal("mcp_response_invalid", failed.Code); Assert.Equal("protocol", failed.Layer);
+        Assert.DoesNotContain(checks, check => check.Name == "tool-result" && check.Status == "passed");
+        Assert.False(deadline.IsCancellationRequested, "Reader bounds must reject oversized chunked bodies, rather than relying on timeout or stream completion.");
+    }
+
     [Fact]
     public async Task Full_catalog_pagination_and_safe_downstream_failure_preserve_reason_without_payload()
     {
