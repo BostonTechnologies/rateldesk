@@ -207,6 +207,11 @@ class Fixture:
                 "Helpdesk__Mcp__PublicResourceUri": self.origin + "/mcp", "Helpdesk__Mcp__AllowedOrigins__0": self.origin,
                 "Helpdesk__Mcp__AuthenticationMode": "gateway", "Helpdesk__Mcp__Outbound__ApiBaseUrl": "http://api:8222/",
                 "Helpdesk__Mcp__Outbound__CredentialMode": "gateway"}}
+        else:
+            # Match the shipped release recipe's ownership declaration. Fresh
+            # setup discovers its actual Web container and saved source labels.
+            for name in ("api", "web"):
+                services[name]["labels"] = {"com.rateldesk.deployment.manager": "release-compose"}
         self.source.write_text(json.dumps({"name": self.project, "services": services, "volumes": {"state": {}, "unrelated": {}}}))
         self.source.chmod(0o600)
         checked([*self.compose, "run", "--rm", "--no-deps", "api", "--initialize-unattended"], timeout=300)
@@ -229,6 +234,8 @@ class Fixture:
         self.ordinary_secret = created["secret"]
 
     def launcher_arguments(self):
+        if not self.existing:
+            return ["--ca-file", str(self.ca)]
         return ["--project", self.project, "--project-directory", str(self.directory), "--compose-file", str(self.source),
                 "--env-file", str(self.environment), "--manager", "external-compose" if self.existing else "release-compose",
                 "--image", self.args.mcp_image, "--ca-file", str(self.ca)]
