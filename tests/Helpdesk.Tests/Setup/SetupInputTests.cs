@@ -97,6 +97,60 @@ public sealed class SetupInputTests
         finally { temporary.Delete(recursive: true); }
     }
 
+    [Fact]
+    public void Existing_public_profile_is_rejected_before_approval_without_changing_it()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var temporary = Directory.CreateTempSubdirectory("rateldesk-setup-storage-");
+        try
+        {
+            var selected = Path.Combine(temporary.FullName, "client.json");
+            File.WriteAllText(selected, "{}");
+            File.SetUnixFileMode(selected, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
+            var error = Assert.Throws<AgentClientValidationException>(() => SetupInput.CheckPrivateStorage(selected));
+            Assert.Contains("owner-only", error.Message, StringComparison.Ordinal);
+            Assert.Equal("{}", File.ReadAllText(selected));
+            Assert.Single(Directory.EnumerateFiles(temporary.FullName));
+        }
+        finally { temporary.Delete(recursive: true); }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Existing_or_dangling_profile_symlink_is_rejected_before_approval(bool dangling)
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var temporary = Directory.CreateTempSubdirectory("rateldesk-setup-storage-");
+        try
+        {
+            var destination = Path.Combine(temporary.FullName, "destination.json");
+            if (!dangling) File.WriteAllText(destination, "{}");
+            var selected = Path.Combine(temporary.FullName, "client.json");
+            File.CreateSymbolicLink(selected, destination);
+            var error = Assert.Throws<AgentClientValidationException>(() => SetupInput.CheckPrivateStorage(selected));
+            Assert.Contains("symbolic links", error.Message, StringComparison.Ordinal);
+            Assert.Empty(Directory.EnumerateFiles(temporary.FullName, ".setup-storage-*"));
+        }
+        finally { temporary.Delete(recursive: true); }
+    }
+
+    [Fact]
+    public void Linked_parent_directory_is_rejected_before_creating_profile_or_storage_probe()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var temporary = Directory.CreateTempSubdirectory("rateldesk-setup-storage-");
+        try
+        {
+            var destination = Directory.CreateDirectory(Path.Combine(temporary.FullName, "destination"));
+            var selected = Path.Combine(temporary.FullName, "linked");
+            Directory.CreateSymbolicLink(selected, destination.FullName);
+            Assert.Throws<AgentClientValidationException>(() => SetupInput.CheckPrivateStorage(Path.Combine(selected, "client.json")));
+            Assert.Empty(Directory.EnumerateFileSystemEntries(destination.FullName));
+        }
+        finally { temporary.Delete(recursive: true); }
+    }
+
     [Theory]
     [InlineData("ext4", "rw,relatime", true)]
     [InlineData("xfs", "rw,relatime", true)]

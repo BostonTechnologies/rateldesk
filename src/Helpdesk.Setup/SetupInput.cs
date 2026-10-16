@@ -45,8 +45,12 @@ public static class SetupInput
         var selectedPath = Path.GetFullPath(profilePath);
         if (Directory.Exists(selectedPath))
             throw new AgentClientValidationException("The selected profile path is a directory. Choose a regular file in private persistent storage before approval.");
-        if (File.Exists(selectedPath) && new FileInfo(selectedPath).IsReadOnly)
-            throw new AgentClientValidationException("The selected profile is read-only. Choose a writable private profile before approval; existing configuration is unchanged.");
+        if (SecureConfigurationFiles.Revision(selectedPath) is not null)
+        {
+            if (new FileInfo(selectedPath).IsReadOnly)
+                throw new AgentClientValidationException("The selected profile is read-only. Choose a writable private profile before approval; existing configuration is unchanged.");
+            _ = SecureConfigurationFiles.ReadText(selectedPath, requirePrivate: true);
+        }
         var directory = Path.GetDirectoryName(selectedPath)!;
         if (string.Equals(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"), "true", StringComparison.OrdinalIgnoreCase) && OperatingSystem.IsLinux())
         {
@@ -60,9 +64,7 @@ public static class SetupInput
             var revision = SecureConfigurationFiles.WriteAtomic(probe, "storage preflight\n", "");
             _ = SecureConfigurationFiles.ReadText(probe, requirePrivate: true);
             SecureConfigurationFiles.DeleteAtomic(probe, revision);
-            if (!OperatingSystem.IsWindows() && (File.GetUnixFileMode(directory) &
-                (UnixFileMode.GroupWrite | UnixFileMode.OtherWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute)) != 0)
-                throw new AgentClientValidationException("Setup storage must be a private owner-only directory (chmod 700). Choose a durable private location before approval.");
+            SecureConfigurationFiles.ValidatePrivateDirectory(directory);
         }
         finally
         {
