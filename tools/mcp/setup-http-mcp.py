@@ -467,7 +467,7 @@ class Deployment:
         if self.args.ca_file:
             initial.append(file_record(self.args.ca_file))
         unresolved = self.docker.json(self.compose + ["config", "--no-env-resolution", "--format", "json"])
-        source_document = self.docker.json(self.compose + ["config", "--no-env-resolution", "--no-interpolate", "--format", "json"])
+        source_document = self.docker.json(self.compose + ["config", "--no-env-resolution", "--no-interpolate", "--no-path-resolution", "--format", "json"])
         write_private(self.output / ".compose-source.json", source_document)
         source_paths = [Path(item["path"]) for item in initial]
         required_paths = set(source_paths)
@@ -488,6 +488,34 @@ class Deployment:
                         or service_name == "mcp-config-init" and target == "/input/config.json"
                         or service_name == "mcp-http" and target.endswith(".json")):
                     source_paths.append(Path(mount.get("source", "")))
+        # Compose drops missing optional providers from the interpolated view.
+        # Retain their paths from its source view, then let Compose itself
+        # interpolate those strings without reading the optional provider.
+        raw_optional = [entry["path"] for service in source_document.get("services", {}).values()
+                        for entry in service.get("env_file", []) if isinstance(entry, dict) and entry.get("required") is False]
+        if len(raw_optional) > MAX_FILES:
+            fail("sources_oversized", "Too many optional source providers exist. Consolidate the saved deployment before setup.")
+        if raw_optional:
+            name = "rateldesk-source-paths-" + uuid.uuid4().hex[:12]
+            probe = self.output / ".optional-source-paths.json"
+            image = next((service.get("image") for service in unresolved.get("services", {}).values() if service.get("image")), None)
+            if not image:
+                fail("image_missing", "Build the saved serving images before effective source discovery.")
+            write_private(probe, {"services": {name: {"image": image, "environment": {
+                f"RATELDESK_PROVIDER_PATH_{index}": value for index, value in enumerate(raw_optional)}}}})
+            try:
+                resolved = self.docker.json(self.compose + ["-f", str(probe), "config", "--no-env-resolution", "--format", "json"])
+                paths = environment_map(resolved["services"][name]["environment"])
+                for index in range(len(raw_optional)):
+                    value = paths.get(f"RATELDESK_PROVIDER_PATH_{index}")
+                    if not value:
+                        fail("optional_source_path", "An optional provider path resolves empty. Correct its winning interpolation source before setup.")
+                    path = Path(os.path.abspath(self.directory / value))
+                    source_paths.append(path)
+                    if path not in required_paths:
+                        optional_paths.add(path)
+            finally:
+                probe.unlink(missing_ok=True)
         # Hash env_file and protected binds BEFORE the fully resolved render;
         # a change in the render window must not become an approved generation.
         provider_initial = [file_record(path, optional=path in optional_paths) for path in dict.fromkeys(source_paths)]
@@ -981,7 +1009,7 @@ def export_complete_document(deployment, container, attempt):
     for path in deployment.env_files or [Path("/dev/null")]:
         command += ["--env-file", str(path)]
     command += ["-f", str(deployment.output / ".compose-source.json"), "-f", str(deployment.output / ".export-patch.json"),
-                "config", "--no-interpolate", "--no-env-resolution", "--format", "json"]
+                "config", "--no-interpolate", "--no-env-resolution", "--no-path-resolution", "--format", "json"]
     complete = deployment.docker.json(command)
     write_private(deployment.output / "deployment.json", complete)
     deployment.check_sources()

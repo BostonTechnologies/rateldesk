@@ -353,10 +353,13 @@ class LauncherContracts(unittest.TestCase):
 
     def test_optional_provider_presence_is_source_bound_through_actual_compose(self):
         optional = self.directory / "optional.env"
+        interpolation = self.directory / "interpolation.env"
+        interpolation.write_text("OPTIONAL_ROOT=" + str(self.directory) + "\n")
         services = {name: {"image": "fixture", "environment": {}} for name in launcher.SERVICE_NAMES}
-        services["mcp-http"]["env_file"] = [{"path": str(optional), "required": False}]
+        services["mcp-http"]["env_file"] = [{"path": "${OPTIONAL_ROOT}/optional.env", "required": False}]
         self.source.write_text(json.dumps({"services": services}))
         self.args.image = "fixture"
+        self.args.env_file = [str(interpolation)]
         deployment = self.deployment()
         class ComposeWithImageFixture(launcher.Docker):
             def run(self, arguments, **kwargs):
@@ -374,6 +377,8 @@ class LauncherContracts(unittest.TestCase):
         deployment.docker = ComposeWithImageFixture()
         proposal = deployment.snapshot()
         self.assertTrue(any(item["path"] == str(optional) and item.get("present") is False for item in proposal["x-rateldesk-source-files"]))
+        retained = launcher.read_private_json(deployment.output / ".compose-source.json")
+        self.assertEqual(retained["services"]["mcp-http"]["env_file"][0]["path"], "${OPTIONAL_ROOT}/optional.env")
         deployment.check_sources()
         optional.write_text("Helpdesk__Mcp__Instance=unreviewed\n")
         actual = deployment.docker.json(deployment.compose + ["config", "--format", "json"])
