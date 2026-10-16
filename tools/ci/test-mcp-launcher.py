@@ -280,10 +280,10 @@ class LauncherContracts(unittest.TestCase):
                     if "--no-env-resolution" not in arguments:
                         environment.write_text("SOURCE=after\n")
                     return json.loads(json.dumps({"services": services}))
-                if arguments[0] == "image":
-                    return {"Id": "sha256:" + "a" * 64, "Config": {"Env": [], "Entrypoint": ["dotnet"], "Cmd": []}}
                 raise AssertionError(arguments)
             def run(self, arguments, **kwargs):
+                if arguments[0] == "image":
+                    return json.dumps({"Id": "sha256:" + "a" * 64, "Config": {"Env": [], "Entrypoint": ["dotnet"], "Cmd": []}}).encode()
                 if arguments[0] == "create":
                     return b"a" * 64
                 if arguments[0] == "cp":

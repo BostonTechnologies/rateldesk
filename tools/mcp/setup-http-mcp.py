@@ -469,7 +469,7 @@ class Deployment:
         self.image = self.image or services["mcp-http"].get("image")
         if not self.image:
             fail("image_missing", "Build the existing MCP image, then supply --image with that exact local image. Setup never downloads packages or invents an image family.")
-        if self.metadata and not self.foundation and services["mcp-http"].get("image") != self.image:
+        if services["mcp-http"].get("image") != self.image:
             fail("image_source_mismatch", "The saved MCP image and selected container disagree. Restore the actual source before setup.")
         image_environment, image_ids, protected, image_entrypoints, image_commands = {}, {}, {}, {}, {}
         self.provider_source_records = {}
@@ -479,7 +479,14 @@ class Deployment:
             image = services[name].get("image")
             if not image:
                 fail("image_missing", f"The saved {name} service needs a built local image reference before setup.")
-            metadata = self.docker.json(["image", "inspect", "--format", "{{json .}}", image])
+            image_bytes = self.docker.run(["image", "inspect", "--format", "{{json .}}", image], optional=True)
+            if image_bytes is None:
+                official = re.fullmatch(r"ghcr\.io/bostontechnologies/rateldesk-(?:api|web|mcp-http)(?::[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?|@sha256:[a-f0-9]{64})", image)
+                if not official or self.args.preflight:
+                    fail("image_unavailable", "The exact serving image is not available locally. Build the saved image, or pull the verified exact release image before read-only preflight. Setup never substitutes another version.")
+                self.docker.run(["pull", image], maximum=65536)
+                image_bytes = self.docker.run(["image", "inspect", "--format", "{{json .}}", image])
+            metadata = json.loads(image_bytes)
             image_ids[name] = metadata["Id"]
             image_environment[name] = relevant_environment(metadata.get("Config", {}).get("Env", []))
             image_entrypoints[name] = metadata.get("Config", {}).get("Entrypoint") or []
