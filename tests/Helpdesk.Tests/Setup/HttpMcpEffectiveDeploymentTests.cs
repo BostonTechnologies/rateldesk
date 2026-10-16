@@ -7,6 +7,7 @@ using System.Text.Json.Nodes;
 using Helpdesk.AgentClient;
 using Helpdesk.Setup;
 using Helpdesk.Shared.DTOs.Auth;
+using Microsoft.Extensions.Configuration;
 
 namespace Helpdesk.Tests.Setup;
 
@@ -380,6 +381,177 @@ public sealed class HttpMcpEffectiveDeploymentTests
         Assert.Contains(proposal.Diagnostics, diagnostic => diagnostic.Code == "HOST_EFFECTIVE_INVALID");
     }
 
+    public static IEnumerable<object[]> AlternateProviderRootSources =>
+        from service in new[] { "api", "web", "mcp-http" }
+        from provider in new[] { "command-equals", "command-two-token", "image-command", "dotnet-environment", "aspnetcore-environment", "compose-directory", "image-directory" }
+        select new object[] { service, provider };
+
+    [Theory]
+    [MemberData(nameof(AlternateProviderRootSources))]
+    public void Alternate_serving_provider_roots_fail_before_consent_without_disclosing_source_values(string service, string provider)
+    {
+        using var fixture = new Fixture();
+        const string alternate = "/alternate-unobserved-provider";
+        var source = Complete();
+        SelectProviderRoot(source, service, provider, alternate);
+        fixture.WriteSource(source);
+        var before = File.ReadAllBytes(fixture.Source);
+        var diagnostic = Assert.Single(HttpMcpEffectiveDeployment.Validate(source, Settings));
+        Assert.Equal("HOST_EFFECTIVE_INVALID", diagnostic.Code);
+        Assert.DoesNotContain(alternate, HostDeploymentWorkflow.Describe([diagnostic]));
+        Assert.False(string.IsNullOrWhiteSpace(diagnostic.NextAction));
+        var proposal = HttpMcpEffectiveDeployment.Create(Settings, fixture.Source);
+        Assert.False(proposal.Valid);
+        Assert.Contains(proposal.Diagnostics, item => item.Code == "HOST_EFFECTIVE_INVALID");
+        Assert.DoesNotContain(alternate, JsonSerializer.Serialize(proposal.Approval));
+        if (service != "api")
+        {
+            var failure = Assert.Throws<AgentClientValidationException>(() => HttpMcpEffectiveDeployment.Adopt(Settings, fixture.Source));
+            Assert.StartsWith("HOST_PROVIDER_ROOT_UNSUPPORTED:", failure.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain(alternate, failure.Message);
+        }
+        Assert.Equal(before, File.ReadAllBytes(fixture.Source));
+        Assert.False(Directory.Exists(fixture.ExportDirectory));
+    }
+
+    [Fact]
+    public void Explicit_canonical_app_roots_are_accepted_across_serving_provider_sources()
+    {
+        using var fixture = new Fixture();
+        var source = Complete();
+        foreach (var service in new[] { "api", "web", "mcp-http" })
+        {
+            foreach (var provider in new[] { "image-directory", "compose-directory", "aspnetcore-environment", "dotnet-environment", "image-command", "command-two-token" })
+                SelectProviderRoot(source, service, provider, "/app/");
+            Files(source, service).Insert(0, Provider("/app/appsettings.json", "{}"));
+        }
+        fixture.WriteSource(source);
+        Assert.Empty(HttpMcpEffectiveDeployment.Validate(source, Settings));
+        var adopted = HttpMcpEffectiveDeployment.Adopt(Settings, fixture.Source);
+        Assert.Equal(Settings.PublicOrigin, adopted.PublicOrigin);
+        Assert.Equal(Settings.ApiBaseUrl, adopted.Outbound!.ApiBaseUrl);
+        var proposal = HttpMcpEffectiveDeployment.Create(Settings, fixture.Source);
+        Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
+    }
+
+    [Fact]
+    public void Actual_mixed_origins_file_under_an_uncaptured_content_root_cannot_be_approved_as_canonical_only()
+    {
+        using var fixture = new Fixture();
+        var source = Complete();
+        var alternate = Path.Combine(Path.GetDirectoryName(fixture.Source)!, "alternate");
+        var mixed = """{"Helpdesk":{"Mcp":{"AllowedOrigins":["https://desk.example.test:8443","https://unreviewed.example.test"]}}}""";
+        SecureConfigurationFiles.WriteAtomic(Path.Combine(alternate, "appsettings.json"), mixed);
+        using var actual = (ConfigurationRoot)new ConfigurationBuilder().SetBasePath(alternate).AddJsonFile("appsettings.json")
+            .AddInMemoryCollection(Env(source, "mcp-http").Select(entry => new KeyValuePair<string, string?>(entry.Key.Replace("__", ":", StringComparison.Ordinal), entry.Value?.GetValue<string>())))
+            .AddCommandLine(["--contentRoot", alternate]).Build();
+        var actualOptions = actual.GetSection(Helpdesk.Mcp.Http.Configuration.HelpdeskMcpHttpOptions.SectionName)
+            .Get<Helpdesk.Mcp.Http.Configuration.HelpdeskMcpHttpOptions>()!;
+        Assert.True(new Helpdesk.Mcp.Http.Configuration.HelpdeskMcpHttpOptionsValidator().Validate(null, actualOptions).Succeeded);
+        Assert.Equal(new[] { Settings.PublicOrigin, "https://unreviewed.example.test" }, actualOptions.AllowedOrigins);
+        // The captured canonical provider looks safe in isolation. The actual
+        // process would instead load the physical alternate file above.
+        Files(source, "mcp-http").Insert(0, Provider("/app/appsettings.json",
+            """{"Helpdesk":{"Mcp":{"AllowedOrigins":["https://desk.example.test:8443"]}}}"""));
+        SelectProviderRoot(source, "mcp-http", "command-two-token", alternate);
+        Assert.DoesNotContain(Files(source, "mcp-http"), file => file?["path"]?.GetValue<string>() is { } path && path.StartsWith(alternate, StringComparison.Ordinal));
+        fixture.WriteSource(source);
+        var proposal = HttpMcpEffectiveDeployment.Create(Settings, fixture.Source);
+        Assert.False(proposal.Valid);
+        Assert.Contains(proposal.Diagnostics, item => item.Code == "HOST_EFFECTIVE_INVALID");
+        Assert.DoesNotContain("unreviewed.example.test", HostDeploymentWorkflow.Describe(proposal.Diagnostics));
+        Assert.False(Directory.Exists(fixture.ExportDirectory));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("\t")]
+    public void Empty_or_whitespace_canonical_configuration_path_uses_the_captured_legacy_file(string? configuredPath)
+    {
+        using var fixture = new Fixture();
+        var source = Complete();
+        const string legacy = "/run/legacy-outbound/config.json";
+        Env(source, "mcp-http")["Helpdesk__Mcp__ConfigurationPath"] = configuredPath;
+        Env(source, "mcp-http")["RATELDESK_MCP_CONFIG"] = legacy;
+        Env(source, "mcp-http").Remove("Helpdesk__Mcp__Outbound__ApiBaseUrl");
+        Env(source, "mcp-http").Remove("Helpdesk__Mcp__Outbound__CredentialMode");
+        Files(source, "mcp-http")[0] = Provider("/run/rateldesk-mcp/config.json", "not the selected JSON provider");
+        Files(source, "mcp-http").Add(Provider(legacy, JsonSerializer.Serialize(AgentClientConfiguration.Empty with
+        { ApiBaseUrl = Settings.ApiBaseUrl, CredentialMode = "gateway" }, AgentClientConfiguration.JsonOptions)));
+        fixture.WriteSource(source);
+        var adopted = HttpMcpEffectiveDeployment.Adopt(Settings, fixture.Source);
+        Assert.Equal(Settings.ApiBaseUrl, adopted.Outbound!.ApiBaseUrl);
+        Assert.Equal("gateway", adopted.Outbound.CredentialMode);
+        Assert.Empty(HttpMcpEffectiveDeployment.Validate(source, Settings));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("\t")]
+    public void Whitespace_canonical_path_does_not_hide_an_uncaptured_selected_legacy_file(string configuredPath)
+    {
+        using var fixture = new Fixture();
+        var source = Complete();
+        const string legacy = "/run/uncaptured-legacy/config.json";
+        Env(source, "mcp-http")["Helpdesk__Mcp__ConfigurationPath"] = configuredPath;
+        Env(source, "mcp-http")["RATELDESK_MCP_CONFIG"] = legacy;
+        fixture.WriteSource(source);
+        Assert.Equal("HOST_EFFECTIVE_INVALID", Assert.Single(HttpMcpEffectiveDeployment.Validate(source, Settings)).Code);
+        var error = Assert.Throws<AgentClientValidationException>(() => HttpMcpEffectiveDeployment.Adopt(Settings, fixture.Source));
+        Assert.StartsWith("HOST_OUTBOUND_PROVIDER_MISSING:", error.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(legacy, error.Message);
+        Assert.False(Directory.Exists(fixture.ExportDirectory));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Command_selected_outbound_file_must_be_captured_and_command_values_override_its_lower_sources(bool captured)
+    {
+        using var fixture = new Fixture();
+        var source = Complete();
+        const string commandPath = "/run/command-selected/config.json";
+        Env(source, "mcp-http")["Helpdesk__Mcp__ConfigurationPath"] = " ";
+        Env(source, "mcp-http")["Helpdesk__Mcp__Outbound__ApiBaseUrl"] = "http://lower-environment.private:8222/";
+        source["services"]!["mcp-http"]!["command"] = new JsonArray("--Helpdesk:Mcp:ConfigurationPath=" + commandPath,
+            "--Helpdesk:Mcp:Outbound:ApiBaseUrl=" + Settings.ApiBaseUrl, "--Helpdesk:Mcp:Outbound:CredentialMode=gateway");
+        if (captured) Files(source, "mcp-http").Add(Provider(commandPath, JsonSerializer.Serialize(AgentClientConfiguration.Empty with
+        { ApiBaseUrl = "http://lower-file.private:8222/", CredentialMode = "gateway" }, AgentClientConfiguration.JsonOptions)));
+        fixture.WriteSource(source);
+        var diagnostics = HttpMcpEffectiveDeployment.Validate(source, Settings);
+        if (!captured)
+        {
+            Assert.Equal("HOST_EFFECTIVE_INVALID", Assert.Single(diagnostics).Code);
+            Assert.StartsWith("HOST_OUTBOUND_PROVIDER_MISSING:", Assert.Throws<AgentClientValidationException>(() => HttpMcpEffectiveDeployment.Adopt(Settings, fixture.Source)).Message, StringComparison.Ordinal);
+            return;
+        }
+        Assert.Empty(diagnostics);
+        var adopted = HttpMcpEffectiveDeployment.Adopt(Settings, fixture.Source);
+        Assert.Equal(Settings.ApiBaseUrl, adopted.Outbound!.ApiBaseUrl);
+        var proposal = HttpMcpEffectiveDeployment.Create(Settings, fixture.Source);
+        Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
+        Assert.Contains("highest command-line precedence", Assert.Single(proposal.ReviewSettings, setting => setting.Key == "Downstream identity target").Source);
+    }
+
+    [Fact]
+    public void Highest_command_whitespace_path_selects_legacy_instead_of_lower_nonempty_canonical_path()
+    {
+        using var fixture = new Fixture();
+        var source = Complete();
+        const string canonical = "/run/lower-canonical/config.json";
+        Env(source, "mcp-http")["Helpdesk__Mcp__ConfigurationPath"] = canonical;
+        source["services"]!["mcp-http"]!["command"] = new JsonArray("--Helpdesk:Mcp:ConfigurationPath", " ");
+        Files(source, "mcp-http").Add(Provider(canonical, "the unselected canonical provider is deliberately invalid JSON"));
+        fixture.WriteSource(source);
+        Assert.Empty(HttpMcpEffectiveDeployment.Validate(source, Settings));
+        var adopted = HttpMcpEffectiveDeployment.Adopt(Settings, fixture.Source);
+        Assert.Equal("gateway", adopted.Outbound!.CredentialMode);
+        Assert.Equal(Settings.ApiBaseUrl, adopted.Outbound.ApiBaseUrl);
+    }
+
     [Fact]
     public void Runtime_external_issuer_must_equal_the_reviewed_issuer_even_when_both_are_valid()
     {
@@ -540,6 +712,24 @@ public sealed class HttpMcpEffectiveDeploymentTests
     }
 
     private static JsonObject Env(JsonObject source, string service) => source["services"]![service]!["environment"]!.AsObject();
+    private static void SelectProviderRoot(JsonObject source, string service, string provider, string root)
+    {
+        switch (provider)
+        {
+            case "command-equals": source["services"]![service]!["command"] = new JsonArray("--contentRoot=" + root); break;
+            case "command-two-token": source["services"]![service]!["command"] = new JsonArray("--contentRoot", root); break;
+            case "image-command":
+                source["x-rateldesk-image-commands"] ??= new JsonObject();
+                source["x-rateldesk-image-commands"]![service] = new JsonArray("--contentRoot=" + root); break;
+            case "dotnet-environment": Env(source, service)["DOTNET_CONTENTROOT"] = root; break;
+            case "aspnetcore-environment": Env(source, service)["ASPNETCORE_CONTENTROOT"] = root; break;
+            case "compose-directory": source["services"]![service]!["working_dir"] = root; break;
+            case "image-directory":
+                source["x-rateldesk-image-working-directories"] ??= new JsonObject();
+                source["x-rateldesk-image-working-directories"]![service] = root; break;
+            default: throw new ArgumentOutOfRangeException(nameof(provider));
+        }
+    }
     private static JsonArray Files(JsonObject source, string service) => source["x-rateldesk-protected-configuration"]![service]!.AsArray();
     private static JsonObject Provider(string path, string content) => new() { ["path"] = path, ["content"] = content, ["source"] = "synthetic private provider", ["sha256"] = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content))) };
 
