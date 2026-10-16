@@ -310,9 +310,12 @@ public sealed class HttpMcpEffectiveDeploymentTests
         var runtime = Complete();
         Files(runtime, "mcp-http").Insert(0, Provider("/app/appsettings.json",
             """{"Helpdesk":{"Mcp":{"AllowedOrigins":["https://desk.example.test:8443","https://unreviewed.example.test"]}}}"""));
-        // The running configuration is valid in isolation, but exceeds the
-        // exact browser origins approved for this deployment generation.
-        Assert.Empty(HttpMcpEffectiveDeployment.Validate(runtime, Settings));
+        // The serving options are valid in isolation, but exceed the exact
+        // browser origins approved for this deployment generation.
+        Assert.True(new Helpdesk.Mcp.Http.Configuration.HelpdeskMcpHttpOptionsValidator().Validate(null,
+            new Helpdesk.Mcp.Http.Configuration.HelpdeskMcpHttpOptions { PublicResourceUri = Settings.PublicResourceUri,
+                AuthenticationMode = "gateway", AllowedOrigins = [Settings.PublicOrigin, "https://unreviewed.example.test"] }).Succeeded);
+        Assert.Contains(HttpMcpEffectiveDeployment.Validate(runtime, Settings), diagnostic => diagnostic.Code == "HOST_EFFECTIVE_OPTIONS_MISMATCH");
         fixture.WriteRuntime(runtime);
         Assert.NotEmpty(HttpMcpEffectiveDeployment.Observe(proposal, fixture.Runtime));
     }
