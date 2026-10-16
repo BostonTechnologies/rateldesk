@@ -308,7 +308,8 @@ public static class HttpMcpEffectiveDeployment
     private static AgentClientConfiguration Outbound(JsonObject complete, IConfiguration configuration, Dictionary<string, string?> environment)
     {
         // Materialize no protected files in the operator's profile. The actual resolver gets a private transient snapshot.
-        var selected = configuration["Helpdesk:Mcp:ConfigurationPath"] ?? environment.GetValueOrDefault("RATELDESK_MCP_CONFIG");
+        var configuredPath = configuration["Helpdesk:Mcp:ConfigurationPath"];
+        var selected = string.IsNullOrWhiteSpace(configuredPath) ? environment.GetValueOrDefault("RATELDESK_MCP_CONFIG") : configuredPath;
         string? candidate = null;
         if (complete["x-rateldesk-protected-configuration"]?["mcp-http"] is JsonArray files)
             candidate = files.FirstOrDefault(file => file?["path"]?.GetValue<string>() == selected)?["content"]?.GetValue<string>();
