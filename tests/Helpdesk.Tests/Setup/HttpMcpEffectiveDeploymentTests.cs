@@ -404,6 +404,38 @@ public sealed class HttpMcpEffectiveDeploymentTests
         Assert.DoesNotContain("rdk_fixture_external_identity", HostDeploymentWorkflow.Describe(failures));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Approval_review_identifies_actual_winning_command_and_environment_providers_with_bounded_nonsecret_values(bool composeCommand)
+    {
+        using var fixture = new Fixture();
+        var source = Complete();
+        var arguments = new JsonArray("--ApiBaseUrl=" + Settings.ApiBaseUrl);
+        if (composeCommand) source["services"]!["web"]!["command"] = arguments;
+        else source["x-rateldesk-image-commands"] = new JsonObject { ["web"] = arguments };
+        source["x-rateldesk-source-files"] = new JsonArray(Enumerable.Range(0, 60)
+            .Select(index => (JsonNode)new JsonObject { ["path"] = $"/owner/source-{index}.json", ["sha256"] = new string('a', 64) }).ToArray());
+        fixture.WriteSource(source);
+        var proposal = HttpMcpEffectiveDeployment.Create(Settings);
+        Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
+        var command = Assert.Single(proposal.ReviewSettings, setting => setting.Key == "Web API backend");
+        Assert.Contains(composeCommand ? "services.web.command" : "web image Config.Cmd", command.Source);
+        Assert.Contains("highest", command.Source);
+        Assert.Contains("compose.host.json", Assert.Single(proposal.ReviewSettings, setting => setting.Key == "Public Web origin").Source);
+        Assert.Contains(proposal.ReviewSettings, setting => setting.Key == "Pairing public origin");
+        Assert.Contains(proposal.ReviewSettings, setting => setting.Key == "Downstream identity mode" && setting.Value == "gateway");
+        Assert.Contains(proposal.ReviewSettings, setting => setting.Key == "Provider precedence" && setting.Value.Contains("legacy aliases", StringComparison.Ordinal));
+        Assert.InRange(proposal.ReviewSettings.Count, 1, 48);
+        Assert.All(proposal.ReviewSettings, setting =>
+        {
+            Assert.InRange(setting.Key.Length, 1, 128);
+            Assert.InRange(setting.Value.Length, 0, 2048);
+            Assert.InRange(setting.Source.Length, 1, 256);
+            Assert.DoesNotContain(setting.Value + setting.Source, char.IsControl);
+        });
+    }
+
     private static async Task<HttpMcpDeploymentProposal> PrepareManagerImportAsync(Fixture fixture)
     {
         var source = Complete();
