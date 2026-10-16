@@ -430,6 +430,7 @@ class Fixture:
         rejected = subprocess.run([str(LAUNCHER), "--container", identifier, "--ca-file", str(self.ca), "--verify"],
             cwd=self.directory, capture_output=True, timeout=180)
         assert rejected.returncode == 78 and b"approved_sources_changed" in rejected.stderr
+        assert json.loads((self.output / "launcher-state.json").read_bytes())["phase"] == "applied-verify-pending", "A failed NEW verification attempt must clear the prior verified phase"
         for terminal in self.terminals:
             assert self.password not in terminal.raw_text() and self.ordinary_secret not in terminal.raw_text()
         print("PASS: " + ("existing external-manager" if self.existing else "fresh release-owned") + " actual launcher cancel/reopen, source-bound administrator approval, complete preserved export/apply, full recreation + NEW verified invocation, API-backed status/catalog, identity preservation and separate changed-source rejection", flush=True)
