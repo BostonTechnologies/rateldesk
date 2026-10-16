@@ -193,6 +193,66 @@ class LauncherContracts(unittest.TestCase):
         self.assertEqual([provider["path"] for provider in result],
             ["/app/appsettings.json", "/app/appsettings.Preview.json", "/run/reviewed.json"])
 
+    def test_shipped_release_metadata_discovers_fresh_base_without_url_placeholder(self):
+        base = self.directory / "docker-compose.release.yml"
+        base.write_text('{"services":{}}')
+        (self.directory / "setup-release.json").write_text(json.dumps({"schemaVersion": 1, "version": "0.1.2-beta.1",
+            "composeFile": base.name, "projectName": "rateldesk", "manager": "release-compose",
+            "image": "ghcr.io/bostontechnologies/rateldesk-mcp-http:0.1.2-beta.1"}))
+        args = launcher.parser().parse_args([])
+        with patch.object(launcher, "__file__", str(self.directory / "setup-http-mcp.py")):
+            deployment = launcher.Deployment(args, DiscoveryDocker({}))
+        self.assertEqual(deployment.sources, [base])
+        self.assertEqual(deployment.project, "rateldesk")
+        self.assertTrue(deployment.foundation)
+        contents = (deployment.output / "launcher.env").read_text()
+        self.assertEqual(contents, "RATELDESK_VERSION=0.1.2-beta.1\n")
+        self.assertNotIn("ORIGIN", contents)
+
+    def test_only_explicit_downstream_secret_mount_is_inherited_readonly(self):
+        deployment = self.deployment()
+        deployment.image = "fixture"
+        deployment.storage = {}
+        digest = "b" * 64
+        calls = []
+        class SecretDocker:
+            def run(self, arguments, **kwargs):
+                calls.append(arguments)
+                return (digest + "  /run/secrets/downstream\n").encode()
+        deployment.docker = SecretDocker()
+        proposal = {"services": {"mcp-http": {"environment": {}, "volumes": [
+            {"type": "bind", "source": str(self.directory / "downstream.secret"), "target": "/run/secrets/downstream"},
+            {"type": "bind", "source": "/unrelated/private", "target": "/unrelated"}]}},
+            "x-rateldesk-image-environment": {"mcp-http": []},
+            "x-rateldesk-protected-configuration": {"mcp-http": [{"content": '{"authentikAppPasswordFile":"/run/secrets/downstream"}'}]}}
+        deployment.capture_secret_mounts(proposal)
+        self.assertEqual(len(deployment.secret_mounts), 1)
+        self.assertEqual(deployment.secret_mounts[0]["sha256"], digest)
+        command = launcher.tooling_arguments(deployment)
+        self.assertTrue(any("target=/run/secrets/downstream,readonly" in value for value in command))
+        self.assertNotIn("/unrelated/private", str(command))
+        self.assertIn("10001:10001", calls[0])
+
+    def test_service_command_environment_overrides_image_environment_provider(self):
+        deployment = self.deployment()
+        deployment.provider_source_records = {}
+        copied = []
+        class CommandDocker:
+            def run(self, arguments, **kwargs):
+                if arguments[0] == "create":
+                    return b"a" * 64
+                if arguments[0] == "rm":
+                    return b"removed"
+                if arguments[0] == "cp":
+                    copied.append(arguments[1])
+                    return None
+                raise AssertionError(arguments)
+        deployment.docker = CommandDocker()
+        deployment.configuration_providers("web", {"environment": {}, "command": ["--environment=Reviewed"]},
+            "fixture", [], image_environment=["DOTNET_ENVIRONMENT=Unreviewed"])
+        self.assertTrue(any("appsettings.Reviewed.json" in value for value in copied))
+        self.assertFalse(any("appsettings.Unreviewed.json" in value for value in copied))
+
     def test_forwarded_options_are_literal_arguments(self):
         args = launcher.parser().parse_args(["--", "--web-url", "https://desk.example.test", "--instance", "stage-$(touch ignored)"])
         self.assertEqual(args.wizard_options[1:], ["--web-url", "https://desk.example.test", "--instance", "stage-$(touch ignored)"])

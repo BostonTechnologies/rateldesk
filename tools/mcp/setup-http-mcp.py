@@ -417,7 +417,7 @@ class Deployment:
             fail("image_missing", "Build the existing MCP image, then supply --image with that exact local image. Setup never downloads packages or invents an image family.")
         if self.metadata and not self.foundation and services["mcp-http"].get("image") != self.image:
             fail("image_source_mismatch", "The saved MCP image and selected container disagree. Restore the actual source before setup.")
-        image_environment, image_ids, protected = {}, {}, {}
+        image_environment, image_ids, protected, image_entrypoints, image_commands = {}, {}, {}, {}, {}
         self.provider_source_records = {}
         for name in SERVICE_NAMES:
             if name not in services:
@@ -428,8 +428,10 @@ class Deployment:
             metadata = self.docker.json(["image", "inspect", "--format", "{{json .}}", image])
             image_ids[name] = metadata["Id"]
             image_environment[name] = relevant_environment(metadata.get("Config", {}).get("Env", []))
+            image_entrypoints[name] = metadata.get("Config", {}).get("Entrypoint") or []
+            image_commands[name] = metadata.get("Config", {}).get("Cmd") or []
             protected[name] = self.configuration_providers(name, services[name], image, source_paths,
-                                                           image_environment=image_environment[name])
+                                                           image_environment=image_environment[name], image_command=image_commands[name])
         records = [file_record(path) for path in dict.fromkeys(source_paths)]
         if len(records) > MAX_FILES:
             fail("sources_oversized", "The effective deployment has too many protected providers. Consolidate the saved sources before setup.")
@@ -440,6 +442,8 @@ class Deployment:
         proposal["x-rateldesk-source-files"] = records
         proposal["x-rateldesk-image-environment"] = image_environment
         proposal["x-rateldesk-image-ids"] = image_ids
+        proposal["x-rateldesk-image-entrypoints"] = image_entrypoints
+        proposal["x-rateldesk-image-commands"] = image_commands
         proposal["x-rateldesk-protected-configuration"] = protected
         proposal["x-rateldesk-deployment-manager"] = self.manager
         proposal["x-rateldesk-project-directory"] = str(self.directory)
@@ -512,9 +516,17 @@ class Deployment:
             fail("secret_reference_hash", "The protected secret could not be safely hashed as the serving identity. Restore its readable private file before approval.")
         return digest
 
-    def configuration_providers(self, name, service, image, source_paths, container=None, image_environment=None):
+    def configuration_providers(self, name, service, image, source_paths, container=None, image_environment=None, image_command=None):
         environment = effective_environment(image_environment or [], service.get("environment", {}))
         deployment_environment = environment.get("dotnet_environment", environment.get("aspnetcore_environment", "Production"))
+        command = service.get("command", image_command or [])
+        if isinstance(command, list):
+            for index, argument in enumerate(command):
+                if not isinstance(argument, str):
+                    fail("command_invalid", "The saved service command must contain bounded literal string arguments.")
+                key, separator, value = argument.lstrip("-/").partition("=")
+                if key.casefold() == "environment":
+                    deployment_environment = value if separator else command[index + 1] if index + 1 < len(command) else ""
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", deployment_environment):
             fail("environment_name", "The saved .NET environment name is invalid. Restore the serving environment before setup.")
         replacements = {}
@@ -621,6 +633,8 @@ class Deployment:
                 fail("runtime_image_mismatch", f"The running {name} image differs from the reviewed deployment. Recreate that service with the approved image before verification.")
             service = {"environment": environment_map(relevant_environment(metadata.get("Config", {}).get("Env", []))),
                        "image": metadata.get("Config", {}).get("Image"),
+                       "command": metadata.get("Config", {}).get("Cmd") or [],
+                       "entrypoint": metadata.get("Config", {}).get("Entrypoint") or [],
                        "volumes": [{"type": mount.get("Type"), "source": mount.get("Name") or mount.get("Source"),
                                     "target": mount.get("Destination"), "read_only": not mount.get("RW", False)}
                                    for mount in metadata.get("Mounts", [])]}
