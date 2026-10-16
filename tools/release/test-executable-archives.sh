@@ -62,13 +62,24 @@ grep -q 'stdout is reserved for MCP protocol traffic' "$temporary_directory/mcp-
 
 # Verify setup is packaged and remains explicit/noninteractive before configuration.
 # On Windows, exercise actual archived CLI private storage under a broad parent ACL.
-"$python_bin" - "$cli" "$mcp" "$temporary_directory" "$rid" "$(dirname "${BASH_SOURCE[0]}")/check-windows-profile-privacy.ps1" <<'PY'
+"$python_bin" - "$cli" "$mcp" "$temporary_directory" "$rid" "$(dirname "${BASH_SOURCE[0]}")/check-windows-profile-privacy.ps1" "$asset_directory" <<'PY'
+import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
-cli, mcp, temporary, rid, privacy_script = sys.argv[1:]
+cli, mcp, temporary, rid, privacy_script, assets = sys.argv[1:]
+manifest = json.loads((Path(assets) / 'release-manifest.json').read_text(encoding='utf-8'))
+if not re.fullmatch(r'[0-9a-f]{40}', manifest['sourceRevision']):
+    raise SystemExit('The archive manifest must identify its exact source commit.')
+expected_information = f"({manifest['version']}+{manifest['sourceRevision']})"
+for name in ['cli', 'mcp']:
+    actual = (Path(temporary) / f'{name}-version.txt').read_text(encoding='utf-8').strip()
+    if expected_information not in actual:
+        raise SystemExit('The extracted apphost version/source does not match the package manifest.')
+print('Archive exact version/source identities passed for ' + rid)
 environment = {key: value for key, value in os.environ.items() if not key.startswith('RATELDESK_')}
 for tool in [cli, mcp]:
     result = subprocess.run([tool, 'setup'], env=environment, capture_output=True, text=True, timeout=15)
