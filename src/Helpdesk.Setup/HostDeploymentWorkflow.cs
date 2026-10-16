@@ -125,6 +125,27 @@ public sealed class HostDeploymentWorkflow : IDisposable
     private sealed record SavedHostApproval(string Origin, string DeviceCode, string ProposalHash, string SourceHash)
     { public override string ToString() => "SavedHostApproval { capability = [REDACTED] }"; }
 
+    public static void CompleteObservation(string directory)
+    {
+        var proposal = ResumeApproved(directory);
+        var phasePath = Path.Combine(directory, "host-phase.json");
+        var phase = HttpMcpEffectiveDeployment.Parse(SecureConfigurationFiles.ReadText(phasePath, requirePrivate: true));
+        var now = DateTimeOffset.UtcNow;
+        if (phase["phase"]?.ToString() != "verification-probes-passed" ||
+            phase["sourceHash"]?.ToString() != proposal.SourceHash || phase["proposalHash"]?.ToString() != proposal.ProposalHash ||
+            !DateTimeOffset.TryParse(phase["probesCompletedAtUtc"]?.ToString(), out var completed) || completed > now || completed < now.AddMinutes(-10))
+            throw new AgentClientValidationException("HOST_VERIFICATION_PENDING: Fresh authenticated probes and confirmed temporary access cleanup are required before the final Docker observation.");
+        var runtimePath = Environment.GetEnvironmentVariable(HttpMcpEffectiveDeployment.RuntimeSourceVariable);
+        if (string.IsNullOrWhiteSpace(runtimePath))
+            throw new AgentClientValidationException("HOST_RUNTIME_REQUIRED: Invoke --verify through the Docker host launcher for a fresh running-container observation.");
+        var runtime = HttpMcpEffectiveDeployment.Parse(SecureConfigurationFiles.ReadPrivateDocument(runtimePath));
+        if (!DateTimeOffset.TryParse(runtime["x-rateldesk-observed-at-utc"]?.ToString(), out var observed) || observed < completed || observed > now.AddSeconds(5))
+            throw new AgentClientValidationException("HOST_RUNTIME_STALE: Capture the running deployment after authenticated probes and cleanup; rerun --verify through the Docker host launcher.");
+        var diagnostics = HttpMcpEffectiveDeployment.Observe(proposal, runtimePath);
+        if (diagnostics.Count > 0) throw new AgentClientValidationException(Describe(diagnostics));
+        SecureConfigurationFiles.WriteAtomic(phasePath, JsonSerializer.Serialize(new { phase = "end-to-end-verified", verifiedAtUtc = now, proposal.SourceHash, proposal.ProposalHash }, Json));
+    }
+
     public static async Task<int> VerifyAsync(string directory, TextWriter output, TextWriter error, CancellationToken ct)
     {
         var proposal = ResumeApproved(directory);
@@ -157,12 +178,11 @@ public sealed class HostDeploymentWorkflow : IDisposable
                 await error.WriteLineAsync(verifier.CleanupPending ? "Verification cleanup is pending. Retry verify to recover cleanup; server expiry bounds abandoned access." : "End-to-end verification failed. Correct the reported layer, then invoke verify again.");
                 return 1;
             }
-            // Browser consent and network probes take time; fence changes made during that interval.
-            var current = ResumeApproved(directory);
-            var currentRuntime = HttpMcpEffectiveDeployment.Observe(current);
-            if (currentRuntime.Count > 0) { await error.WriteLineAsync(Describe(currentRuntime)); return SetupRunner.ConfigurationError; }
-            SecureConfigurationFiles.WriteAtomic(Path.Combine(directory, "host-phase.json"), JsonSerializer.Serialize(new { phase = "end-to-end-verified", verifiedAtUtc = DateTimeOffset.UtcNow, proposal.SourceHash, proposal.ProposalHash }, Json));
-            await error.WriteLineAsync("End-to-end verified. Observed applied configuration, authenticated initialize, complete catalog, API-backed status and temporary access cleanup passed.");
+            // Only the Docker host can recapture actual running providers after
+            // browser consent and probes. Completion is a separate, fresh fence.
+            ResumeApproved(directory);
+            SecureConfigurationFiles.WriteAtomic(Path.Combine(directory, "host-phase.json"), JsonSerializer.Serialize(new { phase = "verification-probes-passed", probesCompletedAtUtc = DateTimeOffset.UtcNow, proposal.SourceHash, proposal.ProposalHash }, Json));
+            await error.WriteLineAsync("Authenticated initialize, complete catalog, API-backed status and temporary access cleanup passed. Final Docker observation remains pending.");
             return 0;
         }
         throw new AgentClientValidationException("Verification approval expired. Host configuration remains applied—verify pending.");

@@ -9,7 +9,7 @@ public static class HostDeploymentCommands
     public static void Register(RootCommand root, TextWriter output, TextWriter error)
     {
         var host = new Command("host", "Read-only effective deployment preflight and approved-generation verification. Use the Docker host launcher to apply.");
-        foreach (var action in new[] { "preflight", "verify", "approval-check" })
+        foreach (var action in new[] { "preflight", "verify", "approval-check", "observation-check" })
         {
             var command = new Command(action, action == "verify" ? "Observe applied configuration and request a narrow temporary status verifier." : "Validate the complete proposed deployment before approval.");
             var directory = new Option<string?>("--export-directory"); var url = new Option<string?>("--url");
@@ -23,6 +23,12 @@ public static class HostDeploymentCommands
                     {
                         await HostDeploymentWorkflow.CheckApplyAuthorityAsync(path, ct);
                         await output.WriteLineAsync("Current administrator approval and exact deployment generation confirmed. No service was changed.");
+                        return 0;
+                    }
+                    if (action == "observation-check")
+                    {
+                        HostDeploymentWorkflow.CompleteObservation(path);
+                        await output.WriteLineAsync("End-to-end verified. Fresh Docker observation, authenticated initialize, complete catalog, API-backed status and temporary access cleanup passed.");
                         return 0;
                     }
                     if (action == "verify") return await HostDeploymentWorkflow.VerifyAsync(path, output, error, ct);
