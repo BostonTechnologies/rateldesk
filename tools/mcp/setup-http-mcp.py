@@ -363,7 +363,8 @@ class Deployment:
                     file_record(path)
         selected_is_mcp = labels.get("com.docker.compose.service") == "mcp-http"
         self.image = args.image or ((self.metadata or {}).get("Config", {}).get("Image") if selected_is_mcp else None) or (bundle or {}).get("image")
-        self.foundation = bool(bundle or labels.get("com.docker.compose.service") == "web")
+        approved_addition = read_private_json(state_path).get("mcpProposed", False) if state_path.is_file() else False
+        self.foundation = bool(bundle or args.image or labels.get("com.docker.compose.service") == "web" or approved_addition)
         self.compose = ["compose", "--project-directory", str(self.directory), "--project-name", self.project]
         for path in self.env_files or [Path("/dev/null")]:
             self.compose += ["--env-file", str(path)]
@@ -372,6 +373,8 @@ class Deployment:
 
     def snapshot(self, verify=False):
         initial = [file_record(path) for path in self.sources + self.env_files]
+        if self.args.ca_file:
+            initial.append(file_record(self.args.ca_file))
         unresolved = self.docker.json(self.compose + ["config", "--no-env-resolution", "--format", "json"])
         source_document = self.docker.json(self.compose + ["config", "--no-env-resolution", "--no-interpolate", "--format", "json"])
         write_private(self.output / ".compose-source.json", source_document)
@@ -441,6 +444,7 @@ class Deployment:
         proposal["x-rateldesk-deployment-manager"] = self.manager
         proposal["x-rateldesk-project-directory"] = str(self.directory)
         proposal["x-rateldesk-project-name"] = self.project
+        self.capture_secret_mounts(proposal)
         self.validate_resume_sources(records, verify)
         write_private(self.output / "effective-deployment.json", proposal)
         write_private(self.output / "source-state.json", {"sources": records})
@@ -448,6 +452,65 @@ class Deployment:
             self.observe_runtime(proposal)
         self.proposal = proposal
         return proposal
+
+    def capture_secret_mounts(self, proposal):
+        references = set()
+        def visit(value):
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    canonical = key.replace("_", "").replace(":", "").casefold()
+                    if canonical.endswith(("integrationcredentialfile", "authentikapppasswordfile")) and isinstance(child, str) and child.strip():
+                        references.add(child)
+                    else:
+                        visit(child)
+            elif isinstance(value, list):
+                for child in value:
+                    visit(child)
+        visit(proposal["services"]["mcp-http"].get("environment", {}))
+        visit(effective_environment(proposal["x-rateldesk-image-environment"]["mcp-http"], {}))
+        for provider in proposal["x-rateldesk-protected-configuration"]["mcp-http"]:
+            visit(json.loads(provider["content"]))
+        if len(references) > 8:
+            fail("secret_reference_count", "The MCP deployment exceeds the bounded protected-reference count. Consolidate its explicit identity sources before setup.")
+        mounts = []
+        for path in sorted(references):
+            safe_label(path, 4096)
+            if not path.startswith("/") or ".." in Path(path).parts or path.endswith("docker.sock"):
+                fail("secret_reference", "Use an explicit absolute protected secret file inside the MCP container, without traversal or Docker access.")
+            candidates = []
+            for mount in proposal["services"]["mcp-http"].get("volumes", []):
+                target = mount.get("target", "")
+                if target and (path == target or path.startswith(target + "/")):
+                    source = mount.get("source")
+                    if mount.get("type") == "volume":
+                        source = proposal.get("volumes", {}).get(source, {}).get("name") or source
+                    candidates.append((len(target), {"type": mount.get("type"), "source": source, "target": target}))
+            for secret in proposal["services"]["mcp-http"].get("secrets", []):
+                name = secret if isinstance(secret, str) else secret.get("source")
+                target = "/run/secrets/" + (secret.get("target", name) if isinstance(secret, dict) else name)
+                file = proposal.get("secrets", {}).get(name, {}).get("file")
+                if path == target and file:
+                    candidates.append((len(target), {"type": "bind", "source": file, "target": target}))
+            if not candidates:
+                fail("secret_reference_mount", "An adopted downstream secret reference has no readable persistent mount. Restore its saved MCP secret mount before approval.")
+            descriptor = max(candidates, key=lambda item: item[0])[1]
+            if descriptor["type"] not in ("bind", "volume") or descriptor["target"] in (HOST_TARGET, CLIENT_TARGET, "/", "/app"):
+                fail("secret_reference_mount", "The downstream secret must use its own bounded protected mount. Host/client stores and whole application directories cannot be inherited as identities.")
+            descriptor["path"] = path
+            descriptor["sha256"] = self.secret_digest(descriptor)
+            mounts.append(descriptor)
+        self.secret_mounts = mounts
+        proposal["x-rateldesk-secret-mounts"] = mounts
+
+    def secret_digest(self, descriptor):
+        result = self.docker.run(["run", "--rm", "--pull", "never", "--network", "none", "--read-only", "--cap-drop", "ALL",
+            "--security-opt", "no-new-privileges", "--user", "10001:10001", "--mount", mount_argument(descriptor) + ",readonly",
+            "--entrypoint", "/bin/sh", self.image, "-ec",
+            'test -f "$1"; test "$(wc -c < "$1")" -le 16384; sha256sum "$1"', "secret-hash", descriptor["path"]], maximum=8192)
+        digest = result.decode().split(" ", 1)[0]
+        if not re.fullmatch(r"[a-f0-9]{64}", digest):
+            fail("secret_reference_hash", "The protected secret could not be safely hashed as the serving identity. Restore its readable private file before approval.")
+        return digest
 
     def configuration_providers(self, name, service, image, source_paths, container=None, image_environment=None):
         environment = effective_environment(image_environment or [], service.get("environment", {}))
@@ -603,11 +666,16 @@ class Deployment:
     def check_sources(self):
         if any(file_record(item["path"]) != item for item in self.proposal["x-rateldesk-source-files"]):
             fail("sources_changed", "The saved deployment changed during setup. Nothing was applied. Rerun ordinary setup to review the current source.")
+        for descriptor in getattr(self, "secret_mounts", []):
+            if self.secret_digest(descriptor) != descriptor["sha256"]:
+                fail("secret_source_changed", "A protected downstream secret changed during setup. Rerun ordinary setup to review the current generation; no identity was rotated.")
 
     def prepare_storage(self, provision=True):
         storage = {}
         if self.metadata is None:
             _, current = unique_container(self.docker, self.project, "mcp-http")
+            if not current:
+                _, current = unique_container(self.docker, self.project, "web")
             if current:
                 self.metadata = current
         existing_mounts = (self.metadata or {}).get("Mounts", [])
@@ -688,11 +756,20 @@ def tooling_arguments(deployment):
                "--user", "10001:10001", "--tmpfs", "/tmp:rw,nosuid,nodev,size=16777216,mode=1777"]
     for descriptor in deployment.storage.values():
         command += ["--mount", mount_argument(descriptor)]
+    inherited = set()
+    for descriptor in getattr(deployment, "secret_mounts", []):
+        if descriptor["target"] not in inherited:
+            command += ["--mount", mount_argument(descriptor) + ",readonly"]
+            inherited.add(descriptor["target"])
     command += ["--env", f"RATELDESK_MCP_HOST_DIRECTORY={HOST_TARGET}",
                 "--env", f"RATELDESK_MCP_CLIENT_DIRECTORY={CLIENT_TARGET}",
                 "--env", f"RATELDESK_SETUP_EFFECTIVE_COMPOSE_SOURCE={HOST_TARGET}/effective-deployment.json",
                 "--env", f"RATELDESK_SETUP_RUNTIME_ENVIRONMENT_SOURCE={HOST_TARGET}/runtime-environment.json",
                 "--env", f"RATELDESK_SETUP_DEPLOYMENT_MANAGER={deployment.manager}"]
+    if deployment.args.ca_file:
+        certificate = str(Path(deployment.args.ca_file))
+        command += ["--mount", mount_argument({"type": "bind", "source": certificate}, "/run/rateldesk-setup-ca.pem") + ",readonly",
+                    "--env", "SSL_CERT_FILE=/run/rateldesk-setup-ca.pem"]
     # Reuse the existing MCP network solely for explicit private API backends.
     # Do not grant host networking or a Docker socket to the setup process.
     networks = (deployment.metadata or {}).get("NetworkSettings", {}).get("Networks", {})
@@ -793,6 +870,7 @@ def export_complete_document(deployment, container, attempt):
     state = {"schemaVersion": 1, "project": deployment.project, "manager": deployment.manager,
              "sources": deployment.proposal["x-rateldesk-source-files"], "sourceHash": receipt["sourceHash"],
              "composeFiles": [str(path) for path in deployment.sources], "envFiles": [str(path) for path in deployment.env_files],
+             "mcpProposed": deployment.proposal.get("x-rateldesk-mcp-proposed", False),
              "proposalHash": receipt.get("proposalHash"), "exportHashes": export_hashes,
              "deploymentSha256": hashlib.sha256(read_bytes(deployment.output / "deployment.json", MAX_BYTES)).hexdigest(),
              "phase": "saved-apply-pending", "storage": deployment.storage}
@@ -819,6 +897,8 @@ def resume_command(deployment, mode):
         command += ["--compose-file", str(path)]
     for path in deployment.env_files:
         command += ["--env-file", str(path)]
+    if deployment.args.ca_file:
+        command += ["--ca-file", deployment.args.ca_file]
     command.append(mode)
     return shlex.join(command)
 
@@ -854,6 +934,8 @@ def run_setup(deployment, args):
         state = read_private_json(deployment.output / "launcher-state.json")
         check_saved_exports(deployment, state)
         check_effective_context(deployment, state)
+        stage_snapshot(deployment, "launcher-state.json")
+        stage_snapshot(deployment, "deployment.json")
     deployment.check_sources()
     attempt = uuid.uuid4().hex
     name = f"{deployment.project}-mcp-setup-{attempt[:12]}"
@@ -899,6 +981,7 @@ def parser():
     command.add_argument("--project-directory")
     command.add_argument("--output-directory")
     command.add_argument("--image")
+    command.add_argument("--ca-file", help="Existing public CA bundle for an explicitly trusted private HTTPS instance; mounted read-only into tooling.")
     command.add_argument("--manager", choices=("release-compose", "external-compose"))
     command.add_argument("--target", choices=("http-host", "http-client"), default="http-host")
     command.add_argument("--verify", action="store_true", help="Resume the approved generation with fresh bounded verification consent.")
