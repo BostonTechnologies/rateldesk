@@ -20,6 +20,16 @@ test -n "$deployment_directory"
 
 test -x "$deployment_directory/setup-http-mcp.sh"
 test -f "$deployment_directory/setup-http-mcp.py"
+python3 - "$deployment_directory/setup-release.json" <<'PY'
+import json, pathlib, re, sys
+metadata = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+assert metadata["schemaVersion"] == 1
+assert re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?", metadata["version"])
+assert metadata["composeFile"] == "docker-compose.release.yml"
+assert metadata["projectName"] == "rateldesk"
+assert metadata["manager"] == "release-compose"
+assert metadata["image"] == "ghcr.io/bostontechnologies/rateldesk-mcp-http:" + metadata["version"]
+PY
 test -s "$deployment_directory/docs/mcp-http/setup.md"
 # Execute the extracted entrypoint with its adjacent helper. --help must not
 # need a running deployment, source checkout, valid serving config or registry.

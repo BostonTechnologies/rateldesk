@@ -60,6 +60,17 @@ cp "$repository_root/tools/mcp/setup-http-mcp.sh" "$repository_root/tools/mcp/se
 chmod 0755 "$deployment_directory/setup-http-mcp.sh" "$deployment_directory/setup-http-mcp.py"
 cp "$repository_root/LICENSE" "$deployment_directory/LICENSE"
 python3 "$repository_root/tools/release/package-documentation.py" "$deployment_directory" --flat-deployment
+python3 - "$deployment_directory/setup-release.json" "$version" <<'PY'
+import json, pathlib, sys
+pathlib.Path(sys.argv[1]).write_text(json.dumps({
+    "schemaVersion": 1,
+    "version": sys.argv[2],
+    "composeFile": "docker-compose.release.yml",
+    "projectName": "rateldesk",
+    "manager": "release-compose",
+    "image": f"ghcr.io/bostontechnologies/rateldesk-mcp-http:{sys.argv[2]}",
+}, indent=2) + "\n", encoding="utf-8")
+PY
 cat > "$deployment_directory/README.txt" <<EOF
 RatelDesk deployment $version
 

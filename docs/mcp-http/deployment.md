@@ -11,6 +11,10 @@ Run `tools/mcp/setup-http-mcp.sh` from a source checkout, or
 Docker with Compose and Python 3 on the deployment host; it installs no packages.
 Its adjacent Python helper is included in the archive. It inspects Docker only
 on that host; the serving MCP container receives no Docker socket or root access.
+The archive's non-secret `setup-release.json` selects the exact inherited release
+version, base recipe and image for a fresh deployment with MCP not yet selected.
+It never guesses a version from the extraction directory's name. Existing
+deployment sources and ownership take precedence over fresh-bundle defaults.
 
 The ordinary invocation discovers an existing container, project, ordered
 Compose sources, interpolation context, image and durable private storage.
