@@ -10,6 +10,7 @@ using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Helpdesk.API.Endpoints.Authentication;
 using Helpdesk.API.Authentication;
+using Helpdesk.API.Middleware;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Models;
@@ -250,6 +251,96 @@ public sealed class IntegrationCredentialSqliteTests
         Assert.True(await harness.IsRevokedAsync(credential.Id));
     }
 
+    [Fact]
+    public async Task Permanent_delete_removes_live_authentication_material_and_cancels_pending_delivery()
+    {
+        await using var harness = await Harness.CreateAsync();
+        using var device = harness.DeviceClient();
+        using var pairing = new IntegrationCredentialPairingClient("https://desk.example", device);
+        var started = await pairing.StartAsync(new("pending delivery", "api"));
+        using var approval = await harness.Client.PostAsJsonAsync("/api/v1/integration-credentials/pairing/approve",
+            new IntegrationPairingApprovalRequest(started.HumanCode, "org-a", ["Incident.Read"], 30, true));
+        Assert.Equal(HttpStatusCode.NoContent, approval.StatusCode);
+        var issued = (await pairing.PollAsync(started.DeviceCode)).Credential!;
+        Assert.NotNull(issued);
+        using var before = new HttpRequestMessage(HttpMethod.Get, "/api/v1/pairing-read-only-check");
+        before.Headers.Authorization = new AuthenticationHeaderValue("Bearer", issued.Secret);
+        using var beforeResponse = await device.SendAsync(before);
+        Assert.Equal(HttpStatusCode.OK, beforeResponse.StatusCode);
+
+        using var deleted = await harness.Client.DeleteAsync($"/api/v1/integration-credentials/{issued.Id:N}/record");
+        Assert.Equal(HttpStatusCode.NoContent, deleted.StatusCode);
+        using var after = new HttpRequestMessage(HttpMethod.Get, "/api/v1/pairing-read-only-check");
+        after.Headers.Authorization = new AuthenticationHeaderValue("Bearer", issued.Secret);
+        using var afterResponse = await device.SendAsync(after);
+        Assert.Equal(HttpStatusCode.Unauthorized, afterResponse.StatusCode);
+        var retry = await pairing.PollAsync(started.DeviceCode);
+        Assert.Equal("cancelled", retry.Status);
+        Assert.Null(retry.Credential);
+        using var repeated = await harness.Client.DeleteAsync($"/api/v1/integration-credentials/{issued.Id:N}/record");
+        Assert.Equal(HttpStatusCode.NotFound, repeated.StatusCode);
+        await using var scope = harness.Services.CreateAsyncScope();
+        var identity = scope.ServiceProvider.GetRequiredService<RatelDeskIdentityDbContext>();
+        Assert.False(await identity.IntegrationCredentials.AnyAsync(c => c.Id == issued.Id));
+        var tombstone = await identity.IntegrationCredentialPairings.SingleAsync();
+        Assert.Equal("cancelled", tombstone.State);
+        Assert.Null(tombstone.ProtectedDelivery);
+        Assert.Null(tombstone.ProtectedApproval);
+        var audit = await scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>().ActivityLogs
+            .Where(a => a.RelatedEntityId == issued.Id.ToString("N")).ToListAsync();
+        Assert.Contains(audit, a => a.Message.Contains("revoked and deleted", StringComparison.Ordinal));
+        Assert.DoesNotContain(audit, a => a.Message.Contains(issued.Secret, StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("integration", "owner", HttpStatusCode.Forbidden)]
+    [InlineData("mcp", "owner", HttpStatusCode.Forbidden)]
+    [InlineData("gateway", "owner", HttpStatusCode.Forbidden)]
+    [InlineData("anonymous", "owner", HttpStatusCode.Unauthorized)]
+    [InlineData("local", "other", HttpStatusCode.NotFound)]
+    public async Task Permanent_delete_retains_interactive_owner_boundary(string mode, string user, HttpStatusCode expected)
+    {
+        await using var harness = await Harness.CreateAsync();
+        var credential = Credential("owner", "protected credential", DateTimeOffset.UtcNow);
+        await harness.AddCredentialsAsync(credential);
+        using var request = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/integration-credentials/{credential.Id:N}/record");
+        request.Headers.Add("X-Test-Auth-Mode", mode);
+        request.Headers.Add("X-Test-User", user);
+        using var response = await harness.Client.SendAsync(request);
+        Assert.Equal(expected, response.StatusCode);
+        await using var scope = harness.Services.CreateAsyncScope();
+        Assert.True(await scope.ServiceProvider.GetRequiredService<RatelDeskIdentityDbContext>().IntegrationCredentials.AnyAsync(c => c.Id == credential.Id));
+    }
+
+    [Fact]
+    public async Task Revoke_preserves_history_then_delete_removes_only_the_named_record()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var selected = Credential("owner", "selected", DateTimeOffset.UtcNow);
+        var untouched = Credential("owner", "unrelated", DateTimeOffset.UtcNow);
+        await harness.AddCredentialsAsync(selected, untouched);
+        using var revoke = await harness.Client.DeleteAsync($"/api/v1/integration-credentials/{selected.Id:N}");
+        Assert.Equal(HttpStatusCode.NoContent, revoke.StatusCode);
+        Assert.True(await harness.IsRevokedAsync(selected.Id));
+        using var deleted = await harness.Client.DeleteAsync($"/api/v1/integration-credentials/{selected.Id:N}/record");
+        Assert.Equal(HttpStatusCode.NoContent, deleted.StatusCode);
+        var list = await harness.Client.GetFromJsonAsync<List<IntegrationCredentialEndpoints.IntegrationCredentialMetadata>>("/api/v1/integration-credentials/");
+        Assert.Equal(untouched.Id, Assert.Single(list!).Id);
+    }
+
+    [Fact]
+    public async Task Permanent_delete_rejects_a_local_cookie_mutation_without_the_existing_csrf_protection()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var credential = Credential("owner", "protected mutation", DateTimeOffset.UtcNow);
+        await harness.AddCredentialsAsync(credential);
+        harness.Client.DefaultRequestHeaders.Remove("X-Requested-With");
+        using var response = await harness.Client.DeleteAsync($"/api/v1/integration-credentials/{credential.Id:N}/record");
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        await using var scope = harness.Services.CreateAsyncScope();
+        Assert.True(await scope.ServiceProvider.GetRequiredService<RatelDeskIdentityDbContext>().IntegrationCredentials.AnyAsync(c => c.Id == credential.Id));
+    }
+
     private static IntegrationCredential Credential(string ownerId, string name, DateTimeOffset createdAtUtc) => new()
     {
         Id = Guid.NewGuid(),
@@ -269,7 +360,9 @@ public sealed class IntegrationCredentialSqliteTests
     {
         public IServiceProvider Services => application.Services;
 
-        public HttpClient Client { get; } = application.GetTestClient();
+        public HttpClient Client { get; } = InteractiveClient(application);
+        private static HttpClient InteractiveClient(WebApplication application)
+        { var client = application.GetTestClient(); client.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest"); return client; }
 
         public HttpClient DeviceClient()
         {
@@ -314,6 +407,7 @@ public sealed class IntegrationCredentialSqliteTests
             }));
             var application = builder.Build();
             application.UseAuthentication();
+            application.UseMiddleware<LocalCookieCsrfMiddleware>();
             application.UseRateLimiter();
             application.UseAuthorization();
             application.MapIntegrationCredentialEndpoints();

@@ -74,12 +74,14 @@ public static class IntegrationCredentialEndpoints
         {
             var owner = await ownerResolver.ResolveAsync(principal, ct);
             if (owner is null) return Results.Forbid();
-            var credential = await identityDb.IntegrationCredentials.SingleOrDefaultAsync(candidate => candidate.Id == credentialId && candidate.OwnerUserId == owner.UserId, ct);
+            var credential = await identityDb.IntegrationCredentials.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.Id == credentialId && candidate.OwnerUserId == owner.UserId, ct);
             if (credential is null) return Results.NotFound();
-            if (credential.RevokedAtUtc is null)
+            var now = DateTimeOffset.UtcNow;
+            var revoked = await identityDb.IntegrationCredentials
+                .Where(candidate => candidate.Id == credentialId && candidate.OwnerUserId == owner.UserId && candidate.RevokedAtUtc == null)
+                .ExecuteUpdateAsync(update => update.SetProperty(candidate => candidate.RevokedAtUtc, now), ct);
+            if (revoked > 0)
             {
-                credential.RevokedAtUtc = DateTimeOffset.UtcNow;
-                await identityDb.SaveChangesAsync(ct);
                 db.ActivityLogs.Add(new Helpdesk.Shared.Models.ActivityLog
                 {
                     UserId = owner.UserId,
@@ -91,6 +93,16 @@ public static class IntegrationCredentialEndpoints
             return Results.NoContent();
         }).WithSummary("Revoke an integration credential");
 
+        group.MapDelete("/{credentialId:guid}/record", async (Guid credentialId, ClaimsPrincipal principal,
+            IIntegrationCredentialOwnerResolver ownerResolver, RatelDeskIdentityDbContext identityDb,
+            CancellationToken ct) =>
+        {
+            var owner = await ownerResolver.ResolveAsync(principal, ct);
+            if (owner is null) return Results.Forbid();
+            return await new IntegrationCredentialLifecycle(identityDb).DeleteOwnedAsync(owner.UserId, credentialId, ct)
+                ? Results.NoContent() : Results.NotFound();
+        }).WithSummary("Revoke and permanently delete an integration credential");
+
         app.MapPost("/api/v1/integration-credentials/self/revoke", async (
             ClaimsPrincipal principal,
             RatelDeskIdentityDbContext identityDb,
@@ -100,12 +112,14 @@ public static class IntegrationCredentialEndpoints
             if (!Guid.TryParseExact(principal.FindFirstValue("integration_credential_id"), "N", out var credentialId))
                 return Results.Forbid();
 
-            var credential = await identityDb.IntegrationCredentials.SingleOrDefaultAsync(candidate => candidate.Id == credentialId, ct);
+            var credential = await identityDb.IntegrationCredentials.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.Id == credentialId, ct);
             if (credential is null) return Results.NotFound();
-            if (credential.RevokedAtUtc is null)
+            var now = DateTimeOffset.UtcNow;
+            var revoked = await identityDb.IntegrationCredentials
+                .Where(candidate => candidate.Id == credentialId && candidate.RevokedAtUtc == null)
+                .ExecuteUpdateAsync(update => update.SetProperty(candidate => candidate.RevokedAtUtc, now), ct);
+            if (revoked > 0)
             {
-                credential.RevokedAtUtc = DateTimeOffset.UtcNow;
-                await identityDb.SaveChangesAsync(ct);
                 db.ActivityLogs.Add(new Helpdesk.Shared.Models.ActivityLog
                 {
                     UserId = credential.OwnerUserId,
@@ -131,6 +145,7 @@ public static class IntegrationCredentialEndpoints
     public sealed record CreatedIntegrationCredential(Guid Id, string Prefix, string Secret, string Purpose, string? OrganizationId, IReadOnlyList<string> Permissions, DateTimeOffset ExpiresAtUtc)
     {
         public string? McpResourceUri { get; init; }
+        public string GrantKind { get; init; } = "ordinary";
         public override string ToString() => $"CreatedIntegrationCredential {{ Id = {Id}, Prefix = {Prefix}, Secret = [redacted], Purpose = {Purpose} }}";
     }
 }
