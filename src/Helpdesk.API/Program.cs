@@ -986,6 +986,7 @@ builder.Services.AddAuthorization(opts =>
 builder.Services.AddScoped<IIntegrationCredentialOwnerResolver, IntegrationCredentialOwnerResolver>();
 builder.Services.AddScoped<IntegrationCredentialIssuer>();
 builder.Services.AddScoped<IntegrationCredentialPairingService>();
+builder.Services.AddScoped<HostDeploymentApprovalService>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddHostedService<IntegrationCredentialPairingCleanup>();
 builder.Services.AddServiceOrchestrationCallbacks();
@@ -1088,20 +1089,23 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseAuthentication();
+app.UseMiddleware<SetupVerificationExecutionBoundaryMiddleware>();
 app.UseMiddleware<Helpdesk.API.Middleware.LocalCookieCsrfMiddleware>();
 app.UseMiddleware<UserAccessClaimsMiddleware>();
 // Set the pairing transport bound before Minimal API body binding, including chunked requests.
 app.Use(async (context, next) =>
 {
-    if (context.Request.Path.StartsWithSegments("/api/v1/integration-credentials/pairing"))
+    var hostProposal = context.Request.Path.StartsWithSegments("/api/v1/integration-credentials/host-proposals");
+    if (hostProposal || context.Request.Path.StartsWithSegments("/api/v1/integration-credentials/pairing"))
     {
-        if (context.Request.ContentLength > 16384)
+        var maximumBytes = hostProposal ? 65536 : 16384;
+        if (context.Request.ContentLength > maximumBytes)
         {
             context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
             return;
         }
         var bodyLimit = context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>();
-        if (bodyLimit is { IsReadOnly: false }) bodyLimit.MaxRequestBodySize = 16384;
+        if (bodyLimit is { IsReadOnly: false }) bodyLimit.MaxRequestBodySize = maximumBytes;
     }
     await next(context);
 });
@@ -1119,6 +1123,7 @@ if (useHangfireRuntime)
 app.MapCurrentUserAccessEndpoint();
 app.MapIntegrationCredentialEndpoints();
 app.MapIntegrationCredentialPairingEndpoints();
+app.MapHostDeploymentApprovalEndpoints();
 app.MapServiceIdentityEndpoints();
 app.MapSystemPairing();
 app.MapMcpGatewayDelegationEndpoints();

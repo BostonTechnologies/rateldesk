@@ -10,15 +10,27 @@ public enum SetupTransport { Cli, Stdio, Http }
 public enum SetupStep { Purpose, Profile, Instance, Authentication, Approval, Hosting, Review, Checks, Complete }
 public sealed record SetupOptions(SetupTransport Transport = SetupTransport.Cli, string Profile = "default",
     string? ConfigurationPath = null, bool Hosting = false, bool Monochrome = false,
-    string? OutputDirectory = null, string? StdioExecutable = null, string? StdioEntryAssembly = null);
+    string? OutputDirectory = null, string? StdioExecutable = null, string? StdioEntryAssembly = null,
+    string? WebUrl = null, string? Authentication = null, string? InstanceLabel = null,
+    AgentClientConfiguration? SeedConfiguration = null, bool ExplicitProfile = false);
 public sealed record SetupProfile(ConfigurationResolution Resolution, AgentClientConfiguration Stored,
     PendingPairingProfile? Pending = null, AgentClientConfiguration? PendingConfiguration = null);
-public sealed record SetupCheck(string Name, string Status, string Message);
+public sealed record SetupCheck(string Name, string Status, string Message)
+{
+    public string? Code { get; init; }
+    public string? Layer { get; init; }
+    public int? UpstreamStatus { get; init; }
+    public string? CorrelationId { get; init; }
+    public string? NextAction { get; init; }
+    public bool? TransportSucceeded { get; init; }
+    public bool? OperationSucceeded { get; init; }
+}
 
 /// <summary>UI boundary; configuration, persistence and protocol rules remain headless.</summary>
 public interface ISetupWorkflow : IDisposable
 {
     SetupProfile Load(string profile, SetupTransport transport);
+    void PreflightStorage(string profile, SetupTransport transport) { }
     Task<PairingCapabilities?> DiscoverAsync(string origin, CancellationToken cancellationToken);
     Task<OAuthProtectedResourceMetadata> DiscoverOAuthAsync(string origin, IEnumerable<string>? expectedAuthorities, CancellationToken cancellationToken);
     Task<PairingSession> StartAsync(string origin, string profile, SetupTransport transport, CancellationToken cancellationToken);
@@ -44,18 +56,26 @@ public sealed class SetupWorkflow(SetupOptions options) : ISetupWorkflow
         var canonical = IntegrationCredentialPairingClient.ValidateOrigin(origin).AbsoluteUri;
         return _clients.GetOrAdd(canonical, value => new(value));
     }
-    private string PathFor(string profile, SetupTransport transport) => options.ConfigurationPath ??
-        new ConfigurationProfiles(surface: transport == SetupTransport.Cli ? ConfigurationSurface.Cli : ConfigurationSurface.Mcp).PathFor(profile);
+    private string PathFor(string profile, SetupTransport transport) => new AgentClientConfigurationStore(SelectedPathFor(profile, transport)).Path;
+    private string SelectedPathFor(string profile, SetupTransport transport) => options.ConfigurationPath ??
+        (!options.ExplicitProfile && transport != SetupTransport.Http
+            ? Environment.GetEnvironmentVariable(transport == SetupTransport.Cli ? "RATELDESK_CONFIG" : "RATELDESK_MCP_CONFIG") : null) ??
+        (!options.ExplicitProfile && transport == SetupTransport.Cli
+            ? AgentClientConfigurationStore.DefaultPath : null) ??
+        new ConfigurationProfiles(rootPath: transport == SetupTransport.Http ? SetupInput.HttpClientProfileRoot : null,
+            surface: transport == SetupTransport.Cli ? ConfigurationSurface.Cli : ConfigurationSurface.Mcp).PathFor(profile);
     public SetupProfile Load(string profile, SetupTransport transport)
     {
         var path = PathFor(profile, transport);
         var resolution = AgentClientConfigurationResolver.ResolveEffective(
             transport == SetupTransport.Cli ? ConfigurationSurface.Cli : ConfigurationSurface.Mcp,
-            path, allowMissingFile: true);
+            path, allowMissingFile: true,
+            environment: transport == SetupTransport.Http ? _ => null : null);
         var pending = PendingPairingProfiles.Load(path);
         return new(resolution, File.Exists(path) ? new AgentClientConfigurationStore(path).Load() : AgentClientConfiguration.Empty,
             pending, pending is null ? null : PendingPairingProfiles.ReadCandidate(pending));
     }
+    public void PreflightStorage(string profile, SetupTransport transport) => SetupInput.CheckPrivateStorage(PathFor(profile, transport));
     public Task<PairingCapabilities?> DiscoverAsync(string origin, CancellationToken ct) => Client(origin).DiscoverAsync(ct);
     public async Task<OAuthProtectedResourceMetadata> DiscoverOAuthAsync(string origin, IEnumerable<string>? expectedAuthorities, CancellationToken ct)
     {

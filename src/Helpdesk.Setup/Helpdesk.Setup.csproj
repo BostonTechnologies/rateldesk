@@ -9,6 +9,8 @@
     <PackageReference Include="Termina" Version="0.16.4" />
     <PackageReference Include="System.CommandLine" Version="2.0.12" />
     <ProjectReference Include="..\Helpdesk.AgentClient\Helpdesk.AgentClient.csproj" />
+    <ProjectReference Include="..\Helpdesk.Mcp.Core\Helpdesk.Mcp.Core.csproj" />
+    <ProjectReference Include="..\Helpdesk.Shared\Helpdesk.Shared.csproj" />
     <InternalsVisibleTo Include="Helpdesk.Tests" />
   </ItemGroup>
 </Project>

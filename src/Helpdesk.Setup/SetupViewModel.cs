@@ -9,12 +9,14 @@ namespace Helpdesk.Setup;
 public sealed class SetupViewModel : ReactiveViewModel
 {
     private readonly ISetupWorkflow _workflow;
+    private readonly SetupOptions _options;
     private CancellationTokenSource _operation = new();
     private long _generation;
     private PairingSession? _session;
     private string? _sessionOrigin;
     private PairedIntegrationCredential? _credential;
     private SetupProfile? _profile;
+    private string? _loadedProfile;
     private AgentClientConfiguration? _review;
     private bool _acknowledged;
     private bool _saved;
@@ -23,24 +25,39 @@ public sealed class SetupViewModel : ReactiveViewModel
     private DateTimeOffset? _deliveryExpires;
     private bool _disposed;
     private bool _closing;
+    private bool _normalizingInput;
+    private bool _useNativeApiTarget;
     private readonly List<Task> _cleanup = [];
     private HttpMcpHostingSettings _hosting = new();
+    private HttpMcpDeploymentProposal? _hostProposal;
+    private HostDeploymentWorkflow? _hostWorkflow;
+    private PairingSession? _hostSession;
+    private bool _hostApproved;
     private IReadOnlyDictionary<string, string> _hostManaged = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
     public SetupViewModel(ISetupWorkflow workflow, SetupOptions options)
     {
         _workflow = workflow;
+        _options = options;
         Transport = options.Transport;
         IsHosting = options.Hosting;
         Profile.Value = options.Profile;
-        OutputDirectory.Value = options.OutputDirectory ?? System.IO.Path.Combine(Environment.CurrentDirectory, "rateldesk-hosting");
-        Step.Value = options.Hosting ? SetupStep.Hosting : SetupStep.Purpose;
-        Instance.Subscribe(_ => InvalidateTarget()).DisposeWith(Subscriptions);
-        Profile.Subscribe(_ => InvalidateTarget()).DisposeWith(Subscriptions);
-        if (options.Hosting) LoadHosting();
+        OutputDirectory.Value = options.OutputDirectory ?? (options.Hosting ? SetupInput.HostDirectory : "");
+        if (options.Hosting) { LoadHosting(); Instance.Value = HostPublicOrigin.Value; }
+        else LoadClientProfile();
+        if (options.InstanceLabel is not null) InstanceLabel.Value = options.InstanceLabel;
+        else if (!options.Hosting && options.Transport == SetupTransport.Stdio && Environment.GetEnvironmentVariable("RATELDESK_MCP_INSTANCE") is { Length: > 0 } configuredInstance)
+            InstanceLabel.Value = configuredInstance;
+        if (options.WebUrl is not null) Instance.Value = options.WebUrl;
+        if (options.Authentication is not null) Authentication = options.Authentication;
+        Step.Value = SetupStep.Instance;
+        Status.Value = "Enter your RatelDesk Web URL. [Enter] Next · [F2] Advanced";
+        Instance.Skip(1).Subscribe(_ => InvalidateTarget()).DisposeWith(Subscriptions);
+        Profile.Skip(1).Subscribe(_ => InvalidateTarget()).DisposeWith(Subscriptions);
+        NativeApiTarget.Skip(1).Subscribe(_ => InvalidateTarget()).DisposeWith(Subscriptions);
     }
 
-    public ReactiveProperty<SetupStep> Step { get; } = new(SetupStep.Purpose);
+    public ReactiveProperty<SetupStep> Step { get; } = new(SetupStep.Instance);
     public ReactiveProperty<string> Status { get; } = new("Choose a setup task. All checks are read-only.");
     public ReactiveProperty<string> Detail { get; } = new("");
     public ReactiveProperty<bool> Busy { get; } = new(false);
@@ -49,6 +66,7 @@ public sealed class SetupViewModel : ReactiveViewModel
     public ReactiveProperty<int> TerminalWidth { get; } = new(80);
     public ReactiveProperty<string> Profile { get; } = new("default");
     public ReactiveProperty<string> Instance { get; } = new("");
+    public ReactiveProperty<string> NativeApiTarget { get; } = new("");
     public ReactiveProperty<string> ManualSecret { get; } = new("");
     public ReactiveProperty<string> TokenUrl { get; } = new("");
     public ReactiveProperty<string> ClientId { get; } = new("");
@@ -72,10 +90,10 @@ public sealed class SetupViewModel : ReactiveViewModel
     public string HostAuthentication { get; private set; } = "gateway";
     public string DownstreamAuthentication { get; private set; } = "authentik";
     public bool PairingSupported { get; private set; }
-    public string? BrowserUrl => _session?.VerificationUri;
-    public string? HumanCode => _session?.HumanCode;
+    public string? BrowserUrl => _hostSession?.VerificationUri ?? _session?.VerificationUri;
+    public string? HumanCode => _hostSession?.HumanCode ?? _session?.HumanCode;
     public string? ProfilePath => _profile?.Resolution.ProfilePath;
-    public string Footer => Step.Value == SetupStep.Complete ? "[Enter/Esc] Exit" : "[Ctrl+B] Back   [Ctrl+N/Enter] Next   [Esc/Ctrl+C] Cancel   [Tab/Shift+Tab] Focus   [F2] Advanced";
+    public string Footer => Step.Value == SetupStep.Complete ? "[Enter/Esc] Exit" : "[Enter/Ctrl+N] Next   [Ctrl+B] Back   [Esc] Cancel   [F2] Advanced\n[Tab/Shift+Tab] Focus · [PageUp/PageDown] Scroll";
     public bool Managed(string key) => _profile?.Resolution.Settings.Any(setting => setting.Managed && setting.Key.Equals(key, StringComparison.OrdinalIgnoreCase)) == true;
     public string ManagedSource(string key) => _profile?.Resolution.Settings.FirstOrDefault(setting => setting.Managed && setting.Key.Equals(key, StringComparison.OrdinalIgnoreCase))?.Source ?? "external configuration";
     public bool HostManaged(string key) => _hostManaged.ContainsKey(key);
@@ -86,15 +104,66 @@ public sealed class SetupViewModel : ReactiveViewModel
         Input.OfType<IInputEvent, ResizeEvent>().Subscribe(resize => TerminalWidth.Value = resize.Width).DisposeWith(Subscriptions);
     }
 
-    public void SelectPurpose(bool hosting) { IsHosting = hosting; Status.Value = hosting ? "Export reviewed local HTTP MCP deployment settings." : "Connect a named client profile."; }
-    public void SelectTransport(SetupTransport transport) { if (Transport != transport) { InvalidateTarget(); Transport = transport; } Status.Value = $"Selected {transport.ToString().ToLowerInvariant()} client."; }
+    public void SelectPurpose(bool hosting)
+    {
+        if (IsHosting != hosting)
+        {
+            InvalidateTarget(); IsHosting = hosting;
+            if (hosting)
+            {
+                if (OutputDirectory.Value.Length == 0) OutputDirectory.Value = SetupInput.HostDirectory;
+                LoadHosting(); if (Instance.Value.Length == 0) Instance.Value = HostPublicOrigin.Value;
+            }
+            else LoadClientProfile(preserveUrl: true);
+        }
+        Status.Value = hosting ? "Configure this MCP server; personal client profiles are separate." : "Connect a personal client profile.";
+    }
+    public void SelectTransport(SetupTransport transport)
+    {
+        if (Transport != transport) { InvalidateTarget(); Transport = transport; LoadClientProfile(preserveUrl: true); }
+        Status.Value = $"Selected {transport.ToString().ToLowerInvariant()} client.";
+    }
     public void SelectAuthentication(string authentication) { Authentication = authentication; Status.Value = authentication == "browser" ? "The signed-in browser selects the actual grants." : "Use an existing credential or explicit external identity."; }
     public void SelectHostAuthentication(string mode) { HostAuthentication = mode; Status.Value = mode == "gateway" ? "Gateway mode has no stored downstream deployment credential." : "Authentik ingress and downstream API identity are separate configurations."; }
     public void SelectDownstreamAuthentication(string mode) { DownstreamAuthentication = mode; Status.Value = "Downstream identity is a separate deliberate choice. Existing identities stay bound to their reviewed API backend."; }
     public void ToggleAdvanced() { Advanced.Value = !Advanced.Value; }
 
+    private void LoadClientProfile(bool preserveUrl = false)
+    {
+        _profile = _workflow.Load(Profile.Value, Transport);
+        _loadedProfile = Profile.Value;
+        var config = _profile.Resolution.Configuration;
+        var seed = _options.SeedConfiguration;
+        if (!preserveUrl || Instance.Value.Length == 0)
+        {
+            var configuredUrl = seed?.ApiBaseUrl ?? (_profile.Resolution.Settings.Any(s => s.Key == "apiBaseUrl" && s.Source != "default") ? config.ApiBaseUrl ?? "" : "");
+            if (Transport != SetupTransport.Http && configuredUrl.Length > 0)
+            {
+                try { _ = SetupInput.NormalizeWebUrl(configuredUrl); NativeApiTarget.Value = ""; }
+                catch (AgentClientValidationException) { NativeApiTarget.Value = configuredUrl; configuredUrl = ""; }
+            }
+            Instance.Value = _options.WebUrl ?? configuredUrl;
+        }
+        TokenUrl.Value = seed?.AuthentikTokenUrl ?? config.AuthentikTokenUrl ?? "";
+        ClientId.Value = seed?.AuthentikClientId ?? config.OAuthClientId ?? config.AuthentikClientId ?? "";
+        Username.Value = seed?.AuthentikUsername ?? config.AuthentikUsername ?? "";
+        Scope.Value = seed?.AuthentikScope ?? config.AuthentikScope ?? AgentClientConfiguration.DefaultScope;
+        SecretFile.Value = config.IntegrationCredentialFile ?? config.AuthentikAppPasswordFile ?? "";
+        Authentication = _options.Authentication ?? (Transport == SetupTransport.Http && config.HttpClientAuthentication == "oauth" ? "oauth" :
+            seed?.AuthentikTokenUrl is not null ? "authentik" : HasExistingIdentity(config) ? "existing" : "browser");
+        if (!preserveUrl && _options.WebUrl is null && _profile.Pending is { } pending) Instance.Value = pending.Origin;
+    }
+
+    private static bool HasExistingIdentity(AgentClientConfiguration config) =>
+        config.IntegrationCredential is not null || config.IntegrationCredentialFile is not null ||
+        config.AuthentikAppPassword is not null || config.AuthentikAppPasswordFile is not null;
+
     private void InvalidateTarget()
     {
+        if (_hostSession is { } hostSession && _hostWorkflow is { } hostWorkflow && !_saved)
+            _cleanup.Add(CancelHostApprovalAsync(hostWorkflow, hostSession));
+        _hostSession = null; _hostProposal = null; _hostApproved = false;
+        if (_normalizingInput) return;
         ++_generation;
         _operation.Cancel();
         _operation.Dispose();
@@ -141,18 +210,49 @@ public sealed class SetupViewModel : ReactiveViewModel
                     Step.Value = IsHosting ? SetupStep.Hosting : SetupStep.Profile;
                     break;
                 case SetupStep.Profile:
-                    _profile = _workflow.Load(Profile.Value, Transport);
-                    var config = _profile.Resolution.Configuration;
-                    Instance.Value = _profile.Resolution.Settings.Any(s => s.Key == "apiBaseUrl" && s.Source != "default") ? config.ApiBaseUrl ?? "" : "";
-                    TokenUrl.Value = config.AuthentikTokenUrl ?? "";
-                    ClientId.Value = config.OAuthClientId ?? config.AuthentikClientId ?? "";
-                    Username.Value = config.AuthentikUsername ?? "";
-                    Scope.Value = config.AuthentikScope ?? AgentClientConfiguration.DefaultScope;
-                    SecretFile.Value = config.IntegrationCredentialFile ?? config.AuthentikAppPasswordFile ?? "";
-                    generation = _generation;
-                    if (_profile.Pending is { } recovered)
+                    LoadClientProfile(preserveUrl: true);
+                    Step.Value = SetupStep.Instance;
+                    Status.Value = "Enter your RatelDesk Web URL. Existing credentials are withheld from discovery.";
+                    break;
+                case SetupStep.Instance:
+                    if (!IsHosting && (_profile is null || _loadedProfile != Profile.Value)) LoadClientProfile(preserveUrl: true);
+                    _useNativeApiTarget = !IsHosting && Transport != SetupTransport.Http && Advanced.Value && NativeApiTarget.Value.Length > 0;
+                    if (_useNativeApiTarget)
                     {
-                        Instance.Value = recovered.Origin;
+                        if (Authentication == "browser")
+                            throw new AgentClientValidationException("An explicit private API target requires an existing/manual API credential or external Authentik identity in Advanced. Browser approval uses the public Web URL.");
+                        var apiTarget = AgentClientConfigurationValidator.ApiUri(NativeApiTarget.Value).AbsoluteUri;
+                        if (Managed("apiBaseUrl") && !AgentClientConfigurationValidator.SameTarget(new Uri(_profile!.Resolution.Configuration.ApiBaseUrl!), new Uri(apiTarget)))
+                            throw new AgentClientValidationException("The API destination is externally managed. Change its owning source or select an isolated profile.");
+                        _workflow.PreflightStorage(Profile.Value, Transport);
+                        PairingSupported = false;
+                        Detail.Value = "Use the explicitly selected API destination. No browser discovery runs and no existing credential is sent to the Web URL.";
+                        Step.Value = SetupStep.Authentication;
+                        break;
+                    }
+                    var origin = SetupInput.NormalizeWebUrl(Instance.Value);
+                    if (Managed("apiBaseUrl") && !AgentClientConfigurationValidator.SameTarget(new Uri(_profile!.Resolution.Configuration.ApiBaseUrl!), new Uri(origin)))
+                        throw new AgentClientValidationException("The instance URL is externally managed. Change its owning environment, or use a separate environment/profile.");
+                    if (Instance.Value != origin)
+                    {
+                        _normalizingInput = true;
+                        try { Instance.Value = origin; }
+                        finally { _normalizingInput = false; }
+                    }
+                    generation = _generation; token = _operation.Token;
+                    if (IsHosting)
+                    {
+                        HostPublicOrigin.Value = origin;
+                        SetupInput.CheckPrivateStorage(System.IO.Path.Combine(OutputDirectory.Value, "host-settings.json"));
+                        Step.Value = SetupStep.Hosting;
+                        Status.Value = "Review the server settings. Advanced shows deployment topology and authentication.";
+                        break;
+                    }
+                    _workflow.PreflightStorage(Profile.Value, Transport);
+                    if (_profile!.Pending is { } recovered)
+                    {
+                        if (!AgentClientConfigurationValidator.SameTarget(new Uri(origin), new Uri(recovered.Origin)))
+                            throw new AgentClientValidationException($"The pending approval belongs to {TerminalText.Sanitize(recovered.Origin)}. Restore that Web URL to resume it; Cancel removes an unacknowledged delivery.");
                         generation = _generation; token = _operation.Token;
                         var recoveredConfiguration = _profile.PendingConfiguration;
                         var deliveryState = recovered.Acknowledged ? null : await _workflow.PollAsync(recovered.Origin, recovered.Session, token);
@@ -160,7 +260,7 @@ public sealed class SetupViewModel : ReactiveViewModel
                         if (deliveryState?.Status is "expired" or "cancelled" or "denied")
                         {
                             _workflow.Discard(recovered);
-                            await ApplyAsync(generation, token, () => { _pending = null; _session = null; _review = null; Instance.Value = config.ApiBaseUrl ?? ""; Step.Value = SetupStep.Instance; Status.Value = "Abandoned delivery expired and was cleaned up. The working profile was preserved."; });
+                            await ApplyAsync(generation, token, () => { _pending = null; _session = null; _review = null; Instance.Value = _profile.Resolution.Configuration.ApiBaseUrl ?? ""; Step.Value = SetupStep.Instance; Status.Value = "Abandoned delivery expired and was cleaned up. The working profile was preserved."; });
                         }
                         else
                         {
@@ -174,24 +274,23 @@ public sealed class SetupViewModel : ReactiveViewModel
                         }
                         break;
                     }
-                    Step.Value = SetupStep.Instance;
-                    Status.Value = "Enter the trusted instance HTTPS origin. Existing credentials are withheld from discovery.";
-                    break;
-                case SetupStep.Instance:
-                    var origin = IntegrationCredentialPairingClient.ValidateOrigin(Instance.Value).AbsoluteUri;
-                    if (Managed("apiBaseUrl") && !AgentClientConfigurationValidator.SameTarget(new Uri(_profile!.Resolution.Configuration.ApiBaseUrl!), new Uri(origin)))
-                        throw new AgentClientValidationException("The instance URL is externally managed. Change its owning environment, or use a separate environment/profile.");
                     var capabilities = await _workflow.DiscoverAsync(origin, token);
                     await ApplyAsync(generation, token, () =>
                     {
                         PairingSupported = capabilities?.PairingSupported == true;
-                        Authentication = PairingSupported ? "browser" : "manual";
-                        Detail.Value = PairingSupported ? "Browser approval is supported. No terminal login password is needed." : "Browser pairing is unavailable on this deployment. Use an existing credential or explicit external-auth configuration.";
+                        if (_options.Authentication is null && !HasExistingIdentity(_profile!.Resolution.Configuration) && !(Transport == SetupTransport.Http && _profile.Resolution.Configuration.HttpClientAuthentication == "oauth") && _options.SeedConfiguration?.AuthentikTokenUrl is null)
+                            Authentication = PairingSupported ? "browser" : "manual";
+                        Detail.Value = Authentication == "existing" ? "Your existing identity stays bound to this reviewed target. Its current grants and lifetime are preserved."
+                            : Authentication == "oauth" ? "The external OAuth client owns login and token storage. Setup retains its reviewed protected-resource metadata."
+                            : PairingSupported ? "Continue to browser approval. Open the displayed URL on any signed-in device; no account password is collected here."
+                            : "Browser pairing is unavailable. Select an existing identity or an explicit authentication method.";
                         Step.Value = SetupStep.Authentication;
                         Status.Value = "Choose authentication for this client profile.";
                     });
                     break;
                 case SetupStep.Authentication:
+                    if (Authentication == "oauth" && Transport != SetupTransport.Http)
+                        throw new AgentClientValidationException("External OAuth client profiles require HTTP MCP transport. Native CLI and stdio use an API-purpose credential or external Authentik API identity.");
                     if (Authentication == "oauth" || Authentication == "existing" && Transport == SetupTransport.Http && _profile?.Resolution.Configuration.HttpClientAuthentication == "oauth")
                     {
                         if (_profile?.Resolution.Settings.Any(setting => setting.Managed && setting.IsSecret) == true)
@@ -209,9 +308,11 @@ public sealed class SetupViewModel : ReactiveViewModel
                     }
                     if (Authentication == "browser")
                     {
+                        if (_useNativeApiTarget) throw new AgentClientValidationException("Browser approval cannot authorize a different private API destination. Go back and select the public Web URL.");
                         if (!PairingSupported) throw new AgentClientValidationException("This deployment does not advertise browser pairing.");
                         if (Managed("integrationCredential") || Managed("integrationCredentialFile") || Managed("credentialMode"))
                             throw new AgentClientValidationException("Authentication is externally managed. Use the existing managed identity or export a separate profile.");
+                        _workflow.PreflightStorage(Profile.Value, Transport);
                         var requestedOrigin = Instance.Value;
                         var session = await _workflow.StartAsync(requestedOrigin, Profile.Value, Transport, token);
                         if (generation != _generation || token.IsCancellationRequested)
@@ -246,19 +347,32 @@ public sealed class SetupViewModel : ReactiveViewModel
                     _hosting = BuildHostingSettings();
                     var failures = HttpMcpHostingCoordinator.Validate(_hosting);
                     if (failures.Count > 0) throw new AgentClientValidationException(string.Join(" ", failures));
-                    Detail.Value = JsonSerializer.Serialize(HttpMcpHostingCoordinator.Preview(_hosting), AgentClientConfiguration.JsonOptions);
-                    Step.Value = SetupStep.Review;
-                    Status.Value = "Review the redacted deployment export. Local export does not grant server administration.";
+                    _hostProposal = HttpMcpEffectiveDeployment.Create(_hosting);
+                    if (!_hostProposal.Valid) throw new AgentClientValidationException(HostDeploymentWorkflow.Describe(_hostProposal.Diagnostics));
+                    _hostWorkflow?.Dispose(); _hostWorkflow = new(_hosting.PublicOrigin);
+                    var hostSession = await _hostWorkflow.StartAsync(_hostProposal, token);
+                    if (_closing || token.IsCancellationRequested || generation != _generation)
+                    { await CancelHostApprovalAsync(_hostWorkflow, hostSession); return; }
+                    _hostSession = hostSession;
+                    Detail.Value = JsonSerializer.Serialize(HttpMcpHostingCoordinator.Preview(_hosting), AgentClientConfiguration.JsonOptions) +
+                        "\n\n" + string.Join('\n', _hostProposal.Changes) + "\nTrusted host review: " + TerminalText.Sanitize(hostSession.VerificationUri) + "\nCode: " + TerminalText.Sanitize(hostSession.HumanCode);
+                    Step.Value = SetupStep.Approval;
+                    Status.Value = "Host deployment approval pending. An administrator reviews this exact proposal; no gateway credential is created.";
+                    _ = PollHostApprovalAsync(generation, token, hostSession, _hostWorkflow, _hostProposal);
                     break;
                 case SetupStep.Review:
                     if (IsHosting)
                     {
                         if (!overwriteConfirmed && File.Exists(System.IO.Path.Combine(OutputDirectory.Value, "host-settings.json")))
                         { ConfirmOverwrite.Value = true; break; }
-                        var export = HttpMcpHostingCoordinator.Export(_hosting, OutputDirectory.Value, overwriteConfirmed);
-                        Detail.Value = string.Join('\n', export.Files) + "\n\n" + export.ApplyInstructions;
+                        if (!_hostApproved || _hostProposal is null || _hostSession is null || _hostWorkflow is null)
+                            throw new AgentClientValidationException("Review and explicitly approve this effective deployment before saving.");
+                        var export = await _hostWorkflow.SaveApprovedAsync(_hostProposal, _hostSession, OutputDirectory.Value, overwriteConfirmed, token);
+                        _saved = true;
+                        Detail.Value = "Private host output: " + TerminalText.Sanitize(OutputDirectory.Value) + "\n" + string.Join('\n', export.Files.Select(path => TerminalText.Sanitize(path))) +
+                            "\n\nOn the Docker host, run the same deployment launcher with --apply (release-owned Compose), or import deployment.json through the owning manager.\nAfter recreation, start a fresh invocation: ./setup-http-mcp.sh --verify\nThis requests a separate temporary status verifier and checks observed runtime, catalog and API-backed status.";
                         Step.Value = SetupStep.Complete;
-                        Status.Value = "Hosting export saved. Apply/recreate steps are explicit; running containers have not been changed.";
+                        Status.Value = "Saved—apply pending. Deployment-owner apply and end-to-end verification remain required.";
                         break;
                     }
                     if (!_saved && !overwriteConfirmed && _profile?.Resolution.Revision is not null) { ConfirmOverwrite.Value = true; break; }
@@ -313,7 +427,7 @@ public sealed class SetupViewModel : ReactiveViewModel
                     var checks = await _workflow.CheckAsync(effective, Transport, token, InstanceLabel.Value);
                     await ApplyAsync(generation, token, () =>
                     {
-                        Detail.Value = string.Join('\n', checks.Select(check => $"{check.Name}: {check.Status} — {TerminalText.Sanitize(check.Message)}")) + "\n\n" + LaunchSnippet(saved);
+                        Detail.Value = string.Join('\n', checks.Select(FormatCheck)) + "\n\n" + LaunchSnippet(saved);
                         Status.Value = checks.Any(check => check.Status == "failed") ? "Saved profile requires correction. Review each check result." : "Client profile saved. Review transport checks and launch instructions.";
                         Step.Value = SetupStep.Complete;
                         ManualSecret.Value = "";
@@ -327,6 +441,42 @@ public sealed class SetupViewModel : ReactiveViewModel
             await ApplyAsync(generation, CancellationToken.None, () => Status.Value = SafeError(exception));
         }
         finally { if (!_closing && !_disposed) await InvokeAsync(() => Busy.Value = false); }
+    }
+
+    private async Task PollHostApprovalAsync(long generation, CancellationToken token, PairingSession session,
+        HostDeploymentWorkflow workflow, HttpMcpDeploymentProposal proposal)
+    {
+        try
+        {
+            while (!token.IsCancellationRequested && DateTimeOffset.UtcNow < session.ExpiresAtUtc)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(session.PollIntervalSeconds), token);
+                var poll = await workflow.PollAsync(session, token);
+                if (poll.Status == "approved")
+                {
+                    if (poll.ProposalHash != proposal.ProposalHash || poll.SourceHash != proposal.SourceHash)
+                        throw new AgentClientValidationException("The approved host generation differs from the reviewed proposal. Start a new review.");
+                    await ApplyAsync(generation, token, () => { _hostApproved = true; Step.Value = SetupStep.Review; Status.Value = "Administrator approved the reviewed generation. Next saves the protected export; apply is still pending."; });
+                    return;
+                }
+                if (poll.Status is "denied" or "expired" or "cancelled")
+                {
+                    await ApplyAsync(generation, token, () => { Step.Value = SetupStep.Hosting; Status.Value = "Host deployment approval " + poll.Status + ". Inputs are preserved; review before retrying."; });
+                    return;
+                }
+            }
+            await ApplyAsync(generation, token, () => { Step.Value = SetupStep.Hosting; Status.Value = "Host deployment review expired. Review again to obtain a fresh code."; });
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception exception) when (exception is AgentClientValidationException or HttpRequestException)
+        { await ApplyAsync(generation, token, () => { Step.Value = SetupStep.Hosting; Status.Value = SafeError(exception); }); }
+    }
+
+    private static async Task CancelHostApprovalAsync(HostDeploymentWorkflow workflow, PairingSession session)
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        try { await workflow.CancelAsync(session, deadline.Token); }
+        catch { /* No credential exists; a pending proposal expires on the server in ten minutes. */ }
     }
 
     private async Task PollApprovalAsync(long generation, CancellationToken token, PairingSession session, string origin)
@@ -349,7 +499,7 @@ public sealed class SetupViewModel : ReactiveViewModel
                     {
                         var purpose = Transport == SetupTransport.Http ? "mcp" : "api";
                         var expectedResource = Transport == SetupTransport.Http ? new Uri(IntegrationCredentialPairingClient.ValidateOrigin(origin), "/mcp").AbsoluteUri : null;
-                        if (credential.Purpose != purpose || credential.McpResourceUri != expectedResource || credential.ExpiresAtUtc <= TimeProvider.GetUtcNow())
+                        if (credential.GrantKind != "ordinary" || credential.Purpose != purpose || credential.McpResourceUri != expectedResource || credential.ExpiresAtUtc <= TimeProvider.GetUtcNow())
                             throw new AgentClientValidationException("Approved credential purpose/resource does not match this reviewed client.");
                         _credential = credential;
                         _deliveryExpires = result.DeliveryExpiresAtUtc ?? session.ExpiresAtUtc;
@@ -390,11 +540,25 @@ public sealed class SetupViewModel : ReactiveViewModel
         ? "The trusted instance could not be reached. Check the URL, TLS certificate and connection; your inputs are preserved."
         : TerminalText.Sanitize(exception.Message);
 
+    private static string FormatCheck(SetupCheck check)
+    {
+        var context = new[] { check.Code, check.Layer, check.UpstreamStatus is { } status ? $"HTTP {status}" : null,
+            check.CorrelationId is { } correlation ? $"reference {correlation}" : null }.Where(value => !string.IsNullOrWhiteSpace(value));
+        var safeContext = string.Join(" · ", context.Select(value => TerminalText.Sanitize(value)));
+        return $"{TerminalText.Sanitize(check.Name)}: {TerminalText.Sanitize(check.Status)} — {TerminalText.Sanitize(check.Message)}" +
+            (safeContext.Length == 0 ? "" : $" [{safeContext}]") +
+            (check.NextAction is null ? "" : "\nNext: " + TerminalText.Sanitize(check.NextAction));
+    }
+
+    private string ClientTarget => (_useNativeApiTarget
+        ? AgentClientConfigurationValidator.ApiUri(NativeApiTarget.Value).AbsoluteUri
+        : IntegrationCredentialPairingClient.ValidateOrigin(Instance.Value).AbsoluteUri).TrimEnd('/');
+
     private AgentClientConfiguration BuildClientConfiguration()
     {
         var stored = _profile?.Stored ?? AgentClientConfiguration.Empty;
         var effective = _profile?.Resolution.Configuration ?? stored;
-        var origin = IntegrationCredentialPairingClient.ValidateOrigin(Instance.Value).AbsoluteUri.TrimEnd('/');
+        var origin = ClientTarget;
         if (Authentication == "existing")
         {
             if (!AgentClientConfigurationValidator.SameTargetOrEmpty(effective.ApiBaseUrl, origin))
@@ -405,6 +569,8 @@ public sealed class SetupViewModel : ReactiveViewModel
             if (Transport == SetupTransport.Http && (effective.CredentialPurpose == "api" ||
                 effective.McpResourceUri is { } resource && resource != origin + "/mcp"))
                 throw new AgentClientValidationException("Select an MCP-purpose credential for this exact /mcp resource. An API-purpose profile cannot be reused as an HTTP MCP client.");
+            if (Transport != SetupTransport.Http && effective.CredentialPurpose == "mcp")
+                throw new AgentClientValidationException("Native CLI and stdio require an API-purpose credential. An MCP-purpose HTTP credential cannot be reused for API access.");
             return stored with { ApiBaseUrl = Managed("apiBaseUrl") ? stored.ApiBaseUrl ?? origin : origin, ClientTransport = Transport.ToString().ToLowerInvariant(),
                 CredentialPurpose = Transport == SetupTransport.Http ? "mcp" : stored.CredentialPurpose,
                 McpResourceUri = Transport == SetupTransport.Http ? origin + "/mcp" : stored.McpResourceUri };
@@ -420,7 +586,7 @@ public sealed class SetupViewModel : ReactiveViewModel
             CredentialPurpose = Transport == SetupTransport.Http ? "mcp" : "api",
             HttpClientAuthentication = Transport == SetupTransport.Http ? "integration" : null,
             McpResourceUri = Transport == SetupTransport.Http ? origin + "/mcp" : null,
-            AgentUserEmail = stored.AgentUserEmail
+            AgentUserEmail = _options.SeedConfiguration?.AgentUserEmail ?? stored.AgentUserEmail
         };
         if (Authentication == "authentik")
         {
@@ -454,7 +620,7 @@ public sealed class SetupViewModel : ReactiveViewModel
             ? $"Approved organization: {TerminalText.Sanitize(approved.OrganizationId)}\nPermissions: {string.Join(", ", approved.Permissions.Select(value => TerminalText.Sanitize(value)))}\nExpires: {approved.ExpiresAtUtc:O}"
             : "Manual/existing credential grants are determined by the server; no permissions are inferred.";
         var storage = _review.HttpClientAuthentication == "oauth" ? "Non-secret profile metadata; OAuth tokens remain in the external MCP client's storage." : "Private file reference; secrets remain masked.";
-        Detail.Value = $"Profile: {TerminalText.Sanitize(Profile.Value)}\nTransport: {Transport.ToString().ToLowerInvariant()}\nTarget: {TerminalText.Sanitize(Instance.Value)}\nPurpose: {(Transport == SetupTransport.Http ? "mcp" : "api")}\nPrivate profile: {TerminalText.Sanitize(ProfilePath)}\nStorage: {storage}\n{(_profile?.Resolution.Settings.Any(setting => setting.Managed) == true ? "Externally managed sources remain required; their secrets are not copied into this profile.\n" : "")}{grant}\n\n{JsonSerializer.Serialize(AgentClientConfigurationResolver.Redact(_review), AgentClientConfiguration.JsonOptions)}";
+        Detail.Value = $"Profile: {TerminalText.Sanitize(Profile.Value)}\nTransport: {Transport.ToString().ToLowerInvariant()}\nTarget: {TerminalText.Sanitize(ClientTarget)}\nPurpose: {(Transport == SetupTransport.Http ? "mcp" : "api")}\nPrivate profile: {TerminalText.Sanitize(ProfilePath)}\nStorage: {storage}\n{(_profile?.Resolution.Settings.Any(setting => setting.Managed) == true ? "Externally managed sources remain required; their secrets are not copied into this profile.\n" : "")}{grant}\n\n{JsonSerializer.Serialize(AgentClientConfigurationResolver.Redact(_review), AgentClientConfiguration.JsonOptions)}";
         Step.Value = SetupStep.Review;
         Status.Value = "Review the target, actual grants and storage destination. Next saves atomically.";
     }
@@ -496,7 +662,7 @@ public sealed class SetupViewModel : ReactiveViewModel
     public void LoadHosting()
     {
         var inspection = HttpMcpHostingCoordinator.Inspect(OutputDirectory.Value);
-        _hosting = inspection.Settings; _hostManaged = inspection.ManagedFields;
+        _hosting = HttpMcpEffectiveDeployment.Adopt(inspection.Settings); _hostManaged = inspection.ManagedFields;
         HostPublicOrigin.Value = _hosting.PublicOrigin; ApiBackend.Value = _hosting.ApiBaseUrl; McpBackend.Value = _hosting.McpDestination;
         InstanceLabel.Value = _hosting.Instance; HostAuthentication = _hosting.AuthenticationMode;
         AllowedOrigins.Value = string.Join(',', _hosting.AllowedOrigins); Listener.Value = _hosting.Listener;
@@ -512,14 +678,15 @@ public sealed class SetupViewModel : ReactiveViewModel
     private string LaunchSnippet(ConfigurationProfileSaveResult saved)
     {
         var path = ShellQuote(saved.Path);
-        var management = IntegrationCredentialPairingClient.ValidateOrigin(Instance.Value).AbsoluteUri.TrimEnd('/') + "/account/integration-credentials";
+        var management = _useNativeApiTarget ? "Open your RatelDesk Web account integration credentials page."
+            : IntegrationCredentialPairingClient.ValidateOrigin(Instance.Value).AbsoluteUri.TrimEnd('/') + "/account/integration-credentials";
         return Transport switch
         {
-            SetupTransport.Cli => $"Launch: rateldesk --config {path} auth status\nCredential management: {management}",
-            SetupTransport.Stdio => $"Launch with pipes (no TTY):\nRATELDESK_MCP_CONFIG={path} RATELDESK_MCP_INSTANCE={ShellQuote(InstanceLabel.Value)} RATELDESK_MCP_EXPECTED_API_BASE_URL={ShellQuote(Instance.Value)} rateldesk-mcp\nCredential management: {management}",
+            SetupTransport.Cli => $"Private storage: {TerminalText.Sanitize(saved.Path)}\nLaunch: rateldesk --config {path} auth status\nVerify again: rateldesk --config {path} doctor --network --authenticate\nCredential management: {management}",
+            SetupTransport.Stdio => $"Private storage: {TerminalText.Sanitize(saved.Path)}\nVerify again: rateldesk-mcp --config {path} doctor --network --authenticate\nLaunch with pipes (no TTY):\nRATELDESK_MCP_CONFIG={path} RATELDESK_MCP_INSTANCE={ShellQuote(InstanceLabel.Value)} RATELDESK_MCP_EXPECTED_API_BASE_URL={ShellQuote(ClientTarget)} rateldesk-mcp\nCredential management: {management}",
             _ when saved.Configuration.HttpClientAuthentication == "oauth" =>
                 $"OAuth-capable MCP client settings:\n{JsonSerializer.Serialize(new { url = saved.Configuration.McpResourceUri, authorizationServers = saved.Configuration.OAuthAuthorizationServers, clientId = saved.Configuration.OAuthClientId }, AgentClientConfiguration.JsonOptions)}\nUse these reviewed non-secret values in your client's supported OAuth configuration. It owns login, grants and token storage; API app passwords and rdk credentials are not reused.\nAuthentication / initialize / tool-result: client-managed, unverified until the external client connects.",
-            _ => $"MCP URL: {Instance.Value.TrimEnd('/')}/mcp\nBearer reference: {TerminalText.Sanitize(saved.Configuration.IntegrationCredentialFile)}\nConfigure your MCP client to read that private file; never paste its secret into shell history.\nCredential management: {management}"
+            _ => $"Private storage: {TerminalText.Sanitize(saved.Path)}\nVerify again: dotnet Helpdesk.Mcp.Http.dll --config {path} doctor --authenticate\nMCP URL: {Instance.Value.TrimEnd('/')}/mcp\nBearer reference: {TerminalText.Sanitize(saved.Configuration.IntegrationCredentialFile)}\nConfigure your MCP client to read that private file; never paste its secret into shell history.\nCredential management: {management}"
         };
     }
     private static string ShellQuote(string value) => "'" + value.Replace("'", "'\"'\"'", StringComparison.Ordinal) + "'";
@@ -531,8 +698,8 @@ public sealed class SetupViewModel : ReactiveViewModel
         InvalidateTarget();
         Step.Value = Step.Value switch
         {
-            SetupStep.Profile or SetupStep.Hosting => SetupStep.Purpose,
-            SetupStep.Instance => SetupStep.Profile,
+            SetupStep.Profile or SetupStep.Hosting => SetupStep.Instance,
+            SetupStep.Instance => SetupStep.Instance,
             SetupStep.Authentication => SetupStep.Instance,
             SetupStep.Approval => SetupStep.Authentication,
             SetupStep.Review => IsHosting ? SetupStep.Hosting : SetupStep.Authentication,
@@ -543,7 +710,7 @@ public sealed class SetupViewModel : ReactiveViewModel
     }
     public async Task OpenBrowserAsync()
     {
-        if (_session?.VerificationUri is not { } url) return;
+        if (BrowserUrl is not { } url) return;
         var generation = _generation;
         try { await _workflow.OpenBrowserAsync(url, _operation.Token); await ApplyAsync(generation, CancellationToken.None, () => Status.Value = "Browser opened. The same trusted link and code also work on another device."); }
         catch { await ApplyAsync(generation, CancellationToken.None, () => Status.Value = "Browser launch unavailable. Open the displayed trusted URL on another device and enter the short code."); }
@@ -552,6 +719,11 @@ public sealed class SetupViewModel : ReactiveViewModel
     {
         if (_closing) return;
         if (Step.Value == SetupStep.Complete) { _closing = true; Shutdown(); return; }
+        if (!IsHosting && _pending is null && _profile?.Pending is { Acknowledged: false } recovered)
+        {
+            _pending = recovered; _session = recovered.Session; _sessionOrigin = recovered.Origin;
+            _profile = _profile with { Pending = null, PendingConfiguration = null };
+        }
         if (_saved && !_acknowledged && _session is not null)
         {
             try
@@ -573,6 +745,8 @@ public sealed class SetupViewModel : ReactiveViewModel
     }
     public async Task CleanupAsync()
     {
+        if (!_saved && _hostSession is { } hostSession && _hostWorkflow is { } hostWorkflow)
+        { _hostSession = null; _cleanup.Add(CancelHostApprovalAsync(hostWorkflow, hostSession)); }
         ++_generation;
         _operation.Cancel();
         if (!_saved && !_acknowledged && _session is { } session && _sessionOrigin is { } origin)
@@ -580,6 +754,7 @@ public sealed class SetupViewModel : ReactiveViewModel
         await Task.WhenAll(_cleanup);
         if (!_saved && !_acknowledged && _pending is { } pending)
         { _workflow.Discard(pending); _pending = null; }
+        _hostWorkflow?.Dispose(); _hostWorkflow = null;
     }
     public override void OnDeactivating()
     {
@@ -594,7 +769,7 @@ public sealed class SetupViewModel : ReactiveViewModel
         _disposed = true;
         _closing = true;
         _operation.Cancel(); _operation.Dispose();
-        foreach (var property in new IDisposable[] { Step, Status, Detail, Busy, ConfirmOverwrite, Advanced, TerminalWidth, Profile, Instance, ManualSecret, TokenUrl, ClientId, Username, Scope, SecretFile, InstanceLabel, HostPublicOrigin, ApiBackend, McpBackend, AllowedOrigins, Listener, Authority, Audience, RequiredScopes, RequiredGroups, OutputDirectory }) property.Dispose();
+        foreach (var property in new IDisposable[] { Step, Status, Detail, Busy, ConfirmOverwrite, Advanced, TerminalWidth, Profile, Instance, NativeApiTarget, ManualSecret, TokenUrl, ClientId, Username, Scope, SecretFile, InstanceLabel, HostPublicOrigin, ApiBackend, McpBackend, AllowedOrigins, Listener, Authority, Audience, RequiredScopes, RequiredGroups, OutputDirectory }) property.Dispose();
         base.Dispose();
     }
 }

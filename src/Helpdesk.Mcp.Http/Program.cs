@@ -26,7 +26,7 @@ public sealed partial class Program
     {
         if (args is ["--help"] or ["-h"])
         {
-            Console.Out.WriteLine("RatelDesk HTTP MCP host\n\nExplicit commands before server validation: setup [--target http-host|http-client|cli|stdio] [--profile NAME|--config PATH] [--export-directory DIR] [--monochrome], status, config validate, doctor [--network] [--authenticate], profile list/show/remove, auth status/logout. Normal startup serves HTTP without prompting.");
+            Console.Out.WriteLine("RatelDesk HTTP MCP host\n\nExplicit commands before server validation: setup [--mode host|client] [--target http-host|http-client|cli|stdio] [--url URL] [--profile NAME|--config PATH] [--export-directory DIR] [--monochrome]; host preflight|approval-check|verify [--export-directory DIR]; status; config validate; doctor [--network] [--authenticate]; profile list/show/remove; auth status/logout. Bare setup connects a personal HTTP client. Run ./setup-http-mcp.sh on the Docker host for deployment discovery and apply. Normal startup serves HTTP without prompting.");
             return;
         }
         if (args is ["--version"])
@@ -57,12 +57,9 @@ public sealed partial class Program
         var agentConfiguration = AgentClientConfigurationResolver.LoadMcp(builder.Configuration, configurationPath);
         var target = HelpdeskMcpTarget.Resolve(agentConfiguration, configurationPath, httpOptions.Instance, httpOptions.ExpectedApiBaseUrl);
 
+        builder.Services.AddSingleton<IValidateOptions<HelpdeskMcpHttpOptions>, HelpdeskMcpHttpOptionsValidator>();
         builder.Services.AddOptions<HelpdeskMcpHttpOptions>()
             .Bind(builder.Configuration.GetSection(HelpdeskMcpHttpOptions.SectionName))
-            .Validate(options => AuthentikMcpOptionsValidator.IsCanonicalMcpResource(options.PublicResourceUri), "Helpdesk:Mcp:PublicResourceUri must be an absolute HTTPS /mcp URI.")
-            .Validate(options => options.AllowedOrigins.Length > 0 && options.AllowedOrigins.All(AuthentikMcpOptionsValidator.IsAllowedOrigin), "Helpdesk:Mcp:AllowedOrigins must contain one or more absolute HTTP(S) origins without paths.")
-            .Validate(options => AuthentikMcpOptionsValidator.IsAuthenticationMode(options.AuthenticationMode.Trim().ToLowerInvariant()), "Helpdesk:Mcp:AuthenticationMode must be gateway or authentik.")
-            .Validate(options => options.DelegationTimeoutSeconds is >= 1 and <= 60, "Helpdesk:Mcp:DelegationTimeoutSeconds must be between 1 and 60.")
             .ValidateOnStart();
         if (usesGatewayCredentials && !string.Equals(agentConfiguration.CredentialMode, "gateway", StringComparison.OrdinalIgnoreCase))
             throw new AgentClientValidationException("Local HTTP MCP gateway mode requires credentialMode=gateway and does not accept a deployment credential.");
@@ -173,9 +170,19 @@ public sealed partial class Program
             .WithPromptsFromAssembly(typeof(HelpdeskPrompts).Assembly)
             .WithRequestFilters(filters => filters.AddCallToolFilter(next => (context, cancellationToken) =>
             {
+                SetupVerificationAuthorization.RequireStatus(context.User, context.Params.Name, context.Params.Arguments);
                 var services = context.Services ?? throw new InvalidOperationException("MCP request context does not have a service provider.");
                 return services.GetRequiredService<McpToolInvocationAudit>().InvokeAsync(next, context, cancellationToken);
-            }))
+            })
+                .AddReadResourceFilter(next => (context, ct) => { SetupVerificationAuthorization.RequireOrdinary(context.User); return next(context, ct); })
+                .AddGetPromptFilter(next => (context, ct) => { SetupVerificationAuthorization.RequireOrdinary(context.User); return next(context, ct); })
+                .AddListResourcesFilter(next => (context, ct) => { SetupVerificationAuthorization.RequireOrdinary(context.User); return next(context, ct); })
+                .AddListResourceTemplatesFilter(next => (context, ct) => { SetupVerificationAuthorization.RequireOrdinary(context.User); return next(context, ct); })
+                .AddListPromptsFilter(next => (context, ct) => { SetupVerificationAuthorization.RequireOrdinary(context.User); return next(context, ct); })
+                .AddCompleteFilter(next => (context, ct) => { SetupVerificationAuthorization.RequireOrdinary(context.User); return next(context, ct); })
+                .AddSubscribeToResourcesFilter(next => (context, ct) => { SetupVerificationAuthorization.RequireOrdinary(context.User); return next(context, ct); })
+                .AddUnsubscribeFromResourcesFilter(next => (context, ct) => { SetupVerificationAuthorization.RequireOrdinary(context.User); return next(context, ct); })
+                .AddSetLoggingLevelFilter(next => (context, ct) => { SetupVerificationAuthorization.RequireOrdinary(context.User); return next(context, ct); }))
             .AddAuthorizationFilters();
 
         var app = builder.Build();
