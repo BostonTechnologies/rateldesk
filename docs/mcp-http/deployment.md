@@ -31,6 +31,11 @@ or `--manager release-compose|external-compose` to declare ownership explicitly.
 Use `--image EXACT_REFERENCE` for first standalone setup without a discoverable
 MCP container. `--help` describes the complete installed launcher options.
 Never copy secret values into these arguments or print rendered Compose output.
+For an intentionally private HTTPS instance using a custom trust root, use
+`--ca-file /absolute/path/to/public-ca-bundle.pem`. The public CA bundle is
+mounted read-only into tooling and included in the source-generation hash;
+certificate/hostname verification stays enabled. Normal publicly trusted HTTPS
+needs no CA option.
 
 `--apply` uses the reviewed release-owned apply action. External-manager mode
 exports the complete private deployment document for review and application
