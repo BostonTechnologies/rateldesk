@@ -113,6 +113,13 @@ if canary in result.stderr:
 print('Archive malformed stdio configuration passed for ' + rid)
 PY
 
+# The deliberate deep lane exercises actual extracted apphosts through a PTY.
+# Keep this Unix-specific interaction outside ordinary PR/main validation.
+if [[ "${RATELDESK_ARCHIVE_PTY_ACCEPTANCE:-false}" == true && "$rid" == linux-* ]]; then
+  python3 "$(dirname "${BASH_SOURCE[0]}")/../ci/test-setup-terminal.py" -- "$cli"
+  python3 "$(dirname "${BASH_SOURCE[0]}")/../ci/test-setup-terminal.py" -- "$mcp"
+fi
+
 configuration="$temporary_directory/mcp-config.json"
 cat > "$configuration" <<'EOF'
 {

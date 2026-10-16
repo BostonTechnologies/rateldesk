@@ -275,7 +275,8 @@ checking its actual jobs, inputs and recorded digests.
 `main` and pushes to `main`: Public disclosure gate, .NET validation, Incident
 receiver HTTP and provider acceptance, External PostgreSQL Compose configuration,
 and Layout and reference validation. Layout includes offline documentation
-placement/link checks and source/release MCP setup/environment recipe rendering.
+placement/link checks, bounded launcher regressions and source/release MCP
+setup/environment recipe rendering.
 Branch protection settings remain a separate repository configuration; the
 workflow alone does not prove which checks are enforced there.
 
@@ -291,6 +292,14 @@ Deep Playwright/mailbox/image/archive/Compose acceptance is an existing explicit
 PR/main runs do not establish that acceptance. Deployment-managed PostgreSQL
 first-run validation has its own manual workflow. Keep normal gates intact and
 record optional/owner walkthroughs separately.
+
+The deep release-asset lane sets `RATELDESK_ARCHIVE_PTY_ACCEPTANCE=true` when
+executing extracted Linux x64 CLI/stdio apphosts. That lane covers actual 80x24
+and wider terminal URL input, field failure, Advanced, resize, Back and cancel.
+The archive runner separately asserts deterministic non-TTY setup and malformed
+stdio configuration exit 78 with empty stdout and safe stderr. These bounded
+process checks do not substitute for an approved synthetic host apply/recreate/
+fresh-verify journey or a real external consumer daemon.
 
 ### Staging and public verification
 
