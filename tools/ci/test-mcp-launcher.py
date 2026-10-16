@@ -351,6 +351,36 @@ class LauncherContracts(unittest.TestCase):
             deployment.snapshot()
         self.assertFalse((deployment.output / "host-approval.json").exists())
 
+    def test_optional_provider_presence_is_source_bound_through_actual_compose(self):
+        optional = self.directory / "optional.env"
+        services = {name: {"image": "fixture", "environment": {}} for name in launcher.SERVICE_NAMES}
+        services["mcp-http"]["env_file"] = [{"path": str(optional), "required": False}]
+        self.source.write_text(json.dumps({"services": services}))
+        self.args.image = "fixture"
+        deployment = self.deployment()
+        class ComposeWithImageFixture(launcher.Docker):
+            def run(self, arguments, **kwargs):
+                if arguments[0] == "compose":
+                    return super().run(arguments, **kwargs)
+                if arguments[0] == "image":
+                    return json.dumps({"Id": "sha256:" + "a" * 64, "Config": {"Env": [], "Cmd": [], "Entrypoint": ["dotnet"]}}).encode()
+                if arguments[0] == "create":
+                    return b"a" * 64
+                if arguments[0] == "cp":
+                    return None
+                if arguments[0] == "rm":
+                    return b"removed"
+                raise AssertionError(arguments)
+        deployment.docker = ComposeWithImageFixture()
+        proposal = deployment.snapshot()
+        self.assertTrue(any(item["path"] == str(optional) and item.get("present") is False for item in proposal["x-rateldesk-source-files"]))
+        deployment.check_sources()
+        optional.write_text("Helpdesk__Mcp__Instance=unreviewed\n")
+        actual = deployment.docker.json(deployment.compose + ["config", "--format", "json"])
+        self.assertEqual(actual["services"]["mcp-http"]["environment"]["Helpdesk__Mcp__Instance"], "unreviewed")
+        with self.assertRaisesRegex(launcher.Prerequisite, "sources_changed"):
+            deployment.check_sources()
+
     def test_forwarded_options_are_literal_arguments(self):
         args = launcher.parser().parse_args(["--", "--web-url", "https://desk.example.test", "--instance", "stage-$(touch ignored)"])
         self.assertEqual(args.wizard_options[1:], ["--web-url", "https://desk.example.test", "--instance", "stage-$(touch ignored)"])

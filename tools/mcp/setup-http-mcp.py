@@ -61,11 +61,21 @@ def read_bytes(path, maximum=MAX_SOURCE_BYTES):
     return content
 
 
-def file_record(path):
+def file_record(path, optional=False):
     path = Path(path)
-    if not path.is_absolute() or path.is_symlink() or not path.is_file():
+    if not path.is_absolute() or path.is_symlink():
         fail("source_unreadable", "Use an existing absolute regular source file. Restore missing files; symlink sources require their actual resolved path.")
-    return {"path": str(path), "sha256": hashlib.sha256(read_bytes(path)).hexdigest()}
+    if optional and not path.exists():
+        # Presence is part of the reviewed generation: an optional provider must
+        # not silently appear during browser consent or before apply.
+        return {"path": str(path), "sha256": hashlib.sha256(b"RatelDesk absent optional source v1\0" + str(path).encode()).hexdigest(),
+                "optional": True, "present": False}
+    if not path.is_file():
+        fail("source_unreadable", "A saved source is not a regular readable file. Restore it before setup.")
+    record = {"path": str(path), "sha256": hashlib.sha256(read_bytes(path)).hexdigest()}
+    if optional:
+        record.update(optional=True, present=True)
+    return record
 
 
 def check_compose_dependencies(path):
@@ -460,12 +470,18 @@ class Deployment:
         source_document = self.docker.json(self.compose + ["config", "--no-env-resolution", "--no-interpolate", "--format", "json"])
         write_private(self.output / ".compose-source.json", source_document)
         source_paths = [Path(item["path"]) for item in initial]
+        required_paths = set(source_paths)
+        optional_paths = set()
         for service_name, service in unresolved.get("services", {}).items():
             for entry in service.get("env_file", []):
                 path = Path(entry if isinstance(entry, str) else entry.get("path", ""))
                 required = isinstance(entry, str) or entry.get("required", True)
-                if required or path.exists():
-                    source_paths.append(path)
+                source_paths.append(path)
+                if required:
+                    required_paths.add(path)
+                    optional_paths.discard(path)
+                elif path not in required_paths:
+                    optional_paths.add(path)
             for mount in service.get("volumes", []):
                 target = mount.get("target", "") if isinstance(mount, dict) else ""
                 if mount.get("type") == "bind" and (target.startswith("/app/appsettings")
@@ -474,7 +490,7 @@ class Deployment:
                     source_paths.append(Path(mount.get("source", "")))
         # Hash env_file and protected binds BEFORE the fully resolved render;
         # a change in the render window must not become an approved generation.
-        provider_initial = [file_record(path) for path in dict.fromkeys(source_paths)]
+        provider_initial = [file_record(path, optional=path in optional_paths) for path in dict.fromkeys(source_paths)]
         proposal = self.docker.json(self.compose + ["config", "--format", "json"])
         services = proposal.get("services", {})
         self.rendered = proposal
@@ -525,10 +541,10 @@ class Deployment:
             image_commands[name] = metadata.get("Config", {}).get("Cmd") or []
             protected[name] = self.configuration_providers(name, services[name], image, source_paths,
                                                            image_environment=image_environment[name], image_command=image_commands[name])
-        records = [file_record(path) for path in dict.fromkeys(source_paths)]
+        records = [file_record(path, optional=path in optional_paths) for path in dict.fromkeys(source_paths)]
         if len(records) > MAX_FILES:
             fail("sources_oversized", "The effective deployment has too many protected providers. Consolidate the saved sources before setup.")
-        if any(file_record(item["path"]) != item for item in provider_initial):
+        if any(file_record(item["path"], optional=item.get("optional", False)) != item for item in provider_initial):
             fail("sources_changed", "Saved sources changed during rendering. Rerun setup with stable sources.")
         if any(file_record(item["path"]) != item for item in self.provider_source_records.values()):
             fail("sources_changed", "A protected provider changed during inspection. Rerun setup with stable sources.")
@@ -756,7 +772,7 @@ class Deployment:
         fail("approved_sources_changed", "Saved sources changed after approval. Run ordinary setup to review the current deployment; --verify cannot approve changed sources.")
 
     def check_sources(self):
-        if any(file_record(item["path"]) != item for item in self.proposal["x-rateldesk-source-files"]):
+        if any(file_record(item["path"], optional=item.get("optional", False)) != item for item in self.proposal["x-rateldesk-source-files"]):
             fail("sources_changed", "The saved deployment changed during setup. Nothing was applied. Rerun ordinary setup to review the current source.")
         for descriptor in getattr(self, "secret_mounts", []):
             if self.secret_digest(descriptor) != descriptor["sha256"]:
