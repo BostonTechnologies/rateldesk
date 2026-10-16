@@ -221,6 +221,51 @@ def json_configuration_value(document, wanted):
     return found
 
 
+def selected_secret_references(proposal):
+    """Plan mounts for the selected identity; C# still owns serving validation."""
+    fields = ("CredentialMode", "IntegrationCredential", "IntegrationCredentialFile", "AuthentikAppPassword", "AuthentikAppPasswordFile")
+    values = {"CredentialMode": "authentik"}
+    def apply(layer):
+        mode = layer.get("CredentialMode")
+        if mode and mode.casefold() != values.get("CredentialMode", "authentik").casefold():
+            values.clear()
+        for inline, file in (("IntegrationCredential", "IntegrationCredentialFile"), ("AuthentikAppPassword", "AuthentikAppPasswordFile")):
+            if inline in layer and file not in layer:
+                values.pop(file, None)
+            if file in layer and inline not in layer:
+                values.pop(inline, None)
+        values.update(layer)
+    providers = proposal["x-rateldesk-protected-configuration"]["mcp-http"]
+    for provider in providers:
+        if not Path(provider["path"]).name.startswith("appsettings"):
+            document = json.loads(provider["content"])
+            apply({field: str(value).strip() for field in fields
+                   if (value := json_configuration_value(document, field)) is not None})
+    for provider in providers:
+        if Path(provider["path"]).name.startswith("appsettings"):
+            document = json.loads(provider["content"])
+            apply({field: str(value).strip() for field in fields
+                   if (value := json_configuration_value(document, "Helpdesk:Mcp:Outbound:" + field)) is not None})
+    environment = effective_environment(proposal["x-rateldesk-image-environment"]["mcp-http"], proposal["services"]["mcp-http"].get("environment", {}))
+    suffixes = {"CredentialMode": "credential_mode", "IntegrationCredential": "integration_credential", "IntegrationCredentialFile": "integration_credential_file",
+                "AuthentikAppPassword": "authentik_app_password", "AuthentikAppPasswordFile": "authentik_app_password_file"}
+    apply({field: environment["rateldesk_mcp_" + suffix].strip() for field, suffix in suffixes.items() if "rateldesk_mcp_" + suffix in environment})
+    apply({field: environment["helpdesk__mcp__outbound__" + field.casefold()].strip() for field in fields
+           if "helpdesk__mcp__outbound__" + field.casefold() in environment})
+    command = proposal["services"]["mcp-http"].get("command", proposal.get("x-rateldesk-image-commands", {}).get("mcp-http", []))
+    command_layer = {}
+    if isinstance(command, list):
+        for index, argument in enumerate(command):
+            key, separator, value = argument.lstrip("-/").partition("=")
+            for field in fields:
+                if key.replace("__", ":").casefold() == "helpdesk:mcp:outbound:" + field.casefold():
+                    command_layer[field] = value if separator else command[index + 1] if index + 1 < len(command) else ""
+    apply(command_layer)
+    mode = values.get("CredentialMode", "authentik").casefold()
+    selected = "IntegrationCredentialFile" if mode == "integration" else "AuthentikAppPasswordFile" if mode == "authentik" else None
+    return {values[selected]} if selected and values.get(selected) else set()
+
+
 def unique_container(docker, project, service, running=False):
     command = ["ps"]
     if not running:
@@ -458,22 +503,7 @@ class Deployment:
         return proposal
 
     def capture_secret_mounts(self, proposal):
-        references = set()
-        def visit(value):
-            if isinstance(value, dict):
-                for key, child in value.items():
-                    canonical = key.replace("_", "").replace(":", "").casefold()
-                    if canonical.endswith(("integrationcredentialfile", "authentikapppasswordfile")) and isinstance(child, str) and child.strip():
-                        references.add(child)
-                    else:
-                        visit(child)
-            elif isinstance(value, list):
-                for child in value:
-                    visit(child)
-        visit(proposal["services"]["mcp-http"].get("environment", {}))
-        visit(effective_environment(proposal["x-rateldesk-image-environment"]["mcp-http"], {}))
-        for provider in proposal["x-rateldesk-protected-configuration"]["mcp-http"]:
-            visit(json.loads(provider["content"]))
+        references = selected_secret_references(proposal)
         if len(references) > 8:
             fail("secret_reference_count", "The MCP deployment exceeds the bounded protected-reference count. Consolidate its explicit identity sources before setup.")
         mounts = []

@@ -224,7 +224,7 @@ class LauncherContracts(unittest.TestCase):
             {"type": "bind", "source": str(self.directory / "downstream.secret"), "target": "/run/secrets/downstream"},
             {"type": "bind", "source": "/unrelated/private", "target": "/unrelated"}]}},
             "x-rateldesk-image-environment": {"mcp-http": []},
-            "x-rateldesk-protected-configuration": {"mcp-http": [{"content": '{"authentikAppPasswordFile":"/run/secrets/downstream"}'}]}}
+            "x-rateldesk-protected-configuration": {"mcp-http": [{"path": "/run/config.json", "content": '{"authentikAppPasswordFile":"/run/secrets/downstream"}'}]}}
         deployment.capture_secret_mounts(proposal)
         self.assertEqual(len(deployment.secret_mounts), 1)
         self.assertEqual(deployment.secret_mounts[0]["sha256"], digest)
@@ -232,6 +232,17 @@ class LauncherContracts(unittest.TestCase):
         self.assertTrue(any("target=/run/secrets/downstream,readonly" in value for value in command))
         self.assertNotIn("/unrelated/private", str(command))
         self.assertIn("10001:10001", calls[0])
+
+    def test_stale_lower_secret_reference_is_not_required_after_mode_or_source_replacement(self):
+        proposal = {"services": {"mcp-http": {"environment": {"Helpdesk__Mcp__Outbound__CredentialMode": "gateway"}}},
+            "x-rateldesk-image-environment": {"mcp-http": []},
+            "x-rateldesk-protected-configuration": {"mcp-http": [{"path": "/run/config.json",
+                "content": '{"credentialMode":"authentik","authentikAppPasswordFile":"/run/stale/missing"}'}]}}
+        self.assertEqual(launcher.selected_secret_references(proposal), set())
+        proposal["services"]["mcp-http"]["environment"] = {"Helpdesk__Mcp__Outbound__AuthentikAppPasswordFile": ""}
+        self.assertEqual(launcher.selected_secret_references(proposal), set())
+        proposal["services"]["mcp-http"]["environment"] = {"Helpdesk__Mcp__Outbound__AuthentikAppPassword": "synthetic-replacement"}
+        self.assertEqual(launcher.selected_secret_references(proposal), set())
 
     def test_service_command_environment_overrides_image_environment_provider(self):
         deployment = self.deployment()
