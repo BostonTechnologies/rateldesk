@@ -149,9 +149,9 @@ public sealed class HostDeploymentWorkflow : IDisposable
     public static async Task<int> VerifyAsync(string directory, TextWriter output, TextWriter error, CancellationToken ct)
     {
         var proposal = ResumeApproved(directory);
+        SecureConfigurationFiles.WriteAtomic(Path.Combine(directory, "host-phase.json"), JsonSerializer.Serialize(new { phase = "applied-verify-pending", proposal.SourceHash, proposal.ProposalHash }, Json));
         var observed = HttpMcpEffectiveDeployment.Observe(proposal);
         if (observed.Count > 0) { await error.WriteLineAsync(Describe(observed)); return SetupRunner.ConfigurationError; }
-        SecureConfigurationFiles.WriteAtomic(Path.Combine(directory, "host-phase.json"), JsonSerializer.Serialize(new { phase = "applied-verify-pending", proposal.SourceHash, proposal.ProposalHash }, Json));
         if (proposal.Settings.AuthenticationMode != "gateway")
         {
             await error.WriteLineAsync("External Authentik configuration/runtime preflight passed. End-to-end verification remains pending until the external OAuth client performs authenticated initialize, catalog and API-backed status with its own approved token.");
