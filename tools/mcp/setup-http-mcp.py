@@ -961,9 +961,16 @@ def apply_saved(deployment):
         fail("manager_apply_required", "Apply the complete reviewed deployment in the existing deployment manager, then rerun --verify. The launcher never replaces a manager-owned stack.")
     state = read_private_json(deployment.output / "launcher-state.json")
     check_saved_exports(deployment, state)
-    deployment.proposal["x-rateldesk-storage"] = state.get("storage", {})
-    write_private(deployment.output / "effective-deployment.json", deployment.proposal)
+    deployment.prepare_storage(provision=False)
     check_effective_context(deployment, state)
+    deployment.check_sources()
+    for name in ("effective-deployment.json", "launcher-state.json", "deployment.json"):
+        stage_snapshot(deployment, name)
+    try:
+        deployment.docker.run(tooling_arguments(deployment) + ["--rm", deployment.image,
+            "host", "approval-check", "--export-directory", HOST_TARGET], maximum=16384)
+    except Prerequisite:
+        fail("approval_revalidation", "Current administrator approval/authority could not be reconfirmed. Check the trusted Web URL and approval checkpoint, then retry; rerun ordinary setup if authority or the approved generation changed. Nothing was applied.")
     deployment.check_sources()
     command = ["compose", "--project-directory", str(deployment.directory), "--project-name", deployment.project]
     for path in deployment.env_files or [Path("/dev/null")]:
