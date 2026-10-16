@@ -218,7 +218,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [assignee, email, ticket-filters, details, operations, admin, pending-mail]
+        suite: [assignee, email, ticket-filters, details, operations, admin, pending-mail, integrations]
     env:
       HELPDESK_ASSIGNEE_CONFIGURATION: Release
       HELPDESK_EMAIL_CONFIGURATION: Release
@@ -226,6 +226,7 @@ jobs:
       HELPDESK_DETAILS_CONFIGURATION: Release
       HELPDESK_OPERATIONS_CONFIGURATION: Release
       HELPDESK_ADMIN_CONFIGURATION: Release
+      HELPDESK_INTEGRATIONS_CONFIGURATION: Release
       HELPDESK_PENDING_MAIL_CONFIGURATION: Release
     steps:
       - name: Check out triggering commit
@@ -449,6 +450,8 @@ jobs:
         run: tools/ci/test-deployment-archive-compose-config.sh release-assets/rateldesk-deployment-0.0.0-pr.tar.gz
 
       - name: Execute extracted Linux x64 archives
+        env:
+          RATELDESK_ARCHIVE_PTY_ACCEPTANCE: 'true'
         run: tools/release/test-executable-archives.sh release-assets linux-x64
 
       - name: Upload release rehearsal assets

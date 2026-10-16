@@ -18,7 +18,7 @@ using NSubstitute;
 
 namespace Helpdesk.Tests.Api;
 
-public sealed class IntegrationCredentialPairingTests
+public sealed partial class IntegrationCredentialPairingTests
 {
     private static readonly ClaimsPrincipal Owner = new(new ClaimsIdentity([
         new Claim(ClaimTypes.NameIdentifier, "owner"), new Claim("auth_mode", "local")], "Test"));
@@ -232,6 +232,61 @@ public sealed class IntegrationCredentialPairingTests
         var result = await session.Service.PollAsync(mcp.DeviceCode, default);
         Assert.Equal("mcp", result.Credential!.Purpose); Assert.Equal("https://desk.example/mcp", result.Credential.McpResourceUri);
         Assert.Equal(fixture.Clock.GetUtcNow().AddDays(90), result.Credential.ExpiresAtUtc);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Temporary_verification_is_narrow_short_lived_and_revoked_after_ack_or_abandonment(bool abandon)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        IntegrationPairingStarted started; Guid id;
+        await using (var session = fixture.Session())
+        {
+            started = await session.Service.StartAsync(new("host status verification", "mcp", "https://desk.example/mcp") { GrantKind = "setup-verification" }, "ip", default);
+            var review = await session.Service.ReviewAsync(started.HumanCode, Owner, "ip", default);
+            Assert.Equal("setup-verification", review!.GrantKind); Assert.Equal("mcp", review.Purpose);
+            await Assert.ThrowsAsync<CredentialGrantException>(() => session.Service.ApproveAsync(new(started.HumanCode, "org-a", ["Incident.Read"], null, true), Owner, "ip", default));
+            await Assert.ThrowsAsync<CredentialGrantException>(() => session.Service.ApproveAsync(new(started.HumanCode, "org-a", [], 30, true), Owner, "ip", default));
+            await Assert.ThrowsAsync<CredentialGrantException>(() => session.Service.ApproveAsync(new(started.HumanCode, "org-a", [], null, false), Owner, "ip", default));
+            Assert.True(await session.Service.ApproveAsync(new(started.HumanCode, "org-a", [], null, true), Owner, "ip", default));
+            var delivery = (await session.Service.PollAsync(started.DeviceCode, default)).Credential!;
+            id = delivery.Id;
+            Assert.Equal("setup-verification", delivery.GrantKind); Assert.Equal("mcp", delivery.Purpose); Assert.Empty(delivery.Permissions);
+            Assert.Equal(fixture.Clock.GetUtcNow().AddMinutes(5), delivery.ExpiresAtUtc);
+            Assert.Equal("mcp-setup", (await session.Identity.IntegrationCredentials.SingleAsync()).Purpose);
+            Assert.True(await session.Service.AckAsync(started.DeviceCode, delivery.Id, default));
+        }
+        await using (var restarted = fixture.Session())
+        {
+            if (abandon) { fixture.Clock.Advance(TimeSpan.FromMinutes(6)); await restarted.Service.CleanupAsync(default); }
+            else { await restarted.Service.CancelAsync(started.DeviceCode, default); await restarted.Service.CancelAsync(started.DeviceCode, default); }
+            Assert.NotNull((await restarted.Identity.IntegrationCredentials.SingleAsync(c => c.Id == id)).RevokedAtUtc);
+            Assert.False(await restarted.Service.AckAsync(started.DeviceCode, id, default));
+        }
+    }
+
+    [Fact]
+    public async Task Temporary_verification_cannot_approve_another_organization_or_resource_or_relax_manual_issuance()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var session = fixture.Session();
+        (await session.Identity.Users.SingleAsync()).IsInstanceAdministrator = false;
+        session.Domain.Users.Add(new() { Id = "owner", Name = "Owner", OrganizationId = "org-a" });
+        session.Domain.Organizations.Add(new() { Id = "org-b", Name = "Other", IsEnabled = true });
+        session.Domain.ScopedRoleAssignments.Add(new() { Id = "reader", UserId = "owner", OrganizationId = "org-a", RoleKey = ScopedRoleCatalog.IncidentReader });
+        await session.Identity.SaveChangesAsync(); await session.Domain.SaveChangesAsync();
+        await Assert.ThrowsAsync<CredentialGrantException>(() => session.Service.StartAsync(new("host verify", "mcp", "https://other.example/mcp") { GrantKind = "setup-verification" }, "ip", default));
+        await Assert.ThrowsAsync<CredentialGrantException>(() => session.Service.StartAsync(new("host verify", "api") { GrantKind = "setup-verification" }, "ip", default));
+        var start = await session.Service.StartAsync(new("host verify", "mcp", "https://desk.example/mcp") { GrantKind = "setup-verification" }, "ip", default);
+        Assert.Equal("org-a", Assert.Single((await session.Service.ReviewAsync(start.HumanCode, Owner, "ip", default))!.Organizations).Id);
+        await Assert.ThrowsAsync<CredentialGrantException>(() => session.Service.ApproveAsync(new(start.HumanCode, "org-b", [], null, true), Owner, "ip", default));
+        var owners = new IntegrationCredentialOwnerResolver(session.Domain, session.Identity);
+        var issuer = new IntegrationCredentialIssuer(owners, new CurrentUserAccessService(session.Domain, session.Identity), session.Domain, session.Identity);
+        await Assert.ThrowsAsync<CredentialGrantException>(() => issuer.ValidateAsync(Owner,
+            new("tampered manual request", "mcp-setup", "org-a", [], null) { McpResourceUri = "https://desk.example/mcp" }, default));
+        var ordinary = await session.Service.StartAsync(new("ordinary client", "mcp", "https://desk.example/mcp"), "ip", default);
+        await Assert.ThrowsAsync<CredentialGrantException>(() => session.Service.ApproveAsync(new(ordinary.HumanCode, "org-a", [], null, true), Owner, "ip", default));
     }
 
     private sealed class TestClock : TimeProvider

@@ -19,12 +19,16 @@ ARG BUILD_TIMESTAMP=
 COPY global.json ./
 COPY Directory.Build.props Directory.Build.targets ./
 COPY src/HelpDesk.NewWeb/*.csproj          src/HelpDesk.NewWeb/
+COPY src/Helpdesk.AgentClient/*.csproj     src/Helpdesk.AgentClient/
 COPY src/Helpdesk.ServiceDefaults/*.csproj src/Helpdesk.ServiceDefaults/
 COPY src/Helpdesk.Shared/*.csproj          src/Helpdesk.Shared/
 
 RUN dotnet restore src/HelpDesk.NewWeb/HelpDesk.NewWeb.csproj
 
 COPY src/HelpDesk.NewWeb/          src/HelpDesk.NewWeb/
+COPY src/Helpdesk.AgentClient/     src/Helpdesk.AgentClient/
+# The shared headless validator compiles the same serving options source.
+COPY src/Helpdesk.Mcp.Http/Configuration/AuthentikMcpOptions.cs src/Helpdesk.Mcp.Http/Configuration/
 COPY src/Helpdesk.ServiceDefaults/ src/Helpdesk.ServiceDefaults/
 COPY src/Helpdesk.Shared/          src/Helpdesk.Shared/
 

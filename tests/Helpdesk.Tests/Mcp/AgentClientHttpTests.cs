@@ -264,6 +264,24 @@ public sealed class AgentClientHttpTests
         Assert.DoesNotContain(inboundMcpToken, outboundAuthorization, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("corr-safe-123", "corr-safe-123")]
+    [InlineData("unsafe private reference", null)]
+    [InlineData("rdk_secret_as_reference", null)]
+    public async Task Downstream_denial_preserves_only_bounded_safe_correlation_header(string header, string? expected)
+    {
+        var configuration = AgentClientConfiguration.Empty with { ApiBaseUrl = "https://api.example", CredentialMode = "integration", IntegrationCredential = "rdk_test_secret" };
+        var client = new HelpdeskAgentClient(configuration, () => new TestHandler(_ =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.Forbidden) { Content = new StringContent("raw-private-payload") };
+            response.Headers.TryAddWithoutValidation("X-Correlation-Id", header);
+            return response;
+        }));
+        var denied = await Assert.ThrowsAsync<AgentClientRemoteException>(() => client.GetAsync("/api/v1/auth/me"));
+        Assert.Equal(expected, denied.CorrelationId); Assert.Equal(403, denied.StatusCode); Assert.Null(denied.ResponseBody);
+        Assert.DoesNotContain("raw-private-payload", denied.Message);
+    }
+
     private sealed class TestHandler(Func<HttpRequestMessage, HttpResponseMessage> responder) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => Task.FromResult(responder(request));

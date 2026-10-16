@@ -5,14 +5,19 @@ using System.Text.Json;
 namespace Helpdesk.AgentClient;
 
 public sealed record PairingCapabilities(string Product, int ProtocolVersion, bool PairingSupported,
-    string PublicOrigin, string VerificationUri, int DefaultLifetimeDays, int MaximumLifetimeDays);
-public sealed record PairingRequest(string Name, string Purpose, string? McpResourceUri = null);
+    string PublicOrigin, string VerificationUri, int DefaultLifetimeDays, int MaximumLifetimeDays)
+{ public bool SetupVerificationSupported { get; init; } }
+public sealed record PairingRequest(string Name, string Purpose, string? McpResourceUri = null)
+{ public string GrantKind { get; init; } = "ordinary"; }
 public sealed record PairingSession(string DeviceCode, string HumanCode, string VerificationUri,
     DateTimeOffset ExpiresAtUtc, int PollIntervalSeconds)
 { public override string ToString() => "PairingSession { deviceCapability = [REDACTED] }"; }
 public sealed record PairedIntegrationCredential(Guid Id, string Prefix, string Secret, string Purpose,
     string OrganizationId, string[] Permissions, DateTimeOffset ExpiresAtUtc, string? McpResourceUri)
-{ public override string ToString() => "PairedIntegrationCredential { secret = [REDACTED] }"; }
+{
+    public string GrantKind { get; init; } = "ordinary";
+    public override string ToString() => "PairedIntegrationCredential { secret = [REDACTED] }";
+}
 public sealed record PairingPollResult(string Status, int PollIntervalSeconds, PairedIntegrationCredential? Credential, DateTimeOffset? DeliveryExpiresAtUtc = null)
 { public override string ToString() => $"PairingPollResult {{ status = {Status}, delivery = [REDACTED] }}"; }
 
@@ -58,6 +63,7 @@ public sealed class IntegrationCredentialPairingClient : IDisposable
 
     public async Task<PairingSession> StartAsync(PairingRequest request, CancellationToken cancellationToken = default)
     {
+        if (request.GrantKind is not ("ordinary" or "setup-verification") || (request.GrantKind == "setup-verification" && request.Purpose != "mcp")) throw new AgentClientValidationException("Invalid pairing grant kind.");
         if (request.Purpose is not ("api" or "mcp")) throw new AgentClientValidationException("Pairing purpose must be api or mcp.");
         if (request.Purpose == "mcp" && request.McpResourceUri != new Uri(_origin, "/mcp").AbsoluteUri)
             throw new AgentClientValidationException("An MCP credential must bind to the reviewed instance's canonical HTTPS /mcp resource.");
@@ -76,10 +82,16 @@ public sealed class IntegrationCredentialPairingClient : IDisposable
         if (result.Status is not ("pending" or "slow_down" or "denied" or "expired" or "issued" or "consumed" or "cancelled") ||
             result.PollIntervalSeconds is < 1 or > 60)
             throw new AgentClientValidationException("The instance returned an invalid approval state.");
+        if (result.Credential is not null && result.Status != "issued")
+            throw new AgentClientValidationException("The instance returned a credential outside its approved delivery state.");
         if (result.Status == "issued" && (result.Credential is null || result.Credential.Id == Guid.Empty ||
             result.Credential.Secret?.StartsWith("rdk_", StringComparison.Ordinal) != true || result.Credential.Secret.Length > 8192 ||
             string.IsNullOrWhiteSpace(result.Credential.OrganizationId) || result.Credential.Permissions is null || result.Credential.Permissions.Length > 256))
             throw new AgentClientValidationException("The instance returned an invalid credential delivery.");
+        if (result.Credential is { } credential && (credential.GrantKind is not ("ordinary" or "setup-verification") ||
+            (credential.GrantKind == "setup-verification" && (credential.Purpose != "mcp" || credential.Permissions.Length != 0 ||
+                credential.McpResourceUri != new Uri(_origin, "/mcp").AbsoluteUri || credential.ExpiresAtUtc > DateTimeOffset.UtcNow.AddMinutes(5)))))
+            throw new AgentClientValidationException("The instance returned an invalid setup verification grant.");
         return result;
     }
 

@@ -7,7 +7,7 @@ remain separately categorized and do not establish acceptance of a newer build.
 | --- | --- |
 | Install, initialize, upgrade or recover an instance | [Deployment](deployment/README.md) |
 | Configure the Web gateway and one public origin | [Web gateway](deployment/web-gateway.md) |
-| Host or connect to HTTP MCP | [HTTP MCP](mcp-http/README.md) |
+| Host or connect to HTTP MCP | [HTTP MCP setup](mcp-http/setup.md), [complete reference](mcp-http/README.md) |
 | Set up CLI/stdio, browser pairing, NetClaw, NetRatel or mailboxes | [Integrations](integrations/README.md) |
 | Understand roles and scoped access | [Security and access](security/README.md) |
 | Configure branding and theme behavior | [Customization](customization/README.md) |

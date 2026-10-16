@@ -34,6 +34,11 @@ public static class SetupRunner
             await error.WriteLineAsync(TerminalText.Sanitize(exception.Message));
             return ConfigurationError;
         }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException or FormatException)
+        {
+            await error.WriteLineAsync("Setup configuration could not be read securely. Check the selected private configuration and durable storage, then retry setup.");
+            return ConfigurationError;
+        }
     }
 
     internal static SetupRuntime CreateHost(SetupOptions options, ISetupWorkflow workflow,

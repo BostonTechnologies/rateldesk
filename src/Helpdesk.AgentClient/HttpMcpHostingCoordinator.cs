@@ -168,7 +168,7 @@ public static class HttpMcpHostingCoordinator
         managed = "Running environments and read-only mounts require operator apply/recreation."
     };
 
-    public static HttpMcpHostingExport Export(HttpMcpHostingSettings settings, string directory, bool overwrite = false)
+    public static HttpMcpHostingExport Export(HttpMcpHostingSettings settings, string directory, bool overwrite = false, System.Text.Json.Nodes.JsonObject? composeOverride = null)
     {
         var failures = Validate(settings);
         if (failures.Count > 0) throw new AgentClientValidationException(string.Join(" ", failures));
@@ -188,47 +188,7 @@ public static class HttpMcpHostingCoordinator
         var outbound = settings.AuthenticationMode == "gateway"
             ? AgentClientConfiguration.Empty with { ApiBaseUrl = settings.ApiBaseUrl, CredentialMode = "gateway" }
             : ContainerOutbound(settings.Outbound!);
-        var webEnvironment = new Dictionary<string, object?>
-        {
-            ["ApiBaseUrl"] = settings.ApiBaseUrl,
-            ["WebGateway__PublicOrigin"] = settings.PublicOrigin.TrimEnd('/'),
-            ["WebGateway__Mcp__Enabled"] = "true",
-            ["WebGateway__Mcp__Destination"] = settings.McpDestination,
-            ["WebGateway__Mcp__AuthenticationMode"] = settings.AuthenticationMode
-        };
-        var mcpEnvironment = new Dictionary<string, object?>
-        {
-            ["ASPNETCORE_URLS"] = settings.Listener,
-            ["Helpdesk__Mcp__Instance"] = settings.Instance,
-            ["Helpdesk__Mcp__ExpectedApiBaseUrl"] = settings.ApiBaseUrl,
-            ["Helpdesk__Mcp__PublicResourceUri"] = settings.PublicResourceUri,
-            ["Helpdesk__Mcp__AuthenticationMode"] = settings.AuthenticationMode,
-            ["Helpdesk__Mcp__DelegationTimeoutSeconds"] = settings.DelegationTimeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture)
-        };
-        for (var i = 0; i < settings.AllowedOrigins.Length; i++) mcpEnvironment[$"Helpdesk__Mcp__AllowedOrigins__{i}"] = settings.AllowedOrigins[i];
-        if (settings.AuthenticationMode == "authentik")
-        {
-            mcpEnvironment["Authentication__AuthentikMcp__Authority"] = settings.AuthentikAuthority;
-            mcpEnvironment["Authentication__AuthentikMcp__Audience"] = settings.AuthentikAudience;
-            for (var i = 0; i < settings.RequiredScopes.Length; i++) mcpEnvironment[$"Authentication__AuthentikMcp__RequiredScopes__{i}"] = settings.RequiredScopes[i];
-            for (var i = 0; i < settings.RequiredGroups.Length; i++) mcpEnvironment[$"Authentication__AuthentikMcp__RequiredGroups__{i}"] = settings.RequiredGroups[i];
-        }
-        var compose = new
-        {
-            services = new Dictionary<string, object>
-            {
-                ["api"] = new { environment = new Dictionary<string, string> { ["IntegrationCredentials__Pairing__PublicOrigin"] = settings.PublicOrigin.TrimEnd('/') } },
-                ["web"] = new { environment = webEnvironment },
-                ["mcp-http"] = new
-                {
-                    environment = mcpEnvironment,
-                    // This unauthenticated loopback liveness probe need not match a public-host certificate.
-                    // Public/client and proxy TLS verification remains enabled separately.
-                    healthcheck = new { test = new[] { "CMD-SHELL", $"wget {(settings.Listener.StartsWith("https:", StringComparison.Ordinal) ? "--no-check-certificate " : "")}-q -O /dev/null {settings.Listener[..settings.Listener.IndexOf(':')]}://127.0.0.1:{settings.Listener[(settings.Listener.LastIndexOf(':') + 1)..]}/health/live || exit 1" } }
-                },
-                ["mcp-config-init"] = new { volumes = new[] { new { type = "bind", source = "${RATELDESK_MCP_CONFIG_FILE:?Set the exported outbound file host path.}", target = "/input/config.json", read_only = true }, new { type = "volume", source = "mcp-http-config", target = "/run/rateldesk-mcp", read_only = false } } }
-            }
-        };
+        var compose = composeOverride ?? ComposeOverlay(settings);
         const string apply = "This export changes no running service. Preserve existing API database, bootstrap and Data Protection volumes.\n" +
             "Use the base source/release Compose file, its matching gateway/authentik MCP overlay, then compose.host.json last.\n" +
             "Set the overlay interpolation variables (public resource, allowed origin, config file, and external authority when used) to these reviewed values. Set RATELDESK_MCP_CONFIG_FILE to the host path of the exported mcp-outbound.json; a container's /output path is not a host path.\n" +
@@ -273,7 +233,54 @@ public static class HttpMcpHostingCoordinator
         return new(paths, apply);
     }
 
-    private static AgentClientConfiguration ContainerOutbound(AgentClientConfiguration configuration)
+    /// <summary>Exact reviewed patch, shared by effective preflight and export.</summary>
+    public static System.Text.Json.Nodes.JsonObject ComposeOverlay(HttpMcpHostingSettings settings)
+    {
+        var webEnvironment = new Dictionary<string, object?>
+        {
+            ["ApiBaseUrl"] = settings.ApiBaseUrl,
+            ["WebGateway__PublicOrigin"] = settings.PublicOrigin.TrimEnd('/'),
+            ["WebGateway__Mcp__Enabled"] = "true",
+            ["WebGateway__Mcp__Destination"] = settings.McpDestination,
+            ["WebGateway__Mcp__AuthenticationMode"] = settings.AuthenticationMode
+        };
+        var mcpEnvironment = new Dictionary<string, object?>
+        {
+            ["ASPNETCORE_URLS"] = settings.Listener,
+            ["Helpdesk__Mcp__Instance"] = settings.Instance,
+            ["Helpdesk__Mcp__ExpectedApiBaseUrl"] = settings.ApiBaseUrl,
+            ["Helpdesk__Mcp__PublicResourceUri"] = settings.PublicResourceUri,
+            ["Helpdesk__Mcp__AuthenticationMode"] = settings.AuthenticationMode,
+            ["Helpdesk__Mcp__DelegationTimeoutSeconds"] = settings.DelegationTimeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture)
+        };
+        for (var i = 0; i < settings.AllowedOrigins.Length; i++) mcpEnvironment[$"Helpdesk__Mcp__AllowedOrigins__{i}"] = settings.AllowedOrigins[i];
+        if (settings.AuthenticationMode == "authentik")
+        {
+            mcpEnvironment["Authentication__AuthentikMcp__Authority"] = settings.AuthentikAuthority;
+            mcpEnvironment["Authentication__AuthentikMcp__Audience"] = settings.AuthentikAudience;
+            for (var i = 0; i < settings.RequiredScopes.Length; i++) mcpEnvironment[$"Authentication__AuthentikMcp__RequiredScopes__{i}"] = settings.RequiredScopes[i];
+            for (var i = 0; i < settings.RequiredGroups.Length; i++) mcpEnvironment[$"Authentication__AuthentikMcp__RequiredGroups__{i}"] = settings.RequiredGroups[i];
+        }
+        var compose = new
+        {
+            services = new Dictionary<string, object>
+            {
+                ["api"] = new { environment = new Dictionary<string, string> { ["IntegrationCredentials__Pairing__PublicOrigin"] = settings.PublicOrigin.TrimEnd('/') } },
+                ["web"] = new { environment = webEnvironment },
+                ["mcp-http"] = new
+                {
+                    environment = mcpEnvironment,
+                    // This unauthenticated loopback liveness probe need not match a public-host certificate.
+                    // Public/client and proxy TLS verification remains enabled separately.
+                    healthcheck = new { test = new[] { "CMD-SHELL", $"wget {(settings.Listener.StartsWith("https:", StringComparison.Ordinal) ? "--no-check-certificate " : "")}-q -O /dev/null {settings.Listener[..settings.Listener.IndexOf(':')]}://127.0.0.1:{settings.Listener[(settings.Listener.LastIndexOf(':') + 1)..]}/health/live || exit 1" } }
+                },
+                ["mcp-config-init"] = new { volumes = new[] { new { type = "bind", source = "${RATELDESK_MCP_CONFIG_FILE:?Set the exported outbound file host path.}", target = "/input/config.json", read_only = true }, new { type = "volume", source = "mcp-http-config", target = "/run/rateldesk-mcp", read_only = false } } }
+            }
+        };
+        return System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(compose, Json))!.AsObject();
+    }
+
+    public static AgentClientConfiguration ContainerOutbound(AgentClientConfiguration configuration)
     {
         // Mounted secret paths from the operator's machine do not exist inside MCP.
         // Materialize only the reviewed identity into the protected legacy file copied by init.

@@ -151,7 +151,8 @@ a glibc distribution, not Alpine/musl. Both support offline `--help` and
 
 HTTP MCP is optional and separate from the base Web/API stack. Its source and
 release overlays, environment-only settings and setup commands are documented
-in the [HTTP MCP guides](docs/mcp-http/README.md) and runnable
+in the [short HTTP MCP setup guide](docs/mcp-http/setup.md),
+[complete reference](docs/mcp-http/README.md) and runnable
 [HTTP MCP example](docker/examples/mcp-http/README.md). The
 [Web gateway](docs/deployment/web-gateway.md) exposes selected MCP through the
 public Web origin. Authentik HTTP MCP

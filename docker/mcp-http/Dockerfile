@@ -25,6 +25,8 @@ COPY src/Helpdesk.Setup/*.csproj            src/Helpdesk.Setup/
 RUN dotnet restore src/Helpdesk.Mcp.Http/Helpdesk.Mcp.Http.csproj
 
 COPY src/Helpdesk.AgentClient/      src/Helpdesk.AgentClient/
+# Share the exact Web serving validator with headless deployment preflight.
+COPY src/HelpDesk.NewWeb/Services/WebGatewayOptions.cs src/HelpDesk.NewWeb/Services/WebGatewayConfiguration.cs src/HelpDesk.NewWeb/Services/WebGatewayPaths.cs src/HelpDesk.NewWeb/Services/
 COPY src/Helpdesk.Mcp.Core/         src/Helpdesk.Mcp.Core/
 COPY src/Helpdesk.Mcp.Http/         src/Helpdesk.Mcp.Http/
 COPY src/Helpdesk.ServiceDefaults/  src/Helpdesk.ServiceDefaults/

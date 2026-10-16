@@ -61,8 +61,11 @@ public static class ConfigurationDoctor
                 {
                     using var reachability = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false })
                     { BaseAddress = resolution.Validate().ApiBaseUrl, Timeout = Timeout.InfiniteTimeSpan };
-                    using var response = await reachability.GetAsync("/health/live", HttpCompletionOption.ResponseHeadersRead, deadline.Token).ConfigureAwait(false);
-                    checks.Add(new("reachability", response.IsSuccessStatusCode, $"The live endpoint responded with HTTP {(int)response.StatusCode}."));
+                    // The public Web origin forwards API routes, while process health
+                    // endpoints are private to the API host. Probe the same anonymous
+                    // serving route for both public origins and explicit API backends.
+                    using var response = await reachability.GetAsync("/api/v1/system/version", HttpCompletionOption.ResponseHeadersRead, deadline.Token).ConfigureAwait(false);
+                    checks.Add(new("reachability", response.IsSuccessStatusCode, $"The API version endpoint responded with HTTP {(int)response.StatusCode}."));
                 }
                 if (authenticate)
                 {

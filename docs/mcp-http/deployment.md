@@ -1,4 +1,55 @@
-# HTTP MCP setup, deployment and migration
+# HTTP MCP deployment reference
+
+Start with [Set up HTTP MCP](setup.md) for the normal server/client procedure.
+This reference covers alternate execution contexts, explicit configuration,
+deployment ownership, legacy recipes and migration.
+
+## Deployment-host launcher
+
+Run `tools/mcp/setup-http-mcp.sh` from a source checkout, or
+`./setup-http-mcp.sh` from the extracted deployment archive. The launcher needs
+Docker with Compose and Python 3 on the deployment host; it installs no packages.
+Its adjacent Python helper is included in the archive. It inspects Docker only
+on that host; the serving MCP container receives no Docker socket or root access.
+The archive's non-secret `setup-release.json` selects the exact inherited release
+version, base recipe and image for a fresh deployment with MCP not yet selected.
+It never guesses a version from the extraction directory's name. Existing
+deployment sources and ownership take precedence over fresh-bundle defaults.
+
+The ordinary invocation discovers an existing container, project, ordered
+Compose sources, interpolation context, image and durable private storage.
+Multiple candidates require a labeled selection. Missing source/ownership
+metadata is a prerequisite to resolve explicitly. Release-owned deployments
+carry `com.rateldesk.deployment.manager=release-compose`; an older stack without
+that label needs an explicit manager choice. An external manager's stack is
+never silently treated as release-owned.
+
+Use `--container NAME` for an intentional candidate, repeated ordered
+`--compose-file PATH` and `--env-file PATH` for missing source context,
+`--project NAME` / `--project-directory DIR` for its actual Compose context,
+or `--manager release-compose|external-compose` to declare ownership explicitly.
+Use `--image EXACT_REFERENCE` for first standalone setup without a discoverable
+MCP container. `--help` describes the complete installed launcher options.
+Never copy secret values into these arguments or print rendered Compose output.
+For an intentionally private HTTPS instance using a custom trust root, use
+`--ca-file /absolute/path/to/public-ca-bundle.pem`. The public CA bundle is
+mounted read-only into tooling and included in the source-generation hash;
+certificate/hostname verification stays enabled. Normal publicly trusted HTTPS
+needs no CA option.
+
+`--apply` uses the reviewed release-owned apply action. External-manager mode
+exports the complete private deployment document for review and application
+through that manager. `--verify` reopens the persisted generation from a fresh
+process after recreation. Source changes invalidate the reviewed generation;
+re-run preflight and obtain fresh review rather than editing the checkpoint.
+
+The launcher provisions separate private host output and client profile/secret
+directories, checks ownership and read/write access before approval, and retains
+the paths across invocations. It preserves unrelated services, custom ingress,
+API targets, volumes and integration identities. Container-local paths are never
+presented as invented host paths. A terminal inside a container cannot discover
+or apply its deployment host's Compose sources; use the real launcher on that
+host for those actions.
 
 Choose the task first: **Connect a client** obtains an account-owned credential;
 **Configure HTTP MCP hosting** exports local deployment settings for an
@@ -8,9 +59,11 @@ and validation services with runtime. Normal startup never prompts.
 
 ## Connect a client
 
-Run `rateldesk setup` or `rateldesk-mcp setup` from an interactive terminal and
-choose CLI, stdio or HTTP MCP client plus a named profile. Enter the intended
-HTTPS instance URL, validate capabilities, then use
+Run `rateldesk setup`, `rateldesk-mcp setup`, or the HTTP image's bare `setup`
+from an interactive terminal. The executable selects its client transport;
+the first screen asks for the intended HTTPS Web URL. A root URL, trailing slash
+or canonical `/mcp` form normalizes to the same origin. User information,
+queries, fragments and unknown paths are rejected. Validate capabilities, then use
 [browser approval](../integrations/browser-pairing.md) or explicit existing
 credential/import for older installations. Browser opening is deliberate;
 SSH users can open the visible trusted URL on another device.
@@ -32,21 +85,45 @@ an external OAuth token response. Authentication, initialize and tool-result
 remain explicitly unverified until that client connects.
 
 Gateway HTTP client setup checks configuration, reachability, accepted authentication,
-initialize and a read-only `helpdesk_auth` status result against API. Stdio setup
+initialize, the actual tool catalog and a read-only `helpdesk_auth` status result against API. Stdio setup
 also launches its selected executable through pipes for initialize and the
 authenticated read-only status call. Setup from a different distribution needs
 `--stdio-executable`; absent executable selection is reported as skipped and
 does not establish protocol acceptance. Follow the secret-reference launch snippet and review
 [CLI/stdio guidance](../integrations/cli-stdio.md).
 
-## First-run container tooling
+## Client setup in a container console
+
+Open the MCP container's terminal and run:
+
+```sh
+dotnet /app/Helpdesk.Mcp.Http.dll setup
+```
+
+From a deployment-host terminal, the equivalent is:
+
+```sh
+docker compose exec mcp-http dotnet /app/Helpdesk.Mcp.Http.dll setup
+```
+
+Use that deployment's actual ordered Compose context. In a browserless console,
+the trusted URL/code remains visible for another device. Save uses the dedicated
+durable client store supplied by the deployment; this store is separate from
+host settings and never mounted into API. Finish with the printed protected
+configuration snippet. An unwritable or ephemeral store is a prerequisite
+failure, not successful Save. Bare `setup` means HTTP client; `setup --mode host`
+(compatibility: `setup --target http-host`) explicitly selects host configuration.
+
+## Advanced standalone tooling
 
 The existing HTTP image includes setup and third-party licenses. These standalone
 Compose files require only setup output (and exact release version for the
 release recipe), so unrelated API/database/Authentik variables cannot block
 their interpolation. They do not start Web/API or mutate remote deployment.
 
-Prepare an explicit writable output directory. On Linux, the one-shot tooling
+The [launcher](#deployment-host-launcher) handles storage and dispatch for the
+normal path. These lower-level compatibility recipes are for a deliberately
+managed output mount. Prepare an explicit writable output directory. On Linux, the one-shot tooling
 can use the operator's UID/GID through `RATELDESK_SETUP_UID`/`RATELDESK_SETUP_GID`,
 avoiding a host-root ownership change. Their defaults are 10001/10001; other
 hosts can provision the mount for those defaults through their normal mechanism.
@@ -99,6 +176,14 @@ wizard.
 
 ## Reviewed host exports and applying them
 
+The normal launcher binds discovery, preflight, the administrator's consent,
+export/apply and observed-runtime verification to one effective proposal and its
+source hashes. The redacted review shows winning sources and only required
+changes. Higher-priority inline environment can mask an env-file change; fix
+the winning source rather than relying on a lower-priority overlay. Revalidation
+runs before export/apply. Saved settings and currently serving settings remain
+distinct until recreation and observation.
+
 The host workflow inspects existing exports and dedicated deployment environment
 or isolated MCP file inputs, showing managed values/source as read-only. It configures public
 origin, private API/MCP destinations, instance pin, gateway versus Authentik,
@@ -131,7 +216,7 @@ container mounting, so protect the entire export directory. The preview is
 redacted. The export does not change running env, parent-shell variables or
 immutable Docker secrets.
 
-Layer the selected base source/release Compose file, its matching
+For the lower-level compatibility export, layer the selected base source/release Compose file, its matching
 gateway/Authentik MCP overlay, then `compose.host.json` last. The underlying
 overlay still requires its interpolation inputs: config-file path, canonical
 public resource, allowed origin and, for external mode, authority/version.

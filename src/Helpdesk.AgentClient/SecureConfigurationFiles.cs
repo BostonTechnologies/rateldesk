@@ -16,10 +16,33 @@ public static class SecureConfigurationFiles
     private static readonly UTF8Encoding Utf8 = new(false, true);
 
     public static string ReadText(string path, int maxBytes = DefaultMaxBytes, bool requirePrivate = false)
-        => Guard(() => Utf8.GetString(ReadBytes(Normalize(path), maxBytes, requirePrivate)));
+        => Guard(() => maxBytes <= DefaultMaxBytes ? Utf8.GetString(ReadBytes(Normalize(path), maxBytes, requirePrivate))
+            : throw new AgentClientValidationException("Configuration read limit is invalid."));
+
+    /// <summary>Large deployment snapshots are private and bounded separately from credential profiles.</summary>
+    public static string ReadPrivateDocument(string path, int maxBytes = 1_048_576)
+        => Guard(() => Utf8.GetString(ReadBytes(Normalize(path), maxBytes, true)));
 
     /// <summary>Returns the hash of the file bytes, or null if the file does not exist.</summary>
     public static string? Revision(string path) => Guard(() => RevisionCore(Normalize(path)));
+
+    /// <summary>Checks an existing private store with the same ownership and ACL rules as its secret files.</summary>
+    public static void ValidatePrivateDirectory(string path) => Guard(() =>
+    {
+        var directory = Normalize(path);
+        RejectLinks(directory);
+        if (!Directory.Exists(directory)) throw new AgentClientValidationException("Private configuration storage must be an existing directory.");
+        if (OperatingSystem.IsWindows())
+            RequireWindowsPrivateSecurity(new DirectoryInfo(directory).GetAccessControl(AccessControlSections.Owner | AccessControlSections.Access));
+        else
+        {
+            var mode = File.GetUnixFileMode(directory);
+            if ((mode & PrivateDirectoryMode) != PrivateDirectoryMode || (mode & ~PrivateDirectoryMode) != 0)
+                throw new AgentClientValidationException("Private configuration directories require owner-only read/write/execute permissions (chmod 700).");
+            RequireCurrentOwner(directory);
+        }
+        return true;
+    });
 
     /// <summary>Serializes a complete profile operation independently of its atomic file writes.</summary>
     public static IDisposable AcquireOperationLease(string path, CancellationToken cancellationToken = default) => Guard(() =>
@@ -53,10 +76,16 @@ public static class SecureConfigurationFiles
     /// requires a missing file. Any other revision must match the current file bytes.
     /// </summary>
     public static string WriteAtomic(string path, string text, string? expectedRevision = null) => Guard(() =>
+        WriteAtomicCore(path, text, expectedRevision, DefaultMaxBytes));
+
+    public static string WritePrivateDocument(string path, string text, string? expectedRevision = null) => Guard(() =>
+        WriteAtomicCore(path, text, expectedRevision, 1_048_576));
+
+    private static string WriteAtomicCore(string path, string text, string? expectedRevision, int maximumBytes)
     {
         var destination = Normalize(path);
         var bytes = Utf8.GetBytes(text);
-        if (bytes.Length > DefaultMaxBytes)
+        if (bytes.Length > maximumBytes)
             throw new AgentClientValidationException("Configuration exceeds the permitted size.");
         RejectLinks(destination);
         var directory = Path.GetDirectoryName(destination)!;
@@ -70,7 +99,7 @@ public static class SecureConfigurationFiles
             if (new FileInfo(destination).IsReadOnly)
                 throw new AgentClientValidationException("The selected file is read-only; choose a writable profile or export directory.");
         }
-        var currentRevision = RevisionCore(destination);
+        var currentRevision = RevisionCore(destination, maximumBytes);
         if (expectedRevision is not null && !string.Equals(expectedRevision, currentRevision ?? "", StringComparison.Ordinal))
             throw new AgentClientValidationException("Configuration changed; reload it before saving.");
 
@@ -87,7 +116,7 @@ public static class SecureConfigurationFiles
             RejectLinks(destination);
             RejectLinks(temporary);
             RequirePrivateFile(temporary);
-            if (expectedRevision is not null && !string.Equals(expectedRevision, RevisionCore(destination) ?? "", StringComparison.Ordinal))
+            if (expectedRevision is not null && !string.Equals(expectedRevision, RevisionCore(destination, maximumBytes) ?? "", StringComparison.Ordinal))
                 throw new AgentClientValidationException("Configuration changed; reload it before saving.");
             File.Move(temporary, destination, overwrite: true);
             RequirePrivateFile(destination);
@@ -97,11 +126,11 @@ public static class SecureConfigurationFiles
         {
             if (File.Exists(temporary)) File.Delete(temporary);
         }
-    });
+    }
 
     private static byte[] ReadBytes(string path, int maxBytes, bool requirePrivate)
     {
-        if (maxBytes <= 0 || maxBytes > DefaultMaxBytes)
+        if (maxBytes <= 0 || maxBytes > 1_048_576)
             throw new AgentClientValidationException("Configuration read limit is invalid.");
         RejectLinks(path);
         if (requirePrivate) RequirePrivateFile(path);
@@ -122,10 +151,10 @@ public static class SecureConfigurationFiles
         return bytes.ToArray();
     }
 
-    private static string? RevisionCore(string path)
+    private static string? RevisionCore(string path, int maximumBytes = DefaultMaxBytes)
     {
         RejectLinks(path);
-        return File.Exists(path) ? Convert.ToHexString(SHA256.HashData(ReadBytes(path, DefaultMaxBytes, false))) : null;
+        return File.Exists(path) ? Convert.ToHexString(SHA256.HashData(ReadBytes(path, maximumBytes, false))) : null;
     }
 
     private static FileStream AcquireLock(string path, CancellationToken cancellationToken = default)

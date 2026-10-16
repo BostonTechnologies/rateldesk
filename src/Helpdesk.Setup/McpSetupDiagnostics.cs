@@ -4,12 +4,19 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Helpdesk.AgentClient;
+using Helpdesk.Mcp.Tools;
 
 namespace Helpdesk.Setup;
 
 /// <summary>Bounded actual transport probes. Only initialize and authenticated read-only status are invoked.</summary>
 internal static class McpSetupDiagnostics
 {
+    // The real RatelDesk catalog contains detailed discriminated request schemas. A 64KiB
+    // ceiling truncated valid catalogs. Bound each response to 1MiB and all pages to 4MiB.
+    internal const int MaximumResponseCharacters = 1024 * 1024;
+    private static readonly HashSet<string> CompatibleVersions = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
+    private static readonly IReadOnlyDictionary<string, JsonElement> ExpectedTools = HelpdeskToolDefinitions.Create()
+        .ToDictionary(tool => tool.ProtocolTool.Name, tool => tool.ProtocolTool.InputSchema, StringComparer.Ordinal);
     private static readonly object Initialize = new { protocolVersion = "2025-11-25", capabilities = new { }, clientInfo = new { name = "rateldesk-setup", version = "1" } };
     private static readonly object AuthStatus = new { name = "helpdesk_auth", arguments = new { operation = "status", confirm = false } };
 
@@ -24,6 +31,7 @@ internal static class McpSetupDiagnostics
                 new("reachability", "passed", "The exact canonical protected-resource metadata responded and matched the reviewed authorities."),
                 new("authentication", "unverified", "The external MCP client owns OAuth login, grants and token storage."),
                 new("initialize", "unverified", "External-client initialization requires that client's configured OAuth flow."),
+                new("catalog", "unverified", "Read the complete catalog in the configured external MCP client."),
                 new("tool-result", "unverified", "Run a permitted read-only status operation in the configured external MCP client.")];
         }
         if (configuration.ClientTransport != "http" || configuration.CredentialPurpose != "mcp" ||
@@ -39,71 +47,134 @@ internal static class McpSetupDiagnostics
         checks.Add(new("configuration", "passed", "MCP client resource and private credential reference are configured."));
         using var ownedClient = testClient is null ? new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan } : null;
         var client = testClient ?? ownedClient!;
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", secret);
-        client.DefaultRequestHeaders.Accept.ParseAdd("application/json, text/event-stream");
-        client.DefaultRequestHeaders.TryAddWithoutValidation("MCP-Protocol-Version", "2025-11-25");
+        var session = new HttpProbeSession(client, resource, secret);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(TimeSpan.FromSeconds(30));
-        var stage = "reachability";
+        var stage = "initialize";
         try
         {
-            using var initialize = await HttpCallAsync(client, resource, 1, "initialize", Initialize, deadline.Token);
+            using var initialize = await session.CallAsync(1, "initialize", Initialize, deadline.Token);
             checks.Add(new("reachability", "passed", "The configured MCP resource responded."));
             stage = "initialize";
             if (!ValidInitialization(initialize.RootElement))
-            { checks.Add(new("initialize", "failed", "The MCP endpoint rejected or returned an invalid initialization result.")); return checks; }
+            { checks.Add(Failed("initialize", "initialize_invalid", "protocol", "The MCP endpoint rejected or returned an incompatible initialization result.", "Check the MCP URL and supported protocol version.")); return checks; }
+            session.ProtocolVersion = initialize.RootElement.GetProperty("result").GetProperty("protocolVersion").GetString()!;
             checks.Add(new("initialize", "passed", "The endpoint returned a compatible MCP initialization result."));
-            using (var notification = new HttpRequestMessage(HttpMethod.Post, resource) { Content = JsonContent.Create(new { jsonrpc = "2.0", method = "notifications/initialized" }) })
-            using (var response = await client.SendAsync(notification, HttpCompletionOption.ResponseHeadersRead, deadline.Token))
-                response.EnsureSuccessStatusCode();
+            await session.NotifyAsync(deadline.Token);
+            stage = "catalog";
+            await CheckCatalogAsync((id, parameters) => session.CallAsync(id, "tools/list", parameters, deadline.Token));
+            checks.Add(new("catalog", "passed", $"The complete expected RatelDesk catalog ({ExpectedTools.Count} tools) and request schemas were returned."));
             stage = "authentication";
-            using var tool = await HttpCallAsync(client, resource, 2, "tools/call", AuthStatus, deadline.Token);
+            using var tool = await session.CallAsync(100, "tools/call", AuthStatus, deadline.Token);
             var ok = SuccessfulTool(tool.RootElement);
             checks.Add(new("authentication", ok ? "passed" : "failed", ok ? "The current API account endpoint accepted the caller's request-scoped delegated identity." : "The authenticated read-only status operation returned an access error."));
-            checks.Add(new("tool-result", ok ? "passed" : "failed", ok ? "helpdesk_auth/status returned a successful upstream read-only result." : "MCP transport responded, but its read-only upstream tool did not succeed."));
+            checks.Add(DescribeTool(tool.RootElement, ok));
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { checks.Add(new(stage, "failed", "MCP checks exceeded their 30-second deadline.")); }
-        catch (HttpRequestException exception) { checks.Add(new(exception.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden ? "authentication" : stage, "failed", "Check the trusted URL, TLS, credential grants and configured ingress. The MCP request failed.")); }
-        catch (JsonException) { checks.Add(new(stage, "failed", "The endpoint returned an invalid or oversized MCP protocol response.")); }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { checks.Add(Failed(stage, "mcp_deadline", "transport", "MCP checks exceeded their 30-second deadline.", "Check endpoint reachability and retry verification.")); }
+        catch (HttpRequestException exception) { checks.Add(new(exception.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden ? "authentication" : checks.Any(check => check.Name == "reachability") ? stage : "reachability", "failed", "The MCP request failed.") { Code = "mcp_http_failed", Layer = "transport", UpstreamStatus = (int?)exception.StatusCode, NextAction = "Check the trusted URL, TLS, credential grants and configured ingress." }); }
+        catch (JsonException)
+        {
+            if (!checks.Any(check => check.Name == "reachability") && session.ResponseReceived)
+                checks.Add(new("reachability", "passed", "The configured MCP resource responded; its protocol response was invalid."));
+            checks.Add(Failed(stage, "mcp_response_invalid", "protocol", "The endpoint returned an invalid, incomplete or oversized MCP protocol response.", "Check the selected MCP server version and gateway diagnostics."));
+        }
         return checks;
     }
 
-    private static async Task<JsonDocument> HttpCallAsync(HttpClient client, Uri resource, int id, string method, object parameters, CancellationToken ct)
+    // Authentication and session headers belong to one probe, never HttpClient defaults shared by callers.
+    private sealed class HttpProbeSession(HttpClient client, Uri resource, string secret)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, resource) { Content = JsonContent.Create(new { jsonrpc = "2.0", id, method, @params = parameters }) };
-        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        response.EnsureSuccessStatusCode();
-        if (response.Content.Headers.ContentLength > 65536) throw new JsonException();
-        if (response.Headers.TryGetValues("Mcp-Session-Id", out var sessions) && !client.DefaultRequestHeaders.Contains("Mcp-Session-Id"))
-            client.DefaultRequestHeaders.TryAddWithoutValidation("Mcp-Session-Id", sessions.First());
-        await using var stream = await response.Content.ReadAsStreamAsync(ct);
-        var reader = new BoundedProtocolReader(stream);
-        if (response.Content.Headers.ContentType?.MediaType == "text/event-stream")
+        private string? sessionId;
+        public string ProtocolVersion { get; set; } = "2025-11-25";
+        public bool ResponseReceived { get; private set; }
+        private HttpRequestMessage Request(object body)
         {
-            var data = new StringBuilder();
-            while (await reader.ReadLineAsync(ct) is { } line)
+            var request = new HttpRequestMessage(HttpMethod.Post, resource) { Content = JsonContent.Create(body) };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", secret);
+            request.Headers.Accept.ParseAdd("application/json, text/event-stream");
+            request.Headers.TryAddWithoutValidation("MCP-Protocol-Version", ProtocolVersion);
+            if (sessionId is not null) request.Headers.TryAddWithoutValidation("Mcp-Session-Id", sessionId);
+            return request;
+        }
+        public async Task NotifyAsync(CancellationToken ct)
+        {
+            using var request = Request(new { jsonrpc = "2.0", method = "notifications/initialized" });
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            response.EnsureSuccessStatusCode();
+        }
+        public async Task<JsonDocument> CallAsync(int id, string method, object parameters, CancellationToken ct)
+        {
+            using var request = Request(new { jsonrpc = "2.0", id, method, @params = parameters });
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            ResponseReceived = true;
+            response.EnsureSuccessStatusCode();
+            if (response.Content.Headers.ContentLength > MaximumResponseCharacters) throw new JsonException();
+            if (response.Headers.TryGetValues("Mcp-Session-Id", out var sessions))
             {
-                if (line.Length == 0 && data.Length > 0)
+                var values = sessions.ToArray();
+                if (values.Length != 1 || values[0].Length is < 1 or > 256 || values[0].Any(char.IsControl)) throw new JsonException();
+                if (sessionId is not null && sessionId != values[0]) throw new JsonException();
+                sessionId = values[0];
+            }
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            var reader = new BoundedProtocolReader(stream);
+            if (response.Content.Headers.ContentType?.MediaType == "text/event-stream")
+            {
+                var data = new StringBuilder();
+                while (await reader.ReadLineAsync(ct) is { } line)
                 {
-                    var message = JsonDocument.Parse(data.ToString()); data.Clear();
+                    if (line.Length == 0 && data.Length > 0)
+                    {
+                        var message = JsonDocument.Parse(data.ToString()); data.Clear();
+                        if (MatchingResponse(message.RootElement, id)) return message;
+                        message.Dispose();
+                    }
+                    else if (line.StartsWith("data:", StringComparison.Ordinal)) data.AppendLine(line[5..].TrimStart());
+                }
+                if (data.Length > 0)
+                {
+                    var message = JsonDocument.Parse(data.ToString());
                     if (MatchingResponse(message.RootElement, id)) return message;
                     message.Dispose();
                 }
-                else if (line.StartsWith("data:", StringComparison.Ordinal)) data.AppendLine(line[5..].TrimStart());
+                throw new JsonException();
             }
-            if (data.Length > 0)
-            {
-                var message = JsonDocument.Parse(data.ToString());
-                if (MatchingResponse(message.RootElement, id)) return message;
-                message.Dispose();
-            }
-            throw new JsonException();
+            var text = new StringBuilder();
+            while (await reader.ReadLineAsync(ct) is { } line) text.AppendLine(line);
+            var json = JsonDocument.Parse(text.ToString());
+            if (!MatchingResponse(json.RootElement, id)) { json.Dispose(); throw new JsonException(); }
+            return json;
         }
-        var text = new StringBuilder();
-        while (await reader.ReadLineAsync(ct) is { } line) text.AppendLine(line);
-        var json = JsonDocument.Parse(text.ToString());
-        if (!MatchingResponse(json.RootElement, id)) { json.Dispose(); throw new JsonException(); }
-        return json;
+    }
+
+    private static async Task CheckCatalogAsync(Func<int, object, Task<JsonDocument>> call)
+    {
+        var found = new HashSet<string>(StringComparer.Ordinal);
+        var cursors = new HashSet<string>(StringComparer.Ordinal);
+        string? cursor = null;
+        long size = 0;
+        for (var page = 0; page < 16; page++)
+        {
+            using var response = await call(2 + page, cursor is null ? new { } : new { cursor });
+            size += response.RootElement.GetRawText().Length;
+            if (size > 4 * MaximumResponseCharacters || response.RootElement.TryGetProperty("error", out _) ||
+                !response.RootElement.TryGetProperty("result", out var result) || result.ValueKind != JsonValueKind.Object ||
+                !result.TryGetProperty("tools", out var tools) || tools.ValueKind != JsonValueKind.Array) throw new JsonException();
+            foreach (var tool in tools.EnumerateArray())
+            {
+                if (tool.ValueKind != JsonValueKind.Object || !tool.TryGetProperty("name", out var name) || name.ValueKind != JsonValueKind.String ||
+                    !ExpectedTools.TryGetValue(name.GetString()!, out var schema) || !found.Add(name.GetString()!) ||
+                    !tool.TryGetProperty("inputSchema", out var inputSchema) || !JsonElement.DeepEquals(schema, inputSchema)) throw new JsonException();
+            }
+            if (!result.TryGetProperty("nextCursor", out var next) || next.ValueKind == JsonValueKind.Null)
+            {
+                if (!found.SetEquals(ExpectedTools.Keys)) throw new JsonException();
+                return;
+            }
+            if (next.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(next.GetString()) || next.GetString()!.Length > 2048 || !cursors.Add(next.GetString()!)) throw new JsonException();
+            cursor = next.GetString();
+        }
+        throw new JsonException();
     }
 
     public static async Task<IReadOnlyList<SetupCheck>> CheckStdioAsync(ConfigurationResolution resolution, SetupOptions options, string instance, CancellationToken ct)
@@ -141,19 +212,28 @@ internal static class McpSetupDiagnostics
             await process.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new { jsonrpc = "2.0", id = 1, method = "initialize", @params = Initialize }).AsMemory(), deadline.Token);
             await process.StandardInput.FlushAsync(deadline.Token);
             using var initialize = await ReadStdioAsync(reader, 1, deadline.Token);
-            if (!ValidInitialization(initialize.RootElement)) { checks.Add(new("initialize", "failed", "The stdio process returned an invalid initialization result.")); return checks; }
+            if (!ValidInitialization(initialize.RootElement)) { checks.Add(Failed("initialize", "initialize_invalid", "protocol", "The stdio process returned an incompatible initialization result.", "Use the matching RatelDesk stdio distribution.")); return checks; }
             checks.Add(new("initialize", "passed", "The isolated stdio distribution initialized with JSON-RPC output."));
             await process.StandardInput.WriteLineAsync("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}".AsMemory(), deadline.Token);
-            await process.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new { jsonrpc = "2.0", id = 2, method = "tools/call", @params = AuthStatus }).AsMemory(), deadline.Token);
+            stage = "catalog";
+            await CheckCatalogAsync(async (id, parameters) =>
+            {
+                await process.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new { jsonrpc = "2.0", id, method = "tools/list", @params = parameters }).AsMemory(), deadline.Token);
+                await process.StandardInput.FlushAsync(deadline.Token);
+                return await ReadStdioAsync(reader, id, deadline.Token);
+            });
+            checks.Add(new("catalog", "passed", $"The complete expected RatelDesk catalog ({ExpectedTools.Count} tools) and request schemas were returned."));
+            await process.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new { jsonrpc = "2.0", id = 100, method = "tools/call", @params = AuthStatus }).AsMemory(), deadline.Token);
             await process.StandardInput.FlushAsync(deadline.Token);
             stage = "tool-result";
-            using var tool = await ReadStdioAsync(reader, 2, deadline.Token);
+            using var tool = await ReadStdioAsync(reader, 100, deadline.Token);
             var ok = SuccessfulTool(tool.RootElement);
-            checks.Add(new("tool-result", ok ? "passed" : "failed", ok ? "helpdesk_auth/status completed an authenticated upstream read without mutation." : "The stdio transport responded, but its authenticated upstream read failed."));
+            checks.Add(new("authentication", ok ? "passed" : "failed", ok ? "The API account accepted the isolated stdio identity." : "The API-backed read-only status check failed."));
+            checks.Add(DescribeTool(tool.RootElement, ok));
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { checks.Add(new(stage, "failed", "Stdio checks exceeded their 30-second deadline.")); }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { checks.Add(Failed(stage, "stdio_deadline", "transport", "Stdio checks exceeded their 30-second deadline.", "Check the selected executable and private API connection, then retry.")); }
         catch (Exception exception) when (exception is IOException or JsonException or System.ComponentModel.Win32Exception or InvalidOperationException)
-        { checks.Add(new(stage, "failed", "The explicitly selected stdio distribution did not return valid bounded JSON-RPC. Check its configuration and stderr separately.")); }
+        { checks.Add(Failed(stage, "stdio_protocol_failed", "protocol", "The selected stdio distribution did not return valid bounded JSON-RPC.", "Check its configuration and stderr separately.")); }
         finally
         {
             deadline.Cancel();
@@ -171,6 +251,7 @@ internal static class McpSetupDiagnostics
     }
     private static async Task<JsonDocument> ReadStdioAsync(BoundedProtocolReader reader, int id, CancellationToken ct)
     {
+        reader.ResetLimit();
         while (await reader.ReadLineAsync(ct) is { } line)
         {
             var message = JsonDocument.Parse(line);
@@ -180,23 +261,53 @@ internal static class McpSetupDiagnostics
         throw new JsonException();
     }
     private static bool MatchingResponse(JsonElement json, int id) => json.ValueKind == JsonValueKind.Object &&
-        json.TryGetProperty("jsonrpc", out var version) && version.GetString() == "2.0" && json.TryGetProperty("id", out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var actual) && actual == id;
+        json.TryGetProperty("jsonrpc", out var version) && version.ValueKind == JsonValueKind.String && version.GetString() == "2.0" && json.TryGetProperty("id", out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var actual) && actual == id;
     private static bool ValidInitialization(JsonElement json) => !json.TryGetProperty("error", out _) && json.TryGetProperty("result", out var result) &&
-        result.ValueKind == JsonValueKind.Object && result.TryGetProperty("protocolVersion", out var version) && version.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(version.GetString());
+        result.ValueKind == JsonValueKind.Object && result.TryGetProperty("protocolVersion", out var version) && version.ValueKind == JsonValueKind.String && CompatibleVersions.Contains(version.GetString()!) &&
+        result.TryGetProperty("capabilities", out var capabilities) && capabilities.ValueKind == JsonValueKind.Object &&
+        result.TryGetProperty("serverInfo", out var server) && server.ValueKind == JsonValueKind.Object &&
+        server.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(name.GetString()) &&
+        server.TryGetProperty("version", out var serverVersion) && serverVersion.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(serverVersion.GetString());
     private static bool SuccessfulTool(JsonElement json) => !json.TryGetProperty("error", out _) && json.TryGetProperty("result", out var result) &&
-        (!result.TryGetProperty("isError", out var isError) || !isError.GetBoolean()) && result.TryGetProperty("structuredContent", out var structured) &&
+        result.ValueKind == JsonValueKind.Object && (!result.TryGetProperty("isError", out var isError) || isError.ValueKind == JsonValueKind.False) && result.TryGetProperty("structuredContent", out var structured) && structured.ValueKind == JsonValueKind.Object &&
         structured.TryGetProperty("success", out var success) && success.ValueKind == JsonValueKind.True;
+
+    private static SetupCheck Failed(string name, string code, string layer, string message, string action) =>
+        new(name, "failed", message) { Code = code, Layer = layer, NextAction = action };
+
+    private static SetupCheck DescribeTool(JsonElement json, bool ok)
+    {
+        string? code = null, reference = null; int? upstream = null;
+        if (json.TryGetProperty("result", out var result) && result.ValueKind == JsonValueKind.Object &&
+            result.TryGetProperty("structuredContent", out var content) && content.ValueKind == JsonValueKind.Object)
+        {
+            if (content.TryGetProperty("correlationId", out var correlation) && correlation.ValueKind == JsonValueKind.String) reference = SafeToken(correlation.GetString());
+            if (content.TryGetProperty("failure", out var failure) && failure.ValueKind == JsonValueKind.Object)
+            {
+                if (failure.TryGetProperty("code", out var failureCode) && failureCode.ValueKind == JsonValueKind.String) code = SafeToken(failureCode.GetString());
+                if (failure.TryGetProperty("upstreamStatus", out var status) && status.ValueKind == JsonValueKind.Number && status.TryGetInt32(out var number) && number is >= 100 and <= 599) upstream = number;
+            }
+        }
+        return new("tool-result", ok ? "passed" : "failed", ok ? "helpdesk_auth/status returned a successful API-backed read-only result." : "MCP transport responded, but its authenticated status operation failed.")
+        {
+            Code = code ?? (ok ? "status_succeeded" : "status_failed"), Layer = upstream is null ? "operation" : "api", UpstreamStatus = upstream,
+            CorrelationId = reference, TransportSucceeded = true, OperationSucceeded = ok,
+            NextAction = ok ? null : "Review the API account, approved organization and gateway diagnostics using the correlation reference."
+        };
+    }
+    private static string? SafeToken(string? value) => value is { Length: > 0 and <= 128 } && !value.Contains("rdk_", StringComparison.OrdinalIgnoreCase) && !value.Contains("rdx_", StringComparison.OrdinalIgnoreCase) && value.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-' or '.') ? value : null;
 
     private sealed class BoundedProtocolReader(Stream stream)
     {
         private readonly StreamReader _reader = new(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, bufferSize: 1024, leaveOpen: true);
         private int _characters;
+        public void ResetLimit() => _characters = 0;
         public async Task<string?> ReadLineAsync(CancellationToken ct)
         {
             var line = new StringBuilder(); var character = new char[1];
             while (await _reader.ReadAsync(character.AsMemory(), ct) > 0)
             {
-                if (++_characters > 65536) throw new JsonException();
+                if (++_characters > MaximumResponseCharacters) throw new JsonException();
                 if (character[0] == '\n') return line.ToString().TrimEnd('\r');
                 line.Append(character[0]);
             }

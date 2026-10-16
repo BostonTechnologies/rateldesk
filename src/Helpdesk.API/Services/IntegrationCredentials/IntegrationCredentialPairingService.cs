@@ -45,6 +45,8 @@ public sealed class IntegrationCredentialPairingService(
             throw Invalid("name", "Enter a connection name up to 128 characters without control characters.");
         var purpose = request.Purpose?.Trim().ToLowerInvariant();
         if (purpose is not ("api" or "mcp")) throw Invalid("purpose", "Purpose must be api or mcp.");
+        if (request.GrantKind is not ("ordinary" or "setup-verification") || (request.GrantKind == "setup-verification" && purpose != "mcp"))
+            throw Invalid("grantKind", "Setup verification is only available for this instance's MCP resource.");
         var resource = IntegrationCredentialIssuer.CanonicalMcpResourceUri(request.McpResourceUri);
         // Single-origin pairing binds to this deployment's trusted resource, never a caller-supplied recipient.
         if (purpose == "mcp" && resource != $"{PublicOrigin}/mcp")
@@ -60,7 +62,7 @@ public sealed class IntegrationCredentialPairingService(
         identity.IntegrationCredentialPairings.Add(new()
         {
             Id = Guid.NewGuid(), DeviceHash = Hash(device), HumanHash = Hash(human), Name = request.Name.Trim(),
-            Purpose = purpose, McpResourceUri = purpose == "mcp" ? resource : null, ExpiresAtUnixMilliseconds = expiry.ToUnixTimeMilliseconds()
+            Purpose = request.GrantKind == "setup-verification" ? IntegrationCredentialIssuer.SetupVerificationPurpose : purpose, McpResourceUri = purpose == "mcp" ? resource : null, ExpiresAtUnixMilliseconds = expiry.ToUnixTimeMilliseconds()
         });
         await identity.SaveChangesAsync(ct);
         return new(device, human.Insert(4, "-"), Capabilities().VerificationUri!, expiry, PollIntervalSeconds);
@@ -76,10 +78,11 @@ public sealed class IntegrationCredentialPairingService(
         var access = await accessService.ResolveAsync(principal, ct);
         var organizations = await db.Organizations.AsNoTracking().Where(o => o.IsEnabled).OrderBy(o => o.Name).ToListAsync(ct);
         var allowed = organizations.Select(o => new IntegrationPairingOrganization(o.Id, o.Name,
-            HelpdeskPermissions.AssignablePermissions.Where(p => access.IsHelpdeskAdmin || access.HasPermission(p, o.Id)).ToArray()))
-            .Where(o => o.Permissions.Count > 0).ToArray();
-        return new(NormalizeHuman(human).Insert(4, "-"), pair.Name, pair.Purpose, pair.McpResourceUri,
-            DateTimeOffset.FromUnixTimeMilliseconds(pair.ExpiresAtUnixMilliseconds), allowed);
+            pair.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose ? [] : HelpdeskPermissions.AssignablePermissions.Where(p => access.IsHelpdeskAdmin || access.HasPermission(p, o.Id)).ToArray()))
+            .Where(o => pair.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose ? access.IsHelpdeskAdmin || access.AllowedOrganizationIds.Contains(o.Id) : o.Permissions.Count > 0).ToArray();
+        return new(NormalizeHuman(human).Insert(4, "-"), pair.Name, pair.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose ? "mcp" : pair.Purpose, pair.McpResourceUri,
+            DateTimeOffset.FromUnixTimeMilliseconds(pair.ExpiresAtUnixMilliseconds), allowed)
+            { GrantKind = pair.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose ? "setup-verification" : "ordinary" };
     }
 
     public async Task<bool> ApproveAsync(IntegrationPairingApprovalRequest request, ClaimsPrincipal principal, string remote, CancellationToken ct)
@@ -92,7 +95,7 @@ public sealed class IntegrationCredentialPairingService(
         if (pair is null || pair.State != "pending" || pair.ExpiresAtUnixMilliseconds <= Now.ToUnixTimeMilliseconds()) return false;
         var grantRequest = new IntegrationCredentialEndpoints.CreateIntegrationCredentialRequest(pair.Name, pair.Purpose,
             request.OrganizationId, request.Permissions, request.LifetimeDays) { McpResourceUri = pair.McpResourceUri };
-        await issuer.ValidateAsync(principal, grantRequest, ct);
+        await ValidateGrantAsync(pair, principal, grantRequest, ct);
         pair.OwnerUserId = owner.UserId;
         pair.ProtectedApproval = protector.Protect(JsonSerializer.Serialize(new ApprovalSnapshot(grantRequest,
             principal.Claims.Select(c => new StoredClaim(c.Type, c.Value)).ToArray())));
@@ -135,7 +138,7 @@ public sealed class IntegrationCredentialPairingService(
                 {
                     var approval = JsonSerializer.Deserialize<ApprovalSnapshot>(protector.Unprotect(pair.ProtectedApproval!))!;
                     var principal = new ClaimsPrincipal(new ClaimsIdentity(approval.Claims.Select(c => new Claim(c.Type, c.Value)), "PairingApproval"));
-                    var grant = await issuer.ValidateAsync(principal, approval.Request, ct);
+                    var grant = await ValidateGrantAsync(pair, principal, approval.Request, ct);
                     if (grant.OwnerUserId != pair.OwnerUserId) throw new CredentialGrantException(null);
                     if (pair.State == "approved")
                     {
@@ -182,6 +185,9 @@ public sealed class IntegrationCredentialPairingService(
         {
             var pair = await FindDeviceAsync(device, ct);
             if (pair is null || pair.CredentialId != credentialId) return false;
+            // A tombstone never acknowledges access that has since been revoked or deleted.
+            var credential = await identity.IntegrationCredentials.AsNoTracking().SingleOrDefaultAsync(c => c.Id == credentialId, ct);
+            if (credential is null || credential.RevokedAtUtc is not null || credential.ExpiresAtUtc <= Now) return false;
             if (pair.State == "consumed") return true; // Durable retry after a lost acknowledgement response.
             try { if (await ExpireAsync(pair, Now.ToUnixTimeMilliseconds(), ct) || pair.State != "issued") return false; }
             catch (DbUpdateConcurrencyException) { identity.ChangeTracker.Clear(); continue; }
@@ -197,7 +203,7 @@ public sealed class IntegrationCredentialPairingService(
         for (var attempt = 0; attempt < 3; attempt++)
         {
             var pair = await FindDeviceAsync(device, ct);
-            if (pair is null || pair.State is "consumed" or "cancelled" or "expired" or "denied") return;
+            if (pair is null || (pair.State == "consumed" && pair.Purpose != IntegrationCredentialIssuer.SetupVerificationPurpose) || pair.State is "cancelled" or "expired" or "denied") return;
             await RevokeUnacknowledgedAsync(pair, ct);
             pair.State = "cancelled"; pair.ProtectedApproval = null; pair.ProtectedDelivery = null; pair.Revision++;
             try { await identity.SaveChangesAsync(ct); return; }
@@ -211,7 +217,7 @@ public sealed class IntegrationCredentialPairingService(
         var now = Now.ToUnixTimeMilliseconds();
         var expired = await identity.IntegrationCredentialPairings.Where(p =>
             (p.ExpiresAtUnixMilliseconds <= now || p.DeliveryExpiresAtUnixMilliseconds <= now) &&
-            (p.State == "pending" || p.State == "approved" || p.State == "issued")).Select(p => p.Id).Take(100).ToListAsync(ct);
+            (p.State == "pending" || p.State == "approved" || p.State == "issued" || (p.State == "consumed" && p.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose))).Select(p => p.Id).Take(100).ToListAsync(ct);
         foreach (var id in expired)
         {
             var pair = await identity.IntegrationCredentialPairings.SingleOrDefaultAsync(p => p.Id == id, ct);
@@ -233,7 +239,7 @@ public sealed class IntegrationCredentialPairingService(
         db.ActivityLogs.Add(new Helpdesk.Shared.Models.ActivityLog
         {
             Id = auditId, UserId = pair.OwnerUserId!, RelatedEntityId = delivery.Id.ToString("N"),
-            Message = $"Browser-approved integration credential created. Prefix={delivery.Prefix}; Purpose={delivery.Purpose}; OrganizationId={delivery.OrganizationId}; Permissions={string.Join(' ', delivery.Permissions)}; ExpiresAtUtc={delivery.ExpiresAtUtc:O}."
+            Message = $"Browser-approved {(pair.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose ? "temporary setup verification" : "integration")} credential created. Prefix={delivery.Prefix}; Purpose={delivery.Purpose}; OrganizationId={delivery.OrganizationId}; Permissions={string.Join(' ', delivery.Permissions)}; ExpiresAtUtc={delivery.ExpiresAtUtc:O}."
         });
         try { await db.SaveChangesAsync(ct); }
         catch (DbUpdateException error) when (IsUniqueViolation(error)) { db.ChangeTracker.Clear(); }
@@ -245,7 +251,7 @@ public sealed class IntegrationCredentialPairingService(
 
     private async Task<bool> ExpireAsync(IntegrationCredentialPairing pair, long now, CancellationToken ct)
     {
-        if (pair.State is "consumed" or "cancelled" or "denied" or "expired") return pair.State == "expired";
+        if ((pair.State == "consumed" && pair.Purpose != IntegrationCredentialIssuer.SetupVerificationPurpose) || pair.State is "cancelled" or "denied" or "expired") return pair.State == "expired";
         if (pair.ExpiresAtUnixMilliseconds > now && (pair.DeliveryExpiresAtUnixMilliseconds is null || pair.DeliveryExpiresAtUnixMilliseconds > now)) return false;
         await RevokeUnacknowledgedAsync(pair, ct);
         pair.State = "expired"; pair.ProtectedDelivery = null; pair.ProtectedApproval = null; pair.Revision++;
@@ -255,21 +261,21 @@ public sealed class IntegrationCredentialPairingService(
 
     private async Task RevokeUnacknowledgedAsync(IntegrationCredentialPairing pair, CancellationToken ct)
     {
-        if (pair.State == "consumed" || pair.CredentialId is null) return;
+        if ((pair.State == "consumed" && pair.Purpose != IntegrationCredentialIssuer.SetupVerificationPurpose) || pair.CredentialId is null) return;
         var credential = await identity.IntegrationCredentials.SingleOrDefaultAsync(c => c.Id == pair.CredentialId, ct);
         if (credential is not null && credential.RevokedAtUtc is null) credential.RevokedAtUtc = Now;
     }
 
     private Task<IntegrationCredentialPairing?> FindDeviceAsync(string device, CancellationToken ct) =>
         device?.Length != 64 ? Task.FromResult<IntegrationCredentialPairing?>(null) :
-        identity.IntegrationCredentialPairings.SingleOrDefaultAsync(p => p.DeviceHash == Hash(device), ct);
+        identity.IntegrationCredentialPairings.SingleOrDefaultAsync(p => p.DeviceHash == Hash(device) && p.Purpose != "http-host", ct);
     private Task<IntegrationCredentialPairing?> FindHumanAsync(string human, CancellationToken ct) =>
         NormalizeHuman(human).Length != 8 ? Task.FromResult<IntegrationCredentialPairing?>(null) :
-        identity.IntegrationCredentialPairings.SingleOrDefaultAsync(p => p.HumanHash == Hash(NormalizeHuman(human)), ct);
+        identity.IntegrationCredentialPairings.SingleOrDefaultAsync(p => p.HumanHash == Hash(NormalizeHuman(human)) && p.Purpose != "http-host", ct);
     private static string NormalizeHuman(string? human) => (human ?? "").Trim().Replace("-", "").ToUpperInvariant();
     private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
 
-    private async Task<bool> TakeAttemptAsync(string subject, int limit, CancellationToken ct)
+    internal async Task<bool> TakeAttemptAsync(string subject, int limit, CancellationToken ct)
     {
         var window = Now.ToUnixTimeMilliseconds() / 600000;
         var key = Hash($"{subject}:{window}");
@@ -284,6 +290,12 @@ public sealed class IntegrationCredentialPairingService(
         }
         return false;
     }
+
+    private Task<ValidatedCredentialGrant> ValidateGrantAsync(IntegrationCredentialPairing pair, ClaimsPrincipal principal,
+        IntegrationCredentialEndpoints.CreateIntegrationCredentialRequest request, CancellationToken ct) =>
+        pair.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose
+            ? issuer.ValidateSetupVerificationAsync(principal, request, ct)
+            : issuer.ValidateAsync(principal, request, ct);
 
     private static CredentialGrantException Invalid(string key, string message) => new(new() { [key] = [message] });
     private sealed record StoredClaim(string Type, string Value);

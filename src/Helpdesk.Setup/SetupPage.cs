@@ -24,7 +24,7 @@ public sealed class SetupPage : ReactivePage<SetupViewModel>
 
     protected override void OnBound()
     {
-        foreach (var field in new[] { ViewModel.Profile, ViewModel.Instance, ViewModel.ManualSecret, ViewModel.TokenUrl, ViewModel.ClientId,
+        foreach (var field in new[] { ViewModel.Profile, ViewModel.Instance, ViewModel.NativeApiTarget, ViewModel.ManualSecret, ViewModel.TokenUrl, ViewModel.ClientId,
             ViewModel.Username, ViewModel.Scope, ViewModel.SecretFile, ViewModel.InstanceLabel, ViewModel.HostPublicOrigin, ViewModel.ApiBackend,
             ViewModel.McpBackend, ViewModel.AllowedOrigins, ViewModel.Listener, ViewModel.Authority, ViewModel.Audience,
             ViewModel.RequiredScopes, ViewModel.RequiredGroups, ViewModel.OutputDirectory })
@@ -92,11 +92,11 @@ public sealed class SetupPage : ReactivePage<SetupViewModel>
             : form;
         var header = Layouts.Vertical(
             new TextNode("RatelDesk setup").WithForeground(Accent).Bold().Height(1),
-            new TextNode($"{Title()} · profile {TerminalText.Sanitize(ViewModel.Profile.Value, 64)} · {TerminalText.Sanitize(ViewModel.Instance.Value, 100)}").Height(1));
+            new TextNode(ViewModel.Step.Value == SetupStep.Instance ? "Connect using your RatelDesk Web URL" : $"{Title()} · {TerminalText.Sanitize(ViewModel.Instance.Value, 100)}").Height(1));
         var status = ViewModel.Status.Select<string, ILayoutNode>(message => new TextNode(TerminalText.Sanitize(message)).WithForeground(Accent)).AsLayout(RenderFrameProvider);
         var working = ViewModel.Busy.Select<bool, ILayoutNode>(busy => busy
             ? new SpinnerNode().WithLabel("Working…").WithSpinnerColor(Accent)
-            : new TextNode("[PageUp/PageDown] Scroll · externally managed settings are read-only")).AsLayout(RenderFrameProvider);
+            : new TextNode(ViewModel.IsHosting ? "Server setup · personal client identities are separate" : $"{ViewModel.Transport} client · private storage chosen automatically")).AsLayout(RenderFrameProvider);
         var root = Layouts.Vertical(header.Height(2), body.Fill(), status.Height(2), working.Height(1), new TextNode(ViewModel.Footer).Height(2));
         if (!ViewModel.ConfirmOverwrite.Value)
         {
@@ -119,16 +119,16 @@ public sealed class SetupPage : ReactivePage<SetupViewModel>
 
     private string Title() => ViewModel.Step.Value switch
     {
-        SetupStep.Purpose => "Choose a task", SetupStep.Profile => "Client and profile", SetupStep.Instance => "Trusted instance",
+        SetupStep.Purpose => "Choose a task", SetupStep.Profile => "Client and profile", SetupStep.Instance => "RatelDesk Web URL",
         SetupStep.Authentication => "Authentication", SetupStep.Approval => "Browser approval", SetupStep.Hosting => "HTTP MCP hosting",
         SetupStep.Review => "Review and save", SetupStep.Checks => "Read-only checks", _ => "Result and next steps"
     };
     private string Stepper() => string.Join('\n', new[]
     {
-        (SetupStep.Purpose, "Task"), (SetupStep.Profile, "Client / profile"), (SetupStep.Instance, "Instance"),
+        (SetupStep.Instance, "Web URL"),
         (SetupStep.Authentication, "Authentication"), (SetupStep.Approval, "Approval"), (SetupStep.Hosting, "Hosting"),
         (SetupStep.Review, "Review"), (SetupStep.Checks, "Checks"), (SetupStep.Complete, "Done")
-    }.Where(item => ViewModel.IsHosting ? item.Item1 is SetupStep.Purpose or SetupStep.Hosting or SetupStep.Review or SetupStep.Complete : item.Item1 != SetupStep.Hosting)
+    }.Where(item => ViewModel.IsHosting ? item.Item1 is SetupStep.Instance or SetupStep.Hosting or SetupStep.Review or SetupStep.Complete : item.Item1 != SetupStep.Hosting)
         .Select(item => $"{(ViewModel.Step.Value == item.Item1 ? ">" : " ")} {item.Item2}"));
 
     private ILayoutNode BuildStep()
@@ -143,13 +143,35 @@ public sealed class SetupPage : ReactivePage<SetupViewModel>
                 Select(["CLI", "stdio MCP", "HTTP MCP client"], (int)ViewModel.Transport, value => ViewModel.SelectTransport(value == "CLI" ? SetupTransport.Cli : value == "stdio MCP" ? SetupTransport.Stdio : SetupTransport.Http)),
                 Input("Profile name", ViewModel.Profile, "lowercase letters, digits and hyphens"),
                 ViewModel.Transport == SetupTransport.Stdio ? Input("Instance label", ViewModel.InstanceLabel, "local") : Layouts.Empty()),
-            SetupStep.Instance => Layouts.Vertical(
-                new TextNode("Use the public HTTPS origin. Discovery sends no existing credential and never guesses another instance.").HeightAuto(),
-                Input("Instance URL", ViewModel.Instance, "https://desk.example.com", "apiBaseUrl")),
+            SetupStep.Instance => UrlForm(),
             SetupStep.Authentication => AuthenticationForm(),
             SetupStep.Hosting => HostingForm(),
             _ => ViewModel.Detail.Select<string, ILayoutNode>(text => new TextNode(text)).AsLayout(RenderFrameProvider)
         };
+    }
+
+    private ILayoutNode UrlForm()
+    {
+        var fields = Layouts.Vertical(
+            Input("RatelDesk Web URL", ViewModel.Instance, "https://desk.example.com", ViewModel.IsHosting ? "PublicOrigin" : ViewModel.NativeApiTarget.Value.Length == 0 ? "apiBaseUrl" : null),
+            Select(["Next", ViewModel.Advanced.Value ? "Hide Advanced" : "Advanced"], 0, value =>
+            { if (value == "Next") _ = ViewModel.NextAsync(); else ViewModel.ToggleAdvanced(); }));
+        if (!ViewModel.Advanced.Value) return fields;
+        fields.WithChild(new TextNode("Advanced · existing managed values remain with their owning source.").HeightAuto())
+            .WithChild(Select(["Connect a client", "Configure HTTP MCP server"], ViewModel.IsHosting ? 1 : 0,
+                value => { ViewModel.SelectPurpose(value == "Configure HTTP MCP server"); InvalidateLayout(); }));
+        if (ViewModel.IsHosting)
+            fields.WithChild(Input("Server setup storage", ViewModel.OutputDirectory, "durable private deployment storage"));
+        else
+            fields.WithChild(Select(["CLI", "stdio MCP", "HTTP MCP client"], (int)ViewModel.Transport,
+                value => { ViewModel.SelectTransport(value == "CLI" ? SetupTransport.Cli : value == "stdio MCP" ? SetupTransport.Stdio : SetupTransport.Http); InvalidateLayout(); }))
+                .WithChild(Input("Profile name", ViewModel.Profile, "default"))
+                .WithChild(ViewModel.Transport == SetupTransport.Stdio ? Input("Instance label", ViewModel.InstanceLabel, "local") : Layouts.Empty());
+        if (!ViewModel.IsHosting && ViewModel.Transport != SetupTransport.Http)
+            fields.WithChild(Input("Explicit API destination (optional)", ViewModel.NativeApiTarget, "Existing private HTTP(S) API target; leave blank for the Web URL", "apiBaseUrl"))
+                .WithChild(Select(["Browser Web approval", "Keep existing API identity", "Import API credential", "External Authentik identity"], ViewModel.Authentication switch { "existing" => 1, "manual" => 2, "authentik" => 3, _ => 0 },
+                    value => ViewModel.SelectAuthentication(value.StartsWith("Keep", StringComparison.Ordinal) ? "existing" : value.StartsWith("Import", StringComparison.Ordinal) ? "manual" : value.StartsWith("External", StringComparison.Ordinal) ? "authentik" : "browser")));
+        return fields;
     }
 
     private ILayoutNode AuthenticationForm()
@@ -163,7 +185,9 @@ public sealed class SetupPage : ReactivePage<SetupViewModel>
             ViewModel.SelectAuthentication(value.StartsWith("Browser", StringComparison.Ordinal) ? "browser" : value.StartsWith("Import", StringComparison.Ordinal) ? "manual" : value.StartsWith("Keep", StringComparison.Ordinal) ? "existing" : ViewModel.Transport == SetupTransport.Http ? "oauth" : "authentik");
             InvalidateLayout();
         });
-        var fields = Layouts.Vertical(new TextNode(ViewModel.Detail.Value).HeightAuto(), identity);
+        var fields = Layouts.Vertical(new TextNode(ViewModel.Detail.Value).HeightAuto(),
+            ViewModel.Advanced.Value || !ViewModel.PairingSupported && ViewModel.Authentication == "manual" ? identity :
+                new TextNode($"Authentication: {ViewModel.Authentication} · [F2] Advanced to choose another method").HeightAuto());
         if (ViewModel.Authentication == "manual")
             fields.WithChild(Input("Credential (masked)", ViewModel.ManualSecret, "rdk_…", "integrationCredential"))
                 .WithChild(Input("Or private credential file", ViewModel.SecretFile, "leave blank when entering a credential", "integrationCredentialFile"));
@@ -185,6 +209,10 @@ public sealed class SetupPage : ReactivePage<SetupViewModel>
 
     private ILayoutNode HostingForm()
     {
+        if (!ViewModel.Advanced.Value)
+            return Layouts.Vertical(
+                new TextNode($"RatelDesk Web URL: {TerminalText.Sanitize(ViewModel.HostPublicOrigin.Value)}\nIngress: {TerminalText.Sanitize(ViewModel.HostAuthentication)}\nPrivate setup storage: {TerminalText.Sanitize(ViewModel.OutputDirectory.Value)}").HeightAuto(),
+                new TextNode("Next validates the complete deployment before administrator approval. [F2] Advanced shows deployment settings.").HeightAuto());
         var fields = Layouts.Vertical(new TextNode("Configure the public resource and private backends separately. This writes an export for operator apply/recreation.").HeightAuto(),
             Input("Export directory", ViewModel.OutputDirectory, "persistent writable mount"),
             Select(["Load existing export", "Edit reviewed settings"], 1, value => { if (value == "Load existing export") { try { ViewModel.LoadHosting(); } catch (AgentClientValidationException exception) { ViewModel.Status.Value = TerminalText.Sanitize(exception.Message); } InvalidateLayout(); } }),

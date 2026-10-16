@@ -14,7 +14,17 @@ public sealed record ConfigurationProfileSaveResult(string Path, string Revision
 /// <summary>Explicit profiles are isolated by surface; no selected MCP identity is inferred from CLI state.</summary>
 public sealed partial class ConfigurationProfiles(string? rootPath = null, ConfigurationSurface surface = ConfigurationSurface.Cli)
 {
-    public string RootPath { get; } = System.IO.Path.Combine(rootPath ?? System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config", "rateldesk", "profiles"), surface.ToString().ToLowerInvariant());
+    public string RootPath { get; } = System.IO.Path.Combine(rootPath ?? DefaultRootPath(), surface.ToString().ToLowerInvariant());
+
+    private static string DefaultRootPath()
+    {
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var legacy = System.IO.Path.IsPathFullyQualified(userProfile) ? System.IO.Path.Combine(userProfile, ".config", "rateldesk", "profiles") : null;
+        if (legacy is not null && Directory.Exists(legacy)) return legacy;
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        if (System.IO.Path.IsPathFullyQualified(appData)) return System.IO.Path.Combine(appData, "rateldesk", "profiles");
+        return legacy ?? throw new AgentClientValidationException("A durable per-user profile directory is unavailable. Supply --config with a private persistent path.");
+    }
 
     public IReadOnlyList<string> List()
     {

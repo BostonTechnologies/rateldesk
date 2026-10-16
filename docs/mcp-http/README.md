@@ -5,7 +5,8 @@ share the Web public origin or use an explicitly configured standalone origin.
 
 - [Configuration and authentication](configuration.md): all host/outbound
   settings, modes, secret sources, precedence and trust boundaries.
-- [Setup and deployment](deployment.md): client versus host setup, source and
+- [Set up HTTP MCP](setup.md): short server and individual client procedure.
+- [Deployment reference](deployment.md): alternate terminals, source and
   release Compose, persisted configuration, migration and rotation.
 - [Troubleshooting and verification](troubleshooting.md): separate routing,
   authentication, initialize and permitted read-only tool checks.

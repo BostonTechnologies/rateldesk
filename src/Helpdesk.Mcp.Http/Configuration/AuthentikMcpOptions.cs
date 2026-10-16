@@ -27,6 +27,26 @@ public sealed class HelpdeskMcpHttpOptions
     public int DelegationTimeoutSeconds { get; init; } = 20;
 }
 
+/// <summary>The HTTP serving validator is also used by deployment preflight.</summary>
+public sealed class HelpdeskMcpHttpOptionsValidator : IValidateOptions<HelpdeskMcpHttpOptions>
+{
+    public ValidateOptionsResult Validate(string? name, HelpdeskMcpHttpOptions options)
+    {
+        var failures = new List<string>();
+        if (!AuthentikMcpOptionsValidator.IsCanonicalMcpResource(options.PublicResourceUri) ||
+            !Uri.TryCreate(options.PublicResourceUri, UriKind.Absolute, out var resource) ||
+            resource.UserInfo.Length != 0 || resource.Query.Length != 0 || resource.Fragment.Length != 0)
+            failures.Add("Helpdesk:Mcp:PublicResourceUri must be an absolute HTTPS /mcp URI without credentials, query or fragment.");
+        if (options.AllowedOrigins is not { Length: > 0 } || options.AllowedOrigins.Any(origin => !AuthentikMcpOptionsValidator.IsAllowedOrigin(origin) || new Uri(origin).UserInfo.Length != 0))
+            failures.Add("Helpdesk:Mcp:AllowedOrigins must contain one or more absolute HTTP(S) origins without paths or credentials.");
+        if (!AuthentikMcpOptionsValidator.IsAuthenticationMode(options.AuthenticationMode.Trim().ToLowerInvariant()))
+            failures.Add("Helpdesk:Mcp:AuthenticationMode must be gateway or authentik.");
+        if (options.DelegationTimeoutSeconds is < 1 or > 60)
+            failures.Add("Helpdesk:Mcp:DelegationTimeoutSeconds must be between 1 and 60.");
+        return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
+    }
+}
+
 public sealed class AuthentikMcpOptionsValidator(IOptions<HelpdeskMcpHttpOptions> mcpOptions)
     : IValidateOptions<AuthentikMcpOptions>
 {

@@ -56,8 +56,35 @@ deployment_directory="$staging_directory/rateldesk-deployment-$version"
 rm -rf "$deployment_directory"
 mkdir -p "$deployment_directory"
 cp -a "$repository_root/docker/." "$deployment_directory/"
+cp "$repository_root/tools/mcp/setup-http-mcp.sh" "$repository_root/tools/mcp/setup-http-mcp.py" "$deployment_directory/"
+chmod 0755 "$deployment_directory/setup-http-mcp.sh" "$deployment_directory/setup-http-mcp.py"
 cp "$repository_root/LICENSE" "$deployment_directory/LICENSE"
 python3 "$repository_root/tools/release/package-documentation.py" "$deployment_directory" --flat-deployment
+python3 - "$deployment_directory/setup-release.json" "$version" <<'PY'
+import json, pathlib, sys
+pathlib.Path(sys.argv[1]).write_text(json.dumps({
+    "schemaVersion": 1,
+    "version": sys.argv[2],
+    "composeFile": "docker-compose.release.yml",
+    "projectName": "rateldesk",
+    "manager": "release-compose",
+    "image": f"ghcr.io/bostontechnologies/rateldesk-mcp-http:{sys.argv[2]}",
+}, indent=2) + "\n", encoding="utf-8")
+PY
+cat > "$deployment_directory/README.txt" <<EOF
+RatelDesk deployment $version
+
+From this extracted directory on the deployment host, run ./setup-http-mcp.sh.
+The adjacent Python helper requires Python 3; Docker with Compose is required.
+The launcher never installs packages. Resume after applying with
+./setup-http-mcp.sh --verify. Follow docs/mcp-http/setup.md for the short guide
+and docs/mcp-http/deployment.md for alternate contexts and advanced configuration.
+
+Compose files are at this directory's root. Keep existing volumes, API state,
+ingress and deployment-manager ownership. Use exact image tags or manifest
+digests; beta publication never promotes latest. Third-party notices/licenses
+are included in licenses/.
+EOF
 tar -C "$staging_directory" -czf "$output_directory/rateldesk-deployment-$version.tar.gz" "rateldesk-deployment-$version"
 
 (cd "$output_directory" && find . -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' \) -printf '%f\n' | sort | xargs -r sha256sum > SHA256SUMS)

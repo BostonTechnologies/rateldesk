@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 const suite = process.env.HELPDESK_NATIVE_ZOOM_SUITE!;
 const routes: Record<string, string[]> = {
+  integrations: ['/account/integration-credentials?tab=credentials', '/account/integration-credentials?tab=connections&organizationId=org-b'],
   admin: ['/admin/roles', '/admin/resources/data-management', '/admin/support-routing', '/admin/tenant-sla-settings'],
   details: ['/incidents/incidents-1', '/requests/requests-1', '/changes/changes-1'],
   email: ['/incidents'],
@@ -11,7 +12,7 @@ const routes: Record<string, string[]> = {
   operations: ['/self-service', '/ops/slas', '/ops/workflows', '/ops/hangfire'],
   'pending-mail': ['/admin/pending-emails']
 };
-const ports: Record<string, number> = { admin: 18500, details: 18600, email: 18304, 'ticket-filters': 18330, operations: 18400, 'pending-mail': 18700 };
+const ports: Record<string, number> = { admin: 18500, integrations: 18505, details: 18600, email: 18304, 'ticket-filters': 18330, operations: 18400, 'pending-mail': 18700 };
 async function settleFiniteAnimations(page: Page) {
   await page.evaluate(async () => {
     await document.fonts.ready;
@@ -33,12 +34,16 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
     const profile = await mkdtemp(path.join(tmpdir(), 'rateldesk-zoom-'));
     const extension = path.resolve('tests/ux/native-zoom-extension');
     const context = await chromium.launchPersistentContext(profile, {
-      channel: 'chromium', headless: true, ignoreHTTPSErrors: true,
+      channel: process.env.HELPDESK_E2E_CHROMIUM_PATH ? undefined : 'chromium',
+      executablePath: process.env.HELPDESK_E2E_CHROMIUM_PATH, headless: true, ignoreHTTPSErrors: true,
       viewport: { width, height: 1000 },
       args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`]
     });
     try {
-      const worker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker');
+      await expect.poll(() => context.serviceWorkers().length, {
+        message: 'The isolated native zoom extension service worker must become available before opening the application.'
+      }).toBeGreaterThan(0);
+      const worker = context.serviceWorkers()[0];
       const page = await context.newPage();
       await context.addInitScript(value => localStorage.setItem('helpdesk.theme.preference', value), theme);
       await page.goto(`${baseURL}/auth/development`);
@@ -71,6 +76,40 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
           await tabs.nth(index).press('Enter');
           await expect(tabs.nth(index)).toHaveAttribute('aria-selected', 'true');
         }
+        if (suite === 'integrations' && route.includes('tab=connections')) {
+          await page.getByRole('tab', { name: 'System connections', exact: true }).click();
+          const panel = page.getByTestId('system-connections-panel');
+          await expect(panel.getByTestId('system-connection-row')).toHaveCount(7);
+          await panel.locator('[data-connection-id="mapping-1"]').getByRole('button', { name: 'View', exact: true }).click();
+          const review = page.getByRole('dialog', { name: 'Connection configuration', exact: true });
+          await expect(review).toBeVisible();
+          await expect(review.getByRole('combobox', { name: 'RatelDesk organization', exact: true })).toHaveText('Synthetic Alpha');
+          const bounds = await review.boundingBox();
+          expect(bounds!.x).toBeGreaterThanOrEqual(0); expect(bounds!.y).toBeGreaterThanOrEqual(0);
+          expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width / 2 + 1);
+          expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(501);
+          const footer = await review.locator('footer').boundingBox();
+          expect(footer!.y + footer!.height).toBeLessThanOrEqual(501);
+          expect(await review.evaluate(el => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(2);
+          await expect(review.getByTestId('save-system-connection')).toBeVisible();
+          await review.getByRole('button', { name: 'Back to connections', exact: true }).focus();
+          await page.keyboard.press('Tab');
+          expect(await review.evaluate(el => el.contains(document.activeElement))).toBe(true);
+        }
+        if (suite === 'integrations' && !route.includes('tab=connections')) {
+          await page.getByLabel('Client code', { exact: true }).fill('ABCD-TEST');
+          await page.getByRole('button', { name: 'Review client', exact: true }).click();
+          const review = page.getByRole('dialog', { name: 'Connection consent', exact: true });
+          await expect(review).toBeVisible();
+          await review.getByLabel('Organization', { exact: true }).selectOption('org-a');
+          await review.getByRole('button', { name: /^Select \d+ displayed eligible permissions$/ }).click();
+          const bounds = await review.boundingBox();
+          expect(bounds!.x).toBeGreaterThanOrEqual(0);
+          expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width / 2 + 1);
+          const footer = await review.locator('footer').boundingBox();
+          expect(footer!.y + footer!.height).toBeLessThanOrEqual(501);
+          await expect(review.getByRole('button', { name: 'Approve connection', exact: true })).toBeVisible();
+        }
         if (suite === 'email') {
           await page.getByRole('button', { name: 'Preview: Synthetic service notice' }).focus();
           const preview = page.getByRole('dialog', { name: 'Email preview' });
@@ -102,7 +141,10 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
         const captureHeight = screenshot.readUInt32BE(20);
         expect(captureWidth).toBe(width);
         expect(captureHeight).toBe(1000);
-        await writeFile(info.outputPath(`${route.replaceAll('/', '-')}-${theme}-${width}-native-200.png`), screenshot);
+        // Route queries remain part of navigation and evidence, but artifact
+        // paths must also be valid on Windows and GitHub's artifact service.
+        const routeFileName = route.replace(/[^a-zA-Z0-9._-]+/g, '-');
+        await writeFile(info.outputPath(`${routeFileName}-${theme}-${width}-native-200.png`), screenshot);
         await info.attach(`${route}-native-zoom`, { body: JSON.stringify({ zoom, physicalWidth: width, layoutWidth: await page.evaluate(() => innerWidth), theme,
           capture: 'physical viewport without CSS clip', captureWidth, captureHeight }), contentType: 'application/json' });
       }

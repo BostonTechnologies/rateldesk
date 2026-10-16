@@ -8,14 +8,58 @@ action; opening the link or signing in alone grants nothing. No account password
 is entered in the terminal.
 
 The browser approval page is `/account/integration-credentials/approve`.
-It shows the name, API/MCP purpose and resource, then requires selection of one
+Its compact **HTTP MCP host deployment** / **CLI / MCP client access** entry
+panels use **Review host** and **Review client** respectively. Entering a code,
+opening a deep link or signing in never approves it. A code for the wrong kind
+does not switch the requested action. Only authorized administrators can review
+host proposals. A successful lookup opens a bounded review with explicit
+approve/deny actions; recoverable errors retain the entered code.
+
+Ordinary client review shows the name, API/MCP purpose and resource, then requires selection of one
 currently enabled organization, currently assignable permissions and lifetime
 (30-day default, 1–90 days). It does not preselect broad grants. The terminal
 shows the actual approved grants, stages a private candidate, acknowledges that
 durable candidate, then atomically activates the working profile and performs
 bounded read-only checks. The created ordinary `rdk_`
-credential appears at `/account/integration-credentials` and can be revoked
-there normally.
+credential appears at `/account/integration-credentials` and can be revoked or
+deleted there normally. The grouped permission selector is shared with manual
+creation: search and group select/clear operate on exact eligible permission
+IDs, and filtered select-all states its displayed scope. Existing selections
+remain visible when filtered. Changing organization requires grant revalidation;
+no broad grant is selected automatically.
+
+## Host proposal and temporary verification consent
+
+Host review approves the redacted effective deployment proposal and source
+generation. It issues no consumer credential or persistent downstream gateway
+identity. Changed material sources require renewed review. Apply/recreation
+still belongs to the declared deployment owner.
+
+The separately identified **Temporary verification client** shows its exact
+status-check purpose, reviewed organization/resource and five-minute maximum
+lifetime. Explicit consent creates a setup-only verifier through the existing
+credential authority. It cannot select ordinary business grants or another
+organization. Initialization/catalog and the exact authenticated
+`helpdesk_auth/status` operation are its entire purpose. It is never saved as a
+personal client profile and does not relax ordinary 1–90-day credential rules.
+Setup revokes it after success, failure or cancellation; bounded server expiry
+handles abandonment. Unconfirmed remote cleanup stays explicitly pending with
+the displayed recovery action.
+
+## Credential management
+
+The compact list has search, **All**, **Active**, **Revoked** and **Expired**
+filters/counts and bounded details. **Revoke** retains an inactive record.
+**Revoke & delete** confirms the named active credential, stops subsequent
+authorization and durably removes the authentication record and grants.
+Inactive records offer **Delete**. Removing a local profile alone does neither.
+
+**Delete selected inactive** sends only explicitly selected inactive IDs, in
+bounded batches of at most 50. Hidden/unselected and active rows are not included
+implicitly. Partial failures remain visible for retry; acknowledged changes
+survive delayed stale list responses. Repeated deletion is idempotent and
+owner-scoped. Non-secret actor/time audit remains; a stale pairing delivery
+cannot restore deleted access. Already accepted operations cannot be undone.
 
 An unauthenticated visit returns through the existing local password/MFA or
 linked-OIDC sign-in using a validated relative return URL. Browser consent posts

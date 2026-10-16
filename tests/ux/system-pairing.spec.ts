@@ -26,17 +26,31 @@ test('System connections keeps the two-field pairing form compact in desktop and
   await expect(form.getByRole('checkbox')).toHaveCount(0);
   // Clear the synthetic code before deliberate screenshots.
   await form.getByLabel('Pairing code', { exact: true }).fill('');
-  for (const width of [390, 1440]) {
-    await page.setViewportSize({ width, height: 900 });
+  await form.getByRole('button', { name: 'Cancel', exact: true }).click();
+  for (const width of [390, 1366]) {
+    await page.setViewportSize({ width, height: 768 });
     for (const theme of ['Light', 'Dark'] as const) {
       await selectTheme(page, theme);
+      const opener = page.getByTestId('create-system-connection');
+      await opener.click();
+      const review = page.getByRole('dialog', { name: 'Create Connection', exact: true });
+      await expect(review).toBeVisible();
       await assertNoHorizontalOverflow(page);
       await expect(form).toBeVisible();
       await expect(page.getByTestId('pair-and-connect')).toBeVisible();
+      const bounds = await review.boundingBox();
+      expect(bounds!.x).toBeGreaterThanOrEqual(0);
+      expect(bounds!.y).toBeGreaterThanOrEqual(0);
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width + 1);
+      expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(769);
+      await form.getByLabel('Address', { exact: true }).focus();
+      await expect(form.getByLabel('Address', { exact: true })).toBeFocused();
       await page.screenshot({ path: testInfo.outputPath(`system-pairing-${width}-${theme.toLowerCase()}.png`), fullPage: true, animations: 'disabled' });
+      await page.keyboard.press('Escape');
+      await expect(review).not.toBeVisible();
+      await expect(opener).toBeFocused();
     }
   }
-  await form.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('tab', { name: 'API & MCP credentials', exact: true }).click();
   await expect(page.getByTestId('integration-credential-create')).toBeVisible();
   await expect(page.getByTestId('system-connections-panel')).not.toBeVisible();

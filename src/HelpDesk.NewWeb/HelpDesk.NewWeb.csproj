@@ -37,6 +37,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Remove="Services/WebGatewayOptions.cs;Services/WebGatewayConfiguration.cs;Services/WebGatewayPaths.cs" />
+    <ProjectReference Include="..\Helpdesk.AgentClient\Helpdesk.AgentClient.csproj" />
     <ProjectReference Include="..\Helpdesk.ServiceDefaults\Helpdesk.ServiceDefaults.csproj" />
     <ProjectReference Include="..\Helpdesk.Shared\Helpdesk.Shared.csproj" />
   </ItemGroup>

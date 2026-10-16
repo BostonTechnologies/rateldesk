@@ -11,6 +11,82 @@ namespace Helpdesk.Tests.Setup;
 
 public sealed class TerminaSetupTests
 {
+    [Theory]
+    [InlineData(SetupTransport.Cli)]
+    [InlineData(SetupTransport.Stdio)]
+    [InlineData(SetupTransport.Http)]
+    public async Task First_page_focuses_one_web_url_and_paste_enter_normalizes_resource(SetupTransport transport)
+    {
+        var workflow = new FakeWorkflow();
+        await using var terminal = await Wizard.StartAsync(workflow, new(transport));
+        await terminal.WaitStepAsync(SetupStep.Instance);
+        Assert.Contains("RatelDesk Web URL", terminal.RecordedRender, StringComparison.Ordinal);
+        Assert.Contains("Advanced", terminal.RecordedRender, StringComparison.Ordinal);
+        Assert.DoesNotContain("Profile name", terminal.RecordedRender, StringComparison.Ordinal);
+        Assert.DoesNotContain("Export directory", terminal.RecordedRender, StringComparison.Ordinal);
+        terminal.Input.EnqueueString("https://desk.example:8443/mcp/");
+        terminal.Input.EnqueueKey(ConsoleKey.Enter);
+        await terminal.WaitStepAsync(SetupStep.Authentication);
+        Assert.Equal("https://desk.example:8443", terminal.Model.Instance.Value);
+        Assert.Equal(transport, terminal.Model.Transport);
+        Assert.Equal(1, workflow.StorageCheckCount);
+        Assert.Equal(1, workflow.DiscoveryCount);
+    }
+
+    [Fact]
+    public async Task Explicit_options_seed_first_url_and_advanced_identity_fields()
+    {
+        var seed = AgentClientConfiguration.Empty with { ApiBaseUrl = "https://seed.example", AuthentikTokenUrl = "https://auth.example/token", AuthentikClientId = "seed-client", AuthentikUsername = "seed-agent" };
+        await using var terminal = await Wizard.StartAsync(new FakeWorkflow(), new(SetupTransport.Stdio, Profile: "custom",
+            WebUrl: "https://explicit.example/mcp", InstanceLabel: "custom-instance", Authentication: "authentik", SeedConfiguration: seed));
+        Assert.Equal("https://explicit.example/mcp", terminal.Model.Instance.Value);
+        Assert.Equal("custom", terminal.Model.Profile.Value);
+        Assert.Equal("custom-instance", terminal.Model.InstanceLabel.Value);
+        Assert.Equal("seed-client", terminal.Model.ClientId.Value);
+        Assert.Equal("authentik", terminal.Model.Authentication);
+        terminal.Input.EnqueueKey(ConsoleKey.Enter);
+        await terminal.WaitStepAsync(SetupStep.Authentication);
+        Assert.Equal("authentik", terminal.Model.Authentication);
+        Assert.Equal("seed-agent", terminal.Model.Username.Value);
+    }
+
+    [Fact]
+    public async Task Known_identity_is_retained_and_storage_failure_precedes_browser_request()
+    {
+        var stored = AgentClientConfiguration.Empty with { ApiBaseUrl = "https://desk.example", CredentialMode = "integration", IntegrationCredentialFile = "old.secret" };
+        var workflow = new FakeWorkflow { Stored = stored, Existing = true, PairingAvailable = true, StorageFailure = true };
+        await using var terminal = await Wizard.StartAsync(workflow);
+        Assert.Equal("existing", terminal.Model.Authentication);
+        terminal.Input.EnqueueKey(ConsoleKey.Enter);
+        await terminal.WaitAsync(() => terminal.Model.Status.Value == "Private durable storage is unavailable.");
+        Assert.Equal(SetupStep.Instance, terminal.Model.Step.Value);
+        Assert.Equal(0, workflow.DiscoveryCount);
+        Assert.Equal(0, workflow.StartCount);
+    }
+
+    [Fact]
+    public async Task Advanced_existing_native_private_API_preserves_target_and_never_sends_identity_to_Web_origin()
+    {
+        var stored = AgentClientConfiguration.Empty with { ApiBaseUrl = "http://api.internal:8222/api/v1", CredentialMode = "integration", IntegrationCredential = "rdk_existing_private" };
+        var workflow = new FakeWorkflow { Stored = stored, Existing = true };
+        await using var terminal = await Wizard.StartAsync(workflow, new(SetupTransport.Stdio));
+        Assert.Equal("", terminal.Model.Instance.Value);
+        Assert.Equal(stored.ApiBaseUrl, terminal.Model.NativeApiTarget.Value);
+        await terminal.Application.InvokeAsync(() => terminal.Model.ToggleAdvanced());
+        terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
+        await terminal.WaitStepAsync(SetupStep.Authentication);
+        Assert.Equal(0, workflow.DiscoveryCount);
+        terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
+        await terminal.WaitStepAsync(SetupStep.Review);
+        Assert.Contains(stored.ApiBaseUrl, terminal.Model.Detail.Value, StringComparison.Ordinal);
+        await terminal.Application.InvokeAsync(() => terminal.Model.NextAsync(overwriteConfirmed: true));
+        await terminal.WaitStepAsync(SetupStep.Complete);
+        Assert.Equal(stored.ApiBaseUrl, workflow.LastSaved!.ApiBaseUrl);
+        Assert.Equal("rdk_existing_private", workflow.LastSaved.IntegrationCredential);
+        Assert.DoesNotContain("rdk_existing_private", terminal.RecordedRender, StringComparison.Ordinal);
+        Assert.Equal(0, workflow.StartCount);
+    }
+
     [Fact]
     public async Task Keyboard_navigation_rejects_bad_url_preserves_input_and_cancels_without_saving()
     {
@@ -19,7 +95,7 @@ public sealed class TerminaSetupTests
         await terminal.AdvanceToInstanceAsync();
         terminal.Input.EnqueueString("http://insecure.example");
         terminal.Input.EnqueueKey(ConsoleKey.Enter);
-        await terminal.WaitAsync(() => terminal.Model.Status.Value.StartsWith("Enter the instance HTTPS origin", StringComparison.Ordinal));
+        await terminal.WaitAsync(() => terminal.Model.Status.Value.StartsWith("RatelDesk Web URL must be HTTPS", StringComparison.Ordinal));
         Assert.Equal(SetupStep.Instance, terminal.Model.Step.Value);
         Assert.Equal("http://insecure.example", terminal.Model.Instance.Value);
         Assert.Contains("http://insecure.example", terminal.RecordedRender, StringComparison.Ordinal);
@@ -67,6 +143,7 @@ public sealed class TerminaSetupTests
         var workflow = new FakeWorkflow { Stored = old, Existing = true, PairingAvailable = true, PollStatus = status };
         await using var terminal = await Wizard.StartAsync(workflow);
         await terminal.AdvanceToAuthenticationAsync();
+        await terminal.Application.InvokeAsync(() => terminal.Model.SelectAuthentication("browser"));
         terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
         await terminal.WaitStepAsync(SetupStep.Approval);
         Assert.Contains("Short code: TRUST-CODE", terminal.Model.Detail.Value, StringComparison.Ordinal);
@@ -87,6 +164,7 @@ public sealed class TerminaSetupTests
             Stored = AgentClientConfiguration.Empty with { ApiBaseUrl = "https://desk.example", CredentialMode = "integration", IntegrationCredentialFile = "old.secret" } };
         await using var terminal = await Wizard.StartAsync(workflow);
         await terminal.AdvanceToAuthenticationAsync();
+        await terminal.Application.InvokeAsync(() => terminal.Model.SelectAuthentication("browser"));
         terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
         await terminal.WaitStepAsync(SetupStep.Review);
         Assert.Contains("org-enabled-one", terminal.Model.Detail.Value, StringComparison.Ordinal);
@@ -163,6 +241,37 @@ public sealed class TerminaSetupTests
     }
 
     [Fact]
+    public async Task Ordinary_client_rejects_temporary_verifier_delivery_without_saving_profile()
+    {
+        var workflow = new FakeWorkflow { PairingAvailable = true, PollStatus = "issued", DeliveredGrantKind = "setup-verification" };
+        await using var terminal = await Wizard.StartAsync(workflow);
+        await terminal.AdvanceToAuthenticationAsync();
+        terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
+        await terminal.WaitAsync(() => terminal.Model.Status.Value.Contains("Approved credential purpose/resource", StringComparison.Ordinal));
+        Assert.Equal(SetupStep.Approval, terminal.Model.Step.Value);
+        Assert.Equal(0, workflow.SaveCount);
+        Assert.Null(workflow.LastSaved);
+    }
+
+    [Fact]
+    public async Task Recovery_does_not_replace_edited_target_and_cancel_removes_unacknowledged_delivery()
+    {
+        var session = new PairingSession("private-capability", "TRUST-CODE", "https://original.example/account/integration-credentials/approve", DateTimeOffset.UtcNow.AddMinutes(5), 1);
+        var pending = new PendingPairingProfile("/private/default.json", "/private/default.candidate", "", "candidate", "https://original.example", session, Guid.NewGuid(), DateTimeOffset.UtcNow.AddMinutes(2));
+        var workflow = new FakeWorkflow { Pending = pending };
+        await using var terminal = await Wizard.StartAsync(workflow, new(WebUrl: "https://edited.example"));
+        terminal.Input.EnqueueKey(ConsoleKey.Enter);
+        await terminal.WaitAsync(() => terminal.Model.Status.Value.Contains("pending approval belongs to", StringComparison.Ordinal));
+        Assert.Equal("https://edited.example", terminal.Model.Instance.Value);
+        Assert.Equal(0, workflow.DiscoveryCount);
+        Assert.Equal(0, workflow.SaveCount);
+        terminal.Input.EnqueueKey(ConsoleKey.Escape);
+        await terminal.Run.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Equal(1, workflow.CancelCount);
+        Assert.Equal(1, workflow.DiscardCount);
+    }
+
+    [Fact]
     public async Task External_http_OAuth_saves_nonsecret_metadata_and_preserves_imported_public_client_id()
     {
         var workflow = new FakeWorkflow();
@@ -182,6 +291,24 @@ public sealed class TerminaSetupTests
         Assert.Contains("client-managed, unverified", terminal.Model.Detail.Value, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(SetupTransport.Cli)]
+    [InlineData(SetupTransport.Stdio)]
+    public async Task Native_client_does_not_adopt_HTTP_OAuth_authentication(SetupTransport transport)
+    {
+        var workflow = new FakeWorkflow { Stored = AgentClientConfiguration.Empty with
+        { ApiBaseUrl = "https://desk.example", ClientTransport = "http", HttpClientAuthentication = "oauth", McpResourceUri = "https://desk.example/mcp", OAuthAuthorizationServers = ["https://auth.example/issuer/"] } };
+        await using var terminal = await Wizard.StartAsync(workflow, new(transport));
+        Assert.Equal("browser", terminal.Model.Authentication);
+        await terminal.AdvanceToAuthenticationAsync();
+        Assert.Equal("manual", terminal.Model.Authentication);
+        await terminal.Application.InvokeAsync(() => terminal.Model.SelectAuthentication("oauth"));
+        terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
+        await terminal.WaitAsync(() => terminal.Model.Status.Value.Contains("require HTTP MCP transport", StringComparison.Ordinal));
+        Assert.Equal(SetupStep.Authentication, terminal.Model.Step.Value);
+        Assert.Equal(0, workflow.SaveCount);
+    }
+
     [Fact]
     public async Task Existing_API_profile_cannot_be_reused_for_HTTP_MCP_client()
     {
@@ -197,9 +324,25 @@ public sealed class TerminaSetupTests
     }
 
     [Theory]
+    [InlineData(SetupTransport.Cli)]
+    [InlineData(SetupTransport.Stdio)]
+    public async Task Existing_HTTP_MCP_credential_cannot_be_reused_for_native_API_client(SetupTransport transport)
+    {
+        var workflow = new FakeWorkflow { Existing = true, Stored = AgentClientConfiguration.Empty with
+        { ApiBaseUrl = "https://desk.example", CredentialPurpose = "mcp", ClientTransport = "http", McpResourceUri = "https://desk.example/mcp", CredentialMode = "integration", IntegrationCredential = "rdk_http_private" } };
+        await using var terminal = await Wizard.StartAsync(workflow, new(transport));
+        await terminal.AdvanceToAuthenticationAsync();
+        terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
+        await terminal.WaitAsync(() => terminal.Model.Status.Value.Contains("require an API-purpose credential", StringComparison.Ordinal));
+        Assert.Equal(SetupStep.Authentication, terminal.Model.Step.Value);
+        Assert.Equal(0, workflow.SaveCount);
+        Assert.DoesNotContain("rdk_http_private", terminal.RecordedRender, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("authentik")]
     [InlineData("integration")]
-    public async Task Hosting_export_reload_preserves_masked_downstream_identity_and_listener_change(string mode)
+    public async Task Hosting_reload_retains_masked_identity_and_requires_deployment_sources_before_approval(string mode)
     {
         var temporary = Directory.CreateTempSubdirectory("rateldesk-setup-host-");
         try
@@ -218,13 +361,15 @@ public sealed class TerminaSetupTests
             using var model = new SetupViewModel(workflow, new(Hosting: true, OutputDirectory: temporary.FullName));
             model.LoadHosting(); model.Listener.Value = "http://+:8323"; model.McpBackend.Value = "http://mcp-http:8323/";
             await model.NextAsync();
-            Assert.Equal(SetupStep.Review, model.Step.Value);
+            Assert.Equal(SetupStep.Hosting, model.Step.Value);
+            await model.NextAsync();
+            Assert.Equal(SetupStep.Hosting, model.Step.Value);
+            Assert.Contains("HOST_SOURCE_REQUIRED", model.Status.Value, StringComparison.Ordinal);
+            Assert.Null(model.BrowserUrl);
             Assert.DoesNotContain("existing_private_password", model.Detail.Value, StringComparison.Ordinal);
             Assert.DoesNotContain("rdk_existing_private", model.Detail.Value, StringComparison.Ordinal);
-            await model.NextAsync(overwriteConfirmed: true);
-            Assert.Equal(SetupStep.Complete, model.Step.Value);
             var loaded = HttpMcpHostingCoordinator.Load(temporary.FullName);
-            Assert.Equal("http://+:8323", loaded.Listener);
+            Assert.Equal(settings.Listener, loaded.Listener);
             Assert.Equal(mode, loaded.Outbound!.CredentialMode);
             var identity = loaded.Outbound.Resolve();
             Assert.Equal(mode == "integration" ? "rdk_existing_private" : "existing_private_password", mode == "integration" ? identity.IntegrationCredential : identity.AuthentikAppPassword);
@@ -269,8 +414,7 @@ public sealed class TerminaSetupTests
         }
         public async Task AdvanceToInstanceAsync()
         {
-            Input.EnqueueKey(ConsoleKey.N, control: true); await WaitStepAsync(SetupStep.Profile);
-            Input.EnqueueKey(ConsoleKey.N, control: true); await WaitStepAsync(SetupStep.Instance);
+            await WaitStepAsync(SetupStep.Instance);
         }
         public async Task AdvanceToAuthenticationAsync()
         {
@@ -307,6 +451,8 @@ public sealed class TerminaSetupTests
         public bool Managed { get; init; }
         public bool PairingAvailable { get; init; }
         public string PollStatus { get; init; } = "pending";
+        public string DeliveredGrantKind { get; init; } = "ordinary";
+        public PendingPairingProfile? Pending { get; init; }
         public Task<PairingCapabilities?>? Discovery { get; init; }
         public bool LoseAcknowledgementResponse { get; init; }
         private bool _acknowledged;
@@ -316,19 +462,25 @@ public sealed class TerminaSetupTests
         public int RollbackCount { get; private set; }
         public int DiscoveryCount { get; private set; }
         public int OpenBrowserCount { get; private set; }
+        public int StorageCheckCount { get; private set; }
+        public bool StorageFailure { get; init; }
+        public int StartCount { get; private set; }
+        public int DiscardCount { get; private set; }
         public List<string> Events { get; } = [];
         public SetupProfile Load(string profile, SetupTransport transport) => new(new(Effective ?? Stored,
             Managed ? [new("apiBaseUrl", "environment", true, false, "https://desk.example"), new("credentialMode", "environment", true, false, "integration"), new("integrationCredential", "environment", true, true, "[REDACTED]")] :
                 Stored.ApiBaseUrl is null ? [] : [new("apiBaseUrl", "file", false, false, Stored.ApiBaseUrl)],
-            "/private/" + profile + ".json", Existing ? "revision" : null, true), Stored);
+            "/private/" + profile + ".json", Existing ? "revision" : null, true), Stored, Pending, Pending is null ? null : Stored);
         public Task<PairingCapabilities?> DiscoverAsync(string origin, CancellationToken ct)
         { DiscoveryCount++; return Discovery ?? Task.FromResult<PairingCapabilities?>(PairingAvailable ? new("RatelDesk", 1, true, origin, origin.TrimEnd('/') + "/account/integration-credentials/approve", 30, 90) : null); }
         public Task<OAuthProtectedResourceMetadata> DiscoverOAuthAsync(string origin, IEnumerable<string>? expectedAuthorities, CancellationToken ct) =>
             Task.FromResult(new OAuthProtectedResourceMetadata(origin.TrimEnd('/') + "/mcp", ["https://auth.example/application/o/mcp/"]));
-        public Task<PairingSession> StartAsync(string origin, string profile, SetupTransport transport, CancellationToken ct) =>
-            Task.FromResult(new PairingSession("private-device-capability", "TRUST-CODE", origin.TrimEnd('/') + "/account/integration-credentials/approve", DateTimeOffset.UtcNow.AddMinutes(5), 1));
+        public void PreflightStorage(string profile, SetupTransport transport)
+        { StorageCheckCount++; if (StorageFailure) throw new AgentClientValidationException("Private durable storage is unavailable."); }
+        public Task<PairingSession> StartAsync(string origin, string profile, SetupTransport transport, CancellationToken ct)
+        { StartCount++; return Task.FromResult(new PairingSession("private-device-capability", "TRUST-CODE", origin.TrimEnd('/') + "/account/integration-credentials/approve", DateTimeOffset.UtcNow.AddMinutes(5), 1)); }
         public Task<PairingPollResult> PollAsync(string origin, PairingSession session, CancellationToken ct) => Task.FromResult(
-            _acknowledged ? new PairingPollResult("consumed", 1, null) : new(PollStatus, 1, PollStatus == "issued" ? new(Guid.NewGuid(), "rdk_prefix", "rdk_browser_private", "api", "org-enabled-one", ["ticket.view"], DateTimeOffset.UtcNow.AddDays(30), null) : null, DateTimeOffset.UtcNow.AddMinutes(2)));
+            _acknowledged ? new PairingPollResult("consumed", 1, null) : new(PollStatus, 1, PollStatus == "issued" ? new(Guid.NewGuid(), "rdk_prefix", "rdk_browser_private", "api", "org-enabled-one", ["ticket.view"], DateTimeOffset.UtcNow.AddDays(30), null) { GrantKind = DeliveredGrantKind } : null, DateTimeOffset.UtcNow.AddMinutes(2)));
         public Task CancelAsync(string origin, PairingSession session, CancellationToken ct) { CancelCount++; return Task.CompletedTask; }
         public Task AcknowledgeAsync(string origin, PairingSession session, Guid id, CancellationToken ct)
         { Events.Add("ack"); _acknowledged = true; if (LoseAcknowledgementResponse) throw new HttpRequestException(); return Task.CompletedTask; }
@@ -349,7 +501,7 @@ public sealed class TerminaSetupTests
         public PendingPairingProfile MarkAcknowledged(PendingPairingProfile pending) => pending with { Acknowledged = true };
         public ConfigurationProfileSaveResult Activate(PendingPairingProfile pending, CancellationToken ct)
         { Events.Add("activate"); SaveCount++; Stored = _candidate!; Existing = true; return new(pending.TargetPath, "saved-revision", Stored); }
-        public void Discard(PendingPairingProfile pending) { _candidate = null; }
+        public void Discard(PendingPairingProfile pending) { DiscardCount++; _candidate = null; }
         public Task<IReadOnlyList<SetupCheck>> CheckAsync(ConfigurationResolution resolution, SetupTransport transport, CancellationToken ct, string? instance = null)
         { Events.Add("check"); return Task.FromResult<IReadOnlyList<SetupCheck>>([new("authentication", "passed", "Read-only access accepted.")]); }
         public Task OpenBrowserAsync(string url, CancellationToken ct) { OpenBrowserCount++; return Task.CompletedTask; }

@@ -1,5 +1,7 @@
 using System.Globalization;
 using Microsoft.Extensions.Primitives;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace HelpDesk.NewWeb.Services;
 
@@ -93,7 +95,7 @@ public sealed class WebGatewayConfiguration : IDisposable
         {
             Route("mcpRoute", "/mcp/{**catch-all}", "mcpCluster");
             if (Options.McpAuthenticationMode == "authentik")
-                Route("mcpMetadataRoute", WebGatewayRequestGuard.MetadataPath, "mcpCluster");
+                Route("mcpMetadataRoute", WebGatewayPaths.MetadataPath, "mcpCluster");
             result["ReverseProxy:Clusters:mcpCluster:Destinations:mcp1:Address"] = Options.McpDestination!.AbsoluteUri;
             result["ReverseProxy:Clusters:mcpCluster:HttpRequest:AllowResponseBuffering"] = "false";
             result["ReverseProxy:Clusters:mcpCluster:HttpRequest:ActivityTimeout"] = Options.McpActivityTimeout.ToString("c", CultureInfo.InvariantCulture);
@@ -142,7 +144,7 @@ public sealed class WebGatewayConfiguration : IDisposable
         // ASP.NET route templates also accept rootless patterns; inspection must not reject them.
         if (string.IsNullOrEmpty(pattern)) return false;
         var rooted = pattern.StartsWith('/') ? pattern : "/" + pattern;
-        return WebGatewayRequestGuard.IsMcpPath(new PathString(rooted));
+        return WebGatewayPaths.IsMcpPath(rooted);
     }
 
     private void Reload()

@@ -6,7 +6,8 @@
 - [Administration workspaces](admin-workspaces.md): data, support routing, roles and tenant SLA editing.
 - [Web gateway](web-gateway.md): API and optional HTTP MCP routing through one
   public origin, explicit overrides and proxy behavior.
-- [HTTP MCP deployment](../mcp-http/deployment.md): coordinated host settings,
+- [HTTP MCP setup](../mcp-http/setup.md): short server and client procedure;
+  [deployment reference](../mcp-http/deployment.md) covers coordinated settings,
   configuration mounts and apply/recreate instructions.
 
 Runnable source/release examples remain under [docker](../../docker/).

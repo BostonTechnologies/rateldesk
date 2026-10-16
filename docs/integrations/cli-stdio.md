@@ -7,9 +7,12 @@ on Alpine/musl. Offline `--help` and `--version` load no credentials.
 
 ## Explicit setup and inspection commands
 
-Run setup in an interactive terminal. The Termina wizard offers **Connect a
-client** and **Configure HTTP MCP hosting**, responsive forms/stepper, masked
-secrets, preserved inputs and a consistent Back/Next/Cancel footer. Use
+Run setup in an interactive terminal. The first focused field is the
+**RatelDesk Web URL**; the executable selects CLI, stdio or HTTP client access.
+Paste the root or canonical `/mcp` URL and press Enter. **Advanced** exposes
+profile, authentication and topology choices. Durable private storage is chosen
+automatically and checked before approval. The wizard retains masked secrets,
+preserved inputs and a consistent Back/Next/Cancel footer. Use
 Tab/Shift-Tab, Enter, Escape/Ctrl+C and visible focus; Ctrl+O deliberately opens
 the trusted browser URL. SSH/container users can open the same URL elsewhere.
 `--monochrome` reduces color. Non-TTY setup exits with an alternative instead
@@ -17,20 +20,29 @@ of hanging. Normal CLI scripts, HTTP startup and stdio initialize never launch
 the wizard.
 
 ```sh
-rateldesk setup --target cli --profile work
-rateldesk-mcp setup --target stdio --profile work
+rateldesk setup
+rateldesk-mcp setup
 rateldesk setup --target http-client --profile work-http
-rateldesk setup --target http-host --export-directory ./work/mcp-export
+rateldesk setup --mode host
 ```
 
-Setup options are `--target cli|stdio|http-client|http-host`, `--profile NAME` or
+`--mode host` explicitly selects hosting; the existing
+`--target http-host` alias remains supported. Setup options include
+`--target cli|stdio|http-client|http-host`, `--profile NAME` or
 `--config PATH`, `--export-directory DIR` for host export, `--monochrome`, and
 `--stdio-executable PATH` for the stdio validation/launch target. The HTTP image
 dispatches the same explicit setup family before normal serving validation;
 see [HTTP deployment](../mcp-http/deployment.md).
 
-Select the named profile, intended HTTPS URL, then browser approval or manual
-existing-credential/import. Review actual purpose, one organization,
+Use `--url` (alias `--web-url`) for a supplied Web URL, `--instance` for the
+intended existing label, and `--authentication browser|existing|manual|authentik|oauth`
+for a deliberate authentication choice. `--mode client` selects the executable's
+client transport. Conflicting mode/target options fail before starting the
+screen. No secret values belong in command arguments.
+
+Enter the intended HTTPS URL, then use browser approval or Advanced manual
+existing-credential/import. Supplied profile/config/URL options seed the same
+workflow; omitted flags preserve managed settings. Review actual purpose, one organization,
 permissions, expiry and private save path. Externally managed values remain
 read-only. Target/profile changes cancel stale asynchronous work. Browser-approved
 credentials are staged privately before acknowledgement; the prior working
@@ -61,12 +73,31 @@ otherwise transport checks are explicitly skipped.
 
 ## Profiles and persistence
 
-Named profiles use:
+Native named profiles use per-user application data under
+`rateldesk/profiles/cli` or `rateldesk/profiles/mcp`; on Unix the conventional
+paths are below. An existing legacy `~/.config/rateldesk/profiles` tree remains
+selected rather than silently moving its credentials:
 
 - CLI: `~/.config/rateldesk/profiles/cli/NAME.json`.
 - Stdio/HTTP client: `~/.config/rateldesk/profiles/mcp/NAME.json`.
 - Legacy CLI default: `~/.config/helpdesk/cli.json`, retained for ordinary
   existing CLI configuration.
+
+Bare CLI setup preserves the runtime's selected `RATELDESK_CONFIG` file or that
+legacy CLI default when no profile/config option is supplied. `--profile NAME`
+deliberately selects a named profile; stdio preserves its explicitly selected
+`RATELDESK_MCP_CONFIG` unless a profile/config option takes precedence. Advanced
+can retain a supported private HTTP(S) or non-root API target without guessing
+another destination or rebinding an existing credential.
+
+HTTP-image client setup uses `RATELDESK_MCP_CLIENT_DIRECTORY` when the deployment
+provides that dedicated store, with `mcp/NAME.json` beneath it; otherwise its
+per-user default is local application data under
+`rateldesk/http-client/profiles/mcp/NAME.json`. Host output uses the separate
+`RATELDESK_MCP_HOST_DIRECTORY` or local application data under
+`rateldesk/http-host`. The launcher supplies protected durable container mounts;
+neither namespace imports the serving host's downstream identity. A successful
+Save requires a writable persistent store.
 
 Names contain 1–64 lowercase letters/digits/hyphens. Select profiles explicitly;
 stdio/HTTP never import the ambient legacy CLI profile. `--config PATH` chooses
@@ -173,6 +204,12 @@ Normal stdio stdout is JSON-RPC only. Operational logs/errors go to stderr;
 no banners, ANSI, prompts or automatic browser launches. Start it through pipes
 without a TTY. Verify initialize and one allowed read-only tool in the actual
 MCP client, separately from local config and API status.
+
+Explicit setup without a TTY exits **78**, writes the corrective action to
+stderr and emits no stdout. Invalid stdio configuration also exits **78** with
+a safe startup-validation message on stderr and empty protocol stdout. A
+timeout, crash or shell traceback is a failed check. The packaged acceptance
+script executes these cases against extracted apphosts.
 
 ## HTTP clients and dependency notices
 

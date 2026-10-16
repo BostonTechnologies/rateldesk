@@ -27,6 +27,8 @@ def main() -> None:
         example.write_text(example.read_text().replace("](../../../docs/", "](../../docs/"), encoding="utf-8")
     else:
         shutil.copytree(repository / "docker", destination / "docker", dirs_exist_ok=True)
+        shutil.copytree(repository / "tools/mcp", destination / "tools/mcp", dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
 
 
 if __name__ == "__main__":

@@ -25,14 +25,19 @@ public sealed class McpToolInvocationAudit(
         {
             var result = await next(context, cancellationToken).ConfigureAwait(false);
             var details = ResultDetails(result);
+            var outcome = DescribeOutcome(result);
             logger.LogInformation(
-                "MCP tool invocation completed. Instance={Instance} Transport={Transport} Tool={Tool} Operation={Operation} Caller={Caller} Success={Success} ResultStatus={ResultStatus} CorrelationId={CorrelationId} DurationMs={DurationMs} TraceId={TraceId}",
+                "MCP tool invocation completed. Instance={Instance} Transport={Transport} Tool={Tool} Operation={Operation} Caller={Caller} Success={Success} TransportSucceeded={TransportSucceeded} ProtocolSucceeded={ProtocolSucceeded} OperationSucceeded={OperationSucceeded} OverallSucceeded={OverallSucceeded} ResultStatus={ResultStatus} CorrelationId={CorrelationId} DurationMs={DurationMs} TraceId={TraceId}",
                 hostContext.Instance,
                 hostContext.Transport,
                 Token(context.Params.Name),
                 Operation(context.Params.Arguments),
                 Caller(context.User),
-                result.IsError is not true,
+                result.IsError is not true, // Preserve historical Success mapping; new fields describe actual operation success.
+                outcome.TransportSucceeded,
+                outcome.ProtocolSucceeded,
+                outcome.OperationSucceeded,
+                outcome.OverallSucceeded,
                 details.Status,
                 details.CorrelationId,
                 Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
@@ -53,6 +58,18 @@ public sealed class McpToolInvocationAudit(
             throw;
         }
     }
+
+    public static McpInvocationOutcome DescribeOutcome(CallToolResult result)
+    {
+        bool? operation = result.StructuredContent is { ValueKind: JsonValueKind.Object } content &&
+            content.TryGetProperty("success", out var success) && success.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? success.ValueKind == JsonValueKind.True : null;
+        // A returned CallToolResult is a protocol response even when its tool reports isError.
+        // Keep the historical log's Success value above; new fields name the actual layers.
+        if (result.IsError is true) operation = false;
+        return new(true, true, operation, operation);
+    }
+    public sealed record McpInvocationOutcome(bool TransportSucceeded, bool ProtocolSucceeded, bool? OperationSucceeded, bool? OverallSucceeded);
 
     private static (string Status, string CorrelationId) ResultDetails(CallToolResult result)
     {
@@ -81,7 +98,7 @@ public sealed class McpToolInvocationAudit(
 
     private static string Token(string? value)
     {
-        if (string.IsNullOrWhiteSpace(value) || value.Length > 128)
+        if (string.IsNullOrWhiteSpace(value) || value.Length > 128 || value.Contains("rdk_", StringComparison.OrdinalIgnoreCase) || value.Contains("rdx_", StringComparison.OrdinalIgnoreCase))
             return "unknown";
 
         return value.All(character => char.IsAsciiLetterOrDigit(character) || character is '_' or '-' or '/' or '.')

@@ -12,6 +12,7 @@ read-only operations and must not create tickets, send mail or run workflows.
 | Metadata | Gateway publishes no fabricated OAuth metadata; external mode publishes exactly `/.well-known/oauth-protected-resource/mcp` with matching resource/issuer |
 | Authentication/exchange | Intended bearer accepted; gateway API exchange succeeds for current purpose/resource/grants; external issuer/audience/scopes/groups and separate downstream identity validate |
 | MCP initialize | Valid protocol initialize response from the selected MCP host, with protocol/session/content headers retained |
+| Tool catalog | The complete real RatelDesk catalog, with valid schema and pagination where applicable, matches the expected tools |
 | Permitted tool result | One approved read-only call, such as `helpdesk_auth` operation `status`, returns a successful upstream MCP result |
 | Streaming/cancellation | Incremental events arrive before completion and a cancelled client request ends upstream work; ingress does not buffer the stream |
 
@@ -20,12 +21,22 @@ Use the client's configured MCP session to send `initialize`, then
 Accept (`application/json, text/event-stream`), Content-Type, supported
 `MCP-Protocol-Version` and returned `Mcp-Session-Id` where applicable. Use secret
 references in the client's protected config; never paste bearer arguments into
-shell history. Setup's HTTP client check performs initialize and the read-only
+shell history. Setup's HTTP client check performs initialize, catalog validation and the read-only
 upstream auth-status call. Local CLI doctor does not imply MCP initialization;
 stdio setup reports skipped transport checks unless its executable is selected.
 External OAuth client setup verifies protected-resource metadata and saves only
 public client settings. Its authentication/initialize/tool steps stay unverified
 until the selected OAuth-capable MCP client signs in and connects.
+
+Host verification additionally compares the observed serving configuration with
+the approved source generation. **Saved—apply pending** requires the deployment
+owner's apply/recreation; **Applied—verify pending** requires the authenticated
+live check. Re-run the deployment host's `./setup-http-mcp.sh --verify` from a
+new invocation after recreation. Unchanged sources reuse approval; changed
+sources stop for revalidation. A temporary verifier never becomes the host
+downstream identity or an ordinary consumer profile. When cleanup cannot be
+confirmed, keep its bounded cleanup-pending action and retry rather than
+reporting completed cleanup.
 
 ## Common failures
 

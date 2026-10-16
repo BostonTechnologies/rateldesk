@@ -20,6 +20,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
 using Helpdesk.Tests.Api;
+using Helpdesk.Setup;
 using Xunit;
 
 namespace Helpdesk.Tests.Mcp;
@@ -260,6 +261,32 @@ public sealed class McpHttpHostTests
         using var revoked = await client.SendAsync(revokedRequest);
 
         Assert.Equal(HttpStatusCode.Unauthorized, revoked.StatusCode);
+    }
+
+    [Fact]
+    public async Task Real_temporary_verifier_checks_full_catalog_and_status_but_cannot_call_other_none_operations()
+    {
+        await using var authority = await McpGatewayRealAccessPipelineTests.GatewayAccessHarness.CreateAsync();
+        var credential = await authority.CreateCredentialAsync("org-b", "mcp-setup");
+        var resource = McpGatewayRealAccessPipelineTests.GatewayAccessHarness.ResourceUri;
+        using var environment = new McpHostEnvironment(apiBaseUrl: "https://api.example", publicResourceUri: resource, gateway: true);
+        using var factory = CreateFactory(environment.SigningKey, apiHandlerFactory: authority.CreateHandler, delegationHandlerFactory: authority.CreateHandler);
+        using var client = CreateClient(factory, resource);
+        var profile = AgentClientConfiguration.Empty with
+        {
+            ApiBaseUrl = "https://helpdesk.example", CredentialTarget = "https://helpdesk.example", CredentialMode = "integration",
+            IntegrationCredential = credential.Bearer, CredentialPurpose = "mcp", ClientTransport = "http", McpResourceUri = resource
+        };
+        var checks = await McpSetupDiagnostics.CheckHttpAsync(profile, default, client);
+        Assert.Contains(checks, check => check.Name == "catalog" && check.Status == "passed");
+        Assert.Contains(checks, check => check.Name == "tool-result" && check.Status == "passed");
+        foreach (var tool in new[] { "helpdesk_capabilities", "helpdesk_health", "helpdesk_config" })
+        {
+            using var rejected = await HttpCallAsync(client, credential.Bearer, 50, "tools/call", ToolCallParameters(tool, tool == "helpdesk_config" ? "show" : "get"));
+            Assert.True(rejected.RootElement.TryGetProperty("error", out _) || rejected.RootElement.GetProperty("result").GetProperty("isError").GetBoolean());
+        }
+        using var prompts = await HttpCallAsync(client, credential.Bearer, 51, "prompts/list", new { });
+        Assert.True(prompts.RootElement.TryGetProperty("error", out _));
     }
 
     [Fact]

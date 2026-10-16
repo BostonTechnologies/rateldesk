@@ -113,20 +113,23 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // scoped assignee search/current-label/change-implementor operations, and
         // eight browser-approved integration-credential pairing operations,
         // ticket filter suggestions and three bounded pending-email operations
-        // (search, organization lookup and confirmed actions);
+        // (search, organization lookup and confirmed actions), six host deployment
+        // approval operations and durable integration-credential record deletion;
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(408, operationCount);
+        Assert.Equal(415, operationCount);
 #else
-        Assert.Equal(407, operationCount);
+        Assert.Equal(414, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         var identityGroup = Assert.Single(document.RootElement.GetProperty("x-tagGroups").EnumerateArray(),
             group => group.GetProperty("name").GetString() == "Identity & Access");
         Assert.Contains(identityGroup.GetProperty("tags").EnumerateArray(),
             tag => tag.GetString() == "Integration Credential Pairing");
+        Assert.Contains(identityGroup.GetProperty("tags").EnumerateArray(),
+            tag => tag.GetString() == "MCP Deployment Approval");
         var credentialPairingOperations = new[]
         {
             ("capabilities", "get", false),
@@ -144,6 +147,23 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
             Assert.True(paths.TryGetProperty(path, out var pairingPath), $"Missing documented credential pairing path: {path}");
             Assert.True(pairingPath.TryGetProperty(method, out var pairingOperation));
             Assert.Equal(["Integration Credential Pairing"], pairingOperation.GetProperty("tags").EnumerateArray().Select(tag => tag.GetString()).OfType<string>().ToArray());
+            Assert.Equal(requiresSession ? new[] { "JwtBearer", "LocalSession" } : [], SecuritySchemes(document, path, method));
+        }
+        var selfServiceOperations = new[]
+        {
+            ("/api/v1/integration-credentials/host-proposals/start", "post", "MCP Deployment Approval", false),
+            ("/api/v1/integration-credentials/host-proposals/poll", "post", "MCP Deployment Approval", false),
+            ("/api/v1/integration-credentials/host-proposals/cancel", "post", "MCP Deployment Approval", false),
+            ("/api/v1/integration-credentials/host-proposals/review", "post", "MCP Deployment Approval", true),
+            ("/api/v1/integration-credentials/host-proposals/approve", "post", "MCP Deployment Approval", true),
+            ("/api/v1/integration-credentials/host-proposals/deny", "post", "MCP Deployment Approval", true),
+            ("/api/v1/integration-credentials/{credentialId}/record", "delete", "Integration Credentials", true)
+        };
+        foreach (var (path, method, expectedTag, requiresSession) in selfServiceOperations)
+        {
+            Assert.True(paths.TryGetProperty(path, out var selfServicePath), $"Missing documented self-service path: {path}");
+            Assert.True(selfServicePath.TryGetProperty(method, out var selfServiceOperation));
+            Assert.Equal([expectedTag], selfServiceOperation.GetProperty("tags").EnumerateArray().Select(tag => tag.GetString()).OfType<string>().ToArray());
             Assert.Equal(requiresSession ? new[] { "JwtBearer", "LocalSession" } : [], SecuritySchemes(document, path, method));
         }
         var workspaceOperations = new[]

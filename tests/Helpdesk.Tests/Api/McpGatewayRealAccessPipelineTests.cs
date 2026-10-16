@@ -51,6 +51,31 @@ public sealed class McpGatewayRealAccessPipelineTests
     {
         await using var harness = await GatewayAccessHarness.CreatePostgreSqlAsync();
         await AssertOrganizationScopeAsync(harness);
+        await AssertVerifierScopeAsync(harness);
+    }
+
+    [Fact]
+    public async Task Setup_verifier_projects_only_its_authorized_organization_and_no_business_grants()
+    {
+        await using var harness = await GatewayAccessHarness.CreateAsync();
+        await AssertVerifierScopeAsync(harness);
+    }
+
+    private static async Task AssertVerifierScopeAsync(GatewayAccessHarness harness)
+    {
+        var verifier = await harness.CreateCredentialAsync("org-b", "mcp-setup");
+        var execution = await harness.DelegateAsync(verifier);
+        var status = await harness.GetAsync<Helpdesk.Shared.DTOs.Auth.CurrentUserAccessDto>(execution, "/api/v1/auth/me");
+        Assert.Equal(HttpStatusCode.OK, status.StatusCode);
+        Assert.Equal("org-b", status.Body!.PrimaryOrganizationId);
+        Assert.Equal(["org-b"], status.Body.AllowedOrganizationIds);
+        Assert.Empty(status.Body.Permissions); Assert.False(status.Body.IsHelpdeskAdmin);
+        using var denied = await harness.GetAsync(execution, "/api/v1/self-service/requests");
+        Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
+        await harness.RemoveRoleAsync("org-b");
+        using var lostScopeStatus = await harness.GetAsync(execution, "/api/v1/auth/me");
+        Assert.Equal(HttpStatusCode.Unauthorized, lostScopeStatus.StatusCode);
+        await harness.AssertDelegationStatusAsync(verifier, GatewayAccessHarness.ResourceUri, HttpStatusCode.Forbidden);
     }
 
     private static async Task AssertOrganizationScopeAsync(GatewayAccessHarness harness)
@@ -195,6 +220,7 @@ public sealed class McpGatewayRealAccessPipelineTests
 
             var app = builder.Build();
             app.UseAuthentication();
+            app.UseMiddleware<SetupVerificationExecutionBoundaryMiddleware>();
             app.UseMiddleware<UserAccessClaimsMiddleware>();
             app.UseAuthorization();
             app.MapMcpGatewayDelegationEndpoints();
@@ -287,10 +313,10 @@ public sealed class McpGatewayRealAccessPipelineTests
                 Purpose = purpose ?? IntegrationCredentialAuthenticationHandler.McpPurpose,
                 McpResourceUri = ResourceUri,
                 OrganizationId = organizationId,
-                Permissions = HelpdeskPermissions.SelfServiceUser,
+                Permissions = purpose == "mcp-setup" ? "" : HelpdeskPermissions.SelfServiceUser,
                 CreatedAtUtc = DateTimeOffset.UtcNow,
                 CreatedAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                ExpiresAtUtc = DateTimeOffset.UtcNow.AddDays(1)
+                ExpiresAtUtc = purpose == "mcp-setup" ? DateTimeOffset.UtcNow.AddMinutes(4) : DateTimeOffset.UtcNow.AddDays(1)
             });
             await identity.SaveChangesAsync();
             return new Credential(id, $"rdk_{id:N}_{secret}");

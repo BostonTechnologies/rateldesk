@@ -33,7 +33,7 @@
     <ProjectReference Include="..\..\src\Helpdesk.Infrastructure\Helpdesk.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Helpdesk.Shared\Helpdesk.Shared.csproj" />
     <ProjectReference Include="..\..\src\Helpdesk.Cli\Helpdesk.Cli.csproj" />
-    <ProjectReference Include="..\..\src\Helpdesk.AgentClient\Helpdesk.AgentClient.csproj" />
+    <ProjectReference Include="..\..\src\Helpdesk.AgentClient\Helpdesk.AgentClient.csproj" Aliases="global,NewWeb" />
     <ProjectReference Include="..\..\src\Helpdesk.Setup\Helpdesk.Setup.csproj" />
     <ProjectReference Include="..\..\src\Helpdesk.Mcp\Helpdesk.Mcp.csproj" />
     <ProjectReference Include="..\..\src\HelpDesk.NewWeb\HelpDesk.NewWeb.csproj" Aliases="NewWeb" />

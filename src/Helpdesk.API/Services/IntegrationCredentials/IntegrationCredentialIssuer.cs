@@ -11,11 +11,13 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Helpdesk.API.Services.IntegrationCredentials;
 
-/// <summary>The ordinary account and grant rules shared by manual creation and browser pairing.</summary>
+/// <summary>Credential authority: ordinary grants stay unchanged; browser pairing also has a narrow setup-only path.</summary>
 public sealed class IntegrationCredentialIssuer(
     IIntegrationCredentialOwnerResolver ownerResolver, ICurrentUserAccessService accessService,
     HelpdeskDbContext db, RatelDeskIdentityDbContext identityDb)
 {
+    public const string SetupVerificationPurpose = "mcp-setup";
+    public static readonly TimeSpan SetupVerificationLifetime = TimeSpan.FromMinutes(5);
     public const int DefaultLifetimeDays = 30;
     public const int MaximumLifetimeDays = 90;
 
@@ -53,6 +55,26 @@ public sealed class IntegrationCredentialIssuer(
             request.LifetimeDays ?? DefaultLifetimeDays, resource);
     }
 
+    // Only the pairing service invokes this path, after identifying the persisted setup attempt.
+    // Manual creation still uses ValidateAsync and cannot request this special grant.
+    public async Task<ValidatedCredentialGrant> ValidateSetupVerificationAsync(ClaimsPrincipal principal,
+        IntegrationCredentialEndpoints.CreateIntegrationCredentialRequest request, CancellationToken ct)
+    {
+        var owner = await ownerResolver.ResolveAsync(principal, ct);
+        if (owner is null) throw new CredentialGrantException(null);
+        if (request.Purpose != SetupVerificationPurpose || request.Permissions is null || request.Permissions.Count != 0 || request.LifetimeDays is not null)
+            throw Invalid("permissions", "Setup verification grants only authenticated status, with no business permissions or configurable lifetime.");
+        var resource = CanonicalMcpResourceUri(request.McpResourceUri);
+        if (resource is null) throw Invalid("mcpResourceUri", "Setup verification requires the reviewed HTTPS /mcp resource.");
+        var organization = await db.Organizations.AsNoTracking().SingleOrDefaultAsync(o => o.Id == request.OrganizationId, ct);
+        if (organization?.State != Helpdesk.Shared.Models.EntityState.Enabled)
+            throw Invalid("organizationId", "An enabled organization is required.");
+        var access = await accessService.ResolveAsync(principal, ct);
+        if (!access.IsAuthenticated || (!access.IsHelpdeskAdmin && !access.AllowedOrganizationIds.Contains(organization.Id)))
+            throw new CredentialGrantException(null);
+        return new(owner.UserId, request.Name, SetupVerificationPurpose, organization.Id, [], 0, resource);
+    }
+
     // Construction only: protected delivery must succeed before a pairing tracks this record.
     public (IntegrationCredential Record, IntegrationCredentialEndpoints.CreatedIntegrationCredential Delivery)
         Create(ValidatedCredentialGrant grant, DateTimeOffset now)
@@ -65,10 +87,10 @@ public sealed class IntegrationCredentialIssuer(
             SecretHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(secret))),
             Purpose = grant.Purpose, McpResourceUri = grant.McpResourceUri, OrganizationId = grant.OrganizationId,
             Permissions = string.Join(' ', grant.Permissions.Order(StringComparer.OrdinalIgnoreCase)),
-            CreatedAtUtc = now, CreatedAtUnixMilliseconds = now.ToUnixTimeMilliseconds(), ExpiresAtUtc = now.AddDays(grant.LifetimeDays)
+            CreatedAtUtc = now, CreatedAtUnixMilliseconds = now.ToUnixTimeMilliseconds(), ExpiresAtUtc = grant.Purpose == SetupVerificationPurpose ? now.Add(SetupVerificationLifetime) : now.AddDays(grant.LifetimeDays)
         };
-        return (record, new(record.Id, record.Prefix, $"rdk_{id:N}_{secret}", record.Purpose,
-            record.OrganizationId, grant.Permissions, record.ExpiresAtUtc) { McpResourceUri = record.McpResourceUri });
+        return (record, new(record.Id, record.Prefix, $"rdk_{id:N}_{secret}", record.Purpose == SetupVerificationPurpose ? "mcp" : record.Purpose,
+            record.OrganizationId, grant.Permissions, record.ExpiresAtUtc) { McpResourceUri = record.McpResourceUri, GrantKind = grant.Purpose == SetupVerificationPurpose ? "setup-verification" : "ordinary" });
     }
 
     public void Track(IntegrationCredential record) => identityDb.IntegrationCredentials.Add(record);

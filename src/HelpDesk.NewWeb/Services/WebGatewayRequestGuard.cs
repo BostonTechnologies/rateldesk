@@ -5,10 +5,9 @@ namespace HelpDesk.NewWeb.Services;
 /// <summary>Optional transport paths always produce a protocol/routing result, never a Blazor document.</summary>
 public static class WebGatewayRequestGuard
 {
-    public const string MetadataPath = "/.well-known/oauth-protected-resource/mcp";
+    public const string MetadataPath = WebGatewayPaths.MetadataPath;
 
-    public static bool IsMcpPath(PathString path) => path.StartsWithSegments("/mcp", StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWithSegments(MetadataPath, StringComparison.OrdinalIgnoreCase);
+    public static bool IsMcpPath(PathString path) => WebGatewayPaths.IsMcpPath(path.Value ?? "");
 
     public static IApplicationBuilder UseWebGatewayRequestGuard(this IApplicationBuilder app, ResolvedWebGatewayOptions options)
     {

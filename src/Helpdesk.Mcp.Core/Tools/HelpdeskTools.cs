@@ -380,7 +380,7 @@ public sealed class HelpdeskTools(
             var ids = created.OfType<JsonObject>().Select(value => value["id"]?.ToString()).Where(value => !string.IsNullOrWhiteSpace(value)).Cast<string>().ToArray();
             return Response(true, "completed", $"Created {created.Count} tickets.", created, AffectedIds: ids);
         }
-        catch (AgentClientRemoteException ex) { return Response(false, Status(ex.StatusCode), ex.Message, created, AffectedIds: [], Failure: new HelpdeskToolFailure(ex.Code, ex.StatusCode >= 500, ex.StatusCode)); }
+        catch (AgentClientRemoteException ex) { return Response(false, Status(ex.StatusCode), ex.Message, created, AffectedIds: [], Failure: new HelpdeskToolFailure(ex.Code, ex.StatusCode >= 500, ex.StatusCode), CorrelationId: ex.CorrelationId); }
     }
 
     private async Task<HelpdeskToolResponse> AssignTicketsToConfiguredAgent(string operation, string basePath, JsonObject? request, bool confirm, CancellationToken ct)
@@ -402,7 +402,7 @@ public sealed class HelpdeskTools(
             var body = new JsonObject { ["ids"] = JsonSerializer.SerializeToNode(ids), ["assignedToId"] = userId };
             return await Mutation("assign", [.. ids, userId], true, HttpMethod.Post, basePath + "/bulk/assign", body, ct).ConfigureAwait(false);
         }
-        catch (AgentClientRemoteException ex) { return Response(false, Status(ex.StatusCode), ex.Message, AffectedIds: ids, Failure: new HelpdeskToolFailure(ex.Code, ex.StatusCode >= 500, ex.StatusCode)); }
+        catch (AgentClientRemoteException ex) { return Response(false, Status(ex.StatusCode), ex.Message, AffectedIds: ids, Failure: new HelpdeskToolFailure(ex.Code, ex.StatusCode >= 500, ex.StatusCode), CorrelationId: ex.CorrelationId); }
     }
 
     private async Task<string?> ResolveConfiguredAgentUserIdAsync(JsonObject? request, CancellationToken ct)
@@ -480,7 +480,7 @@ public sealed class HelpdeskTools(
         {
             return Response(false, Status(ex.StatusCode), ex.Message, AffectedIds: affectedIds,
                 NextActions: ["Inspect the incident timeline. The closure note may have been recorded before the state update failed."],
-                Failure: new HelpdeskToolFailure(ex.Code, ex.StatusCode >= 500, ex.StatusCode));
+                Failure: new HelpdeskToolFailure(ex.Code, ex.StatusCode >= 500, ex.StatusCode), CorrelationId: ex.CorrelationId);
         }
     }
 
@@ -534,9 +534,9 @@ public sealed class HelpdeskTools(
             var correlationId = (data as JsonObject)?["correlationId"]?.ToString();
             return Response(true, "completed", $"{operation} completed.", data, AffectedIds: affectedIds, CorrelationId: correlationId);
         }
-        catch (AgentClientRemoteException ex) { return Response(false, Status(ex.StatusCode), ex.Message, AffectedIds: affectedIds, Failure: new HelpdeskToolFailure(ex.Code, ex.StatusCode >= 500, ex.StatusCode)); }
+        catch (AgentClientRemoteException ex) { return Response(false, Status(ex.StatusCode), ex.Message, AffectedIds: affectedIds, Failure: new HelpdeskToolFailure(ex.Code, ex.StatusCode >= 500, ex.StatusCode), CorrelationId: ex.CorrelationId); }
     }
-    private async Task<HelpdeskToolResponse> Execute(Func<Task<JsonNode?>> action, string summary) { try { return Completed(summary, await action().ConfigureAwait(false)); } catch (AgentClientRemoteException ex) { return Response(false, Status(ex.StatusCode), ex.Message, Failure: new HelpdeskToolFailure(ex.Code, ex.StatusCode >= 500, ex.StatusCode)); } catch (AgentClientValidationException ex) { return Validation(ex.Message); } }
+    private async Task<HelpdeskToolResponse> Execute(Func<Task<JsonNode?>> action, string summary) { try { return Completed(summary, await action().ConfigureAwait(false)); } catch (AgentClientRemoteException ex) { return Response(false, Status(ex.StatusCode), ex.Message, Failure: new HelpdeskToolFailure(ex.Code, ex.StatusCode >= 500, ex.StatusCode), CorrelationId: ex.CorrelationId); } catch (AgentClientValidationException ex) { return Validation(ex.Message); } }
     private HelpdeskToolResponse Completed(string summary, JsonNode? data)
         => Response(true, "completed", summary, data, AffectedIds: [], CorrelationId: (data as JsonObject)?["correlationId"]?.GetValue<string>());
     private HelpdeskToolResponse Invalid(string tool, string operation, IReadOnlyList<string> allowed) => Response(false, "validation_failed", $"Unsupported {tool} operation '{operation}'.", Failure: new HelpdeskToolFailure("unsupported_operation", false, AllowedOperations: allowed));
