@@ -15,8 +15,19 @@ async function reviewClient(page: Page, code = 'ABCD-TEST') {
  return dialog;
 }
 test.beforeEach(async ({ page, request }) => {
+ const diagnostics: unknown[] = [];
+ (page as any).__integrationDiagnostics = diagnostics;
+ page.on('framenavigated', frame => { if (frame === page.mainFrame()) diagnostics.push({ navigation: frame.url() }); });
+ page.on('response', async response => {
+  if (new URL(response.url()).pathname === '/session/access')
+   diagnostics.push({ sessionStatus: response.status(), profile: await response.json().catch(() => null) });
+ });
  await request.get(`${fixture}/reset`);
  await page.goto('/auth/development', { waitUntil: 'domcontentloaded' });
+});
+test.afterEach(async ({ page }, info) => {
+ if (info.status !== info.expectedStatus)
+  await info.attach('synthetic-navigation-session-diagnostics', { body: JSON.stringify((page as any).__integrationDiagnostics ?? [], null, 2), contentType: 'application/json' });
 });
 for (const theme of ['light', 'dark']) for (const width of [390, 1366, 1920]) {
  test(`compact ordinary review ${theme} ${width}px full catalog and accessible footer`, async ({ page, request }, info) => {
@@ -55,6 +66,9 @@ for (const theme of ['light', 'dark']) for (const width of [390, 1366, 1920]) {
   expect(await dialog.evaluate(el => el.contains(document.activeElement))).toBe(true);
   await assertNoHorizontalOverflow(page);
   await page.screenshot({ path: info.outputPath(`ordinary-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
+  // The wrapped focus target is the native organization select, whose own
+  // Escape handling may close its picker. Exercise dialog Escape from its footer.
+  await dialog.getByRole('button', { name: 'Close', exact: true }).focus();
   await page.keyboard.press('Escape'); await expect(dialog).toBeHidden();
   await expect(page.getByRole('button', { name: 'Review client', exact: true })).toBeFocused();
  });
