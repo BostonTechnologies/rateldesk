@@ -39,6 +39,7 @@ public static class RatelDeskOpenApiCatalog
         new("Role Definitions", "Identity & Access", "Scoped application role definitions."),
         new("Integration Credentials", "Identity & Access", "Revocable API credentials. Secrets are shown once."),
         new("Integration Credential Pairing", "Identity & Access", "Browser-approved account credential setup, device delivery and acknowledgement."),
+        new("MCP Deployment Approval", "Identity & Access", "Administrator approval of an exact MCP host deployment proposal without issuing a credential."),
         new("Service Identity", "Identity & Access", "Service client-credentials issuer metadata, public keys, and token exchange."),
         new("System Pairing", "Automation & Integrations", "Signed installation discovery, one-time pairing codes, and authenticated setup operations."),
         new("System Connections", "Automation & Integrations", "Administrator-owned named tenant and customer mappings, verification, and local-first deletion."),
@@ -66,6 +67,7 @@ public static class RatelDeskOpenApiCatalog
     private static readonly IReadOnlyDictionary<string, string> CanonicalNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         ["Integration credential pairing"] = "Integration Credential Pairing",
+        ["MCP deployment approval"] = "MCP Deployment Approval",
         ["System pairing"] = "System Pairing", ["System connections"] = "System Connections", ["Local authentication"] = "Local Authentication", ["Role definitions"] = "Role Definitions", ["Tenant administration"] = "Tenant Administration", ["Tenant settings"] = "Tenant Settings", ["Ticketing"] = "Ticket Lookups", ["Captcha"] = "CAPTCHA", ["SLA"] = "SLA Policies", ["Email"] = "Email Processing", ["Workflow Ops"] = "Workflow Operations", ["AutomationRules"] = "Automation Rules", ["Branding"] = "Instance Branding", ["AI Agent Ops"] = "AI Agent Operations", ["Ops"] = "Background Jobs", ["Admin"] = "Tenant Administration", ["AiAssistant Chat"] = "AI Assistant Chat", ["AiAssistant Webhooks"] = "AI Assistant Webhooks", ["External orchestration"] = "External Orchestration", ["Orchestration provider"] = "Orchestration Provider", ["Self Service"] = "Self-Service"
     };
 
