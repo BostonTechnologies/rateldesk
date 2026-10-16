@@ -42,7 +42,12 @@ public static class SetupInput
 
     public static void CheckPrivateStorage(string profilePath)
     {
-        var directory = Path.GetDirectoryName(Path.GetFullPath(profilePath))!;
+        var selectedPath = Path.GetFullPath(profilePath);
+        if (Directory.Exists(selectedPath))
+            throw new AgentClientValidationException("The selected profile path is a directory. Choose a regular file in private persistent storage before approval.");
+        if (File.Exists(selectedPath) && new FileInfo(selectedPath).IsReadOnly)
+            throw new AgentClientValidationException("The selected profile is read-only. Choose a writable private profile before approval; existing configuration is unchanged.");
+        var directory = Path.GetDirectoryName(selectedPath)!;
         if (string.Equals(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"), "true", StringComparison.OrdinalIgnoreCase) && OperatingSystem.IsLinux())
         {
             var mounted = IsPersistentContainerStorage(directory, File.ReadLines("/proc/self/mountinfo"));

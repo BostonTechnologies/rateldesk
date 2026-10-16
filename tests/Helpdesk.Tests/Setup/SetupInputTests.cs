@@ -61,6 +61,42 @@ public sealed class SetupInputTests
         finally { temporary.Delete(recursive: true); }
     }
 
+    [Fact]
+    public void Read_only_profile_in_writable_parent_is_rejected_before_approval()
+    {
+        var temporary = Directory.CreateTempSubdirectory("rateldesk-setup-storage-");
+        var selected = Path.Combine(temporary.FullName, "client.json");
+        try
+        {
+            File.WriteAllText(selected, "{}");
+            File.SetAttributes(selected, FileAttributes.ReadOnly);
+            var error = Assert.Throws<AgentClientValidationException>(() => SetupInput.CheckPrivateStorage(selected));
+            Assert.Contains("read-only", error.Message, StringComparison.Ordinal);
+            Assert.Equal("{}", File.ReadAllText(selected));
+            Assert.Single(Directory.EnumerateFiles(temporary.FullName));
+        }
+        finally
+        {
+            if (File.Exists(selected)) File.SetAttributes(selected, FileAttributes.Normal);
+            temporary.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Directory_used_as_profile_target_is_rejected_before_approval()
+    {
+        var temporary = Directory.CreateTempSubdirectory("rateldesk-setup-storage-");
+        try
+        {
+            var selected = Directory.CreateDirectory(Path.Combine(temporary.FullName, "client.json"));
+            var error = Assert.Throws<AgentClientValidationException>(() => SetupInput.CheckPrivateStorage(selected.FullName));
+            Assert.Contains("regular file", error.Message, StringComparison.Ordinal);
+            Assert.Empty(Directory.EnumerateFiles(temporary.FullName, "*", SearchOption.AllDirectories));
+            Assert.True(Directory.Exists(selected.FullName));
+        }
+        finally { temporary.Delete(recursive: true); }
+    }
+
     [Theory]
     [InlineData("ext4", "rw,relatime", true)]
     [InlineData("xfs", "rw,relatime", true)]
