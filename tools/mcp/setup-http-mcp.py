@@ -819,6 +819,16 @@ def tooling_arguments(deployment):
                 "--env", f"RATELDESK_SETUP_EFFECTIVE_COMPOSE_SOURCE={HOST_TARGET}/effective-deployment.json",
                 "--env", f"RATELDESK_SETUP_RUNTIME_ENVIRONMENT_SOURCE={HOST_TARGET}/runtime-environment.json",
                 "--env", f"RATELDESK_SETUP_DEPLOYMENT_MANAGER={deployment.manager}"]
+    services = getattr(deployment, "proposal", {}).get("services", {})
+    exclusions = None
+    for name in ("mcp-http", "web"):
+        environment = environment_map(services.get(name, {}).get("environment", {}))
+        exclusions = environment.get("NO_PROXY", environment.get("no_proxy"))
+        if exclusions is not None:
+            break
+    if exclusions is not None:
+        safe_label(exclusions, 8192)
+        command += ["--env", "NO_PROXY=" + exclusions, "--env", "no_proxy=" + exclusions]
     if deployment.args.ca_file:
         certificate = str(Path(deployment.args.ca_file))
         command += ["--mount", mount_argument({"type": "bind", "source": certificate}, "/run/rateldesk-setup-ca.pem") + ",readonly",
