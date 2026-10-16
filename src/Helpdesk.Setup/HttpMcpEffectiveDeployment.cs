@@ -337,7 +337,8 @@ public static class HttpMcpEffectiveDeployment
             foreach (var file in files)
                 if (file?["path"]?.GetValue<string>() is { } path && Path.GetFileName(path).StartsWith("appsettings", StringComparison.Ordinal) && file["content"]?.GetValue<string>() is { } content)
                     builder.AddJsonStream(new MemoryStream(Encoding.UTF8.GetBytes(content)));
-        builder.AddInMemoryCollection(EnvironmentFor(complete, service).Select(entry => new KeyValuePair<string, string?>(entry.Key.Replace("__", ":", StringComparison.Ordinal), entry.Value)));
+        var environment = EnvironmentFor(complete, service);
+        builder.AddInMemoryCollection(environment.Select(entry => new KeyValuePair<string, string?>(entry.Key.Replace("__", ":", StringComparison.Ordinal), entry.Value)));
         var entrypoint = complete["services"]?[service]?["entrypoint"];
         var imageEntrypoint = complete["x-rateldesk-image-entrypoints"]?[service];
         if (entrypoint is not null && !JsonNode.DeepEquals(entrypoint, imageEntrypoint))
@@ -358,7 +359,20 @@ public static class HttpMcpEffectiveDeployment
                 throw new AgentClientValidationException("HOST_COMMAND_UNSUPPORTED: Setup cannot approve a non-serving command or shell dispatch.");
             builder.AddCommandLine(values);
         }
-        return (ConfigurationRoot)builder.Build();
+        var configuration = (ConfigurationRoot)builder.Build();
+        string? commandRoot = null;
+        foreach (var provider in configuration.Providers.Where(provider => provider.GetType().Name == "CommandLineConfigurationProvider"))
+            if (provider.TryGet("contentRoot", out var value)) commandRoot = value;
+        var contentRoot = commandRoot ?? environment.GetValueOrDefault("DOTNET_CONTENTROOT") ??
+            environment.GetValueOrDefault("ASPNETCORE_CONTENTROOT") ?? environment.GetValueOrDefault("contentRoot") ??
+            complete["services"]?[service]?["working_dir"]?.GetValue<string>() ??
+            complete["x-rateldesk-image-working-directories"]?[service]?.GetValue<string>() ?? "/app";
+        if (contentRoot.TrimEnd('/') != "/app")
+        {
+            configuration.Dispose();
+            throw new AgentClientValidationException("HOST_PROVIDER_ROOT_UNSUPPORTED: Alternate contentRoot or working_dir can select unobserved appsettings. Restore the canonical /app serving root and explicit private /app/appsettings files before setup approval or verification.");
+        }
+        return configuration;
     }
 
     private static IReadOnlyList<HostDeploymentSetting> Review(JsonObject proposed, HttpMcpHostingSettings settings, string sourceHash)
