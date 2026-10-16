@@ -301,6 +301,22 @@ stdio configuration exit 78 with empty stdout and safe stderr. These bounded
 process checks do not substitute for an approved synthetic host apply/recreate/
 fresh-verify journey or a real external consumer daemon.
 
+Run the separate disposable host lane with already built current-source Web,
+API and HTTP MCP images:
+
+```sh
+python3 tools/ci/run-mcp-host-lifecycle-acceptance.py \
+  --api-image "$API_IMAGE" --web-image "$WEB_IMAGE" --mcp-image "$MCP_IMAGE" \
+  --case all
+```
+
+This lane uses unique fresh and existing deployment projects, real terminal
+setup and administrator consent, complete export/apply, full recreation and a
+new verification process. It checks catalog/status, identity preservation and a
+separate changed-source rejection. It neither publishes images nor accepts an
+owner deployment; browser layouts and public artifact integrity have their own
+lanes. Failed runs retain private redacted evidence under `work/mcp-host-lifecycle/`.
+
 ### Staging and public verification
 
 The release workflow validates the supported tag, evaluated version and peeled
