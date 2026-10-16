@@ -320,6 +320,116 @@ public sealed class HttpMcpEffectiveDeploymentTests
         Assert.NotEmpty(HttpMcpEffectiveDeployment.Observe(proposal, fixture.Runtime));
     }
 
+    [Fact]
+    public async Task Exact_manager_document_import_resumes_the_same_approved_generation()
+    {
+        using var fixture = new Fixture();
+        var proposal = await PrepareManagerImportAsync(fixture);
+        var resumed = HostDeploymentWorkflow.ResumeApproved(fixture.ExportDirectory);
+        Assert.Equal(proposal.SourceHash, resumed.SourceHash);
+        Assert.Equal(proposal.ProposalHash, resumed.ProposalHash);
+        Assert.Equal(Settings.ApiBaseUrl, resumed.Settings.ApiBaseUrl);
+        Assert.Equal(Settings.AllowedOrigins, resumed.Settings.AllowedOrigins);
+    }
+
+    [Fact]
+    public async Task Matching_manager_document_receipt_cannot_authorize_a_subtle_effective_provider_change()
+    {
+        using var fixture = new Fixture();
+        await PrepareManagerImportAsync(fixture);
+        var imported = JsonNode.Parse(File.ReadAllText(fixture.Source))!.AsObject();
+        Files(imported, "mcp-http").Insert(0, Provider("/app/appsettings.json",
+            """{"Helpdesk":{"Mcp":{"AllowedOrigins":["https://desk.example.test:8443","https://unreviewed.example.test"]}}}"""));
+        fixture.WriteSource(imported);
+        var failure = Assert.Throws<AgentClientValidationException>(() => HostDeploymentWorkflow.ResumeApproved(fixture.ExportDirectory));
+        Assert.Contains("HOST_EFFECTIVE_OPTIONS_MISMATCH", failure.Message);
+        Assert.DoesNotContain("https://unreviewed.example.test", failure.Message);
+    }
+
+    [Theory]
+    [InlineData("web", "--ApiBaseUrl=http://unreviewed.private:8222/")]
+    [InlineData("mcp-http", "--Helpdesk:Mcp:Outbound:ApiBaseUrl=http://unreviewed.private:8222/")]
+    public void Command_line_backend_override_cannot_be_hidden_by_the_proposed_environment(string service, string argument)
+    {
+        using var fixture = new Fixture();
+        var source = Complete();
+        source["services"]![service]!["command"] = new JsonArray(argument);
+        fixture.WriteSource(source);
+        var proposal = HttpMcpEffectiveDeployment.Create(Settings);
+        Assert.False(proposal.Valid);
+        Assert.Contains(proposal.Diagnostics, diagnostic => diagnostic.Code is "HOST_API_TARGET_MISMATCH" or "HOST_EFFECTIVE_INVALID");
+        Assert.DoesNotContain("unreviewed.private", HostDeploymentWorkflow.Describe(proposal.Diagnostics));
+    }
+
+    [Fact]
+    public void Custom_shell_entrypoint_is_rejected_before_host_consent()
+    {
+        using var fixture = new Fixture();
+        var source = Complete();
+        source["services"]!["mcp-http"]!["entrypoint"] = new JsonArray("/bin/sh", "-ec", "exec dotnet Helpdesk.Mcp.Http.dll");
+        fixture.WriteSource(source);
+        var proposal = HttpMcpEffectiveDeployment.Create(Settings);
+        Assert.False(proposal.Valid);
+        Assert.Contains(proposal.Diagnostics, diagnostic => diagnostic.Code == "HOST_EFFECTIVE_INVALID");
+    }
+
+    [Fact]
+    public void Runtime_external_issuer_must_equal_the_reviewed_issuer_even_when_both_are_valid()
+    {
+        using var fixture = new Fixture();
+        var external = Settings with
+        {
+            AuthenticationMode = "authentik", AuthentikAuthority = "https://issuer-a.example.test/application/o/mcp/",
+            AuthentikAudience = Settings.PublicResourceUri, RequiredScopes = ["helpdesk.mcp"], RequiredGroups = ["assistant"],
+            Outbound = AgentClientConfiguration.Empty with { ApiBaseUrl = Settings.ApiBaseUrl, CredentialMode = "integration", IntegrationCredential = "rdk_fixture_external_identity" }
+        };
+        var source = Complete();
+        Env(source, "web")["WebGateway__Mcp__AuthenticationMode"] = "authentik";
+        Env(source, "mcp-http")["Helpdesk__Mcp__AuthenticationMode"] = "authentik";
+        Env(source, "mcp-http")["Helpdesk__Mcp__Outbound__CredentialMode"] = "integration";
+        Env(source, "mcp-http")["Helpdesk__Mcp__Outbound__IntegrationCredential"] = external.Outbound.IntegrationCredential;
+        Env(source, "mcp-http")["Authentication__AuthentikMcp__Authority"] = external.AuthentikAuthority;
+        Env(source, "mcp-http")["Authentication__AuthentikMcp__Audience"] = external.AuthentikAudience;
+        Env(source, "mcp-http")["Authentication__AuthentikMcp__RequiredScopes__0"] = "helpdesk.mcp";
+        Env(source, "mcp-http")["Authentication__AuthentikMcp__RequiredGroups__0"] = "assistant";
+        Files(source, "mcp-http")[0] = Provider("/run/rateldesk-mcp/config.json", JsonSerializer.Serialize(external.Outbound, AgentClientConfiguration.JsonOptions));
+        fixture.WriteSource(source);
+        var proposal = HttpMcpEffectiveDeployment.Create(external);
+        Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
+        Env(source, "mcp-http")["Authentication__AuthentikMcp__Authority"] = "https://issuer-b.example.test/application/o/mcp/";
+        fixture.WriteRuntime(source);
+        var failures = HttpMcpEffectiveDeployment.Observe(proposal, fixture.Runtime);
+        Assert.Contains(failures, diagnostic => diagnostic.Code == "HOST_EFFECTIVE_OPTIONS_MISMATCH" && diagnostic.Key == "Authentication:AuthentikMcp");
+        Assert.Contains(failures, diagnostic => diagnostic.Code == "HOST_RUNTIME_PROVIDER_MISMATCH" && diagnostic.Layer == "mcp-http");
+        Assert.DoesNotContain("rdk_fixture_external_identity", HostDeploymentWorkflow.Describe(failures));
+    }
+
+    private static async Task<HttpMcpDeploymentProposal> PrepareManagerImportAsync(Fixture fixture)
+    {
+        var source = Complete();
+        source["x-rateldesk-source-files"] = new JsonArray(new JsonObject { ["path"] = "/owner/compose.json", ["sha256"] = new string('d', 64) });
+        fixture.WriteSource(source);
+        var proposal = HttpMcpEffectiveDeployment.Create(Settings);
+        Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
+        using var handler = new ApprovalTransport(proposal);
+        using var client = new HttpClient(handler);
+        using var workflow = new HostDeploymentWorkflow(Settings.PublicOrigin, client);
+        await workflow.SaveApprovedAsync(proposal,
+            new(new string('a', 64), "ABCD-EFGH", Settings.PublicOrigin + "/account/integration-credentials/approve?kind=host", DateTimeOffset.UtcNow.AddMinutes(5), 1),
+            fixture.ExportDirectory, false, CancellationToken.None);
+        // The manager replaces its one original source with the exact exported
+        // complete document. The rendered providers still match this review.
+        var document = new JsonObject { ["services"] = source["services"]!.DeepClone(), ["volumes"] = source["volumes"]!.DeepClone() }.ToJsonString();
+        SecureConfigurationFiles.WritePrivateDocument(Path.Combine(fixture.ExportDirectory, "deployment.json"), document);
+        var documentHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(document)));
+        SecureConfigurationFiles.WritePrivateDocument(Path.Combine(fixture.ExportDirectory, "launcher-state.json"),
+            new JsonObject { ["sourceHash"] = proposal.SourceHash, ["deploymentSha256"] = documentHash }.ToJsonString());
+        source["x-rateldesk-source-files"]![0]!["sha256"] = documentHash;
+        Assert.Empty(HttpMcpEffectiveDeployment.CheckApprovedEffective(proposal, source));
+        fixture.WriteSource(source);
+        return proposal;
+    }
+
     private static JsonObject Env(JsonObject source, string service) => source["services"]![service]!["environment"]!.AsObject();
     private static JsonArray Files(JsonObject source, string service) => source["x-rateldesk-protected-configuration"]![service]!.AsArray();
     private static JsonObject Provider(string path, string content) => new() { ["path"] = path, ["content"] = content, ["source"] = "synthetic private provider", ["sha256"] = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content))) };
