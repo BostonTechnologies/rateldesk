@@ -32,6 +32,7 @@ MANAGER_LABEL = "com.rateldesk.deployment.manager"
 RELEVANT_PREFIXES = ("helpdesk__", "helpdesk:", "rateldesk_mcp_", "authentication__",
                      "webgateway__", "reverseproxy__", "integrationcredentials__",
                      "aspnetcore_", "dotnet_")
+PROXY_KEYS = {"http_proxy", "https_proxy", "all_proxy", "no_proxy"}
 
 
 class Prerequisite(Exception):
@@ -184,7 +185,7 @@ def environment_map(values):
                 or content is not None and (len(content) > 65536 or "\0" in content)):
             fail("environment_invalid", "A saved environment key/value is malformed or oversized. Correct its owning source without printing credentials.")
         normalized = key.replace(":", "__").casefold()
-        if normalized in canonical:
+        if key in result or normalized in canonical and normalized not in PROXY_KEYS:
             fail("environment_duplicate", "A relevant Docker environment key is duplicated. Remove the ambiguous source before setup.")
         canonical.add(normalized)
         result[key] = content
@@ -830,7 +831,7 @@ def tooling_arguments(deployment):
     exclusions = None
     for name in ("mcp-http", "web"):
         environment = environment_map(services.get(name, {}).get("environment", {}))
-        exclusions = environment.get("NO_PROXY", environment.get("no_proxy"))
+        exclusions = environment.get("no_proxy", environment.get("NO_PROXY"))
         if exclusions is not None:
             break
     if exclusions is not None:

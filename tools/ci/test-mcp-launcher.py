@@ -60,6 +60,13 @@ class LauncherContracts(unittest.TestCase):
             with self.assertRaisesRegex(launcher.Prerequisite, "environment_duplicate"):
                 launcher.environment_map(values)
 
+    def test_docker_proxy_alias_pairs_do_not_mask_configuration_duplicate_checks(self):
+        environment = ["HTTP_PROXY=http://proxy.example.test", "http_proxy=http://proxy.example.test",
+                       "NO_PROXY=api,localhost", "no_proxy=api,localhost", "Helpdesk__Mcp__Instance=fixture"]
+        self.assertEqual(launcher.relevant_environment(environment), ["Helpdesk__Mcp__Instance=fixture"])
+        with self.assertRaisesRegex(launcher.Prerequisite, "environment_duplicate"):
+            launcher.environment_map(environment + ["helpdesk:Mcp:Instance=another"])
+
     def test_environment_layering_retains_explicit_empty_and_removes_unset(self):
         effective = launcher.effective_environment(["DOTNET_ENVIRONMENT=Staging", "Helpdesk__Mcp__Instance=old"],
             {"DOTNET_ENVIRONMENT": None, "Helpdesk:Mcp:Instance": "", "ASPNETCORE_ENVIRONMENT": "Preview"})
