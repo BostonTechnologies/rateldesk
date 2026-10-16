@@ -145,6 +145,8 @@ class Fixture:
             status, content = response.code, response.read(16384)
         if status not in expected:
             raise RuntimeError(f"Disposable API stage {path} returned HTTP {status}")
+        if path.startswith("/health/"):
+            return None  # The owning ASP.NET health endpoint returns plain text.
         return json.loads(content) if content else None
 
     def prepare(self):
