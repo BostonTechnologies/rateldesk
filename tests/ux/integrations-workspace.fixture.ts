@@ -281,6 +281,12 @@ test('system connection context, interrupted save, durable resume and row-local 
  await expect(manage).toHaveAttribute('href', /organizationId=org-b/);
  await manage.click();
  await expect(page).toHaveURL(/organizationId=org-b/);
+ await expect(page.getByRole('link', { name: 'Return to setup', exact: true })).toHaveAttribute('href', '/admin/automation/integration/orchestrator?organizationId=org-b');
+ await page.getByRole('tab', { name: 'API & MCP credentials', exact: true }).click();
+ await expect(page).toHaveURL(/tab=credentials/);
+ expect(new URL(page.url()).searchParams.get('organizationId')).toBe('org-b');
+ expect(new URL(page.url()).searchParams.get('returnUrl')).toBe('/admin/automation/integration/orchestrator?organizationId=org-b');
+ await page.getByRole('tab', { name: 'System connections', exact: true }).click();
  await expect(page.getByRole('dialog')).toHaveCount(0);
  const panel = page.getByTestId('system-connections-panel');
  await panel.locator('[data-connection-id="pair-awaiting"]').getByRole('button', { name: 'Continue setup', exact: true }).click();
