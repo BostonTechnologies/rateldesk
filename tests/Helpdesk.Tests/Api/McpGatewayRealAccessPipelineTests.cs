@@ -73,6 +73,8 @@ public sealed class McpGatewayRealAccessPipelineTests
         using var denied = await harness.GetAsync(execution, "/api/v1/self-service/requests");
         Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
         await harness.RemoveRoleAsync("org-b");
+        using var lostScopeStatus = await harness.GetAsync(execution, "/api/v1/auth/me");
+        Assert.Equal(HttpStatusCode.Unauthorized, lostScopeStatus.StatusCode);
         await harness.AssertDelegationStatusAsync(verifier, GatewayAccessHarness.ResourceUri, HttpStatusCode.Forbidden);
     }
 

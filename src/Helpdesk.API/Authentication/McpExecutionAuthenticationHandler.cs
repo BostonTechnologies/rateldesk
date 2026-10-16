@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.API.Services.IntegrationCredentials;
+using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -17,7 +18,8 @@ public sealed class McpExecutionAuthenticationHandler(
     ILoggerFactory logger,
     System.Text.Encodings.Web.UrlEncoder encoder,
     McpExecutionTokenService executionTokens,
-    RatelDeskIdentityDbContext identityDb)
+    RatelDeskIdentityDbContext identityDb,
+    ICurrentUserAccessService accessService)
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
     public const string SchemeName = "McpExecution";
@@ -83,6 +85,16 @@ public sealed class McpExecutionAuthenticationHandler(
             claims.Add(new Claim("integration_permission", permission));
 
         var identity = new ClaimsIdentity(claims, SchemeName, ClaimTypes.Name, ClaimTypes.Role);
-        return AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName));
+        var principal = new ClaimsPrincipal(identity);
+        if (credential.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose)
+        {
+            // The organization may have been disabled or its owner's role removed since
+            // exchange. Status must not turn that empty access projection into success.
+            var access = await accessService.ResolveAsync(principal, Context.RequestAborted).ConfigureAwait(false);
+            if (!access.IsAuthenticated || access.Permissions.Count != 0 || access.AllowedOrganizationIds.Count != 1 ||
+                !access.AllowedOrganizationIds.Contains(credential.OrganizationId!))
+                return AuthenticateResult.Fail("The setup verification organization is no longer authorized.");
+        }
+        return AuthenticateResult.Success(new AuthenticationTicket(principal, SchemeName));
     }
 }
