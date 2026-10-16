@@ -336,7 +336,9 @@ public sealed class ReverseProxyConfigurationTests
     [Fact]
     public async Task Full_Web_preserves_local_docs_rejects_unknown_API_and_resolves_all_clients_once()
     {
-        using var factory = new WebApplicationFactory<WebGatewayConfiguration>().WithWebHostBuilder(builder =>
+        // Gateway validators are shared with headless setup; anchor the host to
+        // a type owned by the executable Web assembly.
+        using var factory = new WebApplicationFactory<TokenService>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Production");
             builder.UseSetting("Authentication:Mode", "Local");
@@ -381,9 +383,9 @@ public sealed class ReverseProxyConfigurationTests
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
-            WorkingDirectory = Path.GetDirectoryName(typeof(WebGatewayConfiguration).Assembly.Location)!
+            WorkingDirectory = Path.GetDirectoryName(typeof(TokenService).Assembly.Location)!
         };
-        start.ArgumentList.Add(typeof(WebGatewayConfiguration).Assembly.Location);
+        start.ArgumentList.Add(typeof(TokenService).Assembly.Location);
         foreach (var key in start.Environment.Keys.Where(key => key.StartsWith("WebGateway__", StringComparison.OrdinalIgnoreCase) ||
             key.StartsWith("ReverseProxy__", StringComparison.OrdinalIgnoreCase)).ToArray()) start.Environment.Remove(key);
         start.Environment["ASPNETCORE_URLS"] = $"http://127.0.0.1:{port}";
