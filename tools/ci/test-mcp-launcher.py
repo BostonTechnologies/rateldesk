@@ -161,6 +161,32 @@ class LauncherContracts(unittest.TestCase):
         with self.assertRaisesRegex(launcher.Prerequisite, "manager_apply_required"):
             launcher.apply_saved(deployment)
 
+    def test_unreachable_current_administrator_check_prevents_release_apply(self):
+        self.args.manager = "release-compose"
+        deployment = self.deployment()
+        deployment.image, deployment.storage = "fixture", {}
+        deployment.proposal = {"x-rateldesk-source-files": [launcher.file_record(self.source)], "x-rateldesk-storage": {}}
+        launcher.write_private(deployment.output / "effective-deployment.json", deployment.proposal)
+        launcher.write_private(deployment.output / "deployment.json", {"services": {}})
+        state = {"sources": deployment.proposal["x-rateldesk-source-files"], "exportHashes": {}, "storage": {},
+                 "deploymentSha256": launcher.hashlib.sha256((deployment.output / "deployment.json").read_bytes()).hexdigest(),
+                 "sourceHash": launcher.hashlib.sha256((deployment.output / "effective-deployment.json").read_bytes()).hexdigest(),
+                 "phase": "saved-apply-pending"}
+        launcher.write_private(deployment.output / "launcher-state.json", state)
+        calls = []
+        class AuthorityUnavailableDocker:
+            def run(self, arguments, **kwargs):
+                calls.append(arguments)
+                if "approval-check" in arguments:
+                    raise launcher.Prerequisite("docker_operation: unavailable")
+                raise AssertionError("An unapproved Docker operation was attempted")
+        deployment.docker = AuthorityUnavailableDocker()
+        with patch.object(deployment, "prepare_storage"), patch.object(launcher, "stage_snapshot"), self.assertRaisesRegex(launcher.Prerequisite, "approval_revalidation"):
+            launcher.apply_saved(deployment)
+        self.assertTrue(any("approval-check" in arguments for arguments in calls))
+        self.assertFalse(any("up" in arguments for arguments in calls))
+        self.assertEqual(launcher.read_private_json(deployment.output / "launcher-state.json")["phase"], "saved-apply-pending")
+
     def test_export_mutation_rejected_before_apply(self):
         deployment = self.deployment()
         content = b'{"services":{}}\n'
