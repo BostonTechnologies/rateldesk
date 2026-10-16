@@ -73,12 +73,22 @@ otherwise transport checks are explicitly skipped.
 
 ## Profiles and persistence
 
-Native named profiles use the existing per-user paths:
+Native named profiles use per-user application data under
+`rateldesk/profiles/cli` or `rateldesk/profiles/mcp`; on Unix the conventional
+paths are below. An existing legacy `~/.config/rateldesk/profiles` tree remains
+selected rather than silently moving its credentials:
 
 - CLI: `~/.config/rateldesk/profiles/cli/NAME.json`.
 - Stdio/HTTP client: `~/.config/rateldesk/profiles/mcp/NAME.json`.
 - Legacy CLI default: `~/.config/helpdesk/cli.json`, retained for ordinary
   existing CLI configuration.
+
+Bare CLI setup preserves the runtime's selected `RATELDESK_CONFIG` file or that
+legacy CLI default when no profile/config option is supplied. `--profile NAME`
+deliberately selects a named profile; stdio preserves its explicitly selected
+`RATELDESK_MCP_CONFIG` unless a profile/config option takes precedence. Advanced
+can retain a supported private HTTP(S) or non-root API target without guessing
+another destination or rebinding an existing credential.
 
 HTTP-image client setup uses `RATELDESK_MCP_CLIENT_DIRECTORY` when the deployment
 provides that dedicated store, with `mcp/NAME.json` beneath it; otherwise its
