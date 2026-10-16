@@ -348,6 +348,35 @@ def selected_secret_references(proposal):
     return {values[selected]} if selected and values.get(selected) else set()
 
 
+def approved_import_secret_mounts(proposal, complete, outbound_content):
+    """Bind only identities still selected by the reviewed complete deployment."""
+    service = complete["services"]["mcp-http"]
+    image_environment = proposal["x-rateldesk-image-environment"]
+    environment = effective_environment(image_environment["mcp-http"], service.get("environment", {}))
+    command = command_configuration(service.get("command", proposal["x-rateldesk-image-commands"]["mcp-http"]))
+    providers = proposal["x-rateldesk-protected-configuration"]["mcp-http"]
+    selected_json_path = None
+    for provider in providers:
+        if Path(provider["path"]).name.startswith("appsettings"):
+            value = json_configuration_value(json.loads(provider["content"]), "Helpdesk:Mcp:ConfigurationPath")
+            if value is not None:
+                selected_json_path = value
+    selected = command.get("helpdesk:mcp:configurationpath", environment.get("helpdesk__mcp__configurationpath", selected_json_path))
+    selected = selected if isinstance(selected, str) and selected.strip() else environment.get("rateldesk_mcp_config")
+    final_providers = [provider for provider in providers if Path(provider["path"]).name.startswith("appsettings") or provider["path"] == selected]
+    if selected == "/run/rateldesk-mcp/config.json":
+        final_providers = [provider for provider in final_providers if provider["path"] != selected]
+        final_providers.append({"path": selected, "content": outbound_content})
+    expected = {**complete, "x-rateldesk-image-environment": image_environment,
+        "x-rateldesk-image-commands": proposal["x-rateldesk-image-commands"],
+        "x-rateldesk-protected-configuration": {"mcp-http": final_providers}}
+    references = selected_secret_references(expected)
+    descriptors = [item for item in proposal.get("x-rateldesk-secret-mounts", []) if item["path"] in references]
+    if {item["path"] for item in descriptors} != references:
+        fail("approved_secret_source", "The approved complete deployment selects an identity file outside the reviewed protected sources. Review that exact owning source before export.")
+    return descriptors
+
+
 def unique_container(docker, project, service, running=False):
     command = ["ps"]
     if not running:
@@ -1017,8 +1046,6 @@ def check_saved_exports(deployment, state):
 
 
 def check_effective_context(deployment, state):
-    if state.get("secretMounts", []) != deployment.proposal.get("x-rateldesk-secret-mounts", []):
-        fail("approved_secret_changed", "A selected protected downstream secret differs from the reviewed generation. Restore the approved secret or run ordinary setup to review the changed identity before applying or verifying.")
     # Saved file hashes alone do not cover interpolation inherited from this host
     # process or updated image/provider defaults. Fence those unchanged-source
     # invocations with the original complete snapshot hash as well.
@@ -1026,8 +1053,11 @@ def check_effective_context(deployment, state):
         current = hashlib.sha256(read_bytes(deployment.output / "effective-deployment.json", MAX_BYTES)).hexdigest()
         if current != state.get("sourceHash", "").casefold():
             fail("approved_context_changed", "Effective interpolation, image defaults or protected providers changed after approval. Run ordinary setup to review the current effective deployment.")
-    elif resolved_deployment_hash(deployment.proposal) != state.get("resolvedDeploymentSha256"):
-        fail("approved_context_changed", "The imported complete deployment resolves differently from the reviewed export. Restore its approved interpolation context, or run ordinary setup to review the changed generation.")
+    else:
+        if state.get("secretMounts", []) != deployment.proposal.get("x-rateldesk-secret-mounts", []):
+            fail("approved_secret_changed", "A selected protected downstream secret differs from the reviewed generation. Restore the approved secret or run ordinary setup to review the changed identity before applying or verifying.")
+        if resolved_deployment_hash(deployment.proposal) != state.get("resolvedDeploymentSha256"):
+            fail("approved_context_changed", "The imported complete deployment resolves differently from the reviewed export. Restore its approved interpolation context, or run ordinary setup to review the changed generation.")
 
 
 def export_complete_document(deployment, container, attempt):
@@ -1080,7 +1110,8 @@ def export_complete_document(deployment, container, attempt):
              "proposalHash": receipt.get("proposalHash"), "exportHashes": export_hashes,
              "deploymentSha256": hashlib.sha256(read_bytes(deployment.output / "deployment.json", MAX_BYTES)).hexdigest(),
              "resolvedDeploymentSha256": resolved_deployment_hash(resolved_complete),
-             "secretMounts": deployment.proposal.get("x-rateldesk-secret-mounts", []),
+             "secretMounts": approved_import_secret_mounts(deployment.proposal, resolved_complete,
+                 read_bytes(deployment.output / "mcp-outbound.json", MAX_BYTES).decode("utf-8-sig")),
              "phase": "saved-apply-pending", "storage": deployment.storage}
     write_private(deployment.output / "host-approval.json", raw_receipt)
     write_private(deployment.output / "launcher-state.json", state)

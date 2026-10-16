@@ -327,6 +327,25 @@ class LauncherContracts(unittest.TestCase):
         with self.assertRaisesRegex(launcher.Prerequisite, "approved_secret_changed"):
             launcher.check_effective_context(deployment, state)
 
+    def test_import_secret_binding_tracks_final_selected_identity_and_permits_approved_gateway_clear(self):
+        descriptor = {"type": "volume", "source": "fixture-existing-identity", "target": "/run/secrets",
+            "path": "/run/secrets/app", "sha256": "a" * 64}
+        outbound = {"credentialMode": "authentik", "authentikAppPasswordFile": descriptor["path"]}
+        proposal = {"x-rateldesk-secret-mounts": [descriptor], "x-rateldesk-image-environment": {"mcp-http": []},
+            "x-rateldesk-image-commands": {"mcp-http": []}, "x-rateldesk-protected-configuration": {"mcp-http": [
+                {"path": "/run/original.json", "content": json.dumps(outbound)}]}}
+        complete = {"services": {"mcp-http": {"environment": {
+            "Helpdesk__Mcp__ConfigurationPath": "/run/rateldesk-mcp/config.json"}}}}
+        self.assertEqual(launcher.approved_import_secret_mounts(proposal, complete, json.dumps(outbound)), [descriptor])
+        complete["services"]["mcp-http"]["environment"].update({"Helpdesk__Mcp__Outbound__CredentialMode": "gateway",
+            "Helpdesk__Mcp__Outbound__AuthentikAppPasswordFile": ""})
+        expected = launcher.approved_import_secret_mounts(proposal, complete, '{"credentialMode":"gateway"}')
+        self.assertEqual(expected, [], "An approved gateway transition no longer selects the original external identity")
+        deployment = self.deployment()
+        deployment.proposal = {**complete, "x-rateldesk-source-files": [launcher.file_record(self.source)], "x-rateldesk-secret-mounts": []}
+        state = {"sources": [], "resolvedDeploymentSha256": launcher.resolved_deployment_hash(complete), "secretMounts": expected}
+        launcher.check_effective_context(deployment, state)
+
     def test_image_environment_selects_correct_provider_and_explicit_configuration_path(self):
         deployment = self.deployment()
         deployment.provider_source_records = {}
