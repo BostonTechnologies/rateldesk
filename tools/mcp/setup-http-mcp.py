@@ -403,7 +403,13 @@ class Deployment:
             self.env_files = [self.directory / ".env"]
         for path in self.env_files:
             file_record(path)
-        self.manager = args.manager or labels.get(MANAGER_LABEL) or (bundle or {}).get("manager")
+        saved_manager = None
+        checkpoint = Path(args.output_directory or self.directory / f".rateldesk-http-mcp-{self.project}") / "launcher-state.json"
+        if checkpoint.is_file():
+            saved = read_private_json(checkpoint)
+            if saved.get("project") == self.project and saved.get("manager") in ("release-compose", "external-compose"):
+                saved_manager = saved["manager"]
+        self.manager = args.manager or labels.get(MANAGER_LABEL) or saved_manager or (bundle or {}).get("manager")
         if self.manager not in ("release-compose", "external-compose"):
             if not sys.stdin.isatty() or not sys.stdout.isatty():
                 fail("deployment_manager_unknown", "Supply --manager external-compose for a deployment manager, or --manager release-compose for an explicitly release-owned bundle. Unknown ownership cannot authorize apply.")

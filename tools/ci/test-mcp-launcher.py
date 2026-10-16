@@ -85,6 +85,20 @@ class LauncherContracts(unittest.TestCase):
             self.deployment()
         self.assertFalse((self.directory / ".rateldesk-http-mcp-fixture").exists())
 
+    def test_new_verify_invocation_reuses_private_matching_owner_checkpoint(self):
+        output = launcher.private_directory(self.directory / ".rateldesk-http-mcp-fixture")
+        launcher.write_private(output / "launcher-state.json", {"project": "fixture", "manager": "release-compose"})
+        metadata = {"Config": {"Image": "fixture", "Labels": {"com.docker.compose.project": "fixture",
+            "com.docker.compose.service": "mcp-http", "com.docker.compose.project.config_files": str(self.source),
+            "com.docker.compose.project.working_dir": str(self.directory)}}}
+        args = launcher.parser().parse_args(["--container", "fixture", "--verify"])
+        with patch("sys.stdin.isatty", return_value=False):
+            resumed = launcher.Deployment(args, DiscoveryDocker(metadata))
+        self.assertEqual(resumed.manager, "release-compose")
+        launcher.write_private(output / "launcher-state.json", {"project": "another-project", "manager": "release-compose"})
+        with patch("sys.stdin.isatty", return_value=False), self.assertRaisesRegex(launcher.Prerequisite, "deployment_manager_unknown"):
+            launcher.Deployment(args, DiscoveryDocker(metadata))
+
     def test_explicit_source_order_and_interpolation_files_remain_ordered(self):
         override, first, second = [self.directory / name for name in ("override.json", "one.env", "two.env")]
         for path in (override, first, second):
