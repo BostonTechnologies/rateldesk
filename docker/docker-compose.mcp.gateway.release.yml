@@ -27,6 +27,8 @@ services:
 
   mcp-http:
     image: ghcr.io/bostontechnologies/rateldesk-mcp-http:${RATELDESK_VERSION:?Set RATELDESK_VERSION to an exact published version.}
+    labels:
+      com.rateldesk.deployment.manager: release-compose
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       RATELDESK_MCP_CONFIG: /run/rateldesk-mcp/config.json

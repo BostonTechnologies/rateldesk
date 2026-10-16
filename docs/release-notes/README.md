@@ -1,5 +1,6 @@
 # Release notes
 
+- [0.1.2-beta.1 candidate: self-service MCP setup](0.1.2-beta.1.md)
 - [0.1.1: workspace and operational controls](0.1.1.md)
 - [0.1.1-beta.20: pairing-code cutover](0.1.1-beta.20.md)
 - [0.1.1-beta.22 candidate: single-origin routing and explicit client setup](0.1.1-beta.22.md)

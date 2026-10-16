@@ -238,9 +238,12 @@ local-account paired gateway mode for this guide. It exchanges the incoming
 MCP credential for a short-lived execution credential and does not forward the
 long-lived credential to ordinary API operations.
 
-Follow the [HTTP MCP deployment example](../../docker/examples/mcp-http/README.md)
-for the source or released-image overlay. It requires a protected gateway
-configuration file, an exact RatelDesk API base URL, and these public values:
+Complete the [HTTP MCP server quickstart](../mcp-http/setup.md) once for the
+deployment, then connect NetClaw as a separate consumer. The normal gateway
+uses the exact reviewed API target and request-scoped execution tokens, with no
+persistent downstream service secret. The advanced
+[deployment example](../../docker/examples/mcp-http/README.md) retains file-based
+and external Authentik alternatives. Its public configuration includes:
 
 - `RATELDESK_MCP_PUBLIC_RESOURCE_URI` is the exact public HTTPS URI ending in
   `/mcp`, for example `https://rateldesk.example.com/mcp`.
@@ -248,11 +251,13 @@ configuration file, an exact RatelDesk API base URL, and these public values:
   access is required.
 
 The MCP container listener does not provide public TLS by itself. Your proxy
-must serve the canonical HTTPS `/mcp` route and the protected-resource metadata
-route, preserve `Authorization` and MCP protocol headers, and allow streaming
+must serve the canonical HTTPS `/mcp` route, preserve `Authorization` and MCP
+protocol headers, and allow streaming
 responses without buffering or caching them. This is separate from the SignalR
 proxy route above. Do not expose the gateway configuration file, API database,
 or data-protection key ring to the MCP container.
+External Authentik mode additionally serves its exact protected-resource
+metadata route; gateway mode does not fabricate OAuth metadata.
 
 ### Create the RatelDesk credential
 
@@ -270,6 +275,12 @@ configured MFA, and open **Account → Integration credentials**
    operationally manageable expiry (RatelDesk permits 1–90 days).
 6. Save the secret when it is shown. RatelDesk never displays it again.
 
+Alternatively, run the [client setup command](../mcp-http/setup.md#connect-a-climcp-client)
+in its persistent client console, enter the NetClaw consumer's code under
+**Review client**, and approve the same one-organization, explicit permission
+scope. Each organization/consumer gets its own credential and NetClaw MCP entry.
+The temporary setup verifier is never a NetClaw credential.
+
 Put that secret only in NetClaw's protected configuration. Do not add it to
 RatelDesk deployment configuration, a shell profile or history, tickets,
 issues, pull requests, screenshots, or documentation examples.
@@ -283,23 +294,35 @@ on later requests.
 
 ### Register the server in NetClaw
 
-Run this on the NetClaw host or its secure operator environment. It prompts for
-the one-time credential instead of placing it in the command line or shell
-history. The NetClaw CLI writes header values to its protected secret storage.
+Run the non-secret registration command on the NetClaw host or its secure
+operator environment:
 
 ```bash
-read -r -s -p "RatelDesk MCP credential: " RATELDESK_MCP_TOKEN
-printf '\n'
-netclaw mcp add rateldesk-tenant-a https://rateldesk.example.com/mcp \
-  --transport http \
-  --header "Authorization: Bearer $RATELDESK_MCP_TOKEN"
-unset RATELDESK_MCP_TOKEN
+netclaw mcp add --transport http rateldesk-org-a https://rateldesk.example.test/mcp
+```
 
-# Restart the NetClaw daemon using its normal service-management method,
-# then confirm discovery and explicitly grant the tools that may be used.
+Supply this entry's `Headers:Authorization` as `Bearer` plus the credential
+through NetClaw's protected secret configuration or the daemon's deployment
+secret mechanism. Keep RatelDesk's saved `integrationCredentialFile` private;
+the deployment owner must resolve a secret reference for the consumer. NetClaw
+0.27.1's `mcp add --header` accepts a literal header argument, which process
+inspection can expose; it has no advertised header-file option. Do not invent
+an `_FILE` setting or paste a bearer into command arguments. Retain older/manual
+configuration through the consumer's own protected configuration mechanism.
+
+After restarting or reloading the daemon through its normal service manager,
+check discovery and select explicit tool grants:
+
+```sh
 netclaw mcp list
 netclaw mcp permissions
 ```
+
+The non-secret command shapes above were checked against the
+[NetClaw 0.27.1 CLI source](https://github.com/netclaw-dev/netclaw/blob/57c4d686a2e5e405a2b1772b661fd812726b6b36/src/Netclaw.Cli/Mcp/McpCommand.cs).
+An actual NetClaw daemon connection, its exact deployed version, authenticated
+status operation and reconnect still need separate execution evidence. A generic
+HTTP protocol client or source review does not establish that acceptance.
 
 Replace the name and URL, but do not change the credential's canonical URI to
 make it fit a proxy alias. Review `netclaw mcp permissions` immediately after

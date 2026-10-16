@@ -2,9 +2,21 @@
 
 RatelDesk has one repository-owned release line. The root `Directory.Build.props` is the source of truth for `VersionPrefix` and `VersionSuffix`. Applications and release outputs inherit those values. Prereleases remain immutable.
 
+## 0.1.2-beta.1 — self-service MCP candidate
+
+The current source targets `0.1.2-beta.1`; see the
+[candidate notes](../release-notes/0.1.2-beta.1.md) and
+[short setup guide](../mcp-http/setup.md). The prior stable release is `v0.1.1`.
+Recheck both accepted tag forms, releases, registry state and concurrent work
+before tagging the exact reviewed merge. Keep
+[#179](https://github.com/BostonTechnologies/rateldesk/issues/179) and
+[#188](https://github.com/BostonTechnologies/rateldesk/issues/188) open until
+hosted publication and fresh anonymous distribution verification complete.
+This beta does not move `latest` or include owner production deployment.
+
 ## 0.1.1 — stable workspace release
 
-The source targets `0.1.1` with an empty root prerelease suffix. The
+The released `v0.1.1` source declares `0.1.1` with an empty prerelease suffix. The
 [cumulative release notes](../release-notes/0.1.1.md) cover changes since 0.1.0,
 including workspace filtering, email rendering, compact administration and
 durable pending-mail controls. The beta.22 upgrade regression runs on both

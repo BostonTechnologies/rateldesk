@@ -5,6 +5,8 @@ name: rateldesk-setup
 services:
   mcp-http:
     image: ghcr.io/bostontechnologies/rateldesk-mcp-http:${RATELDESK_VERSION:?Select an exact published version.}
+    labels:
+      com.rateldesk.deployment.manager: release-compose
     user: "${RATELDESK_SETUP_UID:-10001}:${RATELDESK_SETUP_GID:-10001}"
     stdin_open: true
     tty: true

@@ -93,6 +93,24 @@ if rid == 'win-x64':
             raise SystemExit('The archive CLI private configuration probe failed or disclosed its fixture.')
         subprocess.run(command, check=True, timeout=15)
 print('Archive explicit setup entrypoints passed for ' + rid)
+
+# The beta.17 diagnostic regression must fail safely in a real extracted
+# process. A crash or timeout is a failure, never configuration evidence.
+malformed = Path(temporary) / 'malformed-mcp.json'
+canary = 'synthetic-archive-secret-not-for-diagnostics'
+malformed.write_text('{"integrationCredential":"' + canary + '","apiBaseUrl":', encoding='utf-8')
+negative_environment = environment.copy()
+negative_environment.update({
+    'RATELDESK_MCP_CONFIG': str(malformed),
+    'RATELDESK_MCP_INSTANCE': 'archivetest',
+    'RATELDESK_MCP_EXPECTED_API_BASE_URL': 'https://api.example.test/',
+})
+result = subprocess.run([mcp], env=negative_environment, capture_output=True, text=True, timeout=15)
+if result.returncode != 78 or result.stdout or 'startup validation failed' not in result.stderr:
+    raise SystemExit('Malformed archived stdio configuration did not produce the documented safe exit 78 on stderr.')
+if canary in result.stderr:
+    raise SystemExit('Malformed archived stdio configuration disclosed its synthetic secret.')
+print('Archive malformed stdio configuration passed for ' + rid)
 PY
 
 configuration="$temporary_directory/mcp-config.json"

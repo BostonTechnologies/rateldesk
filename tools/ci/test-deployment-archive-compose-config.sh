@@ -18,6 +18,15 @@ tar -C "$extracted_directory" -xzf "$archive"
 deployment_directory=$(find "$extracted_directory" -mindepth 1 -maxdepth 1 -type d -print -quit)
 test -n "$deployment_directory"
 
+test -x "$deployment_directory/setup-http-mcp.sh"
+test -f "$deployment_directory/setup-http-mcp.py"
+test -s "$deployment_directory/docs/mcp-http/setup.md"
+# Execute the extracted entrypoint with its adjacent helper. --help must not
+# need a running deployment, source checkout, valid serving config or registry.
+"$deployment_directory/setup-http-mcp.sh" --help > "$work_directory/launcher-help.txt"
+grep -q -- '--verify' "$work_directory/launcher-help.txt"
+grep -q -- '--apply' "$work_directory/launcher-help.txt"
+
 test -f "$deployment_directory/examples/mcp-http/docker-compose.yml"
 test -f "$deployment_directory/docker-compose.mcp.gateway.release.yml"
 test -f "$deployment_directory/docker-compose.mcp.release.yml"
