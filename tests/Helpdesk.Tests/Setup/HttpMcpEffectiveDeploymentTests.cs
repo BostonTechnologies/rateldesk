@@ -486,6 +486,33 @@ public sealed class HttpMcpEffectiveDeploymentTests
         Assert.Equal(1, handler.Calls); // Only the original host approval poll used this transport.
     }
 
+    [Fact]
+    public async Task New_verification_with_mismatched_runtime_clears_a_previous_success_before_requesting_consent()
+    {
+        using var fixture = new Fixture();
+        fixture.WriteSource(Complete());
+        var proposal = HttpMcpEffectiveDeployment.Create(Settings);
+        using var handler = new ApprovalTransport(proposal);
+        using var client = new HttpClient(handler);
+        using var workflow = new HostDeploymentWorkflow(Settings.PublicOrigin, client);
+        await workflow.SaveApprovedAsync(proposal,
+            new(new string('a', 64), "ABCD-EFGH", Settings.PublicOrigin + "/account/integration-credentials/approve?kind=host", DateTimeOffset.UtcNow.AddMinutes(5), 1),
+            fixture.ExportDirectory, false, CancellationToken.None);
+        var phasePath = Path.Combine(fixture.ExportDirectory, "host-phase.json");
+        SecureConfigurationFiles.WriteAtomic(phasePath, """{"phase":"end-to-end-verified"}""");
+        var runtime = Complete();
+        Env(runtime, "mcp-http")["Helpdesk__Mcp__DelegationTimeoutSeconds"] = "35";
+        fixture.WriteRuntime(runtime);
+        Environment.SetEnvironmentVariable(HttpMcpEffectiveDeployment.RuntimeSourceVariable, fixture.Runtime);
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        Assert.Equal(SetupRunner.ConfigurationError, await HostDeploymentWorkflow.VerifyAsync(fixture.ExportDirectory, output, error, CancellationToken.None));
+        Assert.Contains("HOST_RUNTIME_MISMATCH", error.ToString());
+        Assert.DoesNotContain("end-to-end-verified", File.ReadAllText(phasePath));
+        Assert.DoesNotContain("Temporary verification client", output.ToString() + error.ToString());
+        Assert.Equal(1, handler.Calls);
+    }
+
     private static async Task<HttpMcpDeploymentProposal> PrepareManagerImportAsync(Fixture fixture)
     {
         var source = Complete();
