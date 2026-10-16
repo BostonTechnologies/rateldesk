@@ -120,12 +120,14 @@ public sealed class PairingConnectionsPageTests
     }
 
     [Fact]
-    public async Task Failed_save_keeps_the_same_nonsecret_draft_and_refresh_restores_it_for_correction()
+    public async Task Failed_save_keeps_the_same_nonsecret_draft_and_reload_offers_explicit_resume()
     {
         var mapping = new PairingMapping("33333333-3333-3333-3333-333333333333", PairId, "Office draft", "42", "organization-7", "customer-9", true, false);
         var api = new FixtureApi { Rows = [Paired(mapping)], FailSave = true };
         await using (var view = await RenderAsync(api))
         {
+            Assert.DoesNotContain("system-connection-save-form", await view.HtmlAsync());
+            await view.InvokeAsync("ViewAsync", api.Rows[0]);
             await view.InvokeAsync("SaveAsync");
             var retained = ReadField<object>(view.Panel, "draft");
             Assert.Equal(mapping.Id, Property<string>(retained, "Id"));
@@ -137,6 +139,9 @@ public sealed class PairingConnectionsPageTests
             Assert.Single(ReadField<List<PairingConnectionDto>>(view.Panel, "connections"));
         }
         await using var restored = await RenderAsync(api);
+        Assert.Contains("Continue setup", await restored.HtmlAsync());
+        Assert.DoesNotContain("system-connection-save-form", await restored.HtmlAsync());
+        await restored.InvokeAsync("ViewAsync", api.Rows[0]);
         Assert.Equal(mapping.Id, Property<string>(ReadField<object>(restored.Panel, "draft"), "Id"));
         Assert.Contains("Office draft", await restored.HtmlAsync());
     }
@@ -158,6 +163,7 @@ public sealed class PairingConnectionsPageTests
         await using var view = await RenderAsync(api);
         if (failedSave)
         {
+            await view.InvokeAsync("ViewAsync", api.Rows[0]);
             await view.InvokeAsync("SaveAsync");
             Assert.Contains("Reference: pairing-test-ref", await view.HtmlAsync());
             await view.InvokeAsync("CloseForm");
@@ -324,6 +330,109 @@ public sealed class PairingConnectionsPageTests
         Assert.Empty(api.Saves);
     }
 
+    [Fact]
+    public async Task Review_refresh_and_context_navigation_preserve_edits_and_saved_mapping()
+    {
+        var mapping = new PairingMapping("33333333-3333-3333-3333-333333333333", PairId, "Office connection", "42", "organization-7", "customer-9", true, false);
+        var api = new FixtureApi
+        {
+            Rows = [Paired(mapping, "connected")],
+            Choices = new(Directory.NetRatelTenants, [new("organization-7", "Support team"), new("organization-8", "Escalation team")], Directory.RatelDeskCustomers)
+        };
+        await using var view = await RenderAsync(api);
+        await view.SetOrganizationHintAsync("organization-8");
+        await view.InvokeAsync("ViewAsync", api.Rows[0]);
+        var draft = ReadField<object>(view.Panel, "draft");
+        Assert.Equal("organization-7", Property<string>(draft, "RatelDeskOrganizationId"));
+        SetProperty(draft, "Name", "Unsaved reviewed name");
+        await view.InvokeAsync("LoadAsync");
+        Assert.Same(draft, ReadField<object>(view.Panel, "draft"));
+        Assert.Equal("Unsaved reviewed name", Property<string>(draft, "Name"));
+        await view.SetOrganizationHintAsync("organization-missing");
+        Assert.Same(draft, ReadField<object>(view.Panel, "draft"));
+        Assert.Equal("organization-7", Property<string>(draft, "RatelDeskOrganizationId"));
+        var html = await view.HtmlAsync();
+        Assert.Contains("connection-organization-hint-error", html);
+        Assert.Contains("Your current draft is retained", html);
+        Assert.Contains("role=\"dialog\"", html);
+        Assert.Contains("pairing-dialog-body", html);
+        Assert.Empty(api.Saves);
+        await view.InvokeAsync("CloseForm");
+        await view.InvokeAsync("LoadAsync");
+        Assert.DoesNotContain("system-connection-save-form", await view.HtmlAsync());
+        Assert.Contains("Office connection", await view.HtmlAsync());
+    }
+
+    [Theory]
+    [InlineData("organization-7", "organization-7", false)]
+    [InlineData("organization-missing", "", true)]
+    [InlineData(null, "", false)]
+    public async Task New_mapping_validates_organization_hint_without_fallback_or_automatic_save(string? hint, string expected, bool unavailable)
+    {
+        var api = new FixtureApi { Rows = [Paired()] };
+        await using var view = await RenderAsync(api);
+        await view.SetOrganizationHintAsync(hint);
+        await view.InvokeAsync("ViewAsync", api.Rows[0]);
+        var draft = ReadField<object>(view.Panel, "draft");
+        Assert.Equal(expected, Property<string>(draft, "RatelDeskOrganizationId"));
+        Assert.Equal(unavailable, (await view.HtmlAsync()).Contains("connection-organization-hint-error", StringComparison.Ordinal));
+        Assert.False(Property<bool>(view.Panel, "CanSave"));
+        Assert.Empty(api.Saves);
+        if (unavailable)
+        {
+            await view.InvokeAsync("OrganizationChanged", "organization-7");
+            Assert.DoesNotContain("connection-organization-hint-error", await view.HtmlAsync());
+        }
+    }
+
+    [Fact]
+    public async Task Row_test_failure_is_local_retryable_and_does_not_reset_a_review()
+    {
+        var mapping = new PairingMapping("33333333-3333-3333-3333-333333333333", PairId, "First mapping", "42", "organization-7", "customer-9", true, false);
+        var other = mapping with { Id = "44444444-4444-4444-4444-444444444444", Name = "Other mapping" };
+        var api = new FixtureApi { Rows = [Paired(mapping, "connected"), Paired(other, "connected")], FailTest = true };
+        await using var view = await RenderAsync(api);
+        await view.InvokeAsync("ViewAsync", api.Rows[1]);
+        var draft = ReadField<object>(view.Panel, "draft");
+        await view.InvokeAsync("TestAsync", api.Rows[0]);
+        Assert.Same(draft, ReadField<object>(view.Panel, "draft"));
+        Assert.Contains("Reference: test-unavailable", await view.HtmlAsync());
+        Assert.Null(ReadField<List<PairingConnectionDto>>(view.Panel, "connections").Single(c => c.Id == mapping.Id).LastTest);
+        api.FailTest = false;
+        await view.InvokeAsync("TestAsync", api.Rows[0]);
+        Assert.DoesNotContain("Reference: test-unavailable", await view.HtmlAsync());
+        Assert.True(ReadField<List<PairingConnectionDto>>(view.Panel, "connections").Single(c => c.Id == mapping.Id).LastTest!.Success);
+        Assert.Same(draft, ReadField<object>(view.Panel, "draft"));
+        Assert.Equal(2, api.TestCount);
+    }
+
+    [Fact]
+    public async Task Confirmed_delete_survives_stale_list_and_test_results_without_affecting_other_rows()
+    {
+        var mapping = new PairingMapping("33333333-3333-3333-3333-333333333333", PairId, "First mapping", "42", "organization-7", "customer-9", true, false);
+        var other = mapping with { Id = "44444444-4444-4444-4444-444444444444", Name = "Other mapping" };
+        var stale = new[] { Paired(mapping, "connected"), Paired(other, "connected") };
+        var api = new FixtureApi { Rows = stale.ToList() };
+        await using var view = await RenderAsync(api);
+        var reply = new TaskCompletionSource<PairingTestResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        api.HeldTest = reply;
+        var test = view.InvokeAsync("TestAsync", stale[0]);
+        await api.TestStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await view.InvokeAsync("RequestDelete", stale[0]);
+        Assert.Empty(api.DeletedMappingIds);
+        Assert.Contains("Delete system connection?", await view.HtmlAsync());
+        await view.InvokeAsync("ConfirmDeleteAsync");
+        Assert.Equal(mapping.Id, Assert.Single(api.DeletedMappingIds));
+        reply.SetResult(new(true, "Old mapping passed", DateTimeOffset.UtcNow));
+        await test;
+        api.Rows = stale.ToList();
+        await view.InvokeAsync("LoadAsync");
+        var rows = ReadField<List<PairingConnectionDto>>(view.Panel, "connections");
+        Assert.Equal(other.Id, Assert.Single(rows).Id);
+        Assert.DoesNotContain("First mapping", await view.HtmlAsync());
+        Assert.DoesNotContain("Old mapping passed", await view.HtmlAsync());
+    }
+
     [Theory]
     [InlineData("host.lan:5100/", "https://host.lan:5100")]
     [InlineData("https://desk.lan///", "https://desk.lan")]
@@ -405,6 +514,7 @@ public sealed class PairingConnectionsPageTests
         public PairingPanel Panel => panel;
         public MudSelect<string> Select(string testId) => capture.Selects.Last(select => select.UserAttributes?.GetValueOrDefault("data-testid")?.ToString() == testId);
         public Task ChangeSelectionAsync(string testId, string id) => renderer.Dispatcher.InvokeAsync(() => Select(testId).ValueChanged.InvokeAsync(id));
+        public Task SetOrganizationHintAsync(string? id) => renderer.Dispatcher.InvokeAsync(() => ((IComponent)panel).SetParametersAsync(ParameterView.FromDictionary(new Dictionary<string, object?> { ["OrganizationId"] = id })));
         public Task<string> HtmlAsync() => renderer.Dispatcher.InvokeAsync(root.ToHtmlString);
         public Task InvokeAsync(string methodName, object? argument = null)
         {
@@ -422,8 +532,10 @@ public sealed class PairingConnectionsPageTests
         public List<PairingMapping> Saves { get; } = [];
         public List<string> DeletedMappingIds { get; } = [];
         public int GenerateCount, TestCount, ListCount;
-        public bool FailSave, LoseFirstPairResponse, RejectPairCode, ExpirePairSession;
+        public bool FailSave, LoseFirstPairResponse, RejectPairCode, ExpirePairSession, FailTest;
         public TaskCompletionSource<PairingSetupDirectory>? HeldDirectory;
+        public TaskCompletionSource<PairingTestResult>? HeldTest;
+        public TaskCompletionSource TestStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource<List<PairingConnectionDto>>? HeldList;
         public TaskCompletionSource DirectoryStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource ListStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -453,7 +565,13 @@ public sealed class PairingConnectionsPageTests
                 if (ExpirePairSession) return new(HttpStatusCode.Unauthorized) { Content = new StringContent("") };
                 return Json(Paired());
             }
-            if (path.EndsWith("/test", StringComparison.Ordinal)) { TestCount++; return Json(new PairingTestResult(true, "Current mapping and permissions verified", DateTimeOffset.UtcNow)); }
+            if (path.EndsWith("/test", StringComparison.Ordinal))
+            {
+                TestCount++;
+                if (HeldTest is { } held) { HeldTest = null; TestStarted.TrySetResult(); return Json(await held.Task.WaitAsync(ct)); }
+                return FailTest ? Json(new { message = "The peer is unavailable. Retry this connection.", reference = "test-unavailable" }, HttpStatusCode.ServiceUnavailable)
+                    : Json(new PairingTestResult(true, "Current mapping and permissions verified", DateTimeOffset.UtcNow));
+            }
             if (request.Method == HttpMethod.Put)
             {
                 var mapping = (await request.Content!.ReadFromJsonAsync<PairingMapping>(ct))!; Saves.Add(mapping);
