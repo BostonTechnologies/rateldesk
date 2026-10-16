@@ -40,7 +40,10 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
       args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`]
     });
     try {
-      const worker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker');
+      await expect.poll(() => context.serviceWorkers().length, {
+        message: 'The isolated native zoom extension service worker must become available before opening the application.'
+      }).toBeGreaterThan(0);
+      const worker = context.serviceWorkers()[0];
       const page = await context.newPage();
       await context.addInitScript(value => localStorage.setItem('helpdesk.theme.preference', value), theme);
       await page.goto(`${baseURL}/auth/development`);
