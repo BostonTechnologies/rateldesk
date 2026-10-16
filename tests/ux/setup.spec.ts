@@ -177,11 +177,12 @@ test('first-run setup initializes, survives restart, and supports isolated scope
   await page.getByLabel('Name', { exact: true }).fill('Browser wizard credential');
   await page.getByRole('button', { name: 'Choose access', exact: true }).click();
   await expect(page.getByRole('combobox', { name: 'Organization', exact: true })).toBeVisible();
-  const permissions = page.getByRole('combobox', { name: 'Permissions', exact: true });
+  const organization = page.getByRole('combobox', { name: 'Organization', exact: true });
+  await organization.click();
+  await page.getByRole('option').first().click();
+  const permissions = page.getByTestId('credential-permission-selector');
   await expect(permissions).toBeVisible();
-  await permissions.click();
-  await page.getByRole('option', { name: 'Incident User', exact: true }).click();
-  await permissions.click();
+  await permissions.getByRole('checkbox', { name: 'Incident.User', exact: true }).check();
   await page.getByRole('button', { name: 'Review credential', exact: true }).click();
   await expect(page.getByText('Review before creating', { exact: true })).toBeVisible();
   await expect(page.getByText("Credentials use your account's permissions. Each new secret is displayed once.", { exact: true })).toBeVisible();

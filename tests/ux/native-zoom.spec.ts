@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 const suite = process.env.HELPDESK_NATIVE_ZOOM_SUITE!;
 const routes: Record<string, string[]> = {
+  integrations: ['/account/integration-credentials?tab=credentials'],
   admin: ['/admin/roles', '/admin/resources/data-management', '/admin/support-routing', '/admin/tenant-sla-settings'],
   details: ['/incidents/incidents-1', '/requests/requests-1', '/changes/changes-1'],
   email: ['/incidents'],
@@ -11,7 +12,7 @@ const routes: Record<string, string[]> = {
   operations: ['/self-service', '/ops/slas', '/ops/workflows', '/ops/hangfire'],
   'pending-mail': ['/admin/pending-emails']
 };
-const ports: Record<string, number> = { admin: 18500, details: 18600, email: 18304, 'ticket-filters': 18330, operations: 18400, 'pending-mail': 18700 };
+const ports: Record<string, number> = { admin: 18500, integrations: 18505, details: 18600, email: 18304, 'ticket-filters': 18330, operations: 18400, 'pending-mail': 18700 };
 async function settleFiniteAnimations(page: Page) {
   await page.evaluate(async () => {
     await document.fonts.ready;
@@ -33,7 +34,8 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
     const profile = await mkdtemp(path.join(tmpdir(), 'rateldesk-zoom-'));
     const extension = path.resolve('tests/ux/native-zoom-extension');
     const context = await chromium.launchPersistentContext(profile, {
-      channel: 'chromium', headless: true, ignoreHTTPSErrors: true,
+      channel: process.env.HELPDESK_E2E_CHROMIUM_PATH ? undefined : 'chromium',
+      executablePath: process.env.HELPDESK_E2E_CHROMIUM_PATH, headless: true, ignoreHTTPSErrors: true,
       viewport: { width, height: 1000 },
       args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`]
     });
@@ -70,6 +72,20 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
           await expect(tabs.nth(index)).toBeFocused();
           await tabs.nth(index).press('Enter');
           await expect(tabs.nth(index)).toHaveAttribute('aria-selected', 'true');
+        }
+        if (suite === 'integrations') {
+          await page.getByLabel('Client code', { exact: true }).fill('ABCD-TEST');
+          await page.getByRole('button', { name: 'Review client', exact: true }).click();
+          const review = page.getByRole('dialog', { name: 'Connection consent', exact: true });
+          await expect(review).toBeVisible();
+          await review.getByLabel('Organization', { exact: true }).selectOption('org-a');
+          await review.getByRole('button', { name: /^Select \d+ displayed eligible permissions$/ }).click();
+          const bounds = await review.boundingBox();
+          expect(bounds!.x).toBeGreaterThanOrEqual(0);
+          expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width / 2 + 1);
+          const footer = await review.locator('footer').boundingBox();
+          expect(footer!.y + footer!.height).toBeLessThanOrEqual(501);
+          await expect(review.getByRole('button', { name: 'Approve connection', exact: true })).toBeVisible();
         }
         if (suite === 'email') {
           await page.getByRole('button', { name: 'Preview: Synthetic service notice' }).focus();
