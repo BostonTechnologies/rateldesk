@@ -99,6 +99,8 @@ print('Archive explicit setup entrypoints passed for ' + rid)
 malformed = Path(temporary) / 'malformed-mcp.json'
 canary = 'synthetic-archive-secret-not-for-diagnostics'
 malformed.write_text('{"integrationCredential":"' + canary + '","apiBaseUrl":', encoding='utf-8')
+if os.name != 'nt':
+    malformed.chmod(0o600)
 negative_environment = environment.copy()
 negative_environment.update({
     'RATELDESK_MCP_CONFIG': str(malformed),
@@ -106,7 +108,7 @@ negative_environment.update({
     'RATELDESK_MCP_EXPECTED_API_BASE_URL': 'https://api.example.test/',
 })
 result = subprocess.run([mcp], env=negative_environment, capture_output=True, text=True, timeout=15)
-if result.returncode != 78 or result.stdout or 'startup validation failed' not in result.stderr:
+if result.returncode != 78 or result.stdout or 'startup validation failed' not in result.stderr or 'invalid JSON' not in result.stderr:
     raise SystemExit('Malformed archived stdio configuration did not produce the documented safe exit 78 on stderr.')
 if canary in result.stderr:
     raise SystemExit('Malformed archived stdio configuration disclosed its synthetic secret.')
