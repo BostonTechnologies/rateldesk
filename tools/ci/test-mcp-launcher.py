@@ -200,8 +200,11 @@ class LauncherContracts(unittest.TestCase):
             "composeFile": base.name, "projectName": "rateldesk", "manager": "release-compose",
             "image": "ghcr.io/bostontechnologies/rateldesk-mcp-http:0.1.2-beta.1"}))
         args = launcher.parser().parse_args([])
+        class EmptyDocker(DiscoveryDocker):
+            def run(self, arguments, **kwargs):
+                return b""
         with patch.object(launcher, "__file__", str(self.directory / "setup-http-mcp.py")):
-            deployment = launcher.Deployment(args, DiscoveryDocker({}))
+            deployment = launcher.Deployment(args, EmptyDocker({}))
         self.assertEqual(deployment.sources, [base])
         self.assertEqual(deployment.project, "rateldesk")
         self.assertTrue(deployment.foundation)

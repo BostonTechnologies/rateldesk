@@ -298,7 +298,7 @@ def choose_container(docker, explicit, foundation=False):
         except ValueError:
             fail("docker_json", "Docker returned invalid discovery metadata. Check Docker and retry.")
         metadata = docker.inspect(identifier)
-        if foundation and not str(metadata.get("Config", {}).get("Image", "")).startswith("ghcr.io/bostontechnologies/rateldesk-web:"):
+        if foundation and not str(metadata.get("Config", {}).get("Image", "")).startswith(("ghcr.io/bostontechnologies/rateldesk-web:", "ghcr.io/bostontechnologies/rateldesk-web@sha256:")):
             continue
         labels = metadata.get("Config", {}).get("Labels", {}) or {}
         if str(labels.get("com.docker.compose.oneoff", "false")).casefold() != "true":
@@ -352,6 +352,10 @@ class Deployment:
                     or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?", bundle.get("version", ""))
                     or bundle.get("image") != f"ghcr.io/bostontechnologies/rateldesk-mcp-http:{bundle['version']}"):
                 fail("release_metadata", "The extracted setup release metadata is unsupported. Re-extract the verified archive.")
+            existing_project = docker.run(["ps", "--all", "--filter", "label=com.docker.compose.project=" + bundle.get("projectName", "rateldesk"),
+                                           "--format", "{{json .ID}}"], maximum=8192)
+            if existing_project.strip():
+                fail("deployment_manager_unknown", "This project already exists without unambiguous RatelDesk source metadata. Supply its actual --container or ordered --compose-file/--project and deployment owner; the release bundle cannot replace an unknown owner's stack.")
         found_project = labels.get("com.docker.compose.project")
         if args.project and found_project and args.project != found_project:
             fail("project_mismatch", "The selected container and supplied project disagree. Select the actual saved deployment.")
@@ -449,6 +453,11 @@ class Deployment:
                 prefix = "ghcr.io/bostontechnologies/rateldesk-api:"
                 if api_image.startswith(prefix):
                     image = "ghcr.io/bostontechnologies/rateldesk-mcp-http:" + api_image[len(prefix):]
+                elif api_image.startswith("ghcr.io/bostontechnologies/rateldesk-api@sha256:"):
+                    metadata = self.docker.json(["image", "inspect", "--format", "{{json .}}", api_image])
+                    version = (metadata.get("Config", {}).get("Labels", {}) or {}).get("org.opencontainers.image.version", "")
+                    if re.fullmatch(r"v?[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?", version):
+                        image = "ghcr.io/bostontechnologies/rateldesk-mcp-http:" + version.removeprefix("v")
             if not self.foundation or not image:
                 fail("mcp_service_missing", "The saved sources have no mcp-http service or exact release image. Use the verified matching deployment archive, or include the existing MCP source.")
             # This is an explicitly reviewed service addition, not a guessed
