@@ -5,7 +5,6 @@ import errno
 import fcntl
 import os
 import pty
-import re
 import select
 import signal
 import struct
@@ -13,6 +12,7 @@ import tempfile
 import termios
 import time
 from pathlib import Path
+from terminal_test_support import terminal_text
 
 
 def main():
@@ -36,31 +36,7 @@ def main():
             os.kill(child, signal.SIGWINCH)
 
         def rendered():
-            # The real renderer positions individual changed cells, omitting spaces.
-            # Reconstruct those cells instead of pretending the ANSI byte stream is prose.
-            cells = {}
-            row = column = 0
-            for token in re.split(r"(\x1b\[[0-?]*[ -/]*[@-~]|\x1b.)", traffic.decode("utf-8", errors="replace")):
-                if token.startswith("\x1b["):
-                    if token[-1] in "Hf":
-                        coordinates = token[2:-1].split(";")
-                        row = int(coordinates[0] or "1") - 1
-                        column = int(coordinates[1] or "1") - 1 if len(coordinates) > 1 else 0
-                    elif token in ("\x1b[2J", "\x1b[3J"):
-                        cells.clear()
-                    continue
-                if token.startswith("\x1b"):
-                    continue
-                for character in token:
-                    if character == "\r":
-                        column = 0
-                    elif character == "\n":
-                        row += 1
-                    elif character >= " ":
-                        cells[row, column] = character
-                        column += 1
-            screen = "\n".join("".join(cells.get((y, x), " ") for x in range(160)) for y in range(40))
-            return " ".join(screen.split())
+            return terminal_text(traffic, rows=40)
 
         def until(predicate, description, seconds=10):
             deadline = time.monotonic() + seconds
