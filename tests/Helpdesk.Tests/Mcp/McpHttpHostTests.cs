@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using Helpdesk.AgentClient;
 using Helpdesk.Mcp.Http.Observability;
 using Helpdesk.Mcp.Http.Authorization;
+using Helpdesk.Mcp.Tools;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
@@ -19,8 +20,10 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
+using Microsoft.AspNetCore.WebUtilities;
 using Helpdesk.Tests.Api;
 using Helpdesk.Setup;
+using Helpdesk.Shared.Auth;
 using Xunit;
 
 namespace Helpdesk.Tests.Mcp;
@@ -261,6 +264,91 @@ public sealed class McpHttpHostTests
         using var revoked = await client.SendAsync(revokedRequest);
 
         Assert.Equal(HttpStatusCode.Unauthorized, revoked.StatusCode);
+    }
+
+    [Fact]
+    public async Task Gateway_incident_search_uses_the_real_api_adapter_catalog_and_credential_boundary()
+    {
+        await using var authority = await McpGatewayRealAccessPipelineTests.GatewayAccessHarness.CreateAsync(unscopedData: true);
+        await authority.SeedIncidentSearchAsync();
+        var credential = await authority.CreateCredentialAsync("org-a", permissions: HelpdeskPermissions.IncidentRead);
+        var resource = McpGatewayRealAccessPipelineTests.GatewayAccessHarness.ResourceUri;
+        using var environment = new McpHostEnvironment(apiBaseUrl: "https://api.example", publicResourceUri: resource, gateway: true);
+        using var factory = CreateFactory(environment.SigningKey, apiHandlerFactory: authority.CreateHandler, delegationHandlerFactory: authority.CreateHandler);
+        using var client = CreateClient(factory, resource);
+
+        using var initialize = await HttpCallAsync(client, credential.Bearer, 1, "initialize", InitializeParameters());
+        Assert.Equal("2025-03-26", initialize.RootElement.GetProperty("result").GetProperty("protocolVersion").GetString());
+        using var catalog = await HttpCallAsync(client, credential.Bearer, 2, "tools/list", new { });
+        var catalogTools = catalog.RootElement.GetProperty("result").GetProperty("tools").EnumerateArray().ToArray();
+        Assert.Equal(HelpdeskToolDefinitions.Create().Select(tool => tool.ProtocolTool.Name).Order(StringComparer.Ordinal),
+            catalogTools.Select(tool => tool.GetProperty("name").GetString()!).Order(StringComparer.Ordinal));
+        var incidentTool = Assert.Single(catalogTools,
+            tool => tool.GetProperty("name").GetString() == "helpdesk_incidents");
+        Assert.Contains("request.query", incidentTool.GetProperty("description").GetString(), StringComparison.Ordinal);
+
+        using var match = await HttpCallAsync(client, credential.Bearer, 3, "tools/call", ToolCallParameters("helpdesk_incidents", new
+        {
+            operation = "list", request = new { query = "needle", page = 1, pageSize = 1, includeTotal = true }
+        }));
+        var matchResult = StructuredContent(match.RootElement);
+        Assert.True(matchResult.GetProperty("success").GetBoolean());
+        var matchData = matchResult.GetProperty("data");
+        Assert.Equal(2, matchData.GetProperty("totalCount").GetInt32());
+        Assert.Equal(1, matchData.GetProperty("page").GetInt32());
+        Assert.Equal(1, matchData.GetProperty("pageSize").GetInt32());
+        Assert.Equal("incident-beta", Assert.Single(matchData.GetProperty("items").EnumerateArray()).GetProperty("id").GetString());
+
+        using var noMatch = await HttpCallAsync(client, credential.Bearer, 4, "tools/call", ToolCallParameters("helpdesk_incidents", new
+        {
+            operation = "list", request = new { query = "impossible-incident-search-193", includeTotal = true }
+        }));
+        var noMatchResult = StructuredContent(noMatch.RootElement);
+        Assert.True(noMatchResult.GetProperty("success").GetBoolean());
+        Assert.Equal(0, noMatchResult.GetProperty("data").GetProperty("totalCount").GetInt32());
+        Assert.Empty(noMatchResult.GetProperty("data").GetProperty("items").EnumerateArray());
+
+        using var literal = await HttpCallAsync(client, credential.Bearer, 5, "tools/call", ToolCallParameters("helpdesk_incidents", new
+        {
+            operation = "list", request = new { query = McpGatewayRealAccessPipelineTests.GatewayAccessHarness.LiteralIncidentSearch }
+        }));
+        var literalData = StructuredContent(literal.RootElement).GetProperty("data");
+        Assert.Equal(1, literalData.GetProperty("totalCount").GetInt32());
+        Assert.Equal("incident-alpha", Assert.Single(literalData.GetProperty("items").EnumerateArray()).GetProperty("id").GetString());
+        var apiQueries = authority.IncidentListQueries.Select(QueryHelpers.ParseQuery).ToArray();
+        Assert.Equal(3, apiQueries.Length);
+        Assert.All(apiQueries, query =>
+        {
+            Assert.False(query.ContainsKey("query"));
+            Assert.Single(query["q"]);
+        });
+        Assert.Equal("needle", apiQueries[0]["q"].ToString());
+        Assert.Equal("impossible-incident-search-193", apiQueries[1]["q"].ToString());
+        Assert.Equal(McpGatewayRealAccessPipelineTests.GatewayAccessHarness.LiteralIncidentSearch, apiQueries[2]["q"].ToString());
+
+        using var detail = await HttpCallAsync(client, credential.Bearer, 6, "tools/call", ToolCallParameters("helpdesk_incidents", new
+        {
+            operation = "get", request = new { incidentId = "incident-beta" }
+        }));
+        Assert.True(StructuredContent(detail.RootElement).GetProperty("success").GetBoolean());
+        Assert.Equal("incident-beta", StructuredContent(detail.RootElement).GetProperty("data").GetProperty("id").GetString());
+        using var foreign = await HttpCallAsync(client, credential.Bearer, 7, "tools/call", ToolCallParameters("helpdesk_incidents", new
+        {
+            operation = "get", request = new { incidentId = "incident-foreign" }
+        }));
+        Assert.False(StructuredContent(foreign.RootElement).GetProperty("success").GetBoolean());
+        Assert.Equal("forbidden", StructuredContent(foreign.RootElement).GetProperty("status").GetString());
+        using var denied = await HttpCallAsync(client, credential.Bearer, 8, "tools/call", ToolCallParameters("helpdesk_requests", new
+        {
+            operation = "list", request = new { query = "needle" }
+        }));
+        Assert.False(StructuredContent(denied.RootElement).GetProperty("success").GetBoolean());
+        Assert.Equal("forbidden", StructuredContent(denied.RootElement).GetProperty("status").GetString());
+        using var status = await HttpCallAsync(client, credential.Bearer, 9, "tools/call", ToolCallParameters("helpdesk_auth", "status"));
+        var identity = StructuredContent(status.RootElement).GetProperty("data");
+        Assert.Equal("owner", identity.GetProperty("userId").GetString());
+        Assert.Equal("org-a", Assert.Single(identity.GetProperty("allowedOrganizationIds").EnumerateArray()).GetString());
+        Assert.Equal(HelpdeskPermissions.IncidentRead, Assert.Single(identity.GetProperty("permissions").EnumerateArray()).GetString());
     }
 
     [Fact]

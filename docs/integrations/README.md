@@ -1,6 +1,6 @@
 # Integrations
 
-- [HTTP MCP server and client setup](../mcp-http/setup.md)
+- [URL-first HTTP MCP hosting and local-account client setup](../mcp-http/setup.md)
 - [CLI/stdio and client profiles](cli-stdio.md)
 - [Browser-approved integration credential pairing](browser-pairing.md)
 - [NetClaw AI Assistant and MCP](netclaw.md)

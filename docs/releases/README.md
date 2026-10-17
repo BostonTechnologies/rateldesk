@@ -2,9 +2,25 @@
 
 RatelDesk has one repository-owned release line. The root `Directory.Build.props` is the source of truth for `VersionPrefix` and `VersionSuffix`. Applications and release outputs inherit those values. Prereleases remain immutable.
 
+## 0.1.2-beta.2 — MCP setup and incident-search corrections
+
+The current source targets `0.1.2-beta.2`; see the
+[candidate notes](../release-notes/0.1.2-beta.2.md) and
+[local-account URL-first setup guide](../mcp-http/setup.md). The focused delivery
+tracker is [#190](https://github.com/BostonTechnologies/rateldesk/issues/190),
+covering #191–#195. Audit #196 remains separate and non-blocking. Retain the
+passing beta.1 authentication, permission, explicit-profile reload and verifier
+cleanup contracts; these corrections do not repeat the parity implementation.
+
+Keep #190 open until the reviewed merge's exact-main checks, hosted beta
+publication, fresh public archive verification and all three immutable
+multi-architecture image digests are recorded. A source note or staged release
+is not verified publication. This beta does not move `latest` or perform an
+owner deployment. The version allocation and release gates below still apply.
+
 ## 0.1.2-beta.1 — self-service MCP candidate
 
-The current source targets `0.1.2-beta.1`; see the
+The beta.1 source targets `0.1.2-beta.1`; see the
 [candidate notes](../release-notes/0.1.2-beta.1.md) and
 [short setup guide](../mcp-http/setup.md). The prior stable release is `v0.1.1`.
 Recheck both accepted tag forms, releases, registry state and concurrent work

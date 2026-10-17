@@ -6,7 +6,15 @@ using Helpdesk.Shared.DTOs.Auth;
 namespace Helpdesk.Setup;
 
 /// <summary>A proposal approval capability is separate from a verifier and from durable consumer access.</summary>
-public sealed class HostDeploymentWorkflow : IDisposable
+public interface IHostDeploymentWorkflow : IDisposable
+{
+    Task<PairingSession> StartAsync(HttpMcpDeploymentProposal proposal, CancellationToken ct);
+    Task<HostDeploymentApprovalStatus> PollAsync(PairingSession session, CancellationToken ct);
+    Task CancelAsync(PairingSession session, CancellationToken ct);
+    Task<HttpMcpHostingExport> SaveApprovedAsync(HttpMcpDeploymentProposal proposal, PairingSession session, string directory, bool overwrite, CancellationToken ct);
+}
+
+public sealed class HostDeploymentWorkflow : IHostDeploymentWorkflow
 {
     private readonly HttpClient client;
     private readonly Uri origin;
@@ -148,20 +156,20 @@ public sealed class HostDeploymentWorkflow : IDisposable
 
     public static async Task<int> VerifyAsync(string directory, TextWriter output, TextWriter error, CancellationToken ct)
     {
-        var proposal = ResumeApproved(directory);
-        SecureConfigurationFiles.WriteAtomic(Path.Combine(directory, "host-phase.json"), JsonSerializer.Serialize(new { phase = "applied-verify-pending", proposal.SourceHash, proposal.ProposalHash }, Json));
-        var observed = HttpMcpEffectiveDeployment.Observe(proposal);
-        if (observed.Count > 0) { await error.WriteLineAsync(Describe(observed)); return SetupRunner.ConfigurationError; }
-        if (proposal.Settings.AuthenticationMode != "gateway")
-        {
-            await error.WriteLineAsync("External Authentik configuration/runtime preflight passed. End-to-end verification remains pending until the external OAuth client performs authenticated initialize, catalog and API-backed status with its own approved token.");
-            return 1;
-        }
-        await using var verifier = new SetupVerificationSession(proposal.Settings.PublicOrigin, Path.Combine(directory, "verifier-cleanup.json"));
+        IHostVerificationWorkflow prepared;
+        try { prepared = new HostVerificationWorkflow(directory); }
+        catch (AgentClientValidationException exception)
+        { await error.WriteLineAsync(TerminalText.Sanitize(exception.Message)); return SetupRunner.ConfigurationError; }
+        await using var verifier = prepared;
+        if (!verifier.Supported) { await error.WriteLineAsync(HostVerificationWorkflow.ExternalMessage); return 1; }
         var session = await verifier.StartAsync(ct);
-        await error.WriteLineAsync("Applied—verify pending. Approve a Temporary verification client for one authorized organization. It can only check authenticated status and expires in five minutes.");
+        await error.WriteLineAsync("Temporary status verification · applied—verify pending");
+        await error.WriteLineAsync("Trusted instance: " + TerminalText.Sanitize(verifier.Origin));
+        await error.WriteLineAsync("Purpose: status only; one authorized organization; no business access or ordinary client profile.");
         await error.WriteLineAsync("Approval URL: " + TerminalText.Sanitize(session.VerificationUri));
         await error.WriteLineAsync("Code: " + TerminalText.Sanitize(session.HumanCode));
+        await error.WriteLineAsync($"Status: approval pending · expires {session.ExpiresAtUtc:O}");
+        await error.WriteLineAsync("Open the trusted URL on any signed-in device. Ctrl+C cancels; rerun --verify to return to this applied-host checkpoint.");
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct); deadline.CancelAfter(TimeSpan.FromMinutes(10));
         while (DateTimeOffset.UtcNow < session.ExpiresAtUtc)
         {
@@ -169,21 +177,10 @@ public sealed class HostDeploymentWorkflow : IDisposable
             var poll = await verifier.PollAsync(deadline.Token);
             if (poll.Status is "denied" or "expired" or "cancelled") throw new AgentClientValidationException("Temporary verification approval ended. Host settings remain applied—verify pending.");
             if (poll.Credential is null) continue;
-            var checks = await verifier.RunAsync(async (credential, token) => await McpSetupDiagnostics.CheckHttpAsync(
-                AgentClientConfiguration.Empty with { ApiBaseUrl = proposal.Settings.PublicOrigin, CredentialMode = "integration", IntegrationCredential = credential.Secret,
-                    CredentialTarget = proposal.Settings.PublicOrigin, ClientTransport = "http", CredentialPurpose = "mcp", HttpClientAuthentication = "integration", McpResourceUri = proposal.Settings.PublicResourceUri }, token), deadline.Token);
-            await output.WriteLineAsync(JsonSerializer.Serialize(new { checks, cleanupPending = verifier.CleanupPending }, Json));
-            if (checks.Any(check => check.Status != "passed") || verifier.CleanupPending)
-            {
-                await error.WriteLineAsync(verifier.CleanupPending ? "Verification cleanup is pending. Retry verify to recover cleanup; server expiry bounds abandoned access." : "End-to-end verification failed. Correct the reported layer, then invoke verify again.");
-                return 1;
-            }
-            // Only the Docker host can recapture actual running providers after
-            // browser consent and probes. Completion is a separate, fresh fence.
-            ResumeApproved(directory);
-            SecureConfigurationFiles.WriteAtomic(Path.Combine(directory, "host-phase.json"), JsonSerializer.Serialize(new { phase = "verification-probes-passed", probesCompletedAtUtc = DateTimeOffset.UtcNow, proposal.SourceHash, proposal.ProposalHash }, Json));
-            await error.WriteLineAsync("Authenticated initialize, complete catalog, API-backed status and temporary access cleanup passed. Final Docker observation remains pending.");
-            return 0;
+            var result = await verifier.RunAsync(deadline.Token);
+            await output.WriteLineAsync(JsonSerializer.Serialize(new { checks = result.Checks, cleanupPending = result.CleanupPending }, Json));
+            await error.WriteLineAsync(result.Message);
+            return result.Passed ? 0 : 1;
         }
         throw new AgentClientValidationException("Verification approval expired. Host configuration remains applied—verify pending.");
     }

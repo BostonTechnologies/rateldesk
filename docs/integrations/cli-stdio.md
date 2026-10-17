@@ -15,6 +15,12 @@ automatically and checked before approval. The wizard retains masked secrets,
 preserved inputs and a consistent Back/Next/Cancel footer. Use
 Tab/Shift-Tab, Enter, Escape/Ctrl+C and visible focus; Ctrl+O deliberately opens
 the trusted browser URL. SSH/container users can open the same URL elsewhere.
+The approval view keeps purpose, URL/code, status/expiry and actions visible;
+extended review is in **Details**. Client **Back** returns to authentication and
+the selected profile. HTTP hosting/verifier navigation has its own context in
+the [short HTTP MCP guide](../mcp-http/setup.md).
+On approval, Ctrl+Y copies the URL/code and Ctrl+D toggles Details. Focus the
+URL and use PageUp/PageDown to read a long address.
 `--monochrome` reduces color. Non-TTY setup exits with an alternative instead
 of hanging. Normal CLI scripts, HTTP startup and stdio initialize never launch
 the wizard.
@@ -70,6 +76,15 @@ tool results are separate verification. Stdio setup launches the selected
 executable through pipes for initialize and `helpdesk_auth/status`. Run
 `rateldesk-mcp setup` or specify `--stdio-executable` from another distribution;
 otherwise transport checks are explicitly skipped.
+
+For an HTTP client from an extracted deployment tools directory on the **Docker
+host**, use `./setup-http-mcp.sh --target http-client -- --profile incident-reader`.
+Inside the **MCP container console**, use
+`dotnet /app/Helpdesk.Mcp.Http.dll setup --profile incident-reader` instead.
+These are separate from native CLI/stdio apphosts. For a fresh doctor process
+against an explicitly selected private HTTP client file, use the
+[container/profile template](../mcp-http/setup.md#check-or-reconnect-a-saved-client).
+Keep any deliberately selected Docker configuration/context for host commands.
 
 ## Profiles and persistence
 
@@ -130,6 +145,12 @@ credentials bind to the reviewed target; editing the URL does not authorize
 sending an existing credential to another instance. Reauthorize for a new
 target. Permissions metadata is a replaceable list; server authorization still
 checks current grants.
+
+Reloading this same explicit profile in a fresh process needs no new approval
+while the credential is valid. Expiry/revocation requires explicit setup and a
+new reviewed grant; it does not silently extend access. Local profile removal
+does not revoke the server credential. Host verification's temporary status-only
+credential has its own cleanup and leaves ordinary profiles intact.
 
 ## Shared configuration and environment contracts
 

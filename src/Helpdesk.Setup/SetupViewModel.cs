@@ -6,6 +6,8 @@ using Termina.Reactive;
 
 namespace Helpdesk.Setup;
 
+public enum SetupApprovalContext { Client, Host, Verification }
+
 public sealed class SetupViewModel : ReactiveViewModel
 {
     private readonly ISetupWorkflow _workflow;
@@ -30,31 +32,46 @@ public sealed class SetupViewModel : ReactiveViewModel
     private readonly List<Task> _cleanup = [];
     private HttpMcpHostingSettings _hosting = new();
     private HttpMcpDeploymentProposal? _hostProposal;
-    private HostDeploymentWorkflow? _hostWorkflow;
+    private IHostDeploymentWorkflow? _hostWorkflow;
+    private readonly Func<string, IHostDeploymentWorkflow> _hostWorkflowFactory;
+    private readonly Func<string, IHostVerificationWorkflow> _verificationFactory;
+    private IHostVerificationWorkflow? _verifier;
+    private PairingSession? _verificationSession;
+    private Task? _verificationPolling;
     private PairingSession? _hostSession;
     private bool _hostApproved;
     private IReadOnlyDictionary<string, string> _hostManaged = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-    public SetupViewModel(ISetupWorkflow workflow, SetupOptions options)
+    public SetupViewModel(ISetupWorkflow workflow, SetupOptions options,
+        Func<string, IHostDeploymentWorkflow>? hostWorkflowFactory = null,
+        Func<string, IHostVerificationWorkflow>? verificationFactory = null)
     {
         _workflow = workflow;
+        _hostWorkflowFactory = hostWorkflowFactory ?? (origin => new HostDeploymentWorkflow(origin));
+        _verificationFactory = verificationFactory ?? (directory => new HostVerificationWorkflow(directory));
         _options = options;
         Transport = options.Transport;
         IsHosting = options.Hosting;
         Profile.Value = options.Profile;
         OutputDirectory.Value = options.OutputDirectory ?? (options.Hosting ? SetupInput.HostDirectory : "");
-        if (options.Hosting) { LoadHosting(); Instance.Value = HostPublicOrigin.Value; }
+        if (options.VerificationDirectory is not null) { IsHosting = true; ExitCode = 1; }
+        else if (options.Hosting) { LoadHosting(); Instance.Value = HostPublicOrigin.Value; }
         else LoadClientProfile();
         if (options.InstanceLabel is not null) InstanceLabel.Value = options.InstanceLabel;
         else if (!options.Hosting && options.Transport == SetupTransport.Stdio && Environment.GetEnvironmentVariable("RATELDESK_MCP_INSTANCE") is { Length: > 0 } configuredInstance)
             InstanceLabel.Value = configuredInstance;
         if (options.WebUrl is not null) Instance.Value = options.WebUrl;
         if (options.Authentication is not null) Authentication = options.Authentication;
-        Step.Value = SetupStep.Instance;
-        Status.Value = "Enter your RatelDesk Web URL. [Enter] Next · [F2] Advanced";
+        Step.Value = options.VerificationDirectory is null ? SetupStep.Instance : SetupStep.Verification;
+        Status.Value = options.VerificationDirectory is null ? "Enter your RatelDesk Web URL. [Enter] Next · [F2] Advanced"
+            : "Applied—verify pending. Next checks the saved generation and requests temporary status consent.";
         Instance.Skip(1).Subscribe(_ => InvalidateTarget()).DisposeWith(Subscriptions);
         Profile.Skip(1).Subscribe(_ => InvalidateTarget()).DisposeWith(Subscriptions);
         NativeApiTarget.Skip(1).Subscribe(_ => InvalidateTarget()).DisposeWith(Subscriptions);
+        if (options.VerificationDirectory is null)
+            foreach (var field in new[] { HostPublicOrigin, ApiBackend, McpBackend, AllowedOrigins, Listener, Authority, Audience,
+                RequiredScopes, RequiredGroups, OutputDirectory, InstanceLabel, TokenUrl, ClientId, Username, Scope })
+                field.Skip(1).DistinctUntilChanged().Subscribe(_ => { if (IsHosting) InvalidateTarget(); }).DisposeWith(Subscriptions);
     }
 
     public ReactiveProperty<SetupStep> Step { get; } = new(SetupStep.Instance);
@@ -64,6 +81,21 @@ public sealed class SetupViewModel : ReactiveViewModel
     public ReactiveProperty<bool> ConfirmOverwrite { get; } = new(false);
     public ReactiveProperty<bool> Advanced { get; } = new(false);
     public ReactiveProperty<int> TerminalWidth { get; } = new(80);
+    public ReactiveProperty<int> TerminalHeight { get; } = new(24);
+    public ReactiveProperty<bool> DetailsVisible { get; } = new(false);
+    public SetupApprovalContext ApprovalContext { get; private set; }
+    public int ExitCode { get; private set; }
+    public HostVerificationResult? VerificationResult { get; private set; }
+    public string ApprovalTitle => ApprovalContext switch { SetupApprovalContext.Host => "Host deployment approval", SetupApprovalContext.Verification => "Temporary status verification", _ => "Client access approval" };
+    public string ApprovalPurpose => ApprovalContext switch
+    {
+        SetupApprovalContext.Host => "Review this deployment; no business access is issued.",
+        SetupApprovalContext.Verification => "Status only; temporary access is cleaned up after verification.",
+        _ => $"{(Transport == SetupTransport.Http ? "MCP" : "API")} access; choose organization and exact permissions in the browser."
+    };
+    public string ApprovalExpiry => $"Expires {(ApprovalContext == SetupApprovalContext.Verification ? _verificationSession : ApprovalContext == SetupApprovalContext.Host ? _hostSession : _session)?.ExpiresAtUtc:HH:mm:ss 'UTC'}";
+    public string ApprovalInstance => TerminalText.Sanitize(ApprovalContext == SetupApprovalContext.Client ? Instance.Value : HostPublicOrigin.Value);
+    public string ApprovalSummary { get; private set; } = "";
     public ReactiveProperty<string> Profile { get; } = new("default");
     public ReactiveProperty<string> Instance { get; } = new("");
     public ReactiveProperty<string> NativeApiTarget { get; } = new("");
@@ -90,10 +122,11 @@ public sealed class SetupViewModel : ReactiveViewModel
     public string HostAuthentication { get; private set; } = "gateway";
     public string DownstreamAuthentication { get; private set; } = "authentik";
     public bool PairingSupported { get; private set; }
-    public string? BrowserUrl => _hostSession?.VerificationUri ?? _session?.VerificationUri;
-    public string? HumanCode => _hostSession?.HumanCode ?? _session?.HumanCode;
+    public string? BrowserUrl => _verificationSession?.VerificationUri ?? _hostSession?.VerificationUri ?? _session?.VerificationUri;
+    public string? HumanCode => _verificationSession?.HumanCode ?? _hostSession?.HumanCode ?? _session?.HumanCode;
     public string? ProfilePath => _profile?.Resolution.ProfilePath;
-    public string Footer => Step.Value == SetupStep.Complete ? "[Enter/Esc] Exit" : "[Enter/Ctrl+N] Next   [Ctrl+B] Back   [Esc] Cancel   [F2] Advanced\n[Tab/Shift+Tab] Focus · [PageUp/PageDown] Scroll";
+    public string Footer => Step.Value == SetupStep.Complete ? "[Enter/Esc] Exit" : Step.Value == SetupStep.Approval
+        ? "[Ctrl+O] Open · [Ctrl+Y] Copy · [Ctrl+D] Details · [Ctrl+B] Back\n[Tab/Shift+Tab] Focus · [Enter] Action · [PgUp/PgDn] Scroll · [Esc] Cancel" : "[Enter/Ctrl+N] Next   [Ctrl+B] Back   [Esc] Cancel   [F2] Advanced\n[Tab/Shift+Tab] Focus · [PageUp/PageDown] Scroll";
     public bool Managed(string key) => _profile?.Resolution.Settings.Any(setting => setting.Managed && setting.Key.Equals(key, StringComparison.OrdinalIgnoreCase)) == true;
     public string ManagedSource(string key) => _profile?.Resolution.Settings.FirstOrDefault(setting => setting.Managed && setting.Key.Equals(key, StringComparison.OrdinalIgnoreCase))?.Source ?? "external configuration";
     public bool HostManaged(string key) => _hostManaged.ContainsKey(key);
@@ -101,7 +134,8 @@ public sealed class SetupViewModel : ReactiveViewModel
 
     public override void OnActivated()
     {
-        Input.OfType<IInputEvent, ResizeEvent>().Subscribe(resize => TerminalWidth.Value = resize.Width).DisposeWith(Subscriptions);
+        Input.OfType<IInputEvent, ResizeEvent>().Subscribe(resize => { TerminalWidth.Value = resize.Width; TerminalHeight.Value = resize.Height; }).DisposeWith(Subscriptions);
+        if (_options.VerificationDirectory is not null) _ = NextAsync();
     }
 
     public void SelectPurpose(bool hosting)
@@ -124,9 +158,10 @@ public sealed class SetupViewModel : ReactiveViewModel
         Status.Value = $"Selected {transport.ToString().ToLowerInvariant()} client.";
     }
     public void SelectAuthentication(string authentication) { Authentication = authentication; Status.Value = authentication == "browser" ? "The signed-in browser selects the actual grants." : "Use an existing credential or explicit external identity."; }
-    public void SelectHostAuthentication(string mode) { HostAuthentication = mode; Status.Value = mode == "gateway" ? "Gateway mode has no stored downstream deployment credential." : "Authentik ingress and downstream API identity are separate configurations."; }
-    public void SelectDownstreamAuthentication(string mode) { DownstreamAuthentication = mode; Status.Value = "Downstream identity is a separate deliberate choice. Existing identities stay bound to their reviewed API backend."; }
+    public void SelectHostAuthentication(string mode) { if (HostAuthentication != mode) InvalidateTarget(); HostAuthentication = mode; Status.Value = mode == "gateway" ? "Gateway mode has no stored downstream deployment credential." : "Authentik ingress and downstream API identity are separate configurations."; }
+    public void SelectDownstreamAuthentication(string mode) { if (DownstreamAuthentication != mode) InvalidateTarget(); DownstreamAuthentication = mode; Status.Value = "Downstream identity is a separate deliberate choice. Existing identities stay bound to their reviewed API backend."; }
     public void ToggleAdvanced() { Advanced.Value = !Advanced.Value; }
+    public void ToggleDetails() { DetailsVisible.Value = !DetailsVisible.Value; }
 
     private void LoadClientProfile(bool preserveUrl = false)
     {
@@ -158,20 +193,25 @@ public sealed class SetupViewModel : ReactiveViewModel
         config.IntegrationCredential is not null || config.IntegrationCredentialFile is not null ||
         config.AuthentikAppPassword is not null || config.AuthentikAppPasswordFile is not null;
 
-    private void InvalidateTarget()
+    private void InvalidateTarget(bool preserveDraft = false)
     {
         if (_hostSession is { } hostSession && _hostWorkflow is { } hostWorkflow && !_saved)
             _cleanup.Add(CancelHostApprovalAsync(hostWorkflow, hostSession));
         _hostSession = null; _hostProposal = null; _hostApproved = false;
         if (_normalizingInput) return;
+        if (_verifier is { } verifier)
+        { _verifier = null; var polling = _verificationPolling; _verificationPolling = null; _cleanup.Add(DisposeVerifierAsync(verifier, polling)); }
+        _verificationSession = null;
+        DetailsVisible.Value = false;
         ++_generation;
         _operation.Cancel();
         _operation.Dispose();
         _operation = new();
+        Busy.Value = false;
         _credential = null;
         _review = null;
         _deliveryExpires = null;
-        if (Step.Value is SetupStep.Instance or SetupStep.Authentication or SetupStep.Approval)
+        if (!preserveDraft && !IsHosting && Step.Value is SetupStep.Instance or SetupStep.Authentication or SetupStep.Approval)
         { ManualSecret.Value = ""; SecretFile.Value = ""; }
         if (_session is { } session && _sessionOrigin is { } origin && !_acknowledged && !_saved)
         {
@@ -205,6 +245,32 @@ public sealed class SetupViewModel : ReactiveViewModel
         {
             switch (Step.Value)
             {
+                case SetupStep.Verification:
+                    if (_verifier is { } previousVerifier)
+                    {
+                        _verifier = null;
+                        var previousPolling = _verificationPolling; _verificationPolling = null;
+                        await DisposeVerifierAsync(previousVerifier, previousPolling);
+                    }
+                    await Task.WhenAll(_cleanup);
+                    if (token.IsCancellationRequested || generation != _generation) return;
+                    _verifier = _verificationFactory(_options.VerificationDirectory!);
+                    HostPublicOrigin.Value = _verifier.Origin;
+                    if (!_verifier.Supported)
+                    { await _verifier.DisposeAsync(); _verifier = null; throw new AgentClientValidationException(HostVerificationWorkflow.ExternalMessage); }
+                    var verificationWorkflow = _verifier;
+                    var verificationStart = verificationWorkflow.StartAsync(token);
+                    _verificationPolling = verificationStart;
+                    var verificationSession = await verificationStart;
+                    if (token.IsCancellationRequested || generation != _generation) return;
+                    _verificationSession = verificationSession;
+                    ApprovalContext = SetupApprovalContext.Verification;
+                    ApprovalSummary = "Applied host generation retained. No deployment or ordinary client approval is requested.";
+                    Detail.Value = ApprovalSummary + "\n" + ApprovalPurpose;
+                    Step.Value = SetupStep.Approval;
+                    Status.Value = "Temporary status approval pending.";
+                    _verificationPolling = PollVerificationAsync(generation, token, verificationSession, verificationWorkflow);
+                    break;
                 case SetupStep.Purpose:
                     if (IsHosting) LoadHosting();
                     Step.Value = IsHosting ? SetupStep.Hosting : SetupStep.Profile;
@@ -320,6 +386,9 @@ public sealed class SetupViewModel : ReactiveViewModel
                         await ApplyAsync(generation, token, () =>
                         {
                             _session = session; _sessionOrigin = Instance.Value; _acknowledged = false; _saved = false;
+                            ApprovalContext = SetupApprovalContext.Client;
+                            ApprovalSummary = "The signed-in account reviews the exact client grants; the existing profile is preserved.";
+                            DetailsVisible.Value = false;
                             Step.Value = SetupStep.Approval;
                             Detail.Value = $"Trusted approval page: {TerminalText.Sanitize(session.VerificationUri)}\nShort code: {TerminalText.Sanitize(session.HumanCode)}\nOpen this page on any signed-in device. [Ctrl+O] explicitly opens a local browser.";
                             Status.Value = "Approval pending.";
@@ -349,16 +418,24 @@ public sealed class SetupViewModel : ReactiveViewModel
                     if (failures.Count > 0) throw new AgentClientValidationException(string.Join(" ", failures));
                     _hostProposal = HttpMcpEffectiveDeployment.Create(_hosting);
                     if (!_hostProposal.Valid) throw new AgentClientValidationException(HostDeploymentWorkflow.Describe(_hostProposal.Diagnostics));
-                    _hostWorkflow?.Dispose(); _hostWorkflow = new(_hosting.PublicOrigin);
-                    var hostSession = await _hostWorkflow.StartAsync(_hostProposal, token);
+                    await Task.WhenAll(_cleanup);
+                    if (token.IsCancellationRequested || generation != _generation) return;
+                    _hostWorkflow?.Dispose(); _hostWorkflow = _hostWorkflowFactory(_hosting.PublicOrigin);
+                    var hostWorkflow = _hostWorkflow;
+                    var hostProposal = _hostProposal;
+                    var hostSession = await hostWorkflow.StartAsync(hostProposal, token);
                     if (_closing || token.IsCancellationRequested || generation != _generation)
-                    { await CancelHostApprovalAsync(_hostWorkflow, hostSession); return; }
+                    { await CancelHostApprovalAsync(hostWorkflow, hostSession); return; }
                     _hostSession = hostSession;
+                    ApprovalContext = SetupApprovalContext.Host;
+                    DetailsVisible.Value = false;
+                    ApprovalSummary = string.Join("; ", _hostProposal.Changes.Take(2).Select(change => TerminalText.Sanitize(change, 180)));
+                    if (ApprovalSummary.Length == 0) ApprovalSummary = "Review the exact server configuration and protected storage changes.";
                     Detail.Value = JsonSerializer.Serialize(HttpMcpHostingCoordinator.Preview(_hosting), AgentClientConfiguration.JsonOptions) +
                         "\n\n" + string.Join('\n', _hostProposal.Changes) + "\nTrusted host review: " + TerminalText.Sanitize(hostSession.VerificationUri) + "\nCode: " + TerminalText.Sanitize(hostSession.HumanCode);
                     Step.Value = SetupStep.Approval;
                     Status.Value = "Host deployment approval pending. An administrator reviews this exact proposal; no gateway credential is created.";
-                    _ = PollHostApprovalAsync(generation, token, hostSession, _hostWorkflow, _hostProposal);
+                    _ = PollHostApprovalAsync(generation, token, hostSession, hostWorkflow, hostProposal);
                     break;
                 case SetupStep.Review:
                     if (IsHosting)
@@ -370,7 +447,7 @@ public sealed class SetupViewModel : ReactiveViewModel
                         var export = await _hostWorkflow.SaveApprovedAsync(_hostProposal, _hostSession, OutputDirectory.Value, overwriteConfirmed, token);
                         _saved = true;
                         Detail.Value = "Private host output: " + TerminalText.Sanitize(OutputDirectory.Value) + "\n" + string.Join('\n', export.Files.Select(path => TerminalText.Sanitize(path))) +
-                            "\n\nOn the Docker host, run the same deployment launcher with --apply (release-owned Compose), or import deployment.json through the owning manager.\nAfter recreation, start a fresh invocation: ./setup-http-mcp.sh --verify\nThis requests a separate temporary status verifier and checks observed runtime, catalog and API-backed status.";
+                            "\n\nOn the Docker host, run the same deployment launcher with --apply (release-owned Compose), or import deployment.json through the owning manager.\nAfter recreation, start a fresh invocation using the exact --verify command printed by the host launcher (retains Docker configuration, context, host and TLS selections).\nThis requests a separate temporary status verifier and checks observed runtime, catalog and API-backed status.";
                         Step.Value = SetupStep.Complete;
                         Status.Value = "Saved—apply pending. Deployment-owner apply and end-to-end verification remain required.";
                         break;
@@ -440,11 +517,58 @@ public sealed class SetupViewModel : ReactiveViewModel
         {
             await ApplyAsync(generation, CancellationToken.None, () => Status.Value = SafeError(exception));
         }
-        finally { if (!_closing && !_disposed) await InvokeAsync(() => Busy.Value = false); }
+        finally { if (!_closing && !_disposed && generation == _generation) await InvokeAsync(() => { if (generation == _generation) Busy.Value = false; }); }
+    }
+
+    private static async Task DisposeVerifierAsync(IHostVerificationWorkflow verifier, Task? polling = null)
+    {
+        // The protocol session owns one cleanup journal. Wait for its bounded HTTP poll
+        // to observe cancellation before disposing it; UI generation checks alone cannot
+        // prevent a late response from racing journal cleanup.
+        try { if (polling is not null) await polling; }
+        catch (Exception exception) when (exception is OperationCanceledException or AgentClientValidationException or HttpRequestException or IOException) { }
+        finally { await verifier.DisposeAsync(); }
+    }
+
+    private async Task PollVerificationAsync(long generation, CancellationToken token, PairingSession session, IHostVerificationWorkflow verifier)
+    {
+        try
+        {
+            while (!token.IsCancellationRequested && TimeProvider.GetUtcNow() < session.ExpiresAtUtc)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(Math.Clamp(session.PollIntervalSeconds, 1, 30)), TimeProvider, token);
+                var poll = await verifier.PollAsync(token);
+                if (token.IsCancellationRequested || generation != _generation) return;
+                if (poll.Status is "pending" or "slow_down") continue;
+                if (poll.Credential is null)
+                {
+                    await ApplyAsync(generation, token, () => Status.Value = $"Temporary status approval {TerminalText.Sanitize(poll.Status)}. Back returns to the applied-host verification checkpoint.");
+                    return;
+                }
+                await ApplyAsync(generation, token, () => { Busy.Value = true; Step.Value = SetupStep.Checks; Status.Value = "Applied—verify pending. Running read-only checks and temporary access cleanup…"; });
+                var result = await verifier.RunAsync(token);
+                await ApplyAsync(generation, token, () =>
+                {
+                    VerificationResult = result;
+                    ExitCode = result.Passed ? 0 : 1;
+                    Detail.Value = string.Join('\n', result.Checks.Select(FormatCheck)) + "\n\n" + result.Message;
+                    Status.Value = result.Message;
+                    Step.Value = SetupStep.Complete;
+                    Busy.Value = false;
+                    Shutdown();
+                });
+                return;
+            }
+            await ApplyAsync(generation, token, () => Status.Value = "Temporary status approval expired. Back returns to applied—verify pending; no host reprovisioning is needed.");
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception exception) when (exception is AgentClientValidationException or HttpRequestException or IOException)
+        { await ApplyAsync(generation, CancellationToken.None, () =>
+            { Busy.Value = false; Step.Value = SetupStep.Verification; Status.Value = SafeError(exception) + " Applied host settings remain verify pending; retry temporary verification here."; }); }
     }
 
     private async Task PollHostApprovalAsync(long generation, CancellationToken token, PairingSession session,
-        HostDeploymentWorkflow workflow, HttpMcpDeploymentProposal proposal)
+        IHostDeploymentWorkflow workflow, HttpMcpDeploymentProposal proposal)
     {
         try
         {
@@ -472,7 +596,7 @@ public sealed class SetupViewModel : ReactiveViewModel
         { await ApplyAsync(generation, token, () => { Step.Value = SetupStep.Hosting; Status.Value = SafeError(exception); }); }
     }
 
-    private static async Task CancelHostApprovalAsync(HostDeploymentWorkflow workflow, PairingSession session)
+    private static async Task CancelHostApprovalAsync(IHostDeploymentWorkflow workflow, PairingSession session)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         try { await workflow.CancelAsync(session, deadline.Token); }
@@ -693,20 +817,28 @@ public sealed class SetupViewModel : ReactiveViewModel
 
     public void Back()
     {
-        if (_closing || Busy.Value || Step.Value == SetupStep.Complete) return;
+        if (_closing || (Busy.Value && Step.Value is not (SetupStep.Approval or SetupStep.Verification)) || Step.Value == SetupStep.Complete) return;
         if (_saved && !_acknowledged) { Status.Value = "Secure save completed; retry Next to acknowledge delivery before changing this profile."; return; }
-        InvalidateTarget();
-        Step.Value = Step.Value switch
+        var previous = Step.Value;
+        var context = ApprovalContext;
+        InvalidateTarget(preserveDraft: true);
+        Step.Value = previous switch
         {
             SetupStep.Profile or SetupStep.Hosting => SetupStep.Instance,
             SetupStep.Instance => SetupStep.Instance,
             SetupStep.Authentication => SetupStep.Instance,
+            SetupStep.Approval when context == SetupApprovalContext.Host => SetupStep.Hosting,
+            SetupStep.Approval when context == SetupApprovalContext.Verification => SetupStep.Verification,
             SetupStep.Approval => SetupStep.Authentication,
             SetupStep.Review => IsHosting ? SetupStep.Hosting : SetupStep.Authentication,
-            _ => Step.Value
+            _ => previous
         };
         _review = null;
-        Status.Value = "Inputs are preserved. Review any changed target before authentication.";
+        Status.Value = context == SetupApprovalContext.Verification && previous == SetupStep.Approval
+            ? "Applied—verify pending. Temporary consent cancelled; Next retries verification of the same applied host generation."
+            : previous == SetupStep.Approval && context == SetupApprovalContext.Host
+                ? "Host draft retained. Review your settings before requesting fresh deployment approval."
+                : "Inputs are preserved. Review any changed target before authentication.";
     }
     public async Task OpenBrowserAsync()
     {
@@ -737,11 +869,17 @@ public sealed class SetupViewModel : ReactiveViewModel
                 _closing = true; Shutdown(); return;
             }
         }
+        if (_options.VerificationDirectory is not null) ExitCode = 130;
         _closing = true;
         Status.Value = "Cancelling approval and stopping setup…";
         InvalidateTarget();
         await Task.WhenAll(_cleanup);
-        await InvokeAsync(() => { Status.Value = "Cancelled. Existing profiles are unchanged."; Shutdown(); });
+        await InvokeAsync(() =>
+        {
+            Status.Value = _options.VerificationDirectory is null ? "Cancelled. Existing profiles are unchanged."
+                : "Verification cancelled. Applied host settings remain verify pending; rerun the exact --verify command printed by the host launcher.";
+            Shutdown();
+        });
     }
     public async Task CleanupAsync()
     {
@@ -751,6 +889,8 @@ public sealed class SetupViewModel : ReactiveViewModel
         _operation.Cancel();
         if (!_saved && !_acknowledged && _session is { } session && _sessionOrigin is { } origin)
         { _session = null; _cleanup.Add(CancelDeliveryAsync(origin, session)); }
+        if (_verifier is { } verifier)
+        { _verifier = null; var polling = _verificationPolling; _verificationPolling = null; _cleanup.Add(DisposeVerifierAsync(verifier, polling)); }
         await Task.WhenAll(_cleanup);
         if (!_saved && !_acknowledged && _pending is { } pending)
         { _workflow.Discard(pending); _pending = null; }
@@ -769,7 +909,7 @@ public sealed class SetupViewModel : ReactiveViewModel
         _disposed = true;
         _closing = true;
         _operation.Cancel(); _operation.Dispose();
-        foreach (var property in new IDisposable[] { Step, Status, Detail, Busy, ConfirmOverwrite, Advanced, TerminalWidth, Profile, Instance, NativeApiTarget, ManualSecret, TokenUrl, ClientId, Username, Scope, SecretFile, InstanceLabel, HostPublicOrigin, ApiBackend, McpBackend, AllowedOrigins, Listener, Authority, Audience, RequiredScopes, RequiredGroups, OutputDirectory }) property.Dispose();
+        foreach (var property in new IDisposable[] { Step, Status, Detail, Busy, ConfirmOverwrite, Advanced, TerminalWidth, TerminalHeight, DetailsVisible, Profile, Instance, NativeApiTarget, ManualSecret, TokenUrl, ClientId, Username, Scope, SecretFile, InstanceLabel, HostPublicOrigin, ApiBackend, McpBackend, AllowedOrigins, Listener, Authority, Audience, RequiredScopes, RequiredGroups, OutputDirectory }) property.Dispose();
         base.Dispose();
     }
 }

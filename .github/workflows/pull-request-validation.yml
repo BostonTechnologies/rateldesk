@@ -420,6 +420,10 @@ jobs:
         if: matrix.name == 'mcp-http'
         run: tools/ci/test-mcp-compose-config.sh "${{ matrix.image }}"
 
+      - name: Verify isolated Compose capability floor and pristine setup
+        if: matrix.name == 'mcp-http'
+        run: python3 tools/ci/run-mcp-compose-capability-acceptance.py --download --image "${{ matrix.image }}"
+
   release-assets:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance }}
     name: Release asset rehearsal
@@ -511,6 +515,14 @@ jobs:
           docker compose -f docker/docker-compose.yml up --build --detach --wait
           curl --retry 6 --retry-all-errors --retry-delay 2 --fail --show-error --silent http://127.0.0.1:8222/health/live > /dev/null
           tools/ci/smoke-first-run-local.sh
+
+      - name: Verify reviewed legacy MCP migration and fresh-process recovery
+        timeout-minutes: 15
+        run: |
+          docker build --file docker/mcp-http/Dockerfile --tag rateldesk-mcp-http:setup-acceptance .
+          python3 tools/ci/run-mcp-host-lifecycle-acceptance.py \
+            --api-image rateldesk-api --web-image rateldesk-web \
+            --mcp-image rateldesk-mcp-http:setup-acceptance --case legacy
 
       - name: Collect Compose logs
         if: always()

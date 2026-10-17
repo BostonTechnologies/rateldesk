@@ -7,6 +7,11 @@ enter the code and review the requested connection. Approval is a deliberate
 action; opening the link or signing in alone grants nothing. No account password
 is entered in the terminal.
 
+For local-account HTTP MCP, start with the [URL-first hosting/client guide](../mcp-http/setup.md).
+Gateway hosting uses no outbound administrator credential/shared key. Linked-OIDC
+accounts can retain their own gateway credentials; external Authentik/OAuth is
+an explicit separate mode.
+
 The browser approval page is `/account/integration-credentials/approve`.
 Its compact **HTTP MCP host deployment** / **CLI / MCP client access** entry
 panels use **Review host** and **Review client** respectively. Entering a code,
@@ -14,6 +19,12 @@ opening a deep link or signing in never approves it. A code for the wrong kind
 does not switch the requested action. Only authorized administrators can review
 host proposals. A successful lookup opens a bounded review with explicit
 approve/deny actions; recoverable errors retain the entered code.
+
+The terminal's compact approval view keeps purpose, URL/code, status/expiry and
+actions ahead of extended **Details**. Host **Back** returns to Hosting, client
+**Back** returns to client authentication/profile, and temporary-verifier **Back**
+returns to its applied-host verification checkpoint. Pending old attempts cannot
+advance a changed proposal.
 
 Ordinary client review shows the name, API/MCP purpose and resource, then requires selection of one
 currently enabled organization, currently assignable permissions and lifetime
@@ -155,6 +166,12 @@ re-entry. If no recoverable candidate exists, start again. Acknowledged credenti
 remain ordinary revocable account credentials; aborting after acknowledgement
 does not revoke an unrelated consumer. Never print the bearer/device capability
 or copy sidecars into a public support report.
+
+A new process can reload the same explicitly selected saved profile without
+approval while its credential remains valid. After expiry/revocation, re-enter
+explicit client setup for that profile and obtain a newly reviewed grant.
+Temporary host-verifier cleanup does not revoke an ordinary client. Local file
+deletion and server-side revocation remain separate operations.
 
 SSH/container users can open the same trusted URL on another device without a
 local callback. Browser launch failure leaves the URL/code usable. Denial,

@@ -7,6 +7,7 @@ API consent exercises the actual administrator/organization authorization path;
 browser layout and public distribution integrity are separate acceptance lanes.
 """
 import argparse
+from contextlib import closing
 import errno
 import fcntl
 import http.cookiejar
@@ -19,10 +20,12 @@ import secrets
 import select
 import signal
 import socket
+import sqlite3
 import ssl
 import struct
 import subprocess
 import tempfile
+import tarfile
 import termios
 import time
 import urllib.error
@@ -60,7 +63,7 @@ class Terminal:
             os.chdir(directory)
             os.environ["TERM"] = "xterm-256color"
             os.execvp(str(executable), [str(executable), *arguments])
-        fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", 80, 120, 0, 0))
+        fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
         os.kill(self.child, signal.SIGWINCH)
         self.traffic = bytearray()
         self.status = None
@@ -73,6 +76,9 @@ class Terminal:
 
     def raw_text(self):
         return raw_terminal_text(self.traffic)
+
+    def screen(self):
+        return terminal_text(self.traffic, rows=24, columns=80)
 
     def until(self, expression, seconds=120):
         deadline = time.monotonic() + seconds
@@ -113,7 +119,7 @@ class Terminal:
     def close(self):
         if self.status is None:
             try:
-                os.kill(self.child, signal.SIGKILL)
+                os.killpg(self.child, signal.SIGKILL)
                 os.waitpid(self.child, 0)
             except (ProcessLookupError, ChildProcessError):
                 pass
@@ -121,17 +127,25 @@ class Terminal:
 
 
 class Fixture:
-    def __init__(self, args, existing):
-        self.args, self.existing = args, existing
+    def __init__(self, args, existing, legacy=False):
+        self.args, self.existing, self.legacy = args, existing, legacy
         self.project = "rdk-host-fixture-" + uuid.uuid4().hex[:12]
         self.temporary = tempfile.TemporaryDirectory(prefix=self.project + "-")
         self.directory = Path(self.temporary.name)
+        self.launcher = LAUNCHER
+        if args.deployment_archive:
+            with tarfile.open(args.deployment_archive) as archive:
+                archive.extractall(self.directory / "extracted", filter="data")
+            candidates = list((self.directory / "extracted").glob("*/setup-http-mcp.sh"))
+            assert len(candidates) == 1, "Expected one extracted deployment launcher"
+            self.launcher = candidates[0]
         self.api_port, self.web_port = port(), port()
         while self.api_port == self.web_port:
             self.web_port = port()
         self.origin = f"https://desk.fixture.test:{self.web_port}"
         self.api = f"http://127.0.0.1:{self.api_port}"
         self.email = "disposable-admin@example.test"
+        self.organization_name = "Disposable acceptance organization"
         self.password = "Acceptance-" + secrets.token_urlsafe(24) + "!9aA"
         self.pfx_password = secrets.token_urlsafe(24)
         self.ca = self.directory / "fixture-ca.pem"
@@ -162,6 +176,14 @@ class Fixture:
     def prepare(self):
         for image in (self.args.api_image, self.args.web_image, self.args.mcp_image):
             checked(["docker", "image", "inspect", image])
+        web_image = self.args.web_image
+        if not self.existing:
+            # Match actual release discovery without publishing or pulling. A
+            # generic local tag is intentionally not trusted as a RatelDesk Web
+            # foundation by the launcher.
+            self.fixture_web_image = "ghcr.io/bostontechnologies/rateldesk-web:fixture-" + self.project
+            checked(["docker", "tag", web_image, self.fixture_web_image])
+            web_image = self.fixture_web_image
         key, pfx = self.directory / "fixture.key", self.directory / "fixture.pfx"
         checked(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-keyout", str(key),
                  "-out", str(self.ca), "-subj", "/CN=desk.fixture.test", "-addext", "subjectAltName=DNS:desk.fixture.test,DNS:localhost,IP:127.0.0.1"])
@@ -177,13 +199,13 @@ class Fixture:
             "StorageOptions__RootPath": "/fixture/storage", "Bootstrap__Unattended__Provider": "Sqlite",
             "Bootstrap__Unattended__Email": self.email, "Bootstrap__Unattended__DisplayName": "Disposable acceptance administrator",
             "Bootstrap__Unattended__Password": "${FIXTURE_ADMIN_PASSWORD}",
-            "Bootstrap__Unattended__OrganizationName": "Disposable acceptance organization",
+            "Bootstrap__Unattended__OrganizationName": self.organization_name,
             "Bootstrap__Unattended__ApplicationName": "RatelDesk acceptance", "Bootstrap__Unattended__ApplicationUrl": self.origin,
             "IntegrationCredentials__Pairing__PublicOrigin": self.origin}
         services = {
             "api": {"image": self.args.api_image, "environment": api_environment, "volumes": ["state:/fixture"],
                     "ports": [f"127.0.0.1:{self.api_port}:8222"]},
-            "web": {"image": self.args.web_image, "environment": {
+            "web": {"image": web_image, "environment": {
                 "ASPNETCORE_ENVIRONMENT": "Production", "ASPNETCORE_URLS": f"https://+:{self.web_port}",
                 "ASPNETCORE_Kestrel__Certificates__Default__Path": "/fixture-cert/fixture.pfx",
                 "ASPNETCORE_Kestrel__Certificates__Default__Password": "${FIXTURE_PFX_PASSWORD}",
@@ -207,14 +229,30 @@ class Fixture:
                 "Helpdesk__Mcp__PublicResourceUri": self.origin + "/mcp", "Helpdesk__Mcp__AllowedOrigins__0": self.origin,
                 "Helpdesk__Mcp__AuthenticationMode": "gateway", "Helpdesk__Mcp__Outbound__ApiBaseUrl": "http://api:8222/",
                 "Helpdesk__Mcp__Outbound__CredentialMode": "gateway"}}
+            if self.legacy:
+                self.legacy_config = self.directory / "legacy-outbound.json"
+                self.legacy_config.write_text(json.dumps({"apiBaseUrl": "http://api:8222/", "credentialMode": "gateway"}))
+                self.legacy_config.chmod(0o600)
+                checked(["docker", "run", "--rm", "--user", "0:0", "--mount",
+                    f"type=bind,src={self.legacy_config},dst=/fixture-config", "--entrypoint", "/bin/sh",
+                    self.args.mcp_image, "-ec", f"chown {os.getuid()}:10001 /fixture-config"])
+                self.legacy_config.chmod(0o640)
+                services["mcp-http"]["environment"]["RATELDESK_MCP_CONFIG"] = "/run/rateldesk-mcp/config.json"
+                services["mcp-http"]["configs"] = [{"source": "legacy-outbound", "target": "/run/rateldesk-mcp/config.json"}]
         else:
             # Match the shipped release recipe's ownership declaration. Fresh
             # setup discovers its actual Web container and saved source labels.
             for name in ("api", "web"):
                 services[name]["labels"] = {"com.rateldesk.deployment.manager": "release-compose"}
-        self.source.write_text(json.dumps({"name": self.project, "services": services, "volumes": {"state": {}, "unrelated": {}}}))
+        model = {"name": self.project, "services": services, "volumes": {"state": {}, "unrelated": {}}}
+        if self.legacy:
+            model["configs"] = {"legacy-outbound": {"file": str(self.legacy_config)}}
+        self.source.write_text(json.dumps(model))
         self.source.chmod(0o600)
+        if self.legacy:
+            self.reproduce_old_collision(model)
         checked([*self.compose, "run", "--rm", "--no-deps", "api", "--initialize-unattended"], timeout=300)
+        self.seed_incidents()
         checked([*self.compose, "up", "--pull", "never", "-d"], timeout=180)
         deadline = time.monotonic() + 150
         while time.monotonic() < deadline:
@@ -228,19 +266,78 @@ class Fixture:
         self.request("/api/v1/local-auth/login", {"email": self.email, "password": self.password, "rememberMe": False}, expected=(204,))
         account = self.request("/api/v1/auth/me")
         self.organization = account["primaryOrganizationId"]
+        assert self.organization == self.seed_organization, "The seeded fixture must belong to its authenticated bootstrap owner"
         created = self.request("/api/v1/integration-credentials/", {"name": "Identity preservation fixture", "purpose": "api",
             "organizationId": self.organization, "permissions": ["Incident.Read"], "lifetimeDays": 1}, expected=(201,))
         self.ordinary_id = created["id"]
+        self.ordinary_expiry = created["expiresAtUtc"]
         self.ordinary_secret = created["secret"]
+
+    def reproduce_old_collision(self, model):
+        # Isolated negative control for the beta.1 exported shape, before any
+        # approved fixture generation exists. The actual fixture is never reset.
+        service = json.loads(json.dumps(model["services"]["mcp-http"]))
+        service["volumes"] = [{"type": "volume", "source": "collision", "target": "/run/rateldesk-mcp", "read_only": True}]
+        source = self.directory / "old-collision.json"
+        source.write_text(json.dumps({"services": {"mcp-http": service}, "configs": model["configs"], "volumes": {"collision": {}}}))
+        source.chmod(0o600)
+        compose = ["docker", "compose", "--project-name", self.project + "-negative", "-f", str(source)]
+        try:
+            result = subprocess.run([*compose, "up", "--pull", "never", "-d"], capture_output=True, timeout=90)
+            assert result.returncode != 0 and b"read-only file system" in result.stderr, "Negative control must reproduce the original runtime mount collision"
+        finally:
+            checked([*compose, "down", "--volumes", "--remove-orphans"], timeout=90)
+        print("PASS: isolated old complete-document shape reproduces Docker read-only-filesystem collision", flush=True)
+
+    def seed_incidents(self):
+        # Seed the fixture's offline SQLite file before any serving process or
+        # workers start. No ticket creation endpoint, mail or workflow runs.
+        helper = checked(["docker", "create", "--volume", self.project + "_state:/fixture",
+            "--entrypoint", "/bin/sh", self.args.api_image]).decode().strip()
+        self.seed_helper = helper
+        database = self.directory / "seed.sqlite"
+        checked(["docker", "cp", helper + ":/fixture/data/rateldesk.db", str(database)])
+        self.incident_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
+        with closing(sqlite3.connect(database)) as connection:
+            organizations = connection.execute(
+                'SELECT o."Id" FROM "Organizations" o JOIN "Users" u ON u."OrganizationId" = o."Id" '
+                'WHERE u."Email" = ? COLLATE NOCASE AND o."Name" = ?',
+                (self.email, self.organization_name)).fetchall()
+            assert len(organizations) == 1, "Expected one organization linked to the synthetic bootstrap owner"
+            self.seed_organization = organization = organizations[0][0]
+            columns = connection.execute('PRAGMA table_info("Tickets")').fetchall()
+            assert columns, "Expected the actual SQLite ticket hierarchy table"
+            for index, identifier in enumerate(self.incident_ids):
+                values = {name: (0 if any(part in kind.upper() for part in ["INT", "REAL", "NUM"]) else "")
+                          for _, name, kind, required, default, _ in columns if required and default is None}
+                values.update({"Id": identifier, "Discriminator": "Incident", "Title": "Beta2 needle" if index == 0 else "Beta2 baseline",
+                    "Description": "Synthetic disposable acceptance fixture", "OrganizationId": organization,
+                    "CreatedAt": "2026-10-17 00:00:00", "TrackingId": "INC-BETA2-" + str(index),
+                    "LinkedAssetIds": "[]", "Attachments": "[]", "CcRecipientsJson": "[]"})
+                names = list(values)
+                connection.execute('INSERT INTO "Tickets" (' + ','.join('"' + name + '"' for name in names) +
+                    ') VALUES (' + ','.join('?' for _ in names) + ')', [values[name] for name in names])
+            connection.commit()
+            # The initialized fixture uses WAL. Commit alone leaves these rows
+            # in the sidecar, while docker cp transfers only the main file.
+            # No serving process is running: checkpoint and close before copy.
+            assert connection.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchone()[0] == 0, "Offline fixture seed checkpoint must complete"
+        try:
+            checked(["docker", "cp", str(database), helper + ":/fixture/data/rateldesk.db"])
+        finally:
+            checked(["docker", "rm", helper])
+            self.seed_helper = None
 
     def launcher_arguments(self):
         if not self.existing:
-            return ["--ca-file", str(self.ca)]
+            return ["--ca-file", str(self.ca), "--image", self.args.mcp_image]
         return ["--project", self.project, "--project-directory", str(self.directory), "--compose-file", str(self.source),
                 "--env-file", str(self.environment), "--manager", "external-compose" if self.existing else "release-compose",
                 "--image", self.args.mcp_image, "--ca-file", str(self.ca)]
 
     def terminal(self, arguments, executable=LAUNCHER):
+        if executable == LAUNCHER:
+            executable = self.launcher
         terminal = Terminal(arguments, self.directory, executable)
         self.terminals.append(terminal)
         return terminal
@@ -286,7 +383,7 @@ class Fixture:
         assert any(mount.get("Destination") == root and mount.get("Name") == self.project + "-http-client-data" and mount.get("RW")
                    for mount in metadata.get("Mounts", [])), "Personal client store must be a persistent writable volume"
         assert checked(["docker", "exec", identifier, "id", "-u"]).strip() == b"10001", "Console setup must run as the serving non-root user"
-        return root + "/mcp/default.json"
+        return root + "/mcp/incident-reader.json"
 
     def console_profile(self, identifier):
         raw = checked(["docker", "exec", identifier, "cat", self.console_profile_path])
@@ -311,8 +408,13 @@ class Fixture:
         self.wait_console_endpoint()
         self.console_profile_path = self.prepare_console(identifier)
         before = {item["id"] for item in self.request("/api/v1/integration-credentials/")}
-        setup = self.terminal(self.console_arguments(identifier, "setup", "--mode", "client", "--url", self.origin,
+        console = self.terminal(self.console_arguments(identifier, "setup", "--mode", "client", "--url", self.origin,
             "--monochrome", interactive=True), executable="docker")
+        console.until("RatelDesk Web URL")
+        console.send(b"\x03")
+        console.finish()
+        setup = self.terminal(self.launcher_arguments() + ["--target", "http-client", "--", "--profile", "incident-reader",
+            "--url", self.origin, "--monochrome"])
         setup.until("RatelDesk Web URL")
         setup.send(b"\x0e")
         setup.until("Continue to browser approval")
@@ -345,9 +447,10 @@ class Fixture:
         assert self.prepare_console(identifier) == self.console_profile_path
         raw, profile, reference, digest = self.console_profile(identifier)
         assert (raw, reference, digest) == (self.console_profile_bytes, self.console_secret_reference, self.console_secret_digest), "Full recreation must retain the exact profile and ordinary credential"
-        status = json.loads(checked(["docker", *self.console_arguments(identifier, "status")]))
+        status = json.loads(checked(["docker", *self.console_arguments(identifier, "--config", self.console_profile_path, "status")]))
         assert status["profilePath"] == self.console_profile_path and status["configuration"]["credentialPurpose"] == "mcp"
-        diagnostic = json.loads(checked(["docker", *self.console_arguments(identifier, "doctor", "--authenticate")], timeout=90))
+        diagnostic = json.loads(checked(["docker", *self.console_arguments(identifier, "--config", self.console_profile_path,
+            "doctor", "--network", "--authenticate")], timeout=90))
         checks = {item["name"]: item["status"] for item in diagnostic["checks"]}
         assert all(checks.get(name) == "passed" for name in ("initialize", "catalog", "authentication", "tool-result")), "A new console process must authenticate the retained ordinary credential"
         assert "failed" not in checks.values()
@@ -356,7 +459,7 @@ class Fixture:
         assert credential.get("revokedAtUtc") is None and credential["expiresAtUtc"] == self.console_credential_expiry
         before = {item["id"] for item in credentials}
         reentry = self.terminal(self.console_arguments(identifier, "setup", "--mode", "client", "--url", self.origin,
-            "--monochrome", interactive=True), executable="docker")
+            "--profile", "incident-reader", "--monochrome", interactive=True), executable="docker")
         reentry.until("RatelDesk Web URL")
         reentry.send(b"\x0e")
         reentry.until("Your existing identity stays bound to this reviewed target")
@@ -367,7 +470,57 @@ class Fixture:
         assert "Short code:" not in reentry.text(), "Known client identity must not request a replacement grant"
         assert before == {item["id"] for item in self.request("/api/v1/integration-credentials/")}
         assert self.console_profile(identifier)[0] == self.console_profile_bytes
-        print("PASS: full container recreation retained ordinary identity/expiry; NEW default-profile status/doctor and existing-identity wizard reload passed without replacement consent", flush=True)
+        self.probe_incident_search(identifier)
+        print("PASS: full container recreation retained ordinary identity/expiry; NEW explicit-profile status/doctor and existing-identity wizard reload passed without replacement consent", flush=True)
+
+    def probe_incident_search(self, identifier):
+        secret = checked(["docker", "exec", identifier, "cat", self.console_secret_reference]).decode().strip()
+        trusted = urllib.request.build_opener(urllib.request.ProxyHandler({}),
+            urllib.request.HTTPSHandler(context=ssl.create_default_context(cafile=str(self.ca))))
+        def rpc(method, parameters):
+            request = urllib.request.Request(f"https://127.0.0.1:{self.web_port}/mcp",
+                data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": parameters}).encode(),
+                headers={"Host": f"desk.fixture.test:{self.web_port}", "Content-Type": "application/json",
+                    "Authorization": "Bearer " + secret, "Accept": "application/json, text/event-stream",
+                    "MCP-Protocol-Version": "2025-03-26"})
+            with trusted.open(request, timeout=30) as response:
+                content = response.read(1024 * 1024).decode()
+            if not content.lstrip().startswith("{"):
+                content = '\n'.join(line[5:].lstrip() for line in content.splitlines() if line.startswith("data:"))
+            payload = json.loads(content)
+            assert "error" not in payload, "Real HTTP MCP returned a protocol error"
+            return payload["result"]
+        initialized = rpc("initialize", {"protocolVersion": "2025-03-26", "capabilities": {},
+            "clientInfo": {"name": "beta2-disposable-acceptance", "version": "1"}})
+        assert initialized.get("protocolVersion")
+        tools = rpc("tools/list", {})["tools"]
+        assert {tool["name"] for tool in tools} >= {"helpdesk_incidents", "helpdesk_requests", "helpdesk_auth"}
+        def call(name, operation, request=None):
+            arguments = {"operation": operation}
+            if request is not None:
+                arguments["request"] = request
+            return rpc("tools/call", {"name": name, "arguments": arguments})["structuredContent"]
+        assert call("helpdesk_auth", "status")["success"]
+        baseline = call("helpdesk_incidents", "list", {"includeTotal": True})
+        data = baseline.get("data") if isinstance(baseline.get("data"), dict) else {}
+        items = data.get("items") if isinstance(data.get("items"), list) else []
+        total = data.get("totalCount") if isinstance(data.get("totalCount"), int) else None
+        upstream = baseline.get("failure", {}).get("upstreamStatus") if isinstance(baseline.get("failure"), dict) else None
+        print("OBSERVE: HTTP MCP incident baseline " + json.dumps({"success": baseline.get("success") is True,
+            "totalCount": total, "itemCount": len(items), "itemsMatchSeed": {item.get("id") for item in items} == set(self.incident_ids),
+            "upstreamStatus": upstream if isinstance(upstream, int) else None}), flush=True)
+        assert baseline["success"] and baseline["data"]["totalCount"] == 2
+        assert {item["id"] for item in baseline["data"]["items"]} == set(self.incident_ids)
+        matched = call("helpdesk_incidents", "list", {"query": "Beta2 needle", "includeTotal": True})
+        assert matched["success"] and matched["data"]["totalCount"] == 1
+        assert [item["id"] for item in matched["data"]["items"]] == self.incident_ids[:1]
+        absent = call("helpdesk_incidents", "list", {"query": "Impossible beta2 " + uuid.uuid4().hex, "includeTotal": True})
+        assert absent["success"] and absent["data"]["items"] == [] and absent["data"]["totalCount"] == 0
+        fetched = call("helpdesk_incidents", "get", {"incidentId": self.incident_ids[0]})
+        assert fetched["success"] and fetched["data"]["id"] == self.incident_ids[0]
+        denied = call("helpdesk_requests", "list", {})
+        assert not denied["success"] and denied["failure"]["upstreamStatus"] == 403
+        print("PASS: real HTTP MCP initialize/catalog/status, incident baseline=2/match=1/no-match=0 with filtered totals, permitted get and Request.Read HTTP 403", flush=True)
 
     def run(self):
         self.prepare()
@@ -383,8 +536,9 @@ class Fixture:
         setup.until("Review the server settings")
         setup.send(b"\x0e")
         setup.until("Host deployment approval pending")
-        setup.send(b"\x1b[6~")
-        code = setup.until(r"Code:\s*([A-Z2-9]{4}-[A-Z2-9]{4})").group(1)
+        code = setup.until(r"[Cc]ode:\s*([A-Z2-9]{4}-[A-Z2-9]{4})").group(1)
+        primary = setup.screen()
+        assert all(value in primary for value in [code, "Open browser", "Copy URL and code", "Details", "Back", "Cancel"]), "Host approval URL/code/actions must be immediately available at 80x24"
         self.approve_host(code)
         setup.until("Administrator approved the reviewed generation")
         setup.send(b"\x0e")
@@ -395,26 +549,44 @@ class Fixture:
         document = json.loads(complete.read_bytes())
         assert "untouched" in document["services"] and "unrelated" in document["volumes"]
         assert "PRESERVE_ME=existing-manager-content" in str(document["services"]["untouched"]["environment"]) or document["services"]["untouched"]["environment"].get("PRESERVE_ME") == "existing-manager-content"
+        if self.legacy:
+            assert not document["services"]["mcp-http"].get("configs"), "Reviewed complete export must remove the legacy child mount"
+            assert "legacy-outbound" in document.get("configs", {}), "Shared top-level source definitions must be retained"
+            assert self.legacy_config.read_text() == json.dumps({"apiBaseUrl": "http://api:8222/", "credentialMode": "gateway"})
         if self.existing:
             # Simulate the existing manager's reviewed complete import at the
             # ORIGINAL persisted source path, not a transient additional overlay.
             self.source.write_bytes(complete.read_bytes())
             applied = self.compose
         else:
-            checked([str(LAUNCHER), *self.launcher_arguments(), "--apply"], cwd=self.directory)
+            checked([str(self.launcher), *self.launcher_arguments(), "--apply"], cwd=self.directory)
             applied = self.compose[:-2] + ["-f", str(complete)]
         self.applied = applied
         # Apply the manager-owned complete document first, so both first-time
         # and existing stacks have the reviewed protected stores before console setup.
         checked([*applied, "up", "--pull", "never", "-d"], timeout=180)
         identifier = checked([*applied, "ps", "--quiet", "mcp-http"]).decode().strip()
+        assert checked(["docker", "exec", identifier, "stat", "-c", "%u:%g:%a", "/run/rateldesk-mcp/config.json"]).strip() == b"10001:10001:400", "Protected runtime config must remain readable by its intended serving owner only"
+        mounts = json.loads(checked(["docker", "inspect", "--format", "{{json .Mounts}}", identifier]))
+        assert any(mount.get("Destination") == "/run/rateldesk-mcp" and not mount.get("RW") for mount in mounts)
+        assert not any(mount.get("Destination") == "/run/rateldesk-mcp/config.json" for mount in mounts), "Actual recreated serving container must have no obsolete child-file mount"
         self.complete_console_client(identifier)
         checked([*applied, "down"], timeout=180)  # Deliberately preserve data/stores.
         checked([*applied, "up", "--pull", "never", "-d"], timeout=180)
         time.sleep(5)
         identifier = checked([*applied, "ps", "--quiet", "mcp-http"]).decode().strip()
+        before_verification = {item["id"] for item in self.request("/api/v1/integration-credentials/")}
         verify = self.terminal(["--container", identifier, "--ca-file", str(self.ca), "--verify"])
-        code = verify.until(r"Code:\s*([A-Z2-9]{4}-[A-Z2-9]{4})").group(1)
+        code = verify.until(r"[Cc]ode:\s*([A-Z2-9]{4}-[A-Z2-9]{4})").group(1)
+        # Read only this attempt's private cancellation capability, before approval.
+        # It never enters a command argument, assertion message or evidence output.
+        journal_read = subprocess.run(["docker", "exec", identifier, "head", "-c", "8193", "/output/verifier-cleanup.json"],
+            capture_output=True, timeout=30)
+        if journal_read.returncode or len(journal_read.stdout) > 8192:
+            raise RuntimeError("This run's bounded private verifier cleanup journal is unavailable.")
+        journal = json.loads(journal_read.stdout)
+        self.verifier_device_code = journal.get("deviceCode")
+        assert journal.get("origin") == self.origin and re.fullmatch(r"[A-Fa-f0-9]{64}", self.verifier_device_code or "")
         review = self.request("/api/v1/integration-credentials/pairing/review", {"humanCode": code})
         assert review["grantKind"] == "setup-verification"
         self.request("/api/v1/integration-credentials/pairing/approve", {"humanCode": code,
@@ -423,21 +595,63 @@ class Fixture:
         verify.finish(seconds=120)
         self.reload_console_client(identifier)
         credentials = self.request("/api/v1/integration-credentials/")
-        assert any(item["id"] == self.ordinary_id and item.get("revokedAtUtc") is None for item in credentials)
+        # Scalar-only evidence distinguishes unexpected fixture identities from a
+        # retained verifier record without publishing account names, IDs or grants.
+        print("OBSERVE: post-verification credential cleanup " + json.dumps({"count": len(credentials), "records": [
+            {"kind": "setup-verification" if item.get("purpose") == "mcp-setup" else "ordinary",
+             "purpose": item.get("purpose") if item.get("purpose") in ("api", "mcp", "mcp-setup") else "other",
+             "revoked": item.get("revokedAtUtc") is not None,
+             "expectedApi": item.get("id") == self.ordinary_id,
+             "expectedMcp": item.get("id") == self.console_credential_id,
+             "permissionsEmpty": not item.get("permissions")}
+            for item in credentials]}), flush=True)
+        verifier_records = [item for item in credentials if item["id"] not in before_verification]
+        assert len(verifier_records) == 1, "Verification must issue exactly one separately owned temporary record"
+        verifier_record = verifier_records[0]
+        assert verifier_record["purpose"] == "mcp-setup" and verifier_record.get("revokedAtUtc") is not None
+        assert verifier_record.get("permissions") == []
+        assert verifier_record["id"] not in (self.ordinary_id, self.console_credential_id)
+        cancelled = self.request("/api/v1/integration-credentials/pairing/poll", {"deviceCode": self.verifier_device_code})
+        assert cancelled["status"] == "cancelled" and cancelled.get("credential") is None
+        checked(["docker", "exec", identifier, "test", "!", "-e", "/output/verifier-cleanup.json"])
+        print("PASS: automatic verifier cleanup revoked only this run's temporary status identity, removed its private cleanup journal and rejected protected-delivery retrieval", flush=True)
+        # The API intentionally retains revoked credential history. Match the
+        # beta.1 owner cleanup through its existing authenticated record-delete
+        # endpoint, selecting only this attempt's already-revoked status record.
+        try:
+            self.request("/api/v1/integration-credentials/" + verifier_record["id"] + "/record", expected=(204,), method="DELETE")
+        except RuntimeError:
+            raise RuntimeError("Explicit fixture-owner temporary record deletion failed.") from None
+        credentials = self.request("/api/v1/integration-credentials/")
+        assert {item["id"] for item in credentials} == {self.ordinary_id, self.console_credential_id}, "Explicit fixture-owner deletion must durably remove only the temporary verifier record"
+        ordinary = next(item for item in credentials if item["id"] == self.ordinary_id)
+        console_credential = next(item for item in credentials if item["id"] == self.console_credential_id)
+        assert ordinary.get("revokedAtUtc") is None and ordinary["expiresAtUtc"] == self.ordinary_expiry
+        assert console_credential.get("revokedAtUtc") is None and console_credential["expiresAtUtc"] == self.console_credential_expiry
+        cancelled_again = self.request("/api/v1/integration-credentials/pairing/poll", {"deviceCode": self.verifier_device_code})
+        assert cancelled_again["status"] == "cancelled" and cancelled_again.get("credential") is None
+        assert {item["id"] for item in self.request("/api/v1/integration-credentials/")} == before_verification
+        print("PASS: explicit fixture-owner deletion durably removed this run's revoked verifier record; both ordinary identities and expiries remain active and delivery remains unavailable", flush=True)
         changed = json.loads(self.source.read_bytes())
         changed["services"]["untouched"]["environment"] = {"PRESERVE_ME": "separate changed-source fixture"}
         self.source.write_text(json.dumps(changed))
-        rejected = subprocess.run([str(LAUNCHER), "--container", identifier, "--ca-file", str(self.ca), "--verify"],
+        rejected = subprocess.run([str(self.launcher), "--container", identifier, "--ca-file", str(self.ca), "--verify"],
             cwd=self.directory, capture_output=True, timeout=180)
         assert rejected.returncode == 78 and b"approved_sources_changed" in rejected.stderr
         assert json.loads((self.output / "launcher-state.json").read_bytes())["phase"] == "applied-verify-pending", "A failed NEW verification attempt must clear the prior verified phase"
         for terminal in self.terminals:
-            assert self.password not in terminal.raw_text() and self.ordinary_secret not in terminal.raw_text()
+            assert self.password not in terminal.raw_text() and self.ordinary_secret not in terminal.raw_text() and self.verifier_device_code not in terminal.raw_text()
         print("PASS: " + ("existing external-manager" if self.existing else "fresh release-owned") + " actual launcher cancel/reopen, source-bound administrator approval, complete preserved export/apply, full recreation + NEW verified invocation, API-backed status/catalog, identity preservation and separate changed-source rejection", flush=True)
 
     def close(self):
         for terminal in self.terminals:
             terminal.close()
+        if getattr(self, "seed_helper", None):
+            subprocess.run(["docker", "rm", self.seed_helper], capture_output=True, timeout=30)
+        containers = subprocess.run(["docker", "ps", "--all", "--format", "{{.Names}}"], capture_output=True, timeout=30)
+        for name in containers.stdout.decode().splitlines():
+            if name.startswith(self.project + "-mcp-setup-"):
+                subprocess.run(["docker", "rm", "--force", name], capture_output=True, timeout=30)
         # Cleanup only the unique fixture project and its own setup volumes.
         for source in (self.source, self.output / "deployment.json"):
             if source.is_file():
@@ -445,6 +659,8 @@ class Fixture:
         for suffix in ("http-host-setup", "http-client-data"):
             name = self.project + "-" + suffix
             subprocess.run(["docker", "volume", "rm", name], capture_output=True, timeout=30)
+        if getattr(self, "fixture_web_image", None):
+            subprocess.run(["docker", "image", "rm", self.fixture_web_image], capture_output=True, timeout=30)
         self.temporary.cleanup()
 
     def record_failure(self, failure):
@@ -453,7 +669,7 @@ class Fixture:
         evidence.chmod(0o700)
         def save(name, content):
             text = content.decode("utf-8", errors="replace") if isinstance(content, bytes) else content
-            for secret in (self.password, self.pfx_password, getattr(self, "ordinary_secret", "")):
+            for secret in (self.password, self.pfx_password, getattr(self, "ordinary_secret", ""), getattr(self, "verifier_device_code", "")):
                 if secret:
                     text = text.replace(secret, "[redacted]")
             text = re.sub(r"rdk_[A-Za-z0-9_.-]{10,}", "[redacted credential]", text)
@@ -476,10 +692,12 @@ def main():
     parser.add_argument("--api-image", required=True)
     parser.add_argument("--web-image", required=True)
     parser.add_argument("--mcp-image", required=True)
-    parser.add_argument("--case", choices=("fresh", "existing", "all"), default="all")
+    parser.add_argument("--case", choices=("fresh", "existing", "legacy", "all"), default="all")
+    parser.add_argument("--deployment-archive", type=Path, help="Exercise launchers from this extracted deployment archive.")
     args = parser.parse_args()
-    for existing in ([False, True] if args.case == "all" else [args.case == "existing"]):
-        fixture = Fixture(args, existing)
+    cases = [(False, False), (True, False), (True, True)] if args.case == "all" else [(args.case != "fresh", args.case == "legacy")]
+    for existing, legacy in cases:
+        fixture = Fixture(args, existing, legacy)
         try:
             fixture.run()
         except Exception as failure:

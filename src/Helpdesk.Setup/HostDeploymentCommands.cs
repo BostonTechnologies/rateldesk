@@ -9,7 +9,7 @@ public static class HostDeploymentCommands
     public static void Register(RootCommand root, TextWriter output, TextWriter error)
     {
         var host = new Command("host", "Read-only effective deployment preflight and approved-generation verification. Use the Docker host launcher to apply.");
-        foreach (var action in new[] { "preflight", "verify", "approval-check", "observation-check" })
+        foreach (var action in new[] { "preflight", "verify", "approval-check", "observation-check", "export-check" })
         {
             var command = new Command(action, action == "verify" ? "Observe applied configuration and request a narrow temporary status verifier." : "Validate the complete proposed deployment before approval.");
             var directory = new Option<string?>("--export-directory"); var url = new Option<string?>("--url");
@@ -19,6 +19,15 @@ public static class HostDeploymentCommands
                 try
                 {
                     var path = parse.GetValue(directory) ?? SetupInput.HostDirectory;
+                    if (action == "export-check")
+                    {
+                        var approved = HostDeploymentWorkflow.ResumeApproved(path);
+                        var exported = HttpMcpEffectiveDeployment.Parse(SecureConfigurationFiles.ReadPrivateDocument(Path.Combine(path, ".resolved-export.json")));
+                        var diagnostics = HttpMcpEffectiveDeployment.ValidateExport(approved, exported);
+                        if (diagnostics.Count > 0) throw new AgentClientValidationException(HostDeploymentWorkflow.Describe(diagnostics));
+                        await output.WriteLineAsync("Complete reviewed export configuration and mount validation passed. No service was changed.");
+                        return 0;
+                    }
                     if (action == "approval-check")
                     {
                         await HostDeploymentWorkflow.CheckApplyAuthorityAsync(path, ct);
@@ -31,7 +40,12 @@ public static class HostDeploymentCommands
                         await output.WriteLineAsync("End-to-end verified. Fresh Docker observation, authenticated initialize, complete catalog, API-backed status and temporary access cleanup passed.");
                         return 0;
                     }
-                    if (action == "verify") return await HostDeploymentWorkflow.VerifyAsync(path, output, error, ct);
+                    if (action == "verify")
+                    {
+                        if (!Console.IsInputRedirected && !Console.IsOutputRedirected && ReferenceEquals(output, Console.Out))
+                            return await SetupRunner.RunAsync(new(Hosting: true, OutputDirectory: path) { VerificationDirectory = path }, error, ct);
+                        return await HostDeploymentWorkflow.VerifyAsync(path, output, error, ct);
+                    }
                     var settings = HttpMcpEffectiveDeployment.Adopt(HttpMcpHostingCoordinator.Load(path));
                     if (parse.GetValue(url) is { } supplied) settings = settings with { PublicOrigin = SetupInput.NormalizeWebUrl(supplied) };
                     var proposal = HttpMcpEffectiveDeployment.Create(settings);

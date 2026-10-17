@@ -57,6 +57,38 @@ administrator/operator. Client pairing grants no server administration.
 The explicit Termina setup shares headless configuration, pairing, persistence
 and validation services with runtime. Normal startup never prompts.
 
+## Compose prerequisites and Docker selection
+
+The launcher checks the **selected** Docker/Compose implementation before
+rendering sources, requesting consent, provisioning storage or changing
+services. It requires both the source-preserving and fully resolved `config`
+operations, including `--format json`, `--no-env-resolution`, `--no-interpolate`
+and `--no-path-resolution` where used. The supported upstream floor is Compose
+**v2.35.0**, which introduced `--no-env-resolution`; v2.34 lacks that feature.
+The launcher checks capabilities rather than rejecting distribution suffixes or
+unparseable versions by number alone. Missing plugin/daemon access, unsupported
+features, source/env-file errors and timeouts have separate safe diagnoses; raw secret-bearing Docker
+stderr is not printed. Do not remove flags or replace `--no-env-resolution`
+with `--no-interpolate`: those operations have different semantics.
+
+For `compose_feature_unsupported`, use the printed detected version/missing
+capability and install Compose v2.35.0 or newer through the host's supported
+package channel. Alternatively obtain the matching host architecture's
+[official Compose release](https://github.com/docker/compose/releases/tag/v2.35.0)
+and verify its published SHA-256 checksum **before** placing
+it in a deliberately selected private Docker configuration's `cli-plugins`
+directory as the executable `docker-compose`. Nothing is downloaded or installed
+automatically. Preserve the system plugin and do not copy private Docker
+credentials into a workaround directory.
+
+Keep explicit `DOCKER_CONFIG`, `DOCKER_CONTEXT`, `DOCKER_HOST`, `DOCKER_TLS`,
+`DOCKER_TLS_VERIFY`, `DOCKER_CERT_PATH` and `DOCKER_API_VERSION` selections for
+every setup, client, apply and `--verify` invocation.
+The launcher carries the selection into its printed follow-up commands; use
+those quoted commands instead of reconstructing them for another daemon. If
+the selected private Docker configuration needs a named context, configure that
+context deliberately there rather than silently falling back to the default.
+
 ## Connect a client
 
 Run `rateldesk setup`, `rateldesk-mcp setup`, or the HTTP image's bare `setup`
@@ -100,19 +132,23 @@ Open the MCP container's terminal and run:
 dotnet /app/Helpdesk.Mcp.Http.dll setup
 ```
 
-From a deployment-host terminal, the equivalent is:
+The preferred deployment-host command, from the extracted tools directory, is:
 
 ```sh
-docker compose exec mcp-http dotnet /app/Helpdesk.Mcp.Http.dll setup
+./setup-http-mcp.sh --target http-client -- --profile incident-reader
 ```
 
-Use that deployment's actual ordered Compose context. In a browserless console,
+This retains the launcher's selected Docker context and private client store.
+In a browserless console,
 the trusted URL/code remains visible for another device. Save uses the dedicated
 durable client store supplied by the deployment; this store is separate from
 host settings and never mounted into API. Finish with the printed protected
 configuration snippet. An unwritable or ephemeral store is a prerequisite
 failure, not successful Save. Bare `setup` means HTTP client; `setup --mode host`
 (compatibility: `setup --target http-host`) explicitly selects host configuration.
+For fresh saved-profile checks, use the actual container/profile template in
+the [short guide](setup.md#check-or-reconnect-a-saved-client). Neither a host
+filesystem profile path nor a guessed container name is a runnable substitute.
 
 ## Advanced standalone tooling
 
@@ -205,8 +241,14 @@ The coordinator produces:
 | --- | --- |
 | `host-settings.json` | Reviewed non-secret host settings; no downstream secret fields |
 | `mcp-outbound.json` | Protected isolated downstream file; gateway has only URL and `credentialMode=gateway`; external mode includes its reviewed private identity |
-| `compose.host.json` | Web/API/MCP environment coordination and protected config-init source mount |
+| `compose.host.json` | Reviewed Web/API/MCP coordination and protected config-init source mount |
 | `APPLY.txt` | Preservation, interpolation and explicit apply/recreate instructions |
+
+The deployment-host launcher also writes `deployment.json`, the complete
+reviewed manager document, after validating it against the approved proposal.
+Apply this complete document through an external manager; `compose.host.json`
+alone is an overlay. Keep the launcher's private checkpoint/receipt files with
+the export for fresh apply/verify, without editing their contents.
 
 All files are private, bounded and atomically replaced with conflict checks.
 Existing output requires explicit reviewed overwrite; cancellation and reruns
@@ -275,6 +317,30 @@ effective values and provenance before replacing files; preserve instance label,
 custom target, API-owned database/bootstrap/key ring, mounts and account
 credentials. Choose the same explicit ingress mode and exact resource. Adoption
 does not reset NetRatel/NetClaw/mailbox configuration or account identities.
+
+The recognized legacy selected outbound config at
+`/run/rateldesk-mcp/config.json` is read and validated through its protected
+source before consent. The complete reviewed proposal removes that obsolete
+child-file mapping and installs the protected replacement through the initializer
+and runtime volume. It retains effective settings, an explicit external
+downstream identity, unrelated mounts/services/env-file references and shared
+top-level definitions used elsewhere. It does not delete the source file or
+Docker volumes. Review the short migration summary; apply the complete export
+without hand-editing out the old mapping.
+
+An unreadable/unowned/conflicting protected source or an unrecognized overlapping
+volume/config/secret mount stops setup for a specific prerequisite. Resolve its
+actual source/target deliberately and rerun ordinary setup. Do not remove all
+configs/secrets, make the runtime volume writable or start the serving process
+as root to conceal the collision. Unrelated paths such as
+`/run/rateldesk-mcp-extra` are separate destinations.
+
+After a material source/proposal edit, run ordinary setup with the same source,
+storage and owner selection, obtain new review/approval, apply, then run fresh
+`--verify`. An unchanged applied generation can resume directly with `--verify`.
+Protected approval receipts/hashes are not operator-editable recovery inputs.
+Reruns preserve ordinary client identity/expiry; the status-only verifier is
+separately approved and cleaned up.
 
 Gateway server upgrades need no shared-key provisioning. After target/resource
 changes, reauthorize/review client bindings rather than forwarding old credentials
