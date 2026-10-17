@@ -33,13 +33,13 @@ class NativeLauncherContracts(unittest.TestCase):
         self.source.write_text("# operator formatting\nservices:\n  mcp-http: {image: synthetic:never-run}\n")
         self.args = launcher.parser().parse_args(["--native-executable", str(self.executable), "--preflight"])
         docker = SimpleNamespace(selection={"DOCKER_CONTEXT": "synthetic"}, daemon_identity="same-daemon", compose_version="2.39.4",
-            process_environment=lambda: os.environ.copy(), check_selection=Mock(),
+            process_environment=lambda: os.environ.copy(), check_selection=Mock(), bind_daemon=Mock(),
             run=Mock(side_effect=AssertionError("Native adapter must not create, run, mount or restart Docker resources")))
         self.deployment = SimpleNamespace(args=self.args, docker=docker, output=self.output, manager="external-compose",
             intent="verify-existing", legacy=False, compose=["compose", "-f", str(self.source)], sources=[self.source],
             env_files=[], directory=self.directory, project="fixture",
             proposal={"x-rateldesk-source-files": [launcher.file_record(self.source)]},
-            check_sources=Mock(), observe_runtime=Mock())
+            check_sources=Mock(), observe_runtime=Mock(), validate_resume_sources=Mock())
 
     def tearDown(self):
         self.temporary.cleanup()
@@ -180,6 +180,79 @@ class NativeLauncherContracts(unittest.TestCase):
         with self.assertRaisesRegex(launcher.Prerequisite, "approved_owner_changed"):
             launcher.check_native_checkpoint(self.deployment, state)
         self.deployment.docker.run.assert_not_called()
+
+    def prepared_release_change(self):
+        self.deployment.manager = "release-compose"
+        self.args.preflight, self.args.apply = False, True
+        candidate = self.output / "candidate.yml"
+        candidate_data = b"# operator formatting\nservices:\n  mcp-http:\n    image: synthetic:never-run\n    environment:\n      SYNTHETIC: reviewed change\n"
+        launcher.write_private(candidate, candidate_data)
+        state = self.approved_checkpoint(candidates=[{"source": str(self.source), "candidate": str(candidate),
+            "originalSha256": launcher.file_record(self.source)["sha256"],
+            "candidateSha256": hashlib.sha256(candidate_data).hexdigest()}], intent=1)
+        return candidate, candidate_data, state
+
+    def test_candidate_or_staged_changes_during_authority_and_runtime_checks_never_reach_owner_apply(self):
+        for boundary in ("authority-candidate", "runtime-candidate", "runtime-staged"):
+            with self.subTest(boundary=boundary):
+                candidate, _, _ = self.prepared_release_change()
+                original = self.source.read_bytes()
+                observations = [0]
+                def approval(*arguments, **kwargs):
+                    if boundary == "authority-candidate":
+                        candidate.write_bytes(b"unreviewed candidate during authority check")
+                    return 0
+                def observe(*arguments):
+                    observations[0] += 1
+                    if observations[0] == 2:
+                        staged = list(self.directory.glob(".rateldesk-reviewed-*"))
+                        self.assertEqual(len(staged), 1)
+                        self.assertEqual(staged[0].stat().st_mode & 0o777, 0o600)
+                        if boundary == "runtime-candidate":
+                            candidate.write_bytes(b"unreviewed candidate after staging")
+                        elif boundary == "runtime-staged":
+                            staged[0].write_bytes(b"unreviewed staged payload")
+                self.deployment.observe_runtime.side_effect = observe
+                code = "approved_staged_source_changed" if boundary == "runtime-staged" else "approved_candidate_changed"
+                with patch.object(launcher, "native_command", side_effect=approval), self.assertRaisesRegex(launcher.Prerequisite, code):
+                    launcher.apply_native(self.deployment)
+                self.assertEqual(self.source.read_bytes(), original)
+                self.assertEqual(list(self.directory.glob(".rateldesk-reviewed-*")), [])
+                self.assertEqual(launcher.read_private_json(self.output / "launcher-state.json")["phase"], "prepared-apply-pending")
+                self.deployment.docker.run.assert_not_called()
+
+    def test_invalid_retained_backup_stops_before_source_save_and_is_not_overwritten(self):
+        _, _, state = self.prepared_release_change()
+        original = self.source.read_bytes()
+        item = state["sourceCandidates"][0]
+        backup = self.output / ("backup-" + item["originalSha256"] + "-" + self.source.name)
+        launcher.write_private(backup, b"different prior backup")
+        with patch.object(launcher, "native_command", return_value=0), self.assertRaisesRegex(launcher.Prerequisite, "approved_backup_changed"):
+            launcher.apply_native(self.deployment)
+        self.assertEqual(backup.read_bytes(), b"different prior backup")
+        self.assertEqual(self.source.read_bytes(), original)
+        self.deployment.docker.run.assert_not_called()
+
+    def test_exact_reviewed_staged_bytes_retain_source_mode_and_apply_only_approved_service(self):
+        candidate, reviewed, state = self.prepared_release_change()
+        original = self.source.read_bytes()
+        self.source.chmod(0o640)
+        observed_modes = []
+        def observe(*arguments):
+            observed_modes.extend(path.stat().st_mode & 0o777 for path in self.directory.glob(".rateldesk-reviewed-*"))
+        self.deployment.observe_runtime.side_effect = observe
+        self.deployment.docker.run = Mock(return_value=b"")
+        with patch.object(launcher, "native_command", return_value=0):
+            self.assertEqual(launcher.apply_native(self.deployment), 0)
+        self.assertEqual(observed_modes, [0o600])
+        self.assertEqual(self.source.read_bytes(), reviewed)
+        self.assertEqual(candidate.read_bytes(), reviewed)
+        self.assertEqual(self.source.stat().st_mode & 0o777, 0o640)
+        self.deployment.docker.run.assert_called_once_with(self.deployment.compose + ["up", "-d", "--no-deps", "mcp-http"],
+            maximum=16384, owner_tool=True)
+        backup = self.output / ("backup-" + state["sourceCandidates"][0]["originalSha256"] + "-" + self.source.name)
+        self.assertEqual(backup.read_bytes(), original)
+        self.assertEqual(launcher.read_private_json(self.output / "launcher-state.json")["phase"], "applied-verify-pending")
 
     def test_owner_source_transition_requires_exact_reviewed_candidate_with_unchanged_dependencies(self):
         args = launcher.parser().parse_args(["--compose-file", str(self.source), "--project", "fixture",

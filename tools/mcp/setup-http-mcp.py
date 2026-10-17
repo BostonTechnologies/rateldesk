@@ -2121,29 +2121,46 @@ def apply_native(deployment):
     try:
         for item in candidates:
             source = Path(item["source"])
+            candidate_data = read_bytes(item["candidate"])
+            if hashlib.sha256(candidate_data).hexdigest() != item["candidateSha256"]:
+                fail("approved_candidate_changed", "The reviewed source candidate changed before staging. Prepare and approve a new proposal before owner apply; no changed candidate was saved.")
             backup = deployment.output / ("backup-" + item["originalSha256"] + "-" + source.name)
             if not backup.exists():
-                write_private(backup, read_bytes(source))
+                original_data = read_bytes(source)
+                if hashlib.sha256(original_data).hexdigest() != item["originalSha256"]:
+                    fail("approved_sources_changed", "The original source changed while its private backup was read. Review the current owner source before apply.")
+                write_private(backup, original_data)
+            if file_record(backup)["sha256"] != item["originalSha256"]:
+                fail("approved_backup_changed", "A retained private backup differs from the reviewed original source. Restore its exact reviewed bytes or review a new generation before owner apply; the backup was not overwritten.")
             mode = stat.S_IMODE(source.stat().st_mode)
             descriptor, temporary = tempfile.mkstemp(dir=source.parent, prefix=".rateldesk-reviewed-")
+            staged.append((item, source, temporary, mode))
             with os.fdopen(descriptor, "wb") as target:
-                os.fchmod(target.fileno(), mode)
-                target.write(read_bytes(item["candidate"]))
+                os.fchmod(target.fileno(), 0o600)
+                target.write(candidate_data)
                 target.flush(); os.fsync(target.fileno())
-            staged.append((item, source, temporary))
         deployment.check_sources()
         revalidate_apply_runtime(deployment, state)
+        check_native_checkpoint(deployment, state)
+        # Validate every staged source before replacing any owner file. Each
+        # exact payload is checked again at its own atomic replacement boundary.
+        for item, _, temporary, _ in staged:
+            if file_record(temporary)["sha256"] != item["candidateSha256"]:
+                fail("approved_staged_source_changed", "A privately staged source differs from its reviewed candidate. Review the retained checkpoints before owner apply; no staged changes were saved.")
         state["phase"] = "source-save-in-progress"
         state["savedSources"] = []
         write_private(deployment.output / "launcher-state.json", state)
-        for item, source, temporary in staged:
+        for item, source, temporary, mode in staged:
             if file_record(source)["sha256"] != item["originalSha256"]:
                 fail("approved_sources_changed", "A source changed during save. Private backups and source-save progress were retained; reread the owner's sources and review recovery before apply.")
+            if file_record(temporary)["sha256"] != item["candidateSha256"]:
+                fail("approved_staged_source_changed", "A staged source changed during save. Private backups and source-save progress were retained; review recovery before owner apply.")
+            os.chmod(temporary, mode)
             os.replace(temporary, source)
             state["savedSources"].append(str(source))
             write_private(deployment.output / "launcher-state.json", state)
     finally:
-        for _, _, temporary in staged:
+        for _, _, temporary, _ in staged:
             Path(temporary).unlink(missing_ok=True)
     state["phase"] = "source-saved-apply-pending"
     write_private(deployment.output / "launcher-state.json", state)
