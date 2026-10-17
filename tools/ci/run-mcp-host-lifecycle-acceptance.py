@@ -868,6 +868,7 @@ class Fixture:
             text = content.decode("utf-8", errors="replace") if isinstance(content, bytes) else content
             for secret in (self.password, self.pfx_password, getattr(self, "ordinary_secret", ""), getattr(self, "verifier_device_code", ""),
                     getattr(self, "database_password", ""), getattr(self, "client_secret", ""), getattr(self, "guard_secret", ""),
+                    getattr(getattr(self, "manager", None), "token", ""),
                     *getattr(self, "device_capabilities", [])):
                 if secret:
                     text = text.replace(secret, "[redacted]")
@@ -878,6 +879,8 @@ class Fixture:
             with os.fdopen(descriptor, "w") as stream:
                 stream.write(text[:4 * 1024 * 1024])
         save("failure.txt", str(failure))
+        for stream, content in getattr(self, "private_interruption_output", {}).items():
+            save("interrupted-manager-" + stream + ".txt", content[:65536])
         if getattr(self, "interrupted_manager_verification", None):
             save("interrupted-manager-verification.json", json.dumps(self.interrupted_manager_verification, indent=2))
         if isinstance(failure, CommandFailure):
@@ -1403,19 +1406,22 @@ class PreservedFixture(Fixture):
         environment = os.environ.copy()
         environment.update(self.client_environment)
         rejected = subprocess.run(self.resume_command, cwd=self.directory, env=environment, capture_output=True, timeout=120)
+        self.private_interruption_output = {"stdout": rejected.stdout, "stderr": rejected.stderr}
         assert len(rejected.stdout) + len(rejected.stderr) <= 65536, "Rejected verification diagnostics must remain bounded"
         self.interrupted_manager_verification = {"exit": rejected.returncode,
             "runtimeMismatch": b"HOST_RUNTIME_MISMATCH" in rejected.stderr,
             "sourceChanged": b"HOST_SOURCE_CHANGED" in rejected.stderr,
             "webMcpDisabled": b"WEB_MCP_DISABLED" in rejected.stderr,
+            "effectiveModelChanged": rejected.stderr.startswith(b"Setup not completed: approved_effective_model_changed: "),
             "recognizedCodes": [code for code in ("WEB_MCP_DISABLED", "HOST_SOURCE_CHANGED", "HOST_RUNTIME_MISMATCH",
                 "HOST_RUNTIME_PROVIDER_MISMATCH", "native_checkpoint_validation", "approved_sources_changed",
-                "approved_checkpoint_changed") if re.search(rb"\b" + code.encode() + rb"\b", rejected.stderr)],
+                "approved_checkpoint_changed", "approved_effective_model_changed") if re.search(rb"\b" + code.encode() + rb"\b", rejected.stderr)],
             "rawContentRecorded": False}
         print("OBSERVE: fresh verification after interrupted actual manager request " + json.dumps(self.interrupted_manager_verification), flush=True)
-        # ResumeApproved validates the exact source before Observe checks the
-        # runtime. Require its specific disabled-Web diagnostic for this scalar.
-        assert rejected.returncode == 78 and self.interrupted_manager_verification["webMcpDisabled"], "The unapplied Web enable candidate must stop fresh verification at WEB_MCP_DISABLED"
+        # The launcher compares the full actual model to the reviewed candidate
+        # before calling native verification. This exact guard rejects the
+        # still-disabled Web scalar while its approved candidate remains unapplied.
+        assert rejected.returncode == 78 and self.interrupted_manager_verification["effectiveModelChanged"], "The unapplied Web enable candidate must stop at approved_effective_model_changed"
         assert b"End-to-end verified" not in rejected.stdout and b"Existing deployment verified unchanged" not in rejected.stdout
         assert {item["id"] for item in self.request("/api/v1/integration-credentials/")} == before_credentials
         assert not (self.output / "verifier-cleanup.json").exists(), "The unapplied generation must fail before any temporary verifier issuance"
