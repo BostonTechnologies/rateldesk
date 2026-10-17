@@ -4,13 +4,20 @@ using System.Net.Http.Json;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using Helpdesk.AgentClient;
+using Helpdesk.Mcp.Tools;
 using Helpdesk.API.Authentication;
 using Helpdesk.API.Endpoints.Authentication;
 using Helpdesk.API.Endpoints.Incidents;
 using Helpdesk.API.Endpoints.Requests;
+using Helpdesk.API.Endpoints.Orchestration;
+using Helpdesk.API.Endpoints.Organization;
 using Helpdesk.API.Middleware;
 using Helpdesk.API.Services;
 using Helpdesk.Application.Events;
+using Helpdesk.Application.Orchestration;
 using Helpdesk.Application.Sla;
 using Helpdesk.Application.WorkLogs;
 using Helpdesk.Infrastructure.Auth.Rbac;
@@ -34,6 +41,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using Testcontainers.PostgreSql;
+using Json.Schema;
 
 namespace Helpdesk.Tests.Api;
 
@@ -45,6 +53,136 @@ namespace Helpdesk.Tests.Api;
 /// </summary>
 public sealed class McpGatewayRealAccessPipelineTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Gateway_scoped_role_crud_from_discovery_executes_with_owned_readbacks_and_preserves_delegation_ceiling(bool postgreSql)
+    {
+        await using var harness = postgreSql
+            ? await GatewayAccessHarness.CreatePostgreSqlAsync()
+            : await GatewayAccessHarness.CreateAsync();
+        await harness.SeedScopedRoleAdministrationAsync();
+        var credential = await harness.CreateCredentialAsync("org-a", permissions: HelpdeskPermissions.TenantRolesAssign);
+        var execution = await harness.DelegateAsync(credential);
+        var access = await harness.GetAsync<Helpdesk.Shared.DTOs.Auth.CurrentUserAccessDto>(execution, "/api/v1/auth/me");
+        Assert.False(access.Body!.IsHelpdeskAdmin);
+        Assert.Equal([HelpdeskPermissions.TenantRolesAssign], access.Body.Permissions);
+        Assert.Equal(["org-a"], access.Body.AllowedOrganizationIds);
+        var tools = new HelpdeskTools(new HelpdeskAgentClient(AgentClientConfiguration.Empty with
+        {
+            ApiBaseUrl = "https://gateway-api.example.test", CredentialMode = "gateway"
+        }, new GatewayClientFactory(harness), new GatewayLifetime(), new GatewayToken(execution)),
+            new AgentClientConfigurationStore(Path.Combine("work", "beta4", "unused-role-profile.json")));
+        var definitions = HelpdeskToolDefinitions.Create().ToDictionary(tool => tool.ProtocolTool.Name);
+        var mutationSchema = JsonSchema.FromText(definitions["helpdesk_admin_mutations"].ProtocolTool.InputSchema.GetRawText());
+        var readSchema = JsonSchema.FromText(definitions["helpdesk_roles"].ProtocolTool.InputSchema.GetRawText());
+        var create = new JsonObject
+        {
+            ["operation"] = "create_role", ["confirm"] = false,
+            ["request"] = new JsonObject
+            {
+                ["name"] = "MCP owned incident reader", ["ownerOrganizationId"] = "org-a",
+                ["permissions"] = new JsonArray(HelpdeskPermissions.IncidentRead)
+            }
+        };
+        Assert.True(mutationSchema.Evaluate(create).IsValid);
+        var missingOwner = create.DeepClone().AsObject();
+        missingOwner["request"]!.AsObject().Remove("ownerOrganizationId");
+        Assert.False(mutationSchema.Evaluate(missingOwner).IsValid);
+        var missingDependency = create.DeepClone().AsObject();
+        missingDependency["request"]!["permissions"] = new JsonArray(HelpdeskPermissions.IncidentWrite);
+        Assert.False(mutationSchema.Evaluate(missingDependency).IsValid);
+        async Task<HelpdeskToolResponse> MutateAsync(JsonObject envelope)
+        {
+            Assert.True(mutationSchema.Evaluate(envelope).IsValid, envelope.ToJsonString());
+            return await tools.helpdesk_admin_mutations(envelope["operation"]!.GetValue<string>(),
+                JsonSerializer.SerializeToElement(envelope["request"]), envelope["confirm"]!.GetValue<bool>());
+        }
+        var preview = await MutateAsync(create);
+        Assert.Equal("confirmation_required", preview.Status);
+        Assert.Empty(await harness.OwnedRoleAuditsAsync());
+        await harness.AssertNoOwnedCustomRolesAsync();
+        create["confirm"] = true;
+        var created = await MutateAsync(create);
+        Assert.True(created.Success, created.Summary);
+        var roleId = created.Data!["id"]!.GetValue<string>();
+        await harness.AssertOwnedRoleAsync(roleId, "MCP owned incident reader", [HelpdeskPermissions.IncidentRead]);
+        var read = new JsonObject { ["operation"] = "get", ["request"] = new JsonObject { ["roleId"] = roleId } };
+        Assert.True(readSchema.Evaluate(read).IsValid);
+        var fetched = await tools.helpdesk_roles("get", JsonSerializer.SerializeToElement(read["request"]));
+        Assert.True(fetched.Success, fetched.Summary);
+        Assert.Equal("org-a", fetched.Data!["ownerOrganizationId"]!.GetValue<string>());
+        Assert.Equal("MCP owned incident reader", fetched.Data["name"]!.GetValue<string>());
+        var update = new JsonObject
+        {
+            ["operation"] = "update_role", ["confirm"] = true,
+            ["request"] = new JsonObject { ["roleId"] = roleId, ["name"] = "MCP owned incident writer", ["permissions"] = new JsonArray(HelpdeskPermissions.IncidentRead, HelpdeskPermissions.IncidentWrite) }
+        };
+        var updated = await MutateAsync(update);
+        Assert.True(updated.Success, updated.Summary);
+        await harness.AssertOwnedRoleAsync(roleId, "MCP owned incident writer", [HelpdeskPermissions.IncidentRead, HelpdeskPermissions.IncidentWrite]);
+        var beforeDenials = await harness.OwnedRoleAuditsAsync();
+        var foreignRead = await tools.helpdesk_roles("get", JsonSerializer.SerializeToElement(new { roleId = "foreign-role" }));
+        Assert.False(foreignRead.Success);
+        Assert.Equal(403, foreignRead.Failure!.UpstreamStatus);
+        foreach (var deniedArguments in new[]
+        {
+            new JsonObject { ["operation"] = "create_role", ["confirm"] = true, ["request"] = new JsonObject { ["name"] = "Foreign create", ["ownerOrganizationId"] = "org-b", ["permissions"] = new JsonArray(HelpdeskPermissions.IncidentRead) } },
+            new JsonObject { ["operation"] = "update_role", ["confirm"] = true, ["request"] = new JsonObject { ["roleId"] = "foreign-role", ["name"] = "Foreign update", ["permissions"] = new JsonArray(HelpdeskPermissions.IncidentRead) } },
+            new JsonObject { ["operation"] = "delete_role", ["confirm"] = true, ["request"] = new JsonObject { ["roleId"] = "foreign-role" } }
+        })
+        {
+            var denied = await MutateAsync(deniedArguments);
+            Assert.False(denied.Success);
+            Assert.Equal(403, denied.Failure!.UpstreamStatus);
+        }
+        var ceiling = new JsonObject { ["operation"] = "create_role", ["confirm"] = true, ["request"] = new JsonObject { ["name"] = "Disallowed administration", ["ownerOrganizationId"] = "org-a", ["permissions"] = new JsonArray(HelpdeskPermissions.TenantUsersManage) } };
+        var excessive = await MutateAsync(ceiling);
+        Assert.False(excessive.Success);
+        Assert.Equal(400, excessive.Failure!.UpstreamStatus);
+        Assert.Equal(beforeDenials, await harness.OwnedRoleAuditsAsync());
+        var delete = new JsonObject { ["operation"] = "delete_role", ["confirm"] = true, ["request"] = new JsonObject { ["roleId"] = roleId } };
+        Assert.True((await MutateAsync(delete)).Success);
+        using var absent = await harness.GetAsync(execution, $"/api/v1/admin/role-definitions/{roleId}");
+        Assert.Equal(HttpStatusCode.NotFound, absent.StatusCode);
+        await harness.AssertNoOwnedCustomRolesAsync();
+        var audits = await harness.OwnedRoleAuditsAsync();
+        Assert.Equal(3, audits.Count);
+        Assert.Contains(audits, audit => audit.StartsWith("Created custom role", StringComparison.Ordinal));
+        Assert.Contains(audits, audit => audit.StartsWith("Updated custom role", StringComparison.Ordinal));
+        Assert.Contains(audits, audit => audit.StartsWith("Deleted custom role", StringComparison.Ordinal));
+        await harness.AssertForeignRoleUnchangedAsync();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Gateway_execution_tokens_never_gain_instance_admin_authority_for_real_administrative_routes(bool postgreSql)
+    {
+        await using var harness = postgreSql
+            ? await GatewayAccessHarness.CreatePostgreSqlAsync()
+            : await GatewayAccessHarness.CreateAsync();
+        await harness.SetOwnerAdministratorAsync();
+        var credential = await harness.CreateCredentialAsync("org-a", permissions: HelpdeskPermissions.IncidentRead);
+        var execution = await harness.DelegateAsync(credential);
+        var access = await harness.GetAsync<Helpdesk.Shared.DTOs.Auth.CurrentUserAccessDto>(execution, "/api/v1/auth/me");
+        Assert.Equal(HttpStatusCode.OK, access.StatusCode);
+        Assert.False(access.Body!.IsHelpdeskAdmin);
+        Assert.Equal([HelpdeskPermissions.IncidentRead], access.Body.Permissions);
+        Assert.Equal(["org-a"], access.Body.AllowedOrganizationIds);
+        foreach (var (method, path, body) in new[]
+        {
+            (HttpMethod.Get, "/api/v1/admin/orchestration/", (object?)null),
+            (HttpMethod.Post, "/api/v1/admin/orchestration/test", null),
+            (HttpMethod.Get, "/api/v1/tenants/17/branding", null),
+            (HttpMethod.Put, "/api/v1/tenants/17/branding", new { BrandName = "Denied" })
+        })
+        {
+            using var denied = await harness.SendAsync(execution, method, path, body);
+            Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -282,6 +420,12 @@ public sealed class McpGatewayRealAccessPipelineTests
             builder.Services.AddSingleton(Substitute.For<ISlaClockService>());
             builder.Services.AddSingleton(Substitute.For<ISlaEscalationEvaluator>());
             builder.Services.AddSingleton<IDomainEventPublisher, NoOpDomainEventPublisher>();
+            builder.Services.AddSingleton(Substitute.For<IOrchestrationConnectivityService>());
+            builder.Services.AddSingleton(Substitute.For<IOrchestrationCatalogService>());
+            builder.Services.AddSingleton(Substitute.For<IAutomationBindingService>());
+            builder.Services.AddSingleton(Substitute.For<IAutomationBindingSchemaSyncService>());
+            builder.Services.AddSingleton(Substitute.For<IAutomationBindingDriftService>());
+            builder.Services.AddSingleton(Substitute.For<IAutomationBindingImportService>());
             builder.Services.AddScoped<ICorrelationContext, TestCorrelationContext>();
             builder.Services.AddSingleton<McpExecutionTokenService>();
             builder.Services.AddAuthentication(options =>
@@ -297,6 +441,7 @@ public sealed class McpGatewayRealAccessPipelineTests
                 _ => { });
             builder.Services.AddAuthorization(options =>
             {
+                options.AddPolicy("HelpdeskAdmin", policy => policy.RequireAuthenticatedUser().RequireRole(HelpdeskPermissions.HelpdeskAdmin));
                 options.AddPolicy(McpGatewayDelegationEndpoints.DelegationPolicy, policy =>
                 {
                     policy.AddAuthenticationSchemes(IntegrationCredentialAuthenticationHandler.McpSchemeName);
@@ -337,6 +482,9 @@ public sealed class McpGatewayRealAccessPipelineTests
             app.MapSelfServiceMyRequestsEndpoints();
             app.MapIncidentEndpoints();
             app.MapRequestEndpoints();
+            app.MapExternalOrchestrationEndpoints();
+            app.MapTenantBrandingEndpoints();
+            app.MapRoleDefinitionEndpoints();
 
             await using (var scope = app.Services.CreateAsyncScope())
             {
@@ -485,9 +633,67 @@ public sealed class McpGatewayRealAccessPipelineTests
 
         public async Task<HttpResponseMessage> GetAsync(string executionToken, string path)
         {
-            var request = new HttpRequestMessage(HttpMethod.Get, path);
+            return await SendAsync(executionToken, HttpMethod.Get, path);
+        }
+
+        public async Task<HttpResponseMessage> SendAsync(string executionToken, HttpMethod method, string path, object? body = null)
+        {
+            using var request = new HttpRequestMessage(method, path) { Content = body is null ? null : JsonContent.Create(body) };
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", executionToken);
             return await Client.SendAsync(request);
+        }
+
+        public async Task SetOwnerAdministratorAsync()
+        {
+            await using var scope = application.Services.CreateAsyncScope();
+            var identity = scope.ServiceProvider.GetRequiredService<RatelDeskIdentityDbContext>();
+            (await identity.Users.SingleAsync(x => x.Id == "owner")).IsInstanceAdministrator = true;
+            await identity.SaveChangesAsync();
+        }
+
+        public async Task SeedScopedRoleAdministrationAsync()
+        {
+            await using var scope = application.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            db.ScopedRoleAssignments.Add(new ScopedRoleAssignment { UserId = "owner", OrganizationId = "org-a", RoleKey = ScopedRoleCatalog.TenantAdministrator });
+            db.Roles.Add(new Role { Id = "foreign-role", Key = "custom.foreign-reader", Name = "Foreign reader", Scope = RoleScopeKind.Tenant, OwnerOrganizationId = "org-b", Permissions = [new RolePermission { Permission = HelpdeskPermissions.IncidentRead }] });
+            await db.SaveChangesAsync();
+        }
+
+        public async Task AssertOwnedRoleAsync(string id, string name, string[] permissions)
+        {
+            await using var scope = application.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            var role = await db.Roles.AsNoTracking().Include(row => row.Permissions).SingleAsync(row => row.Id == id);
+            Assert.Equal(name, role.Name);
+            Assert.Equal("org-a", role.OwnerOrganizationId);
+            Assert.Equal(permissions.Order(), role.Permissions.Select(row => row.Permission).Order());
+            Assert.False(role.IsBuiltIn);
+        }
+
+        public async Task<List<string>> OwnedRoleAuditsAsync()
+        {
+            await using var scope = application.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            return await db.ActivityLogs.AsNoTracking().Where(row => row.UserId == "owner").OrderBy(row => row.Id).Select(row => row.Message).ToListAsync();
+        }
+
+        public async Task AssertForeignRoleUnchangedAsync()
+        {
+            await using var scope = application.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            var foreign = await db.Roles.AsNoTracking().SingleAsync(row => row.Id == "foreign-role");
+            Assert.Equal("Foreign reader", foreign.Name);
+            Assert.Equal("org-b", foreign.OwnerOrganizationId);
+            Assert.Equal(1, await db.RolePermissions.CountAsync(row => row.RoleId == foreign.Id));
+        }
+
+        public async Task AssertNoOwnedCustomRolesAsync()
+        {
+            await using var scope = application.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            Assert.False(await db.Roles.AnyAsync(row => row.OwnerOrganizationId == "org-a" && !row.IsBuiltIn));
+            Assert.False(await db.RolePermissions.AnyAsync(row => !db.Roles.Any(role => role.Id == row.RoleId)));
         }
 
         public async Task RemoveRoleAsync(string organizationId)
@@ -540,6 +746,24 @@ public sealed class McpGatewayRealAccessPipelineTests
     }
 
     internal sealed record Credential(Guid Id, string Bearer);
+
+    private sealed class GatewayClientFactory(GatewayAccessHarness harness) : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new(harness.CreateHandler()) { BaseAddress = new Uri("https://gateway-api.example.test") };
+    }
+
+    private sealed class GatewayToken(string token) : IAgentAccessTokenProvider
+    {
+        public Task<string> GetAccessTokenAsync(CancellationToken cancellationToken = default) => Task.FromResult(token);
+    }
+
+    private sealed class GatewayLifetime : Microsoft.Extensions.Hosting.IHostApplicationLifetime
+    {
+        public CancellationToken ApplicationStarted => CancellationToken.None;
+        public CancellationToken ApplicationStopping => CancellationToken.None;
+        public CancellationToken ApplicationStopped => CancellationToken.None;
+        public void StopApplication() { }
+    }
 
     private sealed class TestTenantContext(string? tenantId, string? userId) : ITenantContext
     {

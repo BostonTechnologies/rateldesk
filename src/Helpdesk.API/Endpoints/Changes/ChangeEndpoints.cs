@@ -402,6 +402,13 @@ public static class ChangeEndpoints
             [FromServices] ITimelineEventBus timelineEventBus,
             CancellationToken token) =>
         {
+            if (dto.State.HasValue && !Enum.IsDefined(dto.State.Value))
+                return Results.BadRequest("Invalid change ticket state.");
+            if (dto.Priority.HasValue && !Enum.IsDefined(dto.Priority.Value))
+                return Results.BadRequest("Invalid change priority.");
+            if (dto.LifecycleState.HasValue && !Enum.IsDefined(dto.LifecycleState.Value))
+                return Results.BadRequest("Invalid change lifecycle state.");
+
             var existing = await repo.GetAsync(id);
             if (existing is null) return Results.Problem("Change not found", statusCode: 404);
 
@@ -412,6 +419,11 @@ public static class ChangeEndpoints
             var previousTemplateJson = existing.ChangeTemplateJson;
             var previousChangeType = existing.ChangeType;
             var previousLifecycleState = EffectiveLifecycleState(existing);
+            if (dto.State.HasValue)
+            {
+                var stateError = ValidateTicketStateTransition(existing, dto.State.Value);
+                if (stateError is not null) return Results.BadRequest(stateError);
+            }
             if (dto.LifecycleState == ChangeLifecycleState.ApprovedForImplementation &&
                 previousLifecycleState != ChangeLifecycleState.ApprovedForImplementation &&
                 !access.CanApproveChange(existing.OrganizationId))
@@ -432,9 +444,9 @@ public static class ChangeEndpoints
                 return Results.BadRequest("Change details are locked unless the change is moved back to Draft.");
             }
 
-            existing.State = dto.State;
+            existing.State = dto.State ?? existing.State;
             ApplyClosedAtTransition(existing, previousState, existing.State);
-            existing.Priority = dto.Priority;
+            existing.Priority = dto.Priority ?? existing.Priority;
 
             if (dto.OrganizationId is not null)
             {
@@ -811,14 +823,61 @@ public static class ChangeEndpoints
         })
         .RequireAuthorization("ChangeManager");
 
+        group.MapPost("/{id}/state", async (
+            string id, ChangeStateRequest req, ClaimsPrincipal user,
+            HelpdeskDbContext db, ICurrentUserAccessService accessService,
+            IDomainEventPublisher domainEvents, ICorrelationContext correlationContext,
+            ITimelineEventBus timelineEventBus, IChangeTemplateService changeTemplateService,
+            CancellationToken token) =>
+        {
+            if (!Enum.IsDefined(req.NewState)) return Results.BadRequest("Invalid change ticket state.");
+            var change = await db.Changes.FirstOrDefaultAsync(x => x.Id == id, token);
+            if (change is null) return Results.NotFound();
+            var access = await accessService.ResolveAsync(user, token);
+            if (!access.CanManageChange(change.OrganizationId)) return Results.Forbid();
+            var validation = ValidateTicketStateTransition(change, req.NewState);
+            if (validation is not null) return Results.BadRequest(validation);
+            var template = changeTemplateService.DeserializeTemplate(change.ChangeTemplateJson);
+            var templateValidation = changeTemplateService.ValidateTemplate(change.ChangeType, template);
+            if (change.State == req.NewState)
+                return Results.Ok(ToQuickLifecycleDto(change, EffectiveLifecycleState(change), template, templateValidation));
+
+            var previousState = change.State;
+            change.State = req.NewState;
+            ApplyClosedAtTransition(change, previousState, change.State);
+            change.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync(token);
+            await AddTimelineEventAsync(db, timelineEventBus, change.Id,
+                $"Ticket state changed from {previousState} to {change.State}.", token);
+            await domainEvents.PublishAsync(new ChangeStateChangedDomainEvent(
+                change.Id, change.TrackingId, change.OrganizationId, previousState, change.State,
+                DateTimeOffset.UtcNow, GetCorrelationId(correlationContext)), token);
+            return Results.Ok(ToQuickLifecycleDto(change, EffectiveLifecycleState(change), template, templateValidation));
+        })
+        .RequireAuthorization("ChangeManager")
+        .WithName("UpdateChangeTicketState")
+        .WithSummary("Updates the ticket state of a draft change; lifecycle transitions use the lifecycle endpoint");
+
         group.MapPost("/bulk/state", async (
             [FromBody] BulkStateChangeRequest req,
             [FromServices] IRepository<Change> repo,
-            [FromServices] ITicketSlaCompletionService ticketSlaCompletionService) =>
+            HelpdeskDbContext db, ClaimsPrincipal user,
+            ICurrentUserAccessService accessService, CancellationToken token) =>
         {
             if (req.Ids is null || req.Ids.Count == 0) return Results.BadRequest("No ids");
+            if (!Enum.IsDefined(req.NewState)) return Results.BadRequest("Invalid change ticket state.");
             var changes = (await repo.GetAllAsync()).Where(x => req.Ids.Contains(x.Id)).ToList();
+            if (changes.Count != req.Ids.Distinct().Count()) return Results.NotFound();
+            var access = await accessService.ResolveAsync(user, token);
+            if (changes.Any(x => !access.CanManageChange(x.OrganizationId))) return Results.Forbid();
             foreach (var change in changes)
+            {
+                var validation = ValidateTicketStateTransition(change, req.NewState);
+                if (validation is not null) return Results.BadRequest(validation);
+            }
+            var changed = changes.Where(x => x.State != req.NewState).ToList();
+            await using var transaction = await db.Database.BeginTransactionAsync(token);
+            foreach (var change in changed)
             {
                 var previousState = change.State;
                 change.State = req.NewState;
@@ -826,16 +885,12 @@ public static class ChangeEndpoints
                 change.UpdatedAt = DateTime.UtcNow;
             }
 
-            foreach (var change in changes)
+            foreach (var change in changed)
             {
                 await repo.UpdateAsync(change);
-                if (change.State == TicketState.Resolved)
-                {
-                    await ticketSlaCompletionService.HandleTicketClosedAsync(change.Id, "bulk", DateTimeOffset.UtcNow);
-                }
             }
-
-            return Results.Ok(new { updated = changes.Count });
+            await transaction.CommitAsync(token);
+            return Results.Ok(new { updated = changed.Count });
         })
         .RequireAuthorization("HelpdeskAdmin")
         .WithName("BulkUpdateChangeState")
@@ -915,6 +970,7 @@ public static class ChangeEndpoints
             [FromServices] ILoggerFactory loggerFactory,
             CancellationToken token) =>
         {
+            if (!Enum.IsDefined(req.LifecycleState)) return Results.BadRequest("Invalid change lifecycle state.");
             var change = await db.Changes.FirstOrDefaultAsync(x => x.Id == id, token);
             if (change is null)
             {
@@ -1790,6 +1846,17 @@ public static class ChangeEndpoints
     private static bool IsImplementedLifecycleState(ChangeLifecycleState state) =>
         state is ChangeLifecycleState.ImplementedSuccess or ChangeLifecycleState.ImplementedBackedOut;
 
+    private static string? ValidateTicketStateTransition(Change change, TicketState requestedState)
+    {
+        if (!Enum.IsDefined(requestedState)) return "Invalid change ticket state.";
+        if (requestedState == change.State) return null;
+        if (EffectiveLifecycleState(change) != ChangeLifecycleState.Draft)
+            return "Change ticket state is locked outside Draft. Use the lifecycle operation to progress the change.";
+        if (requestedState == TicketState.Resolved)
+            return "Change must be implemented through the lifecycle operation before it can be resolved.";
+        return null;
+    }
+
     private static string? ValidateQuickLifecycleTransition(
         ChangeLifecycleState currentState,
         ChangeLifecycleState requestedState)
@@ -1892,8 +1959,8 @@ public static class ChangeEndpoints
         IChangeTemplateService changeTemplateService,
         CancellationToken token)
     {
-        if (dto.State != existing.State ||
-            dto.Priority != existing.Priority ||
+        if ((dto.State.HasValue && dto.State.Value != existing.State) ||
+            (dto.Priority.HasValue && dto.Priority.Value != existing.Priority) ||
             !StringEqualsIfProvided(dto.OrganizationId, existing.OrganizationId) ||
             !StringEqualsIfProvided(dto.RequestedForUserId, existing.RequestedForUserId) ||
             !StringEqualsIfProvided(dto.ImplementorUserId, existing.ImplementorUserId))
@@ -2678,6 +2745,8 @@ public static class ChangeEndpoints
 }
 
 internal sealed record BulkStateChangeRequest(List<string> Ids, TicketState NewState, string? Comment);
+
+internal sealed record ChangeStateRequest(TicketState NewState, string? Comment);
 
 internal sealed record QuickChangeLifecycleRequest(ChangeLifecycleState LifecycleState);
 
