@@ -410,6 +410,72 @@ public sealed class HttpMcpEffectiveDeploymentTests
     }
 
     [Fact]
+    public void Preparing_multiple_role_changes_preserves_separate_patches_when_actual_names_overlap_roles()
+    {
+        using var fixture = new Fixture(); var source = FourServiceGateway();
+        var services = source["services"]!.AsObject();
+        var api = services["api"]!.DeepClone(); var web = services["web"]!.DeepClone();
+        services.Remove("api"); services.Remove("web"); services["web"] = api; services["portal"] = web;
+        source["x-rateldesk-service-roles"] = new JsonObject { ["api"] = "web", ["web"] = "portal", ["mcp-http"] = "mcp-http" };
+        fixture.WriteSource(source);
+        var revised = Settings with { PublicOrigin = "https://updated.example.test" };
+
+        var proposal = HttpMcpEffectiveDeployment.Create(revised);
+
+        Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
+        var changes = proposal.Overlay["services"]!.AsObject();
+        Assert.Equal(new[] { "mcp-http", "portal", "web" }, changes.Select(service => service.Key).OrderBy(name => name, StringComparer.Ordinal));
+        var apiChange = Assert.Single(changes["web"]!["environment"]!.AsObject());
+        Assert.Equal("IntegrationCredentials__Pairing__PublicOrigin", apiChange.Key);
+        Assert.Equal(revised.PublicOrigin, apiChange.Value!.GetValue<string>());
+        var webChange = Assert.Single(changes["portal"]!["environment"]!.AsObject());
+        Assert.Equal("WebGateway__PublicOrigin", webChange.Key);
+        Assert.Equal(revised.PublicOrigin, webChange.Value!.GetValue<string>());
+        Assert.Equal(revised.PublicOrigin, proposal.CompleteDeployment["services"]!["web"]!["environment"]!["IntegrationCredentials__Pairing__PublicOrigin"]!.GetValue<string>());
+        Assert.Equal(revised.PublicOrigin, proposal.CompleteDeployment["services"]!["portal"]!["environment"]!["WebGateway__PublicOrigin"]!.GetValue<string>());
+        Assert.Equal(4, proposal.ServiceCountAfter);
+        Assert.Null(proposal.CompleteDeployment["services"]!["api"]);
+    }
+
+    [Fact]
+    public void Duplicate_actual_service_names_for_distinct_roles_are_rejected_before_patch_translation()
+    {
+        using var fixture = new Fixture(); var source = FourServiceGateway();
+        source["x-rateldesk-service-roles"] = new JsonObject { ["api"] = "web", ["web"] = "web", ["mcp-http"] = "mcp-http" };
+        fixture.WriteSource(source);
+
+        Assert.Contains(HttpMcpEffectiveDeployment.Validate(source, Settings), failure => failure.Code == "HOST_SERVICE_ROLE_CONFLICT");
+        var error = Assert.Throws<AgentClientValidationException>(() => HttpMcpEffectiveDeployment.Create(Settings with { PublicOrigin = "https://updated.example.test" }));
+        Assert.StartsWith("HOST_SERVICE_ROLE_CONFLICT:", error.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("api", "ConnectionStrings__DefaultConnection")]
+    [InlineData("db", "POSTGRES_DB")]
+    [InlineData("db", "POSTGRES_PASSWORD")]
+    public void Approved_narrow_change_rejects_unreviewed_effective_environment_even_after_owner_applies_it(string service, string key)
+    {
+        using var fixture = new Fixture(); var source = FourServiceGateway();
+        source["services"]![service]!["environment"] ??= new JsonObject();
+        Env(source, service)[key] = "synthetic-reviewed";
+        source["x-rateldesk-source-files"] = new JsonArray(new JsonObject { ["path"] = "/synthetic/compose.yml", ["sha256"] = new string('a', 64) });
+        fixture.WriteSource(source);
+        var proposal = HttpMcpEffectiveDeployment.Create(Settings with { DelegationTimeoutSeconds = 21 });
+        Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
+        Assert.Empty(HttpMcpEffectiveDeployment.CheckApprovedEffective(proposal, proposal.CompleteDeployment));
+
+        // The saved document's bytes are unchanged, while an inherited input
+        // now resolves differently. A matching owner-applied runtime cannot
+        // authorize a change outside this reviewed timeout correction.
+        var current = proposal.CompleteDeployment.DeepClone().AsObject();
+        Env(current, service)[key] = "synthetic-unreviewed-private-value";
+        Assert.True(JsonNode.DeepEquals(source["x-rateldesk-source-files"], current["x-rateldesk-source-files"]));
+        var failures = HttpMcpEffectiveDeployment.CheckApprovedEffective(proposal, current);
+        Assert.Contains(failures, failure => failure.Code == "HOST_SOURCE_CHANGED" && failure.Layer == service && failure.Key == "complete environment");
+        Assert.DoesNotContain("synthetic-unreviewed-private-value", HostDeploymentWorkflow.Describe(failures));
+    }
+
+    [Fact]
     public async Task Approved_adoption_resumes_without_a_generated_compose_document_or_apply_phase()
     {
         using var fixture = new Fixture();

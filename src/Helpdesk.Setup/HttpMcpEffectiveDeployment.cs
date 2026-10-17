@@ -199,6 +199,8 @@ public static class HttpMcpEffectiveDeployment
         var failures = new List<DeploymentDiagnostic>();
         void Fail(string code, string layer, string key, string message, string source = "effective Compose / application providers") =>
             failures.Add(new(code, layer, key, source, message, "Correct the winning configuration source, then run the host launcher again."));
+        if (Services.Select(service => ServiceName(complete, service)).Distinct(StringComparer.Ordinal).Count() != Services.Length)
+            Fail("HOST_SERVICE_ROLE_CONFLICT", "deployment", "service roles", "API, Web and MCP roles must select distinct defined services.");
         foreach (var service in Services)
             if (complete["services"]?[ServiceName(complete, service)] is not JsonObject) Fail("HOST_SERVICE_MISSING", service, "services:" + service, "The complete deployment must contain this service.");
         if (failures.Count > 0) return failures;
@@ -326,6 +328,12 @@ public static class HttpMcpEffectiveDeployment
         var expected = approved.CompleteDeployment;
         var failures = Validate(current, approved.Settings, approved.Intent == HttpMcpHostIntent.LegacyInitializer).ToList();
         CompareTopology(expected, current, failures, "HOST_SOURCE_CHANGED");
+        if (approved.Intent != HttpMcpHostIntent.LegacyInitializer)
+            foreach (var service in ServiceNames(expected).Intersect(ServiceNames(current), StringComparer.Ordinal))
+                if (Canonical(expected["services"]?[service]?["environment"]) != Canonical(current["services"]?[service]?["environment"]))
+                    failures.Add(new("HOST_SOURCE_CHANGED", service, "complete environment", "reviewed Compose effective model",
+                        "Effective service environment differs from the exact reviewed deployment, including settings outside MCP setup.",
+                        "Re-read the source and interpolation inputs and obtain a new review; applying the changed environment does not renew approval."));
         foreach (var service in Services)
             if (EffectiveFingerprint(current, service) != EffectiveFingerprint(expected, service) ||
                 MountFingerprint(current, service) != MountFingerprint(expected, service) ||
@@ -346,12 +354,17 @@ public static class HttpMcpEffectiveDeployment
     private static void TranslateOverlayServices(JsonObject overlay, JsonObject source)
     {
         var services = overlay["services"]!.AsObject();
-        foreach (var role in Services)
+        if (Services.Select(role => ServiceName(source, role)).Distinct(StringComparer.Ordinal).Count() != Services.Length)
+            throw new AgentClientValidationException("HOST_SERVICE_ROLE_CONFLICT: API, Web and MCP roles must select distinct defined services before a configuration change can be reviewed.");
+        var translated = new JsonObject();
+        foreach (var service in services)
         {
-            var name = ServiceName(source, role);
-            if (name == role || !services.ContainsKey(role)) continue;
-            var value = services[role]!.DeepClone(); services.Remove(role); services[name] = value;
+            var name = ServiceName(source, service.Key);
+            if (translated.ContainsKey(name))
+                throw new AgentClientValidationException("HOST_SERVICE_ROLE_CONFLICT: Multiple configuration patches select one defined service. Review distinct service roles before continuing.");
+            translated[name] = service.Value?.DeepClone();
         }
+        overlay["services"] = translated;
     }
 
     private static string[] ServiceNames(JsonObject complete) => complete["services"] is JsonObject services
@@ -891,8 +904,8 @@ public static class HttpMcpEffectiveDeployment
             var type = providers[index].GetType().Name;
             if (type == "CommandLineConfigurationProvider")
                 return complete["services"]?[ServiceName(complete, service)]?["command"] is not null
-                    ? $"services.{service}.command; highest command-line precedence"
-                    : $"{service} image Config.Cmd; highest command-line precedence";
+                    ? $"services.{ServiceName(complete, service)}.command; highest command-line precedence"
+                    : $"{ServiceName(complete, service)} image Config.Cmd; highest command-line precedence";
             if (type == "MemoryConfigurationProvider")
             {
                 var canonical = key.Replace(":", "__", StringComparison.Ordinal);
@@ -902,7 +915,7 @@ public static class HttpMcpEffectiveDeployment
                     environment is JsonArray list && list.Any(item => item?.GetValue<string>() is { } entry && entry.IndexOf('=') is var separator && separator > 0 && Matches(entry[..separator]));
                 return inline
                     ? $"ordered owning Compose sources / services.{ServiceName(complete, service)}.environment; overrides env_file, image Config.Env and appsettings"
-                    : $"{service} image Config.Env; overrides ordered appsettings";
+                    : $"{ServiceName(complete, service)} image Config.Env; overrides ordered appsettings";
             }
             if (type == "JsonStreamConfigurationProvider" && complete["x-rateldesk-protected-configuration"]?[service] is JsonArray files)
             {

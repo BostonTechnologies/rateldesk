@@ -395,9 +395,15 @@ public sealed class McpHttpHostTests
         var resource = McpGatewayRealAccessPipelineTests.GatewayAccessHarness.ResourceUri;
         using var environment = new McpHostEnvironment(apiBaseUrl: "https://api.example", publicResourceUri: resource, gateway: true);
         using var audit = new AuditLogCollector();
+        // The authority fixture shares one open in-memory SQLite connection.
+        // Legacy SDK handshakes legitimately overlap initialize/initialized/GET;
+        // independent EF contexts cannot register SQLite functions concurrently
+        // on that same connection. Serialize only this fixture's API requests.
+        using var authorityGate = new SemaphoreSlim(1, 1);
+        HttpMessageHandler AuthorityHandler() => new SerializedAuthorityHandler(authority.CreateHandler(), authorityGate);
         var businessHandlers = 0;
         using var factory = CreateFactory(environment.SigningKey, audit,
-            apiHandlerFactory: authority.CreateHandler, delegationHandlerFactory: authority.CreateHandler,
+            apiHandlerFactory: AuthorityHandler, delegationHandlerFactory: AuthorityHandler,
             configureServices: services => services.AddMcpServer().WithRequestFilters(filters => filters.AddCallToolFilter(next => (context, ct) =>
             {
                 if (context.Params.Name == "helpdesk_incidents") Interlocked.Increment(ref businessHandlers);
@@ -1182,6 +1188,16 @@ public sealed class McpHttpHostTests
                     Content = new StringContent("{}", Encoding.UTF8, "application/json")
                 });
             }
+        }
+    }
+
+    private sealed class SerializedAuthorityHandler(HttpMessageHandler inner, SemaphoreSlim gate) : DelegatingHandler(inner)
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            await gate.WaitAsync(cancellationToken);
+            try { return await base.SendAsync(request, cancellationToken); }
+            finally { gate.Release(); }
         }
     }
 
