@@ -6,6 +6,7 @@ interprets a shell command from deployment metadata and never prints a rendered
 deployment, container environment, or Docker error containing its input.
 """
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -58,7 +59,7 @@ def fail(code, action):
 
 def export_validation_rules(reason):
     """Return fixed rule labels only; never forward validator/process text."""
-    codes = ("HOST_SOURCE_CHANGED", "HOST_EXPORT_CHANGED", "HOST_EFFECTIVE_INVALID", "HOST_SERVICE_MISSING",
+    codes = ("HOST_SOURCE_CHANGED", "HOST_EXPORT_CHANGED", "HOST_COMPOSE_OBSERVATION_INVALID", "HOST_EFFECTIVE_INVALID", "HOST_SERVICE_MISSING",
         "HOST_SERVICE_ROLE_CONFLICT", "HOST_MOUNT_COLLISION", "HOST_RUNTIME_CONFIG_MOUNT",
         "HOST_RUNTIME_CONFIG_STORAGE_REQUIRED", "HOST_STORAGE_REQUIRED", "HOST_STORAGE_MOUNT_MISSING",
         "HOST_STORAGE_ISOLATION", "HOST_STORAGE_API_EXPOSURE", "HOST_API_TARGET_MISMATCH",
@@ -1220,6 +1221,9 @@ class Deployment:
         proposal["x-rateldesk-docker-selection"] = getattr(self.docker, "selection", {})
         proposal["x-rateldesk-compose-version"] = getattr(self.docker, "compose_version", None)
         proposal["x-rateldesk-docker-daemon-identity"] = getattr(self.docker, "daemon_identity", None)
+        if self.legacy:
+            proposal["x-rateldesk-legacy-export-recipe"] = legacy_recipe_identity(self,
+                hashlib.sha256(read_bytes(self.output / ".compose-source.json", MAX_BYTES)).hexdigest())
         proposal["x-rateldesk-mount-ancestor-checks"] = inspect_mount_ancestors(self.docker, proposal, self.image) if self.legacy else []
         self.capture_secret_mounts(proposal)
         self.validate_resume_sources(records, verify)
@@ -1733,6 +1737,8 @@ def tooling_arguments(deployment):
                 "--env", f"RATELDESK_SETUP_RUNTIME_ENVIRONMENT_SOURCE={HOST_TARGET}/runtime-environment.json",
                 "--env", f"RATELDESK_SETUP_DEPLOYMENT_MANAGER={deployment.manager}",
                 "--env", f"RATELDESK_SETUP_HOST_INTENT={deployment.intent}"]
+    for key, value in getattr(deployment, "legacy_compose_proof", {}).items():
+        command += ["--env", key + "=" + value]
     services = getattr(deployment, "proposal", {}).get("services", {})
     exclusions = None
     for name in ("mcp-http", "web"):
@@ -1921,6 +1927,176 @@ def migration_source_records(frozen, patch):
     return records
 
 
+def legacy_recipe_identity(deployment, source_digest):
+    deployment.docker.bind_daemon()
+    owner_version = deployment.docker.run(["compose", "version", "--short"], owner_tool=True, maximum=1024).decode().strip()
+    safe_label(owner_version, 256)
+    return {"schemaVersion": 1, "unresolvedSourceSha256": source_digest,
+        "project": deployment.project, "manager": deployment.manager, "projectDirectory": str(deployment.directory), "outputDirectory": str(deployment.output),
+        "composeFiles": [str(path) for path in deployment.sources], "envFiles": [str(path) for path in deployment.env_files],
+        "dockerSelection": dict(deployment.docker.selection), "dockerDaemonIdentity": deployment.docker.daemon_identity,
+        "rendererVersion": deployment.docker.compose_version, "ownerVersion": owner_version,
+        "rawFlags": ["config", "--no-interpolate", "--no-env-resolution", "--no-path-resolution", "--format", "json"],
+        "projectionFlags": ["config", "--format", "json"]}
+
+
+def private_observation_bytes(path):
+    try:
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        with os.fdopen(descriptor, "rb") as source:
+            info = os.fstat(source.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077:
+                raise OSError()
+            content = source.read(MAX_BYTES + 1)
+        if len(content) > MAX_BYTES:
+            raise OSError()
+        return content
+    except OSError:
+        fail("legacy_recipe_invalid", "Restore the bounded private approved files, or re-adopt the running deployment unchanged / review the explicit initializer alternative again. No existing resource was changed.")
+
+
+def legacy_approved_inputs(deployment):
+    receipt_bytes = private_observation_bytes(deployment.output / "host-approval.json")
+    receipt = json.loads(receipt_bytes)
+    hashes = receipt.get("exportHashes", {})
+    if (receipt.get("approved") is not True or receipt.get("intent", 2) != 2 or not isinstance(hashes, dict)
+            or not 1 <= len(hashes) <= 16 or not {"approved-proposal.json", "compose.host.json"}.issubset(hashes)):
+        fail("legacy_recipe_invalid", "The initializer checkpoint lacks a complete approved recipe. Re-adopt the running deployment unchanged or review the explicit initializer alternative again.")
+    files = {}
+    for name, expected in hashes.items():
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,100}", name):
+            fail("legacy_recipe_invalid", "The approved recipe has an invalid export path. Review a fresh initializer proposal.")
+        content = private_observation_bytes(deployment.output / name)
+        if hashlib.sha256(content).hexdigest() != str(expected).casefold():
+            fail("legacy_recipe_invalid", "An approved recipe file changed. Restore its reviewed bytes or review a fresh proposal; no saved hash was repaired.")
+        files[name] = content
+    frozen = private_observation_bytes(deployment.output / "approved-effective-deployment.json")
+    if hashlib.sha256(frozen).hexdigest() != str(receipt.get("sourceHash", "")).casefold():
+        fail("legacy_recipe_invalid", "The approved source generation changed. Restore it or review a new proposal.")
+    return receipt_bytes, files, json.loads(frozen)
+
+
+def preserve_source_definitions(document, source):
+    # Compose omits unused declarations from its effective model. Keep those
+    # exact source-only definitions without replacing a serving definition.
+    for kind in ("configs", "secrets", "volumes", "networks"):
+        for name, definition in source.get(kind, {}).items():
+            document.setdefault(kind, {}).setdefault(name, json.loads(json.dumps(definition)))
+    return document
+
+
+def legacy_compose_context(deployment):
+    command = ["compose", "--project-directory", str(deployment.directory), "--project-name", deployment.project]
+    for path in deployment.env_files or [Path("/dev/null")]:
+        command += ["--env-file", str(path)]
+    return command
+
+
+def render_legacy_recipe(deployment, original, frozen, patch_bytes, paths):
+    patch = json.loads(patch_bytes)
+    source = migrated_compose_source(json.loads(original), frozen, patch)
+    for mount in patch.get("services", {}).get("mcp-config-init", {}).get("volumes", []):
+        if mount.get("target") == "/input/config.json":
+            mount["source"] = str(deployment.output / "mcp-outbound.json")
+    source_path, patch_path = paths
+    source_bytes = (json.dumps(source, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    patch_content = (json.dumps(patch, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    write_private(source_path, source_bytes)
+    write_private(patch_path, patch_content)
+    command = legacy_compose_context(deployment) + ["-f", str(source_path), "-f", str(patch_path)]
+    rendered = deployment.docker.json(command + ["config", "--no-interpolate", "--no-env-resolution", "--no-path-resolution", "--format", "json"])
+    if private_observation_bytes(source_path) != source_bytes or private_observation_bytes(patch_path) != patch_content:
+        fail("legacy_recipe_changed", "A private recipe input changed during its render. Retry with the unchanged approved sources; nothing was applied.")
+    rendered = preserve_source_definitions(rendered, source)
+    return (json.dumps(rendered, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+@contextmanager
+def legacy_compose_observation(deployment, actual_sources=None):
+    """Fresh host observation with in-memory digests, never a saved baseline."""
+    if not deployment.legacy:
+        yield
+        return
+    prefix = ".legacy-observation-" + uuid.uuid4().hex
+    names = [prefix + suffix for suffix in ("-source.json", "-patch.json", "-input.json", "-expected.json", "-actual.json")]
+    paths = [deployment.output / name for name in names]
+    staged = []
+    try:
+        before = legacy_approved_inputs(deployment)
+        _, files, frozen = before
+        recipe = frozen.get("x-rateldesk-legacy-export-recipe")
+        original = private_observation_bytes(deployment.output / "approved-compose-source.json")
+        original_digest = hashlib.sha256(original).hexdigest()
+        if not isinstance(recipe, dict) or recipe != legacy_recipe_identity(deployment, original_digest):
+            fail("legacy_recipe_invalid", "The original source recipe or selected owner/tool/context changed. Re-adopt the running deployment unchanged or review the initializer alternative again; no receipt was rebased.")
+        deployment.check_sources()
+        expected_raw = render_legacy_recipe(deployment, original, frozen, files["compose.host.json"], paths[:2])
+        reviewed_path = deployment.output / "deployment.json"
+        if private_observation_bytes(reviewed_path) != expected_raw:
+            fail("legacy_recipe_changed", "The complete manager document differs from the exact approved source/patch recipe, including source-only declarations. Restore its reviewed bytes or obtain a new review; no state hash can renew approval.")
+        sources = list(actual_sources or deployment.sources)
+        actual_records = [file_record(path) for path in sources]
+        if actual_sources is None:
+            changed = [item for item in actual_records if item not in frozen.get("x-rateldesk-source-files", [])]
+            if changed and (len(changed) != 1 or changed[0]["sha256"] != hashlib.sha256(expected_raw).hexdigest()):
+                fail("legacy_recipe_changed", "The imported owner source differs from the exact approved complete document. Review the owner changes explicitly.")
+        approved = json.loads(files["approved-proposal.json"])
+        approved_input = (json.dumps({key: value for key, value in approved.items() if not key.startswith("x-rateldesk-")}, sort_keys=True, separators=(",", ":")) + "\n").encode()
+        write_private(paths[2], approved_input)
+        context = legacy_compose_context(deployment)
+        # Both proof projections use the same verified setup renderer. The
+        # original owner must independently render the exact same serving model.
+        expected = deployment.docker.json(context + ["-f", str(paths[2]), "config", "--format", "json"])
+        if private_observation_bytes(paths[2]) != approved_input:
+            fail("legacy_recipe_changed", "The exact approved render input changed. No deployment approval was renewed.")
+        actual_command = context.copy()
+        for path in sources:
+            actual_command += ["-f", str(path)]
+        actual = deployment.docker.json(actual_command + ["config", "--format", "json"])
+        owner_actual = json.loads(deployment.docker.run(actual_command + ["config", "--format", "json"], owner_tool=True))
+        strip_metadata = lambda model: {key: value for key, value in model.items() if not key.startswith("x-rateldesk-")}
+        if strip_metadata(owner_actual) != strip_metadata(actual):
+            fail("legacy_owner_semantics", "The original deployment owner's Compose tool resolves a different serving model. Review that owner/tool/source context explicitly; no generated document was applied.")
+        projection_bytes = []
+        for path, model in zip(paths[3:], (expected, actual)):
+            content = (json.dumps({key: value for key, value in model.items() if not key.startswith("x-rateldesk-")}, sort_keys=True, separators=(",", ":")) + "\n").encode()
+            write_private(path, content)
+            projection_bytes.append(content)
+            staged.append(path.name)
+            stage_snapshot(deployment, path.name)
+        if (legacy_approved_inputs(deployment) != before or private_observation_bytes(deployment.output / "approved-compose-source.json") != original
+                or recipe != legacy_recipe_identity(deployment, original_digest)
+                or any(file_record(path) != record for path, record in zip(sources, actual_records))
+                or private_observation_bytes(reviewed_path) != expected_raw):
+            fail("legacy_recipe_changed", "The approved recipe, source, tool or context changed while rendering. Restart review; no deployment was applied.")
+        deployment.check_sources()
+        deployment.legacy_compose_proof = {
+            "RATELDESK_SETUP_APPROVED_RAW_SHA256": hashlib.sha256(files["approved-proposal.json"]).hexdigest(),
+            "RATELDESK_SETUP_APPROVED_OVERLAY_SHA256": hashlib.sha256(files["compose.host.json"]).hexdigest(),
+            "RATELDESK_SETUP_REVIEWED_DEPLOYMENT_SHA256": hashlib.sha256(expected_raw).hexdigest(),
+            "RATELDESK_SETUP_EXPECTED_COMPOSE_SOURCE": HOST_TARGET + "/" + paths[3].name,
+            "RATELDESK_SETUP_EXPECTED_COMPOSE_SHA256": hashlib.sha256(projection_bytes[0]).hexdigest(),
+            "RATELDESK_SETUP_ACTUAL_COMPOSE_SOURCE": HOST_TARGET + "/" + paths[4].name,
+            "RATELDESK_SETUP_ACTUAL_COMPOSE_SHA256": hashlib.sha256(projection_bytes[1]).hexdigest()}
+        def check_fresh_recipe():
+            deployment.check_sources()
+            if (legacy_approved_inputs(deployment) != before or private_observation_bytes(reviewed_path) != expected_raw
+                    or private_observation_bytes(deployment.output / "approved-compose-source.json") != original
+                    or recipe != legacy_recipe_identity(deployment, original_digest)):
+                fail("legacy_recipe_changed", "The approved source recipe changed during validation. Restore it or review the changed source.")
+        deployment.legacy_compose_fence = check_fresh_recipe
+        yield actual
+        check_fresh_recipe()
+    finally:
+        deployment.legacy_compose_proof = {}
+        deployment.legacy_compose_fence = None
+        for path in paths:
+            path.unlink(missing_ok=True)
+        if staged:
+            deployment.docker.run(tooling_arguments(deployment) + ["--rm", "--entrypoint", "/bin/sh", deployment.image,
+                "-ec", 'for name do rm -f "/output/$name"; done', "remove-observation", *staged], maximum=4096)
+
+
 def export_complete_document(deployment, container, attempt):
     raw_receipt = copy_from_tool(deployment, container, "host-approval.json", optional=True)
     if raw_receipt is None:
@@ -1945,31 +2121,23 @@ def export_complete_document(deployment, container, attempt):
             fail("export_hash_mismatch", "A saved export does not match the approved generation. Nothing was applied; rerun setup.")
         write_private(deployment.output / name, content)
     deployment.check_sources()
-    # Compose performs the merge, including list/key semantics. Keep env_file
-    # declarations and interpolation expressions in a complete manager document;
-    # do not flatten them into an ephemeral values-only overlay.
-    patch = read_private_json(deployment.output / "compose.host.json")
-    source = migrated_compose_source(read_private_json(deployment.output / ".compose-source.json"), deployment.proposal, patch)
-    write_private(deployment.output / ".export-source.json", source)
-    for mount in patch.get("services", {}).get("mcp-config-init", {}).get("volumes", []):
-        if mount.get("target") == "/input/config.json":
-            mount["source"] = str(deployment.output / "mcp-outbound.json")
-    write_private(deployment.output / ".export-patch.json", patch)
-    command = ["compose", "--project-directory", str(deployment.directory), "--project-name", deployment.project]
-    for path in deployment.env_files or [Path("/dev/null")]:
-        command += ["--env-file", str(path)]
-    compose_context = command.copy()
-    command += ["-f", str(deployment.output / ".export-source.json"), "-f", str(deployment.output / ".export-patch.json"),
-                "config", "--no-interpolate", "--no-env-resolution", "--no-path-resolution", "--format", "json"]
-    complete = deployment.docker.json(command)
-    write_private(deployment.output / "deployment.json", complete)
-    resolved_complete = deployment.docker.json(compose_context + ["-f", str(deployment.output / "deployment.json"),
-        "config", "--format", "json"])
-    write_private(deployment.output / ".resolved-export.json", resolved_complete)
-    stage_snapshot(deployment, ".resolved-export.json")
+    # Retain the exact original unresolved input covered by administrator
+    # SourceHash. A resume never replaces this copy with an imported document.
+    _, approved_files, approved_source = legacy_approved_inputs(deployment)
+    original = private_observation_bytes(deployment.output / ".compose-source.json")
+    original_digest = hashlib.sha256(original).hexdigest()
+    if approved_source.get("x-rateldesk-legacy-export-recipe") != legacy_recipe_identity(deployment, original_digest):
+        fail("legacy_recipe_invalid", "The approved unresolved source/tool recipe is unavailable or changed. Re-adopt the running deployment unchanged or review the initializer alternative again.")
+    write_private(deployment.output / "approved-compose-source.json", original)
+    export_paths = [deployment.output / name for name in (".export-source.json", ".export-patch.json")]
+    complete_bytes = render_legacy_recipe(deployment, original, approved_source, approved_files["compose.host.json"], export_paths)
+    write_private(deployment.output / "deployment.json", complete_bytes)
     try:
-        deployment.docker.run(tooling_arguments(deployment) + ["--rm", deployment.image,
-            "host", "export-check", "--export-directory", HOST_TARGET], maximum=16384)
+        with legacy_compose_observation(deployment, [deployment.output / "deployment.json"]) as resolved_complete:
+            write_private(deployment.output / ".resolved-export.json", resolved_complete)
+            stage_snapshot(deployment, ".resolved-export.json")
+            deployment.docker.run(tooling_arguments(deployment) + ["--rm", deployment.image,
+                "host", "export-check", "--export-directory", HOST_TARGET], maximum=16384)
     except Prerequisite as error:
         rules = getattr(error, "export_validation_rules", [])
         diagnostic = " Validation rules: " + ", ".join(rules) + "." if rules else ""
@@ -2239,7 +2407,7 @@ def apply_native(deployment):
     write_private(deployment.output / "launcher-state.json", state)
     # Compose computes and recreates only the actually changed services from the
     # original ordered saved sources. No replacement generated document exists.
-    deployment.docker.run(deployment.compose + ["up", "-d", "--no-deps", *changed_services], maximum=16384, owner_tool=True)
+    deployment.docker.run(deployment.compose + ["up", "--pull", "never", "--no-build", "-d", "--no-deps", *changed_services], maximum=16384, owner_tool=True)
     state["phase"] = "applied-verify-pending"
     write_private(deployment.output / "launcher-state.json", state)
     print("Reviewed source saved and owner apply completed; fresh verification pending:")
@@ -2337,17 +2505,19 @@ def apply_saved(deployment):
     deployment.check_sources()
     for name in ("effective-deployment.json", "launcher-state.json", "deployment.json"):
         stage_snapshot(deployment, name)
-    try:
-        deployment.docker.run(tooling_arguments(deployment) + ["--rm", deployment.image,
-            "host", "approval-check", "--export-directory", HOST_TARGET], maximum=16384)
-    except Prerequisite:
-        fail("approval_revalidation", "Current administrator approval/authority could not be reconfirmed. Check the trusted Web URL and approval checkpoint, then retry; rerun ordinary setup if authority or the approved generation changed. Nothing was applied.")
-    deployment.check_sources()
-    command = ["compose", "--project-directory", str(deployment.directory), "--project-name", deployment.project]
-    for path in deployment.env_files or [Path("/dev/null")]:
-        command += ["--env-file", str(path)]
-    command += ["-f", str(deployment.output / "deployment.json"), "up", "-d", "api", "web", "mcp-http"]
-    deployment.docker.run(command, maximum=16384)
+    with legacy_compose_observation(deployment):
+        try:
+            deployment.docker.run(tooling_arguments(deployment) + ["--rm", deployment.image,
+                "host", "approval-check", "--export-directory", HOST_TARGET], maximum=16384)
+        except Prerequisite:
+            fail("approval_revalidation", "Current administrator approval/authority could not be reconfirmed. Check the trusted Web URL and approval checkpoint, then retry; rerun ordinary setup if authority or the approved generation changed. Nothing was applied.")
+        deployment.legacy_compose_fence()
+        deployment.check_sources()
+        expected = deployment.legacy_compose_proof["RATELDESK_SETUP_REVIEWED_DEPLOYMENT_SHA256"]
+        if hashlib.sha256(private_observation_bytes(deployment.output / "deployment.json")).hexdigest() != expected:
+            fail("legacy_recipe_changed", "The reviewed manager document changed during the authority check. No owner apply was started; review the changed source explicitly.")
+        command = legacy_compose_context(deployment) + ["-f", str(deployment.output / "deployment.json"), "up", "--pull", "never", "--no-build", "-d", "api", "web", "mcp-http"]
+        deployment.docker.run(command, maximum=16384)
     state["phase"] = "applied-verify-pending"
     write_private(deployment.output / "launcher-state.json", state)
     print("Applied — verify pending. Recreate completed; end-to-end verification still requires a fresh invocation:")
@@ -2385,6 +2555,13 @@ def run_setup(deployment, args):
         stage_snapshot(deployment, "launcher-state.json")
         stage_snapshot(deployment, "deployment.json")
     deployment.check_sources()
+    if args.verify:
+        with legacy_compose_observation(deployment):
+            return run_legacy_tool(deployment, args, state)
+    return run_legacy_tool(deployment, args)
+
+
+def run_legacy_tool(deployment, args, state=None):
     attempt = uuid.uuid4().hex
     name = f"{deployment.project}-mcp-setup-{attempt[:12]}"
     command = tooling_arguments(deployment) + ["--name", name, "--env", f"RATELDESK_SETUP_ATTEMPT={attempt}"]
@@ -2422,8 +2599,9 @@ def run_setup(deployment, args):
             stage_snapshot(deployment, "runtime-environment.json")
             deployment.check_sources()
             try:
-                deployment.docker.run(tooling_arguments(deployment) + ["--rm", deployment.image,
-                    "host", "observation-check", "--export-directory", HOST_TARGET], maximum=16384)
+                with legacy_compose_observation(deployment):
+                    deployment.docker.run(tooling_arguments(deployment) + ["--rm", deployment.image,
+                        "host", "observation-check", "--export-directory", HOST_TARGET], maximum=16384)
             except Prerequisite:
                 fail("runtime_revalidation", "The final fresh Docker observation did not match the approved generation. Verification remains pending. Restore/recreate the reviewed deployment, then invoke --verify again; unchanged sources need no new host provisioning consent.")
             deployment.check_sources()

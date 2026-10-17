@@ -92,13 +92,17 @@ public sealed class HostDeploymentWorkflow : IHostDeploymentWorkflow
         if (!receipt.Approved || receipt.ExportHashes.Count is < 1 or > 16 || string.IsNullOrWhiteSpace(receipt.ApprovedBy))
             throw new AgentClientValidationException("A complete approved host generation is required for verification.");
         foreach (var export in receipt.ExportHashes)
-            if (Path.GetFileName(export.Key) != export.Key || SecureConfigurationFiles.Revision(Path.Combine(directory, export.Key)) != export.Value)
+            if (Path.GetFileName(export.Key) != export.Key ||
+                (receipt.Intent != HttpMcpHostIntent.LegacyInitializer || export.Key != "compose.host.json") &&
+                SecureConfigurationFiles.Revision(Path.Combine(directory, export.Key)) != export.Value)
                 throw new AgentClientValidationException("HOST_EXPORT_CHANGED: Approved export changed. Review a fresh proposal before applying or verifying.");
         var frozenPath = Path.Combine(directory, "approved-effective-deployment.json");
         var frozen = SecureConfigurationFiles.ReadPrivateDocument(frozenPath);
         if (HttpMcpEffectiveDeployment.Hash(frozen) != receipt.SourceHash)
             throw new AgentClientValidationException("HOST_APPROVED_SOURCE_CHANGED: The saved reviewed source generation changed. Start a fresh review.");
         var proposal = HttpMcpEffectiveDeployment.Create(HttpMcpHostingCoordinator.Load(directory), frozenPath, receipt.Intent, renderSourceReview: false);
+        if (proposal.Intent == HttpMcpHostIntent.LegacyInitializer && proposal.ProposalHash != receipt.ProposalHash)
+            throw new AgentClientValidationException("HOST_SOURCE_CHANGED: The saved legacy settings or protected outbound generation differs from the approved proposal. Start a fresh host review before continuing.");
         var savedProposal = Path.Combine(directory, "approved-proposal.json");
         if (!proposal.IsAdoption && File.Exists(savedProposal))
         {
@@ -109,6 +113,7 @@ public sealed class HostDeploymentWorkflow : IHostDeploymentWorkflow
         }
         if (!proposal.Valid || proposal.SourceHash != receipt.SourceHash || proposal.ProposalHash != receipt.ProposalHash)
             throw new AgentClientValidationException("HOST_SOURCE_CHANGED: Current sources differ from the approved generation. Revalidate and review before continuing.");
+        LegacyComposeObservation.ValidateOverlay(proposal, directory, receipt);
         ValidateCandidateFiles(proposal);
         var currentText = SecureConfigurationFiles.ReadPrivateDocument(Environment.GetEnvironmentVariable(HttpMcpEffectiveDeployment.EffectiveSourceVariable)!);
         if (HttpMcpEffectiveDeployment.Hash(currentText) != receipt.SourceHash)

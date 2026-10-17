@@ -324,13 +324,21 @@ public static class HttpMcpEffectiveDeployment
 
     public static IReadOnlyList<DeploymentDiagnostic> CheckApprovedEffective(HttpMcpDeploymentProposal approved, JsonObject current)
     {
-        var original = Parse(SecureConfigurationFiles.ReadPrivateDocument(approved.SnapshotPath!));
+        var originalText = SecureConfigurationFiles.ReadPrivateDocument(approved.SnapshotPath!);
+        var original = Parse(originalText);
         var expected = approved.CompleteDeployment;
         var failures = Validate(current, approved.Settings, approved.Intent == HttpMcpHostIntent.LegacyInitializer).ToList();
-        CompareTopology(expected, current, failures, "HOST_SOURCE_CHANGED");
-        if (approved.Intent != HttpMcpHostIntent.LegacyInitializer)
-            foreach (var service in ServiceNames(expected).Intersect(ServiceNames(current), StringComparer.Ordinal))
-                if (Canonical(expected["services"]?[service]?["environment"]) != Canonical(current["services"]?[service]?["environment"]))
+        var observation = approved.Intent == HttpMcpHostIntent.LegacyInitializer ? LegacyComposeObservation.TryRead(approved, originalText, current) : null;
+        var topologyExpected = observation?.Expected ?? expected;
+        var topologyCurrent = observation?.Actual ?? current;
+        CompareTopology(topologyExpected, topologyCurrent, failures, "HOST_SOURCE_CHANGED");
+        if (observation is { CompleteModelsMatch: false })
+            failures.Add(new("HOST_SOURCE_CHANGED", "deployment", "complete Compose observation", "fresh owner Compose models",
+                "The complete actual owner Compose model differs from the freshly rendered reviewed generation.",
+                "Review the current saved sources and obtain a new approval before continuing."));
+        if (approved.Intent != HttpMcpHostIntent.LegacyInitializer || observation is not null)
+            foreach (var service in ServiceNames(topologyExpected).Intersect(ServiceNames(topologyCurrent), StringComparer.Ordinal))
+                if (Canonical(topologyExpected["services"]?[service]?["environment"]) != Canonical(topologyCurrent["services"]?[service]?["environment"]))
                     failures.Add(new("HOST_SOURCE_CHANGED", service, "complete environment", "reviewed Compose effective model",
                         "Effective service environment differs from the exact reviewed deployment, including settings outside MCP setup.",
                         "Re-read the source and interpolation inputs and obtain a new review; applying the changed environment does not renew approval."));
@@ -437,11 +445,16 @@ public static class HttpMcpEffectiveDeployment
 
     public static IReadOnlyList<DeploymentDiagnostic> ValidateExport(HttpMcpDeploymentProposal approved, JsonObject exported)
     {
-        // The host renders the actual manager document through Compose. Retain
-        // reviewed protected providers/image metadata, but validate its real final
-        // services and mount definitions rather than the generated fragment.
-        var complete = approved.CompleteDeployment.DeepClone().AsObject();
-        foreach (var entry in exported) complete[entry.Key] = entry.Value?.DeepClone();
+        // The host renders the actual manager document through Compose. Legacy
+        // rendering can omit unused resources: retain only reviewed private
+        // provider metadata, never restore absent Compose fields from the proposal.
+        var legacy = approved.Intent == HttpMcpHostIntent.LegacyInitializer;
+        var complete = legacy ? new JsonObject() : approved.CompleteDeployment.DeepClone().AsObject();
+        if (legacy)
+            foreach (var entry in approved.CompleteDeployment.Where(entry => entry.Key.StartsWith("x-rateldesk-", StringComparison.OrdinalIgnoreCase)))
+                complete[entry.Key] = entry.Value?.DeepClone();
+        foreach (var entry in exported.Where(entry => !legacy || !entry.Key.StartsWith("x-rateldesk-", StringComparison.OrdinalIgnoreCase)))
+            complete[entry.Key] = entry.Value?.DeepClone();
         return CheckApprovedEffective(approved, complete);
     }
 

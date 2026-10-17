@@ -248,7 +248,7 @@ class NativeLauncherContracts(unittest.TestCase):
         self.assertEqual(self.source.read_bytes(), reviewed)
         self.assertEqual(candidate.read_bytes(), reviewed)
         self.assertEqual(self.source.stat().st_mode & 0o777, 0o640)
-        self.deployment.docker.run.assert_called_once_with(self.deployment.compose + ["up", "-d", "--no-deps", "mcp-http"],
+        self.deployment.docker.run.assert_called_once_with(self.deployment.compose + ["up", "--pull", "never", "--no-build", "-d", "--no-deps", "mcp-http"],
             maximum=16384, owner_tool=True)
         backup = self.output / ("backup-" + state["sourceCandidates"][0]["originalSha256"] + "-" + self.source.name)
         self.assertEqual(backup.read_bytes(), original)

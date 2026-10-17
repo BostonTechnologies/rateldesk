@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Fast launcher contracts; no running services, credentials, or image downloads."""
 import argparse
+from contextlib import nullcontext
 import importlib.util
 import json
 import os
@@ -416,7 +417,9 @@ class LauncherContracts(unittest.TestCase):
                     raise launcher.Prerequisite("docker_operation: unavailable")
                 raise AssertionError("An unapproved Docker operation was attempted")
         deployment.docker = AuthorityUnavailableDocker()
-        with patch.object(deployment, "prepare_storage"), patch.object(launcher, "stage_snapshot"), self.assertRaisesRegex(launcher.Prerequisite, "approval_revalidation"):
+        with patch.object(deployment, "prepare_storage"), patch.object(launcher, "stage_snapshot"), \
+                patch.object(launcher, "legacy_compose_observation", return_value=nullcontext()), \
+                self.assertRaisesRegex(launcher.Prerequisite, "approval_revalidation"):
             launcher.apply_saved(deployment)
         self.assertTrue(any("approval-check" in arguments for arguments in calls))
         self.assertFalse(any("up" in arguments for arguments in calls))
@@ -472,6 +475,7 @@ class LauncherContracts(unittest.TestCase):
         def stage(current, name):
             staged[name] = launcher.read_private_json(current.output / name)
         with patch.object(deployment, "prepare_storage"), patch.object(launcher, "stage_snapshot", side_effect=stage), \
+             patch.object(launcher, "legacy_compose_observation", side_effect=lambda *args: nullcontext()), \
              patch.object(launcher.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)), \
              self.assertRaisesRegex(launcher.Prerequisite, "runtime_revalidation"):
             launcher.run_setup(deployment, self.args)
@@ -782,7 +786,8 @@ class LauncherContracts(unittest.TestCase):
                     return b"removed"
                 raise AssertionError(arguments)
         deployment.docker = ComposeWithImageFixture()
-        proposal = deployment.snapshot()
+        with patch.object(launcher, "legacy_recipe_identity", side_effect=lambda current, digest: {"unresolvedSourceSha256": digest}):
+            proposal = deployment.snapshot()
         self.assertTrue(any(item["path"] == str(optional) and item.get("present") is False for item in proposal["x-rateldesk-source-files"]))
         retained = launcher.read_private_json(deployment.output / ".compose-source.json")
         self.assertEqual(retained["services"]["mcp-http"]["env_file"][0]["path"], "${OPTIONAL_ROOT}/optional.env")
