@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Termina;
 using Termina.Hosting;
+using Termina.Clipboard;
 using Termina.Input;
 using Termina.Terminal;
 
@@ -27,7 +28,8 @@ public static class SetupRunner
             using var host = runtime.Host;
             try { await host.RunAsync(cancellationToken); }
             finally { await runtime.ViewModel.CleanupAsync(); }
-            return 0;
+            if (options.VerificationDirectory is not null) await error.WriteLineAsync(runtime.ViewModel.Status.Value);
+            return runtime.ViewModel.ExitCode;
         }
         catch (AgentClientValidationException exception)
         {
@@ -42,18 +44,20 @@ public static class SetupRunner
     }
 
     internal static SetupRuntime CreateHost(SetupOptions options, ISetupWorkflow workflow,
-        VirtualInputSource? virtualInput = null, IAnsiTerminal? terminal = null)
+        VirtualInputSource? virtualInput = null, IAnsiTerminal? terminal = null,
+        Func<string, IHostDeploymentWorkflow>? hostWorkflowFactory = null,
+        Func<string, IHostVerificationWorkflow>? verificationFactory = null)
     {
         var builder = Host.CreateApplicationBuilder();
         builder.Logging.ClearProviders();
-        var model = new SetupViewModel(workflow, options);
-        if (terminal is not null) { builder.Services.AddSingleton(terminal); model.TerminalWidth.Value = terminal.Width; }
-        else { try { model.TerminalWidth.Value = Console.WindowWidth; } catch { model.TerminalWidth.Value = 80; } }
+        var model = new SetupViewModel(workflow, options, hostWorkflowFactory, verificationFactory);
+        if (terminal is not null) { builder.Services.AddSingleton(terminal); model.TerminalWidth.Value = terminal.Width; model.TerminalHeight.Value = terminal.Height; }
+        else { try { model.TerminalWidth.Value = Console.WindowWidth; model.TerminalHeight.Value = Console.WindowHeight; } catch { model.TerminalWidth.Value = 80; } }
         if (virtualInput is not null) builder.Services.AddTerminaVirtualInput(virtualInput);
         builder.Services.AddTermina("/setup", termina =>
         {
             termina.ConfigureRuntime(runtime => { runtime.PreferRawInput = true; runtime.CtrlCHandlingMode = CtrlCHandlingMode.Disabled; });
-            termina.RegisterRoute<SetupPage, SetupViewModel>("/setup", _ => new SetupPage(options), _ => model);
+            termina.RegisterRoute<SetupPage, SetupViewModel>("/setup", services => new SetupPage(options, services.GetRequiredService<IClipboardService>()), _ => model);
         });
         var host = builder.Build();
         return new(host, model, host.Services.GetRequiredService<TerminaApplication>());

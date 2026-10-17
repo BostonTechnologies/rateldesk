@@ -7,12 +7,15 @@ using Helpdesk.AgentClient;
 namespace Helpdesk.Setup;
 
 public enum SetupTransport { Cli, Stdio, Http }
-public enum SetupStep { Purpose, Profile, Instance, Authentication, Approval, Hosting, Review, Checks, Complete }
+public enum SetupStep { Purpose, Profile, Instance, Authentication, Approval, Hosting, Review, Checks, Complete, Verification }
 public sealed record SetupOptions(SetupTransport Transport = SetupTransport.Cli, string Profile = "default",
     string? ConfigurationPath = null, bool Hosting = false, bool Monochrome = false,
     string? OutputDirectory = null, string? StdioExecutable = null, string? StdioEntryAssembly = null,
     string? WebUrl = null, string? Authentication = null, string? InstanceLabel = null,
-    AgentClientConfiguration? SeedConfiguration = null, bool ExplicitProfile = false);
+    AgentClientConfiguration? SeedConfiguration = null, bool ExplicitProfile = false)
+{
+    public string? VerificationDirectory { get; init; }
+}
 public sealed record SetupProfile(ConfigurationResolution Resolution, AgentClientConfiguration Stored,
     PendingPairingProfile? Pending = null, AgentClientConfiguration? PendingConfiguration = null);
 public sealed record SetupCheck(string Name, string Status, string Message)

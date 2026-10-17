@@ -9,6 +9,7 @@ import argparse
 import hashlib
 import json
 import os
+import posixpath
 from pathlib import Path
 import re
 import shlex
@@ -34,6 +35,11 @@ RELEVANT_PREFIXES = ("helpdesk__", "helpdesk:", "rateldesk_mcp_", "authenticatio
                      "webgateway__", "reverseproxy__", "integrationcredentials__",
                      "aspnetcore_", "dotnet_")
 PROXY_KEYS = {"http_proxy", "https_proxy", "all_proxy", "no_proxy"}
+DOCKER_SELECTION_KEYS = ("DOCKER_CONFIG", "DOCKER_CONTEXT", "DOCKER_HOST", "DOCKER_TLS",
+                         "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH", "DOCKER_API_VERSION")
+COMPOSE_FLOOR = "2.35.0"
+COMPOSE_FLAGS = ("--no-env-resolution", "--no-interpolate", "--no-path-resolution", "--format")
+ANCESTOR_INSPECTION_SCRIPT = 'for path do test ! -L "$path"; if test -e "$path"; then test -d "$path"; test -x "$path"; fi; done'
 
 
 class Prerequisite(Exception):
@@ -48,6 +54,20 @@ def safe_label(value, maximum=256):
     if not isinstance(value, str) or len(value) > maximum or any(ord(c) < 32 or ord(c) == 127 for c in value):
         fail("deployment_metadata", "Saved Docker metadata is malformed. Restore its actual source or supply the explicit source options.")
     return value
+
+
+def normalized_container_path(value):
+    safe_label(value, 4096)
+    # POSIX permits preserving exactly two leading slashes. Docker container
+    # destinations and the effective-deployment validator use a single root.
+    return posixpath.normpath("/" + value.lstrip("/"))
+
+
+def container_file_target(kind, entry):
+    name = entry if isinstance(entry, str) else entry.get("source", "")
+    target = entry.get("target") if isinstance(entry, dict) else None
+    target = target or ("/run/secrets/" + name if kind == "secrets" else "/" + name)
+    return normalized_container_path(target)
 
 
 def read_bytes(path, maximum=MAX_SOURCE_BYTES):
@@ -148,17 +168,103 @@ def read_private_json(path):
 class Docker:
     def __init__(self, output=None):
         self.output = output
+        # Capture only CLI selection, never the private config/credential file.
+        self.selection = {key: os.environ[key] for key in DOCKER_SELECTION_KEYS if key in os.environ}
+        for key, value in self.selection.items():
+            safe_label(value, 4096)
+            if key == "DOCKER_HOST" and re.search(r"://[^/]*@", value):
+                fail("docker_selection_sensitive", "Use a Docker context or protected TLS files instead of credentials embedded in DOCKER_HOST before setup.")
+            if key in ("DOCKER_CONFIG", "DOCKER_CERT_PATH") and value:
+                self.selection[key] = str(Path(value).absolute())
+        self.daemon_identity = None
+
+    def process_environment(self):
+        environment = os.environ.copy()
+        for key in DOCKER_SELECTION_KEYS:
+            environment.pop(key, None)
+        environment.update(self.selection)
+        return environment
+
+    def preflight(self):
+        """Probe the selected plugin with synthetic inputs before touching sources."""
+        version = self.run(["compose", "version", "--short"], maximum=1024).decode("utf-8", errors="replace").strip()
+        self.compose_version = version if re.fullmatch(r"v?\d+\.\d+\.\d+[A-Za-z0-9.+-]{0,64}", version) else "unparseable"
+        help_text = self.run(["compose", "config", "--help"], maximum=65536).decode("utf-8", errors="replace")
+        for flag in COMPOSE_FLAGS:
+            if flag not in help_text:
+                self.unsupported("config " + flag)
+        with tempfile.TemporaryDirectory(prefix="rateldesk-compose-probe-") as temporary:
+            directory = Path(temporary)
+            interpolation_key = "RATELDESK_CAPABILITY_VALUE_" + uuid.uuid4().hex
+            interpolation = "${" + interpolation_key + "}"
+            (directory / "first.env").write_text(interpolation_key + "=first\n")
+            (directory / "second.env").write_text(interpolation_key + "=resolved\n")
+            (directory / "service.env").write_text("RATELDESK_CAPABILITY_PRIVATE=synthetic-probe\n")
+            (directory / "base.json").write_text(json.dumps({"services": {"probe": {
+                "image": "rateldesk-capability:never-run", "environment": {
+                    "VALUE": interpolation, "ORDER": "first"},
+                "env_file": [{"path": "service.env", "required": True}, {"path": "absent.env", "required": False}],
+                "volumes": [{"type": "bind", "source": "./fixture", "target": "/fixture"}]}}}))
+            (directory / "override.json").write_text(json.dumps({"services": {"probe": {"environment": {"ORDER": "last"}}}}))
+            command = ["compose", "--project-directory", temporary, "--project-name", "rateldesk-capability",
+                "--env-file", str(directory / "first.env"), "--env-file", str(directory / "second.env"),
+                "-f", str(directory / "base.json"), "-f", str(directory / "override.json"), "config", "--format", "json"]
+            try:
+                source = self.json(command + ["--no-env-resolution", "--no-interpolate", "--no-path-resolution"])["services"]["probe"]
+                unresolved = self.json(command + ["--no-env-resolution"])["services"]["probe"]
+                resolved = self.json(command)["services"]["probe"]
+                source_environment = environment_map(source.get("environment", {}))
+                valid = (source_environment.get("VALUE") == interpolation
+                    and source_environment.get("ORDER") == "last"
+                    and "RATELDESK_CAPABILITY_PRIVATE" not in source_environment
+                    and source.get("env_file", [{}])[0].get("path") == "service.env"
+                    and any(item.get("required") is False for item in source.get("env_file", []))
+                    and source.get("volumes", [{}])[0].get("source") == "./fixture"
+                    and environment_map(unresolved.get("environment", {})).get("VALUE") == "resolved"
+                    and unresolved.get("volumes", [{}])[0].get("source") == str(directory / "fixture")
+                    and environment_map(resolved.get("environment", {})).get("RATELDESK_CAPABILITY_PRIVATE") == "synthetic-probe"
+                    and environment_map(resolved.get("environment", {})).get("VALUE") == "resolved"
+                    and not resolved.get("env_file"))
+            except Prerequisite as failure:
+                if not str(failure).startswith(("compose_source_invalid:", "compose_env_file_unreadable:", "docker_json:")):
+                    raise
+                self.unsupported("config source/interpolation/env-file/path/order semantics")
+            except (KeyError, IndexError, TypeError, AttributeError):
+                self.unsupported("config source/interpolation/env-file/path/order semantics")
+            if not valid:
+                self.unsupported("config source/interpolation/env-file/path/order semantics")
+        identity = self.run(["info", "--format", "{{json .ID}}"], maximum=1024)
+        try:
+            identifier = json.loads(identity)
+            if not isinstance(identifier, str) or not identifier or len(identifier) > 256:
+                raise ValueError()
+        except (ValueError, UnicodeError):
+            fail("docker_daemon_identity", "The selected Docker daemon did not provide its stable identity. Restore the selected Docker engine/context before setup; approval cannot bind an unidentified deployment.")
+        self.daemon_identity = hashlib.sha256(identifier.encode()).hexdigest()
+
+    def unsupported(self, feature):
+        fail("compose_feature_unsupported", f"Selected Compose version {self.compose_version} lacks {feature}. Install Docker Compose v{COMPOSE_FLOOR} or newer through the host's supported package channel, then rerun the same command. Alternatively deliberately select a checksum-verified isolated plugin with DOCKER_CONFIG; keep that selection for setup, client setup, apply and --verify. The launcher never installs or replaces plugins.")
+
+    def check_selection(self, state):
+        if "dockerSelection" in state and state["dockerSelection"] != self.selection:
+            fail("docker_selection_changed", "The Docker configuration/context/host/TLS selection differs from this approved generation. Rerun its printed apply/verify command with the original explicit Docker settings; changed deployment ownership needs ordinary setup and new review.")
+        if state.get("dockerDaemonIdentity") and state["dockerDaemonIdentity"] != self.daemon_identity:
+            fail("docker_daemon_changed", "This is a different Docker daemon from the approved generation. Restore the original Docker context/host; do not apply or verify another deployment's approval.")
 
     def run(self, arguments, *, input_data=None, maximum=MAX_BYTES, optional=False):
         # Temporary files bound memory even when an untrusted daemon/source emits
         # huge output. Stderr is deliberately never copied into a public error.
         with tempfile.TemporaryFile() as result, tempfile.TemporaryFile() as error:
             try:
-                completed = subprocess.run(["docker", *arguments], input=input_data,
+                completed = subprocess.run(["docker", *arguments], input=input_data, env=self.process_environment(),
                                            stdout=result, stderr=error, timeout=45, check=False,
                                            preexec_fn=bound_child_files if resource else None)
-            except (OSError, subprocess.TimeoutExpired):
-                fail("docker_unavailable", "Docker did not finish the bounded host operation. Check host Docker access and retry.")
+            except subprocess.TimeoutExpired:
+                fail("docker_timeout", "Docker exceeded the 45-second host-operation limit. Check the selected Docker context/host and retry; no operation was retried.")
+            except FileNotFoundError:
+                fail("docker_cli_missing", "Docker CLI is unavailable. Install the host's supported Docker CLI and Compose plugin, then rerun.")
+            except OSError:
+                fail("docker_permission_denied", "Docker CLI could not be executed. Restore host Docker CLI permissions and retry.")
             if result.tell() > maximum:
                 fail("docker_output_oversized", "Docker returned an oversized deployment snapshot. Reduce the saved configuration and retry.")
             if completed.returncode:
@@ -169,7 +275,20 @@ class Docker:
                         if "could not find" not in reason and "no such file or directory" not in reason:
                             fail("protected_provider_unreadable", "Docker could not read a protected provider. Restore its regular readable source; permission and size failures cannot be treated as missing defaults.")
                     return None
-                fail("docker_operation", "Docker could not resolve the saved deployment. Check its Compose sources, interpolation files and local images, then retry. No raw environment was printed.")
+                error.seek(0)
+                reason = error.read(8192).decode("utf-8", errors="replace").casefold()
+                if arguments[:2] == ["compose", "version"]:
+                    fail("compose_plugin_missing", "The selected Docker CLI cannot run its Compose plugin. Install/repair Docker Compose v2 in the selected Docker configuration, then rerun.")
+                if "permission denied" in reason or "access is denied" in reason:
+                    code = "compose_source_permission" if arguments[0] == "compose" and "config" in arguments else "docker_permission_denied"
+                    fail(code, "Docker could not read the selected source or access the selected daemon. Restore that source/daemon permission and retry; raw errors remain private.")
+                if arguments[0] == "info" or any(marker in reason for marker in ("cannot connect to the docker daemon", "is the docker daemon running", "error during connect", "docker daemon is not running")):
+                    fail("docker_daemon_unavailable", "The selected Docker daemon/context is unavailable. Start it or restore access to that same Docker host, then rerun.")
+                if arguments[0] == "compose" and "config" in arguments:
+                    if any(marker in reason for marker in ("env file", "env_file", "failed to read .env")):
+                        fail("compose_env_file_unreadable", "Compose could not read a required interpolation/service env file. Restore its saved path and read permission, then rerun; no values were printed.")
+                    fail("compose_source_invalid", "Compose rejected the saved source or interpolation. Validate the private source with the selected Compose plugin, correct it, then rerun; no rendered values were printed.")
+                fail("docker_operation", "Docker could not resolve the saved deployment. Check its saved sources and local images, then retry. No raw environment was printed.")
             result.seek(0)
             return result.read()
 
@@ -489,11 +608,16 @@ class Deployment:
         if not self.env_files and (self.directory / ".env").is_file():
             self.env_files = [self.directory / ".env"]
         for path in self.env_files:
-            file_record(path)
+            try:
+                file_record(path)
+            except Prerequisite:
+                fail("compose_env_file_unreadable", "A selected interpolation env file is missing, unsafe or unreadable. Restore its regular saved file and permissions before setup; no values were printed.")
         saved_manager = None
         checkpoint = Path(args.output_directory or self.directory / f".rateldesk-http-mcp-{self.project}") / "launcher-state.json"
         if checkpoint.is_file():
             saved = read_private_json(checkpoint)
+            if (args.verify or args.apply) and isinstance(docker, Docker):
+                docker.check_selection(saved)
             if saved.get("project") == self.project and saved.get("manager") in ("release-compose", "external-compose"):
                 saved_manager = saved["manager"]
         self.manager = args.manager or labels.get(MANAGER_LABEL) or saved_manager or (bundle or {}).get("manager")
@@ -565,31 +689,36 @@ class Deployment:
                         or service_name == "mcp-config-init" and target == "/input/config.json"
                         or service_name == "mcp-http" and target.endswith(".json")):
                     source_paths.append(Path(mount.get("source", "")))
-        # Compose drops missing optional providers from the interpolated view.
-        # Retain their paths from its source view, then let Compose itself
-        # interpolate those strings without reading the optional provider.
-        raw_optional = [entry["path"] for service in source_document.get("services", {}).values()
-                        for entry in service.get("env_file", []) if isinstance(entry, dict) and entry.get("required") is False]
-        if len(raw_optional) > MAX_FILES:
-            fail("sources_oversized", "Too many optional source providers exist. Consolidate the saved deployment before setup.")
-        if raw_optional:
+        # Source-preserving rendering is authoritative for provider references.
+        # Some Compose builds resolve env files on the interpolated path even
+        # with --no-env-resolution; never let that omit a required source hash.
+        raw_providers = [(entry if isinstance(entry, str) else entry["path"],
+                          isinstance(entry, str) or entry.get("required", True))
+                         for service in source_document.get("services", {}).values()
+                         for entry in service.get("env_file", [])]
+        if len(raw_providers) > MAX_FILES:
+            fail("sources_oversized", "Too many service source providers exist. Consolidate the saved deployment before setup.")
+        if raw_providers:
             name = "rateldesk-source-paths-" + uuid.uuid4().hex[:12]
             probe = self.output / ".optional-source-paths.json"
             image = next((service.get("image") for service in unresolved.get("services", {}).values() if service.get("image")), None)
             if not image:
                 fail("image_missing", "Build the saved serving images before effective source discovery.")
             write_private(probe, {"services": {name: {"image": image, "environment": {
-                f"RATELDESK_PROVIDER_PATH_{index}": value for index, value in enumerate(raw_optional)}}}})
+                f"RATELDESK_PROVIDER_PATH_{index}": value for index, (value, _) in enumerate(raw_providers)}}}})
             try:
                 resolved = self.docker.json(self.compose + ["-f", str(probe), "config", "--no-env-resolution", "--format", "json"])
                 paths = environment_map(resolved["services"][name]["environment"])
-                for index in range(len(raw_optional)):
+                for index, (_, required) in enumerate(raw_providers):
                     value = paths.get(f"RATELDESK_PROVIDER_PATH_{index}")
                     if not value:
                         fail("optional_source_path", "An optional provider path resolves empty. Correct its winning interpolation source before setup.")
                     path = Path(os.path.abspath(self.directory / value))
                     source_paths.append(path)
-                    if path not in required_paths:
+                    if required:
+                        required_paths.add(path)
+                        optional_paths.discard(path)
+                    elif path not in required_paths:
                         optional_paths.add(path)
             finally:
                 probe.unlink(missing_ok=True)
@@ -667,6 +796,7 @@ class Deployment:
         proposal["x-rateldesk-deployment-manager"] = self.manager
         proposal["x-rateldesk-project-directory"] = str(self.directory)
         proposal["x-rateldesk-project-name"] = self.project
+        proposal["x-rateldesk-mount-ancestor-checks"] = inspect_mount_ancestors(self.docker, proposal, self.image)
         self.capture_secret_mounts(proposal)
         self.validate_resume_sources(records, verify)
         write_private(self.output / "effective-deployment.json", proposal)
@@ -687,7 +817,7 @@ class Deployment:
                 fail("secret_reference", "Use an explicit absolute protected secret file inside the MCP container, without traversal or Docker access.")
             candidates = []
             for mount in proposal["services"]["mcp-http"].get("volumes", []):
-                target = mount.get("target", "")
+                target = normalized_container_path(mount.get("target", ""))
                 if target and (path == target or path.startswith(target + "/")):
                     source = mount.get("source")
                     if mount.get("type") == "volume":
@@ -695,7 +825,7 @@ class Deployment:
                     candidates.append((len(target), {"type": mount.get("type"), "source": source, "target": target}))
             for secret in proposal["services"]["mcp-http"].get("secrets", []):
                 name = secret if isinstance(secret, str) else secret.get("source")
-                target = "/run/secrets/" + (secret.get("target", name) if isinstance(secret, dict) else name)
+                target = container_file_target("secrets", secret)
                 file = proposal.get("secrets", {}).get(name, {}).get("file")
                 if path == target and file:
                     candidates.append((len(target), {"type": "bind", "source": file, "target": target}))
@@ -729,6 +859,17 @@ class Deployment:
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", deployment_environment):
             fail("environment_name", "The saved .NET environment name is invalid. Restore the serving environment before setup.")
         replacements = {}
+        protected_files = {}
+        for kind in ("configs", "secrets"):
+            for entry in service.get(kind, []):
+                alias = entry if isinstance(entry, str) else entry.get("source")
+                target = container_file_target(kind, entry)
+                definition = getattr(self, "rendered", {}).get(kind, {}).get(alias, {})
+                protected_files[target] = definition.get("file")
+                if target.startswith("/app/appsettings") and target.endswith(".json"):
+                    if not definition.get("file"):
+                        fail("protected_provider_unreadable", "A selected appsettings config/secret lacks a readable saved file source. Restore/export that protected provider before setup.")
+                    replacements[target] = Path(definition["file"])
         for mount in service.get("volumes", []):
             target = mount.get("target", "") if isinstance(mount, dict) else ""
             if target in ("/app", "/config"):
@@ -760,12 +901,18 @@ class Deployment:
                     safe_label(mcp_config, 4096)
                     if not mcp_config.startswith("/"):
                         fail("outbound_provider", "The selected MCP configuration must have an explicit absolute container path. Restore its owning provider before setup.")
+                    mcp_config = normalized_container_path(mcp_config)
                     provider_paths.append(mcp_config)
+                    if mcp_config in protected_files:
+                        if not protected_files[mcp_config]:
+                            fail("protected_provider_unreadable", "The selected MCP config/secret lacks a readable saved file source. Restore/export its owning protected provider before approval; image/default content cannot replace it.")
+                        replacements[mcp_config] = Path(protected_files[mcp_config])
                     for mount in service.get("volumes", []):
-                        if mount.get("type") == "bind" and mount.get("target") == mcp_config:
+                        target = normalized_container_path(mount.get("target", ""))
+                        if mount.get("type") == "bind" and target == mcp_config:
                             replacements[mcp_config] = Path(mount["source"])
-                        elif mount.get("type") == "bind" and mcp_config.startswith(mount.get("target", "") + "/"):
-                            relative = mcp_config[len(mount["target"]) + 1:]
+                        elif mount.get("type") == "bind" and mcp_config.startswith(target + "/"):
+                            relative = mcp_config[len(target) + 1:]
                             if ".." in Path(relative).parts:
                                 fail("protected_provider", "A protected provider escapes its mount. Restore its explicit absolute configuration path.")
                             replacements[mcp_config] = Path(mount["source"]) / relative
@@ -774,9 +921,12 @@ class Deployment:
                         if mount.get("type") == "bind" and mount.get("target") == "/input/config.json":
                             replacements.setdefault(mcp_config, Path(mount["source"]))
                 path = provider_paths[index]
-                if path in replacements and temporary:
+                if path in replacements:
                     host_path = replacements[path]
-                    record = file_record(host_path)
+                    try:
+                        record = file_record(host_path)
+                    except Prerequisite:
+                        fail("protected_provider_unreadable", "A selected protected provider source is missing, unsafe or unreadable. Restore its regular saved file before approval; image/default content cannot replace it.")
                     source_paths.append(host_path)
                     content = read_bytes(host_path)
                     if hashlib.sha256(content).hexdigest() != record["sha256"]:
@@ -855,6 +1005,7 @@ class Deployment:
             storage[purpose] = {"type": mount["type"], "source": mount["source"], "target": target,
                                 "readOnly": False, "private": True, "uid": 10001}
         observed["x-rateldesk-storage"] = storage
+        observed["x-rateldesk-mount-ancestor-checks"] = inspect_mount_ancestors(self.docker, observed, self.image)
         if (self.output / "launcher-state.json").is_file():
             expected_storage = read_private_json(self.output / "launcher-state.json").get("storage", {})
             if storage != expected_storage:
@@ -1060,6 +1211,76 @@ def check_effective_context(deployment, state):
             fail("approved_context_changed", "The imported complete deployment resolves differently from the reviewed export. Restore its approved interpolation context, or run ordinary setup to review the changed generation.")
 
 
+def inspect_mount_ancestors(docker, complete, image):
+    """Prove parent-volume children are directories without writing their data."""
+    receipts = []
+    for service in ("mcp-http", "mcp-config-init"):
+        for mount in complete.get("services", {}).get(service, {}).get("volumes", []):
+            if not isinstance(mount, dict) or mount.get("type") != "volume" or mount.get("read_only") or not mount.get("source"):
+                continue
+            target = posixpath.normpath(mount.get("target", ""))
+            children = [root for root in ("/run/rateldesk-mcp", HOST_TARGET, CLIENT_TARGET)
+                        if target != "/" and root.startswith(target + "/")]
+            if not children:
+                continue
+            alias = mount["source"]
+            definition = complete.get("volumes", {}).get(alias, {})
+            source = definition.get("name") or (alias if definition.get("external") or not complete.get("name") else complete["name"] + "_" + alias)
+            if docker.run(["volume", "inspect", source], optional=True, maximum=8192) is None:
+                continue
+            paths = {"/ancestor"}
+            for child in children:
+                current = "/ancestor"
+                for segment in child[len(target) + 1:].split("/"):
+                    current += "/" + segment
+                    paths.add(current)
+            command = ["run", "--rm", "--pull", "never", "--network", "none", "--read-only", "--cap-drop", "ALL",
+                       "--security-opt", "no-new-privileges", "--user", "10001:10001", "--mount",
+                       mount_argument({"type": "volume", "source": source}, "/ancestor") + ",readonly,volume-nocopy",
+                       "--entrypoint", "/bin/sh", image, "-ec",
+                       ANCESTOR_INSPECTION_SCRIPT,
+                       "mount-ancestor-check", *sorted(paths, key=lambda path: (path.count("/"), path))]
+            if docker.run(command, optional=True, maximum=4096) is not None:
+                receipts.append({"service": service, "source": source, "target": target, "children": children})
+    return receipts
+
+
+def migrated_compose_source(source, rendered, patch):
+    """Remove only the source-bound selected mapping in a private source copy.
+
+    Compose's multi-file merge retains absent config entries. Apply the approved
+    removal before that merge, preserving expressions and all unrelated entries.
+    The paired Compose renders retain array order even when targets interpolate.
+    """
+    source = json.loads(json.dumps(source))
+    migrations = patch.get("x-rateldesk-mount-migrations", [])
+    if not isinstance(migrations, list) or len(migrations) > 1:
+        fail("approved_mount_migration", "The approved mount replacement is invalid. Run ordinary setup for a fresh review.")
+    for migration in migrations:
+        if not isinstance(migration, dict) or migration.get("service") != "mcp-http" or migration.get("kind") != "configs" or migration.get("target") != "/run/rateldesk-mcp/config.json":
+            fail("approved_mount_migration", "The approved mount replacement is unsupported. Resolve its owning mapping and run ordinary setup.")
+        actual = rendered.get("services", {}).get("mcp-http", {}).get("configs", [])
+        original = source.get("services", {}).get("mcp-http", {}).get("configs", [])
+        matches = []
+        for index, mapping in enumerate(actual):
+            alias = mapping.get("source") if isinstance(mapping, dict) else mapping
+            target = mapping.get("target", "/" + alias) if isinstance(mapping, dict) else "/" + alias
+            parts = []
+            for part in target.split("/"):
+                if part == "..":
+                    if parts:
+                        parts.pop()
+                elif part and part != ".":
+                    parts.append(part)
+            normalized = "/" + "/".join(parts)
+            if alias == migration.get("source") and normalized == migration["target"]:
+                matches.append(index)
+        if len(matches) != 1 or len(original) != len(actual):
+            fail("approved_mount_migration", "The selected legacy config mapping changed after review. Run ordinary setup for new approval.")
+        del original[matches[0]]
+    return source
+
+
 def export_complete_document(deployment, container, attempt):
     raw_receipt = copy_from_tool(deployment, container, "host-approval.json", optional=True)
     if raw_receipt is None:
@@ -1088,6 +1309,8 @@ def export_complete_document(deployment, container, attempt):
     # declarations and interpolation expressions in a complete manager document;
     # do not flatten them into an ephemeral values-only overlay.
     patch = read_private_json(deployment.output / "compose.host.json")
+    source = migrated_compose_source(read_private_json(deployment.output / ".compose-source.json"), deployment.proposal, patch)
+    write_private(deployment.output / ".export-source.json", source)
     for mount in patch.get("services", {}).get("mcp-config-init", {}).get("volumes", []):
         if mount.get("target") == "/input/config.json":
             mount["source"] = str(deployment.output / "mcp-outbound.json")
@@ -1096,12 +1319,19 @@ def export_complete_document(deployment, container, attempt):
     for path in deployment.env_files or [Path("/dev/null")]:
         command += ["--env-file", str(path)]
     compose_context = command.copy()
-    command += ["-f", str(deployment.output / ".compose-source.json"), "-f", str(deployment.output / ".export-patch.json"),
+    command += ["-f", str(deployment.output / ".export-source.json"), "-f", str(deployment.output / ".export-patch.json"),
                 "config", "--no-interpolate", "--no-env-resolution", "--no-path-resolution", "--format", "json"]
     complete = deployment.docker.json(command)
     write_private(deployment.output / "deployment.json", complete)
     resolved_complete = deployment.docker.json(compose_context + ["-f", str(deployment.output / "deployment.json"),
         "config", "--format", "json"])
+    write_private(deployment.output / ".resolved-export.json", resolved_complete)
+    stage_snapshot(deployment, ".resolved-export.json")
+    try:
+        deployment.docker.run(tooling_arguments(deployment) + ["--rm", deployment.image,
+            "host", "export-check", "--export-directory", HOST_TARGET], maximum=16384)
+    except Prerequisite:
+        fail("complete_export_invalid", "The complete manager document failed the approved serving and mount validation. Nothing was applied. Resolve its owning sources and run ordinary setup.")
     deployment.check_sources()
     state = {"schemaVersion": 1, "project": deployment.project, "manager": deployment.manager,
              "sources": deployment.proposal["x-rateldesk-source-files"], "sourceHash": receipt["sourceHash"],
@@ -1112,7 +1342,9 @@ def export_complete_document(deployment, container, attempt):
              "resolvedDeploymentSha256": resolved_deployment_hash(resolved_complete),
              "secretMounts": approved_import_secret_mounts(deployment.proposal, resolved_complete,
                  read_bytes(deployment.output / "mcp-outbound.json", MAX_BYTES).decode("utf-8-sig")),
-             "phase": "saved-apply-pending", "storage": deployment.storage}
+             "phase": "saved-apply-pending", "storage": deployment.storage,
+             "dockerSelection": getattr(deployment.docker, "selection", {}),
+             "dockerDaemonIdentity": getattr(deployment.docker, "daemon_identity", None)}
     write_private(deployment.output / "host-approval.json", raw_receipt)
     write_private(deployment.output / "launcher-state.json", state)
     print(f"Private complete deployment document: {deployment.output / 'deployment.json'}")
@@ -1139,6 +1371,9 @@ def resume_command(deployment, mode):
     if deployment.args.ca_file:
         command += ["--ca-file", deployment.args.ca_file]
     command.append(mode)
+    selection = getattr(deployment.docker, "selection", {})
+    if selection:
+        command = ["env", *(f"{key}={selection[key]}" for key in DOCKER_SELECTION_KEYS if key in selection), *command]
     return shlex.join(command)
 
 
@@ -1213,7 +1448,16 @@ def run_setup(deployment, args):
     options = args.wizard_options[1:] if args.wizard_options[:1] == ["--"] else args.wizard_options
     command += [deployment.image, *arguments, *options]
     try:
-        completed = subprocess.run(["docker", *command], check=False)
+        environment = deployment.docker.process_environment() if isinstance(deployment.docker, Docker) else None
+        # With --tty Docker sends the application's complete terminal stream on
+        # stdout. Its own stderr can contain private daemon/proxy/source errors.
+        # Keep those bytes private, including for a failed pristine image launch.
+        with tempfile.TemporaryFile() as docker_error:
+            completed = subprocess.run(["docker", *command], check=False, env=environment, stderr=docker_error)
+            if completed.returncode in (125, 126, 127):
+                fail("docker_tooling_unavailable", "Docker could not start the selected setup image. Check the same daemon, saved image and protected mounts, then rerun; raw Docker errors remain private.")
+            if completed.returncode and docker_error.tell():
+                print("Setup stopped: docker_tooling_exit: The selected setup process did not complete. Check its safe setup diagnostics and retry with the same Docker selection; raw Docker stderr remains private.", file=sys.stderr)
         deployment.check_sources()
         if completed.returncode != 0:
             return completed.returncode
@@ -1243,7 +1487,7 @@ def run_setup(deployment, args):
 
 def parser():
     command = argparse.ArgumentParser(description="Set up an existing RatelDesk HTTP MCP deployment on its Docker host.",
-        epilog="Client setup: ./setup-http-mcp.sh --target http-client. Explicit setup before serving is valid needs only the saved Compose sources and a built existing image.")
+        epilog=f"Requires Docker Compose v{COMPOSE_FLOOR}+ with tested source/interpolation/env-file capabilities and access to the selected daemon. DOCKER_CONFIG/context/host/TLS selections are preserved in printed resume commands. No plugin is installed automatically. Client setup: ./setup-http-mcp.sh --target http-client. Explicit setup before serving needs saved Compose sources and a built existing image.")
     command.add_argument("--container")
     command.add_argument("--compose-file", action="append", default=[])
     command.add_argument("--env-file", action="append", default=[])
@@ -1269,6 +1513,7 @@ def main(argv=None):
     if args.target != "http-host" and (args.verify or args.apply or args.preflight):
         fail("mode_conflict", "Client setup verifies its own consumer. --verify, --apply and --preflight belong to host setup.")
     docker = Docker()
+    docker.preflight()
     deployment = Deployment(args, docker)
     if args.verify:
         begin_verification(deployment)

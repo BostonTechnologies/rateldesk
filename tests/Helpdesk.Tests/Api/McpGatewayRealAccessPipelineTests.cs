@@ -12,6 +12,7 @@ using Helpdesk.API.Middleware;
 using Helpdesk.API.Services;
 using Helpdesk.Application.Events;
 using Helpdesk.Application.Sla;
+using Helpdesk.Application.WorkLogs;
 using Helpdesk.Infrastructure.Auth.Rbac;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
@@ -273,6 +274,7 @@ public sealed class McpGatewayRealAccessPipelineTests
             builder.Services.AddScoped<ICurrentUserAccessService, CurrentUserAccessService>();
             builder.Services.AddScoped<ISelfServiceAudienceService, SelfServiceAudienceService>();
             builder.Services.AddScoped<IRepository<Incident>, EfRepository<Incident>>();
+            builder.Services.AddSingleton(Substitute.For<IImageLinkSigner>());
             builder.Services.AddSingleton(Substitute.For<ITicketSlaService>());
             var slaRepository = Substitute.For<ITicketSlaRepository>();
             slaRepository.GetByTicketIdForUpdateAsync(Arg.Any<string>()).Returns(Task.FromResult<TicketSlaState?>(null));

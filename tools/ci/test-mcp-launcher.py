@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -43,6 +44,72 @@ class LauncherContracts(unittest.TestCase):
 
     def deployment(self):
         return launcher.Deployment(self.args, DiscoveryDocker({}))
+
+    def test_approved_legacy_removal_changes_complete_source_without_flattening_expressions_or_shared_definitions(self):
+        source = {"services": {"mcp-http": {"configs": [{"source": "${OUTBOUND_ALIAS}", "target": "${OUTBOUND_PATH}"},
+                    {"source": "other", "target": "/run/rateldesk-mcp-extra/config.json"}],
+                    "env_file": [{"path": "${INSTANCE_ENV}", "required": False}]},
+                "api": {"configs": [{"source": "${OUTBOUND_ALIAS}", "target": "/unrelated/config.json"}]}},
+            "configs": {"legacy": {"file": "${OUTBOUND_FILE}"}}, "volumes": {"database": {"external": True}}}
+        rendered = {"services": {"mcp-http": {"configs": [{"source": "legacy", "target": "/run//rateldesk-mcp/./config.json"},
+            {"source": "other", "target": "/run/rateldesk-mcp-extra/config.json"}]}}}
+        patch_document = {"x-rateldesk-mount-migrations": [{"service": "mcp-http", "kind": "configs", "source": "legacy",
+            "target": "/run/rateldesk-mcp/config.json"}]}
+        before = json.dumps(source)
+        complete_source = launcher.migrated_compose_source(source, rendered, patch_document)
+        self.assertEqual(complete_source["services"]["mcp-http"]["configs"], [{"source": "other", "target": "/run/rateldesk-mcp-extra/config.json"}])
+        self.assertEqual(complete_source["services"]["mcp-http"]["env_file"], source["services"]["mcp-http"]["env_file"])
+        self.assertEqual(complete_source["services"]["api"], source["services"]["api"])
+        self.assertEqual(complete_source["configs"], source["configs"])
+        self.assertEqual(complete_source["volumes"], source["volumes"])
+        self.assertEqual(json.dumps(source), before)
+
+    def test_legacy_removal_fails_closed_for_changed_missing_duplicate_or_unreviewed_mapping(self):
+        migration = {"service": "mcp-http", "kind": "configs", "source": "legacy", "target": "/run/rateldesk-mcp/config.json"}
+        mapping = {"source": "legacy", "target": migration["target"]}
+        for actual, original, changes in (([], [], [migration]), ([mapping, mapping], [mapping, mapping], [migration]),
+                ([mapping], [], [migration]), ([mapping], [mapping], [{**migration, "kind": "secrets"}])):
+            with self.subTest(actual=actual, original=original, changes=changes), self.assertRaisesRegex(launcher.Prerequisite, "approved_mount_migration"):
+                launcher.migrated_compose_source({"services": {"mcp-http": {"configs": original}}},
+                    {"services": {"mcp-http": {"configs": actual}}}, {"x-rateldesk-mount-migrations": changes})
+
+    def test_already_migrated_source_does_not_need_or_repeat_a_removal(self):
+        source = {"services": {"mcp-http": {"configs": [], "volumes": [{"source": "protected", "target": "/run/rateldesk-mcp", "read_only": True}]}}}
+        self.assertEqual(source, launcher.migrated_compose_source(source, source, {}))
+
+    def test_parent_volume_requires_read_only_directory_shape_inspection_before_safe_coexistence(self):
+        model = {"name": "fixture", "services": {"mcp-http": {"volumes": [{"type": "volume", "source": "run", "target": "/run"}]}}, "volumes": {"run": {"name": "fixture-run"}}}
+        for missing, failed in ((True, False), (False, True), (False, False)):
+            calls = []
+            class DirectoryInspectionDocker:
+                def run(self, arguments, **kwargs):
+                    calls.append(arguments)
+                    if arguments[0] == "volume":
+                        return None if missing else b"existing-volume"
+                    return None if failed else b""
+            checks = launcher.inspect_mount_ancestors(DirectoryInspectionDocker(), model, "synthetic-image")
+            self.assertEqual(len(checks), 0 if missing or failed else 1)
+            self.assertFalse(any("create" in call for call in calls))
+            if not missing:
+                inspect = calls[-1]
+                self.assertIn("type=volume,source=fixture-run,target=/ancestor,readonly,volume-nocopy", inspect)
+                self.assertIn("/ancestor/rateldesk-mcp", inspect)
+                self.assertIn("10001:10001", inspect)
+                self.assertNotIn("mkdir", " ".join(inspect))
+
+    def test_real_directory_shape_shell_rejects_regular_and_symlink_intermediate_components(self):
+        root = self.directory / "ancestor"
+        root.mkdir()
+        regular = root / "regular"
+        regular.write_text("synthetic unrelated state")
+        link = root / "link"
+        link.symlink_to(root, target_is_directory=True)
+        for child, succeeds in ((root / "absent", True), (regular, False), (link, False)):
+            result = subprocess.run(["/bin/sh", "-ec", launcher.ANCESTOR_INSPECTION_SCRIPT, "check",
+                str(root), str(child), str(child / "descendant")], capture_output=True, timeout=5)
+            self.assertEqual(result.returncode == 0, succeeds)
+        self.assertEqual(regular.read_text(), "synthetic unrelated state")
+        self.assertEqual(len(list(root.iterdir())), 2)
 
     def test_json_environment_retains_equals_multiline_and_empty(self):
         values = ["ApiBaseUrl=http://api:8222/", "Helpdesk__Mcp__Outbound__IntegrationCredential=a=b\nsecond line",
@@ -116,6 +183,12 @@ class LauncherContracts(unittest.TestCase):
             self.args.compose_file = [str(path)]
             with self.assertRaisesRegex(launcher.Prerequisite, "source_unreadable"):
                 self.deployment()
+        self.assertFalse((self.directory / ".rateldesk-http-mcp-fixture").exists())
+
+    def test_unreadable_interpolation_env_has_distinct_safe_diagnosis(self):
+        self.args.env_file = [str(self.directory / "missing.env")]
+        with self.assertRaisesRegex(launcher.Prerequisite, "compose_env_file_unreadable"):
+            self.deployment()
         self.assertFalse((self.directory / ".rateldesk-http-mcp-fixture").exists())
 
     def test_untracked_compose_dependencies_fail_with_complete_export_action(self):
@@ -263,7 +336,7 @@ class LauncherContracts(unittest.TestCase):
         def initial_observation_failure(**kwargs):
             self.assertEqual(launcher.read_private_json(deployment.output / "launcher-state.json")["phase"], "applied-verify-pending")
             raise launcher.Prerequisite("runtime_image_mismatch")
-        with patch.object(launcher, "Deployment", return_value=deployment), \
+        with patch.object(launcher.Docker, "preflight"), patch.object(launcher, "Deployment", return_value=deployment), \
              patch.object(deployment, "snapshot", side_effect=initial_observation_failure), \
              self.assertRaisesRegex(launcher.Prerequisite, "runtime_image_mismatch"):
             launcher.main(["--verify"])
@@ -515,6 +588,9 @@ class LauncherContracts(unittest.TestCase):
         class RacingDocker:
             def json(self, arguments):
                 if arguments[0] == "compose":
+                    if any(".optional-source-paths.json" in argument for argument in arguments):
+                        probe = json.loads((deployment.output / ".optional-source-paths.json").read_text())
+                        return probe
                     if "--no-env-resolution" not in arguments:
                         environment.write_text("SOURCE=after\n")
                     return json.loads(json.dumps({"services": services}))
@@ -574,6 +650,125 @@ class LauncherContracts(unittest.TestCase):
         self.assertEqual(args.wizard_options[1:], ["--web-url", "https://desk.example.test", "--instance", "stage-$(touch ignored)"])
         self.assertFalse((self.directory / "ignored").exists())
 
+    def test_docker_selection_is_explicit_in_every_process_and_quoted_resume(self):
+        selection = {"DOCKER_CONFIG": str(self.directory / "private config $(touch ignored)"),
+            "DOCKER_CONTEXT": "fixture", "DOCKER_HOST": "tcp://127.0.0.1:2376", "DOCKER_TLS_VERIFY": "1",
+            "DOCKER_CERT_PATH": str(self.directory / "public cert path"), "DOCKER_API_VERSION": "1.47"}
+        with patch.dict(os.environ, selection, clear=True):
+            docker = launcher.Docker()
+        deployment = self.deployment()
+        deployment.docker = docker
+        with patch.dict(os.environ, {"DOCKER_CONFIG": "changed", "DOCKER_CONTEXT": "wrong"}, clear=True):
+            self.assertEqual({key: docker.process_environment()[key] for key in selection}, selection)
+            for mode in ("--apply", "--verify"):
+                command = shlex.split(launcher.resume_command(deployment, mode))
+                self.assertEqual(command[0], "env")
+                for key, value in selection.items():
+                    self.assertIn(key + "=" + value, command)
+                self.assertEqual(command[-1], mode)
+        self.assertFalse((self.directory / "ignored").exists())
+
+    def test_fresh_resume_rejects_different_docker_selection_or_daemon(self):
+        with patch.dict(os.environ, {"DOCKER_CONTEXT": "approved"}, clear=True):
+            docker = launcher.Docker()
+        docker.daemon_identity = "original"
+        docker.check_selection({"dockerSelection": {"DOCKER_CONTEXT": "approved"}, "dockerDaemonIdentity": "original"})
+        with self.assertRaisesRegex(launcher.Prerequisite, "docker_selection_changed"):
+            docker.check_selection({"dockerSelection": {"DOCKER_CONTEXT": "another"}})
+        with self.assertRaisesRegex(launcher.Prerequisite, "docker_daemon_changed"):
+            docker.check_selection({"dockerSelection": {"DOCKER_CONTEXT": "approved"}, "dockerDaemonIdentity": "another"})
+
+    def test_client_tooling_keeps_selection_and_redacts_docker_start_failure(self):
+        deployment = self.deployment()
+        deployment.image, deployment.storage, self.args.target = "fixture", {}, "http-client"
+        with patch.dict(os.environ, {"DOCKER_CONFIG": str(self.directory / "chosen Docker config")}, clear=True):
+            deployment.docker = launcher.Docker()
+        selection = deployment.docker.selection
+        def failed(command, **kwargs):
+            self.assertEqual({key: kwargs["env"][key] for key in selection}, selection)
+            if command[1] == "run":
+                kwargs["stderr"].write(b"private-proxy-credential-never-print")
+                return subprocess.CompletedProcess(command, 125)
+            self.assertEqual(command[1], "rm")
+            return subprocess.CompletedProcess(command, 0)
+        with patch.object(deployment, "prepare_storage"), patch.object(deployment, "check_sources"), \
+                patch.object(launcher, "stage_snapshot"), patch.object(launcher.subprocess, "run", side_effect=failed), \
+                self.assertRaisesRegex(launcher.Prerequisite, "docker_tooling_unavailable") as failure:
+            launcher.run_setup(deployment, self.args)
+        self.assertNotIn("private-proxy", str(failure.exception))
+
+    def test_selected_legacy_config_file_is_captured_without_image_fallback(self):
+        deployment = self.deployment()
+        deployment.provider_source_records = {}
+        protected = self.directory / "legacy protected.json"
+        content = '{"ApiBaseUrl":"http://private-api:8222/","CredentialMode":"authentik","AuthentikAppPasswordFile":"/run/secrets/downstream"}'
+        protected.write_text(content)
+        deployment.rendered = {"configs": {"outbound": {"file": str(protected)}}}
+        copied = []
+        class ProviderDocker:
+            def run(self, arguments, **kwargs):
+                if arguments[0] == "cp":
+                    copied.append(arguments[1])
+                    return None
+                raise AssertionError(arguments)
+        deployment.docker = ProviderDocker()
+        service = {"environment": {"Helpdesk__Mcp__ConfigurationPath": "/run/rateldesk-mcp/config.json"},
+            "configs": [{"source": "outbound", "target": "//run//rateldesk-mcp/./config.json"}]}
+        paths = []
+        result = deployment.configuration_providers("mcp-http", service, "fixture", paths, container="running")
+        self.assertEqual(result[-1]["content"], content)
+        self.assertEqual(paths, [protected])
+        self.assertNotIn("running:/run/rateldesk-mcp/config.json", copied)
+        protected.unlink()
+        with self.assertRaisesRegex(launcher.Prerequisite, "protected_provider_unreadable"):
+            deployment.configuration_providers("mcp-http", service, "fixture", [], container="running")
+        deployment.rendered = {"configs": {"outbound": {"external": True}}}
+        with self.assertRaisesRegex(launcher.Prerequisite, "protected_provider_unreadable"):
+            deployment.configuration_providers("mcp-http", service, "fixture", [], container="running")
+
+    def test_safe_docker_errors_distinguish_source_env_permission_daemon_and_timeout(self):
+        secret = "private-source-value-never-print"
+        cases = [(["compose", "version", "--short"], "docker: compose is not a docker command", "compose_plugin_missing"),
+            (["compose", "config"], "invalid compose syntax " + secret, "compose_source_invalid"),
+            (["compose", "config"], "env file missing " + secret, "compose_env_file_unreadable"),
+            (["compose", "config"], "permission denied " + secret, "compose_source_permission"),
+            (["info"], "Cannot connect to the Docker daemon " + secret, "docker_daemon_unavailable")]
+        for arguments, stderr, code in cases:
+            def failed(command, **kwargs):
+                kwargs["stderr"].write(stderr.encode())
+                return subprocess.CompletedProcess(command, 1)
+            with self.subTest(code=code), patch.object(launcher.subprocess, "run", side_effect=failed), \
+                    self.assertRaisesRegex(launcher.Prerequisite, code) as failure:
+                launcher.Docker().run(arguments)
+            self.assertNotIn(secret, str(failure.exception))
+        with patch.object(launcher.subprocess, "run", side_effect=subprocess.TimeoutExpired("docker", 45)), \
+                self.assertRaisesRegex(launcher.Prerequisite, "docker_timeout"):
+            launcher.Docker().run(["info"])
+        with patch.object(launcher.subprocess, "run", side_effect=FileNotFoundError()), \
+                self.assertRaisesRegex(launcher.Prerequisite, "docker_cli_missing"):
+            launcher.Docker().run(["info"])
+
+    def test_missing_capabilities_stop_before_source_storage_wizard_and_consent(self):
+        for version, missing in (("2.26.1-4", "--no-env-resolution"), ("2.39.4", "--no-path-resolution"),
+                                 ("untrusted version\nprivate-value", "--no-env-resolution")):
+            calls = []
+            def safe_probe(docker, arguments, **kwargs):
+                calls.append(arguments)
+                if arguments == ["compose", "version", "--short"]:
+                    return version.encode()
+                if arguments == ["compose", "config", "--help"]:
+                    return " ".join(flag for flag in launcher.COMPOSE_FLAGS if flag != missing).encode()
+                raise AssertionError("Source, daemon or service operation before capability diagnosis")
+            with self.subTest(version=version), patch.object(launcher.Docker, "run", safe_probe), \
+                    patch.object(launcher, "Deployment") as deployment, \
+                    self.assertRaisesRegex(launcher.Prerequisite, "compose_feature_unsupported") as failure:
+                launcher.main(["--compose-file", "/not-read", "--project", "fixture"])
+            deployment.assert_not_called()
+            self.assertIn(missing, str(failure.exception))
+            self.assertNotIn("private-value", str(failure.exception))
+            self.assertFalse((self.directory / ".rateldesk-http-mcp-fixture").exists())
+            self.assertEqual(len(calls), 2)
+
     def test_storage_descriptors_cannot_smuggle_docker_mount_options(self):
         with self.assertRaisesRegex(launcher.Prerequisite, "storage_source"):
             launcher.mount_argument({"type": "volume", "source": "fixture,readonly", "target": "/output"})
@@ -584,6 +779,21 @@ class LauncherContracts(unittest.TestCase):
 
 
 class ComposeContract(unittest.TestCase):
+    def test_selected_real_plugin_passes_synthetic_source_and_daemon_capability_probes(self):
+        docker = launcher.Docker()
+        docker.preflight()
+        self.assertRegex(docker.daemon_identity, r"^[a-f0-9]{64}$")
+
+    def test_version_text_does_not_override_working_actual_capabilities(self):
+        class VersionDocker(launcher.Docker):
+            def run(self, arguments, **kwargs):
+                if arguments == ["compose", "version", "--short"]:
+                    return b"vendor build with unparseable version\n"
+                return super().run(arguments, **kwargs)
+        docker = VersionDocker()
+        docker.preflight()
+        self.assertEqual(docker.compose_version, "unparseable")
+
     def test_full_manager_document_keeps_unrelated_services_envfiles_and_source_order(self):
         # Compose is the only parser/merge engine. This fast recipe contract
         # needs the CLI plugin, but does not contact a daemon or run an image.

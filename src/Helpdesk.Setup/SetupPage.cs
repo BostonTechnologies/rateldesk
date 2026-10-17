@@ -1,6 +1,7 @@
 using Helpdesk.AgentClient;
 using R3;
 using Termina.Extensions;
+using Termina.Clipboard;
 using Termina.Input;
 using Termina.Layout;
 using Termina.Reactive;
@@ -18,8 +19,12 @@ public sealed class SetupPage : ReactivePage<SetupViewModel>
     private readonly List<TextInputNode> _activeFields = [];
     private ScrollableContainerNode? _scroll;
     private ModalNode? _modal;
+    private readonly IClipboardService? _clipboard;
+    private ScrollableContainerNode? _detailsScroll;
+    private ScrollableContainerNode? _urlScroll;
+    private CopyableTextNode? _approvalUrl;
 
-    public SetupPage(SetupOptions options) { _options = options; FocusPolicy = FocusPolicy.FirstFocusable; }
+    public SetupPage(SetupOptions options, IClipboardService? clipboard = null) { _options = options; _clipboard = clipboard; FocusPolicy = FocusPolicy.FirstFocusable; }
     private Color Accent => _options.Monochrome ? Color.Default : Color.Cyan;
 
     protected override void OnBound()
@@ -53,15 +58,20 @@ public sealed class SetupPage : ReactivePage<SetupViewModel>
         KeyBindings.Register(ConsoleKey.C, ConsoleModifiers.Control, () => _ = ViewModel.CancelAsync());
         KeyBindings.Register(ConsoleKey.Escape, () =>
         {
-            if (ViewModel.ConfirmOverwrite.Value) ViewModel.ConfirmOverwrite.Value = false;
+            if (ViewModel.Step.Value == SetupStep.Approval && ViewModel.DetailsVisible.Value) ViewModel.DetailsVisible.Value = false;
+            else if (ViewModel.ConfirmOverwrite.Value) ViewModel.ConfirmOverwrite.Value = false;
             else if (ViewModel.Step.Value == SetupStep.Complete) ViewModel.RequestShutdown();
             else _ = ViewModel.CancelAsync();
         });
         KeyBindings.Register(ConsoleKey.F2, ViewModel.ToggleAdvanced);
-        KeyBindings.Register(ConsoleKey.PageDown, () => _scroll?.PageDown());
-        KeyBindings.Register(ConsoleKey.PageUp, () => _scroll?.PageUp());
+        KeyBindings.Register(ConsoleKey.D, ConsoleModifiers.Control, ViewModel.ToggleDetails);
+        KeyBindings.Register(ConsoleKey.Y, ConsoleModifiers.Control, CopyApproval);
+        KeyBindings.Register(ConsoleKey.PageDown, () => ActiveScroll()?.PageDown());
+        KeyBindings.Register(ConsoleKey.PageUp, () => ActiveScroll()?.PageUp());
         ViewModel.Step.Subscribe(_ => InvalidateLayout()).DisposeWith(Subscriptions);
         ViewModel.TerminalWidth.DistinctUntilChanged().Subscribe(_ => InvalidateLayout()).DisposeWith(Subscriptions);
+        ViewModel.TerminalHeight.DistinctUntilChanged().Subscribe(_ => InvalidateLayout()).DisposeWith(Subscriptions);
+        ViewModel.DetailsVisible.Subscribe(_ => InvalidateLayout()).DisposeWith(Subscriptions);
         ViewModel.Advanced.Subscribe(_ => InvalidateLayout()).DisposeWith(Subscriptions);
         ViewModel.ConfirmOverwrite.Subscribe(_ => InvalidateLayout()).DisposeWith(Subscriptions);
     }
@@ -85,8 +95,8 @@ public sealed class SetupPage : ReactivePage<SetupViewModel>
         _layoutWiring.Clear();
         _activeFields.Clear();
         var content = BuildStep();
-        _scroll = new ScrollableContainerNode().WithContent(content).WithAutoScroll(AutoScrollPolicy.None).WithScrollbar(true);
-        var form = new PanelNode().WithTitle(Title()).WithBorder(BorderStyle.Single).WithBorderColor(Accent).WithContent(_scroll);
+        _scroll = ViewModel.Step.Value == SetupStep.Approval ? null : new ScrollableContainerNode().WithContent(content).WithAutoScroll(AutoScrollPolicy.None).WithScrollbar(true);
+        var form = new PanelNode().WithTitle(Title()).WithBorder(BorderStyle.Single).WithBorderColor(Accent).WithContent(_scroll is null ? content : _scroll);
         LayoutNode body = ViewModel.TerminalWidth.Value >= 104
             ? Layouts.Horizontal(new TextNode(Stepper()).WithForeground(Accent).Width(20), form.WidthFill())
             : form;
@@ -120,7 +130,8 @@ public sealed class SetupPage : ReactivePage<SetupViewModel>
     private string Title() => ViewModel.Step.Value switch
     {
         SetupStep.Purpose => "Choose a task", SetupStep.Profile => "Client and profile", SetupStep.Instance => "RatelDesk Web URL",
-        SetupStep.Authentication => "Authentication", SetupStep.Approval => "Browser approval", SetupStep.Hosting => "HTTP MCP hosting",
+        SetupStep.Authentication => "Authentication", SetupStep.Approval => ViewModel.ApprovalTitle, SetupStep.Hosting => "HTTP MCP hosting",
+        SetupStep.Verification => "Applied host verification",
         SetupStep.Review => "Review and save", SetupStep.Checks => "Read-only checks", _ => "Result and next steps"
     };
     private string Stepper() => string.Join('\n', new[]
@@ -146,8 +157,74 @@ public sealed class SetupPage : ReactivePage<SetupViewModel>
             SetupStep.Instance => UrlForm(),
             SetupStep.Authentication => AuthenticationForm(),
             SetupStep.Hosting => HostingForm(),
+            SetupStep.Approval => ApprovalForm(),
+            SetupStep.Verification => Layouts.Vertical(
+                new TextNode("Applied—verify pending. Verify the saved, approved host generation; no deployment changes or business client credential are created.").HeightAuto(),
+                new TextNode("Next checks observed runtime and requests temporary status-only consent. Back from consent returns here and cleans up only that temporary verifier.").HeightAuto(),
+                Select(["Next: temporary status verification", "Cancel"], 0, value => { if (value == "Cancel") _ = ViewModel.CancelAsync(); else _ = ViewModel.NextAsync(); })),
             _ => ViewModel.Detail.Select<string, ILayoutNode>(text => new TextNode(text)).AsLayout(RenderFrameProvider)
         };
+    }
+
+    private ScrollableContainerNode? ActiveScroll() => ViewModel.Step.Value != SetupStep.Approval ? _scroll
+        : ViewModel.DetailsVisible.Value ? _detailsScroll : _urlScroll;
+
+    private void CopyApproval()
+    {
+        if (ViewModel.Step.Value != SetupStep.Approval || ViewModel.BrowserUrl is not { } url) return;
+        try
+        {
+            var copied = _clipboard?.Copy(TerminalText.Sanitize(url) + "\nCode: " + TerminalText.Sanitize(ViewModel.HumanCode)) == true;
+            ViewModel.Status.Value = copied ? "Trusted approval URL and short code copied."
+                : "Clipboard unavailable. The full trusted URL and short code remain readable; open them on another device.";
+        }
+        catch { ViewModel.Status.Value = "Clipboard unavailable. The trusted URL and code remain usable; use Tab and PageDown to read a long URL."; }
+    }
+
+    private ILayoutNode ApprovalForm()
+    {
+        // Primary actions never share a scroll region with the proposal or provider diagnostics.
+        // Long URLs have their own bounded region and copy their complete safe value.
+        var width = Math.Max(20, ViewModel.TerminalWidth.Value - (ViewModel.TerminalWidth.Value >= 104 ? 23 : 3));
+        var url = TerminalText.Sanitize(ViewModel.BrowserUrl);
+        var urlHeight = Math.Clamp((url.Length + width - 1) / width, 1, 3);
+        ILayoutNode urlText;
+        if (_clipboard is not null)
+        {
+            _approvalUrl = new CopyableTextNode(_clipboard, url, null).WithHint("")
+                .WithForeground(Accent).WithFocusedColors(Color.Black, Color.White);
+            urlText = _approvalUrl;
+        }
+        else { _approvalUrl = null; urlText = new TextNode(url).WithForeground(Accent); }
+        _urlScroll = new ScrollableContainerNode().WithContent(urlText).WithAutoScroll(AutoScrollPolicy.None).WithScrollbar(true);
+        var summary = TerminalText.Sanitize(ViewModel.ApprovalSummary, 180);
+        if (summary.Length > width) summary = summary[..Math.Max(1, width - 12)] + "… [Details]";
+        var purpose = TerminalText.Sanitize(ViewModel.ApprovalPurpose, 160);
+        var actions = Layouts.Horizontal(
+            Layouts.Vertical(Select(["Open browser", "Copy URL and code", ViewModel.DetailsVisible.Value ? "Close Details" : "Details"], 0, value =>
+            {
+                if (value == "Open browser") _ = ViewModel.OpenBrowserAsync();
+                else if (value == "Copy URL and code") CopyApproval();
+                else ViewModel.ToggleDetails();
+            })).WidthFill(),
+            Layouts.Vertical(Select(["Back", "Cancel"], 0, value => { if (value == "Back") ViewModel.Back(); else _ = ViewModel.CancelAsync(); })).Width(17));
+        var primary = Layouts.Vertical(
+            new TextNode("Trusted instance: " + ViewModel.ApprovalInstance).Height(1),
+            new TextNode(purpose).Height(1),
+            new TextNode("Approval URL · Tab/Enter copies; PageUp/PageDown reads long URLs").Height(1),
+            _urlScroll.Height(urlHeight),
+            new TextNode("Short code: " + TerminalText.Sanitize(ViewModel.HumanCode) + " · " + ViewModel.ApprovalExpiry).WithForeground(Accent).Bold().Height(1),
+            new TextNode(summary).Height(1),
+            actions.Height(3));
+        _detailsScroll = null;
+        if (ViewModel.DetailsVisible.Value)
+        {
+            var detail = ViewModel.Detail.CombineLatest(ViewModel.Status, (text, status) => string.Join('\n', (text + "\n\nStatus: " + status).Split('\n').Select(line => TerminalText.Sanitize(line, 2048))));
+            _detailsScroll = new ScrollableContainerNode().WithContent(detail.Select<string, ILayoutNode>(text => new TextNode(text)).AsLayout(RenderFrameProvider)).WithAutoScroll(AutoScrollPolicy.None).WithScrollbar(true);
+            // Fill only the remaining body; the fixed primary block keeps code/actions visible.
+            primary.WithChild(new PanelNode().WithTitle("Details · PageUp/PageDown · Esc closes").WithBorder(BorderStyle.Single).WithContent(_detailsScroll).Fill());
+        }
+        return primary;
     }
 
     private ILayoutNode UrlForm()

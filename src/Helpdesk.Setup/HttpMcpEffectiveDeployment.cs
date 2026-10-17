@@ -18,6 +18,7 @@ public sealed record HttpMcpDeploymentProposal(HttpMcpHostingSettings Settings, 
 {
     public bool Valid => Diagnostics.Count == 0;
     public string? SnapshotPath { get; init; }
+    public JsonObject CompleteDeployment { get; init; } = new();
     public IReadOnlyList<HostDeploymentSetting> ReviewSettings { get; init; } = [];
     public HostDeploymentProposalRequest Approval => new("RatelDesk HTTP MCP deployment", ProposalHash, SourceHash,
         Settings.PublicOrigin, Settings.PublicResourceUri, Settings.Instance, Settings.AuthenticationMode,
@@ -31,6 +32,9 @@ public static class HttpMcpEffectiveDeployment
     public const string RuntimeSourceVariable = "RATELDESK_SETUP_RUNTIME_ENVIRONMENT_SOURCE";
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private static readonly string[] Services = ["api", "web", "mcp-http"];
+    private const string RuntimeDirectory = "/run/rateldesk-mcp";
+    private const string RuntimeConfiguration = RuntimeDirectory + "/config.json";
+    private const string Migrations = "x-rateldesk-mount-migrations";
 
     public static HttpMcpDeploymentProposal Create(HttpMcpHostingSettings settings, string? snapshotPath = null)
     {
@@ -44,16 +48,18 @@ public static class HttpMcpEffectiveDeployment
             : settings.Outbound is { } outbound ? HttpMcpHostingCoordinator.ContainerOutbound(outbound) : null };
         var overlay = HttpMcpHostingCoordinator.ComposeOverlay(settings);
         PrepareOverlay(overlay, source, settings);
-        var proposed = source.DeepClone().AsObject();
-        Merge(proposed, overlay);
-        ProposedOutbound(proposed, settings);
-        var diagnostics = Validate(proposed, settings).Concat(HttpMcpHostingCoordinator.Validate(settings).Select(message =>
+        var migrationDiagnostics = PrepareLegacyMigration(overlay, source, settings);
+        var proposed = Materialize(source, overlay, settings);
+        var sourceMountDiagnostics = new List<DeploymentDiagnostic>();
+        ValidateMountCollisions(source, (code, layer, key, message, origin) =>
+            sourceMountDiagnostics.Add(new(code, layer, key, origin, message, "Resolve the indicated owning mount before approval; setup only migrates the selected legacy config mapping.")), overlay[Migrations] as JsonArray);
+        var diagnostics = migrationDiagnostics.Concat(sourceMountDiagnostics).Concat(Validate(proposed, settings)).Concat(HttpMcpHostingCoordinator.Validate(settings).Select(message =>
             new DeploymentDiagnostic("HOST_SETTINGS_INVALID", "proposal", "reviewed hosting settings", "reviewed proposal", message, "Correct the indicated setting in Advanced before approval."))).ToArray();
-        var changes = SemanticChanges(source, proposed);
+        var changes = SemanticChanges(source, proposed, overlay);
         var sourceHash = Hash(text);
         var proposalHash = Hash(Canonical(proposed) + "\n" + sourceHash);
         return new(settings, sourceHash, proposalHash, overlay, diagnostics, changes)
-        { SnapshotPath = snapshotPath, ReviewSettings = Review(proposed, settings, sourceHash) };
+        { SnapshotPath = snapshotPath, CompleteDeployment = proposed, ReviewSettings = Review(proposed, settings, sourceHash) };
     }
 
     public static HttpMcpHostingSettings Adopt(HttpMcpHostingSettings fallback, string? snapshotPath = null)
@@ -159,8 +165,7 @@ public static class HttpMcpEffectiveDeployment
         var runtime = Parse(SecureConfigurationFiles.ReadPrivateDocument(runtimePath));
         var failures = Validate(runtime, approved.Settings).ToList();
         var source = Parse(SecureConfigurationFiles.ReadPrivateDocument(approved.SnapshotPath ?? Environment.GetEnvironmentVariable(EffectiveSourceVariable)!));
-        var proposed = source.DeepClone().AsObject(); Merge(proposed, approved.Overlay);
-        ProposedOutbound(proposed, approved.Settings);
+        var proposed = Materialize(source, approved.Overlay, approved.Settings);
         foreach (var service in Services)
         {
             if (EffectiveFingerprint(proposed, service) != EffectiveFingerprint(runtime, service))
@@ -174,6 +179,11 @@ public static class HttpMcpEffectiveDeployment
                 runtime["x-rateldesk-image-ids"]?[service]?.GetValue<string>() != expectedImage)
                 failures.Add(new("HOST_RUNTIME_IMAGE", service, "image", "Docker image ID", "The running image differs from the reviewed image.", "Revalidate the changed image before approval."));
         }
+        var desiredRuntime = Mounts(proposed, "mcp-http").FirstOrDefault(mount => mount.Kind == "volumes" && mount.Target == RuntimeDirectory);
+        var observedRuntime = Mounts(runtime, "mcp-http").FirstOrDefault(mount => mount.Kind == "volumes" && mount.Target == RuntimeDirectory);
+        if (desiredRuntime is null || observedRuntime is null || desiredRuntime.Type != observedRuntime.Type ||
+            VolumeName(proposed, desiredRuntime.Source) != VolumeName(runtime, observedRuntime.Source))
+            failures.Add(new("HOST_RUNTIME_CONFIG_STORAGE_MISMATCH", "mcp-http", "protected runtime volume", "observed Docker mount identity", "The running protected configuration store differs from the reviewed persistent volume.", "Recreate the service from the approved complete deployment before verification."));
         return failures;
     }
 
@@ -190,13 +200,28 @@ public static class HttpMcpEffectiveDeployment
     public static IReadOnlyList<DeploymentDiagnostic> CheckApprovedEffective(HttpMcpDeploymentProposal approved, JsonObject current)
     {
         var original = Parse(SecureConfigurationFiles.ReadPrivateDocument(approved.SnapshotPath!));
-        var expected = original.DeepClone().AsObject(); Merge(expected, approved.Overlay); ProposedOutbound(expected, approved.Settings);
+        var expected = Materialize(original, approved.Overlay, approved.Settings);
         var failures = Validate(current, approved.Settings).ToList();
         foreach (var service in Services)
             if (EffectiveFingerprint(current, service) != EffectiveFingerprint(expected, service) ||
+                MountFingerprint(current, service) != MountFingerprint(expected, service) ||
                 original["x-rateldesk-image-ids"]?[service]?.ToString() != current["x-rateldesk-image-ids"]?[service]?.ToString())
                 failures.Add(new("HOST_SOURCE_CHANGED", service, "effective imported configuration", "reviewed complete deployment document", "The imported effective configuration differs from the approved generation.", "Review the current sources before resuming."));
+        if (MountFingerprint(current, "mcp-config-init") != MountFingerprint(expected, "mcp-config-init") ||
+            !JsonNode.DeepEquals(current["services"]?["mcp-config-init"]?["command"], expected["services"]?["mcp-config-init"]?["command"]) ||
+            !JsonNode.DeepEquals(current["services"]?["mcp-config-init"]?["entrypoint"], expected["services"]?["mcp-config-init"]?["entrypoint"]))
+            failures.Add(new("HOST_SOURCE_CHANGED", "mcp-config-init", "protected initializer", "reviewed complete deployment document", "The complete deployment initializer differs from the bounded approved generation.", "Review the current sources before resuming."));
         return failures;
+    }
+
+    public static IReadOnlyList<DeploymentDiagnostic> ValidateExport(HttpMcpDeploymentProposal approved, JsonObject exported)
+    {
+        // The host renders the actual manager document through Compose. Retain
+        // reviewed protected providers/image metadata, but validate its real final
+        // services and mount definitions rather than the generated fragment.
+        var complete = approved.CompleteDeployment.DeepClone().AsObject();
+        foreach (var entry in exported) complete[entry.Key] = entry.Value?.DeepClone();
+        return CheckApprovedEffective(approved, complete);
     }
 
     private static void PrepareOverlay(JsonObject overlay, JsonObject source, HttpMcpHostingSettings settings)
@@ -246,11 +271,15 @@ public static class HttpMcpEffectiveDeployment
         initializer["user"] = "0:0";
         initializer["entrypoint"] = new JsonArray("/bin/sh", "-ec");
         initializer["command"] = new JsonArray("mkdir -p /run/rateldesk-mcp && cp /output/mcp-outbound.json /run/rateldesk-mcp/config.json && chown 10001:10001 /run/rateldesk-mcp/config.json && chmod 0400 /run/rateldesk-mcp/config.json");
-        var configVolumeName = "mcp-http-config";
+        // Reuse a reviewed existing private runtime volume, including its Compose
+        // alias, so an already-migrated stack does not accumulate generations.
+        var configVolumeName = Mounts(source, "mcp-http").FirstOrDefault(mount => mount.Kind == "volumes" &&
+            mount.Type == "volume" && mount.Target == RuntimeDirectory && mount.ReadOnly && !string.IsNullOrWhiteSpace(mount.Source))?.Source ?? "mcp-http-config";
         var initMounts = new JsonArray(new JsonObject { ["type"] = "volume", ["source"] = configVolumeName, ["target"] = "/run/rateldesk-mcp" });
         if (mounts.FirstOrDefault(mount => mount?["target"]?.GetValue<string>() == "/output") is { } hostMount) initMounts.Add(hostMount.DeepClone());
         initializer["volumes"] = initMounts;
-        overlay["volumes"] ??= new JsonObject(); overlay["volumes"]![configVolumeName] ??= new JsonObject();
+        overlay["volumes"] ??= new JsonObject();
+        overlay["volumes"]![configVolumeName] ??= source["volumes"]?[configVolumeName]?.DeepClone() ?? new JsonObject();
         mounts.Add(new JsonObject { ["type"] = "volume", ["source"] = configVolumeName, ["target"] = "/run/rateldesk-mcp", ["read_only"] = true });
         mcp["volumes"] = mounts;
         mcp["depends_on"] = new JsonObject { ["mcp-config-init"] = new JsonObject { ["condition"] = "service_completed_successfully" } };
@@ -258,11 +287,7 @@ public static class HttpMcpEffectiveDeployment
 
     private static void ValidateStorage(JsonObject complete, Action<string, string, string, string, string> fail)
     {
-        string? ResolveMount(JsonNode? mount)
-        {
-            var source = mount?["source"]?.GetValue<string>();
-            return mount?["type"]?.GetValue<string>() == "volume" ? complete["volumes"]?[source ?? ""]?["name"]?.GetValue<string>() ?? source : source;
-        }
+        string ResolveMount(DeploymentMount mount) => mount.Type == "volume" ? VolumeName(complete, mount.Source) : mount.Source;
         foreach (var kind in new[] { "host", "client" })
         {
             var storage = complete["x-rateldesk-storage"]?[kind];
@@ -271,15 +296,177 @@ public static class HttpMcpEffectiveDeployment
                 fail("HOST_STORAGE_REQUIRED", "storage", kind, "Private writable persistent storage must be tested as the serving identity before approval.", "Docker host storage preflight");
             var target = storage?["target"]?.GetValue<string>();
             var source = storage?["source"]?.GetValue<string>();
-            if (complete["services"]?["mcp-http"]?["volumes"] is not JsonArray servingMounts ||
-                !servingMounts.Any(mount => mount?["target"]?.GetValue<string>() == target && ResolveMount(mount) == source && mount?["read_only"]?.GetValue<bool>() != true))
+            if (!Mounts(complete, "mcp-http").Any(mount => mount.Kind == "volumes" && mount.Target == target && ResolveMount(mount) == source && !mount.ReadOnly))
                 fail("HOST_STORAGE_MOUNT_MISSING", "storage", kind, "The serving MCP deployment must mount the reviewed private persistent store writable at its exact setup path.", "effective Compose mounts");
         }
         if (complete["x-rateldesk-storage"]?["host"]?["source"]?.GetValue<string>() == complete["x-rateldesk-storage"]?["client"]?["source"]?.GetValue<string>())
             fail("HOST_STORAGE_ISOLATION", "storage", "client", "Personal client secrets require a separate persistent store.", "Docker host storage preflight");
         var clientSource = complete["x-rateldesk-storage"]?["client"]?["source"]?.GetValue<string>();
-        if (complete["services"]?["api"]?["volumes"] is JsonArray apiMounts && apiMounts.Any(mount => ResolveMount(mount) == clientSource))
+        if (Mounts(complete, "api").Any(mount => mount.Kind == "volumes" && ResolveMount(mount) == clientSource))
             fail("HOST_STORAGE_API_EXPOSURE", "storage", "client", "API must not receive personal client storage.", "effective Compose mounts");
+        if (!Mounts(complete, "mcp-http").Any(mount => mount.Kind == "volumes" && mount.Target == RuntimeDirectory && mount.Type == "volume" && mount.ReadOnly))
+            fail("HOST_RUNTIME_CONFIG_MOUNT", "mcp-http", "protected runtime configuration", "The serving MCP process requires its reviewed protected runtime volume mounted read-only.", "complete Compose mount destinations");
+        ValidateMountCollisions(complete, fail);
+    }
+
+    private sealed record DeploymentMount(string Kind, string Source, string Target, string Type, bool ReadOnly);
+
+    private static string VolumeName(JsonObject complete, string source) => complete["volumes"]?[source]?["name"]?.GetValue<string>() ??
+        (complete["volumes"]?[source]?["external"]?.GetValue<bool>() != true && complete["name"]?.GetValue<string>() is { } project ? project + "_" + source : source);
+
+    private static string MountFingerprint(JsonObject complete, string service) => Hash(JsonSerializer.Serialize(Mounts(complete, service)
+        .Select(mount => mount with { Source = mount.Type == "volume" ? VolumeName(complete, mount.Source) : mount.Source })
+        .OrderBy(mount => mount.Kind, StringComparer.Ordinal).ThenBy(mount => mount.Target, StringComparer.Ordinal).ToArray(), Json));
+
+    // Docker destinations use Linux path semantics even when setup runs on another
+    // host OS. Resolve segments rather than comparing arbitrary string prefixes.
+    private static string NormalizeDestination(string path)
+    {
+        if (!path.StartsWith('/') || path.Any(char.IsControl) || path.Contains('\\'))
+            throw new AgentClientValidationException("HOST_MOUNT_PATH_INVALID: Restore an explicit absolute Linux mount destination before approval.");
+        var segments = new List<string>();
+        foreach (var segment in path.Split('/', StringSplitOptions.RemoveEmptyEntries))
+            if (segment == ".") continue;
+            else if (segment == "..") { if (segments.Count > 0) segments.RemoveAt(segments.Count - 1); }
+            else segments.Add(segment);
+        return "/" + string.Join('/', segments);
+    }
+
+    private static bool Overlaps(string left, string right) => left == right || left == "/" || right == "/" ||
+        left.StartsWith(right + "/", StringComparison.Ordinal) || right.StartsWith(left + "/", StringComparison.Ordinal);
+
+    private static string VolumeDestination(JsonNode? mount)
+    {
+        if (mount is JsonObject map) return NormalizeDestination(map["target"]?.GetValue<string>() ?? "");
+        if (mount is JsonValue value && value.TryGetValue<string>(out var text))
+        {
+            var parts = text.Split(':');
+            var options = parts.Length > 1 && !parts[^1].StartsWith('/');
+            return NormalizeDestination(parts[parts.Length - (options ? 2 : 1)]);
+        }
+        throw new AgentClientValidationException("HOST_MOUNT_INVALID: Restore a valid bounded Compose volume before approval.");
+    }
+
+    private static IEnumerable<DeploymentMount> Mounts(JsonObject complete, string service)
+    {
+        foreach (var kind in new[] { "volumes", "configs", "secrets" })
+        {
+            if (complete["services"]?[service]?[kind] is not JsonArray mounts) continue;
+            foreach (var node in mounts)
+            {
+                string source, target, type;
+                bool readOnly;
+                if (node is JsonObject mount)
+                {
+                    source = mount["source"]?.GetValue<string>() ?? "";
+                    target = mount["target"]?.GetValue<string>() ?? (kind == "configs" ? "/" + source : kind == "secrets" ? "/run/secrets/" + source : "");
+                    type = mount["type"]?.GetValue<string>() ?? (kind == "volumes" ? "volume" : kind);
+                    readOnly = kind != "volumes" || mount["read_only"]?.GetValue<bool>() == true;
+                }
+                else if (node is JsonValue value && value.TryGetValue<string>(out var shortMount))
+                {
+                    if (kind == "volumes")
+                    {
+                        var parts = shortMount.Split(':');
+                        var options = parts.Length > 1 && !parts[^1].StartsWith('/') ? parts[^1].Split(',') : [];
+                        var targetIndex = parts.Length - (options.Length > 0 ? 2 : 1);
+                        target = parts[targetIndex];
+                        source = targetIndex == 0 ? "" : string.Join(':', parts.Take(targetIndex));
+                        type = source.StartsWith('/') || source.StartsWith('.') ? "bind" : "volume";
+                        readOnly = options.Contains("ro", StringComparer.Ordinal);
+                    }
+                    else { source = shortMount; target = kind == "configs" ? "/" + source : "/run/secrets/" + source; type = kind; readOnly = true; }
+                }
+                else throw new AgentClientValidationException("HOST_MOUNT_INVALID: Restore a valid bounded Compose mount before approval.");
+                yield return new(kind, source, NormalizeDestination(target), type, readOnly);
+            }
+        }
+    }
+
+    private static void ValidateMountCollisions(JsonObject complete, Action<string, string, string, string, string> fail, JsonArray? migrations = null)
+    {
+        var reserved = new[] { RuntimeDirectory, "/output", "/var/lib/rateldesk/http-client" };
+        foreach (var service in new[] { "mcp-http", "mcp-config-init" })
+        {
+            var mounts = Mounts(complete, service).ToArray();
+            foreach (var mount in mounts)
+            {
+                if (mount.Kind == "volumes" && mount.Target == RuntimeDirectory && string.IsNullOrWhiteSpace(mount.Source))
+                {
+                    fail("HOST_RUNTIME_CONFIG_STORAGE_REQUIRED", service, "protected runtime volume", "Anonymous runtime storage cannot be bound to an approved generation. Select an explicit named private persistent configuration volume before approval.", "complete Compose mount destinations");
+                    continue;
+                }
+                if (migrations?.Any(item => item?["service"]?.GetValue<string>() == service && item["kind"]?.GetValue<string>() == mount.Kind && item["source"]?.GetValue<string>() == mount.Source && item["target"]?.GetValue<string>() == mount.Target) == true) continue;
+                foreach (var root in reserved.Where(root => Overlaps(root, mount.Target)))
+                {
+                    // A parent volume can contain a file or symlink at the child
+                    // destination. Permit it only after bounded read-only inspection
+                    // confirms every existing child component is a directory.
+                    var safeAncestor = mount.Kind == "volumes" && mount.Type == "volume" && !mount.ReadOnly && mount.Target != "/" &&
+                        root.StartsWith(mount.Target + "/", StringComparison.Ordinal) &&
+                        complete["x-rateldesk-mount-ancestor-checks"] is JsonArray checks && checks.Any(check =>
+                            check?["service"]?.GetValue<string>() == service && check["source"]?.GetValue<string>() == VolumeName(complete, mount.Source) &&
+                            check["target"]?.GetValue<string>() == mount.Target && check["children"] is JsonArray children && children.Any(child => child?.GetValue<string>() == root));
+                    var known = mount.Kind == "volumes" && !string.IsNullOrWhiteSpace(mount.Source) && mount.Target == root &&
+                        (root == RuntimeDirectory ? mount.Type == "volume" && mount.ReadOnly == (service == "mcp-http") : !mount.ReadOnly &&
+                            complete["x-rateldesk-storage"]?[root == "/output" ? "host" : "client"] is { } store &&
+                            store["type"]?.GetValue<string>() == mount.Type &&
+                            (mount.Type == "volume" ? complete["volumes"]?[mount.Source]?["name"]?.GetValue<string>() ?? mount.Source : mount.Source) == store["source"]?.GetValue<string>());
+                    if (!known && !safeAncestor)
+                        fail("HOST_MOUNT_COLLISION", service, mount.Kind + ":" + root,
+                            "An unrecognized mount overlaps reviewed setup storage or the protected runtime configuration. Resolve this owning mapping before approval; unrelated mounts are retained.", "complete Compose mount destinations");
+                }
+            }
+            foreach (var root in reserved)
+                if (mounts.Count(mount => mount.Target == root) > 1)
+                    fail("HOST_MOUNT_COLLISION", service, root, "Multiple effective mounts select the same reviewed setup destination.", "complete Compose mount destinations");
+        }
+    }
+
+    private static IReadOnlyList<DeploymentDiagnostic> PrepareLegacyMigration(JsonObject overlay, JsonObject source, HttpMcpHostingSettings settings)
+    {
+        var legacy = Mounts(source, "mcp-http").Where(mount => mount.Kind == "configs" && mount.Target == RuntimeConfiguration).ToArray();
+        if (legacy.Length == 0) return [];
+        DeploymentDiagnostic Failure() => new("HOST_LEGACY_CONFIG_SOURCE", "mcp-http", "selected outbound configuration", "protected provider capture",
+            "The legacy runtime mapping requires one captured, valid selected outbound provider matching the reviewed identity before replacement.",
+            "Restore the exact readable selected config source and its private identity references, then run host setup for a new review.");
+        try
+        {
+            using var configuration = Configuration(source, "mcp-http");
+            var env = EnvironmentFor(source, "mcp-http");
+            var selected = configuration["Helpdesk:Mcp:ConfigurationPath"];
+            if (string.IsNullOrWhiteSpace(selected)) selected = env.GetValueOrDefault("RATELDESK_MCP_CONFIG");
+            var files = source["x-rateldesk-protected-configuration"]?["mcp-http"]?.AsArray();
+            var captured = files?.Where(file => file?["path"]?.GetValue<string>() is { } path && NormalizeDestination(path) == RuntimeConfiguration).ToArray();
+            if (legacy.Length != 1 || selected is null || NormalizeDestination(selected) != RuntimeConfiguration || captured is not { Length: 1 } ||
+                source["configs"]?[legacy[0].Source] is not JsonObject || captured[0]?["content"]?.GetValue<string>() is not { } content || string.IsNullOrWhiteSpace(content)) return [Failure()];
+            if (captured[0]?["sha256"]?.GetValue<string>() is { } hash && !string.Equals(Hash(content), hash, StringComparison.OrdinalIgnoreCase)) return [Failure()];
+            var actual = Outbound(source, configuration, env);
+            var prior = actual.Resolve();
+            var reviewed = settings.Outbound?.Resolve();
+            if (reviewed is null || prior != reviewed || configuration["Helpdesk:Mcp:AuthenticationMode"] is { } mode && mode != settings.AuthenticationMode) return [Failure()];
+            overlay[Migrations] = new JsonArray(new JsonObject { ["service"] = "mcp-http", ["kind"] = "configs", ["source"] = legacy[0].Source, ["target"] = RuntimeConfiguration });
+            return [];
+        }
+        catch (Exception error) when (error is InvalidOperationException or AgentClientValidationException or FormatException or JsonException or ArgumentException or IOException or UnauthorizedAccessException)
+        { return [Failure()]; }
+    }
+
+    private static JsonObject Materialize(JsonObject source, JsonObject overlay, HttpMcpHostingSettings settings)
+    {
+        var proposed = source.DeepClone().AsObject();
+        if (overlay[Migrations] is JsonArray migrations)
+            foreach (var migration in migrations)
+            {
+                var service = migration!["service"]!.GetValue<string>(); var kind = migration["kind"]!.GetValue<string>();
+                var selected = Mounts(proposed, service).Where(mount => mount.Kind == kind).ToArray();
+                var mappings = proposed["services"]![service]![kind]!.AsArray();
+                for (var index = mappings.Count - 1; index >= 0; index--)
+                    if (selected[index].Source == migration["source"]!.GetValue<string>() && selected[index].Target == migration["target"]!.GetValue<string>()) mappings.RemoveAt(index);
+            }
+        Merge(proposed, overlay);
+        ProposedOutbound(proposed, settings);
+        return proposed;
     }
 
     private static void ValidateRoutes(IConfiguration configuration, HttpMcpHostingSettings expected, Action<string, string, string, string, string> fail)
@@ -299,7 +486,7 @@ public static class HttpMcpEffectiveDeployment
     {
         complete["x-rateldesk-protected-configuration"] ??= new JsonObject();
         var files = complete["x-rateldesk-protected-configuration"]!["mcp-http"] as JsonArray ?? new JsonArray();
-        var remaining = files.Where(file => file?["path"]?.GetValue<string>() != "/run/rateldesk-mcp/config.json").Select(file => file?.DeepClone()).ToList();
+        var remaining = files.Where(file => file?["path"]?.GetValue<string>() is not { } path || NormalizeDestination(path) != RuntimeConfiguration).Select(file => file?.DeepClone()).ToList();
         remaining.Add(new JsonObject { ["path"] = "/run/rateldesk-mcp/config.json", ["source"] = "reviewed protected outbound export",
             ["content"] = JsonSerializer.Serialize(settings.AuthenticationMode == "gateway" ? AgentClientConfiguration.Empty with { ApiBaseUrl = settings.ApiBaseUrl, CredentialMode = "gateway" } : settings.Outbound, AgentClientConfiguration.JsonOptions) });
         complete["x-rateldesk-protected-configuration"]!["mcp-http"] = new JsonArray(remaining.ToArray());
@@ -310,9 +497,14 @@ public static class HttpMcpEffectiveDeployment
         // Materialize no protected files in the operator's profile. The actual resolver gets a private transient snapshot.
         var configuredPath = configuration["Helpdesk:Mcp:ConfigurationPath"];
         var selected = string.IsNullOrWhiteSpace(configuredPath) ? environment.GetValueOrDefault("RATELDESK_MCP_CONFIG") : configuredPath;
+        if (!string.IsNullOrWhiteSpace(selected)) selected = NormalizeDestination(selected);
         string? candidate = null;
         if (complete["x-rateldesk-protected-configuration"]?["mcp-http"] is JsonArray files)
-            candidate = files.FirstOrDefault(file => file?["path"]?.GetValue<string>() == selected)?["content"]?.GetValue<string>();
+        {
+            var matches = files.Where(file => file?["path"]?.GetValue<string>() is { } path && NormalizeDestination(path) == selected).ToArray();
+            if (matches.Length > 1) throw new AgentClientValidationException("HOST_OUTBOUND_PROVIDER_CONFLICT: The selected protected MCP configuration has conflicting captured sources. Restore one exact serving source before approval.");
+            candidate = matches.FirstOrDefault()?["content"]?.GetValue<string>();
+        }
         if (!string.IsNullOrWhiteSpace(selected) && candidate is null)
             throw new AgentClientValidationException("HOST_OUTBOUND_PROVIDER_MISSING: The selected protected MCP configuration is not in the reviewed snapshot. Restore its exact serving source before approval.");
         string? temporary = null;
@@ -518,9 +710,11 @@ public static class HttpMcpEffectiveDeployment
     }
     private static bool Relevant(string key) => key.StartsWith("Helpdesk__Mcp__", StringComparison.OrdinalIgnoreCase) || key.StartsWith("Authentication__AuthentikMcp__", StringComparison.OrdinalIgnoreCase) || key.StartsWith("WebGateway__", StringComparison.OrdinalIgnoreCase) || key.StartsWith("IntegrationCredentials__Pairing__", StringComparison.OrdinalIgnoreCase) || key.Equals("NO_PROXY", StringComparison.OrdinalIgnoreCase) || key is "ApiBaseUrl" or "ASPNETCORE_URLS" or "RATELDESK_MCP_CONFIG";
     private static bool Same(string? left, string? right) => Uri.TryCreate(left, UriKind.Absolute, out var first) && Uri.TryCreate(right, UriKind.Absolute, out var second) && AgentClientConfigurationValidator.SameTarget(first, second);
-    private static IReadOnlyList<string> SemanticChanges(JsonObject source, JsonObject proposed)
+    private static IReadOnlyList<string> SemanticChanges(JsonObject source, JsonObject proposed, JsonObject overlay)
     {
         var changes = new List<string>();
+        if (overlay[Migrations] is JsonArray { Count: > 0 })
+            changes.Add("Migrate the selected legacy config-file mapping at /run/rateldesk-mcp/config.json to the validated protected initializer and read-only runtime volume; preserve the reviewed identity and shared config definitions.");
         foreach (var service in Services)
         {
             var before = EnvironmentFor(source, service);
@@ -574,7 +768,7 @@ public static class HttpMcpEffectiveDeployment
             else if (entry.Key == "volumes" && entry.Value is JsonArray mounts && target[entry.Key] is JsonArray previous)
             {
                 var merged = previous.Select(item => item?.DeepClone()).ToList();
-                foreach (var mount in mounts) { merged.RemoveAll(item => item?["target"]?.ToString() == mount?["target"]?.ToString()); merged.Add(mount?.DeepClone()); }
+                foreach (var mount in mounts) { merged.RemoveAll(item => VolumeDestination(item) == VolumeDestination(mount)); merged.Add(mount?.DeepClone()); }
                 target[entry.Key] = new JsonArray(merged.ToArray());
             }
             else target[entry.Key] = entry.Value?.DeepClone();

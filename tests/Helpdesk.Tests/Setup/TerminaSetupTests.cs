@@ -377,6 +377,239 @@ public sealed class TerminaSetupTests
         finally { temporary.Delete(recursive: true); }
     }
 
+    [Fact]
+    public async Task Compact_client_approval_retains_controls_with_long_details_errors_and_resize()
+    {
+        var workflow = new FakeWorkflow { PairingAvailable = true,
+            VerificationUrl = "https://" + new string('a', 60) + "." + new string('b', 60) + ".example/account/integration-credentials/approve" };
+        await using var terminal = await Wizard.StartAsync(workflow, new(Monochrome: true));
+        await terminal.AdvanceToAuthenticationAsync();
+        terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
+        await terminal.WaitStepAsync(SetupStep.Approval);
+        await terminal.Application.InvokeAsync(() => terminal.Model.Detail.Value = string.Join('\n', Enumerable.Repeat("Synthetic redacted deployment detail", 300)));
+        await terminal.WaitAsync(() => terminal.CurrentScreen.Contains("TRUST-CODE", StringComparison.Ordinal));
+        Assert.Contains("Client access approval", terminal.CurrentScreen);
+        Assert.Contains("Open browser", terminal.CurrentScreen);
+        Assert.Contains("Copy URL and code", terminal.CurrentScreen);
+        Assert.Contains("Details", terminal.CurrentScreen);
+        Assert.Contains("Cancel", terminal.CurrentScreen);
+        Assert.DoesNotContain("Synthetic redacted", terminal.CurrentScreen);
+        terminal.Input.EnqueueKey(ConsoleKey.D, control: true);
+        await terminal.WaitAsync(() => terminal.Model.DetailsVisible.Value && terminal.CurrentScreen.Contains("Details ·", StringComparison.Ordinal));
+        Assert.Contains("TRUST-CODE", terminal.CurrentScreen);
+        Assert.Contains("Open browser", terminal.CurrentScreen);
+        Assert.Contains("Back", terminal.CurrentScreen);
+        terminal.Input.EnqueueKey(ConsoleKey.Tab); // Move focus off the independently scrollable/copyable URL.
+        terminal.Input.EnqueueKey(ConsoleKey.PageDown);
+        await terminal.Application.InvokeAsync(() => terminal.Model.Status.Value = string.Concat(Enumerable.Repeat("Safe recoverable error. ", 100)));
+        Assert.Contains("TRUST-CODE", terminal.CurrentScreen);
+        terminal.Screen.Resize(120, 32); terminal.Input.EnqueueResize(120, 32);
+        await terminal.WaitAsync(() => terminal.Model.TerminalWidth.Value == 120);
+        Assert.Contains("TRUST-CODE", terminal.CurrentScreen);
+        terminal.Input.EnqueueKey(ConsoleKey.Escape);
+        await terminal.WaitAsync(() => !terminal.Model.DetailsVisible.Value);
+        Assert.Equal(SetupStep.Approval, terminal.Model.Step.Value);
+        terminal.Input.EnqueueKey(ConsoleKey.O, control: true);
+        await terminal.WaitAsync(() => workflow.OpenBrowserCount == 1);
+        terminal.Input.EnqueueKey(ConsoleKey.B, control: true);
+        await terminal.WaitStepAsync(SetupStep.Authentication);
+        Assert.Equal("https://desk.example", terminal.Model.Instance.Value);
+        Assert.Equal("default", terminal.Model.Profile.Value);
+        Assert.Equal("browser", terminal.Model.Authentication);
+        Assert.Null(terminal.Model.BrowserUrl);
+        Assert.Equal(1, workflow.CancelCount);
+    }
+
+    [Fact]
+    public async Task Client_Back_fences_delayed_old_approval_and_does_not_overwrite_new_session()
+    {
+        var oldPoll = new TaskCompletionSource<PairingPollResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var workflow = new FakeWorkflow { PairingAvailable = true, PollTask = oldPoll.Task };
+        await using var terminal = await Wizard.StartAsync(workflow);
+        await terminal.AdvanceToAuthenticationAsync();
+        terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
+        await terminal.WaitAsync(() => workflow.PollCount == 1);
+        terminal.Input.EnqueueKey(ConsoleKey.B, control: true);
+        await terminal.WaitStepAsync(SetupStep.Authentication);
+        workflow.PollTask = null;
+        terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
+        await terminal.WaitStepAsync(SetupStep.Approval);
+        Assert.Equal(2, workflow.StartCount);
+        oldPoll.SetResult(new("issued", 1, new(Guid.NewGuid(), "rdk_prefix", "rdk_obsolete", "api", "org-old", ["Incident.Read"], DateTimeOffset.UtcNow.AddDays(1), null)));
+        await terminal.Application.InvokeAsync(() => { });
+        await Task.Delay(50);
+        Assert.Equal(SetupStep.Approval, terminal.Model.Step.Value);
+        Assert.Equal(0, workflow.SaveCount);
+        Assert.DoesNotContain("org-old", terminal.Model.Detail.Value);
+    }
+
+    [Fact]
+    public async Task Host_Back_preserves_draft_and_obsolete_approval_cannot_advance_edited_proposal()
+    {
+        var previous = Environment.GetEnvironmentVariable(HttpMcpEffectiveDeployment.EffectiveSourceVariable);
+        var directory = Directory.CreateTempSubdirectory("rateldesk-host-navigation-");
+        var source = Path.Combine(directory.FullName, "source.json");
+        SecureConfigurationFiles.WriteAtomic(source, HttpMcpEffectiveDeploymentTests.Complete().ToJsonString());
+        Environment.SetEnvironmentVariable(HttpMcpEffectiveDeployment.EffectiveSourceVariable, source);
+        var hosts = new List<FakeHostWorkflow>();
+        try
+        {
+            await using var terminal = await Wizard.StartAsync(new FakeWorkflow(), new(Hosting: true, OutputDirectory: Path.Combine(directory.FullName, "output")),
+                hostFactory: _ => { var host = new FakeHostWorkflow(); hosts.Add(host); return host; });
+            terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
+            await terminal.WaitStepAsync(SetupStep.Hosting);
+            terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
+            await terminal.WaitStepAsync(SetupStep.Approval);
+            await terminal.WaitAsync(() => hosts[0].PollCount == 1);
+            var originalHash = hosts[0].Proposal!.ProposalHash;
+            Assert.Contains("Host deployment approval", terminal.CurrentScreen);
+            Assert.Contains("HOST-CODE", terminal.CurrentScreen);
+            terminal.Input.EnqueueKey(ConsoleKey.B, control: true);
+            await terminal.WaitStepAsync(SetupStep.Hosting);
+            Assert.True(terminal.Model.IsHosting);
+            Assert.Equal(HttpMcpEffectiveDeploymentTests.Settings.PublicOrigin, terminal.Model.HostPublicOrigin.Value);
+            Assert.Equal("gateway", terminal.Model.HostAuthentication);
+            Assert.Equal(Path.Combine(directory.FullName, "output"), terminal.Model.OutputDirectory.Value);
+            await terminal.Application.InvokeAsync(() => { terminal.Model.Listener.Value = "http://+:8323"; terminal.Model.McpBackend.Value = "http://mcp-http:8323/"; });
+            terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
+            await terminal.WaitStepAsync(SetupStep.Approval);
+            Assert.Equal(2, hosts.Count);
+            Assert.NotEqual(originalHash, hosts[1].Proposal!.ProposalHash);
+            hosts[0].CompleteApproved();
+            await Task.Delay(50);
+            Assert.Equal(SetupStep.Approval, terminal.Model.Step.Value);
+            Assert.Equal(SetupApprovalContext.Host, terminal.Model.ApprovalContext);
+            Assert.Equal("http://+:8323", terminal.Model.Listener.Value);
+            Assert.Equal(1, hosts[0].CancelCount);
+            Assert.Equal(0, hosts.Sum(host => host.SaveCount));
+        }
+        finally { Environment.SetEnvironmentVariable(HttpMcpEffectiveDeployment.EffectiveSourceVariable, previous); directory.Delete(true); }
+    }
+
+    [Theory]
+    [InlineData("pending")]
+    [InlineData("denied")]
+    [InlineData("expired")]
+    public async Task Verifier_Back_returns_to_applied_checkpoint_and_cleans_only_temporary_consent(string status)
+    {
+        var verifiers = new List<FakeVerificationWorkflow>();
+        var client = new FakeWorkflow();
+        await using var terminal = await Wizard.StartAsync(client, new() { VerificationDirectory = "/private/host" },
+            verificationFactory: _ => { var verifier = new FakeVerificationWorkflow(status); verifiers.Add(verifier); return verifier; });
+        await terminal.WaitStepAsync(SetupStep.Approval);
+        Assert.Equal(SetupApprovalContext.Verification, terminal.Model.ApprovalContext);
+        Assert.Contains("Temporary status verification", terminal.CurrentScreen);
+        Assert.Contains("VERIFY-CODE", terminal.CurrentScreen);
+        await terminal.WaitAsync(() => verifiers[0].PollCount == 1);
+        terminal.Input.EnqueueKey(ConsoleKey.B, control: true);
+        await terminal.WaitStepAsync(SetupStep.Verification);
+        Assert.Equal(1, verifiers[0].DisposeCount);
+        Assert.Contains("Applied—verify pending", terminal.Model.Status.Value);
+        Assert.Null(terminal.Model.BrowserUrl);
+        terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
+        await terminal.WaitStepAsync(SetupStep.Approval);
+        Assert.Equal(2, verifiers.Count);
+        Assert.Equal(0, client.StartCount);
+        Assert.Equal(0, client.SaveCount);
+        terminal.Input.EnqueueKey(ConsoleKey.Escape);
+        await terminal.Run.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Equal(1, verifiers[1].DisposeCount);
+        Assert.Equal(130, terminal.Model.ExitCode);
+    }
+
+    [Fact]
+    public async Task Verifier_Back_waits_for_real_delayed_protocol_poll_before_cleanup_and_new_consent()
+    {
+        var directory = Directory.CreateTempSubdirectory("rateldesk-verifier-navigation-");
+        var adapters = new List<DelayedVerificationWorkflow>();
+        try
+        {
+            await using var terminal = await Wizard.StartAsync(new FakeWorkflow(), new() { VerificationDirectory = directory.FullName },
+                verificationFactory: _ => { var adapter = new DelayedVerificationWorkflow(Path.Combine(directory.FullName, "cleanup.json")); adapters.Add(adapter); return adapter; });
+            await terminal.WaitStepAsync(SetupStep.Approval);
+            await adapters[0].PollStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            terminal.Input.EnqueueKey(ConsoleKey.B, control: true);
+            await terminal.WaitStepAsync(SetupStep.Verification);
+            Assert.Equal(0, adapters[0].DisposeCount);
+            terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
+            await terminal.WaitAsync(() => terminal.Model.Busy.Value);
+            Assert.Single(adapters);
+            adapters[0].ReleasePoll();
+            await terminal.WaitAsync(() => adapters.Count == 2 && terminal.Model.Step.Value == SetupStep.Approval && !terminal.Model.Busy.Value);
+            Assert.Equal(1, adapters[0].DisposeCount);
+            Assert.Equal(1, adapters[0].Cancellations);
+            Assert.Equal(0, adapters[0].RunCount);
+            Assert.DoesNotContain("rdk_delayed_verifier", terminal.RecordedRender);
+            terminal.Input.EnqueueKey(ConsoleKey.Escape);
+            await terminal.Run.WaitAsync(TimeSpan.FromSeconds(3));
+            Assert.Equal(1, adapters[1].DisposeCount);
+            Assert.False(File.Exists(Path.Combine(directory.FullName, "cleanup.json")));
+        }
+        finally { directory.Delete(true); }
+    }
+
+    private sealed class DelayedVerificationWorkflow : IHostVerificationWorkflow
+    {
+        private readonly SetupVerificationSession _session;
+        private readonly TaskCompletionSource<HttpResponseMessage> _poll = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource PollStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public string Origin => "https://desk.example";
+        public bool Supported => true;
+        public int DisposeCount { get; private set; }
+        public int Cancellations { get; private set; }
+        public int RunCount { get; private set; }
+        public DelayedVerificationWorkflow(string cleanup)
+        { _session = new(Origin, cleanup, new HttpClient(new VerificationTransport(this))); }
+        public Task<PairingSession> StartAsync(CancellationToken ct) => _session.StartAsync(ct);
+        public Task<PairingPollResult> PollAsync(CancellationToken ct) => _session.PollAsync(ct);
+        public Task<HostVerificationResult> RunAsync(CancellationToken ct) { RunCount++; throw new InvalidOperationException("Obsolete verification must not run checks."); }
+        public async ValueTask DisposeAsync() { await _session.DisposeAsync(); DisposeCount++; }
+        public void ReleasePoll() => _poll.SetResult(Json(new PairingPollResult("issued", 1,
+            new(Guid.NewGuid(), "rdk_prefix", "rdk_delayed_verifier", "mcp", "synthetic-org", [], DateTimeOffset.UtcNow.AddMinutes(4), Origin + "/mcp") { GrantKind = "setup-verification" })));
+        private static HttpResponseMessage Json(object value) => new(System.Net.HttpStatusCode.OK)
+        { Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(value, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))) };
+        private sealed class VerificationTransport(DelayedVerificationWorkflow owner) : HttpMessageHandler
+        {
+            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+            {
+                var path = request.RequestUri!.AbsolutePath;
+                if (path.EndsWith("capabilities", StringComparison.Ordinal)) return Task.FromResult(Json(new PairingCapabilities("RatelDesk", 1, true, owner.Origin, owner.Origin + "/account/integration-credentials/approve", 30, 90) { SetupVerificationSupported = true }));
+                if (path.EndsWith("start", StringComparison.Ordinal)) return Task.FromResult(Json(new PairingSession(new string('c', 64), "VERIFY-CODE", owner.Origin + "/account/integration-credentials/approve", DateTimeOffset.UtcNow.AddMinutes(5), 1)));
+                if (path.EndsWith("poll", StringComparison.Ordinal)) { owner.PollStarted.TrySetResult(); return owner._poll.Task; }
+                if (path.EndsWith("cancel", StringComparison.Ordinal)) { owner.Cancellations++; return Task.FromResult(Json(new { })); }
+                throw new InvalidOperationException("Unexpected verification fixture route.");
+            }
+        }
+    }
+
+    private sealed class FakeHostWorkflow : IHostDeploymentWorkflow
+    {
+        private readonly TaskCompletionSource<Helpdesk.Shared.DTOs.Auth.HostDeploymentApprovalStatus> _poll = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public HttpMcpDeploymentProposal? Proposal { get; private set; }
+        public int PollCount { get; private set; }
+        public int CancelCount { get; private set; }
+        public int SaveCount { get; private set; }
+        public Task<PairingSession> StartAsync(HttpMcpDeploymentProposal proposal, CancellationToken ct)
+        { Proposal = proposal; return Task.FromResult(new PairingSession(new string('a', 64), "HOST-CODE", proposal.Settings.PublicOrigin + "/account/integration-credentials/approve?kind=host", DateTimeOffset.UtcNow.AddMinutes(5), 1)); }
+        public Task<Helpdesk.Shared.DTOs.Auth.HostDeploymentApprovalStatus> PollAsync(PairingSession session, CancellationToken ct) { PollCount++; return _poll.Task; }
+        public void CompleteApproved() => _poll.TrySetResult(new("approved", Proposal!.ProposalHash, Proposal.SourceHash, "synthetic-admin", DateTimeOffset.UtcNow));
+        public Task CancelAsync(PairingSession session, CancellationToken ct) { CancelCount++; return Task.CompletedTask; }
+        public Task<HttpMcpHostingExport> SaveApprovedAsync(HttpMcpDeploymentProposal proposal, PairingSession session, string directory, bool overwrite, CancellationToken ct) { SaveCount++; throw new InvalidOperationException("No export expected in navigation tests."); }
+        public void Dispose() { }
+    }
+
+    private sealed class FakeVerificationWorkflow(string status) : IHostVerificationWorkflow
+    {
+        public string Origin => "https://desk.example";
+        public bool Supported => true;
+        public int DisposeCount { get; private set; }
+        public int PollCount { get; private set; }
+        public Task<PairingSession> StartAsync(CancellationToken ct) => Task.FromResult(new PairingSession(new string('b', 64), "VERIFY-CODE", Origin + "/account/integration-credentials/approve", DateTimeOffset.UtcNow.AddMinutes(5), 1));
+        public Task<PairingPollResult> PollAsync(CancellationToken ct) { PollCount++; return Task.FromResult(new PairingPollResult(status, 1, null)); }
+        public Task<HostVerificationResult> RunAsync(CancellationToken ct) => throw new InvalidOperationException("No verifier checks expected before approval.");
+        public ValueTask DisposeAsync() { DisposeCount++; return ValueTask.CompletedTask; }
+    }
+
     private sealed class Wizard : IAsyncDisposable
     {
         private readonly TextWriter _priorOutput;
@@ -396,19 +629,24 @@ public sealed class TerminaSetupTests
                 return System.Text.RegularExpressions.Regex.Replace(rendered, @"\x1B\[[0-?]*[ -/]*[@-~]", "");
             }
         }
+        public string CurrentScreen
+        {
+            get { string screen = ""; Application.InvokeAsync(() => screen = string.Join('\n', Screen.GetAllLines())).GetAwaiter().GetResult(); return screen; }
+        }
         public SetupViewModel Model => _runtime.ViewModel;
         public Termina.TerminaApplication Application => _runtime.Application;
         public Task Run { get; }
-        private Wizard(FakeWorkflow workflow, SetupOptions options)
+        private Wizard(FakeWorkflow workflow, SetupOptions options, Func<string, IHostDeploymentWorkflow>? hostFactory, Func<string, IHostVerificationWorkflow>? verificationFactory)
         {
             _priorOutput = Console.Out; Console.SetOut(_captured);
-            _runtime = SetupRunner.CreateHost(options, workflow, Input, Screen);
+            _runtime = SetupRunner.CreateHost(options, workflow, Input, Screen, hostFactory, verificationFactory);
             Assert.Same(Screen, _runtime.Host.Services.GetRequiredService<IAnsiTerminal>());
             Run = _runtime.Host.RunAsync(_deadline.Token);
         }
-        public static async Task<Wizard> StartAsync(FakeWorkflow workflow, SetupOptions? options = null)
+        public static async Task<Wizard> StartAsync(FakeWorkflow workflow, SetupOptions? options = null,
+            Func<string, IHostDeploymentWorkflow>? hostFactory = null, Func<string, IHostVerificationWorkflow>? verificationFactory = null)
         {
-            var wizard = new Wizard(workflow, options ?? new());
+            var wizard = new Wizard(workflow, options ?? new(), hostFactory, verificationFactory);
             await wizard.Application.InvokeAsync(() => { }).WaitAsync(TimeSpan.FromSeconds(3));
             return wizard;
         }
@@ -451,6 +689,9 @@ public sealed class TerminaSetupTests
         public bool Managed { get; init; }
         public bool PairingAvailable { get; init; }
         public string PollStatus { get; init; } = "pending";
+        public string? VerificationUrl { get; init; }
+        public Task<PairingPollResult>? PollTask { get; set; }
+        public int PollCount { get; private set; }
         public string DeliveredGrantKind { get; init; } = "ordinary";
         public PendingPairingProfile? Pending { get; init; }
         public Task<PairingCapabilities?>? Discovery { get; init; }
@@ -478,9 +719,10 @@ public sealed class TerminaSetupTests
         public void PreflightStorage(string profile, SetupTransport transport)
         { StorageCheckCount++; if (StorageFailure) throw new AgentClientValidationException("Private durable storage is unavailable."); }
         public Task<PairingSession> StartAsync(string origin, string profile, SetupTransport transport, CancellationToken ct)
-        { StartCount++; return Task.FromResult(new PairingSession("private-device-capability", "TRUST-CODE", origin.TrimEnd('/') + "/account/integration-credentials/approve", DateTimeOffset.UtcNow.AddMinutes(5), 1)); }
-        public Task<PairingPollResult> PollAsync(string origin, PairingSession session, CancellationToken ct) => Task.FromResult(
-            _acknowledged ? new PairingPollResult("consumed", 1, null) : new(PollStatus, 1, PollStatus == "issued" ? new(Guid.NewGuid(), "rdk_prefix", "rdk_browser_private", "api", "org-enabled-one", ["ticket.view"], DateTimeOffset.UtcNow.AddDays(30), null) { GrantKind = DeliveredGrantKind } : null, DateTimeOffset.UtcNow.AddMinutes(2)));
+        { StartCount++; return Task.FromResult(new PairingSession("private-device-capability", "TRUST-CODE", VerificationUrl ?? origin.TrimEnd('/') + "/account/integration-credentials/approve", DateTimeOffset.UtcNow.AddMinutes(5), 1)); }
+        public Task<PairingPollResult> PollAsync(string origin, PairingSession session, CancellationToken ct)
+        { PollCount++; return PollTask ?? Task.FromResult(
+            _acknowledged ? new PairingPollResult("consumed", 1, null) : new(PollStatus, 1, PollStatus == "issued" ? new(Guid.NewGuid(), "rdk_prefix", "rdk_browser_private", "api", "org-enabled-one", ["ticket.view"], DateTimeOffset.UtcNow.AddDays(30), null) { GrantKind = DeliveredGrantKind } : null, DateTimeOffset.UtcNow.AddMinutes(2))); }
         public Task CancelAsync(string origin, PairingSession session, CancellationToken ct) { CancelCount++; return Task.CompletedTask; }
         public Task AcknowledgeAsync(string origin, PairingSession session, Guid id, CancellationToken ct)
         { Events.Add("ack"); _acknowledged = true; if (LoseAcknowledgementResponse) throw new HttpRequestException(); return Task.CompletedTask; }
