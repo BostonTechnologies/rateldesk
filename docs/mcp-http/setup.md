@@ -12,7 +12,7 @@ explicitly selected external Authentik/OAuth mode; its complete reference is
 
 ## Verify or change the server
 
-Use Web, API, HTTP MCP and tools from the same verified release. You need Docker access on the deployment host, administrator access to RatelDesk, its public HTTPS Web URL and authority to apply through the existing deployment owner. Preserve the database, ingress, volumes and protected configuration.
+Use tools from a verified release and record the existing Web, API and HTTP MCP versions. Verifying a compatible existing deployment does not require upgrading its running services. You need Docker access on the deployment host, administrator access to RatelDesk, its public HTTPS Web URL and authority to apply through the existing deployment owner. Preserve the database, ingress, volumes and protected configuration.
 
 1. Extract the verified deployment archive and matching native CLI or stdio
    archive into private tools directories. Open a terminal **on the Docker
