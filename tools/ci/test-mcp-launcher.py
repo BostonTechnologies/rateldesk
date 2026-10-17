@@ -896,6 +896,31 @@ class LauncherContracts(unittest.TestCase):
                 self.assertRaisesRegex(launcher.Prerequisite, "docker_cli_missing"):
             launcher.Docker().run(["info"])
 
+    def test_export_validation_errors_report_only_fixed_rule_labels_and_keep_raw_values_private(self):
+        private = "synthetic-protected-value-never-print"
+        stderr = ("HOST_SOURCE_CHANGED [mcp-config-init] service configuration (" + private + "): " + private + "\n"
+            "HOST_SOURCE_CHANGED [deployment] configs references (" + private + "): " + private + "\n"
+            "HOST_SOURCE_CHANGED [" + private + "] " + private + " (" + private + "): " + private + "\n"
+            "HOST_EFFECTIVE_INVALID [configuration] effective configuration (" + private + "): " + private + "\n"
+            "HOST_" + private.upper() + ": " + private)
+        def failed(command, **kwargs):
+            kwargs["stderr"].write(stderr.encode())
+            return subprocess.CompletedProcess(command, 78)
+        arguments = ["run", "--rm", "synthetic-image", "host", "export-check", "--export-directory", "/output"]
+        with patch.object(launcher.subprocess, "run", side_effect=failed), \
+                self.assertRaisesRegex(launcher.Prerequisite, "docker_operation") as failure:
+            launcher.Docker().run(arguments)
+        self.assertEqual(["HOST_EFFECTIVE_INVALID", "HOST_SOURCE_CHANGED", "HOST_SOURCE_CHANGED[deployment:configs references]",
+            "HOST_SOURCE_CHANGED[mcp-config-init:service configuration]"], failure.exception.export_validation_rules)
+        self.assertNotIn(private, str(failure.exception))
+        self.assertNotIn(private, repr(failure.exception.export_validation_rules))
+        self.assertNotIn(private.upper(), repr(failure.exception.export_validation_rules))
+        # The same stderr from another command must retain the generic error;
+        # deployment-controlled process output is never a general diagnostic API.
+        with patch.object(launcher.subprocess, "run", side_effect=failed), self.assertRaises(launcher.Prerequisite) as failure:
+            launcher.Docker().run(["run", "--rm", "synthetic-image", "host", "preflight"])
+        self.assertFalse(hasattr(failure.exception, "export_validation_rules"))
+
     def test_missing_capabilities_stop_before_source_storage_wizard_and_consent(self):
         for version, missing in (("2.26.1-4", "--no-env-resolution"), ("2.39.4", "--no-path-resolution"),
                                  ("untrusted version\nprivate-value", "--no-env-resolution")):

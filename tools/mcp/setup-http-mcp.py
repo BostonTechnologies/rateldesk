@@ -56,6 +56,31 @@ def fail(code, action):
     raise Prerequisite(f"{code}: {action}")
 
 
+def export_validation_rules(reason):
+    """Return fixed rule labels only; never forward validator/process text."""
+    codes = ("HOST_SOURCE_CHANGED", "HOST_EXPORT_CHANGED", "HOST_EFFECTIVE_INVALID", "HOST_SERVICE_MISSING",
+        "HOST_SERVICE_ROLE_CONFLICT", "HOST_MOUNT_COLLISION", "HOST_RUNTIME_CONFIG_MOUNT",
+        "HOST_RUNTIME_CONFIG_STORAGE_REQUIRED", "HOST_STORAGE_REQUIRED", "HOST_STORAGE_MOUNT_MISSING",
+        "HOST_STORAGE_ISOLATION", "HOST_STORAGE_API_EXPOSURE", "HOST_API_TARGET_MISMATCH",
+        "HOST_AUTHENTICATION_MISMATCH", "HOST_RESOURCE_MISMATCH", "HOST_PAIRING_ORIGIN_MISMATCH",
+        "HOST_INSTANCE_MISMATCH", "HOST_LISTENER_MISMATCH", "HOST_EFFECTIVE_OPTIONS_MISMATCH",
+        "HOST_ROUTE_INVALID", "HOST_ROUTE_DESTINATION", "MCP_OPTIONS_INVALID", "MCP_EXTERNAL_INVALID",
+        "MCP_OUTBOUND_MODE", "WEB_MCP_DISABLED")
+    topology = [(service, key) for service in SERVICE_NAMES for key in
+                ("service configuration", "effective imported configuration")]
+    topology += [("deployment", key) for key in ("defined service inventory", "volumes references", "configs references",
+        "secrets references", "networks references")]
+    topology += [("mcp-config-init", "service configuration"), ("mcp-config-init", "protected initializer")]
+    rules = set()
+    for line in reason.splitlines():
+        for code in codes:
+            if line.startswith(code.casefold() + " ") or line.startswith(code.casefold() + ":"):
+                labels = [f"{code}[{layer}:{key}]" for layer, key in topology if code == "HOST_SOURCE_CHANGED"
+                          and line.startswith(f"{code} [{layer}] {key} (".casefold())]
+                rules.update(labels or [code])
+    return sorted(rules)[:16]
+
+
 def safe_label(value, maximum=256):
     if not isinstance(value, str) or len(value) > maximum or any(ord(c) < 32 or ord(c) == 127 for c in value):
         fail("deployment_metadata", "Saved Docker metadata is malformed. Restore its actual source or supply the explicit source options.")
@@ -367,6 +392,12 @@ class Docker:
                     return None
                 error.seek(0)
                 reason = error.read(8192).decode("utf-8", errors="replace").casefold()
+                if any(arguments[index:index + 2] == ["host", "export-check"] for index in range(len(arguments) - 1)):
+                    rules = export_validation_rules(reason)
+                    if rules:
+                        failure = Prerequisite("docker_operation: The approved export failed its serving and mount validation; raw process output remains private.")
+                        failure.export_validation_rules = rules
+                        raise failure
                 if arguments[:2] == ["compose", "version"]:
                     fail("compose_plugin_missing", "The selected Docker CLI cannot run its Compose plugin. Select an existing verified tool with --compose-binary /absolute/path/docker-compose --compose-sha256 EXPECTED_SHA256, or explicitly prepare pinned private Compose with --prepare-compose /absolute/private/directory (offline: add --compose-cache /absolute/platform/file). Otherwise install Docker Compose v2.35+ through the host supported package channel and rerun; no plugin/config/context was changed.")
                 if "permission denied" in reason or "access is denied" in reason:
@@ -1939,8 +1970,11 @@ def export_complete_document(deployment, container, attempt):
     try:
         deployment.docker.run(tooling_arguments(deployment) + ["--rm", deployment.image,
             "host", "export-check", "--export-directory", HOST_TARGET], maximum=16384)
-    except Prerequisite:
-        fail("complete_export_invalid", "The complete manager document failed the approved serving and mount validation. Nothing was applied. Resolve its owning sources and run ordinary setup.")
+    except Prerequisite as error:
+        rules = getattr(error, "export_validation_rules", [])
+        diagnostic = " Validation rules: " + ", ".join(rules) + "." if rules else ""
+        fail("complete_export_invalid", "The complete manager document failed the approved serving and mount validation."
+            + diagnostic + " Nothing was applied. Resolve its owning sources and run ordinary setup.")
     deployment.check_sources()
     # Ordinary client setup and new verification replace effective-deployment.
     # Retain this exact receipt-bound source for dependency continuity after the
