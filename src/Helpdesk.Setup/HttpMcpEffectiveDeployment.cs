@@ -514,6 +514,19 @@ public static class HttpMcpEffectiveDeployment
         var existing = Outbound(source, mcp, EnvironmentFor(source, "mcp-http"));
         if ((mcp["urls"] ?? mcp["DOTNET_URLS"] ?? mcp["ASPNETCORE_URLS"]) == settings.Listener)
             mcpEnvironment.Remove("ASPNETCORE_URLS");
+        try
+        {
+            // Bind through the serving options so an implicit default does not
+            // become a new override or require recreating the MCP service.
+            var http = mcp.GetSection(HelpdeskMcpHttpOptions.SectionName).Get<HelpdeskMcpHttpOptions>() ?? new();
+            if (http.DelegationTimeoutSeconds == settings.DelegationTimeoutSeconds)
+                mcpEnvironment.Remove("Helpdesk__Mcp__DelegationTimeoutSeconds");
+        }
+        catch (InvalidOperationException)
+        {
+            // Retain an explicit correction when the current value cannot bind;
+            // the proposed deployment must still pass the serving validators.
+        }
         if (existing.ApiBaseUrl is { } existingApi && Same(existingApi, settings.ApiBaseUrl))
             mcpEnvironment.Remove("Helpdesk__Mcp__Outbound__ApiBaseUrl");
         if (existing.CredentialMode == settings.AuthenticationMode && settings.AuthenticationMode == "gateway")

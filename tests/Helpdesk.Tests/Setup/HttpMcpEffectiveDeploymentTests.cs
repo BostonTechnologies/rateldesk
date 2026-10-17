@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Helpdesk.AgentClient;
+using Helpdesk.Mcp.Http.Configuration;
 using Helpdesk.Setup;
 using Helpdesk.Shared.DTOs.Auth;
 using Microsoft.Extensions.Configuration;
@@ -371,6 +372,99 @@ public sealed class HttpMcpEffectiveDeploymentTests
         Env(expected, "mcp-http")["Helpdesk__Mcp__DelegationTimeoutSeconds"] = "21";
         Assert.True(JsonNode.DeepEquals(expected, proposal.CompleteDeployment));
         Assert.Equal(sourceBytes, File.ReadAllBytes(fixture.Source));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Web_enable_change_preserves_the_implicit_mcp_timeout_without_an_mcp_patch(bool legacyFile)
+    {
+        using var fixture = new Fixture();
+        var source = FourServiceGateway(legacyFile);
+        Env(source, "mcp-http").Remove("Helpdesk__Mcp__DelegationTimeoutSeconds");
+        Assert.Empty(source["x-rateldesk-image-environment"]!["mcp-http"]!.AsArray());
+        Assert.All(Files(source, "mcp-http"), file => Assert.DoesNotContain("DelegationTimeoutSeconds", file!["content"]!.GetValue<string>()));
+        Assert.Empty(HttpMcpEffectiveDeployment.Validate(source, Settings));
+        Env(source, "web")["WebGateway__Mcp__Enabled"] = "false";
+        var disabled = HttpMcpEffectiveDeployment.Validate(source, Settings);
+        Assert.Contains(disabled, diagnostic => diagnostic.Code == "WEB_MCP_DISABLED");
+        Assert.All(disabled, diagnostic => Assert.True(diagnostic.Code == "WEB_MCP_DISABLED" ||
+            diagnostic.Code == "HOST_ROUTE_INVALID" && diagnostic.Key == "/mcp/{**catch-all}"));
+        fixture.WriteSource(source);
+        var sourceBytes = File.ReadAllBytes(fixture.Source);
+        var settings = HttpMcpEffectiveDeployment.Adopt(Settings, fixture.Source);
+        Assert.Equal(new HelpdeskMcpHttpOptions().DelegationTimeoutSeconds, settings.DelegationTimeoutSeconds);
+
+        var proposal = HttpMcpEffectiveDeployment.Create(settings);
+
+        Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
+        var expectedOverlay = JsonNode.Parse("""{"services":{"web":{"environment":{"WebGateway__Mcp__Enabled":"true"}}}}""");
+        Assert.True(JsonNode.DeepEquals(expectedOverlay, proposal.Overlay), proposal.Overlay.ToJsonString());
+        var expected = source.DeepClone().AsObject();
+        Env(expected, "web")["WebGateway__Mcp__Enabled"] = "true";
+        Assert.True(JsonNode.DeepEquals(expected, proposal.CompleteDeployment));
+        Assert.Equal(4, proposal.ServiceCountAfter);
+        Assert.Equal(sourceBytes, File.ReadAllBytes(fixture.Source));
+    }
+
+    [Theory]
+    [InlineData("implicit-default", 20, 21)]
+    [InlineData("environment", 35, 20)]
+    [InlineData("protected-file", 35, 20)]
+    [InlineData("image-environment", 35, 20)]
+    [InlineData("command", 35, 20)]
+    public void Requested_timeout_changes_are_preserved_after_resolving_the_current_option(string provider, int currentTimeout, int requestedTimeout)
+    {
+        using var fixture = new Fixture();
+        var source = FourServiceGateway();
+        const string key = "Helpdesk__Mcp__DelegationTimeoutSeconds";
+        Env(source, "mcp-http").Remove(key);
+        switch (provider)
+        {
+            case "implicit-default": Assert.Equal(new HelpdeskMcpHttpOptions().DelegationTimeoutSeconds, currentTimeout); break;
+            case "environment": Env(source, "mcp-http")[key] = currentTimeout.ToString(); break;
+            case "protected-file": Files(source, "mcp-http").Add(Provider("/app/appsettings.json", JsonSerializer.Serialize(new { Helpdesk = new { Mcp = new { DelegationTimeoutSeconds = currentTimeout } } }))); break;
+            case "image-environment": source["x-rateldesk-image-environment"]!["mcp-http"] = new JsonArray(key + "=" + currentTimeout); break;
+            case "command": source["services"]!["mcp-http"]!["command"] = new JsonArray("--Helpdesk:Mcp:DelegationTimeoutSeconds=" + currentTimeout); break;
+            default: throw new ArgumentOutOfRangeException(nameof(provider));
+        }
+        Assert.Empty(HttpMcpEffectiveDeployment.Validate(source, Settings with { DelegationTimeoutSeconds = currentTimeout }));
+        fixture.WriteSource(source);
+
+        var proposal = HttpMcpEffectiveDeployment.Create(Settings with { DelegationTimeoutSeconds = requestedTimeout });
+
+        var service = Assert.Single(proposal.Overlay["services"]!.AsObject());
+        Assert.Equal("mcp-http", service.Key);
+        var setting = Assert.Single(service.Value!["environment"]!.AsObject());
+        Assert.Equal(key, setting.Key);
+        Assert.Equal(requestedTimeout.ToString(), setting.Value!.GetValue<string>());
+        if (provider == "command")
+            Assert.Contains(proposal.Diagnostics, diagnostic => diagnostic.Code == "HOST_EFFECTIVE_OPTIONS_MISMATCH");
+        else
+            Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
+        var driftedProvider = source.DeepClone().AsObject();
+        Env(driftedProvider, "mcp-http")[key] = "36";
+        Assert.Contains(HttpMcpEffectiveDeployment.CheckApprovedEffective(proposal, driftedProvider), diagnostic => diagnostic.Code == "HOST_SOURCE_CHANGED");
+    }
+
+    [Fact]
+    public void Malformed_existing_timeout_can_be_corrected_with_an_explicit_reviewed_value()
+    {
+        using var fixture = new Fixture();
+        var source = FourServiceGateway();
+        const string key = "Helpdesk__Mcp__DelegationTimeoutSeconds";
+        Env(source, "mcp-http")[key] = "not-a-timeout";
+        Assert.Contains(HttpMcpEffectiveDeployment.Validate(source, Settings), diagnostic => diagnostic.Code == "HOST_EFFECTIVE_INVALID");
+        fixture.WriteSource(source);
+
+        var proposal = HttpMcpEffectiveDeployment.Create(Settings);
+
+        Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
+        var service = Assert.Single(proposal.Overlay["services"]!.AsObject());
+        Assert.Equal("mcp-http", service.Key);
+        var setting = Assert.Single(service.Value!["environment"]!.AsObject());
+        Assert.Equal(key, setting.Key);
+        Assert.Equal(Settings.DelegationTimeoutSeconds.ToString(), setting.Value!.GetValue<string>());
     }
 
     [Fact]
