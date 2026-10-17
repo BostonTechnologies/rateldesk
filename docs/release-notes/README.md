@@ -1,5 +1,15 @@
 # Release notes
 
+## 0.1.2-beta.4 candidate
+
+[MCP campaign corrections](0.1.2-beta.4.md) address persistence/response safety,
+search/priority/routes, executable discovery and Pending Emails application
+dialogs. See the [regression manifest](../implementation/0.1.2-beta.4-mcp-regressions.md)
+and [operation contracts](../contracts/mcp-operation-contracts.md). Delivery
+[#218](https://github.com/BostonTechnologies/RatelDesk/issues/218) and the later
+deployed owner campaign [#219](https://github.com/BostonTechnologies/RatelDesk/issues/219)
+have separate acceptance gates; candidate notes establish no publication or GO.
+
 ## 0.1.2-beta.3 candidate
 
 The candidate separates **Verify existing deployment**, **Prepare configuration

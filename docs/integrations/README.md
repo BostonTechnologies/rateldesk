@@ -7,6 +7,7 @@
 - [NetRatel system connections](netratel-pairing.md)
 - [NetRatel orchestrator](netratel-orchestrator.md)
 - [Mailbox ingestion and delivery](mailbox-ingestion.md)
+- [MCP operation contracts and authority](../contracts/mcp-operation-contracts.md)
 
 Account-owned API/MCP credentials, NetClaw device pairing and NetRatel system
 connections are separate authorities. Use the guide for the intended connection.

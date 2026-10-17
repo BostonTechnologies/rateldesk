@@ -15,5 +15,7 @@ share the Web public origin or use an explicitly configured standalone origin.
   headers, streaming and overrides.
 - [CLI/stdio and client profiles](../integrations/cli-stdio.md) and
   [browser-approved pairing](../integrations/browser-pairing.md).
+- [Operation contracts, previews and transport authority](../contracts/mcp-operation-contracts.md):
+  executable schemas, fixed raw reads, identifiers and required prerequisites.
 
 Keep runnable recipes in the [Docker HTTP MCP example](../../docker/examples/mcp-http/README.md).
