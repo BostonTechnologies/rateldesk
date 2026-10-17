@@ -7,6 +7,7 @@ import http.server
 import json
 import ssl
 import subprocess
+import re
 import threading
 import fcntl
 import os
@@ -119,9 +120,11 @@ def approval_acceptance(command, transcript):
                         "-keyout", str(key), "-out", str(certificate), "-subj", "/CN=RatelDesk synthetic PTY fixture",
                         "-addext", "subjectAltName=IP:127.0.0.1"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         os.chmod(key, 0o600)
-        state = {"status": "pending", "starts": 0, "cancels": 0, "requests": []}
+        state = {"status": "pending", "starts": 0, "cancels": 0, "captures": []}
 
         class Pairing(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
             def log_message(self, *_):
                 pass
 
@@ -130,11 +133,11 @@ def approval_acceptance(command, transcript):
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(data)))
+                self.send_header("Connection", "close")
                 self.end_headers()
                 self.wfile.write(data)
 
             def do_GET(self):
-                state["requests"].append(("GET", self.path))
                 if not self.path.endswith("/pairing/capabilities"):
                     self.send_error(404)
                     return
@@ -143,7 +146,6 @@ def approval_acceptance(command, transcript):
                                 defaultLifetimeDays=30, maximumLifetimeDays=90))
 
             def do_POST(self):
-                state["requests"].append(("POST", self.path))
                 length = int(self.headers.get("Content-Length", "0"))
                 if length > 8192:
                     self.send_error(413)
@@ -176,12 +178,25 @@ def approval_acceptance(command, transcript):
                 else:
                     self.send_error(404)
 
-        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Pairing)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        # Keep the tiny synthetic server deterministic through cancelled handshakes.
+        # The product retains its normal TLS negotiation policy.
+        context.maximum_version = ssl.TLSVersion.TLSv1_2
+        context.load_cert_chain(certificate, key)
+
+        class TLSHTTPServer(http.server.ThreadingHTTPServer):
+            def get_request(self):
+                connection, address = super().get_request()
+                connection.settimeout(3)
+                # Cancelled HttpClient handshakes must not block the accept loop.
+                return context.wrap_socket(connection, server_side=True, do_handshake_on_connect=False), address
+
+            def handle_error(self, *_):
+                pass  # A cancelled handshake has no fixture side effect.
+
+        server = TLSHTTPServer(("127.0.0.1", 0), Pairing)
         origin = "https://127.0.0.1:" + str(server.server_port)
         approval_url = origin + "/account/integration-credentials/approve"
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        context.load_cert_chain(certificate, key)
-        server.socket = context.wrap_socket(server.socket, server_side=True)
         worker = threading.Thread(target=server.serve_forever, daemon=True)
         worker.start()
         profile = directory / "private" / "client.json"
@@ -195,7 +210,8 @@ def approval_acceptance(command, transcript):
         rows, columns = 24, 80
 
         def rendered():
-            return terminal_text(traffic, rows=rows, columns=columns)
+            safe = re.sub(rb"\x1b\][^\x07]*(?:\x07|\x1b\\)", b"", traffic)
+            return terminal_text(safe, rows=rows, columns=columns)
 
         def until(predicate, description):
             deadline = time.monotonic() + 10
@@ -210,7 +226,7 @@ def approval_acceptance(command, transcript):
                         if error.errno != errno.EIO:
                             raise
                         break
-            raise RuntimeError("PTY approval acceptance failed: " + description + "\n" + repr(state) + "\n" + rendered())
+            raise RuntimeError("PTY approval acceptance failed: " + description + "\n" + repr({key: value for key, value in state.items() if key != "captures"}) + "\n" + rendered())
 
         def primary(text):
             return all(value in text for value in ("Client access approval", approval_url, "TRUST-CODE", "Open browser", "Copy URL and code", "Details", "Back", "Cancel"))
@@ -223,8 +239,10 @@ def approval_acceptance(command, transcript):
             until(lambda text: "Choose authentication for this client profile" in text, "real HTTPS discovery")
             os.write(terminal, b"\x0e")
             until(primary, "URL/code/actions visible immediately at 80x24 without PageDown")
+            state["captures"].append("80x24 approval before any PageDown:\n" + rendered())
             os.write(terminal, b"\r\t\x1b[Z\x04")  # Enter copy; Tab/Shift+Tab; explicit Details.
             until(lambda text: primary(text) and "Esc closes" in text, "Details retains primary controls")
+            state["captures"].append("80x24 explicit bounded Details:\n" + rendered())
             os.write(terminal, b"\x1b")
             until(lambda text: primary(text) and "Esc closes" not in text, "Escape closes only Details")
             os.write(terminal, b"\x19")
@@ -244,6 +262,7 @@ def approval_acceptance(command, transcript):
             fcntl.ioctl(terminal, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0))
             os.kill(child, signal.SIGWINCH)
             until(primary, "wide resize preserves approval")
+            state["captures"].append("120x32 approval after resize:\n" + rendered())
             os.write(terminal, b"\x03")
             deadline = time.monotonic() + 10
             while time.monotonic() < deadline:
@@ -269,6 +288,7 @@ def approval_acceptance(command, transcript):
         finally:
             if transcript:
                 transcript.with_name(transcript.stem + "-approval" + transcript.suffix).write_bytes(traffic)
+                transcript.with_name(transcript.stem + "-approval.txt").write_text("\n\n".join(state["captures"]) + "\n")
             try:
                 os.kill(child, signal.SIGKILL)
                 os.waitpid(child, 0)

@@ -243,6 +243,152 @@ class LauncherContracts(unittest.TestCase):
         with self.assertRaisesRegex(launcher.Prerequisite, "approved_sources_changed"):
             deployment.validate_resume_sources([launcher.file_record(self.source)], True)
 
+    def imported_legacy_checkpoint(self, host_store=False):
+        deployment = self.deployment()
+        legacy, environment = self.directory / "legacy.json", self.directory / "service.env"
+        legacy.write_text('{"apiBaseUrl":"http://api:8222/","credentialMode":"gateway"}')
+        environment.write_text("SOURCE=unchanged\n")
+        original = [launcher.file_record(path) for path in (self.source, environment, legacy)]
+        target = "/run/rateldesk-mcp/config.json"
+        frozen = {"services": {"mcp-http": {"configs": [{"source": "legacy", "target": target}]}},
+            "configs": {"legacy": {"file": str(legacy)}}, "x-rateldesk-source-files": original,
+            "x-rateldesk-protected-configuration": {"mcp-http": [{"path": target, "source": str(legacy),
+                "content": legacy.read_text(), "sha256": original[-1]["sha256"]}]}}
+        patch = {"x-rateldesk-mount-migrations": [{"service": "mcp-http", "kind": "configs", "source": "legacy", "target": target}]}
+        outbound = deployment.output / "mcp-outbound.json"
+        launcher.write_private(outbound, legacy.read_bytes())
+        complete = {"services": {"mcp-http": {}, "mcp-config-init": {"volumes": [{
+            "type": "bind", "source": str(outbound), "target": "/input/config.json"}]}},
+            "configs": frozen["configs"]}
+        if host_store:
+            complete["services"]["mcp-config-init"]["volumes"] = [
+                {"type": "volume", "source": "runtime", "target": "/run/rateldesk-mcp"},
+                {"type": "volume", "source": "host-setup", "target": "/output"}]
+            complete["volumes"] = {"runtime": {}, "host-setup": {"external": True, "name": "approved-private-host-store"}}
+        launcher.write_private(deployment.output / "approved-effective-deployment.json", frozen)
+        launcher.write_private(deployment.output / "compose.host.json", patch)
+        launcher.write_private(deployment.output / "deployment.json", complete)
+        self.source.write_bytes((deployment.output / "deployment.json").read_bytes())
+        digest = lambda path: launcher.hashlib.sha256(path.read_bytes()).hexdigest()
+        state = {"sources": original, "sourceHash": digest(deployment.output / "approved-effective-deployment.json"),
+            "deploymentSha256": digest(self.source), "resolvedDeploymentSha256": launcher.resolved_deployment_hash(complete),
+            "exportHashes": {name: digest(deployment.output / name) for name in ("compose.host.json", "mcp-outbound.json")}}
+        launcher.write_private(deployment.output / "launcher-state.json", state)
+        # A new object reads its checkpoint and captures only CURRENT selected
+        # providers: the retired legacy mapping is absent from the exact import.
+        resumed = self.deployment()
+        resumed.rendered = complete
+        sources = [launcher.file_record(path) for path in ((self.source, environment) if host_store else (self.source, environment, outbound))]
+        resumed.proposal = {**complete, "x-rateldesk-source-files": sources}
+        return resumed, sources, state, legacy, outbound, environment
+
+    def test_exact_legacy_import_with_reviewed_host_store_retains_retired_provider_without_inventing_bind(self):
+        deployment, sources, state, legacy, _, _ = self.imported_legacy_checkpoint(host_store=True)
+        deployment.validate_resume_sources(sources, True)
+        self.assertEqual(len(sources), len(state["sources"]))
+        self.assertIn(launcher.file_record(legacy), sources)
+        self.assertEqual(deployment.imported_export_records, [])
+        launcher.check_effective_context(deployment, state)
+        deployment.check_sources()
+        legacy.write_text("changed while temporary approval was pending\n")
+        with self.assertRaisesRegex(launcher.Prerequisite, "sources_changed"):
+            deployment.check_sources()
+
+    def imported_initializer_checkpoint(self, mismatch=None):
+        deployment, sources, state, provider, outbound, environment = self.imported_legacy_checkpoint(host_store=True)
+        frozen = launcher.read_private_json(deployment.output / "approved-effective-deployment.json")
+        frozen["services"]["mcp-http"]["configs"] = []
+        frozen["services"]["mcp-config-init"] = {"volumes": [{"type": "bind", "source": str(provider), "target": "/input/config.json"}]}
+        frozen["x-rateldesk-storage"] = {"host": {"type": "volume", "source": "approved-private-host-store", "target": "/output", "private": True}}
+        patch = {"services": {"mcp-config-init": {"volumes": [{"type": "volume", "source": "host-setup", "target": "/output"}],
+            "command": ["cp /output/mcp-outbound.json /run/rateldesk-mcp/config.json"]}},
+            "volumes": {"host-setup": {"external": True, "name": "approved-private-host-store"}}}
+        if mismatch == "capture":
+            frozen["x-rateldesk-protected-configuration"]["mcp-http"][-1]["source"] = "/unrelated/provider.json"
+        elif mismatch == "hash":
+            frozen["x-rateldesk-protected-configuration"]["mcp-http"][-1]["sha256"] = "f" * 64
+        elif mismatch == "store":
+            patch["volumes"]["host-setup"]["name"] = "another-store"
+        elif mismatch == "ambiguous":
+            frozen["services"]["mcp-config-init"]["volumes"].append({"type": "bind", "source": "/another/input.json", "target": "/input/config.json"})
+        launcher.write_private(deployment.output / "approved-effective-deployment.json", frozen)
+        launcher.write_private(deployment.output / "compose.host.json", patch)
+        state["sourceHash"] = launcher.file_record(deployment.output / "approved-effective-deployment.json")["sha256"]
+        state["exportHashes"]["compose.host.json"] = launcher.file_record(deployment.output / "compose.host.json")["sha256"]
+        launcher.write_private(deployment.output / "launcher-state.json", state)
+        return deployment, sources, state, provider
+
+    def test_already_migrated_initializer_import_retains_only_its_captured_input_provider(self):
+        deployment, sources, state, provider = self.imported_initializer_checkpoint()
+        deployment.validate_resume_sources(sources, True)
+        self.assertIn(launcher.file_record(provider), sources)
+        self.assertEqual(len(sources), len(state["sources"]))
+        launcher.check_effective_context(deployment, state)
+        deployment.check_sources()
+
+    def test_already_migrated_initializer_import_rejects_missing_changed_or_unproven_input(self):
+        for mismatch in ("missing", "changed", "capture", "hash", "store", "ambiguous"):
+            deployment, sources, _, provider = self.imported_initializer_checkpoint(mismatch)
+            if mismatch == "missing":
+                provider.unlink()
+            elif mismatch == "changed":
+                provider.write_text("changed original initializer input")
+            with self.subTest(mismatch=mismatch), self.assertRaisesRegex(launcher.Prerequisite, "approved_sources_changed"):
+                deployment.validate_resume_sources(sources, True)
+
+    def test_exact_legacy_manager_import_retains_original_provider_and_binds_new_export(self):
+        deployment, sources, state, legacy, outbound, _ = self.imported_legacy_checkpoint()
+        deployment.validate_resume_sources(sources, True)
+        self.assertEqual(len(sources), len(state["sources"]))
+        self.assertIn(launcher.file_record(legacy), sources)
+        self.assertNotIn(str(outbound), [item["path"] for item in sources])
+        self.assertEqual(deployment.imported_export_records, [launcher.file_record(outbound)])
+        launcher.check_effective_context(deployment, state)
+        deployment.check_sources()
+        outbound.write_text("changed during browser approval\n")
+        with self.assertRaisesRegex(launcher.Prerequisite, "sources_changed"):
+            deployment.check_sources()
+
+    def test_legacy_import_rejects_changed_or_deleted_retired_provider(self):
+        for missing in (False, True):
+            deployment, sources, _, legacy, _, _ = self.imported_legacy_checkpoint()
+            if missing:
+                legacy.unlink()
+            else:
+                legacy.write_text('{"credentialMode":"changed"}')
+            with self.subTest(missing=missing), self.assertRaisesRegex(launcher.Prerequisite, "approved_sources_changed"):
+                deployment.validate_resume_sources(sources, True)
+
+    def test_legacy_import_rejects_changed_frozen_approval_overlay_export_and_context(self):
+        for changed in ("frozen", "overlay", "outbound", "context", "provider-path"):
+            deployment, sources, _, _, outbound, _ = self.imported_legacy_checkpoint()
+            if changed == "frozen":
+                (deployment.output / "approved-effective-deployment.json").write_text("{}")
+            elif changed == "overlay":
+                (deployment.output / "compose.host.json").write_text("{}")
+            elif changed == "outbound":
+                outbound.write_text("changed export")
+            else:
+                deployment.rendered = json.loads(json.dumps(deployment.rendered))
+                deployment.rendered["services"]["mcp-config-init"]["volumes"][0]["source"] = "/another/provider.json"
+            with self.subTest(changed=changed), self.assertRaises(launcher.Prerequisite):
+                deployment.validate_resume_sources(sources, True)
+
+    def test_legacy_import_rejects_unknown_added_or_dropped_source_and_nonexact_document(self):
+        for changed in ("added", "dropped", "document"):
+            deployment, sources, _, _, _, environment = self.imported_legacy_checkpoint()
+            if changed == "added":
+                unknown = self.directory / "unapproved.env"
+                unknown.write_text("UNAPPROVED=true\n")
+                sources.append(launcher.file_record(unknown))
+            elif changed == "dropped":
+                sources[:] = [item for item in sources if item["path"] != str(environment)]
+            else:
+                self.source.write_bytes(self.source.read_bytes() + b" ")
+                sources[0] = launcher.file_record(self.source)
+            with self.subTest(changed=changed), self.assertRaisesRegex(launcher.Prerequisite, "approved_sources_changed"):
+                deployment.validate_resume_sources(sources, True)
+
     def test_external_manager_apply_does_not_call_docker(self):
         deployment = self.deployment()
         with self.assertRaisesRegex(launcher.Prerequisite, "manager_apply_required"):

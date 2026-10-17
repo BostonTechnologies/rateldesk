@@ -7,6 +7,7 @@ API consent exercises the actual administrator/organization authorization path;
 browser layout and public distribution integrity are separate acceptance lanes.
 """
 import argparse
+from contextlib import closing
 import errno
 import fcntl
 import http.cookiejar
@@ -144,6 +145,7 @@ class Fixture:
         self.origin = f"https://desk.fixture.test:{self.web_port}"
         self.api = f"http://127.0.0.1:{self.api_port}"
         self.email = "disposable-admin@example.test"
+        self.organization_name = "Disposable acceptance organization"
         self.password = "Acceptance-" + secrets.token_urlsafe(24) + "!9aA"
         self.pfx_password = secrets.token_urlsafe(24)
         self.ca = self.directory / "fixture-ca.pem"
@@ -189,7 +191,7 @@ class Fixture:
             "StorageOptions__RootPath": "/fixture/storage", "Bootstrap__Unattended__Provider": "Sqlite",
             "Bootstrap__Unattended__Email": self.email, "Bootstrap__Unattended__DisplayName": "Disposable acceptance administrator",
             "Bootstrap__Unattended__Password": "${FIXTURE_ADMIN_PASSWORD}",
-            "Bootstrap__Unattended__OrganizationName": "Disposable acceptance organization",
+            "Bootstrap__Unattended__OrganizationName": self.organization_name,
             "Bootstrap__Unattended__ApplicationName": "RatelDesk acceptance", "Bootstrap__Unattended__ApplicationUrl": self.origin,
             "IntegrationCredentials__Pairing__PublicOrigin": self.origin}
         services = {
@@ -256,6 +258,7 @@ class Fixture:
         self.request("/api/v1/local-auth/login", {"email": self.email, "password": self.password, "rememberMe": False}, expected=(204,))
         account = self.request("/api/v1/auth/me")
         self.organization = account["primaryOrganizationId"]
+        assert self.organization == self.seed_organization, "The seeded fixture must belong to its authenticated bootstrap owner"
         created = self.request("/api/v1/integration-credentials/", {"name": "Identity preservation fixture", "purpose": "api",
             "organizationId": self.organization, "permissions": ["Incident.Read"], "lifetimeDays": 1}, expected=(201,))
         self.ordinary_id = created["id"]
@@ -286,8 +289,13 @@ class Fixture:
         database = self.directory / "seed.sqlite"
         checked(["docker", "cp", helper + ":/fixture/data/rateldesk.db", str(database)])
         self.incident_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
-        with sqlite3.connect(database) as connection:
-            organization = connection.execute('SELECT "Id" FROM "Organizations" LIMIT 1').fetchone()[0]
+        with closing(sqlite3.connect(database)) as connection:
+            organizations = connection.execute(
+                'SELECT o."Id" FROM "Organizations" o JOIN "Users" u ON u."OrganizationId" = o."Id" '
+                'WHERE u."Email" = ? COLLATE NOCASE AND o."Name" = ?',
+                (self.email, self.organization_name)).fetchall()
+            assert len(organizations) == 1, "Expected one organization linked to the synthetic bootstrap owner"
+            self.seed_organization = organization = organizations[0][0]
             columns = connection.execute('PRAGMA table_info("Tickets")').fetchall()
             assert columns, "Expected the actual SQLite ticket hierarchy table"
             for index, identifier in enumerate(self.incident_ids):
@@ -300,6 +308,11 @@ class Fixture:
                 names = list(values)
                 connection.execute('INSERT INTO "Tickets" (' + ','.join('"' + name + '"' for name in names) +
                     ') VALUES (' + ','.join('?' for _ in names) + ')', [values[name] for name in names])
+            connection.commit()
+            # The initialized fixture uses WAL. Commit alone leaves these rows
+            # in the sidecar, while docker cp transfers only the main file.
+            # No serving process is running: checkpoint and close before copy.
+            assert connection.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchone()[0] == 0, "Offline fixture seed checkpoint must complete"
         try:
             checked(["docker", "cp", str(database), helper + ":/fixture/data/rateldesk.db"])
         finally:
@@ -480,7 +493,15 @@ class Fixture:
             return rpc("tools/call", {"name": name, "arguments": arguments})["structuredContent"]
         assert call("helpdesk_auth", "status")["success"]
         baseline = call("helpdesk_incidents", "list", {"includeTotal": True})
+        data = baseline.get("data") if isinstance(baseline.get("data"), dict) else {}
+        items = data.get("items") if isinstance(data.get("items"), list) else []
+        total = data.get("totalCount") if isinstance(data.get("totalCount"), int) else None
+        upstream = baseline.get("failure", {}).get("upstreamStatus") if isinstance(baseline.get("failure"), dict) else None
+        print("OBSERVE: HTTP MCP incident baseline " + json.dumps({"success": baseline.get("success") is True,
+            "totalCount": total, "itemCount": len(items), "itemsMatchSeed": {item.get("id") for item in items} == set(self.incident_ids),
+            "upstreamStatus": upstream if isinstance(upstream, int) else None}), flush=True)
         assert baseline["success"] and baseline["data"]["totalCount"] == 2
+        assert {item["id"] for item in baseline["data"]["items"]} == set(self.incident_ids)
         matched = call("helpdesk_incidents", "list", {"query": "Beta2 needle", "includeTotal": True})
         assert matched["success"] and matched["data"]["totalCount"] == 1
         assert [item["id"] for item in matched["data"]["items"]] == self.incident_ids[:1]
@@ -536,6 +557,10 @@ class Fixture:
         # and existing stacks have the reviewed protected stores before console setup.
         checked([*applied, "up", "--pull", "never", "-d"], timeout=180)
         identifier = checked([*applied, "ps", "--quiet", "mcp-http"]).decode().strip()
+        assert checked(["docker", "exec", identifier, "stat", "-c", "%u:%g:%a", "/run/rateldesk-mcp/config.json"]).strip() == b"10001:10001:400", "Protected runtime config must remain readable by its intended serving owner only"
+        mounts = json.loads(checked(["docker", "inspect", "--format", "{{json .Mounts}}", identifier]))
+        assert any(mount.get("Destination") == "/run/rateldesk-mcp" and not mount.get("RW") for mount in mounts)
+        assert not any(mount.get("Destination") == "/run/rateldesk-mcp/config.json" for mount in mounts), "Actual recreated serving container must have no obsolete child-file mount"
         self.complete_console_client(identifier)
         checked([*applied, "down"], timeout=180)  # Deliberately preserve data/stores.
         checked([*applied, "up", "--pull", "never", "-d"], timeout=180)

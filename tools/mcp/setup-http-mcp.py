@@ -799,6 +799,8 @@ class Deployment:
         proposal["x-rateldesk-mount-ancestor-checks"] = inspect_mount_ancestors(self.docker, proposal, self.image)
         self.capture_secret_mounts(proposal)
         self.validate_resume_sources(records, verify)
+        if getattr(self, "imported_export_records", []):
+            proposal["x-rateldesk-approved-export-files"] = self.imported_export_records
         write_private(self.output / "effective-deployment.json", proposal)
         write_private(self.output / "source-state.json", {"sources": records})
         if verify:
@@ -1013,6 +1015,7 @@ class Deployment:
         write_private(self.output / "runtime-environment.json", observed)
 
     def validate_resume_sources(self, sources, verify):
+        self.imported_export_records = []
         if not verify:
             return
         state_path = self.output / "launcher-state.json"
@@ -1030,11 +1033,70 @@ class Deployment:
                     and changed[0]["path"] == str(self.sources[0])
                     and changed[0]["sha256"] == saved.get("deploymentSha256")):
                 return
+            selected = next((item for item in sources if item["path"] == str(self.sources[0])), None)
+            if selected and selected["sha256"] == saved.get("deploymentSha256"):
+                normalized, exports = self.import_source_continuity(sources, saved)
+                changed = [item for item in normalized if item not in old]
+                if (len(normalized) == len(old) and len(changed) == 1
+                        and changed[0] == selected and {item["path"] for item in normalized} == {item["path"] for item in old}):
+                    # Keep the original source inventory for the independently
+                    # enforced C# sole-complete-document transition guard. The
+                    # generated provider is already an approval-bound export,
+                    # and has its own throughout-verification hash fence.
+                    sources[:] = normalized
+                    self.imported_export_records = exports
+                    return
         fail("approved_sources_changed", "Saved sources changed after approval. Run ordinary setup to review the current deployment; --verify cannot approve changed sources.")
+
+    def import_source_continuity(self, sources, saved):
+        check_saved_exports(self, saved)
+        if (not getattr(self, "rendered", None) or resolved_deployment_hash(self.rendered) != saved.get("resolvedDeploymentSha256")):
+            fail("approved_context_changed", "The imported complete document does not resolve to the reviewed deployment. Restore its approved interpolation context or run ordinary setup for new review.")
+        frozen_path = self.output / "approved-effective-deployment.json"
+        frozen_bytes = read_bytes(frozen_path, MAX_BYTES)
+        if hashlib.sha256(frozen_bytes).hexdigest() != saved.get("sourceHash", "").casefold():
+            fail("approved_source_snapshot_changed", "The frozen approved source snapshot changed or is unavailable. Run ordinary setup for a fresh review; migration dependencies cannot be inferred.")
+        frozen = read_private_json(frozen_path)
+        if frozen.get("x-rateldesk-source-files") != saved.get("sources"):
+            fail("approved_source_snapshot_changed", "The frozen approved source inventory differs from the saved approval. Run ordinary setup for a fresh review.")
+        patch = read_private_json(self.output / "compose.host.json")
+        retained = migration_source_records(frozen, patch)
+        old = {item["path"]: item for item in saved["sources"]}
+        current = {item["path"]: item for item in sources}
+        if len(old) != len(saved["sources"]) or len(current) != len(sources):
+            fail("approved_sources_changed", "The imported source inventory contains duplicate paths. Run ordinary setup for new review.")
+        exports = []
+        outbound_path = str(self.output / "mcp-outbound.json")
+        if outbound_path in current and outbound_path not in old:
+            mounts = self.rendered.get("services", {}).get("mcp-config-init", {}).get("volumes", [])
+            inputs = [mount for mount in mounts if isinstance(mount, dict) and mount.get("target") == "/input/config.json"]
+            expected = saved.get("exportHashes", {}).get("mcp-outbound.json", "").casefold()
+            if (len(inputs) != 1 or inputs[0].get("type") != "bind" or inputs[0].get("source") != outbound_path
+                    or file_record(outbound_path)["sha256"] != expected):
+                fail("approved_sources_changed", "The imported initializer provider is not the exact approved outbound export. Run ordinary setup for new review.")
+            record = file_record(outbound_path)
+            if outbound_path in current and current[outbound_path] != record:
+                fail("approved_sources_changed", "The approved outbound provider changed during source capture. Restore its reviewed bytes or run ordinary setup for a fresh review.")
+            current.pop(outbound_path)
+            exports.append(record)
+        for path, original in old.items():
+            if path not in current:
+                if retained.get(path) != original:
+                    fail("approved_sources_changed", "An unapproved source dependency disappeared from the imported deployment. Restore its original source or run ordinary setup for new review.")
+                try:
+                    actual = file_record(path, optional=original.get("optional", False))
+                except Prerequisite:
+                    fail("approved_sources_changed", "The retained legacy provider is missing or unreadable. Restore its approved source before verification or run ordinary setup for a fresh review.")
+                if actual != original:
+                    fail("approved_sources_changed", "The retained legacy provider changed after approval. Restore its approved bytes or run ordinary setup for a fresh review.")
+                current[path] = actual
+        return list(current.values()), exports
 
     def check_sources(self):
         if any(file_record(item["path"], optional=item.get("optional", False)) != item for item in self.proposal["x-rateldesk-source-files"]):
             fail("sources_changed", "The saved deployment changed during setup. Nothing was applied. Rerun ordinary setup to review the current source.")
+        if any(file_record(item["path"]) != item for item in getattr(self, "imported_export_records", [])):
+            fail("sources_changed", "The approved outbound export changed during verification. Restore the reviewed bytes or run ordinary setup for new review.")
         for descriptor in getattr(self, "secret_mounts", []):
             if self.secret_digest(descriptor) != descriptor["sha256"]:
                 fail("secret_source_changed", "A protected downstream secret changed during setup. Rerun ordinary setup to review the current generation; no identity was rotated.")
@@ -1281,6 +1343,48 @@ def migrated_compose_source(source, rendered, patch):
     return source
 
 
+def migration_source_records(frozen, patch):
+    """Retain only captured providers retired by the approved storage replacement."""
+    # Reuse the exact descriptor/target/source match checks; no blanket retirement
+    # of missing config/secret/env dependencies is permitted.
+    migrated_compose_source(frozen, frozen, patch)
+    records = {}
+    for migration in patch.get("x-rateldesk-mount-migrations", []):
+        path = frozen.get("configs", {}).get(migration["source"], {}).get("file")
+        original = [item for item in frozen.get("x-rateldesk-source-files", []) if item.get("path") == path]
+        providers = [provider for provider in frozen.get("x-rateldesk-protected-configuration", {}).get("mcp-http", [])
+            if normalized_container_path(provider.get("path", "")) == migration["target"] and provider.get("source") == path]
+        if len(original) != 1 or len(providers) != 1 or providers[0].get("sha256") != original[0].get("sha256"):
+            fail("approved_mount_migration", "The approved legacy removal lacks its exact captured protected source. Run ordinary setup for a new review; no dependency was retired.")
+        records[path] = original[0]
+    # The supported beta.1 already-migrated shape selected its outbound provider
+    # through one initializer input bind. The reviewed initializer now reads the
+    # same protected export from the host store. Keep that original selected
+    # input source fenced as well; unrelated initializer inputs are never adopted.
+    old_inputs = [mount for mount in frozen.get("services", {}).get("mcp-config-init", {}).get("volumes", [])
+        if isinstance(mount, dict) and mount.get("type") == "bind" and mount.get("target") == "/input/config.json"]
+    initializer = patch.get("services", {}).get("mcp-config-init", {})
+    outputs = [mount for mount in initializer.get("volumes", [])
+        if isinstance(mount, dict) and mount.get("target") == HOST_TARGET]
+    host = frozen.get("x-rateldesk-storage", {}).get("host", {})
+    command = initializer.get("command", [])
+    if len(old_inputs) == 1 and len(outputs) == 1 and isinstance(command, list) and len(command) == 1 and isinstance(command[0], str) and "cp /output/mcp-outbound.json /run/rateldesk-mcp/config.json" in command[0]:
+        output = outputs[0]
+        definition = patch.get("volumes", {}).get(output.get("source"), {})
+        output_source = definition.get("name") if output.get("type") == "volume" else output.get("source")
+        if (host.get("target") == HOST_TARGET and host.get("private") is True
+                and output.get("type") == host.get("type") and output_source == host.get("source")):
+            path = old_inputs[0].get("source")
+            original = [item for item in frozen.get("x-rateldesk-source-files", []) if item.get("path") == path]
+            providers = frozen.get("x-rateldesk-protected-configuration", {}).get("mcp-http", [])
+            selected = providers[-1] if providers else {}
+            if (len(original) == 1 and selected.get("source") == path
+                    and normalized_container_path(selected.get("path", "")) == "/run/rateldesk-mcp/config.json"
+                    and selected.get("sha256") == original[0].get("sha256")):
+                records[path] = original[0]
+    return records
+
+
 def export_complete_document(deployment, container, attempt):
     raw_receipt = copy_from_tool(deployment, container, "host-approval.json", optional=True)
     if raw_receipt is None:
@@ -1333,6 +1437,13 @@ def export_complete_document(deployment, container, attempt):
     except Prerequisite:
         fail("complete_export_invalid", "The complete manager document failed the approved serving and mount validation. Nothing was applied. Resolve its owning sources and run ordinary setup.")
     deployment.check_sources()
+    # Ordinary client setup and new verification replace effective-deployment.
+    # Retain this exact receipt-bound source for dependency continuity after the
+    # manager imports the approved migrated complete document.
+    frozen = read_bytes(deployment.output / "effective-deployment.json", MAX_BYTES)
+    if hashlib.sha256(frozen).hexdigest() != receipt["sourceHash"].casefold():
+        fail("approval_source_mismatch", "The reviewed source snapshot changed during export. Nothing was applied; rerun ordinary setup for a fresh review.")
+    write_private(deployment.output / "approved-effective-deployment.json", frozen)
     state = {"schemaVersion": 1, "project": deployment.project, "manager": deployment.manager,
              "sources": deployment.proposal["x-rateldesk-source-files"], "sourceHash": receipt["sourceHash"],
              "composeFiles": [str(path) for path in deployment.sources], "envFiles": [str(path) for path in deployment.env_files],
