@@ -319,6 +319,42 @@ class NativeLauncherContracts(unittest.TestCase):
                     self.assertTrue(any(arguments[0] == "cp" for arguments in operations))
                     self.assertTrue(all(arguments[0] in ("exec", "cp") for arguments in operations))
 
+    def test_rendered_literal_dollars_match_engine_values_without_changing_image_defaults(self):
+        raw = {"services": {"mcp-http": {"image": "synthetic-image", "environment": {"SOURCE": "$$SOURCE/$$$$/plain$"},
+            "command": ["echo", "$$COMMAND"], "entrypoint": ["echo", "$$ENTRYPOINT"],
+            "healthcheck": {"test": ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER; echo $$$$"]}}}}
+        original = json.dumps(raw, sort_keys=True)
+        model = launcher.compose_runtime_model(raw)
+        definition = model["services"]["mcp-http"]
+        self.assertEqual(json.dumps(raw, sort_keys=True), original, "Discovery must not rewrite raw rendered/source data")
+        self.assertEqual(definition["environment"]["SOURCE"], "$SOURCE/$$/plain$")
+        self.assertEqual(definition["command"], ["echo", "$COMMAND"])
+        self.assertEqual(definition["entrypoint"], ["echo", "$ENTRYPOINT"])
+        self.assertEqual(definition["healthcheck"]["test"], ["CMD-SHELL", "pg_isready -U $POSTGRES_USER; echo $$"])
+        image = {"Id": "sha256:synthetic", "Config": {"Env": ["IMAGE=$$IMAGE"],
+            "Cmd": ["echo", "$$IMAGE_COMMAND"], "Entrypoint": ["echo", "$$IMAGE_ENTRYPOINT"],
+            "Healthcheck": {"Test": ["CMD-SHELL", "echo $$IMAGE_HEALTH"]}}}
+        metadata = {"Image": image["Id"], "Config": {"Env": ["IMAGE=$$IMAGE", "SOURCE=$SOURCE/$$/plain$"],
+            "Cmd": definition["command"], "Entrypoint": definition["entrypoint"],
+            "Healthcheck": {"Test": definition["healthcheck"]["test"]},
+            "Labels": {"com.docker.compose.project": "fixture", "com.docker.compose.service": "mcp-http"}},
+            "HostConfig": {"RestartPolicy": {"Name": "no"}}, "Mounts": [],
+            "NetworkSettings": {"Networks": {"fixture_default": {}}}}
+        deployment = SimpleNamespace(docker=SimpleNamespace(json=lambda arguments: image), project="fixture", rendered={})
+        launcher.validate_runtime_topology(deployment, "mcp-http", definition, metadata)
+        for field, changed, code in (("Env", ["IMAGE=$$IMAGE", "SOURCE=unreviewed"], "runtime_environment_mismatch"),
+                ("Cmd", ["echo", "unreviewed"], "runtime_command_mismatch"),
+                ("Entrypoint", ["echo", "unreviewed"], "runtime_command_mismatch"),
+                ("Healthcheck", {"Test": ["CMD-SHELL", "unreviewed"]}, "runtime_healthcheck_mismatch")):
+            altered = json.loads(json.dumps(metadata))
+            altered["Config"][field] = changed
+            with self.subTest(field=field), self.assertRaisesRegex(launcher.Prerequisite, code):
+                launcher.validate_runtime_topology(deployment, "mcp-http", definition, altered)
+        inherited = json.loads(json.dumps(metadata))
+        inherited["Config"].update({"Env": image["Config"]["Env"], "Cmd": image["Config"]["Cmd"],
+            "Entrypoint": image["Config"]["Entrypoint"], "Healthcheck": image["Config"]["Healthcheck"]})
+        launcher.validate_runtime_topology(deployment, "mcp-http", {"image": "synthetic-image"}, inherited)
+
     def test_runtime_user_and_working_directory_are_observed_instead_of_copied_from_source(self):
         definition = {"image": "synthetic-image", "user": "10001:10001", "working_dir": "/app", "networks": {"default": {}}}
         image = {"Id": "sha256:synthetic", "Config": {"User": "10001:10001", "WorkingDir": "/app", "Env": []}}

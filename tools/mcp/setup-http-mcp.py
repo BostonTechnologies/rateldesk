@@ -774,6 +774,37 @@ def validate_runtime_options(definition, metadata):
         "config": {field: config.get(field) for field in ("Hostname", "Domainname", "User", "WorkingDir")}}
 
 
+def compose_runtime_model(document):
+    """Decode Compose's dollar escaping at the rendered runtime boundary.
+
+    `compose config` serializes literal dollars as $$ so its output can be fed
+    back into Compose. Engine inspect and application providers contain the
+    literal values instead. Decode only explicit service runtime values, once;
+    raw sources, interpolation inputs and image defaults remain untouched.
+    """
+    document = json.loads(json.dumps(document))
+
+    def literal(value):
+        if isinstance(value, str):
+            return value.replace("$$", "$")
+        if isinstance(value, list):
+            return [literal(item) for item in value]
+        return value
+
+    for service in document.get("services", {}).values():
+        environment = service.get("environment")
+        if isinstance(environment, dict):
+            service["environment"] = {key: literal(value) for key, value in environment.items()}
+        elif isinstance(environment, list):
+            service["environment"] = literal(environment)
+        for field in ("command", "entrypoint"):
+            if field in service:
+                service[field] = literal(service[field])
+        if isinstance(service.get("healthcheck"), dict) and "test" in service["healthcheck"]:
+            service["healthcheck"]["test"] = literal(service["healthcheck"]["test"])
+    return document
+
+
 def validate_runtime_topology(deployment, name, definition, metadata):
     """Compare selected saved topology with actual inspect data, without writes."""
     config, host = metadata.get("Config", {}), metadata.get("HostConfig", {})
@@ -1042,6 +1073,8 @@ class Deployment:
                 f"RATELDESK_PROVIDER_PATH_{index}": value for index, (value, _) in enumerate(raw_providers)}}}})
             try:
                 resolved = self.docker.json(self.compose + ["-f", str(probe), "config", "--no-env-resolution", "--format", "json"])
+                if not self.legacy:
+                    resolved = compose_runtime_model(resolved)
                 paths = environment_map(resolved["services"][name]["environment"])
                 for index, (_, required) in enumerate(raw_providers):
                     value = paths.get(f"RATELDESK_PROVIDER_PATH_{index}")
@@ -1060,6 +1093,8 @@ class Deployment:
         # a change in the render window must not become an approved generation.
         provider_initial = [file_record(path, optional=path in optional_paths) for path in dict.fromkeys(source_paths)]
         proposal = self.docker.json(self.compose + ["config", "--format", "json"])
+        if not self.legacy:
+            proposal = compose_runtime_model(proposal)
         services = proposal.get("services", {})
         for role in SERVICE_NAMES:
             if self.roles[role] in services:

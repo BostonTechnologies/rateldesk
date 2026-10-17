@@ -328,7 +328,7 @@ def default_renderer(context):
             docker.bind_daemon()
             result = json.loads(docker.run(command + ["config", "--format", "json"], owner_tool=True))
             docker.bind_daemon()
-            return result
+            return launcher.compose_runtime_model(result)
         except (launcher.Prerequisite, ValueError, UnicodeError):
             fail("source_review_compose", "The deployment owner's exact Compose tool rejected this source/candidate or its saved Docker selection changed. Correct the owning source/tool before review; no deployment source was written.")
     return render
