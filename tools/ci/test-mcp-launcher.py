@@ -37,7 +37,7 @@ class LauncherContracts(unittest.TestCase):
         self.source = self.directory / "compose.json"
         self.source.write_text('{"services":{}}')
         self.args = launcher.parser().parse_args(["--compose-file", str(self.source), "--project", "fixture",
-            "--manager", "external-compose"])
+            "--manager", "external-compose", "--intent", "legacy-initializer"])
 
     def tearDown(self):
         self.temporary.cleanup()
@@ -191,13 +191,15 @@ class LauncherContracts(unittest.TestCase):
             self.deployment()
         self.assertFalse((self.directory / ".rateldesk-http-mcp-fixture").exists())
 
-    def test_untracked_compose_dependencies_fail_with_complete_export_action(self):
+    def test_untracked_compose_dependencies_fail_without_replacing_manager_source(self):
         for text in ('include:\n  - child.yml\n', '{"services":{"api":{"extends":{"file":"child.yml","service":"api"}}}}',
                      'services: {api: {extends: {file: child.yml, service: api}}}'):
             self.source.write_text(text)
             with self.assertRaisesRegex(launcher.Prerequisite, "compose_dependency_unsupported") as failure:
                 launcher.check_compose_dependencies(self.source)
-            self.assertIn("--no-interpolate --no-env-resolution", str(failure.exception))
+            self.assertIn("Keep the original saved YAML", str(failure.exception))
+            self.assertIn("ordinary client endpoint diagnostics", str(failure.exception))
+            self.assertEqual(self.source.read_text(), text)
 
     def test_private_output_does_not_repair_existing_world_readable_storage(self):
         output = self.directory / "existing"
@@ -818,11 +820,11 @@ class LauncherContracts(unittest.TestCase):
         with patch.dict(os.environ, {"DOCKER_CONTEXT": "approved"}, clear=True):
             docker = launcher.Docker()
         docker.daemon_identity = "original"
-        docker.check_selection({"dockerSelection": {"DOCKER_CONTEXT": "approved"}, "dockerDaemonIdentity": "original"})
+        docker.check_selection({"dockerSelection": docker.selection, "dockerDaemonIdentity": "original"})
         with self.assertRaisesRegex(launcher.Prerequisite, "docker_selection_changed"):
-            docker.check_selection({"dockerSelection": {"DOCKER_CONTEXT": "another"}})
+            docker.check_selection({"dockerSelection": {**docker.selection, "DOCKER_CONTEXT": "another"}})
         with self.assertRaisesRegex(launcher.Prerequisite, "docker_daemon_changed"):
-            docker.check_selection({"dockerSelection": {"DOCKER_CONTEXT": "approved"}, "dockerDaemonIdentity": "another"})
+            docker.check_selection({"dockerSelection": docker.selection, "dockerDaemonIdentity": "another"})
 
     def test_client_tooling_keeps_selection_and_redacts_docker_start_failure(self):
         deployment = self.deployment()

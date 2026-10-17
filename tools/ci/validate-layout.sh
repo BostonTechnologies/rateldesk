@@ -15,6 +15,9 @@ cd "$repo_root"
 python3 tools/ci/validate-docs.py
 python3 tools/ci/test-mcp-host-recipes.py
 python3 tools/ci/test-mcp-launcher.py
+python3 tools/ci/test-mcp-compose-toolchain.py
+python3 tools/ci/test-mcp-native-launcher.py
+python3 tools/ci/test-mcp-source-review.py
 
 runtime_projects=(
   Helpdesk.API
