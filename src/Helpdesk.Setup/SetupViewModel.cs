@@ -85,6 +85,7 @@ public sealed class SetupViewModel : ReactiveViewModel
     public ReactiveProperty<bool> DetailsVisible { get; } = new(false);
     public SetupApprovalContext ApprovalContext { get; private set; }
     public int ExitCode { get; private set; }
+    public HostVerificationResult? VerificationResult { get; private set; }
     public string ApprovalTitle => ApprovalContext switch { SetupApprovalContext.Host => "Host deployment approval", SetupApprovalContext.Verification => "Temporary status verification", _ => "Client access approval" };
     public string ApprovalPurpose => ApprovalContext switch
     {
@@ -245,6 +246,12 @@ public sealed class SetupViewModel : ReactiveViewModel
             switch (Step.Value)
             {
                 case SetupStep.Verification:
+                    if (_verifier is { } previousVerifier)
+                    {
+                        _verifier = null;
+                        var previousPolling = _verificationPolling; _verificationPolling = null;
+                        await DisposeVerifierAsync(previousVerifier, previousPolling);
+                    }
                     await Task.WhenAll(_cleanup);
                     if (token.IsCancellationRequested || generation != _generation) return;
                     _verifier = _verificationFactory(_options.VerificationDirectory!);
@@ -542,6 +549,7 @@ public sealed class SetupViewModel : ReactiveViewModel
                 var result = await verifier.RunAsync(token);
                 await ApplyAsync(generation, token, () =>
                 {
+                    VerificationResult = result;
                     ExitCode = result.Passed ? 0 : 1;
                     Detail.Value = string.Join('\n', result.Checks.Select(FormatCheck)) + "\n\n" + result.Message;
                     Status.Value = result.Message;
@@ -555,7 +563,8 @@ public sealed class SetupViewModel : ReactiveViewModel
         }
         catch (OperationCanceledException) { }
         catch (Exception exception) when (exception is AgentClientValidationException or HttpRequestException or IOException)
-        { await ApplyAsync(generation, CancellationToken.None, () => { Busy.Value = false; Status.Value = SafeError(exception); }); }
+        { await ApplyAsync(generation, CancellationToken.None, () =>
+            { Busy.Value = false; Step.Value = SetupStep.Verification; Status.Value = SafeError(exception) + " Applied host settings remain verify pending; retry temporary verification here."; }); }
     }
 
     private async Task PollHostApprovalAsync(long generation, CancellationToken token, PairingSession session,

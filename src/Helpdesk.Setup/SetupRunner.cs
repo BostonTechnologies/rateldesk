@@ -28,7 +28,13 @@ public static class SetupRunner
             using var host = runtime.Host;
             try { await host.RunAsync(cancellationToken); }
             finally { await runtime.ViewModel.CleanupAsync(); }
-            if (options.VerificationDirectory is not null) await error.WriteLineAsync(runtime.ViewModel.Status.Value);
+            if (options.VerificationDirectory is not null)
+            {
+                if (runtime.ViewModel.VerificationResult is { } result)
+                    await Console.Out.WriteLineAsync(System.Text.Json.JsonSerializer.Serialize(new { checks = result.Checks, cleanupPending = result.CleanupPending },
+                        new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
+                await error.WriteLineAsync(runtime.ViewModel.Status.Value);
+            }
             return runtime.ViewModel.ExitCode;
         }
         catch (AgentClientValidationException exception)
