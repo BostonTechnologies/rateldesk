@@ -114,16 +114,29 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // eight browser-approved integration-credential pairing operations,
         // ticket filter suggestions and three bounded pending-email operations
         // (search, organization lookup and confirmed actions), six host deployment
-        // approval operations and durable integration-credential record deletion;
+        // approval operations and durable integration-credential record deletion,
+        // plus single-change ticket state and external orchestration connectivity testing.
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(415, operationCount);
+        Assert.Equal(417, operationCount);
 #else
-        Assert.Equal(414, operationCount);
+        Assert.Equal(416, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
+        foreach (var (path, operationId, tag) in new[]
+        {
+            ("/api/v1/changes/{id}/state", "UpdateChangeTicketState", "Changes"),
+            ("/api/v1/admin/orchestration/test", "TestOrchestrationConnectivity", "External Orchestration")
+        })
+        {
+            Assert.True(paths.TryGetProperty(path, out var route), $"Missing documented operation: POST {path}");
+            Assert.True(route.TryGetProperty("post", out var operation));
+            Assert.Equal(operationId, operation.GetProperty("operationId").GetString());
+            Assert.Equal([tag], operation.GetProperty("tags").EnumerateArray().Select(value => value.GetString()).OfType<string>().ToArray());
+            Assert.Equal(["IntegrationCredential", "JwtBearer", "LocalSession"], SecuritySchemes(document, path, "post"));
+        }
         var identityGroup = Assert.Single(document.RootElement.GetProperty("x-tagGroups").EnumerateArray(),
             group => group.GetProperty("name").GetString() == "Identity & Access");
         Assert.Contains(identityGroup.GetProperty("tags").EnumerateArray(),
