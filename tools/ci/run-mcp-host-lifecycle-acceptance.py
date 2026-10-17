@@ -32,6 +32,7 @@ import subprocess
 import tempfile
 import tarfile
 import termios
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -113,7 +114,9 @@ class Terminal:
                     if failure.errno != errno.EIO:
                         raise
                     break
-        raise RuntimeError("Disposable terminal did not reach expected stage: " + expression)
+        # Expressions can contain a fresh device/human code. Keep failure
+        # output scalar; the private redacted screen records the visible stage.
+        raise RuntimeError("Disposable terminal did not reach the expected stage within its bound")
 
     def finish(self, expected=0, seconds=60):
         deadline = time.monotonic() + seconds
@@ -158,6 +161,111 @@ class Terminal:
         os.close(self.fd)
 
 
+class LiveDockerEvents:
+    """Continuous bounded daemon evidence, fenced by real read-only execs."""
+
+    def __init__(self, container):
+        self.container = container
+        self.condition = threading.Condition()
+        self.events, self.bytes = [], 0
+        self.error, self.closing, self.closed = None, False, False
+        # Docker's CLI may connect after the first marker exec. Request only
+        # this startup prefix; the window begins after its marker is observed
+        # and thereafter uses the uninterrupted live subscription.
+        self.process = subprocess.Popen(["docker", "events", "--since", str(time.time()), "--format", "{{json .}}"],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        self.reader = threading.Thread(target=self.read, daemon=True)
+        self.reader.start()
+
+    def fail(self, message):
+        with self.condition:
+            self.error = self.error or message
+            self.condition.notify_all()
+
+    def read(self):
+        try:
+            while line := self.process.stdout.readline(65537):
+                with self.condition:
+                    self.bytes += len(line)
+                    if self.bytes > 4 * 1024 * 1024 or len(self.events) >= 16384 or len(line) > 65536:
+                        self.error = self.error or "Docker event collector exceeded its evidence bound"
+                    elif not self.error:
+                        try:
+                            event = json.loads(line)
+                            if not isinstance(event.get("timeNano"), int) or not isinstance(event.get("Type"), str) or not isinstance(event.get("Actor"), dict):
+                                raise ValueError()
+                            self.events.append(event)
+                        except (ValueError, AttributeError):
+                            self.error = "Docker event collector received incomplete or invalid evidence"
+                    self.condition.notify_all()
+            if not self.closing:
+                self.fail("Docker event subscription ended before its closing handshake")
+        except (OSError, ValueError):
+            self.fail("Docker event collector could not consume its complete stream")
+
+    def check(self):
+        if self.error:
+            raise RuntimeError(self.error)
+        if not self.closing and self.process.poll() is not None:
+            raise RuntimeError("Docker event subscription stopped unexpectedly")
+
+    def handshake(self):
+        self.check()
+        marker = "rdk-event-read-barrier-" + uuid.uuid4().hex
+        checked(["docker", "exec", self.container, "/bin/sh", "-c", "test -r /etc/hostname", marker], timeout=15)
+        deadline = time.monotonic() + 15
+        with self.condition:
+            while time.monotonic() < deadline:
+                self.check()
+                execution = None
+                for index, event in enumerate(self.events):
+                    actor, action = event["Actor"], event.get("Action", event.get("status", ""))
+                    if event["Type"] != "container" or actor.get("ID") != self.container:
+                        continue
+                    if action.startswith("exec_create:") and marker in action:
+                        execution = actor.get("Attributes", {}).get("execID")
+                    if action == "exec_die" and execution and actor.get("Attributes", {}).get("execID") == execution:
+                        return index
+                self.condition.wait(min(0.1, max(0, deadline - time.monotonic())))
+        raise RuntimeError("Docker event subscription did not confirm its bounded read-only handshake")
+
+    def begin(self):
+        self.start = self.handshake() + 1
+
+    def finish(self):
+        try:
+            end = self.handshake()
+            with self.condition:
+                captured = self.events[self.start:end + 1]
+        finally:
+            self.close()
+        self.check()
+        return captured
+
+    def close(self):
+        if self.closed:
+            return
+        if self.process.poll() is not None:
+            self.fail("Docker event subscription exited before intentional stream shutdown")
+        self.closing = True
+        if self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.fail("Docker event subscription required forced shutdown")
+                self.process.kill()
+                self.process.wait(timeout=5)
+        self.reader.join(timeout=5)
+        if self.reader.is_alive():
+            self.fail("Docker event collector did not flush its complete stream")
+        else:
+            self.process.stdout.close()
+        if self.process.returncode not in (0, -signal.SIGTERM, 128 + signal.SIGTERM):
+            self.fail("Docker event collector reported an unsuccessful process exit")
+        self.closed = True
+
+
 class Fixture:
     def __init__(self, args, existing, legacy=False):
         self.args, self.existing, self.legacy = args, existing, legacy
@@ -189,6 +297,8 @@ class Fixture:
         self.cookies = http.cookiejar.CookieJar()
         self.http = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(self.cookies))
         self.terminals = []
+        self.event_collectors = []
+        self.onramp = None
 
     def write_model(self, model):
         self.source.write_text(json.dumps(model))
@@ -318,7 +428,14 @@ class Fixture:
         created = self.request("/api/v1/integration-credentials/", {"name": "Identity preservation fixture", "purpose": "api",
             "organizationId": self.organization, "permissions": ["Incident.Read"], "lifetimeDays": 1}, expected=(201,))
         self.ordinary_id = created["id"]
-        self.ordinary_expiry = created["expiresAtUtc"]
+        persisted = next(item for item in self.request("/api/v1/integration-credentials/") if item["id"] == self.ordinary_id)
+        assert persisted.get("revokedAtUtc") is None
+        created_expiry = datetime.fromisoformat(created["expiresAtUtc"].replace("Z", "+00:00"))
+        persisted_expiry = datetime.fromisoformat(persisted["expiresAtUtc"].replace("Z", "+00:00"))
+        assert abs((created_expiry - persisted_expiry).total_seconds()) <= 0.000001, "The first persisted expiry must match creation within database timestamp precision"
+        self.ordinary_expiry = persisted["expiresAtUtc"]
+        print("PASS: pre-host ordinary identity baseline read from persisted metadata; creation/persisted expiry text differs=" +
+            str(created["expiresAtUtc"] != persisted["expiresAtUtc"]).lower(), flush=True)
         self.ordinary_secret = created["secret"]
 
     def reproduce_old_collision(self, model):
@@ -384,9 +501,15 @@ class Fixture:
                 "--image", self.args.mcp_image, "--ca-file", str(self.ca), "--intent", "legacy-initializer"]
 
     def terminal(self, arguments, executable=LAUNCHER):
+        if self.onramp and executable == LAUNCHER:
+            terminal = Terminal(self.onramp.terminal_prefix(arguments, executable=self.launcher), self.directory, "env")
+            self.terminals.append(terminal)
+            self.onramp.select_existing(terminal)
+            return terminal
         if executable == LAUNCHER:
             executable = self.launcher
-        terminal = Terminal(arguments, self.directory, executable)
+        environment = {"PATH": self.onramp.environment["PATH"]} if self.onramp else None
+        terminal = Terminal(arguments, self.directory, executable, environment)
         self.terminals.append(terminal)
         return terminal
 
@@ -572,20 +695,29 @@ class Fixture:
         print("PASS: real HTTP MCP initialize/catalog/status, incident baseline=2/match=1/no-match=0 with filtered totals, permitted get and Request.Read HTTP 403", flush=True)
 
     def run(self):
+        print("RUN: explicitly CLI-selected Advanced initializer compatibility; separate from four-service adoption", flush=True)
         self.prepare()
         normal = self.launcher_arguments() + ["--", "--url", self.origin, "--instance", "synthetic-private-west", "--monochrome"]
         cancelled = self.terminal(normal)
         cancelled.until("RatelDesk Web URL")
         cancelled.send(b"\x03")
+        # This retained image-host launcher maps a native Cancel0 to2 when no
+        # new approved export exists. The normal native adoption path uses0.
         cancelled.finish(expected=2)
+        assert "Cancelled. Existing profiles are unchanged." in cancelled.text()
+        assert "Setup exited without a new approved export." in cancelled.raw_text()
         assert not (self.output / "host-approval.json").exists(), "Cancel must not export approval"
         setup = self.terminal(normal)
         setup.until("RatelDesk Web URL")
+        offset = len(setup.traffic)
         setup.send(b"\x0e")
-        setup.until("Prepare explicit configuration changes")
+        setup.until(r"(?s)^(?=.*HTTP MCP hosting)(?=.*Advanced initializer topology selected)(?=.*Server setup · personal client identities are separate)", since=offset)
+        offset = len(setup.traffic)
         setup.send(b"\x0e")
         setup.until("Host deployment approval pending")
         code = setup.until(r"[Cc]ode:\s*([A-Z2-9]{4}-[A-Z2-9]{4})").group(1)
+        setup.until("(?s)^" + "".join("(?=.*" + re.escape(value) + ")" for value in
+            (code, "Open browser", "Copy URL and code", "Details", "Back", "Cancel")), since=offset)
         primary = setup.screen()
         assert all(value in primary for value in [code, "Open browser", "Copy URL and code", "Details", "Back", "Cancel"]), "Host approval URL/code/actions must be immediately available at 80x24"
         self.approve_host(code)
@@ -594,6 +726,11 @@ class Fixture:
         setup.until("Changes prepared")
         setup.send(b"\x0e")
         setup.finish()
+        printed = [line.strip() for line in setup.raw_text().splitlines()
+            if line.strip().startswith("env ") and line.strip().endswith("--verify")]
+        assert len(printed) == 1, "The reviewed initializer export must print one safely quoted NEW verification command"
+        self.resume_command = shlex.split(printed[0])
+        assert self.resume_command[0] == "env" and str(self.launcher) in self.resume_command and self.resume_command[-1] == "--verify"
         complete = self.output / "deployment.json"
         document = json.loads(complete.read_bytes())
         assert "untouched" in document["services"] and "unrelated" in document["volumes"]
@@ -625,7 +762,7 @@ class Fixture:
         time.sleep(5)
         identifier = checked([*applied, "ps", "--quiet", "mcp-http"]).decode().strip()
         before_verification = {item["id"] for item in self.request("/api/v1/integration-credentials/")}
-        verify = self.terminal(["--container", identifier, "--ca-file", str(self.ca), "--intent", "legacy-initializer", "--verify"])
+        verify = self.terminal(self.resume_command[1:], executable=self.resume_command[0])
         code = verify.until(r"[Cc]ode:\s*([A-Z2-9]{4}-[A-Z2-9]{4})").group(1)
         # Read only this attempt's private cancellation capability, before approval.
         # It never enters a command argument, assertion message or evidence output.
@@ -684,15 +821,26 @@ class Fixture:
         changed = json.loads(self.source.read_bytes())
         changed["services"]["untouched"]["environment"] = {"PRESERVE_ME": "separate changed-source fixture"}
         self.source.write_text(json.dumps(changed))
-        rejected = subprocess.run([str(self.launcher), "--container", identifier, "--ca-file", str(self.ca), "--intent", "legacy-initializer", "--verify"],
-            cwd=self.directory, capture_output=True, timeout=180)
+        environment = os.environ.copy()
+        if self.onramp:
+            environment["PATH"] = self.onramp.environment["PATH"]
+        rejected = subprocess.run(self.resume_command, cwd=self.directory, env=environment, capture_output=True, timeout=180)
         assert rejected.returncode == 78 and b"approved_sources_changed" in rejected.stderr
         assert json.loads((self.output / "launcher-state.json").read_bytes())["phase"] == "applied-verify-pending", "A failed NEW verification attempt must clear the prior verified phase"
         for terminal in self.terminals:
             assert self.password not in terminal.raw_text() and self.ordinary_secret not in terminal.raw_text() and self.verifier_device_code not in terminal.raw_text()
+        if self.onramp:
+            selection = json.loads((self.output / "launcher-state.json").read_bytes())["dockerSelection"]
+            assert selection["DOCKER_CONTEXT"] == self.onramp.context
+            assert selection["RATELDESK_SETUP_COMPOSE_BINARY"] == str(self.onramp.tool.path)
+            assert selection["RATELDESK_SETUP_COMPOSE_VERSION"] == "2.39.4"
+            self.onramp.assert_unchanged()
+            print("PASS: actual incompatible 2.26.1 choice and verified private 2.39.4 completed the explicit initializer export, exact printed NEW verification and source-change rejection; original plugin/config/context unchanged", flush=True)
         print("PASS: " + ("existing external-manager" if self.existing else "fresh release-owned") + " actual launcher cancel/reopen, source-bound administrator approval, complete preserved export/apply, full recreation + NEW verified invocation, API-backed status/catalog, identity preservation and separate changed-source rejection", flush=True)
 
     def close(self):
+        for collector in self.event_collectors:
+            collector.close()
         for terminal in self.terminals:
             terminal.close()
         if getattr(self, "seed_helper", None):
@@ -724,6 +872,7 @@ class Fixture:
                 if secret:
                     text = text.replace(secret, "[redacted]")
             text = re.sub(r"rdk_[A-Za-z0-9_.-]{10,}", "[redacted credential]", text)
+            text = re.sub(r"\b[A-Z2-9]{4}-[A-Z2-9]{4}\b", "[redacted code]", text)
             target = evidence / name
             descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with os.fdopen(descriptor, "w") as stream:
@@ -733,6 +882,42 @@ class Fixture:
             save("command.txt", failure.detail)
         for index, terminal in enumerate(self.terminals):
             save(f"terminal-{index + 1}.txt", terminal.text())
+        def differences(before, after, prefix=""):
+            if isinstance(before, dict) and isinstance(after, dict):
+                return [path for key in sorted(before.keys() | after.keys()) for path in
+                    (differences(before[key], after[key], prefix + "." + key) if key in before and key in after else [prefix + "." + key])][:64]
+            if isinstance(before, list) and isinstance(after, list) and len(before) == len(after):
+                return [path for index, (old, new) in enumerate(zip(before, after)) for path in differences(old, new, prefix + f"[{index}]")][:64]
+            return [prefix] if before != after else []
+        approved_runtime, current_runtime = self.output / "approved-runtime.json", self.output / "runtime-environment.json"
+        if approved_runtime.is_file() and current_runtime.is_file():
+            try:
+                old = json.loads(approved_runtime.read_bytes()).get("x-rateldesk-runtime-inventory", {})
+                new = json.loads(current_runtime.read_bytes()).get("x-rateldesk-runtime-inventory", {})
+                raw_paths = differences(old, new)
+                for inventory in (old, new):
+                    for observed in inventory.values():
+                        observed.pop("state", None)
+                        observed.pop("healthStatus", None)
+                        observed["mounts"] = sorted(observed.get("mounts", []), key=lambda mount: json.dumps(mount, sort_keys=True))
+                save("runtime-differences.json", json.dumps({"rawDifferingKeyPaths": raw_paths,
+                    "stableDifferingKeyPaths": differences(old, new), "valuesRecorded": False}, indent=2))
+            except (OSError, ValueError, TypeError):
+                save("runtime-differences.json", json.dumps({"comparisonUnavailable": True, "valuesRecorded": False}))
+        approved_export, resolved_export = self.output / "approved-proposal.json", self.output / ".resolved-export.json"
+        if approved_export.is_file() and resolved_export.is_file():
+            try:
+                old, new = json.loads(approved_export.read_bytes()), json.loads(resolved_export.read_bytes())
+                for model in (old, new):
+                    for service in model.get("services", {}).values():
+                        service.pop("environment", None)
+                    for key in list(model):
+                        if key.startswith("x-rateldesk-"):
+                            model.pop(key)
+                save("export-topology-differences.json", json.dumps({"differingKeyPaths": differences(old, new),
+                    "environmentAndMetadataOmitted": True, "valuesRecorded": False}, indent=2))
+            except (OSError, ValueError, TypeError, AttributeError):
+                save("export-topology-differences.json", json.dumps({"comparisonUnavailable": True, "valuesRecorded": False}))
         logs = subprocess.run([*self.compose, "logs", "--no-color", "--tail", "120"], capture_output=True, timeout=30)
         save("services.txt", logs.stdout + logs.stderr)
         print(f"FAIL: private redacted acceptance evidence: {evidence}", flush=True)
@@ -919,7 +1104,7 @@ class PreservedFixture(Fixture):
         containers = checked(["docker", "ps", "--all", "--quiet", "--filter", "label=com.docker.compose.project=" + self.project]).decode().split()
         metadata = json.loads(checked(["docker", "inspect", *containers])) if containers else []
         return {"containers": sorted(({"id": item["Id"], "name": item["Name"], "started": item["State"]["StartedAt"],
-            "restarts": item["RestartCount"], "running": item["State"]["Running"], "mounts": item["Mounts"], "healthcheck": item["Config"].get("Healthcheck"),
+            "restarts": item["RestartCount"], "running": item["State"]["Running"], "mounts": sorted(item["Mounts"], key=lambda mount: json.dumps(mount, sort_keys=True)), "healthcheck": item["Config"].get("Healthcheck"),
             "labels": item["Config"].get("Labels"), "image": item["Image"]} for item in metadata), key=lambda item: item["id"]),
             "volumes": sorted(checked(["docker", "volume", "ls", "--quiet", "--filter", "label=com.docker.compose.project=" + self.project]).decode().split()),
             "networks": sorted(checked(["docker", "network", "ls", "--quiet", "--filter", "label=com.docker.compose.project=" + self.project]).decode().split()),
@@ -928,12 +1113,42 @@ class PreservedFixture(Fixture):
                 "volumes": sorted(checked(["docker", "volume", "ls", "--quiet"]).decode().split()),
                 "networks": sorted(checked(["docker", "network", "ls", "--quiet", "--no-trunc"]).decode().split())}}
 
-    def assert_no_resource_events(self, since):
-        events = checked(["docker", "events", "--since", str(since), "--until", str(time.time()), "--format", "{{json .}}"], timeout=30)
-        prohibited = {"create", "destroy", "start", "restart", "stop", "kill", "die", "connect", "disconnect", "mount", "unmount"}
-        for line in events.splitlines():
-            event = json.loads(line)
-            assert not (event.get("Type") in ("container", "network", "volume") and event.get("Action", event.get("status")) in prohibited), "Deployment-read-only setup must not create, remove, restart or attach any Docker resources, including unlabeled transient helpers"
+    def begin_event_window(self, baseline):
+        container = next(item["id"] for item in baseline["containers"] if item["labels"]["com.docker.compose.service"] == "mcp-http")
+        collector = LiveDockerEvents(container)
+        self.event_collectors.append(collector)
+        collector.begin()
+        return collector
+
+    def assert_no_resource_events(self, collector, baseline):
+        events = collector.finish()
+        prohibited = {"create", "destroy", "start", "restart", "stop", "kill", "die", "connect", "disconnect",
+            "pause", "unpause", "update", "rename", "checkpoint", "restore", "commit", "extract-to-dir"}
+        existing_containers = {item["id"] for item in baseline["containers"]}
+        existing_pairs = {(mount["Name"], item["id"]) for item in baseline["containers"] for mount in item["mounts"]
+            if mount.get("Type") == "volume" and mount.get("Name")}
+        references, archive_reads, balanced_pairs = {}, 0, 0
+        for event in events:
+            kind, action = event.get("Type"), event.get("Action", event.get("status"))
+            actor = event.get("Actor", {})
+            assert not (kind in ("container", "network", "volume") and action in prohibited), "Deployment-read-only setup must not create, remove, restart, write or attach any Docker resources, including unlabeled transient helpers"
+            if kind == "volume" and action in ("mount", "unmount"):
+                pair = (actor.get("ID"), actor.get("Attributes", {}).get("container"))
+                assert pair in existing_pairs, "Read-only volume driver references must belong to an existing serving mount and baseline container"
+                if action == "mount":
+                    references.setdefault(pair, []).append(False)
+                else:
+                    assert references.get(pair) and references[pair].pop(), "Volume driver references must balance around a read-only archive operation"
+                    balanced_pairs += 1
+            elif kind == "container" and action == "archive-path" and actor.get("ID") in existing_containers:
+                archive_reads += 1
+                for pair, active in references.items():
+                    if pair[1] == actor["ID"]:
+                        active[:] = [True] * len(active)
+        assert not any(references.values()), "Read-only archive volume references must all be released"
+        print("PASS: global Docker lifecycle has zero resource creation/removal, serving mount changes or starts/restarts; " +
+            str(archive_reads) + " read-only existing-container archives and " + str(balanced_pairs) + " balanced existing-volume driver references; " +
+            str(len(events)) + " continuous events fenced by startup/end read-only exec handshakes", flush=True)
 
     def native_profile(self):
         path = self.client_directory / "mcp/incident-reader.json"
@@ -1019,8 +1234,11 @@ class PreservedFixture(Fixture):
         assert {item["id"] for item in self.request("/api/v1/integration-credentials/")} == before_cancel
         setup = self.terminal(normal)
         setup.until("RatelDesk Web URL")
+        offset = len(setup.traffic)
         setup.send(b"\x0e")
-        setup.until("Verify the detected existing deployment|Prepare explicit configuration changes")
+        hosting_body = "Verify existing deployment unchanged" if intent == "verify-existing" else "Prepare explicit changes."
+        setup.until("(?s)^(?=.*HTTP MCP hosting)(?=.*" + re.escape(hosting_body) +
+            ")(?=.*Server setup · personal client identities are separate)", since=offset)
         setup.send(b"\x0e")
         code = setup.until(r"[Cc]ode:\s*([A-Z2-9]{4}-[A-Z2-9]{4})").group(1)
         print("PASS: actual host approval request reached; exercising Back before browser consent", flush=True)
@@ -1033,13 +1251,20 @@ class PreservedFixture(Fixture):
         setup.send(b"\x0e")
         code = setup.until(r"[Cc]ode:\s*(?!" + re.escape(previous_code) + r")([A-Z2-9]{4}-[A-Z2-9]{4})", since=offset).group(1)
         assert code != previous_code, "Back must fence/cancel the former host proposal before a fresh request"
+        required = (code, "4 → 4", "Open browser", "Copy URL and code", "Details", "Back", "Cancel")
+        complete_frame = "(?s)^" + "".join("(?=.*" + re.escape(value) + ")" for value in required)
+        # One PTY read can end midway through an ANSI sequence or visible row.
+        # Require every primary item in the current frame before inspecting it.
+        setup.until(complete_frame, since=offset)
         screen = setup.screen()
         assert all(value in screen for value in (code, "Open browser", "Copy URL and code", "Details", "Back", "Cancel")), "Host approval actions/code must fit 80x24"
         assert "4 → 4" in screen, "The host review must show the actual unchanged defined-service count at 80x24"
         assert (re.search(r"No (?:deployment )?changes", screen) if intent == "verify-existing" else "change" in screen), "The host review must state its change/no-change purpose"
         offset = len(setup.traffic)
         setup.resize(36, 120)
-        setup.until(re.escape(code), since=offset)
+        # This sidebar exists only at >=104 columns. It proves a fresh wide
+        # layout without assuming the bordered form spans the sidebar's width.
+        setup.until(complete_frame + r"(?=.*\bHosting\b)(?=.*\bReview\b)(?=.*\bDone\b)", since=offset)
         assert all(value in setup.screen() for value in (code, "4 → 4", "Open browser", "Details", "Back", "Cancel")), "Wide host review must retain count/code/actions after real terminal resize"
         print("RUN: Chromium administrator " + ("source-diff" if self.changed else "unchanged baseline") + " consent", flush=True)
         self.browser_consent(code, "host")
@@ -1091,6 +1316,9 @@ class PreservedFixture(Fixture):
         self.request("/api/v1/integration-credentials/" + created[0]["id"] + "/record", expected=(204,), method="DELETE")
         assert {item["id"] for item in self.request("/api/v1/integration-credentials/")} == before
         ordinary = next(item for item in self.request("/api/v1/integration-credentials/") if item["id"] == self.ordinary_id)
+        if ordinary.get("revokedAtUtc") is not None or ordinary["expiresAtUtc"] != self.ordinary_expiry:
+            print("OBSERVE: ordinary preservation " + json.dumps({"revoked": ordinary.get("revokedAtUtc") is not None,
+                "persistedExpiryTextChanged": ordinary["expiresAtUtc"] != self.ordinary_expiry}), flush=True)
         assert ordinary.get("revokedAtUtc") is None and ordinary["expiresAtUtc"] == self.ordinary_expiry
         print("PASS: NEW host verification process, real browser status-only consent, complete catalog/status and revoked/deleted temporary identity", flush=True)
 
@@ -1157,6 +1385,37 @@ class PreservedFixture(Fixture):
         assert {item["id"] for item in self.request("/api/v1/integration-credentials/")} == before
         print("PASS: actual 2025-03-26 status-only verifier returns stable isError denial with no business data; canceled bearer returns 401 and revoked record is deleted", flush=True)
 
+    def reject_interrupted_manager_apply(self, record):
+        source, candidate = Path(record["source"]), Path(record["candidate"])
+        original, prepared = source.read_bytes(), candidate.read_bytes()
+        before_runtime = self.inventory()
+        before_credentials = {item["id"] for item in self.request("/api/v1/integration-credentials/")}
+        unchanged = {path: path.read_bytes() for path in (candidate, self.output / "host-approval.json",
+            self.output / "host-approval-session.json", self.output / "approved-proposal.json",
+            self.output / "approved-effective-deployment.json")}
+        state_before = json.loads((self.output / "launcher-state.json").read_bytes())
+        events = self.begin_event_window(before_runtime)
+        interrupted = self.manager.interrupt_apply(self.manager_stack, candidate, record["originalSha256"])
+        assert interrupted["status"] == 400 and interrupted["baselinePreserved"], "The actual truncated manager request must be rejected before any source save/deploy"
+        assert source.read_bytes() == original and candidate.read_bytes() == prepared
+        environment = os.environ.copy()
+        environment.update(self.client_environment)
+        rejected = subprocess.run(self.resume_command, cwd=self.directory, env=environment, capture_output=True, timeout=120)
+        print("OBSERVE: fresh verification after interrupted actual manager request " + json.dumps({
+            "exit": rejected.returncode, "runtimeMismatch": b"HOST_RUNTIME_MISMATCH" in rejected.stderr}), flush=True)
+        assert rejected.returncode == 78 and b"HOST_RUNTIME_MISMATCH" in rejected.stderr, "Unapplied approved settings must stop fresh verification at the observed runtime mismatch"
+        assert b"End-to-end verified" not in rejected.stdout and b"Existing deployment verified unchanged" not in rejected.stdout
+        assert {item["id"] for item in self.request("/api/v1/integration-credentials/")} == before_credentials
+        assert not (self.output / "verifier-cleanup.json").exists(), "The unapplied generation must fail before any temporary verifier issuance"
+        assert all(path.read_bytes() == content for path, content in unchanged.items()), "An interrupted owner request must not renew approval, repair hashes or replace its exact reviewed candidate"
+        state_after = json.loads((self.output / "launcher-state.json").read_bytes())
+        assert state_after["phase"] == "applied-verify-pending"
+        assert set(state_after) == set(state_before) | {"verificationStartedAtUtc"}
+        assert all(state_after[key] == value for key, value in state_before.items() if key != "phase"), "Failed verification may mark pending but cannot rebase any reviewed checkpoint field"
+        assert source.read_bytes() == original and self.inventory() == before_runtime
+        self.assert_no_resource_events(events, before_runtime)
+        print("PASS: actual Portainer truncated PUT returned 400 before save/deploy; exact source/runtime and approved candidate retained; NEW verification returned 78/pending without a verifier or hash renewal; explicit recovery uses the same approved candidate", flush=True)
+
     def apply_saved_source_adapter(self):
         candidates = json.loads((self.output / "launcher-state.json").read_bytes())["sourceCandidates"]
         assert len(candidates) == 1, "The narrow gateway correction must touch only its authoritative YAML source"
@@ -1167,6 +1426,8 @@ class PreservedFixture(Fixture):
         assert hashlib.sha256(original).hexdigest() == record["originalSha256"]
         assert hashlib.sha256(prepared).hexdigest() == record["candidateSha256"]
         before_lines, after_lines = original.splitlines(), prepared.splitlines()
+        print("OBSERVE: reviewed candidate source shape " + json.dumps({"beforeLineCount": len(before_lines),
+            "afterLineCount": len(after_lines), "redactedKeyActions": record.get("safeDiff", "")}), flush=True)
         assert len(before_lines) == len(after_lines)
         changes = [(old, new) for old, new in zip(before_lines, after_lines) if old != new]
         assert len(changes) == 1 and b"WebGateway__Mcp__Enabled" in changes[0][0]
@@ -1174,6 +1435,7 @@ class PreservedFixture(Fixture):
         assert b"# Disposable operator YAML" in prepared and b"*operator-labels" in prepared and b"x-operator-notes: |" in prepared
         self.applied = self.compose
         if self.manager:
+            self.reject_interrupted_manager_apply(record)
             result = self.manager.apply(self.manager_stack, candidate, record["originalSha256"])
             assert result["readBackExact"] and source.read_bytes() == prepared
         else:
@@ -1219,18 +1481,18 @@ class PreservedFixture(Fixture):
             dependencies.append(self.legacy_config)
         baseline_dependencies = {path: path.read_bytes() for path in dependencies}
         before = self.inventory()
-        adoption_started = time.time()
         assert len(before["containers"]) == 4
         assert all(item["running"] for item in before["containers"]), "The pristine baseline must have four actual running services"
         assert all(item["restarts"] == 0 for item in before["containers"])
         web = next(item for item in before["containers"] if item["labels"].get("com.docker.compose.service") == "web")
         assert not web["healthcheck"], "The Web fixture deliberately has no Docker healthcheck"
+        adoption_events = self.begin_event_window(before)
         if not self.changed:
             self.complete_native_client()
         self.review_host("prepare-changes" if self.changed else "verify-existing")
         assert self.source.read_bytes() == baseline_source and self.environment.read_bytes() == baseline_env
         assert self.inventory() == before, "Review/adoption must create no Docker resources or restart/recreate serving containers"
-        self.assert_no_resource_events(adoption_started)
+        self.assert_no_resource_events(adoption_events, before)
         if self.changed:
             self.apply_saved_source_adapter()
             after = self.inventory()
@@ -1249,8 +1511,8 @@ class PreservedFixture(Fixture):
         else:
             assert not (self.output / "deployment.json").exists(), "No-change adoption must not require a generated deployment document"
             verified_source, verified_env, verified_runtime = baseline_source, baseline_env, before
-            print("PASS: unchanged four-service source/config bytes and Docker events/inventory; zero recreation/restarts; Web has no Docker healthcheck", flush=True)
-        verification_started = time.time()
+            print("PASS: unchanged four-service source/config bytes, global object IDs and serving mounts/starts; zero creation/removal/recreation/restarts; Web has no Docker healthcheck", flush=True)
+        verification_events = self.begin_event_window(verified_runtime)
         self.verify_fresh()
         self.reload_native_client()
         if not self.changed and not self.legacy:
@@ -1261,7 +1523,7 @@ class PreservedFixture(Fixture):
         assert all(path.read_bytes() == content for path, content in baseline_dependencies.items()), "Host adoption/apply/verification must preserve unrelated source/configuration dependencies byte-for-byte"
         assert self.native_profile() == self.profile_snapshot, "Repeated host verification must not replace the ordinary client identity"
         assert self.inventory() == verified_runtime, "Fresh verification must leave Docker objects, starts/restarts, mounts, healthchecks and labels unchanged"
-        self.assert_no_resource_events(verification_started)
+        self.assert_no_resource_events(verification_events, verified_runtime)
         if self.legacy:
             assert self.legacy_config.read_text() == json.dumps({"apiBaseUrl": "http://api:8222/", "credentialMode": "gateway"})
         self.reject_changed_source()
@@ -1288,7 +1550,7 @@ def main():
     parser.add_argument("--native-executable", type=Path, help="Actual extracted native rateldesk-mcp executable; required for preserved host cases.")
     parser.add_argument("--database-image", default="postgres:16", help="Already present PostgreSQL fixture image; never pulled by this lane.")
     parser.add_argument("--external-manager", action="store_true", help="Use the actual disposable Portainer owner for the change case; requires the pinned image already present.")
-    parser.add_argument("--legacy-compose-onramp", action="store_true", help="Start adoption with a real private 2.26.1 plugin and exercise the deliberate compatible-tool choice.")
+    parser.add_argument("--legacy-compose-onramp", action="store_true", help="Start adoption or explicit initializer compatibility with a real private 2.26.1 plugin and exercise the deliberate compatible-tool choice.")
     parser.add_argument("--compose-fixture-cache", type=Path, help="Offline verified 2.39.4 platform fixture for the onramp.")
     parser.add_argument("--legacy-compose-fixture-cache", type=Path, help="Offline verified 2.26.1 platform fixture for the onramp.")
     parser.add_argument("--download-compose-fixtures", action="store_true", help="Explicitly allow pinned disposable Compose fixture downloads for --legacy-compose-onramp.")
@@ -1301,13 +1563,14 @@ def main():
         with ExitStack() as resources:
             fixture = (PreservedFixture(args, changed=case == "change", legacy=case == "legacy-retain") if case in ("adopt", "change", "legacy-retain")
                 else Fixture(args, case != "fresh", case == "legacy"))
-            if case == "adopt" and args.legacy_compose_onramp:
+            if case in ("adopt", "legacy") and args.legacy_compose_onramp:
                 from private_compose_fixture import legacy_compose_fixture
                 fixture.onramp = resources.enter_context(legacy_compose_fixture(compose_cache=args.compose_fixture_cache,
                     legacy_cache=args.legacy_compose_fixture_cache, download=args.download_compose_fixtures))
                 # Reproduce the original synthetic shell PATH for exact printed
                 # resume invocations; its credential helper remains selectable.
-                fixture.client_environment["PATH"] = fixture.onramp.environment["PATH"]
+                if isinstance(fixture, PreservedFixture):
+                    fixture.client_environment["PATH"] = fixture.onramp.environment["PATH"]
             try:
                 fixture.run()
             except Exception as failure:

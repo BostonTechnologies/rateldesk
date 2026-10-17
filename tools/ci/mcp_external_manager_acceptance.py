@@ -8,16 +8,19 @@ acceptance. Passwords/tokens and response bodies are never printed.
 """
 import argparse
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
 import re
 import secrets
+import socket
 import subprocess
 import tempfile
 import time
 import urllib.error
 import urllib.request
+import urllib.parse
 import uuid
 
 PORTAINER_IMAGE = "portainer/portainer-ce@sha256:4786931dc7c588ff1c242696fe1eb3f7f9c5dafb136b6c713aff7745dd5bd407"
@@ -145,7 +148,7 @@ class PortainerOwner:
             raise RuntimeError("Actual manager altered the original YAML; source review must restart from its actual stored bytes")
         return {"id": identifier, "source": managed_source, "project": project}
 
-    def apply(self, stack, candidate, expected_original):
+    def reviewed_update(self, stack, candidate, expected_original):
         identifier = stack["id"]
         source = Path(stack["source"])
         before = source.read_bytes()
@@ -153,8 +156,53 @@ class PortainerOwner:
         if before != current or hashlib.sha256(before).hexdigest() != expected_original:
             raise RuntimeError("Actual manager source changed after review; candidate was not saved/deployed")
         content = Path(candidate).read_bytes()
-        self.request("/api/stacks/" + str(identifier) + "?endpointId=" + str(self.endpoint),
-                     {"StackFileContent": content.decode(), "Env": self.stack_environment[identifier], "Prune": False, "PullImage": False}, method="PUT")
+        if len(content) > MAX_BYTES:
+            raise RuntimeError("Actual manager candidate exceeded the fixture bound")
+        payload = {"StackFileContent": content.decode(), "Env": self.stack_environment[identifier], "Prune": False, "PullImage": False}
+        return identifier, source, before, content, payload
+
+    def interrupt_apply(self, stack, candidate, expected_original):
+        """End an actual authenticated update body early, before valid JSON.
+
+        A 400 alone is insufficient: both the manager API and its actual stored
+        file must still contain the reviewed baseline before this negative
+        probe can be reported as safely interrupted.
+        """
+        identifier, source, before, _, payload = self.reviewed_update(stack, candidate, expected_original)
+        parsed = urllib.parse.urlsplit(self.base_url)
+        if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment or not parsed.port:
+            raise RuntimeError("Interrupted manager probe requires its disposable loopback HTTP endpoint")
+        data = json.dumps(payload).encode()
+        if not 1 < len(data) <= MAX_BYTES:
+            raise RuntimeError("Interrupted manager update exceeded the fixture request bound")
+        connection = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=10)
+        try:
+            connection.putrequest("PUT", "/api/stacks/" + str(identifier) + "?endpointId=" + str(self.endpoint))
+            connection.putheader("Authorization", "Bearer " + self.token)
+            connection.putheader("Content-Type", "application/json")
+            connection.putheader("Content-Length", str(len(data)))
+            connection.putheader("Connection", "close")
+            connection.endheaders()
+            connection.send(data[:1])
+            connection.sock.shutdown(socket.SHUT_WR)
+            response = connection.getresponse()
+            status = response.status
+            if len(response.read(16385)) > 16384:
+                raise RuntimeError("Interrupted manager response exceeded the fixture bound")
+        except (OSError, http.client.HTTPException):
+            raise RuntimeError("Interrupted manager update did not produce a bounded confirmed response; no completion was recorded") from None
+        finally:
+            connection.close()
+        if status != 400:
+            raise RuntimeError("Interrupted manager update did not return the required HTTP 400; no completion was recorded")
+        readback = self.request("/api/stacks/" + str(identifier) + "/file")["StackFileContent"].encode()
+        if readback != before or source.read_bytes() != before:
+            raise RuntimeError("Interrupted manager update changed the reviewed baseline; fresh source review is required")
+        return {"interrupted": True, "status": 400, "readBackExact": True, "baselinePreserved": True}
+
+    def apply(self, stack, candidate, expected_original):
+        identifier, source, _, content, payload = self.reviewed_update(stack, candidate, expected_original)
+        self.request("/api/stacks/" + str(identifier) + "?endpointId=" + str(self.endpoint), payload, method="PUT")
         readback = self.request("/api/stacks/" + str(identifier) + "/file")["StackFileContent"].encode()
         if readback != content or source.read_bytes() != content:
             raise RuntimeError("Actual manager read-back differs from the approved candidate; fresh source review is required")

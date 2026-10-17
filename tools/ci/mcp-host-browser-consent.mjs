@@ -20,17 +20,24 @@ try {
     args: [`--host-resolver-rules=MAP ${origin.hostname} 127.0.0.1`, '--no-proxy-server'],
   });
   const context = await browser.newContext({ baseURL: origin.origin, ignoreHTTPSErrors: true });
+  // Typography is unrelated to local consent. Keep this isolated browser from
+  // waiting on a public font service while every application request stays real.
+  await context.route(/^https:\/\/(?:fonts\.googleapis\.com|fonts\.gstatic\.com)\//, route => route.abort());
   page = await context.newPage();
   page.setDefaultTimeout(30000);
-  stage = 'local account sign-in';
-  await page.goto('/login');
+  stage = 'local sign-in page navigation';
+  await page.goto('/login', { waitUntil: 'domcontentloaded' });
+  stage = 'interactive local sign-in renderer';
   await expect(page.getByTestId('local-login-form')).toHaveAttribute('data-interactive', 'true');
+  stage = 'local account form input';
   await page.getByLabel('Email', { exact: false }).fill(request.email);
   await page.getByLabel('Password', { exact: false }).fill(request.password);
+  stage = 'local account form submission';
   await page.getByRole('button', { name: /^Sign in to / }).click();
+  stage = 'local account signed-in navigation';
   await expect(page).toHaveURL(/\/home(?:[?#].*)?$/);
   stage = 'approval page navigation';
-  await page.goto('/account/integration-credentials/approve');
+  await page.goto('/account/integration-credentials/approve', { waitUntil: 'domcontentloaded' });
   const host = request.kind === 'host';
   reviewButton = page.getByRole('button', { name: host ? 'Review host' : 'Review client', exact: true });
   stage = 'interactive approval renderer';
@@ -81,6 +88,11 @@ try {
     observations.reviewEnabled = reviewButton ? await reviewButton.isEnabled().catch(() => null) : null;
     observations.dialogCount = await page.getByRole('dialog').count().catch(() => null);
     observations.alertCount = await page.getByRole('alert').count().catch(() => null);
+    observations.atLogin = new URL(page.url()).pathname === '/login';
+    observations.atHome = new URL(page.url()).pathname === '/home';
+    observations.loginErrorVisible = await page.getByTestId('local-login-error').isVisible().catch(() => null);
+    const loginForm = page.getByTestId('local-login-form');
+    observations.loginInteractive = await loginForm.count().then(count => count ? loginForm.getAttribute('data-interactive') : null).catch(() => null);
   }
   process.stderr.write('Disposable browser consent did not complete: ' + JSON.stringify(observations) + '; no credential or page content was recorded.\n');
   process.exitCode = 1;

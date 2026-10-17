@@ -541,15 +541,26 @@ jobs:
           docker pull postgres:16
           docker pull portainer/portainer-ce@sha256:4786931dc7c588ff1c242696fe1eb3f7f9c5dafb136b6c713aff7745dd5bd407
 
+      - name: Build the HTTP MCP acceptance image
+        timeout-minutes: 10
+        run: docker build --file docker/mcp-http/Dockerfile --tag rateldesk-mcp-http:setup-acceptance .
+
       - name: Verify pristine adoption, minimal owner apply and retained legacy configuration
         timeout-minutes: 15
         run: |
-          docker build --file docker/mcp-http/Dockerfile --tag rateldesk-mcp-http:setup-acceptance .
           python3 tools/ci/run-mcp-host-lifecycle-acceptance.py \
             --api-image rateldesk-api --web-image rateldesk-web \
             --mcp-image rateldesk-mcp-http:setup-acceptance \
             --native-executable work/native-setup/rateldesk-mcp --external-manager \
             --legacy-compose-onramp --download-compose-fixtures --case all
+
+      - name: Verify the explicitly selected legacy initializer lifecycle
+        timeout-minutes: 10
+        run: |
+          python3 tools/ci/run-mcp-host-lifecycle-acceptance.py \
+            --api-image rateldesk-api --web-image rateldesk-web \
+            --mcp-image rateldesk-mcp-http:setup-acceptance \
+            --legacy-compose-onramp --download-compose-fixtures --case legacy
 
       - name: Collect Compose logs
         if: always()
