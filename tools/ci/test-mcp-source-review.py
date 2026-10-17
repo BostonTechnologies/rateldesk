@@ -95,6 +95,110 @@ class SourceReviewTests(unittest.TestCase):
         self.assertEqual("${synthetic}", result["completeDeployment"]["services"]["web"]["environment"]["LITERAL"])
         self.assertTrue(candidate.endswith('  db:\n    image: synthetic-db\n'))
 
+    def test_unrelated_case_sensitive_environment_pairs_are_preserved_in_every_source_shape(self):
+        entries = {"TIMEOUT": "20", "NO_PROXY": "", "no_proxy": "", "HTTP_PROXY": "", "http_proxy": "",
+                   "CASE_MARKER": "upper", "case_marker": "lower"}
+        shapes = {
+            "yaml-mapping": 'services:\n  web:\n    image: synthetic-web\n    environment:\n' + ''.join(
+                '      ' + key + ': ' + json.dumps(value) + '\n' for key, value in entries.items()),
+            "yaml-list": 'services:\n  web:\n    image: synthetic-web\n    environment:\n' + ''.join(
+                '      - ' + json.dumps(key + '=' + value) + '\n' for key, value in entries.items()),
+            "json-mapping": json.dumps({"services": {"web": {"image": "synthetic-web", "environment": entries}}}),
+            "json-list": json.dumps({"services": {"web": {"image": "synthetic-web",
+                "environment": [key + '=' + value for key, value in entries.items()]}}}),
+        }
+        for shape, content in shapes.items():
+            with self.subTest(shape=shape):
+                self.source.write_text(content)
+                context = self.context()
+                expected = json.loads(self.snapshot.read_bytes())
+                expected["services"]["web"]["environment"]["TIMEOUT"] = "21"
+                result = review.prepare_review(context, self.overlay(TIMEOUT="21"), self.render)
+                candidate = Path(result["sourceCandidates"][0]["candidate"])
+                changed = content.replace('"TIMEOUT": "20"', '"TIMEOUT": "21"').replace(
+                    'TIMEOUT: "20"', 'TIMEOUT: "21"').replace('"TIMEOUT=20"', '"TIMEOUT=21"')
+                self.assertNotEqual(content, changed)
+                self.assertEqual(changed, candidate.read_text())
+                self.assertEqual(content, self.source.read_text())
+                self.assertEqual(expected, result["completeDeployment"])
+                self.assertEqual(2, len(self.renders))
+
+    def test_canonical_aliases_of_requested_setting_still_reject_before_candidate_creation(self):
+        target = "RatelDeskMcpHttp__RequestTimeoutSeconds"
+        for alias in (target.casefold(), "RatelDeskMcpHttp:RequestTimeoutSeconds"):
+            entries = {target: "20", alias: "30", "HTTP_PROXY": "", "http_proxy": ""}
+            shapes = {
+                "yaml-mapping": 'services:\n  web:\n    environment:\n' + ''.join(
+                    '      ' + key + ': ' + json.dumps(value) + '\n' for key, value in entries.items()),
+                "yaml-list": 'services:\n  web:\n    environment:\n' + ''.join(
+                    '      - ' + json.dumps(key + '=' + value) + '\n' for key, value in entries.items()),
+                "json-mapping": json.dumps({"services": {"web": {"environment": entries}}}),
+                "json-list": json.dumps({"services": {"web": {"environment": [key + '=' + value for key, value in entries.items()]}}}),
+            }
+            for shape, content in shapes.items():
+                with self.subTest(alias=alias, shape=shape):
+                    self.source.write_text(content)
+                    with self.assertRaisesRegex(review.SourceReviewError, "source_review_ambiguous"):
+                        review.prepare_review(self.context(), self.overlay(**{target: "21"}), self.render)
+                    self.assertEqual(content, self.source.read_text())
+                    self.assertEqual([], self.renders)
+                    self.assertEqual([], list(self.output.glob("source-review-*")))
+
+    def test_unrelated_case_sensitive_environment_change_is_rejected_by_complete_render_check(self):
+        content = 'services:\n  web:\n    environment:\n      TIMEOUT: "20"\n      CASE_MARKER: "upper"\n      case_marker: "lower"\n'
+        self.source.write_text(content)
+        def unexpected(sources):
+            result = self.render(sources)
+            if sources != [str(self.source)]:
+                result["services"]["web"]["environment"]["case_marker"] = "unreviewed"
+            return result
+        with self.assertRaisesRegex(review.SourceReviewError, "source_review_impact"):
+            review.prepare_review(self.context(), self.overlay(TIMEOUT="21"), unexpected)
+        self.assertEqual(content, self.source.read_text())
+
+    def test_target_canonical_spelling_is_bound_across_ordered_owners(self):
+        target = "RatelDeskMcpHttp__RequestTimeoutSeconds"
+        def source_text(shape, entries):
+            if shape.startswith("json"):
+                environment = entries if shape.endswith("mapping") else [key + '=' + value for key, value in entries.items()]
+                return json.dumps({"services": {"web": {"environment": environment}}})
+            lines = ('      ' + key + ': ' + json.dumps(value) if shape.endswith("mapping")
+                     else '      - ' + json.dumps(key + '=' + value) for key, value in entries.items())
+            return 'services:\n  web:\n    environment:\n' + '\n'.join(lines) + '\n'
+        for shape in ("yaml-mapping", "yaml-list", "json-mapping", "json-list"):
+            for alias in (target.casefold(), "RatelDeskMcpHttp:RequestTimeoutSeconds"):
+                for later_has_exact in (False, True):
+                    with self.subTest(shape=shape, alias=alias, later_has_exact=later_has_exact):
+                        override = self.directory / "override.yml"
+                        self.sources = [self.source, override]
+                        original = source_text(shape, {alias: "10", "HTTP_PROXY": "", "http_proxy": ""})
+                        later = source_text(shape, {target: "20"} if later_has_exact else {"OTHER": "unrelated"})
+                        self.source.write_text(original)
+                        override.write_text(later)
+                        with self.assertRaisesRegex(review.SourceReviewError, "source_review_ambiguous"):
+                            review.prepare_review(self.context(), self.overlay(**{target: "21"}), self.render)
+                        self.assertEqual(original, self.source.read_text())
+                        self.assertEqual(later, override.read_text())
+                        self.assertEqual([], self.renders)
+                        self.assertEqual([], list(self.output.glob("source-review-*")))
+            # Repeating the exact same key in ordered sources is a normal
+            # Compose override. Change its last owner without touching earlier
+            # bytes or either unrelated case-sensitive environment entry.
+            with self.subTest(shape=shape, exact_ordered_override=True):
+                original = source_text(shape, {target: "10", "HTTP_PROXY": "", "http_proxy": ""})
+                later = source_text(shape, {target: "20"})
+                self.source.write_text(original)
+                override.write_text(later)
+                result = review.prepare_review(self.context(), self.overlay(**{target: "21"}), self.render)
+                self.assertEqual([str(override)], [item["source"] for item in result["sourceCandidates"]])
+                self.assertEqual(original, self.source.read_text())
+                self.assertEqual(later, override.read_text())
+                candidate = Path(result["sourceCandidates"][0]["candidate"])
+                self.assertEqual(later.replace('"20"', '"21"').replace('=20"', '=21"'), candidate.read_text())
+                environment = result["completeDeployment"]["services"]["web"]["environment"]
+                self.assertEqual({target: "21", "HTTP_PROXY": "", "http_proxy": ""}, environment)
+                candidate.unlink()
+
     def test_production_owner_renderer_decodes_literal_dollars_once_for_original_and_candidate(self):
         content = (b'# readable owner source\nservices:\n  web:\n    image: synthetic-web\n'
             b'    environment:\n      LITERAL: "$${OLD}/$$$$/single$$" # retain\n'

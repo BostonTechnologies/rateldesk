@@ -86,7 +86,7 @@ def parse_source(content):
         fail("source_review_yaml", "The saved source is not a supported UTF-8 YAML document. Validate its original Compose source before review; no source was rewritten.")
 
 
-def environment_entries(document, service):
+def environment_entries(document, service, changed_keys):
     _, node = document["services"][service]
     fields = mapping(node)
     if "extends" in fields:
@@ -125,9 +125,14 @@ def environment_entries(document, service):
             entries[key] = item
     else:
         fail("source_review_shape", "Use an explicit block environment mapping/list before automatic source review.")
-    canonical = [key.replace(":", "__").casefold() for key in entries]
+    # Docker environment names are case-sensitive. Only aliases of a setting
+    # being edited can make its .NET configuration target ambiguous; preserve
+    # unrelated pairs such as HTTP_PROXY/http_proxy as separate source entries.
+    targets = {key.replace(":", "__").casefold() for key in changed_keys}
+    canonical = [key.replace(":", "__").casefold() for key in entries
+                 if key.replace(":", "__").casefold() in targets]
     if len(canonical) != len(set(canonical)):
-        fail("source_review_ambiguous", "Remove canonical environment-key duplicates in the edited source before review.")
+        fail("source_review_ambiguous", "Remove canonical duplicates of the requested environment setting in its owning source before review.")
     return fields, env, entries
 
 
@@ -168,7 +173,7 @@ def patch_source(document, changes):
     edits = []
     newline = "\r\n" if "\r\n" in text else "\n"
     for service, values in changes.items():
-        fields, env, entries = environment_entries(document, service)
+        fields, env, entries = environment_entries(document, service, values)
         missing = []
         for key, value in values.items():
             if key in entries:
@@ -230,7 +235,7 @@ def patch_json_source(document, changes):
     newline = "\r\n" if "\r\n" in text else "\n"
     edits = []
     for service, values in changes.items():
-        fields, env, entries = environment_entries(document, service)
+        fields, env, entries = environment_entries(document, service, values)
         missing = []
         for key, value in values.items():
             if key in entries:
@@ -266,7 +271,7 @@ def safe_source_diff(source, document, changes):
     name = json.dumps(Path(source).name, ensure_ascii=True)
     lines = ["--- " + name + " (original)", "+++ " + name + " (candidate)"]
     for service, values in changes.items():
-        fields, env, entries = environment_entries(document, service)
+        fields, env, entries = environment_entries(document, service, values)
         lines.append("@@ services." + service + ".environment @@")
         if env is None and not document["is_json"]:
             indent = document["services"][service][0].start_mark.column + 2
@@ -378,11 +383,17 @@ def prepare_review(context, overlay, renderer=None):
         source_entries = {}
         for source in owners:
             try:
-                source_entries[source] = environment_entries(documents[source], service)[2]
+                source_entries[source] = environment_entries(documents[source], service, fields["environment"])[2]
             except SourceReviewError as error:
                 error.source = source
                 raise
         for key, value in fields["environment"].items():
+            spellings = {existing for entries in source_entries.values() for existing in entries
+                         if existing.replace(":", "__").casefold() == key.replace(":", "__").casefold()}
+            if len(spellings) > 1:
+                fail("source_review_ambiguous", "Remove canonical duplicates of the requested environment setting across its owning sources before review.")
+            if spellings and key not in spellings:
+                fail("source_review_ambiguous", "Align the requested environment key with its existing canonical spelling before review.")
             owner = next((source for source in reversed(owners) if key in source_entries[source]), owners[-1])
             planned.setdefault(owner, {}).setdefault(service, {})[key] = value
     render = renderer or default_renderer(context)
