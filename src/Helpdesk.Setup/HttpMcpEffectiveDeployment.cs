@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Diagnostics;
 using Helpdesk.AgentClient;
 using Helpdesk.Mcp.Configuration;
 using Helpdesk.Mcp.Http.Configuration;
@@ -13,14 +14,24 @@ using Microsoft.Extensions.Options;
 namespace Helpdesk.Setup;
 
 public sealed record DeploymentDiagnostic(string Code, string Layer, string Key, string Source, string Message, string NextAction);
+public enum HttpMcpHostIntent { VerifyExisting, PrepareChanges, LegacyInitializer }
+
 public sealed record HttpMcpDeploymentProposal(HttpMcpHostingSettings Settings, string SourceHash, string ProposalHash,
     JsonObject Overlay, IReadOnlyList<DeploymentDiagnostic> Diagnostics, IReadOnlyList<string> Changes)
 {
     public bool Valid => Diagnostics.Count == 0;
+    public HttpMcpHostIntent Intent { get; init; } = HttpMcpHostIntent.PrepareChanges;
+    public bool IsAdoption => Intent == HttpMcpHostIntent.VerifyExisting;
     public string? SnapshotPath { get; init; }
+    public string? RuntimeSnapshotPath { get; init; }
+    public string? RuntimeBinding { get; init; }
+    public string[] ServicesBefore { get; init; } = [];
+    public string[] ServicesAfter { get; init; } = [];
+    public int ServiceCountBefore => ServicesBefore.Length;
+    public int ServiceCountAfter => ServicesAfter.Length;
     public JsonObject CompleteDeployment { get; init; } = new();
     public IReadOnlyList<HostDeploymentSetting> ReviewSettings { get; init; } = [];
-    public HostDeploymentProposalRequest Approval => new("RatelDesk HTTP MCP deployment", ProposalHash, SourceHash,
+    public HostDeploymentProposalRequest Approval => new(IsAdoption ? "Adopt existing HTTP MCP baseline — no deployment changes" : "Review HTTP MCP configuration changes", ProposalHash, SourceHash,
         Settings.PublicOrigin, Settings.PublicResourceUri, Settings.Instance, Settings.AuthenticationMode,
         Settings.ApiBaseUrl, Settings.McpDestination, Changes) { ReviewSettings = ReviewSettings };
 }
@@ -30,36 +41,128 @@ public static class HttpMcpEffectiveDeployment
 {
     public const string EffectiveSourceVariable = "RATELDESK_SETUP_EFFECTIVE_COMPOSE_SOURCE";
     public const string RuntimeSourceVariable = "RATELDESK_SETUP_RUNTIME_ENVIRONMENT_SOURCE";
+    public const string IntentVariable = "RATELDESK_SETUP_HOST_INTENT";
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private static readonly string[] Services = ["api", "web", "mcp-http"];
     private const string RuntimeDirectory = "/run/rateldesk-mcp";
     private const string RuntimeConfiguration = RuntimeDirectory + "/config.json";
     private const string Migrations = "x-rateldesk-mount-migrations";
 
-    public static HttpMcpDeploymentProposal Create(HttpMcpHostingSettings settings, string? snapshotPath = null)
+    public static HttpMcpHostIntent SelectedIntent => Environment.GetEnvironmentVariable(IntentVariable) switch
+    {
+        null or "" or "verify-existing" => HttpMcpHostIntent.VerifyExisting,
+        "prepare-changes" => HttpMcpHostIntent.PrepareChanges,
+        "legacy-initializer" => HttpMcpHostIntent.LegacyInitializer,
+        _ => throw new AgentClientValidationException("HOST_INTENT_INVALID: Select verify-existing, prepare-changes or the explicit legacy-initializer alternative.")
+    };
+
+    public static HttpMcpDeploymentProposal AdoptBaseline(HttpMcpHostingSettings settings, string? snapshotPath = null) =>
+        Create(settings, snapshotPath, HttpMcpHostIntent.VerifyExisting);
+
+    public static string ProposalRevision(JsonObject complete, string sourceHash, HttpMcpHostIntent intent) =>
+        Hash((intent == HttpMcpHostIntent.LegacyInitializer ? "" : intent + "\n") + Canonical(complete) + "\n" + sourceHash);
+
+    public static HttpMcpDeploymentProposal Create(HttpMcpHostingSettings settings, string? snapshotPath = null, HttpMcpHostIntent intent = HttpMcpHostIntent.PrepareChanges, bool renderSourceReview = true)
     {
         snapshotPath ??= Environment.GetEnvironmentVariable(EffectiveSourceVariable);
         if (string.IsNullOrWhiteSpace(snapshotPath))
             throw new AgentClientValidationException("HOST_SOURCE_REQUIRED: Run the deployment archive's ./setup-http-mcp.sh on the Docker host. A container console cannot inspect or apply its owner's Compose deployment.");
         var text = SecureConfigurationFiles.ReadPrivateDocument(snapshotPath);
         var source = Parse(text);
+        if (intent == HttpMcpHostIntent.VerifyExisting)
+        {
+            var baselineDiagnostics = Validate(source, settings).ToList();
+            var runtimePath = Environment.GetEnvironmentVariable(RuntimeSourceVariable);
+            JsonObject? runtime = null;
+            if (string.IsNullOrWhiteSpace(runtimePath)) baselineDiagnostics.Add(new("HOST_RUNTIME_REQUIRED", "runtime", "existing deployment", "Docker host", "A source review alone cannot establish an adopted host baseline.", "Run the host launcher to capture the actual running deployment before baseline approval."));
+            else runtime = Parse(SecureConfigurationFiles.ReadPrivateDocument(runtimePath));
+            var sourceRevision = Hash(text);
+            var binding = runtime is null ? null : RuntimeIdentity(runtime);
+            var baseline = new HttpMcpDeploymentProposal(settings, sourceRevision, Hash("verify-existing\n" + Canonical(source) + "\n" + sourceRevision + "\n" + binding), new(), baselineDiagnostics, [])
+            {
+                Intent = intent, SnapshotPath = snapshotPath, RuntimeSnapshotPath = runtimePath, RuntimeBinding = binding,
+                CompleteDeployment = source.DeepClone().AsObject(), ServicesBefore = ServiceNames(source), ServicesAfter = ServiceNames(source),
+                ReviewSettings = Review(source, settings, sourceRevision)
+            };
+            if (runtime is not null) baselineDiagnostics.AddRange(Observe(baseline, runtimePath));
+            return baseline with { Diagnostics = baselineDiagnostics, Changes = InventoryChanges(source, source, true) };
+        }
         settings = settings with { Outbound = settings.AuthenticationMode == "gateway"
             ? AgentClientConfiguration.Empty with { ApiBaseUrl = settings.ApiBaseUrl, CredentialMode = "gateway" }
             : settings.Outbound is { } outbound ? HttpMcpHostingCoordinator.ContainerOutbound(outbound) : null };
-        var overlay = HttpMcpHostingCoordinator.ComposeOverlay(settings);
-        PrepareOverlay(overlay, source, settings);
-        var migrationDiagnostics = PrepareLegacyMigration(overlay, source, settings);
-        var proposed = Materialize(source, overlay, settings);
+        var legacy = intent == HttpMcpHostIntent.LegacyInitializer;
+        var overlay = HttpMcpHostingCoordinator.ComposeOverlay(settings, legacy);
+        if (legacy) PrepareOverlay(overlay, source, settings);
+        else PrepareEnvironmentOverlay(overlay, source, settings);
+        var migrationDiagnostics = legacy ? PrepareLegacyMigration(overlay, source, settings) : [];
+        TranslateOverlayServices(overlay, source);
+        var proposed = Materialize(source, overlay, settings, legacy);
+        if (!legacy && renderSourceReview) proposed = RenderSourceReview(source, overlay, proposed);
         var sourceMountDiagnostics = new List<DeploymentDiagnostic>();
-        ValidateMountCollisions(source, (code, layer, key, message, origin) =>
+        if (legacy) ValidateMountCollisions(source, (code, layer, key, message, origin) =>
             sourceMountDiagnostics.Add(new(code, layer, key, origin, message, "Resolve the indicated owning mount before approval; setup only migrates the selected legacy config mapping.")), overlay[Migrations] as JsonArray);
-        var diagnostics = migrationDiagnostics.Concat(sourceMountDiagnostics).Concat(Validate(proposed, settings)).Concat(HttpMcpHostingCoordinator.Validate(settings).Select(message =>
+        var diagnostics = migrationDiagnostics.Concat(sourceMountDiagnostics).Concat(Validate(proposed, settings, legacy)).Concat(HttpMcpHostingCoordinator.Validate(settings).Select(message =>
             new DeploymentDiagnostic("HOST_SETTINGS_INVALID", "proposal", "reviewed hosting settings", "reviewed proposal", message, "Correct the indicated setting in Advanced before approval."))).ToArray();
-        var changes = SemanticChanges(source, proposed, overlay);
+        var changes = InventoryChanges(source, proposed, false).Concat(SemanticChanges(source, proposed, overlay, legacy))
+            .Concat(SourceDiffLines(proposed)).Take(32).Select(change => TerminalText.Sanitize(change, 512)).ToArray();
         var sourceHash = Hash(text);
-        var proposalHash = Hash(Canonical(proposed) + "\n" + sourceHash);
+        var proposalHash = ProposalRevision(proposed, sourceHash, intent);
         return new(settings, sourceHash, proposalHash, overlay, diagnostics, changes)
-        { SnapshotPath = snapshotPath, CompleteDeployment = proposed, ReviewSettings = Review(proposed, settings, sourceHash) };
+        { Intent = intent, SnapshotPath = snapshotPath, CompleteDeployment = proposed, ReviewSettings = Review(proposed, settings, sourceHash),
+            ServicesBefore = ServiceNames(source), ServicesAfter = ServiceNames(proposed) };
+    }
+
+    private static JsonObject RenderSourceReview(JsonObject source, JsonObject overlay, JsonObject proposed)
+    {
+        if (overlay["services"] is JsonObject { Count: 0 })
+        {
+            var unchanged = proposed.DeepClone().AsObject(); unchanged["x-rateldesk-source-candidates"] = new JsonArray(); return unchanged;
+        }
+        var commandText = Environment.GetEnvironmentVariable("RATELDESK_SETUP_SOURCE_REVIEW_COMMAND");
+        if (string.IsNullOrWhiteSpace(commandText)) return proposed; // Headless model validation remains independently testable.
+        string[] command;
+        try { command = JsonSerializer.Deserialize<string[]>(commandText) ?? []; }
+        catch (JsonException) { throw new AgentClientValidationException("HOST_SOURCE_REVIEW_INVALID: The host launcher did not provide a valid source-review command."); }
+        if (command.Length is < 1 or > 16 || command.Any(value => value.Length is < 1 or > 8192 || value.Any(char.IsControl)))
+            throw new AgentClientValidationException("HOST_SOURCE_REVIEW_INVALID: The host source-review command is invalid.");
+        var start = new ProcessStartInfo(command[0]) { UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
+        foreach (var argument in command.Skip(1)) start.ArgumentList.Add(argument);
+        using var process = Process.Start(start) ?? throw new AgentClientValidationException("HOST_SOURCE_REVIEW_REQUIRED: The source-review helper could not start.");
+        var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
+        process.StandardInput.Write(overlay.ToJsonString()); process.StandardInput.Close();
+        if (!process.WaitForExit(30000)) { process.Kill(entireProcessTree: true); throw new AgentClientValidationException("HOST_SOURCE_REVIEW_TIMEOUT: Source review exceeded its bounded validation time; no source was applied."); }
+        var resultText = output.GetAwaiter().GetResult(); _ = error.GetAwaiter().GetResult();
+        if (Encoding.UTF8.GetByteCount(resultText) > SecureConfigurationFiles.DefaultMaxBytes * 8)
+            throw new AgentClientValidationException("HOST_SOURCE_REVIEW_FAILED: The original source could not be edited and validated losslessly. Review the source-specific recovery action from the host launcher before approval.");
+        if (process.ExitCode != 0)
+        {
+            try
+            {
+                var failure = Parse(resultText)["error"];
+                var code = failure?["code"]?.GetValue<string>();
+                var known = new[] { "unreadable", "shape", "ambiguous", "dependency", "yaml", "flow", "alias", "scalar", "overlay", "context", "compose", "changed", "service", "candidate_changed", "impact", "invalid" };
+                if (code is not null && known.Contains(code.Replace("source_review_", "", StringComparison.Ordinal)) && code.StartsWith("source_review_", StringComparison.Ordinal))
+                    throw new AgentClientValidationException("HOST_SOURCE_REVIEW_FAILED [" + code + "]: " + TerminalText.Sanitize(failure?["message"]?.ToString(), 1024) + " Source: " + TerminalText.Sanitize(failure?["source"]?.ToString(), 512));
+            }
+            catch (JsonException) { }
+            throw new AgentClientValidationException("HOST_SOURCE_REVIEW_FAILED: The original source could not be edited and validated losslessly. Re-read its owning source and prepare a source-specific change before approval.");
+        }
+        JsonObject result;
+        try { result = Parse(resultText); }
+        catch (JsonException) { throw new AgentClientValidationException("HOST_SOURCE_REVIEW_INVALID: Source review returned an invalid candidate description."); }
+        if (result["completeDeployment"] is not JsonObject rendered || result["sourceCandidates"] is not JsonArray candidates)
+            throw new AgentClientValidationException("HOST_SOURCE_REVIEW_INVALID: Source review did not return an effective candidate and original-source bindings.");
+        var reviewed = proposed.DeepClone().AsObject();
+        foreach (var entry in rendered.Where(entry => !entry.Key.StartsWith("x-rateldesk-", StringComparison.Ordinal))) reviewed[entry.Key] = entry.Value?.DeepClone();
+        var expected = proposed.DeepClone().AsObject();
+        // Compose, rather than this model merger, decides real effective semantics.
+        foreach (var entry in source.Where(entry => !entry.Key.StartsWith("x-rateldesk-", StringComparison.Ordinal) && rendered[entry.Key] is null).ToArray()) reviewed.Remove(entry.Key);
+        var collateral = new List<DeploymentDiagnostic>(); CompareTopology(expected, reviewed, collateral, "HOST_SOURCE_REVIEW_COLLATERAL");
+        if (collateral.Count > 0 || Services.Any(service => EffectiveFingerprint(expected, service) != EffectiveFingerprint(reviewed, service)))
+            throw new AgentClientValidationException("HOST_SOURCE_REVIEW_COLLATERAL: Compose resolved an unrelated change. Review the source-specific edit before approval.");
+        reviewed["x-rateldesk-source-candidates"] = candidates.DeepClone();
+        reviewed["x-rateldesk-source-review-changes"] = result["changes"]?.DeepClone();
+        return reviewed;
     }
 
     public static HttpMcpHostingSettings Adopt(HttpMcpHostingSettings fallback, string? snapshotPath = null)
@@ -91,13 +194,13 @@ public static class HttpMcpEffectiveDeployment
         };
     }
 
-    public static IReadOnlyList<DeploymentDiagnostic> Validate(JsonObject complete, HttpMcpHostingSettings expected)
+    public static IReadOnlyList<DeploymentDiagnostic> Validate(JsonObject complete, HttpMcpHostingSettings expected, bool requireSetupStorage = false)
     {
         var failures = new List<DeploymentDiagnostic>();
         void Fail(string code, string layer, string key, string message, string source = "effective Compose / application providers") =>
             failures.Add(new(code, layer, key, source, message, "Correct the winning configuration source, then run the host launcher again."));
         foreach (var service in Services)
-            if (complete["services"]?[service] is not JsonObject) Fail("HOST_SERVICE_MISSING", service, "services:" + service, "The complete deployment must contain this service.");
+            if (complete["services"]?[ServiceName(complete, service)] is not JsonObject) Fail("HOST_SERVICE_MISSING", service, "services:" + service, "The complete deployment must contain this service.");
         if (failures.Count > 0) return failures;
         try
         {
@@ -148,7 +251,8 @@ public static class HttpMcpEffectiveDeployment
                     Fail("HOST_EFFECTIVE_OPTIONS_MISMATCH", "mcp-http", "Authentication:AuthentikMcp", "The effective external authorization requirements differ from the reviewed scope/group sets.");
             }
             ValidateRoutes(gateway.EffectiveConfiguration, expected, Fail);
-            ValidateStorage(complete, Fail);
+            if (requireSetupStorage) ValidateStorage(complete, Fail);
+            else ValidateRetainedMounts(complete, Fail);
         }
         catch (Exception error) when (error is InvalidOperationException or AgentClientValidationException or FormatException or JsonException or ArgumentException)
         {
@@ -163,9 +267,13 @@ public static class HttpMcpEffectiveDeployment
         runtimePath ??= Environment.GetEnvironmentVariable(RuntimeSourceVariable);
         if (string.IsNullOrWhiteSpace(runtimePath)) return [new("HOST_RUNTIME_REQUIRED", "runtime", "observed deployment", "Docker host", "Saved files are not an observed running deployment.", "Run ./setup-http-mcp.sh --verify on the Docker host after recreation.")];
         var runtime = Parse(SecureConfigurationFiles.ReadPrivateDocument(runtimePath));
-        var failures = Validate(runtime, approved.Settings).ToList();
+        var failures = Validate(runtime, approved.Settings, approved.Intent == HttpMcpHostIntent.LegacyInitializer).ToList();
         var source = Parse(SecureConfigurationFiles.ReadPrivateDocument(approved.SnapshotPath ?? Environment.GetEnvironmentVariable(EffectiveSourceVariable)!));
-        var proposed = Materialize(source, approved.Overlay, approved.Settings);
+        var proposed = approved.CompleteDeployment;
+        // Legacy checkpoints predate the full Docker inventory capture. Their
+        // established provider/image/protected-volume checks remain compatible.
+        if (approved.Intent != HttpMcpHostIntent.LegacyInitializer)
+            CompareTopology(proposed, runtime, failures, "HOST_RUNTIME_TOPOLOGY_MISMATCH");
         foreach (var service in Services)
         {
             if (EffectiveFingerprint(proposed, service) != EffectiveFingerprint(runtime, service))
@@ -179,6 +287,21 @@ public static class HttpMcpEffectiveDeployment
                 runtime["x-rateldesk-image-ids"]?[service]?.GetValue<string>() != expectedImage)
                 failures.Add(new("HOST_RUNTIME_IMAGE", service, "image", "Docker image ID", "The running image differs from the reviewed image.", "Revalidate the changed image before approval."));
         }
+        if (approved.IsAdoption)
+        {
+            if (runtime["x-rateldesk-runtime-inventory"] is not JsonObject inventory || ServiceNames(proposed).Any(service => inventory[service] is not JsonObject))
+                failures.Add(new("HOST_RUNTIME_IDENTITY_REQUIRED", "runtime", "container inventory", "Docker host observation", "The complete running-container identity inventory is required for baseline adoption.", "Capture all defined services through the deployment owner's Docker host launcher."));
+            else
+            {
+                foreach (var service in inventory)
+                    if ((!ApprovedOneShot(proposed, service.Key) || service.Value?["state"]?.ToString() != "exited" || service.Value?["exitCode"]?.GetValue<int>() != 0) &&
+                        (service.Value?["state"]?.ToString() != "running" || service.Value?["healthStatus"]?.ToString() is "unhealthy" or "starting"))
+                        failures.Add(new("HOST_RUNTIME_NOT_READY", service.Key, "runtime state", "Docker host observation", "A defined service is not running and ready for baseline verification.", "Resolve its observed state through the existing deployment owner; a missing healthcheck remains a separate absence."));
+                if (RuntimeIdentity(runtime) != approved.RuntimeBinding)
+                    failures.Add(new("HOST_RUNTIME_BASELINE_CHANGED", "runtime", "container identity", "adopted running-container baseline", "Container identity, starts, restart counts or deployment configuration changed after baseline review.", "Re-read the actual source and running deployment and review a new baseline."));
+            }
+        }
+        if (approved.Intent != HttpMcpHostIntent.LegacyInitializer) return failures;
         var desiredRuntime = Mounts(proposed, "mcp-http").FirstOrDefault(mount => mount.Kind == "volumes" && mount.Target == RuntimeDirectory);
         var observedRuntime = Mounts(runtime, "mcp-http").FirstOrDefault(mount => mount.Kind == "volumes" && mount.Target == RuntimeDirectory);
         if (desiredRuntime is null || observedRuntime is null || desiredRuntime.Type != observedRuntime.Type ||
@@ -200,8 +323,9 @@ public static class HttpMcpEffectiveDeployment
     public static IReadOnlyList<DeploymentDiagnostic> CheckApprovedEffective(HttpMcpDeploymentProposal approved, JsonObject current)
     {
         var original = Parse(SecureConfigurationFiles.ReadPrivateDocument(approved.SnapshotPath!));
-        var expected = Materialize(original, approved.Overlay, approved.Settings);
-        var failures = Validate(current, approved.Settings).ToList();
+        var expected = approved.CompleteDeployment;
+        var failures = Validate(current, approved.Settings, approved.Intent == HttpMcpHostIntent.LegacyInitializer).ToList();
+        CompareTopology(expected, current, failures, "HOST_SOURCE_CHANGED");
         foreach (var service in Services)
             if (EffectiveFingerprint(current, service) != EffectiveFingerprint(expected, service) ||
                 MountFingerprint(current, service) != MountFingerprint(expected, service) ||
@@ -212,6 +336,90 @@ public static class HttpMcpEffectiveDeployment
             !JsonNode.DeepEquals(current["services"]?["mcp-config-init"]?["entrypoint"], expected["services"]?["mcp-config-init"]?["entrypoint"]))
             failures.Add(new("HOST_SOURCE_CHANGED", "mcp-config-init", "protected initializer", "reviewed complete deployment document", "The complete deployment initializer differs from the bounded approved generation.", "Review the current sources before resuming."));
         return failures;
+    }
+
+    private static string ServiceName(JsonObject complete, string role) => complete["x-rateldesk-service-roles"]?[role]?.GetValue<string>() ?? role;
+
+    private static bool ApprovedOneShot(JsonObject complete, string service) => complete["services"] is JsonObject services && services.Any(entry =>
+        entry.Value?["depends_on"]?[service]?["condition"]?.ToString() == "service_completed_successfully");
+
+    private static void TranslateOverlayServices(JsonObject overlay, JsonObject source)
+    {
+        var services = overlay["services"]!.AsObject();
+        foreach (var role in Services)
+        {
+            var name = ServiceName(source, role);
+            if (name == role || !services.ContainsKey(role)) continue;
+            var value = services[role]!.DeepClone(); services.Remove(role); services[name] = value;
+        }
+    }
+
+    private static string[] ServiceNames(JsonObject complete) => complete["services"] is JsonObject services
+        ? services.Select(service => service.Key).OrderBy(name => name, StringComparer.Ordinal).ToArray() : [];
+
+    private static JsonObject Topology(JsonObject complete, string service)
+    {
+        var result = complete["services"]?[service]?.DeepClone().AsObject() ?? new();
+        result.Remove("environment");
+        // Raw resolved references, including labels and absent healthchecks, remain authoritative.
+        return result;
+    }
+
+    private static void CompareTopology(JsonObject expected, JsonObject current, List<DeploymentDiagnostic> failures, string code)
+    {
+        if (!ServiceNames(expected).SequenceEqual(ServiceNames(current)))
+            failures.Add(new(code, "deployment", "defined service inventory", "reviewed Compose model", "Defined service names or count differ from the reviewed deployment.", "Review the current saved sources and actual runtime before continuing."));
+        foreach (var service in ServiceNames(expected).Intersect(ServiceNames(current), StringComparer.Ordinal))
+            if (Canonical(Topology(expected, service)) != Canonical(Topology(current, service)))
+                failures.Add(new(code, service, "service configuration", "reviewed Compose model", "Image, mounts, dependencies, ports, networks, command, healthcheck, labels or restart policy differ from the reviewed deployment.", "Review the changed source and affected-service recreation through its existing owner."));
+        foreach (var key in new[] { "volumes", "configs", "secrets", "networks" })
+            if (Canonical(expected[key]) != Canonical(current[key]))
+                failures.Add(new(code, "deployment", key + " references", "reviewed Compose model", "Deployment resource definitions differ from the reviewed source.", "Review the current source without deleting any existing deployment resources."));
+    }
+
+    private static string RuntimeIdentity(JsonObject runtime)
+    {
+        var inventory = runtime["x-rateldesk-runtime-inventory"]?.DeepClone().AsObject() ?? new();
+        foreach (var service in inventory)
+            if (service.Value is JsonObject observed) { observed.Remove("state"); observed.Remove("healthStatus"); }
+        return Hash(Canonical(inventory));
+    }
+
+    private static IReadOnlyList<string> InventoryChanges(JsonObject source, JsonObject proposed, bool adoption)
+    {
+        var before = ServiceNames(source); var after = ServiceNames(proposed);
+        var added = after.Except(before).ToArray(); var removed = before.Except(after).ToArray();
+        var changed = before.Intersect(after).Where(service => Canonical(source["services"]?[service]) != Canonical(proposed["services"]?[service])).ToArray();
+        var changes = new List<string>
+        {
+            $"Defined services: {before.Length} → {after.Length}. {string.Join(", ", after)}.",
+            $"Services added: {(added.Length == 0 ? "none" : string.Join(", ", added))}; removed: {(removed.Length == 0 ? "none" : string.Join(", ", removed))}; changed: {(changed.Length == 0 ? "none" : string.Join(", ", changed))}.",
+            adoption ? "No deployment changes; zero service recreation. Review adopts the current baseline, not an earlier provisioning approval. Temporary verifier issuance/revocation uses explicit consent and API writes." :
+                changed.Length == 0 && added.Length == 0 && removed.Length == 0 ? "No effective deployment changes are needed; choose Verify existing deployment." :
+                "Changes prepared, not applied. Only the listed changed services may require recreation after explicit owner apply."
+        };
+        foreach (var service in after)
+        {
+            var definition = proposed["services"]![service]!;
+            string Present(string key) => definition[key] is null ? "absent" : "present";
+            changes.Add(service + $": mounts/configs/secrets {Mounts(proposed, service, actualName: true).Count()}; ports {Present("ports")}; networks {Present("networks")}; dependencies {Present("depends_on")}; command {Present("command")}; entrypoint {Present("entrypoint")}; healthcheck {Present("healthcheck")}; restart policy {Present("restart")}.");
+        }
+        return changes.Take(32).Select(change => TerminalText.Sanitize(change, 512)).ToArray();
+    }
+
+    private static IEnumerable<string> SourceDiffLines(JsonObject proposed)
+    {
+        if (proposed["x-rateldesk-source-candidates"] is not JsonArray candidates) yield break;
+        foreach (var candidate in candidates)
+            if (candidate?["safeDiff"]?.GetValue<string>() is { } diff)
+                foreach (var line in diff.Split('\n', StringSplitOptions.RemoveEmptyEntries)) yield return "Source diff: " + line;
+    }
+
+    private static void ValidateRetainedMounts(JsonObject complete, Action<string, string, string, string, string> fail)
+    {
+        foreach (var service in ServiceNames(complete))
+            foreach (var collision in Mounts(complete, service, actualName: true).GroupBy(mount => mount.Target).Where(group => group.Count() > 1))
+                fail("HOST_MOUNT_COLLISION", service, "mount destination", "Multiple configuration, secret or volume mounts select the same effective destination.", "effective Compose mount destinations");
     }
 
     public static IReadOnlyList<DeploymentDiagnostic> ValidateExport(HttpMcpDeploymentProposal approved, JsonObject exported)
@@ -228,7 +436,7 @@ public static class HttpMcpEffectiveDeployment
     {
         var services = overlay["services"]!.AsObject();
         var mcp = services["mcp-http"]!.AsObject();
-        mcp["image"] = source["services"]?["mcp-http"]?["image"]?.DeepClone();
+        mcp["image"] = source["services"]?[ServiceName(source, "mcp-http")]?["image"]?.DeepClone();
         var environment = mcp["environment"]!.AsObject();
         if (source["x-rateldesk-mcp-proposed"]?.GetValue<bool>() == true)
         {
@@ -267,7 +475,7 @@ public static class HttpMcpEffectiveDeployment
         if (mounts.Count > 0) mcp["volumes"] = mounts;
         if (volumes.Count > 0) overlay["volumes"] = volumes;
         var initializer = services["mcp-config-init"]!.AsObject();
-        initializer["image"] = source["services"]?["mcp-http"]?["image"]?.DeepClone();
+        initializer["image"] = source["services"]?[ServiceName(source, "mcp-http")]?["image"]?.DeepClone();
         initializer["user"] = "0:0";
         initializer["entrypoint"] = new JsonArray("/bin/sh", "-ec");
         initializer["command"] = new JsonArray("mkdir -p /run/rateldesk-mcp && cp /output/mcp-outbound.json /run/rateldesk-mcp/config.json && chown 10001:10001 /run/rateldesk-mcp/config.json && chmod 0400 /run/rateldesk-mcp/config.json");
@@ -283,6 +491,40 @@ public static class HttpMcpEffectiveDeployment
         mounts.Add(new JsonObject { ["type"] = "volume", ["source"] = configVolumeName, ["target"] = "/run/rateldesk-mcp", ["read_only"] = true });
         mcp["volumes"] = mounts;
         mcp["depends_on"] = new JsonObject { ["mcp-config-init"] = new JsonObject { ["condition"] = "service_completed_successfully" } };
+    }
+
+    private static void PrepareEnvironmentOverlay(JsonObject overlay, JsonObject source, HttpMcpHostingSettings settings)
+    {
+        var services = overlay["services"]!.AsObject();
+        var mcpEnvironment = services["mcp-http"]!["environment"]!.AsObject();
+        using var mcp = Configuration(source, "mcp-http");
+        var existing = Outbound(source, mcp, EnvironmentFor(source, "mcp-http"));
+        if ((mcp["urls"] ?? mcp["DOTNET_URLS"] ?? mcp["ASPNETCORE_URLS"]) == settings.Listener)
+            mcpEnvironment.Remove("ASPNETCORE_URLS");
+        if (existing.ApiBaseUrl is { } existingApi && Same(existingApi, settings.ApiBaseUrl))
+            mcpEnvironment.Remove("Helpdesk__Mcp__Outbound__ApiBaseUrl");
+        if (existing.CredentialMode == settings.AuthenticationMode && settings.AuthenticationMode == "gateway")
+            mcpEnvironment.Remove("Helpdesk__Mcp__Outbound__CredentialMode");
+        if (settings.AuthenticationMode == "authentik" && settings.Outbound?.Resolve() != existing.Resolve())
+            throw new AgentClientValidationException("HOST_EXTERNAL_IDENTITY_CHANGED: Preserve the separately configured external downstream identity. Review changes in its protected owning provider before preparing a host configuration patch.");
+        if (settings.AuthenticationMode == "gateway")
+        {
+            // Clear a competing lower provider only as an explicit reviewed source change.
+            foreach (var key in new[] { "IntegrationCredential", "IntegrationCredentialFile", "AuthentikTokenUrl", "AuthentikClientId", "AuthentikUsername", "AuthentikAppPassword", "AuthentikAppPasswordFile", "CredentialTarget" })
+            {
+                if (key == "CredentialTarget" && Same(existing.CredentialTarget, settings.ApiBaseUrl)) continue;
+                if (mcp["Helpdesk:Mcp:Outbound:" + key] is { Length: > 0 } || typeof(AgentClientConfiguration).GetProperty(key)?.GetValue(existing) is string { Length: > 0 })
+                    mcpEnvironment["Helpdesk__Mcp__Outbound__" + key] = "";
+            }
+        }
+        foreach (var service in Services)
+        {
+            var environment = services[service]!["environment"]!.AsObject();
+            using var current = Configuration(source, service);
+            foreach (var entry in environment.ToArray())
+                if (current[entry.Key.Replace("__", ":", StringComparison.Ordinal)] == entry.Value?.ToString()) environment.Remove(entry.Key);
+            if (environment.Count == 0) services.Remove(service);
+        }
     }
 
     private static void ValidateStorage(JsonObject complete, Action<string, string, string, string, string> fail)
@@ -347,11 +589,11 @@ public static class HttpMcpEffectiveDeployment
         throw new AgentClientValidationException("HOST_MOUNT_INVALID: Restore a valid bounded Compose volume before approval.");
     }
 
-    private static IEnumerable<DeploymentMount> Mounts(JsonObject complete, string service)
+    private static IEnumerable<DeploymentMount> Mounts(JsonObject complete, string service, bool actualName = false)
     {
         foreach (var kind in new[] { "volumes", "configs", "secrets" })
         {
-            if (complete["services"]?[service]?[kind] is not JsonArray mounts) continue;
+            if (complete["services"]?[actualName ? service : ServiceName(complete, service)]?[kind] is not JsonArray mounts) continue;
             foreach (var node in mounts)
             {
                 string source, target, type;
@@ -457,7 +699,7 @@ public static class HttpMcpEffectiveDeployment
         { return [Failure()]; }
     }
 
-    private static JsonObject Materialize(JsonObject source, JsonObject overlay, HttpMcpHostingSettings settings)
+    private static JsonObject Materialize(JsonObject source, JsonObject overlay, HttpMcpHostingSettings settings, bool replaceOutbound = true)
     {
         var proposed = source.DeepClone().AsObject();
         if (overlay[Migrations] is JsonArray migrations)
@@ -465,12 +707,12 @@ public static class HttpMcpEffectiveDeployment
             {
                 var service = migration!["service"]!.GetValue<string>(); var kind = migration["kind"]!.GetValue<string>();
                 var selected = Mounts(proposed, service).Where(mount => mount.Kind == kind).ToArray();
-                var mappings = proposed["services"]![service]![kind]!.AsArray();
+                var mappings = proposed["services"]![ServiceName(proposed, service)]![kind]!.AsArray();
                 for (var index = mappings.Count - 1; index >= 0; index--)
                     if (selected[index].Source == migration["source"]!.GetValue<string>() && selected[index].Target == migration["target"]!.GetValue<string>()) mappings.RemoveAt(index);
             }
         Merge(proposed, overlay);
-        ProposedOutbound(proposed, settings);
+        if (replaceOutbound) ProposedOutbound(proposed, settings);
         return proposed;
     }
 
@@ -537,7 +779,7 @@ public static class HttpMcpEffectiveDeployment
                     builder.AddJsonStream(new MemoryStream(Encoding.UTF8.GetBytes(content)));
         var environment = EnvironmentFor(complete, service);
         builder.AddInMemoryCollection(environment.Select(entry => new KeyValuePair<string, string?>(entry.Key.Replace("__", ":", StringComparison.Ordinal), entry.Value)));
-        var entrypoint = complete["services"]?[service]?["entrypoint"];
+        var entrypoint = complete["services"]?[ServiceName(complete, service)]?["entrypoint"];
         var imageEntrypoint = complete["x-rateldesk-image-entrypoints"]?[service];
         if (entrypoint is not null && !JsonNode.DeepEquals(entrypoint, imageEntrypoint))
         {
@@ -546,7 +788,7 @@ public static class HttpMcpEffectiveDeployment
             if (parts is not { Count: 2 } || parts[0]?.GetValue<string>() != "dotnet" || parts[1]?.GetValue<string>() != assembly)
                 throw new AgentClientValidationException("HOST_DISPATCH_UNSUPPORTED: Preserve the image's serving entrypoint; review custom shell wrappers with the deployment owner before setup.");
         }
-        var command = complete["services"]?[service]?["command"] ?? complete["x-rateldesk-image-commands"]?[service];
+        var command = complete["services"]?[ServiceName(complete, service)]?["command"] ?? complete["x-rateldesk-image-commands"]?[service];
         if (command is not null)
         {
             if (command is not JsonArray arguments || arguments.Any(argument => argument is not JsonValue) || arguments.Count > 128)
@@ -563,7 +805,7 @@ public static class HttpMcpEffectiveDeployment
             if (provider.TryGet("contentRoot", out var value)) commandRoot = value;
         var contentRoot = commandRoot ?? environment.GetValueOrDefault("DOTNET_CONTENTROOT") ??
             environment.GetValueOrDefault("ASPNETCORE_CONTENTROOT") ?? environment.GetValueOrDefault("contentRoot") ??
-            complete["services"]?[service]?["working_dir"]?.GetValue<string>() ??
+            complete["services"]?[ServiceName(complete, service)]?["working_dir"]?.GetValue<string>() ??
             complete["x-rateldesk-image-working-directories"]?[service]?.GetValue<string>() ?? "/app";
         if (contentRoot.TrimEnd('/') != "/app")
         {
@@ -593,7 +835,7 @@ public static class HttpMcpEffectiveDeployment
             new("Downstream identity mode", settings.Outbound?.CredentialMode ?? "", ReviewOutboundSource(proposed, "CredentialMode", "CREDENTIAL_MODE")),
             new("Downstream identity target", settings.Outbound?.ApiBaseUrl ?? settings.ApiBaseUrl, ReviewOutboundSource(proposed, "ApiBaseUrl", "API_BASE_URL")),
             new("Provider precedence", "Serving: command arguments > effective Compose/image environment > ordered appsettings. Outbound: command arguments > canonical environment > legacy aliases > ordered appsettings > protected outbound file.", "Actual serving IConfiguration providers and AgentClientConfigurationResolver"),
-            new("Source generation", sourceHash, "all ordered source bytes, interpolation, image defaults and protected provider hashes")
+            new("Source generation", "Bound to this private checkpoint", "all ordered source bytes, interpolation, image defaults and protected provider revisions")
         };
         if (settings.AuthenticationMode == "authentik") values.AddRange(new[]
         {
@@ -602,6 +844,18 @@ public static class HttpMcpEffectiveDeployment
             new HostDeploymentSetting("Required scopes", string.Join(", ", settings.RequiredScopes), Source("mcp-http", "Authentication:AuthentikMcp:RequiredScopes")),
             new HostDeploymentSetting("Required groups", string.Join(", ", settings.RequiredGroups), Source("mcp-http", "Authentication:AuthentikMcp:RequiredGroups"))
         });
+        foreach (var service in ServiceNames(proposed))
+        {
+            var definition = proposed["services"]![service]!;
+            var references = Mounts(proposed, service, actualName: true).Select(mount => $"{mount.Kind}:{mount.Source} → {mount.Target} ({(mount.ReadOnly ? "read-only" : "read-write")})");
+            values.Add(new(service + " mount/config/secret references", string.Join("; ", references), "reviewed ordered Compose sources; retained unless explicitly changed"));
+            string Keys(string key) => definition[key] is JsonObject map ? string.Join(", ", map.Select(entry => entry.Key)) : definition[key] is JsonArray array ? string.Join(", ", array.Select(entry => entry?.ToString())) : "absent";
+            values.Add(new(service + " ports/networks/dependencies", "ports: " + Keys("ports") + "; networks: " + Keys("networks") + "; depends_on: " + Keys("depends_on"), "reviewed service configuration; runtime status shown separately"));
+        }
+        if (proposed["x-rateldesk-source-candidates"] is JsonArray candidates)
+            foreach (var candidate in candidates.Take(8))
+                if (candidate?["safeDiff"]?.GetValue<string>() is { } diff)
+                    values.Add(new("Minimal redacted source diff", diff.Replace("\n", " | ", StringComparison.Ordinal), candidate["source"]?.ToString() ?? "owning source"));
         foreach (var kind in new[] { "host", "client" })
             if (proposed["x-rateldesk-storage"]?[kind] is { } storage)
                 values.Add(new(kind + " persistent store", $"{storage["type"]}: {storage["source"]} at {storage["target"]}; private, writable UID {storage["uid"]}", "Docker host mount preflight"));
@@ -636,18 +890,18 @@ public static class HttpMcpEffectiveDeployment
             if (!providers[index].TryGet(key, out var value) || value is null) continue;
             var type = providers[index].GetType().Name;
             if (type == "CommandLineConfigurationProvider")
-                return complete["services"]?[service]?["command"] is not null
+                return complete["services"]?[ServiceName(complete, service)]?["command"] is not null
                     ? $"services.{service}.command; highest command-line precedence"
                     : $"{service} image Config.Cmd; highest command-line precedence";
             if (type == "MemoryConfigurationProvider")
             {
                 var canonical = key.Replace(":", "__", StringComparison.Ordinal);
-                var environment = complete["services"]?[service]?["environment"];
+                var environment = complete["services"]?[ServiceName(complete, service)]?["environment"];
                 bool Matches(string candidate) => string.Equals(candidate.Replace(":", "__", StringComparison.Ordinal), canonical, StringComparison.OrdinalIgnoreCase);
                 var inline = environment is JsonObject map && map.Any(entry => Matches(entry.Key) && entry.Value is not null) ||
                     environment is JsonArray list && list.Any(item => item?.GetValue<string>() is { } entry && entry.IndexOf('=') is var separator && separator > 0 && Matches(entry[..separator]));
                 return inline
-                    ? $"reviewed compose.host.json / services.{service}.environment; overrides env_file, image Config.Env and appsettings"
+                    ? $"ordered owning Compose sources / services.{ServiceName(complete, service)}.environment; overrides env_file, image Config.Env and appsettings"
                     : $"{service} image Config.Env; overrides ordered appsettings";
             }
             if (type == "JsonStreamConfigurationProvider" && complete["x-rateldesk-protected-configuration"]?[service] is JsonArray files)
@@ -694,14 +948,14 @@ public static class HttpMcpEffectiveDeployment
         if (complete["x-rateldesk-image-environment"]?[service] is JsonArray image)
             foreach (var item in image) { var entry = item!.GetValue<string>(); var separator = entry.IndexOf('='); if (separator > 0) Add(entry[..separator], entry[(separator + 1)..], false); }
         var inline = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-        if (complete["services"]?[service]?["environment"] is JsonObject map)
+        if (complete["services"]?[ServiceName(complete, service)]?["environment"] is JsonObject map)
             foreach (var entry in map)
             {
                 var key = entry.Key.Replace(":", "__", StringComparison.Ordinal);
                 if (Proxy(key)) { Add(key, entry.Value?.ToString(), false); continue; }
                 if (!inline.TryAdd(key, entry.Value?.ToString())) throw new AgentClientValidationException("Duplicate canonical environment keys require correction at their source.");
             }
-        else if (complete["services"]?[service]?["environment"] is JsonArray list)
+        else if (complete["services"]?[ServiceName(complete, service)]?["environment"] is JsonArray list)
             foreach (var item in list)
             {
                 var entry = item!.GetValue<string>(); var separator = entry.IndexOf('='); var key = (separator < 0 ? entry : entry[..separator]).Replace(":", "__", StringComparison.Ordinal);
@@ -715,7 +969,7 @@ public static class HttpMcpEffectiveDeployment
     }
     private static bool Relevant(string key) => key.StartsWith("Helpdesk__Mcp__", StringComparison.OrdinalIgnoreCase) || key.StartsWith("Authentication__AuthentikMcp__", StringComparison.OrdinalIgnoreCase) || key.StartsWith("WebGateway__", StringComparison.OrdinalIgnoreCase) || key.StartsWith("IntegrationCredentials__Pairing__", StringComparison.OrdinalIgnoreCase) || key.Equals("NO_PROXY", StringComparison.OrdinalIgnoreCase) || key is "ApiBaseUrl" or "ASPNETCORE_URLS" or "RATELDESK_MCP_CONFIG";
     private static bool Same(string? left, string? right) => Uri.TryCreate(left, UriKind.Absolute, out var first) && Uri.TryCreate(right, UriKind.Absolute, out var second) && AgentClientConfigurationValidator.SameTarget(first, second);
-    private static IReadOnlyList<string> SemanticChanges(JsonObject source, JsonObject proposed, JsonObject overlay)
+    private static IReadOnlyList<string> SemanticChanges(JsonObject source, JsonObject proposed, JsonObject overlay, bool legacy = false)
     {
         var changes = new List<string>();
         if (overlay[Migrations] is JsonArray { Count: > 0 })
@@ -733,7 +987,7 @@ public static class HttpMcpEffectiveDeployment
                 if (prior != entry.Value) changes.Add(service + ": " + canonical + ": " + DiffValue(entry.Key, prior) + " → " + DiffValue(entry.Key, entry.Value));
             }
         }
-        changes.Add("Separate protected persistent host and personal client storage; API receives no personal client secrets.");
+        if (legacy) changes.Add("Advanced initializer alternative: separate protected persistent host and personal client storage; API receives no personal client secrets.");
         return changes.Take(32).ToArray();
     }
     private static string DiffValue(string key, string? value)

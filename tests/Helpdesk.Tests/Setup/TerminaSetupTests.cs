@@ -456,6 +456,7 @@ public sealed class TerminaSetupTests
         {
             await using var terminal = await Wizard.StartAsync(new FakeWorkflow(), new(Hosting: true, OutputDirectory: Path.Combine(directory.FullName, "output")),
                 hostFactory: _ => { var host = new FakeHostWorkflow(); hosts.Add(host); return host; });
+            await terminal.SelectHostChangesAsync();
             terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
             await terminal.WaitStepAsync(SetupStep.Hosting);
             terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
@@ -486,16 +487,214 @@ public sealed class TerminaSetupTests
         finally { Environment.SetEnvironmentVariable(HttpMcpEffectiveDeployment.EffectiveSourceVariable, previous); directory.Delete(true); }
     }
 
+    [Fact]
+    public async Task Host_entry_can_select_client_without_requesting_host_approval_or_sources()
+    {
+        var directory = Directory.CreateTempSubdirectory("rateldesk-host-client-choice-");
+        var client = new FakeWorkflow();
+        var hostStarts = 0;
+        try
+        {
+            await using var terminal = await Wizard.StartAsync(client, new(Hosting: true, OutputDirectory: directory.FullName),
+                hostFactory: _ => { hostStarts++; return new FakeHostWorkflow(); });
+            await terminal.WaitStepAsync(SetupStep.Instance);
+            terminal.Input.EnqueueString("https://desk.example");
+            terminal.Input.EnqueueKey(ConsoleKey.Tab);
+            terminal.Input.EnqueueKey(ConsoleKey.Tab);
+            terminal.Input.EnqueueKey(ConsoleKey.DownArrow);
+            terminal.Input.EnqueueKey(ConsoleKey.DownArrow);
+            terminal.Input.EnqueueKey(ConsoleKey.Enter);
+            await terminal.WaitAsync(() => !terminal.Model.IsHosting);
+            terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
+            await terminal.WaitStepAsync(SetupStep.Authentication);
+            Assert.Equal("https://desk.example", terminal.Model.Instance.Value);
+            Assert.Equal(1, client.DiscoveryCount);
+            Assert.Equal(0, hostStarts);
+            Assert.Equal(0, client.StartCount);
+            Assert.Equal(0, client.SaveCount);
+        }
+        finally { directory.Delete(true); }
+    }
+
+    [Fact]
+    public async Task Host_defaults_to_four_service_no_change_review_and_saves_for_fresh_verification_without_apply()
+    {
+        var previousSource = Environment.GetEnvironmentVariable(HttpMcpEffectiveDeployment.EffectiveSourceVariable);
+        var previousRuntime = Environment.GetEnvironmentVariable(HttpMcpEffectiveDeployment.RuntimeSourceVariable);
+        var directory = Directory.CreateTempSubdirectory("rateldesk-host-adoption-ui-");
+        var source = Path.Combine(directory.FullName, "source.json");
+        var runtime = Path.Combine(directory.FullName, "runtime.json");
+        var snapshot = HttpMcpEffectiveDeploymentTests.FourServiceGateway().ToJsonString();
+        SecureConfigurationFiles.WriteAtomic(source, snapshot);
+        SecureConfigurationFiles.WriteAtomic(runtime, snapshot);
+        Environment.SetEnvironmentVariable(HttpMcpEffectiveDeployment.EffectiveSourceVariable, source);
+        Environment.SetEnvironmentVariable(HttpMcpEffectiveDeployment.RuntimeSourceVariable, runtime);
+        var client = new FakeWorkflow();
+        var host = new FakeHostWorkflow { SaveOutput = true, VerificationUrl = "https://" + new string('a', 60) + "." + new string('b', 60) + ".example/account/integration-credentials/approve?kind=host" };
+        var verifierStarts = 0;
+        try
+        {
+            await using var terminal = await Wizard.StartAsync(client, new(Hosting: true, OutputDirectory: Path.Combine(directory.FullName, "output")),
+                hostFactory: _ => host, verificationFactory: _ => { verifierStarts++; return new FakeVerificationWorkflow("pending"); });
+            await terminal.WaitStepAsync(SetupStep.Instance);
+            Assert.Equal(HttpMcpHostIntent.VerifyExisting, terminal.Model.HostIntent);
+            Assert.Contains("Verify existing deployment", terminal.CurrentScreen);
+            Assert.Contains("Prepare configuration changes", terminal.CurrentScreen);
+            Assert.Contains("Connect a client", terminal.CurrentScreen);
+            Assert.DoesNotContain("Export directory", terminal.CurrentScreen);
+            terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
+            await terminal.WaitStepAsync(SetupStep.Hosting);
+            terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
+            terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
+            await terminal.WaitStepAsync(SetupStep.Approval);
+            Assert.True(host.Proposal!.IsAdoption);
+            Assert.Equal(1, host.StartCount);
+            await terminal.WaitAsync(() => terminal.CurrentScreen.Contains("HOST-CODE", StringComparison.Ordinal));
+            Assert.Contains("Existing baseline approval", terminal.CurrentScreen);
+            Assert.Contains("Defined services: 4 → 4", terminal.CurrentScreen);
+            Assert.Contains("No changes", terminal.CurrentScreen);
+            Assert.Contains("Open browser", terminal.CurrentScreen);
+            Assert.Contains("Cancel", terminal.CurrentScreen);
+            terminal.Input.EnqueueKey(ConsoleKey.D, control: true);
+            await terminal.WaitAsync(() => terminal.Model.DetailsVisible.Value);
+            Assert.Contains("HOST-CODE", terminal.CurrentScreen);
+            terminal.Screen.Resize(120, 32); terminal.Input.EnqueueResize(120, 32);
+            await terminal.WaitAsync(() => terminal.Model.TerminalWidth.Value == 120);
+            Assert.Contains("HOST-CODE", terminal.CurrentScreen);
+            terminal.Input.EnqueueKey(ConsoleKey.Escape);
+            await terminal.WaitAsync(() => !terminal.Model.DetailsVisible.Value);
+            terminal.Screen.Resize(80, 24); terminal.Input.EnqueueResize(80, 24);
+            await terminal.WaitAsync(() => terminal.Model.TerminalWidth.Value == 80);
+            host.CompleteApproved();
+            await terminal.WaitStepAsync(SetupStep.Review);
+            Assert.Contains("Defined services: 4 → 4", terminal.CurrentScreen);
+            Assert.Contains("Save baseline; verify next", terminal.CurrentScreen);
+            Assert.DoesNotContain("ApiBaseUrl", terminal.CurrentScreen);
+            terminal.Input.EnqueueKey(ConsoleKey.DownArrow);
+            terminal.Input.EnqueueKey(ConsoleKey.Enter);
+            await terminal.WaitAsync(() => terminal.Model.DetailsVisible.Value);
+            terminal.Input.EnqueueKey(ConsoleKey.PageDown);
+            await terminal.Application.InvokeAsync(() => { });
+            Assert.Contains("Save baseline; verify next", terminal.CurrentScreen);
+            Assert.Contains("Defined services: 4 → 4", terminal.CurrentScreen);
+            terminal.Input.EnqueueKey(ConsoleKey.Escape);
+            await terminal.WaitAsync(() => !terminal.Model.DetailsVisible.Value);
+            terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
+            await terminal.WaitStepAsync(SetupStep.Complete);
+            Assert.Contains("fresh verification pending", terminal.Model.Status.Value);
+            Assert.DoesNotContain("apply pending", terminal.Model.Status.Value, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(1, host.SaveCount);
+            Assert.Equal(0, verifierStarts);
+            Assert.Equal(0, client.StartCount);
+            Assert.Equal(0, client.SaveCount);
+            Assert.Equal(snapshot, File.ReadAllText(source));
+            Assert.Equal(snapshot, File.ReadAllText(runtime));
+            Assert.False(File.Exists(Path.Combine(directory.FullName, "output", "deployment.json")));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(HttpMcpEffectiveDeployment.EffectiveSourceVariable, previousSource);
+            Environment.SetEnvironmentVariable(HttpMcpEffectiveDeployment.RuntimeSourceVariable, previousRuntime);
+            directory.Delete(true);
+        }
+    }
+
     [Theory]
-    [InlineData("pending")]
+    [InlineData(2, false)]
+    [InlineData(3, true)]
+    public async Task Host_review_keyboard_Back_or_Cancel_does_not_save_the_approved_baseline(int downCount, bool cancel)
+    {
+        var previousSource = Environment.GetEnvironmentVariable(HttpMcpEffectiveDeployment.EffectiveSourceVariable);
+        var previousRuntime = Environment.GetEnvironmentVariable(HttpMcpEffectiveDeployment.RuntimeSourceVariable);
+        var directory = Directory.CreateTempSubdirectory("rateldesk-host-review-navigation-");
+        var source = Path.Combine(directory.FullName, "source.json");
+        SecureConfigurationFiles.WriteAtomic(source, HttpMcpEffectiveDeploymentTests.FourServiceGateway().ToJsonString());
+        Environment.SetEnvironmentVariable(HttpMcpEffectiveDeployment.EffectiveSourceVariable, source);
+        Environment.SetEnvironmentVariable(HttpMcpEffectiveDeployment.RuntimeSourceVariable, source);
+        var host = new FakeHostWorkflow { SaveOutput = true };
+        var client = new FakeWorkflow();
+        try
+        {
+            await using var terminal = await Wizard.StartAsync(client, new(Hosting: true, OutputDirectory: Path.Combine(directory.FullName, "output")), hostFactory: _ => host);
+            terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
+            await terminal.WaitStepAsync(SetupStep.Hosting);
+            terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
+            await terminal.WaitStepAsync(SetupStep.Approval);
+            host.CompleteApproved();
+            await terminal.WaitStepAsync(SetupStep.Review);
+            for (var index = 0; index < downCount; index++) terminal.Input.EnqueueKey(ConsoleKey.DownArrow);
+            terminal.Input.EnqueueKey(ConsoleKey.Enter);
+            if (cancel) await terminal.Run.WaitAsync(TimeSpan.FromSeconds(3));
+            else
+            {
+                await terminal.WaitStepAsync(SetupStep.Hosting);
+                Assert.Equal(HttpMcpHostIntent.VerifyExisting, terminal.Model.HostIntent);
+                Assert.Equal(HttpMcpEffectiveDeploymentTests.Settings.PublicOrigin, terminal.Model.HostPublicOrigin.Value);
+            }
+            Assert.Equal(0, host.SaveCount);
+            Assert.Equal(0, client.SaveCount);
+            Assert.Equal(0, client.StartCount);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(HttpMcpEffectiveDeployment.EffectiveSourceVariable, previousSource);
+            Environment.SetEnvironmentVariable(HttpMcpEffectiveDeployment.RuntimeSourceVariable, previousRuntime);
+            directory.Delete(true);
+        }
+    }
+
+    [Theory]
     [InlineData("denied")]
     [InlineData("expired")]
-    public async Task Verifier_Back_returns_to_applied_checkpoint_and_cleans_only_temporary_consent(string status)
+    public async Task Host_rejected_baseline_review_retains_choice_and_never_saves_or_requests_client_access(string status)
+    {
+        var previousSource = Environment.GetEnvironmentVariable(HttpMcpEffectiveDeployment.EffectiveSourceVariable);
+        var previousRuntime = Environment.GetEnvironmentVariable(HttpMcpEffectiveDeployment.RuntimeSourceVariable);
+        var directory = Directory.CreateTempSubdirectory("rateldesk-host-rejected-ui-");
+        var source = Path.Combine(directory.FullName, "source.json");
+        var snapshot = HttpMcpEffectiveDeploymentTests.FourServiceGateway().ToJsonString();
+        SecureConfigurationFiles.WriteAtomic(source, snapshot);
+        Environment.SetEnvironmentVariable(HttpMcpEffectiveDeployment.EffectiveSourceVariable, source);
+        Environment.SetEnvironmentVariable(HttpMcpEffectiveDeployment.RuntimeSourceVariable, source);
+        var host = new FakeHostWorkflow { PollStatus = status };
+        var client = new FakeWorkflow();
+        try
+        {
+            await using var terminal = await Wizard.StartAsync(client, new(Hosting: true, OutputDirectory: Path.Combine(directory.FullName, "output")), hostFactory: _ => host);
+            terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
+            await terminal.WaitStepAsync(SetupStep.Hosting);
+            terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
+            await terminal.WaitStepAsync(SetupStep.Approval);
+            await terminal.WaitAsync(() => terminal.Model.Step.Value == SetupStep.Hosting && terminal.Model.Status.Value.Contains(status, StringComparison.Ordinal));
+            Assert.Equal(HttpMcpHostIntent.VerifyExisting, terminal.Model.HostIntent);
+            Assert.Equal(HttpMcpEffectiveDeploymentTests.Settings.PublicOrigin, terminal.Model.HostPublicOrigin.Value);
+            Assert.Equal(0, host.SaveCount);
+            Assert.Equal(0, client.StartCount);
+            terminal.Input.EnqueueKey(ConsoleKey.Escape);
+            await terminal.Run.WaitAsync(TimeSpan.FromSeconds(3));
+            Assert.Equal(snapshot, File.ReadAllText(source));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(HttpMcpEffectiveDeployment.EffectiveSourceVariable, previousSource);
+            Environment.SetEnvironmentVariable(HttpMcpEffectiveDeployment.RuntimeSourceVariable, previousRuntime);
+            directory.Delete(true);
+        }
+    }
+
+    [Theory]
+    [InlineData("pending", false)]
+    [InlineData("denied", false)]
+    [InlineData("expired", false)]
+    [InlineData("pending", true)]
+    [InlineData("denied", true)]
+    [InlineData("expired", true)]
+    public async Task Verifier_Back_returns_to_reviewed_checkpoint_and_cleans_only_temporary_consent(string status, bool adoption)
     {
         var verifiers = new List<FakeVerificationWorkflow>();
         var client = new FakeWorkflow();
         await using var terminal = await Wizard.StartAsync(client, new() { VerificationDirectory = "/private/host" },
-            verificationFactory: _ => { var verifier = new FakeVerificationWorkflow(status); verifiers.Add(verifier); return verifier; });
+            verificationFactory: _ => { var verifier = new FakeVerificationWorkflow(status) { IsAdoption = adoption }; verifiers.Add(verifier); return verifier; });
         await terminal.WaitStepAsync(SetupStep.Approval);
         Assert.Equal(SetupApprovalContext.Verification, terminal.Model.ApprovalContext);
         Assert.Contains("Temporary status verification", terminal.CurrentScreen);
@@ -504,7 +703,7 @@ public sealed class TerminaSetupTests
         terminal.Input.EnqueueKey(ConsoleKey.B, control: true);
         await terminal.WaitStepAsync(SetupStep.Verification);
         Assert.Equal(1, verifiers[0].DisposeCount);
-        Assert.Contains("Applied—verify pending", terminal.Model.Status.Value);
+        Assert.Contains(adoption ? "Adopted—verify pending" : "Applied—verify pending", terminal.Model.Status.Value);
         Assert.Null(terminal.Model.BrowserUrl);
         terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
         await terminal.WaitStepAsync(SetupStep.Approval);
@@ -589,12 +788,18 @@ public sealed class TerminaSetupTests
         public int PollCount { get; private set; }
         public int CancelCount { get; private set; }
         public int SaveCount { get; private set; }
+        public int StartCount { get; private set; }
+        public bool SaveOutput { get; init; }
+        public string? PollStatus { get; init; }
+        public string? VerificationUrl { get; init; }
         public Task<PairingSession> StartAsync(HttpMcpDeploymentProposal proposal, CancellationToken ct)
-        { Proposal = proposal; return Task.FromResult(new PairingSession(new string('a', 64), "HOST-CODE", proposal.Settings.PublicOrigin + "/account/integration-credentials/approve?kind=host", DateTimeOffset.UtcNow.AddMinutes(5), 1)); }
-        public Task<Helpdesk.Shared.DTOs.Auth.HostDeploymentApprovalStatus> PollAsync(PairingSession session, CancellationToken ct) { PollCount++; return _poll.Task; }
+        { StartCount++; Proposal = proposal; return Task.FromResult(new PairingSession(new string('a', 64), "HOST-CODE", VerificationUrl ?? proposal.Settings.PublicOrigin + "/account/integration-credentials/approve?kind=host", DateTimeOffset.UtcNow.AddMinutes(5), 1)); }
+        public Task<Helpdesk.Shared.DTOs.Auth.HostDeploymentApprovalStatus> PollAsync(PairingSession session, CancellationToken ct)
+        { PollCount++; return PollStatus is null ? _poll.Task : Task.FromResult(new Helpdesk.Shared.DTOs.Auth.HostDeploymentApprovalStatus(PollStatus, Proposal!.ProposalHash, Proposal.SourceHash, null, null)); }
         public void CompleteApproved() => _poll.TrySetResult(new("approved", Proposal!.ProposalHash, Proposal.SourceHash, "synthetic-admin", DateTimeOffset.UtcNow));
         public Task CancelAsync(PairingSession session, CancellationToken ct) { CancelCount++; return Task.CompletedTask; }
-        public Task<HttpMcpHostingExport> SaveApprovedAsync(HttpMcpDeploymentProposal proposal, PairingSession session, string directory, bool overwrite, CancellationToken ct) { SaveCount++; throw new InvalidOperationException("No export expected in navigation tests."); }
+        public Task<HttpMcpHostingExport> SaveApprovedAsync(HttpMcpDeploymentProposal proposal, PairingSession session, string directory, bool overwrite, CancellationToken ct)
+        { SaveCount++; return SaveOutput ? Task.FromResult(new HttpMcpHostingExport([], "No deployment apply is required.")) : throw new InvalidOperationException("No export expected in navigation tests."); }
         public void Dispose() { }
     }
 
@@ -602,6 +807,7 @@ public sealed class TerminaSetupTests
     {
         public string Origin => "https://desk.example";
         public bool Supported => true;
+        public bool IsAdoption { get; init; }
         public int DisposeCount { get; private set; }
         public int PollCount { get; private set; }
         public Task<PairingSession> StartAsync(CancellationToken ct) => Task.FromResult(new PairingSession(new string('b', 64), "VERIFY-CODE", Origin + "/account/integration-credentials/approve", DateTimeOffset.UtcNow.AddMinutes(5), 1));
@@ -659,6 +865,15 @@ public sealed class TerminaSetupTests
             await AdvanceToInstanceAsync();
             if (Model.Instance.Value.Length == 0) Input.EnqueueString("https://desk.example");
             Input.EnqueueKey(ConsoleKey.N, control: true); await WaitStepAsync(SetupStep.Authentication);
+        }
+        public async Task SelectHostChangesAsync()
+        {
+            await WaitStepAsync(SetupStep.Instance);
+            Input.EnqueueKey(ConsoleKey.Tab);
+            Input.EnqueueKey(ConsoleKey.Tab);
+            Input.EnqueueKey(ConsoleKey.DownArrow);
+            Input.EnqueueKey(ConsoleKey.Enter);
+            await WaitAsync(() => Model.HostIntent == HttpMcpHostIntent.PrepareChanges);
         }
         public Task WaitStepAsync(SetupStep step) => WaitAsync(() => Model.Step.Value == step && !Model.Busy.Value);
         public async Task WaitAsync(Func<bool> predicate)

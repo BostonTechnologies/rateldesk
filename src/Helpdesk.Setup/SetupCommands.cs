@@ -24,7 +24,7 @@ public static class SetupCommands
     public static Command CreateSetupCommand(SetupTransport defaultTransport, Option<string?> profile, Option<string?> configuration,
         TextWriter error, string? stdioEntryAssembly = null, Func<System.CommandLine.ParseResult, AgentClientConfiguration>? seed = null)
     {
-        var command = new Command("setup", "Interactive Termina client or HTTP MCP hosting setup.");
+        var command = new Command("setup", "Interactive client setup, unchanged HTTP MCP host verification, or reviewed configuration changes.");
         var target = new Option<string?>("--target") { Description = "cli, stdio, http-client, or http-host." };
         target.AcceptOnlyFromAmong("cli", "stdio", "http-client", "http-host");
         var mode = new Option<string?>("--mode") { Description = "host or client; compatible alias for --target http-host or the executable's client transport." };
@@ -33,7 +33,7 @@ public static class SetupCommands
         var authentication = new Option<string?>("--authentication") { Description = "Explicit client authentication choice; seeds Advanced." };
         authentication.AcceptOnlyFromAmong("browser", "existing", "manual", "authentik", "oauth");
         var instance = new Option<string?>("--instance") { Description = "Existing MCP instance label; arbitrary valid labels are preserved." };
-        var directory = new Option<string?>("--export-directory") { Description = "Persistent writable directory for a reviewed HTTP hosting export." };
+        var directory = new Option<string?>("--export-directory") { Description = "Private persistent host checkpoint/candidate storage; deployment sources remain owned by their manager." };
         var monochrome = new Option<bool>("--monochrome") { Description = "Use the terminal's default colors." };
         var executable = new Option<string?>("--stdio-executable") { Description = "Explicit rateldesk-mcp apphost or assembly path for bounded transport checks." };
         command.Options.Add(target); command.Options.Add(mode); command.Options.Add(url); command.Options.Add(authentication); command.Options.Add(instance);

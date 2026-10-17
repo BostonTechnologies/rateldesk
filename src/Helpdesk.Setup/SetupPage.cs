@@ -58,7 +58,7 @@ public sealed class SetupPage : ReactivePage<SetupViewModel>
         KeyBindings.Register(ConsoleKey.C, ConsoleModifiers.Control, () => _ = ViewModel.CancelAsync());
         KeyBindings.Register(ConsoleKey.Escape, () =>
         {
-            if (ViewModel.Step.Value == SetupStep.Approval && ViewModel.DetailsVisible.Value) ViewModel.DetailsVisible.Value = false;
+            if (ViewModel.Step.Value is SetupStep.Approval or SetupStep.Review && ViewModel.DetailsVisible.Value) ViewModel.DetailsVisible.Value = false;
             else if (ViewModel.ConfirmOverwrite.Value) ViewModel.ConfirmOverwrite.Value = false;
             else if (ViewModel.Step.Value == SetupStep.Complete) ViewModel.RequestShutdown();
             else _ = ViewModel.CancelAsync();
@@ -78,7 +78,8 @@ public sealed class SetupPage : ReactivePage<SetupViewModel>
 
     public override bool HandlePageInput(ConsoleKeyInfo keyInfo)
     {
-        if (keyInfo.Key == ConsoleKey.Enter && _modal is null && (Focus.CurrentFocus is TextInputNode || ViewModel.Step.Value is SetupStep.Review or SetupStep.Complete))
+        if (keyInfo.Key == ConsoleKey.Enter && _modal is null && (Focus.CurrentFocus is TextInputNode ||
+            ViewModel.Step.Value == SetupStep.Complete || ViewModel.Step.Value == SetupStep.Review && !ViewModel.IsHosting))
         { _ = ViewModel.NextAsync(); return true; }
         if (_modal is not null && keyInfo.Key == ConsoleKey.Tab) return true;
         return base.HandlePageInput(keyInfo);
@@ -95,14 +96,15 @@ public sealed class SetupPage : ReactivePage<SetupViewModel>
         _layoutWiring.Clear();
         _activeFields.Clear();
         var content = BuildStep();
-        _scroll = ViewModel.Step.Value == SetupStep.Approval ? null : new ScrollableContainerNode().WithContent(content).WithAutoScroll(AutoScrollPolicy.None).WithScrollbar(true);
+        var fixedReview = ViewModel.Step.Value == SetupStep.Approval || ViewModel.IsHosting && ViewModel.Step.Value == SetupStep.Review;
+        _scroll = fixedReview ? null : new ScrollableContainerNode().WithContent(content).WithAutoScroll(AutoScrollPolicy.None).WithScrollbar(true);
         var form = new PanelNode().WithTitle(Title()).WithBorder(BorderStyle.Single).WithBorderColor(Accent).WithContent(_scroll is null ? content : _scroll);
         LayoutNode body = ViewModel.TerminalWidth.Value >= 104
             ? Layouts.Horizontal(new TextNode(Stepper()).WithForeground(Accent).Width(20), form.WidthFill())
             : form;
         var header = Layouts.Vertical(
             new TextNode("RatelDesk setup").WithForeground(Accent).Bold().Height(1),
-            new TextNode(ViewModel.Step.Value == SetupStep.Instance ? "Connect using your RatelDesk Web URL" : $"{Title()} · {TerminalText.Sanitize(ViewModel.Instance.Value, 100)}").Height(1));
+            new TextNode(ViewModel.Step.Value == SetupStep.Instance ? ViewModel.IsHosting ? "Verify an existing deployment or prepare explicit changes" : "Connect using your RatelDesk Web URL" : $"{Title()} · {TerminalText.Sanitize(ViewModel.Instance.Value, 100)}").Height(1));
         var status = ViewModel.Status.Select<string, ILayoutNode>(message => new TextNode(TerminalText.Sanitize(message)).WithForeground(Accent)).AsLayout(RenderFrameProvider);
         var working = ViewModel.Busy.Select<bool, ILayoutNode>(busy => busy
             ? new SpinnerNode().WithLabel("Working…").WithSpinnerColor(Accent)
@@ -131,8 +133,8 @@ public sealed class SetupPage : ReactivePage<SetupViewModel>
     {
         SetupStep.Purpose => "Choose a task", SetupStep.Profile => "Client and profile", SetupStep.Instance => "RatelDesk Web URL",
         SetupStep.Authentication => "Authentication", SetupStep.Approval => ViewModel.ApprovalTitle, SetupStep.Hosting => "HTTP MCP hosting",
-        SetupStep.Verification => "Applied host verification",
-        SetupStep.Review => "Review and save", SetupStep.Checks => "Read-only checks", _ => "Result and next steps"
+        SetupStep.Verification => "Host verification",
+        SetupStep.Review => ViewModel.IsHosting && ViewModel.HostIntent == HttpMcpHostIntent.VerifyExisting ? "Review existing baseline" : "Review and save", SetupStep.Checks => "Read-only checks", _ => "Result and next steps"
     };
     private string Stepper() => string.Join('\n', new[]
     {
@@ -147,8 +149,8 @@ public sealed class SetupPage : ReactivePage<SetupViewModel>
         return ViewModel.Step.Value switch
         {
             SetupStep.Purpose => Layouts.Vertical(
-                new TextNode("Connect a client, or export administrator/deployment settings. Local export grants no remote privileges.").HeightAuto(),
-                Select(["Connect a client", "Configure HTTP MCP hosting"], ViewModel.IsHosting ? 1 : 0, value => ViewModel.SelectPurpose(value == "Configure HTTP MCP hosting"))),
+                new TextNode("Select deployment verification, explicit configuration changes, or a personal client. These have separate approvals.").HeightAuto(),
+                HostPurposeSelection()),
             SetupStep.Profile => Layouts.Vertical(
                 new TextNode("Profiles isolate authorized organizations and credential purposes.").HeightAuto(),
                 Select(["CLI", "stdio MCP", "HTTP MCP client"], (int)ViewModel.Transport, value => ViewModel.SelectTransport(value == "CLI" ? SetupTransport.Cli : value == "stdio MCP" ? SetupTransport.Stdio : SetupTransport.Http)),
@@ -158,16 +160,18 @@ public sealed class SetupPage : ReactivePage<SetupViewModel>
             SetupStep.Authentication => AuthenticationForm(),
             SetupStep.Hosting => HostingForm(),
             SetupStep.Approval => ApprovalForm(),
+            SetupStep.Review when ViewModel.IsHosting => HostReviewForm(),
             SetupStep.Verification => Layouts.Vertical(
-                new TextNode("Applied—verify pending. Verify the saved, approved host generation; no deployment changes or business client credential are created.").HeightAuto(),
+                new TextNode("Verify the saved, reviewed host checkpoint; deployment sources and running services remain unchanged.").HeightAuto(),
                 new TextNode("Next checks observed runtime and requests temporary status-only consent. Back from consent returns here and cleans up only that temporary verifier.").HeightAuto(),
                 Select(["Next: temporary status verification", "Cancel"], 0, value => { if (value == "Cancel") _ = ViewModel.CancelAsync(); else _ = ViewModel.NextAsync(); })),
             _ => ViewModel.Detail.Select<string, ILayoutNode>(text => new TextNode(text)).AsLayout(RenderFrameProvider)
         };
     }
 
-    private ScrollableContainerNode? ActiveScroll() => ViewModel.Step.Value != SetupStep.Approval ? _scroll
-        : ViewModel.DetailsVisible.Value ? _detailsScroll : _urlScroll;
+    private ScrollableContainerNode? ActiveScroll() => ViewModel.IsHosting && ViewModel.Step.Value == SetupStep.Review
+        ? _detailsScroll : ViewModel.Step.Value != SetupStep.Approval ? _scroll
+            : ViewModel.DetailsVisible.Value ? _detailsScroll : _urlScroll;
 
     private void CopyApproval()
     {
@@ -233,10 +237,10 @@ public sealed class SetupPage : ReactivePage<SetupViewModel>
             Input("RatelDesk Web URL", ViewModel.Instance, "https://desk.example.com", ViewModel.IsHosting ? "PublicOrigin" : ViewModel.NativeApiTarget.Value.Length == 0 ? "apiBaseUrl" : null),
             Select(["Next", ViewModel.Advanced.Value ? "Hide Advanced" : "Advanced"], 0, value =>
             { if (value == "Next") _ = ViewModel.NextAsync(); else ViewModel.ToggleAdvanced(); }));
+        if (ViewModel.IsHosting) fields.WithChild(HostPurposeSelection());
         if (!ViewModel.Advanced.Value) return fields;
         fields.WithChild(new TextNode("Advanced · existing managed values remain with their owning source.").HeightAuto())
-            .WithChild(Select(["Connect a client", "Configure HTTP MCP server"], ViewModel.IsHosting ? 1 : 0,
-                value => { ViewModel.SelectPurpose(value == "Configure HTTP MCP server"); InvalidateLayout(); }));
+            .WithChild(ViewModel.IsHosting ? Layouts.Empty() : HostPurposeSelection());
         if (ViewModel.IsHosting)
             fields.WithChild(Input("Server setup storage", ViewModel.OutputDirectory, "durable private deployment storage"));
         else
@@ -286,11 +290,21 @@ public sealed class SetupPage : ReactivePage<SetupViewModel>
 
     private ILayoutNode HostingForm()
     {
+        if (ViewModel.HostIntent == HttpMcpHostIntent.VerifyExisting)
+            return Layouts.Vertical(
+                new TextNode("Verify existing deployment unchanged").Bold().Height(1),
+                new TextNode($"Trusted Web URL: {TerminalText.Sanitize(ViewModel.HostPublicOrigin.Value)}\nIngress: {TerminalText.Sanitize(ViewModel.HostAuthentication)}").HeightAuto(),
+                new TextNode("No configuration import, new service, mount or restart. Next requests administrator review of the detected baseline; fresh verification follows in a new process.").HeightAuto(),
+                HostPurposeSelection());
         if (!ViewModel.Advanced.Value)
             return Layouts.Vertical(
                 new TextNode($"RatelDesk Web URL: {TerminalText.Sanitize(ViewModel.HostPublicOrigin.Value)}\nIngress: {TerminalText.Sanitize(ViewModel.HostAuthentication)}\nPrivate setup storage: {TerminalText.Sanitize(ViewModel.OutputDirectory.Value)}").HeightAuto(),
-                new TextNode("Next validates the complete deployment before administrator approval. [F2] Advanced shows deployment settings.").HeightAuto());
-        var fields = Layouts.Vertical(new TextNode("Configure the public resource and private backends separately. This writes an export for operator apply/recreation.").HeightAuto(),
+                new TextNode((ViewModel.HostIntent == HttpMcpHostIntent.LegacyInitializer ? "Advanced initializer topology selected; review its extra defined service and serving mounts. " : "Prepare explicit changes. ") + "[F2] Advanced shows editable settings. Owner apply follows separate administrator approval.").HeightAuto(),
+                HostPurposeSelection());
+        var fields = Layouts.Vertical(new TextNode("Prepare configuration changes for the existing owner. Preserve its readable source and review recreation separately.").HeightAuto(),
+            HostPurposeSelection(),
+            Select(["Preserve existing source strategy", "Advanced: initializer topology"], ViewModel.HostIntent == HttpMcpHostIntent.LegacyInitializer ? 1 : 0,
+                value => { ViewModel.SelectHostIntent(value.StartsWith("Advanced", StringComparison.Ordinal) ? HttpMcpHostIntent.LegacyInitializer : HttpMcpHostIntent.PrepareChanges); InvalidateLayout(); }),
             Input("Export directory", ViewModel.OutputDirectory, "persistent writable mount"),
             Select(["Load existing export", "Edit reviewed settings"], 1, value => { if (value == "Load existing export") { try { ViewModel.LoadHosting(); } catch (AgentClientValidationException exception) { ViewModel.Status.Value = TerminalText.Sanitize(exception.Message); } InvalidateLayout(); } }),
             Input("Public HTTPS origin", ViewModel.HostPublicOrigin, "https://desk.example.com", "PublicOrigin"),
@@ -321,6 +335,45 @@ public sealed class SetupPage : ReactivePage<SetupViewModel>
                     .WithChild(Input("Downstream private secret file", ViewModel.SecretFile, "deployment-owned private secret reference", "Outbound"));
         }
         return fields;
+    }
+
+    private ILayoutNode HostPurposeSelection() => Select(
+        ["Verify existing deployment", "Prepare configuration changes", "Connect a client"],
+        !ViewModel.IsHosting ? 2 : ViewModel.HostIntent == HttpMcpHostIntent.VerifyExisting ? 0 : 1,
+        value =>
+        {
+            if (value == "Connect a client") ViewModel.SelectPurpose(false);
+            else ViewModel.SelectHostIntent(value == "Verify existing deployment" ? HttpMcpHostIntent.VerifyExisting : HttpMcpHostIntent.PrepareChanges);
+            InvalidateLayout();
+        });
+
+    private ILayoutNode HostReviewForm()
+    {
+        var adoption = ViewModel.HostIntent == HttpMcpHostIntent.VerifyExisting;
+        var primary = Layouts.Vertical(
+            new TextNode("Trusted instance: " + TerminalText.Sanitize(ViewModel.HostPublicOrigin.Value)).Height(1),
+            new TextNode(ViewModel.HostServiceSummary).WithForeground(Accent).Bold().Height(1),
+            new TextNode(ViewModel.HostChangeSummary).HeightAuto(),
+            new TextNode(adoption ? "Administrator reviewed. Save only the private baseline checkpoint; then verify in a new process."
+                : "Administrator reviewed. Prepare the private candidate; the deployment owner must apply it before fresh verification.").HeightAuto(),
+            Layouts.Vertical(Select([adoption ? "Save baseline; verify next" : "Prepare reviewed changes", ViewModel.DetailsVisible.Value ? "Close Details" : "Details", "Back", "Cancel"], 0, value =>
+            {
+                if (value == "Back") ViewModel.Back();
+                else if (value == "Cancel") _ = ViewModel.CancelAsync();
+                else if (value.Contains("Details", StringComparison.Ordinal)) ViewModel.ToggleDetails();
+                else _ = ViewModel.NextAsync();
+            })).Height(4));
+        _detailsScroll = null;
+        if (ViewModel.DetailsVisible.Value)
+        {
+            _detailsScroll = new ScrollableContainerNode().WithContent(
+                ViewModel.Detail.Select<string, ILayoutNode>(text => new TextNode(string.Join('\n',
+                    text.Split('\n').Select(line => TerminalText.Sanitize(line, 2048))))).AsLayout(RenderFrameProvider))
+                .WithAutoScroll(AutoScrollPolicy.None).WithScrollbar(true);
+            primary.WithChild(new PanelNode().WithTitle("Details · PageUp/PageDown · Esc closes")
+                .WithBorder(BorderStyle.Single).WithContent(_detailsScroll).Fill());
+        }
+        return primary;
     }
 
     private ILayoutNode Input(string label, ReactiveProperty<string> field, string placeholder, string? setting = null)

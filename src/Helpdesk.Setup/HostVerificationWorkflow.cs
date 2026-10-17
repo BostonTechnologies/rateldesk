@@ -8,6 +8,7 @@ public interface IHostVerificationWorkflow : IAsyncDisposable
 {
     string Origin { get; }
     bool Supported { get; }
+    bool IsAdoption => false;
     Task<PairingSession> StartAsync(CancellationToken ct);
     Task<PairingPollResult> PollAsync(CancellationToken ct);
     Task<HostVerificationResult> RunAsync(CancellationToken ct);
@@ -26,13 +27,14 @@ public sealed class HostVerificationWorkflow : IHostVerificationWorkflow
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     public string Origin => _proposal.Settings.PublicOrigin;
     public bool Supported => _proposal.Settings.AuthenticationMode == "gateway";
+    public bool IsAdoption => _proposal.IsAdoption;
     public const string ExternalMessage = "External Authentik configuration/runtime preflight passed. End-to-end verification remains pending until the external OAuth client performs authenticated initialize, catalog and API-backed status with its own approved token.";
 
     public HostVerificationWorkflow(string directory)
     {
         _directory = directory;
         _proposal = HostDeploymentWorkflow.ResumeApproved(directory);
-        SecureConfigurationFiles.WriteAtomic(Path.Combine(directory, "host-phase.json"), JsonSerializer.Serialize(new { phase = "applied-verify-pending", _proposal.SourceHash, _proposal.ProposalHash }, Json));
+        SecureConfigurationFiles.WriteAtomic(Path.Combine(directory, "host-phase.json"), JsonSerializer.Serialize(new { phase = IsAdoption ? "adopted-verify-pending" : "owner-applied-verify-pending", _proposal.SourceHash, _proposal.ProposalHash }, Json));
         var observed = HttpMcpEffectiveDeployment.Observe(_proposal);
         if (observed.Count > 0) throw new AgentClientValidationException(HostDeploymentWorkflow.Describe(observed));
         _verifier = new(Origin, Path.Combine(directory, "verifier-cleanup.json"));

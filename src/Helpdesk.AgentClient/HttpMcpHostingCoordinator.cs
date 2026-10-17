@@ -41,7 +41,7 @@ public static class HttpMcpHostingCoordinator
             var settings = JsonSerializer.Deserialize<HttpMcpHostingSettings>(SecureConfigurationFiles.ReadText(path, requirePrivate: true), Json)
                 ?? throw new AgentClientValidationException("Hosting settings are invalid.");
             var outboundPath = Path.Combine(directory, "mcp-outbound.json");
-            return settings with { Outbound = File.Exists(outboundPath) ? new AgentClientConfigurationStore(outboundPath).Load() : null };
+            return settings with { Outbound = File.Exists(outboundPath) ? new AgentClientConfigurationStore(outboundPath).Load() : settings.Outbound };
         }
         catch (JsonException) { throw new AgentClientValidationException("Hosting settings are invalid."); }
     }
@@ -189,7 +189,13 @@ public static class HttpMcpHostingCoordinator
             ? AgentClientConfiguration.Empty with { ApiBaseUrl = settings.ApiBaseUrl, CredentialMode = "gateway" }
             : ContainerOutbound(settings.Outbound!);
         var compose = composeOverride ?? ComposeOverlay(settings);
-        const string apply = "This export changes no running service. Preserve existing API database, bootstrap and Data Protection volumes.\n" +
+        var legacyInitializer = compose["services"]?["mcp-config-init"] is not null;
+        var apply = !legacyInitializer ?
+            "Changes prepared; no deployment has been applied. Preserve the original ordered Compose sources, interpolation files and deployment-manager ownership.\n" +
+            "Review the private source candidate and minimal diff produced by the Docker-host launcher. Save and apply only the approved changes through the deployment's existing owner.\n" +
+            "The standard gateway changes environment settings only: no initializer, setup mounts, generated outbound-file import or healthcheck replacement is required. Only affected services may need recreation after explicit approval.\n" +
+            "After the owner applies the reviewed sources, start a fresh host verification from the actual saved sources and running deployment.\n" :
+            "This export changes no running service. Preserve existing API database, bootstrap and Data Protection volumes.\n" +
             "Use the base source/release Compose file, its matching gateway/authentik MCP overlay, then compose.host.json last.\n" +
             "Set the overlay interpolation variables (public resource, allowed origin, config file, and external authority when used) to these reviewed values. Set RATELDESK_MCP_CONFIG_FILE to the host path of the exported mcp-outbound.json; a container's /output path is not a host path.\n" +
             "The configuration initializer copies the protected outbound file into the existing volume for UID 10001; normal serving mounts it read-only. External downstream secrets use this private-file fallback, so protect the export directory.\n" +
@@ -234,7 +240,7 @@ public static class HttpMcpHostingCoordinator
     }
 
     /// <summary>Exact reviewed patch, shared by effective preflight and export.</summary>
-    public static System.Text.Json.Nodes.JsonObject ComposeOverlay(HttpMcpHostingSettings settings)
+    public static System.Text.Json.Nodes.JsonObject ComposeOverlay(HttpMcpHostingSettings settings, bool legacyInitializer = false)
     {
         var webEnvironment = new Dictionary<string, object?>
         {
@@ -254,6 +260,11 @@ public static class HttpMcpHostingCoordinator
             ["Helpdesk__Mcp__DelegationTimeoutSeconds"] = settings.DelegationTimeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture)
         };
         for (var i = 0; i < settings.AllowedOrigins.Length; i++) mcpEnvironment[$"Helpdesk__Mcp__AllowedOrigins__{i}"] = settings.AllowedOrigins[i];
+        if (settings.AuthenticationMode == "gateway")
+        {
+            mcpEnvironment["Helpdesk__Mcp__Outbound__ApiBaseUrl"] = settings.ApiBaseUrl;
+            mcpEnvironment["Helpdesk__Mcp__Outbound__CredentialMode"] = "gateway";
+        }
         if (settings.AuthenticationMode == "authentik")
         {
             mcpEnvironment["Authentication__AuthentikMcp__Authority"] = settings.AuthentikAuthority;
@@ -277,7 +288,13 @@ public static class HttpMcpHostingCoordinator
                 ["mcp-config-init"] = new { volumes = new[] { new { type = "bind", source = "${RATELDESK_MCP_CONFIG_FILE:?Set the exported outbound file host path.}", target = "/input/config.json", read_only = true }, new { type = "volume", source = "mcp-http-config", target = "/run/rateldesk-mcp", read_only = false } } }
             }
         };
-        return System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(compose, Json))!.AsObject();
+        var result = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(compose, Json))!.AsObject();
+        if (!legacyInitializer)
+        {
+            result["services"]!.AsObject().Remove("mcp-config-init");
+            result["services"]!["mcp-http"]!.AsObject().Remove("healthcheck");
+        }
+        return result;
     }
 
     public static AgentClientConfiguration ContainerOutbound(AgentClientConfiguration configuration)

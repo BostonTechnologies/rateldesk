@@ -47,7 +47,7 @@ public sealed class HostDeploymentWorkflow : IHostDeploymentWorkflow
     }
     public async Task<HttpMcpHostingExport> SaveApprovedAsync(HttpMcpDeploymentProposal proposal, PairingSession session, string directory, bool overwrite, CancellationToken ct)
     {
-        var current = HttpMcpEffectiveDeployment.Create(proposal.Settings);
+        var current = HttpMcpEffectiveDeployment.Create(proposal.Settings, intent: proposal.Intent);
         if (!current.Valid || current.SourceHash != proposal.SourceHash || current.ProposalHash != proposal.ProposalHash)
             throw new AgentClientValidationException("HOST_SOURCE_CHANGED: Sources or effective settings changed after review. Revalidate and obtain a new deployment approval.");
         var approval = await PollAsync(session, ct);
@@ -56,16 +56,32 @@ public sealed class HostDeploymentWorkflow : IHostDeploymentWorkflow
         var approvedSnapshot = SecureConfigurationFiles.ReadPrivateDocument(proposal.SnapshotPath ?? Environment.GetEnvironmentVariable(HttpMcpEffectiveDeployment.EffectiveSourceVariable)!);
         if (HttpMcpEffectiveDeployment.Hash(approvedSnapshot) != proposal.SourceHash)
             throw new AgentClientValidationException("HOST_SOURCE_CHANGED: The reviewed source snapshot changed before export.");
-        var export = HttpMcpHostingCoordinator.Export(proposal.Settings, directory, overwrite, proposal.Overlay);
+        if (proposal.Intent == HttpMcpHostIntent.PrepareChanges && proposal.CompleteDeployment["x-rateldesk-source-candidates"] is not System.Text.Json.Nodes.JsonArray)
+            throw new AgentClientValidationException("HOST_SOURCE_REVIEW_REQUIRED: Prepare source candidates with the Docker-host launcher and its actual Compose validator before saving an approved change.");
+        ValidateCandidateFiles(proposal);
+        HttpMcpHostingExport export;
+        if (proposal.IsAdoption)
+        {
+            var settingsPath = Path.Combine(directory, "host-settings.json");
+            if (!overwrite && File.Exists(settingsPath)) throw new AgentClientValidationException("A baseline checkpoint already exists; review and explicitly replace it.");
+            SecureConfigurationFiles.WriteAtomic(settingsPath, JsonSerializer.Serialize(proposal.Settings, AgentClientConfiguration.JsonOptions));
+            export = new([settingsPath], "Existing baseline adopted; no deployment changes and no apply step. Start fresh verification through the Docker-host launcher using the original saved sources. Temporary verifier approval is separate from this current-admin baseline review.");
+        }
+        else export = HttpMcpHostingCoordinator.Export(proposal.Settings, directory, overwrite, proposal.Overlay);
         SecureConfigurationFiles.WritePrivateDocument(Path.Combine(directory, "approved-effective-deployment.json"), approvedSnapshot);
+        SecureConfigurationFiles.WritePrivateDocument(Path.Combine(directory, "approved-proposal.json"), proposal.CompleteDeployment.ToJsonString());
+        if (proposal.IsAdoption && proposal.RuntimeSnapshotPath is { } runtimePath)
+            SecureConfigurationFiles.WritePrivateDocument(Path.Combine(directory, "approved-runtime.json"), SecureConfigurationFiles.ReadPrivateDocument(runtimePath));
         SecureConfigurationFiles.WriteAtomic(Path.Combine(directory, "host-approval-session.json"), JsonSerializer.Serialize(
             new SavedHostApproval(proposal.Settings.PublicOrigin, session.DeviceCode, proposal.ProposalHash, proposal.SourceHash), Json));
-        var hashes = export.Files.ToDictionary(path => Path.GetFileName(path)!, path => SecureConfigurationFiles.Revision(path)!, StringComparer.Ordinal);
+        var checkpointFiles = export.Files.Concat(new[] { Path.Combine(directory, "approved-effective-deployment.json"), Path.Combine(directory, "approved-proposal.json") })
+            .Concat(proposal.IsAdoption ? [Path.Combine(directory, "approved-runtime.json")] : []).ToArray();
+        var hashes = checkpointFiles.ToDictionary(path => Path.GetFileName(path)!, path => SecureConfigurationFiles.Revision(path)!, StringComparer.Ordinal);
         var receipt = new HostApprovalReceipt(true, proposal.SourceHash, proposal.ProposalHash, approval.ApprovedBy,
-            approval.ApprovedAtUtc!.Value, Environment.GetEnvironmentVariable("RATELDESK_SETUP_ATTEMPT"), hashes);
+            approval.ApprovedAtUtc!.Value, Environment.GetEnvironmentVariable("RATELDESK_SETUP_ATTEMPT"), hashes) { Intent = proposal.Intent };
         SecureConfigurationFiles.WriteAtomic(Path.Combine(directory, "host-approval.json"), JsonSerializer.Serialize(receipt, Json));
-        SecureConfigurationFiles.WriteAtomic(Path.Combine(directory, "host-phase.json"), JsonSerializer.Serialize(new { phase = "saved-apply-pending", proposal.SourceHash, proposal.ProposalHash }, Json));
-        return export;
+        SecureConfigurationFiles.WriteAtomic(Path.Combine(directory, "host-phase.json"), JsonSerializer.Serialize(new { phase = proposal.IsAdoption ? "adopted-verify-pending" : "saved-apply-pending", proposal.SourceHash, proposal.ProposalHash }, Json));
+        return export with { Files = checkpointFiles };
     }
 
     public static HttpMcpDeploymentProposal ResumeApproved(string directory)
@@ -73,7 +89,7 @@ public sealed class HostDeploymentWorkflow : IHostDeploymentWorkflow
         HostApprovalReceipt receipt;
         try { receipt = JsonSerializer.Deserialize<HostApprovalReceipt>(SecureConfigurationFiles.ReadText(Path.Combine(directory, "host-approval.json"), requirePrivate: true), Json) ?? throw new JsonException(); }
         catch (JsonException) { throw new AgentClientValidationException("The host approval checkpoint is invalid. Reopen the launcher and review a fresh proposal."); }
-        if (!receipt.Approved || receipt.ExportHashes.Count is < 4 or > 8 || string.IsNullOrWhiteSpace(receipt.ApprovedBy))
+        if (!receipt.Approved || receipt.ExportHashes.Count is < 1 or > 16 || string.IsNullOrWhiteSpace(receipt.ApprovedBy))
             throw new AgentClientValidationException("A complete approved host generation is required for verification.");
         foreach (var export in receipt.ExportHashes)
             if (Path.GetFileName(export.Key) != export.Key || SecureConfigurationFiles.Revision(Path.Combine(directory, export.Key)) != export.Value)
@@ -82,12 +98,43 @@ public sealed class HostDeploymentWorkflow : IHostDeploymentWorkflow
         var frozen = SecureConfigurationFiles.ReadPrivateDocument(frozenPath);
         if (HttpMcpEffectiveDeployment.Hash(frozen) != receipt.SourceHash)
             throw new AgentClientValidationException("HOST_APPROVED_SOURCE_CHANGED: The saved reviewed source generation changed. Start a fresh review.");
-        var proposal = HttpMcpEffectiveDeployment.Create(HttpMcpHostingCoordinator.Load(directory), frozenPath);
+        var proposal = HttpMcpEffectiveDeployment.Create(HttpMcpHostingCoordinator.Load(directory), frozenPath, receipt.Intent, renderSourceReview: false);
+        var savedProposal = Path.Combine(directory, "approved-proposal.json");
+        if (!proposal.IsAdoption && File.Exists(savedProposal))
+        {
+            var complete = HttpMcpEffectiveDeployment.Parse(SecureConfigurationFiles.ReadPrivateDocument(savedProposal));
+            var frozenProposal = proposal with { CompleteDeployment = complete };
+            // Include the exact lossless candidate records bound during administrator review.
+            proposal = frozenProposal with { ProposalHash = HttpMcpEffectiveDeployment.ProposalRevision(complete, proposal.SourceHash, proposal.Intent) };
+        }
         if (!proposal.Valid || proposal.SourceHash != receipt.SourceHash || proposal.ProposalHash != receipt.ProposalHash)
             throw new AgentClientValidationException("HOST_SOURCE_CHANGED: Current sources differ from the approved generation. Revalidate and review before continuing.");
+        ValidateCandidateFiles(proposal);
         var currentText = SecureConfigurationFiles.ReadPrivateDocument(Environment.GetEnvironmentVariable(HttpMcpEffectiveDeployment.EffectiveSourceVariable)!);
         if (HttpMcpEffectiveDeployment.Hash(currentText) != receipt.SourceHash)
         {
+            if (proposal.IsAdoption)
+                throw new AgentClientValidationException("HOST_SOURCE_CHANGED: The adopted baseline's actual sources changed. Re-read and review a new baseline; no saved revision was replaced.");
+            if (proposal.Intent == HttpMcpHostIntent.PrepareChanges)
+            {
+                var candidateCurrent = HttpMcpEffectiveDeployment.Parse(currentText);
+                var candidateBefore = SourceRecords(HttpMcpEffectiveDeployment.Parse(frozen)); var candidateAfter = SourceRecords(candidateCurrent);
+                var expected = new Dictionary<string, string>(candidateBefore, StringComparer.Ordinal);
+                if (proposal.CompleteDeployment["x-rateldesk-source-candidates"] is not System.Text.Json.Nodes.JsonArray candidates)
+                    throw new AgentClientValidationException("HOST_SOURCE_CHANGED: The reviewed source candidate inventory is unavailable.");
+                foreach (var candidate in candidates)
+                {
+                    var source = candidate!["source"]!.GetValue<string>();
+                    if (!candidateBefore.TryGetValue(source, out var originalHash) || !string.Equals(originalHash, candidate["originalSha256"]?.ToString(), StringComparison.OrdinalIgnoreCase))
+                        throw new AgentClientValidationException("HOST_SOURCE_CHANGED: A source candidate is not bound to the reviewed original source.");
+                    expected[source] = candidate["candidateSha256"]!.GetValue<string>();
+                }
+                if (expected.Count != candidateAfter.Count || expected.Any(item => !candidateAfter.TryGetValue(item.Key, out var hash) || !string.Equals(hash, item.Value, StringComparison.OrdinalIgnoreCase)))
+                    throw new AgentClientValidationException("HOST_SOURCE_CHANGED: Actual saved sources do not exactly match the reviewed source candidates and unchanged dependencies. Re-read/review manager changes explicitly.");
+                var diagnostics = HttpMcpEffectiveDeployment.CheckApprovedEffective(proposal, candidateCurrent);
+                if (diagnostics.Count > 0) throw new AgentClientValidationException(Describe(diagnostics));
+                return proposal;
+            }
             // The sole accepted source transition is importing the exact reviewed complete document.
             // The Docker host separately fences all original source bytes and interpolation context.
             var state = HttpMcpEffectiveDeployment.Parse(SecureConfigurationFiles.ReadPrivateDocument(Path.Combine(directory, "launcher-state.json")));
@@ -108,16 +155,34 @@ public sealed class HostDeploymentWorkflow : IHostDeploymentWorkflow
         return proposal;
     }
 
+    private static void ValidateCandidateFiles(HttpMcpDeploymentProposal proposal)
+    {
+        if (proposal.Intent != HttpMcpHostIntent.PrepareChanges) return;
+        if (proposal.CompleteDeployment["x-rateldesk-source-candidates"] is not System.Text.Json.Nodes.JsonArray candidates)
+            throw new AgentClientValidationException("HOST_SOURCE_REVIEW_REQUIRED: Review the actual source candidates before applying a change.");
+        foreach (var candidate in candidates)
+        {
+            var path = candidate?["candidate"]?.GetValue<string>();
+            var revision = candidate?["candidateSha256"]?.GetValue<string>();
+            if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path) || string.IsNullOrWhiteSpace(revision) ||
+                !string.Equals(SecureConfigurationFiles.Revision(path), revision, StringComparison.OrdinalIgnoreCase))
+                throw new AgentClientValidationException("HOST_CANDIDATE_CHANGED: A reviewed private source candidate changed or disappeared. Prepare and review the source change again.");
+        }
+    }
+
     private static Dictionary<string, string> SourceRecords(System.Text.Json.Nodes.JsonObject snapshot)
     {
         if (snapshot["x-rateldesk-source-files"] is not System.Text.Json.Nodes.JsonArray files)
             throw new AgentClientValidationException("HOST_SOURCE_CHANGED: The complete source record is unavailable.");
-        return files.ToDictionary(file => file!["path"]!.GetValue<string>(), file => file!["sha256"]!.GetValue<string>(), StringComparer.Ordinal);
+        return files.ToDictionary(file => file!["path"]!.GetValue<string>(),
+            file => file!["present"]?.GetValue<bool>() == false ? "absent" : file["sha256"]!.GetValue<string>(), StringComparer.Ordinal);
     }
 
     public static async Task CheckApplyAuthorityAsync(string directory, CancellationToken ct)
     {
         var proposal = ResumeApproved(directory);
+        if (proposal.IsAdoption)
+            throw new AgentClientValidationException("HOST_NO_APPLY: The adopted baseline has no deployment changes to apply. Use fresh verification.");
         SavedHostApproval saved;
         try { saved = JsonSerializer.Deserialize<SavedHostApproval>(SecureConfigurationFiles.ReadText(Path.Combine(directory, "host-approval-session.json"), requirePrivate: true), Json) ?? throw new JsonException(); }
         catch (JsonException) { throw new AgentClientValidationException("The saved administrator approval capability is invalid. Review the current host generation again."); }
@@ -151,7 +216,7 @@ public sealed class HostDeploymentWorkflow : IHostDeploymentWorkflow
             throw new AgentClientValidationException("HOST_RUNTIME_STALE: Capture the running deployment after authenticated probes and cleanup; rerun --verify through the Docker host launcher.");
         var diagnostics = HttpMcpEffectiveDeployment.Observe(proposal, runtimePath);
         if (diagnostics.Count > 0) throw new AgentClientValidationException(Describe(diagnostics));
-        SecureConfigurationFiles.WriteAtomic(phasePath, JsonSerializer.Serialize(new { phase = "end-to-end-verified", verifiedAtUtc = now, proposal.SourceHash, proposal.ProposalHash }, Json));
+        SecureConfigurationFiles.WriteAtomic(phasePath, JsonSerializer.Serialize(new { phase = "end-to-end-verified", completion = proposal.IsAdoption ? "existing-deployment-verified-unchanged" : "approved-changes-verified", verifiedAtUtc = now, proposal.SourceHash, proposal.ProposalHash }, Json));
     }
 
     public static async Task<int> VerifyAsync(string directory, TextWriter output, TextWriter error, CancellationToken ct)
@@ -163,26 +228,26 @@ public sealed class HostDeploymentWorkflow : IHostDeploymentWorkflow
         await using var verifier = prepared;
         if (!verifier.Supported) { await error.WriteLineAsync(HostVerificationWorkflow.ExternalMessage); return 1; }
         var session = await verifier.StartAsync(ct);
-        await error.WriteLineAsync("Temporary status verification · applied—verify pending");
+        await error.WriteLineAsync(verifier.IsAdoption ? "Temporary status verification · adopted baseline—verify pending; no deployment changes" : "Temporary status verification · owner-applied—verify pending");
         await error.WriteLineAsync("Trusted instance: " + TerminalText.Sanitize(verifier.Origin));
         await error.WriteLineAsync("Purpose: status only; one authorized organization; no business access or ordinary client profile.");
         await error.WriteLineAsync("Approval URL: " + TerminalText.Sanitize(session.VerificationUri));
         await error.WriteLineAsync("Code: " + TerminalText.Sanitize(session.HumanCode));
         await error.WriteLineAsync($"Status: approval pending · expires {session.ExpiresAtUtc:O}");
-        await error.WriteLineAsync("Open the trusted URL on any signed-in device. Ctrl+C cancels; rerun --verify to return to this applied-host checkpoint.");
+        await error.WriteLineAsync("Open the trusted URL on any signed-in device. Ctrl+C cancels; rerun --verify to return to this reviewed-host checkpoint.");
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct); deadline.CancelAfter(TimeSpan.FromMinutes(10));
         while (DateTimeOffset.UtcNow < session.ExpiresAtUtc)
         {
             await Task.Delay(TimeSpan.FromSeconds(Math.Clamp(session.PollIntervalSeconds, 1, 30)), deadline.Token);
             var poll = await verifier.PollAsync(deadline.Token);
-            if (poll.Status is "denied" or "expired" or "cancelled") throw new AgentClientValidationException("Temporary verification approval ended. Host settings remain applied—verify pending.");
+            if (poll.Status is "denied" or "expired" or "cancelled") throw new AgentClientValidationException("Temporary verification approval ended. The reviewed host remains verification pending.");
             if (poll.Credential is null) continue;
             var result = await verifier.RunAsync(deadline.Token);
             await output.WriteLineAsync(JsonSerializer.Serialize(new { checks = result.Checks, cleanupPending = result.CleanupPending }, Json));
             await error.WriteLineAsync(result.Message);
             return result.Passed ? 0 : 1;
         }
-        throw new AgentClientValidationException("Verification approval expired. Host configuration remains applied—verify pending.");
+        throw new AgentClientValidationException("Verification approval expired. The reviewed host remains verification pending.");
     }
 
     private async Task<T> PostAsync<T>(string action, object body, CancellationToken ct)
@@ -202,4 +267,8 @@ public sealed class HostDeploymentWorkflow : IHostDeploymentWorkflow
 }
 
 public sealed record HostApprovalReceipt(bool Approved, string SourceHash, string ProposalHash, string ApprovedBy,
-    DateTimeOffset ApprovedAtUtc, string? LauncherAttempt, IReadOnlyDictionary<string, string> ExportHashes);
+    DateTimeOffset ApprovedAtUtc, string? LauncherAttempt, IReadOnlyDictionary<string, string> ExportHashes)
+{
+    // Old beta.2 receipts describe the explicitly selected initializer generation.
+    public HttpMcpHostIntent Intent { get; init; } = HttpMcpHostIntent.LegacyInitializer;
+}
