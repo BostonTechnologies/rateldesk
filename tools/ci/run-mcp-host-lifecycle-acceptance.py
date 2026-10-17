@@ -10,6 +10,7 @@ beta.2 initializer fixtures remain available as individually selected cases.
 """
 import argparse
 from contextlib import closing, ExitStack
+from datetime import datetime
 import errno
 import fcntl
 import hashlib
@@ -95,7 +96,11 @@ class Terminal:
     def until(self, expression, seconds=120, since=0):
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
-            match = re.search(expression, terminal_text(self.traffic[since:], history=True))
+            # Termina emits cell deltas, so slicing the byte stream discards
+            # unchanged label characters. Fresh waits reconstruct the complete
+            # current screen after new traffic; callers exclude a former code.
+            rendered = self.screen() if since else self.text()
+            match = re.search(expression, rendered) if not since or len(self.traffic) > since else None
             if match:
                 return match
             if len(self.traffic) > 4 * 1024 * 1024:
@@ -285,6 +290,12 @@ class Fixture:
         if self.legacy:
             model["configs"] = {"legacy-outbound": {"file": str(self.legacy_config)}}
         model = self.customize_model(model)
+        # Isolate this loopback/private-network fixture from Docker CLI proxy
+        # defaults. BusyBox wget may ignore NO_PROXY; retain its exact inherited
+        # healthcheck and prevent that check from reaching a cloud proxy.
+        for service in model["services"].values():
+            service.setdefault("environment", {}).update({key: "" for key in
+                ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy")})
         self.write_model(model)
         self.source.chmod(0o600)
         if self.legacy:
@@ -760,6 +771,19 @@ class PreservedFixture(Fixture):
             self.compose[-1] = str(self.source)
             self.compose[self.compose.index("--project-directory") + 1] = str(self.source.parent)
             assert self.source.read_bytes() == self.original_source.read_bytes()
+        # Adoption reviews an already working deployment. Wait for healthchecks
+        # that already exist before freezing its baseline; absence stays absent.
+        deadline = time.monotonic() + 150
+        while time.monotonic() < deadline:
+            identifiers = checked([*self.compose, "ps", "--all", "--quiet"]).decode().split()
+            observed = json.loads(checked(["docker", "inspect", *identifiers])) if identifiers else []
+            readiness = {item["Config"]["Labels"]["com.docker.compose.service"]:
+                {"running": item["State"]["Running"], "health": item["State"].get("Health", {}).get("Status", "absent")} for item in observed}
+            if len(readiness) == 4 and all(item["running"] and item["health"] in ("healthy", "absent") for item in readiness.values()):
+                print("PASS: pristine four-service fixture readiness " + json.dumps(readiness, sort_keys=True), flush=True)
+                return
+            time.sleep(0.5)
+        raise RuntimeError("Disposable baseline did not become ready using its existing healthchecks: " + json.dumps(readiness, sort_keys=True))
 
     def customize_model(self, model):
         services = model["services"]
@@ -898,18 +922,18 @@ class PreservedFixture(Fixture):
             "restarts": item["RestartCount"], "running": item["State"]["Running"], "mounts": item["Mounts"], "healthcheck": item["Config"].get("Healthcheck"),
             "labels": item["Config"].get("Labels"), "image": item["Image"]} for item in metadata), key=lambda item: item["id"]),
             "volumes": sorted(checked(["docker", "volume", "ls", "--quiet", "--filter", "label=com.docker.compose.project=" + self.project]).decode().split()),
-            "networks": sorted(checked(["docker", "network", "ls", "--quiet", "--filter", "label=com.docker.compose.project=" + self.project]).decode().split())}
+            "networks": sorted(checked(["docker", "network", "ls", "--quiet", "--filter", "label=com.docker.compose.project=" + self.project]).decode().split()),
+            "allDaemonObjects": {
+                "containers": sorted(checked(["docker", "ps", "--all", "--quiet", "--no-trunc"]).decode().split()),
+                "volumes": sorted(checked(["docker", "volume", "ls", "--quiet"]).decode().split()),
+                "networks": sorted(checked(["docker", "network", "ls", "--quiet", "--no-trunc"]).decode().split())}}
 
     def assert_no_resource_events(self, since):
         events = checked(["docker", "events", "--since", str(since), "--until", str(time.time()), "--format", "{{json .}}"], timeout=30)
         prohibited = {"create", "destroy", "start", "restart", "stop", "kill", "die", "connect", "disconnect", "mount", "unmount"}
         for line in events.splitlines():
             event = json.loads(line)
-            attributes = event.get("Actor", {}).get("Attributes", {})
-            owned = (attributes.get("com.docker.compose.project") == self.project or
-                attributes.get("com.rateldesk.setup.project") == self.project or
-                any(str(value).startswith(self.project) for key, value in attributes.items() if key in ("name", "container")))
-            assert not (owned and event.get("Action", event.get("status")) in prohibited), "Deployment-read-only setup must not create, remove, restart or attach Docker resources, including transient helpers"
+            assert not (event.get("Type") in ("container", "network", "volume") and event.get("Action", event.get("status")) in prohibited), "Deployment-read-only setup must not create, remove, restart or attach any Docker resources, including unlabeled transient helpers"
 
     def native_profile(self):
         path = self.client_directory / "mcp/incident-reader.json"
@@ -930,6 +954,7 @@ class PreservedFixture(Fixture):
 
     def complete_native_client(self):
         self.wait_console_endpoint()
+        print("RUN: native client terminal, actual Back and explicit browser consent", flush=True)
         before = {item["id"] for item in self.request("/api/v1/integration-credentials/")}
         setup = self.terminal([*self.launcher_arguments(), "--target", "http-client", "--", "--profile", "incident-reader",
             "--url", self.origin, "--monochrome"])
@@ -944,7 +969,7 @@ class PreservedFixture(Fixture):
         setup.until("Inputs are preserved", since=offset)
         offset = len(setup.traffic)
         setup.send(b"\x0e")
-        code = setup.until(r"Short code:\s*([A-Z2-9]{4}-[A-Z2-9]{4})", since=offset).group(1)
+        code = setup.until(r"Short code:\s*(?!" + re.escape(previous_code) + r")([A-Z2-9]{4}-[A-Z2-9]{4})", since=offset).group(1)
         assert code != previous_code, "Ordinary-client Back must retain client authentication and fence the former request"
         self.browser_consent(code, "ordinary")
         setup.until("Approved organization:")
@@ -957,6 +982,8 @@ class PreservedFixture(Fixture):
         credentials = [item for item in self.request("/api/v1/integration-credentials/") if item["id"] not in before]
         assert len(credentials) == 1 and credentials[0]["purpose"] == "mcp" and credentials[0]["permissions"] == ["Incident.Read"]
         self.client_credential = credentials[0]
+        remaining = datetime.fromisoformat(self.client_credential["expiresAtUtc"].replace("Z", "+00:00")).timestamp() - time.time()
+        assert 23 * 3600 < remaining <= 24 * 3600 + 60, "The actual ordinary client grant must have the explicitly approved one-day lifetime"
         print("PASS: actual native client terminal and browser consent; one-day Incident.Read grant and protected profile", flush=True)
 
     def reload_native_client(self):
@@ -979,18 +1006,24 @@ class PreservedFixture(Fixture):
         self.probe_incident_search(secret=secret.decode().strip())
 
     def review_host(self, intent):
+        print("RUN: host " + intent + " review, actual Back, 80x24/wide terminal and browser source consent", flush=True)
         normal = [*self.launcher_arguments(), "--intent", intent, "--", "--url", self.origin, "--instance", "synthetic-private-west", "--monochrome"]
+        before_cancel = {item["id"] for item in self.request("/api/v1/integration-credentials/")}
         cancelled = self.terminal(normal)
         cancelled.until("RatelDesk Web URL")
         cancelled.send(b"\x03")
-        cancelled.finish(expected=2)
-        assert not (self.output / "host-approval.json").exists(), "Canceled draft must not produce approval"
+        cancelled.finish()
+        assert "Cancelled. Existing profiles are unchanged." in cancelled.text(), "Initial host Cancel must explicitly finish as a canceled draft"
+        assert all(not (self.output / name).exists() for name in ("host-approval.json", "host-approval-session.json", "launcher-state.json", "verifier-cleanup.json")), "Canceled draft must not issue consent, save an approved generation or create temporary verification state"
+        assert "Fresh verification pending:" not in cancelled.raw_text() and "--verify" not in cancelled.raw_text(), "Canceled draft must not advertise a completed checkpoint or verification command"
+        assert {item["id"] for item in self.request("/api/v1/integration-credentials/")} == before_cancel
         setup = self.terminal(normal)
         setup.until("RatelDesk Web URL")
         setup.send(b"\x0e")
         setup.until("Verify the detected existing deployment|Prepare explicit configuration changes")
         setup.send(b"\x0e")
         code = setup.until(r"[Cc]ode:\s*([A-Z2-9]{4}-[A-Z2-9]{4})").group(1)
+        print("PASS: actual host approval request reached; exercising Back before browser consent", flush=True)
         # Back cancels this pending proposal and retains the actual host draft.
         previous_code = code
         offset = len(setup.traffic)
@@ -998,7 +1031,7 @@ class PreservedFixture(Fixture):
         setup.until("Host draft retained", since=offset)
         offset = len(setup.traffic)
         setup.send(b"\x0e")
-        code = setup.until(r"[Cc]ode:\s*([A-Z2-9]{4}-[A-Z2-9]{4})", since=offset).group(1)
+        code = setup.until(r"[Cc]ode:\s*(?!" + re.escape(previous_code) + r")([A-Z2-9]{4}-[A-Z2-9]{4})", since=offset).group(1)
         assert code != previous_code, "Back must fence/cancel the former host proposal before a fresh request"
         screen = setup.screen()
         assert all(value in screen for value in (code, "Open browser", "Copy URL and code", "Details", "Back", "Cancel")), "Host approval actions/code must fit 80x24"
@@ -1008,12 +1041,14 @@ class PreservedFixture(Fixture):
         setup.resize(36, 120)
         setup.until(re.escape(code), since=offset)
         assert all(value in setup.screen() for value in (code, "4 → 4", "Open browser", "Details", "Back", "Cancel")), "Wide host review must retain count/code/actions after real terminal resize"
+        print("RUN: Chromium administrator " + ("source-diff" if self.changed else "unchanged baseline") + " consent", flush=True)
         self.browser_consent(code, "host")
         setup.until("Administrator reviewed the unchanged baseline|Administrator approved the reviewed changes")
         setup.send(b"\x0e")
         setup.until("Existing baseline adopted|Changes prepared", seconds=60)
         setup.send(b"\x0e")
         setup.finish()
+        print("PASS: explicit administrator browser consent and private " + ("prepared candidate" if self.changed else "adopted baseline") + " checkpoint; fresh verification pending", flush=True)
         printed = [line.strip() for line in setup.raw_text().splitlines()
             if line.strip().startswith("env ") and line.strip().endswith("--verify")]
         assert len(printed) == 1, "The completed host path must print one safely quoted NEW-process verification command"
@@ -1021,6 +1056,7 @@ class PreservedFixture(Fixture):
         assert self.resume_command[0] == "env" and str(self.launcher) in self.resume_command and self.resume_command[-1] == "--verify"
 
     def verify_fresh(self):
+        print("RUN: exact printed NEW-process host verification command and verifier Back/consent/cleanup", flush=True)
         before = {item["id"] for item in self.request("/api/v1/integration-credentials/")}
         # Execute the exact advertised argument vector, without shell evaluation.
         verify = self.terminal(self.resume_command[1:], executable=self.resume_command[0])
@@ -1034,7 +1070,7 @@ class PreservedFixture(Fixture):
         verify.until("Temporary consent cancelled", since=offset)
         offset = len(verify.traffic)
         verify.send(b"\x0e")
-        code = verify.until(r"[Cc]ode:\s*([A-Z2-9]{4}-[A-Z2-9]{4})", since=offset).group(1)
+        code = verify.until(r"[Cc]ode:\s*(?!" + re.escape(previous_code) + r")([A-Z2-9]{4}-[A-Z2-9]{4})", since=offset).group(1)
         assert code != previous_code and (self.output / "host-approval.json").read_bytes() == reviewed_checkpoint, "Verifier Back must retain the reviewed host checkpoint and fence its former temporary request"
         cancelled = self.request("/api/v1/integration-credentials/pairing/poll", {"deviceCode": previous_device})
         assert cancelled["status"] == "cancelled" and cancelled.get("credential") is None
@@ -1097,6 +1133,8 @@ class PreservedFixture(Fixture):
             delivered = self.request("/api/v1/integration-credentials/pairing/poll", {"deviceCode": device_code})
             credential = delivered["credential"]
             assert credential["grantKind"] == "setup-verification" and credential["permissions"] == []
+            remaining = datetime.fromisoformat(credential["expiresAtUtc"].replace("Z", "+00:00")).timestamp() - time.time()
+            assert 0 < remaining <= 310, "Temporary verifier lifetime must remain bounded to five minutes"
             secret = credential["secret"]
             self.guard_secret = secret
             assert rpc(secret, "initialize", {"protocolVersion": "2025-03-26", "capabilities": {},

@@ -4,13 +4,15 @@ import { chromium, expect } from '@playwright/test';
 
 let browser;
 let stage = 'bounded input';
+let page, codeInput, reviewButton;
+let request;
 try {
   let input = '';
   for await (const data of process.stdin) {
     input += data;
     if (input.length > 16384) throw new Error('input bound');
   }
-  const request = JSON.parse(input);
+  request = JSON.parse(input);
   const origin = new URL(request.origin);
   if (origin.protocol !== 'https:' || !(origin.hostname === 'localhost' || origin.hostname.endsWith('.fixture.test'))) throw new Error('fixture origin required');
   browser = await chromium.launch({
@@ -18,7 +20,7 @@ try {
     args: [`--host-resolver-rules=MAP ${origin.hostname} 127.0.0.1`, '--no-proxy-server'],
   });
   const context = await browser.newContext({ baseURL: origin.origin, ignoreHTTPSErrors: true });
-  const page = await context.newPage();
+  page = await context.newPage();
   page.setDefaultTimeout(30000);
   stage = 'local account sign-in';
   await page.goto('/login');
@@ -27,11 +29,19 @@ try {
   await page.getByLabel('Password', { exact: false }).fill(request.password);
   await page.getByRole('button', { name: /^Sign in to / }).click();
   await expect(page).toHaveURL(/\/home(?:[?#].*)?$/);
-  stage = 'connection review';
+  stage = 'approval page navigation';
   await page.goto('/account/integration-credentials/approve');
   const host = request.kind === 'host';
-  await page.getByLabel(host ? 'Host code' : 'Client code', { exact: true }).fill(request.code);
-  await page.getByRole('button', { name: host ? 'Review host' : 'Review client', exact: true }).click();
+  reviewButton = page.getByRole('button', { name: host ? 'Review host' : 'Review client', exact: true });
+  stage = 'interactive approval renderer';
+  // The SSR form is visible before Blazor attaches its input handlers. Filling
+  // it before its explicit interactive gate can lose the code on hydration.
+  await expect(reviewButton).toBeEnabled();
+  codeInput = page.getByLabel(host ? 'Host code' : 'Client code', { exact: true });
+  stage = 'approval code input';
+  await codeInput.fill(request.code);
+  stage = 'connection review request';
+  await reviewButton.click();
   const dialog = page.getByRole('dialog', { name: host ? 'Host deployment consent' : 'Connection consent', exact: true });
   await expect(dialog).toBeVisible();
   stage = 'explicit scoped consent';
@@ -64,8 +74,15 @@ try {
   await expect(page.getByRole('status')).toContainText('Connection approved');
   // No secrets, codes, names, URLs, source references or DOM fragments in output.
   process.stdout.write(JSON.stringify({ approved: true, kind: request.kind, browser: 'chromium', interactiveConsent: true }) + '\n');
-} catch {
-  process.stderr.write(`Disposable browser consent did not complete at ${stage}; no credential or page content was recorded.\n`);
+} catch (error) {
+  const observations = { stage, error: error?.name || 'Error' };
+  if (page && !page.isClosed()) {
+    observations.codeRetained = codeInput ? await codeInput.inputValue().then(value => value === request.code).catch(() => null) : null;
+    observations.reviewEnabled = reviewButton ? await reviewButton.isEnabled().catch(() => null) : null;
+    observations.dialogCount = await page.getByRole('dialog').count().catch(() => null);
+    observations.alertCount = await page.getByRole('alert').count().catch(() => null);
+  }
+  process.stderr.write('Disposable browser consent did not complete: ' + JSON.stringify(observations) + '; no credential or page content was recorded.\n');
   process.exitCode = 1;
 } finally {
   await browser?.close();

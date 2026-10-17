@@ -132,7 +132,7 @@ test('host and client codes never switch approval kind and host consent binds ex
  await expect(dialog).toContainText('office-private');
  await expect(dialog).toContainText('AllowedOrigins'); await expect(dialog).toContainText('Compose environment');
  await expect(dialog.getByTestId('credential-permission-selector')).toHaveCount(0);
- await dialog.getByRole('checkbox', { name: 'I authorize these exact deployment settings and source generation.', exact: true }).check();
+ await dialog.getByRole('checkbox', { name: 'I approve this exact baseline or configuration proposal and its source generation.', exact: true }).check();
  await dialog.getByRole('button', { name: 'Approve host', exact: true }).click();
  await expect(page.getByRole('status')).toContainText('Connection approved');
  const calls = (await (await request.get(`${fixture}/state`)).json()).calls;
