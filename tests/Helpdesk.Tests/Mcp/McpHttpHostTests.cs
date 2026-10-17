@@ -24,6 +24,8 @@ using Microsoft.AspNetCore.WebUtilities;
 using Helpdesk.Tests.Api;
 using Helpdesk.Setup;
 using Helpdesk.Shared.Auth;
+using ModelContextProtocol.Client;
+using ModelContextProtocol.Protocol;
 using Xunit;
 
 namespace Helpdesk.Tests.Mcp;
@@ -371,10 +373,108 @@ public sealed class McpHttpHostTests
         foreach (var tool in new[] { "helpdesk_capabilities", "helpdesk_health", "helpdesk_config" })
         {
             using var rejected = await HttpCallAsync(client, credential.Bearer, 50, "tools/call", ToolCallParameters(tool, tool == "helpdesk_config" ? "show" : "get"));
-            Assert.True(rejected.RootElement.TryGetProperty("error", out _) || rejected.RootElement.GetProperty("result").GetProperty("isError").GetBoolean());
+            Assert.False(rejected.RootElement.TryGetProperty("error", out _));
+            Assert.True(rejected.RootElement.GetProperty("result").GetProperty("isError").GetBoolean());
+            Assert.Equal("setup_verification_operation_denied", StructuredContent(rejected.RootElement).GetProperty("failure").GetProperty("code").GetString());
         }
         using var prompts = await HttpCallAsync(client, credential.Bearer, 51, "prompts/list", new { });
         Assert.True(prompts.RootElement.TryGetProperty("error", out _));
+    }
+
+    [Theory]
+    [InlineData("2025-03-26")]
+    [InlineData("2025-06-18")]
+    [InlineData("2025-11-25")]
+    [InlineData("2026-07-28")]
+    public async Task Real_sdk_verifier_denial_is_a_known_tool_failure_before_the_handler_and_business_api(string protocolVersion)
+    {
+        await using var authority = await McpGatewayRealAccessPipelineTests.GatewayAccessHarness.CreateAsync(unscopedData: true);
+        await authority.SeedIncidentSearchAsync();
+        var verifier = await authority.CreateCredentialAsync("org-a", "mcp-setup");
+        var ordinary = await authority.CreateCredentialAsync("org-a", permissions: HelpdeskPermissions.IncidentRead);
+        var resource = McpGatewayRealAccessPipelineTests.GatewayAccessHarness.ResourceUri;
+        using var environment = new McpHostEnvironment(apiBaseUrl: "https://api.example", publicResourceUri: resource, gateway: true);
+        using var audit = new AuditLogCollector();
+        var businessHandlers = 0;
+        using var factory = CreateFactory(environment.SigningKey, audit,
+            apiHandlerFactory: authority.CreateHandler, delegationHandlerFactory: authority.CreateHandler,
+            configureServices: services => services.AddMcpServer().WithRequestFilters(filters => filters.AddCallToolFilter(next => (context, ct) =>
+            {
+                if (context.Params.Name == "helpdesk_incidents") Interlocked.Increment(ref businessHandlers);
+                return next(context, ct);
+            })));
+        using var client = CreateClient(factory, resource);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", verifier.Bearer);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        await using var mcp = await McpClient.CreateAsync(new HttpClientTransport(new HttpClientTransportOptions
+        {
+            Endpoint = new Uri(resource)
+        }, client), new McpClientOptions { ProtocolVersion = protocolVersion }, cancellationToken: deadline.Token);
+        Assert.Equal(protocolVersion, mcp.NegotiatedProtocolVersion);
+        var catalog = await mcp.ListToolsAsync(cancellationToken: deadline.Token);
+        Assert.Equal(28, catalog.Count);
+        var status = await mcp.CallToolAsync("helpdesk_auth", new Dictionary<string, object?> { ["operation"] = "status" }, cancellationToken: deadline.Token);
+        Assert.True(status.StructuredContent!.Value.GetProperty("success").GetBoolean());
+
+        var arguments = new Dictionary<string, object?> { ["operation"] = "list", ["request"] = new { query = "needle" } };
+        var denied = await mcp.CallToolAsync("helpdesk_incidents", arguments, cancellationToken: deadline.Token);
+        Assert.True(denied.IsError);
+        Assert.False(denied.StructuredContent!.Value.GetProperty("success").GetBoolean());
+        Assert.Equal("setup_verification_operation_denied", denied.StructuredContent.Value.GetProperty("failure").GetProperty("code").GetString());
+        Assert.False(denied.StructuredContent.Value.GetProperty("failure").GetProperty("retryable").GetBoolean());
+        using var fallback = JsonDocument.Parse(Assert.IsType<TextContentBlock>(Assert.Single(denied.Content)).Text);
+        Assert.Equal("setup_verification_operation_denied", fallback.RootElement.GetProperty("failure").GetProperty("code").GetString());
+        Assert.Equal(JsonValueKind.Null, fallback.RootElement.GetProperty("data").ValueKind);
+        Assert.Equal(0, businessHandlers);
+        Assert.Empty(authority.IncidentListQueries);
+        var denialAudit = Assert.Single(audit.Messages, message => message.Contains("Tool=helpdesk_incidents", StringComparison.Ordinal));
+        Assert.Contains("ProtocolSucceeded=True", denialAudit, StringComparison.Ordinal);
+        Assert.Contains("OperationSucceeded=False", denialAudit, StringComparison.Ordinal);
+        Assert.Contains("ResultStatus=forbidden", denialAudit, StringComparison.Ordinal);
+        Assert.All(audit.Messages, message =>
+        {
+            Assert.DoesNotContain(verifier.Bearer, message, StringComparison.Ordinal);
+            Assert.DoesNotContain("needle", message, StringComparison.Ordinal);
+        });
+
+        // The identical valid request remains available to an explicitly permitted ordinary client.
+        using var allowed = await HttpCallAsync(client, ordinary.Bearer, 70, "tools/call", ToolCallParameters("helpdesk_incidents", arguments));
+        Assert.True(StructuredContent(allowed.RootElement).GetProperty("success").GetBoolean());
+        Assert.Equal(1, businessHandlers);
+        Assert.Single(authority.IncidentListQueries);
+
+        await authority.SetCredentialRevokedAsync(verifier.Id);
+        using var revokedRequest = CreateGatewayRequest();
+        revokedRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", verifier.Bearer);
+        using var revoked = await client.SendAsync(revokedRequest, deadline.Token);
+        Assert.Equal(HttpStatusCode.Unauthorized, revoked.StatusCode);
+        Assert.DoesNotContain("setup_verification_operation_denied", await revoked.Content.ReadAsStringAsync(deadline.Token), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Malformed_http_json_is_a_protocol_error_and_not_a_known_verifier_denial()
+    {
+        await using var authority = await McpGatewayRealAccessPipelineTests.GatewayAccessHarness.CreateAsync();
+        var verifier = await authority.CreateCredentialAsync("org-b", "mcp-setup");
+        var resource = McpGatewayRealAccessPipelineTests.GatewayAccessHarness.ResourceUri;
+        using var environment = new McpHostEnvironment(apiBaseUrl: "https://api.example", publicResourceUri: resource, gateway: true);
+        using var factory = CreateFactory(environment.SigningKey, apiHandlerFactory: authority.CreateHandler, delegationHandlerFactory: authority.CreateHandler);
+        using var client = CreateClient(factory, resource);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/mcp")
+        {
+            Content = new StringContent("{\"jsonrpc\":\"2.0\",", Encoding.UTF8, "application/json")
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", verifier.Bearer);
+        request.Headers.Accept.ParseAdd("application/json, text/event-stream");
+        using var response = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/json", response.Content.Headers.ContentType!.MediaType);
+        var body = await response.Content.ReadAsStringAsync();
+        using var error = JsonDocument.Parse(body);
+        Assert.True(error.RootElement.TryGetProperty("error", out _));
+        Assert.False(error.RootElement.TryGetProperty("result", out _));
+        Assert.DoesNotContain("setup_verification_operation_denied", body, StringComparison.Ordinal);
+        Assert.Empty(authority.IncidentListQueries);
     }
 
     [Fact]
@@ -751,7 +851,7 @@ public sealed class McpHttpHostTests
         Assert.Equal(0, outbound.CallCount);
     }
 
-    private static WebApplicationFactory<Helpdesk.Mcp.Http.Program> CreateFactory(ECDsa signingKey, AuditLogCollector? audit = null, OutboundCallProbe? outboundProbe = null, McpJwtValidation? jwt = null, AgentClientBoundaryProbe? boundaryProbe = null, GatewayDelegationProbe? delegationProbe = null, Func<HttpMessageHandler>? apiHandlerFactory = null, Func<HttpMessageHandler>? delegationHandlerFactory = null)
+    private static WebApplicationFactory<Helpdesk.Mcp.Http.Program> CreateFactory(ECDsa signingKey, AuditLogCollector? audit = null, OutboundCallProbe? outboundProbe = null, McpJwtValidation? jwt = null, AgentClientBoundaryProbe? boundaryProbe = null, GatewayDelegationProbe? delegationProbe = null, Func<HttpMessageHandler>? apiHandlerFactory = null, Func<HttpMessageHandler>? delegationHandlerFactory = null, Action<IServiceCollection>? configureServices = null)
         => new WebApplicationFactory<Helpdesk.Mcp.Http.Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Development");
@@ -811,6 +911,7 @@ public sealed class McpHttpHostTests
                         ClockSkew = TimeSpan.Zero
                     };
                 });
+                configureServices?.Invoke(services);
             });
         });
 
