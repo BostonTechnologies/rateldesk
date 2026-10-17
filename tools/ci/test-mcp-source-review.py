@@ -7,7 +7,9 @@ import json
 import os
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 root = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("rateldesk_source_review", root / "tools/mcp/source_review.py")
@@ -92,6 +94,70 @@ class SourceReviewTests(unittest.TestCase):
         self.assertIn('- "LITERAL=$${synthetic}"', candidate)
         self.assertEqual("${synthetic}", result["completeDeployment"]["services"]["web"]["environment"]["LITERAL"])
         self.assertTrue(candidate.endswith('  db:\n    image: synthetic-db\n'))
+
+    def test_production_owner_renderer_decodes_literal_dollars_once_for_original_and_candidate(self):
+        content = (b'# readable owner source\nservices:\n  web:\n    image: synthetic-web\n'
+            b'    environment:\n      LITERAL: "$${OLD}/$$$$/single$$" # retain\n'
+            b'    command: ["echo", "$$COMMAND/$$$$"]\n'
+            b'    entrypoint: ["echo", "$$ENTRYPOINT/$$$$"]\n'
+            b'    healthcheck:\n      test: ["CMD-SHELL", "echo $$HEALTH; echo $$$$"]\n'
+            b'  db:\n    image: synthetic-db\n    environment:\n      UNCHANGED: "$$$$"\n')
+        self.source.write_bytes(content)
+        raw_original = {"services": {"web": {"image": "synthetic-web",
+            "environment": {"LITERAL": "$${OLD}/$$$$/single$$"}, "command": ["echo", "$$COMMAND/$$$$"],
+            "entrypoint": ["echo", "$$ENTRYPOINT/$$$$"],
+            "healthcheck": {"test": ["CMD-SHELL", "echo $$HEALTH; echo $$$$"]}},
+            "db": {"image": "synthetic-db", "environment": {"UNCHANGED": "$$$$"}}}}
+        raw_candidate = copy.deepcopy(raw_original)
+        raw_candidate["services"]["web"]["environment"]["LITERAL"] = "$${NEW}/$$$$/single$$"
+        semantic = {"services": {"web": {"image": "synthetic-web",
+            "environment": {"LITERAL": "${OLD}/$$/single$"}, "command": ["echo", "$COMMAND/$$"],
+            "entrypoint": ["echo", "$ENTRYPOINT/$$"],
+            "healthcheck": {"test": ["CMD-SHELL", "echo $HEALTH; echo $$"]}},
+            "db": {"image": "synthetic-db", "environment": {"UNCHANGED": "$$"}}},
+            "x-rateldesk-source-files": [{"path": str(self.source), "sha256": hashlib.sha256(content).hexdigest()}],
+            "x-rateldesk-image-environment": {"web": ["IMAGE=$$UNCHANGED"]}}
+        self.snapshot.write_text(json.dumps(semantic))
+        self.snapshot.chmod(0o600)
+        selection = {"DOCKER_CONFIG": str(self.directory / "original Docker config"), "DOCKER_CONTEXT": "synthetic-context"}
+        context = {"schemaVersion": 1, "sources": [str(self.source)], "outputDirectory": str(self.output),
+            "effectiveSnapshot": str(self.snapshot), "manager": "external-compose", "ownerComposeRequired": True,
+            "compose": ["compose", "--project-directory", str(self.directory), "-f", str(self.source)],
+            "dockerSelection": selection, "daemonIdentity": "synthetic-daemon"}
+        # Keep production default_renderer and its normalization boundary. Only
+        # replace the imported Docker factory; no Docker process runs here.
+        launcher_spec = importlib.util.spec_from_file_location("source_test_launcher", root / "tools/mcp/setup-http-mcp.py")
+        launcher = importlib.util.module_from_spec(launcher_spec)
+        launcher_spec.loader.exec_module(launcher)
+        calls, bindings = [], []
+        class OwnerDocker:
+            def __init__(self):
+                self.selection, self.daemon_identity = {}, None
+            def bind_daemon(self):
+                bindings.append((dict(self.selection), self.daemon_identity))
+            def run(self, arguments, *, owner_tool=False):
+                calls.append((list(arguments), owner_tool))
+                source = arguments[arguments.index("-f") + 1]
+                return json.dumps(raw_original if source == str(self_source) else raw_candidate).encode()
+        self_source = self.source
+        imported = SimpleNamespace(Docker=OwnerDocker, compose_toolchain=launcher.compose_toolchain,
+            compose_runtime_model=launcher.compose_runtime_model, Prerequisite=launcher.Prerequisite)
+        loader_spec = SimpleNamespace(loader=SimpleNamespace(exec_module=lambda module: None))
+        with patch.object(review.importlib.util, "spec_from_file_location", return_value=loader_spec), \
+                patch.object(review.importlib.util, "module_from_spec", return_value=imported):
+            result = review.prepare_review(context, self.overlay(LITERAL="${NEW}/$$/single$"))
+        complete = result["completeDeployment"]
+        expected = copy.deepcopy(semantic)
+        expected["services"]["web"]["environment"]["LITERAL"] = "${NEW}/$$/single$"
+        self.assertEqual(expected, complete)
+        self.assertEqual(content, self.source.read_bytes())
+        candidate = Path(result["sourceCandidates"][0]["candidate"])
+        self.assertEqual(content.replace(b'LITERAL: "$${OLD}/$$$$/single$$"', b'LITERAL: "$${NEW}/$$$$/single$$"'), candidate.read_bytes())
+        self.assertEqual(2, len(calls))
+        self.assertEqual([str(self.source), str(candidate)], [arguments[arguments.index("-f") + 1] for arguments, _ in calls])
+        self.assertTrue(all(owner_tool and arguments[-3:] == ["config", "--format", "json"] for arguments, owner_tool in calls))
+        self.assertTrue(bindings and all(value == (selection, "synthetic-daemon") for value in bindings))
+        self.assertEqual("$$$$", raw_original["services"]["db"]["environment"]["UNCHANGED"])
 
     def test_requested_yaml_scalar_changes_retain_single_quoted_and_plain_styles(self):
         content = "services:\n  web:\n    environment:\n      TIMEOUT: '20' # retained\n      ORIGIN: https://old.example.test\n      COUNT: 20\n  db:\n    image: synthetic-db\n"
