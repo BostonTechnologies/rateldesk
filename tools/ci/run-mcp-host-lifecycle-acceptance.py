@@ -878,6 +878,8 @@ class Fixture:
             with os.fdopen(descriptor, "w") as stream:
                 stream.write(text[:4 * 1024 * 1024])
         save("failure.txt", str(failure))
+        if getattr(self, "interrupted_manager_verification", None):
+            save("interrupted-manager-verification.json", json.dumps(self.interrupted_manager_verification, indent=2))
         if isinstance(failure, CommandFailure):
             save("command.txt", failure.detail)
         for index, terminal in enumerate(self.terminals):
@@ -1401,9 +1403,19 @@ class PreservedFixture(Fixture):
         environment = os.environ.copy()
         environment.update(self.client_environment)
         rejected = subprocess.run(self.resume_command, cwd=self.directory, env=environment, capture_output=True, timeout=120)
-        print("OBSERVE: fresh verification after interrupted actual manager request " + json.dumps({
-            "exit": rejected.returncode, "runtimeMismatch": b"HOST_RUNTIME_MISMATCH" in rejected.stderr}), flush=True)
-        assert rejected.returncode == 78 and b"HOST_RUNTIME_MISMATCH" in rejected.stderr, "Unapplied approved settings must stop fresh verification at the observed runtime mismatch"
+        assert len(rejected.stdout) + len(rejected.stderr) <= 65536, "Rejected verification diagnostics must remain bounded"
+        self.interrupted_manager_verification = {"exit": rejected.returncode,
+            "runtimeMismatch": b"HOST_RUNTIME_MISMATCH" in rejected.stderr,
+            "sourceChanged": b"HOST_SOURCE_CHANGED" in rejected.stderr,
+            "webMcpDisabled": b"WEB_MCP_DISABLED" in rejected.stderr,
+            "recognizedCodes": [code for code in ("WEB_MCP_DISABLED", "HOST_SOURCE_CHANGED", "HOST_RUNTIME_MISMATCH",
+                "HOST_RUNTIME_PROVIDER_MISMATCH", "native_checkpoint_validation", "approved_sources_changed",
+                "approved_checkpoint_changed") if re.search(rb"\b" + code.encode() + rb"\b", rejected.stderr)],
+            "rawContentRecorded": False}
+        print("OBSERVE: fresh verification after interrupted actual manager request " + json.dumps(self.interrupted_manager_verification), flush=True)
+        # ResumeApproved validates the exact source before Observe checks the
+        # runtime. Require its specific disabled-Web diagnostic for this scalar.
+        assert rejected.returncode == 78 and self.interrupted_manager_verification["webMcpDisabled"], "The unapplied Web enable candidate must stop fresh verification at WEB_MCP_DISABLED"
         assert b"End-to-end verified" not in rejected.stdout and b"Existing deployment verified unchanged" not in rejected.stdout
         assert {item["id"] for item in self.request("/api/v1/integration-credentials/")} == before_credentials
         assert not (self.output / "verifier-cleanup.json").exists(), "The unapplied generation must fail before any temporary verifier issuance"

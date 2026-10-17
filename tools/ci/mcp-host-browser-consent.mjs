@@ -60,7 +60,9 @@ try {
       await diff.scrollIntoViewIfNeeded();
       await expect(diff).toBeVisible();
     }
-    await dialog.getByRole('checkbox', { name: 'I approve this exact baseline or configuration proposal and its source generation.', exact: true }).check();
+    // beta.3 native setup also reviews an unchanged beta.2 server. Both known
+    // labels require the same explicit exact-generation host consent.
+    await dialog.getByRole('checkbox', { name: /^(?:I approve this exact baseline or configuration proposal and its source generation\.|I authorize these exact deployment settings and source generation\.)$/ }).check();
   } else {
     await dialog.getByLabel('Organization', { exact: true }).selectOption(request.organizationId);
     if (request.kind === 'verifier') {
