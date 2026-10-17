@@ -40,6 +40,17 @@ reporting completed cleanup.
 
 ## Common failures
 
+- **Compose prerequisite fails before the URL prompt:** use the detected
+  version, safe diagnostic code and missing command/flag to resolve the selected
+  implementation. Follow [Compose prerequisites and Docker selection](deployment.md#compose-prerequisites-and-docker-selection),
+  including integrity verification for a deliberately selected isolated plugin.
+  Keep that same Docker configuration/context/host/TLS selection on later
+  client, apply and fresh verification commands.
+- **Legacy config mount conflicts with runtime storage:** ordinary setup
+  migrates the recognized selected file in the complete reviewed proposal.
+  Resolve an unreadable protected source or unknown overlapping mount before
+  approval, then review/apply a new proposal. Do not repair the approved export
+  manually; see [migration](deployment.md#migration-persistence-and-rotation).
 - **404 JSON on `/mcp`:** MCP generation is unselected or hard-disabled. Confirm
   the overlay configures both Web Enabled/Destination and the HTTP service.
   A Compose profile alone cannot change Web env. Manual routes survive ordinary
@@ -77,6 +88,12 @@ reporting completed cleanup.
   Re-enter explicit setup for the same profile/path to recover acknowledgement
   and activate, or clean expired/cancelled candidates. Do not expose sidecars in
   support output. Final activation never precedes confirmed acknowledgement.
+- **Approval is denied/expired or needs editing:** use the visible URL/code,
+  status and expiry in the main approval view; extended preview is in **Details**.
+  Host **Back** returns to Hosting, ordinary-client **Back** returns to its
+  authentication/profile context, and verifier **Back** returns to the
+  applied-host verification checkpoint. Re-entering approval starts the
+  appropriate current attempt; an old approval cannot approve changed sources.
 - **Public URL advertises private DNS/HTTP:** align trusted API pairing origin,
   Web origin/resource and MCP PublicResourceUri. Public HTTPS identity can differ
   from private `http://api:8222/`; incoming Host headers are not deployment
@@ -91,6 +108,19 @@ Preserve API database, bootstrap state, data-protection keys and attachments.
 HTTP MCP needs no API database/key mount. A read-only MCP configuration does
 not require making the API key ring available to it.
 
+For unchanged applied host settings, invoke `./setup-http-mcp.sh --verify` from
+a new Docker-host process. For changed sources/proposal, invoke ordinary setup
+with the same ordered Compose/env sources, storage and owner selectors; review
+and approve the new proposal, apply through that owner, then verify. Preserve
+the selected Docker environment throughout. Never edit protected receipts or
+reuse a stale source/proposal hash.
+
+Reload an explicitly selected ordinary profile while its credential is valid;
+no new client approval is needed. Use the [saved-profile doctor template](setup.md#check-or-reconnect-a-saved-client)
+with the actual container and private in-container path. Expired/revoked access
+requires explicit client reauthorization and a newly selected grant. Temporary
+verifier cleanup leaves the ordinary client profile/credential intact.
+
 For gateway credentials, create/approve a replacement scoped client credential,
 save it privately, verify initialize/read-only access, then revoke the retired
 credential through account management. No downstream/shared gateway secret is
@@ -102,3 +132,27 @@ Pairing delivery/restart/cancellation recovery is documented in
 [browser pairing](../integrations/browser-pairing.md). Distinguish deleting a
 local profile from server credential revocation; removing one profile must not
 revoke an unrelated consumer.
+
+## Check incident search
+
+With an ordinary credential scoped to the intended organization and
+`Incident.Read`, call `helpdesk_incidents` with synthetic fixture text:
+
+```json
+{"operation":"list","request":{"query":"synthetic-beta2-match","page":1,"pageSize":20,"includeTotal":true}}
+```
+
+For incident `list`, MCP maps `request.query` to the API's `q` parameter before
+the API filters, counts and pages the authorized records. Existing `request.q`
+callers work too. Aliases compare after trimming; blank/null values mean no text filter,
+equal nonempty values produce one `q`, and conflicting nonempty values or
+non-string values return `validation_failed` before a request is sent. The
+adapter applies only to incident lists. Other tools retain their contracts.
+
+Compare a fixture's known matching IDs/counts, then repeat with a unique phrase
+absent from every fixture incident. With `includeTotal=true`, a genuine no-match
+response has `items: []` and `totalCount: 0`; it must not return the baseline
+incident. Blank/no-query requests retain the authorized baseline. A matching
+foreign-organization record stays excluded, and an ungranted `Request.Read`
+operation remains denied. An HTTP success or summary alone does not prove the
+filter was sent or applied. Do not create live tickets for this check.

@@ -3,12 +3,25 @@
 Start with the short [server/client setup guide](../../../docs/mcp-http/setup.md)
 for the discoverable deployment-host launcher. The recipes below are advanced
 standalone/manual alternatives; preserve an existing stack's owner and sources.
+In the extracted deployment tools directory on the Docker host, run
+`./setup-http-mcp.sh`, apply the reviewed proposal through its owner, then run a
+fresh `./setup-http-mcp.sh --verify`. Optional ordinary client setup is
+`./setup-http-mcp.sh --target http-client -- --profile incident-reader`.
+Preserve the selected Docker configuration/context; the
+[deployment reference](../../../docs/mcp-http/deployment.md#compose-prerequisites-and-docker-selection)
+covers capability checks and a deliberately selected isolated plugin.
 
 The canonical [HTTP MCP guides](../../../docs/mcp-http/README.md) cover complete
 configuration, environment-only setup, browser client approval, host exports,
 migration and verification. The [Web gateway guide](../../../docs/deployment/web-gateway.md)
 explains the optional single-origin route. Keep runnable recipes here and use
 the canonical guides for shared configuration rules.
+
+The launcher migrates the recognized legacy selected config-file mount in the
+complete reviewed proposal. Do not hand-edit an approved export to remove a
+mount collision; changed sources need ordinary setup and new review/approval.
+The [verification guide](../../../docs/mcp-http/troubleshooting.md#check-incident-search)
+includes matching/no-match incident-list checks and the `query`/`q` alias rule.
 
 This example is an optional, stateless HTTP MCP transport for an existing
 RatelDesk API. It does not start an API or a database. This example uses the

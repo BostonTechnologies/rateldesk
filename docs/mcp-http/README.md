@@ -3,9 +3,10 @@
 HTTP MCP is optional. It uses the existing `rateldesk-mcp-http` image and can
 share the Web public origin or use an explicitly configured standalone origin.
 
-- [Configuration and authentication](configuration.md): all host/outbound
-  settings, modes, secret sources, precedence and trust boundaries.
-- [Set up HTTP MCP](setup.md): short server and individual client procedure.
+- [Set up HTTP MCP](setup.md): start with the Web URL for local-account gateway
+  hosting, verification and optional individual client approval.
+- [Configuration and authentication](configuration.md): complete host/outbound
+  settings, explicit external Authentik/OAuth, secret sources and precedence.
 - [Deployment reference](deployment.md): alternate terminals, source and
   release Compose, persisted configuration, migration and rotation.
 - [Troubleshooting and verification](troubleshooting.md): separate routing,

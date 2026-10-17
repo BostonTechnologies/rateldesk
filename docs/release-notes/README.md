@@ -1,5 +1,6 @@
 # Release notes
 
+- [0.1.2-beta.2 candidate: MCP setup and incident-search corrections](0.1.2-beta.2.md)
 - [0.1.2-beta.1 candidate: self-service MCP setup](0.1.2-beta.1.md)
 - [0.1.1: workspace and operational controls](0.1.1.md)
 - [0.1.1-beta.20: pairing-code cutover](0.1.1-beta.20.md)

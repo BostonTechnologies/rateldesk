@@ -149,9 +149,11 @@ stdio MCP archives for Linux x64/arm64 and Windows x64. Linux archives require
 a glibc distribution, not Alpine/musl. Both support offline `--help` and
 `--version` before loading credentials.
 
-HTTP MCP is optional and separate from the base Web/API stack. Its source and
-release overlays, environment-only settings and setup commands are documented
-in the [short HTTP MCP setup guide](docs/mcp-http/setup.md),
+HTTP MCP is optional and separate from the base Web/API stack. For local
+accounts, start with the Web URL in the [short HTTP MCP setup guide](docs/mcp-http/setup.md):
+host review/approval, deployment-owner apply, temporary status verification and
+optional scoped client approval. Source/release overlays, environment-only
+settings and explicit external authentication are documented in the
 [complete reference](docs/mcp-http/README.md) and runnable
 [HTTP MCP example](docker/examples/mcp-http/README.md). The
 [Web gateway](docs/deployment/web-gateway.md) exposes selected MCP through the

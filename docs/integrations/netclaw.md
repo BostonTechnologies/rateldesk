@@ -275,7 +275,7 @@ configured MFA, and open **Account → Integration credentials**
    operationally manageable expiry (RatelDesk permits 1–90 days).
 6. Save the secret when it is shown. RatelDesk never displays it again.
 
-Alternatively, run the [client setup command](../mcp-http/setup.md#connect-a-climcp-client)
+Alternatively, run the [client setup command](../mcp-http/setup.md)
 in its persistent client console, enter the NetClaw consumer's code under
 **Review client**, and approve the same one-organization, explicit permission
 scope. Each organization/consumer gets its own credential and NetClaw MCP entry.

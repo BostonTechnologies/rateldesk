@@ -1,5 +1,26 @@
 # HTTP MCP configuration and authentication
 
+## Existing local accounts: start with the Web URL
+
+Use the [short HTTP MCP setup guide](setup.md). On the Docker host, run
+`./setup-http-mcp.sh` from the extracted deployment tools directory, enter
+`https://rateldesk.example.test` (or its `/mcp` URL), then review and explicitly
+approve the host proposal. Apply through the existing deployment owner and run
+a fresh `./setup-http-mcp.sh --verify`. Approve its separate, short-lived
+status-only verifier. Optionally connect an ordinary client with
+`./setup-http-mcp.sh --target http-client -- --profile incident-reader` and
+approve its organization, exact permissions and expiry.
+
+Local browser sign-in, gateway hosting and an ordinary MCP-purpose client
+credential are separate decisions. Gateway hosting needs no outbound
+administrator credential or shared signing key, and host approval grants no
+incident access. Linked-OIDC account users can also use their own gateway
+credentials. Existing authentication selections remain intact; explicit external
+Authentik/OAuth setup is covered below. See the [deployment reference](deployment.md)
+for Compose prerequisites, deliberately selected Docker configuration and recovery.
+
+## Architecture and authentication reference
+
 The HTTP host is stateless protocol infrastructure. API owns account grants,
 credential verifiers, execution-token protection and database state. Web owns
 public gateway routing. HTTP MCP stores its isolated outbound configuration,
@@ -163,7 +184,10 @@ its file into that container. The service `environment` map supplies the actual
 Review the selected source/release overlay's interpolation names separately
 from the runtime tables above. Recreate services after changes.
 
-Retain existing `RATELDESK_MCP_CONFIG` JSON mounts when migrating. A gateway
-file needs only explicit `apiBaseUrl` and `credentialMode=gateway`; an external
-file retains its separate identity. Do not replace working API state or reset
-account/credential identities. See [setup, persistence and migration](deployment.md).
+Preserve the effective settings of existing `RATELDESK_MCP_CONFIG` JSON inputs
+when migrating. The reviewed proposal migrates the recognized legacy config-file
+mount to the protected runtime volume and removes its conflicting selected
+mapping from the complete deployment document; do not hand-edit the export.
+A gateway file needs only explicit `apiBaseUrl` and `credentialMode=gateway`;
+an external file retains its separate identity. Do not replace working API state
+or reset account/credential identities. See [setup, persistence and migration](deployment.md).

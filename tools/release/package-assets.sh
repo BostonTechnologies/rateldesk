@@ -76,8 +76,14 @@ RatelDesk deployment $version
 
 From this extracted directory on the deployment host, run ./setup-http-mcp.sh.
 The adjacent Python helper requires Python 3; Docker with Compose is required.
-The launcher never installs packages. Resume after applying with
-./setup-http-mcp.sh --verify. Follow docs/mcp-http/setup.md for the short guide
+The launcher checks actual Compose capabilities and never installs packages.
+Enter the Web URL, review/approve the proposal, apply through its deployment
+owner, then run a fresh ./setup-http-mcp.sh --verify for temporary status verification.
+Optional ordinary client setup: ./setup-http-mcp.sh --target http-client -- --profile incident-reader
+Keep the same selected DOCKER_CONFIG/context/host/TLS settings for every command.
+Changed sources require ordinary setup and new approval; do not edit protected
+receipts or manually repair the reviewed legacy-mount migration.
+Follow docs/mcp-http/setup.md for the short guide
 and docs/mcp-http/deployment.md for alternate contexts and advanced configuration.
 
 Compose files are at this directory's root. Keep existing volumes, API state,
