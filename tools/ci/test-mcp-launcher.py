@@ -482,6 +482,84 @@ class LauncherContracts(unittest.TestCase):
         self.assertTrue(any("observation-check" in arguments for arguments in calls))
         self.assertEqual(launcher.read_private_json(deployment.output / "launcher-state.json")["phase"], "applied-verify-pending")
 
+    def legacy_runtime_fixture(self):
+        deployment = self.deployment()
+        deployment.image = "fixture-image"
+        image_id = "sha256:" + "b" * 64
+        stores = {purpose: {"type": "volume", "source": "actual-" + purpose, "target": target,
+            "readOnly": False, "private": True, "uid": 10001} for purpose, target in
+            (("host", launcher.HOST_TARGET), ("client", launcher.CLIENT_TARGET))}
+        proposal = {"name": deployment.project,
+            "services": {name: {"image": "fixture-image", "environment": {}, "volumes": []} for name in launcher.SERVICE_NAMES},
+            "volumes": {"host-alias": {"external": True, "name": stores["host"]["source"]},
+                "client-alias": {"external": True, "name": stores["client"]["source"]},
+                "protected-alias": {"name": deployment.project + "_protected-alias"},
+                "unrelated": {"external": True, "name": "preserve-existing"}},
+            "x-rateldesk-image-ids": {name: image_id for name in launcher.SERVICE_NAMES}}
+        mounts = [{"Type": "volume", "Name": store["source"], "Source": "/daemon/private/" + purpose,
+            "Destination": store["target"], "RW": True} for purpose, store in stores.items()]
+        mounts += [{"Type": "volume", "Name": deployment.project + "_protected-alias",
+            "Source": "/daemon/private/runtime", "Destination": "/run/rateldesk-mcp", "RW": False},
+            {"Type": "bind", "Source": str(self.directory / "read-only operator data"),
+                "Destination": "/srv/operator-data", "RW": False}]
+        class RuntimeDocker:
+            def run(self, arguments, **kwargs):
+                if arguments[0] != "ps":
+                    raise AssertionError("Runtime fixture attempted a resource mutation")
+                service = next(value.rsplit("=", 1)[1] for value in arguments if value.startswith("label=com.docker.compose.service="))
+                return (json.dumps(service) + "\n").encode()
+            def inspect(self, service):
+                return {"Image": image_id, "Config": {"Image": "fixture-image", "Env": [],
+                    "Labels": {"com.docker.compose.oneoff": "false"}},
+                    "Mounts": mounts if service == "mcp-http" else []}
+        deployment.docker = RuntimeDocker()
+        launcher.write_private(deployment.output / "launcher-state.json", {"storage": stores})
+        return deployment, proposal, mounts, stores
+
+    def test_legacy_runtime_volume_names_resolve_exact_engine_identities_with_project_and_source_aliases(self):
+        deployment, proposal, mounts, stores = self.legacy_runtime_fixture()
+        original = json.dumps(proposal, sort_keys=True)
+        with patch.object(deployment, "configuration_providers", return_value=[]), \
+                patch.object(launcher, "inspect_mount_ancestors", return_value=[]):
+            deployment.observe_runtime(proposal)
+        observed = launcher.read_private_json(deployment.output / "runtime-environment.json")
+        self.assertEqual(proposal["name"], observed["name"])
+        self.assertEqual(stores, observed["x-rateldesk-storage"])
+        self.assertEqual(proposal["volumes"], {key: observed["volumes"][key] for key in proposal["volumes"]})
+        for physical in (stores["host"]["source"], stores["client"]["source"], deployment.project + "_protected-alias"):
+            self.assertEqual({"external": True, "name": physical}, observed["volumes"].get(physical))
+        self.assertEqual([{"type": mount["Type"], "source": mount.get("Name") or mount["Source"],
+            "target": mount["Destination"], "read_only": not mount["RW"]} for mount in mounts],
+            observed["services"]["mcp-http"]["volumes"])
+        self.assertEqual(original, json.dumps(proposal, sort_keys=True))
+
+    def test_legacy_runtime_volume_alias_collision_cannot_remap_an_engine_identity(self):
+        deployment, proposal, _, _ = self.legacy_runtime_fixture()
+        proposal["volumes"]["actual-host"] = {"name": "different-physical-volume"}
+        original = json.dumps(proposal, sort_keys=True)
+        with patch.object(deployment, "configuration_providers", return_value=[]), \
+                patch.object(launcher, "inspect_mount_ancestors", return_value=[]), \
+                self.assertRaisesRegex(launcher.Prerequisite, "runtime_volume_identity_ambiguous"):
+            deployment.observe_runtime(proposal)
+        self.assertFalse((deployment.output / "runtime-environment.json").exists())
+        self.assertEqual(original, json.dumps(proposal, sort_keys=True))
+
+    def test_legacy_runtime_wrong_or_read_only_store_still_fails_before_verification(self):
+        for change in ("different-volume", "read-only", "bind"):
+            deployment, proposal, mounts, _ = self.legacy_runtime_fixture()
+            if change == "different-volume":
+                mounts[0]["Name"] = "different-host-volume"
+            elif change == "read-only":
+                mounts[0]["RW"] = False
+            else:
+                mounts[0].pop("Name")
+                mounts[0]["Type"] = "bind"
+            code = "runtime_storage_missing" if change == "read-only" else "runtime_storage_mismatch"
+            with self.subTest(change=change), patch.object(deployment, "configuration_providers", return_value=[]), \
+                    patch.object(launcher, "inspect_mount_ancestors", return_value=[]), \
+                    self.assertRaisesRegex(launcher.Prerequisite, code):
+                deployment.observe_runtime(proposal)
+
     def test_new_verify_demotes_previous_success_before_initial_docker_observation(self):
         deployment = self.deployment()
         launcher.write_private(deployment.output / "launcher-state.json", {"phase": "end-to-end-verified"})

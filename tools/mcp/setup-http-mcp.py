@@ -1487,6 +1487,26 @@ class Deployment:
             observed["x-rateldesk-runtime-topology-validated"] = True
             write_private(self.output / "runtime-environment.json", observed)
             return
+        # Engine mount sources are physical volume names, while saved Compose
+        # mounts use aliases. Bind those inspected identities explicitly in this
+        # runtime-only catalog so the consumer never adds a second project
+        # prefix. Retain source definitions, but never overwrite a conflicting
+        # alias: that would redirect an actual mount to a different volume.
+        volume_definitions = observed.setdefault("volumes", {})
+        for service in observed["services"].values():
+            for mount in service.get("volumes", []):
+                if mount.get("type") != "volume":
+                    continue
+                physical = mount.get("source")
+                if not isinstance(physical, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,255}", physical):
+                    fail("runtime_volume_identity_missing", "An inspected named volume lacks its exact Engine name. Restore the actual mount metadata before verification; no source or volume was changed.")
+                if physical in volume_definitions:
+                    definition = volume_definitions[physical]
+                    resolved = definition.get("name") or (physical if definition.get("external") or not observed.get("name") else observed["name"] + "_" + physical)
+                    if resolved != physical:
+                        fail("runtime_volume_identity_ambiguous", "An inspected physical volume name conflicts with a saved Compose alias for a different volume. Resolve that alias through the deployment owner before verification; no definition was replaced.")
+                else:
+                    volume_definitions[physical] = {"external": True, "name": physical}
         actual_mounts = observed["services"]["mcp-http"]["volumes"]
         storage = {}
         for purpose, target in (("host", HOST_TARGET), ("client", CLIENT_TARGET)):
