@@ -319,6 +319,39 @@ class NativeLauncherContracts(unittest.TestCase):
                     self.assertTrue(any(arguments[0] == "cp" for arguments in operations))
                     self.assertTrue(all(arguments[0] in ("exec", "cp") for arguments in operations))
 
+    def test_runtime_capture_binds_mount_records_independently_of_engine_map_iteration_order(self):
+        mounts = [{"Type": "bind", "Source": "/operator/a", "Destination": "/app/a", "RW": False, "Propagation": "rprivate"},
+            {"Type": "bind", "Source": "/operator/b", "Destination": "/app/b", "RW": True, "Propagation": "rprivate"},
+            {"Type": "volume", "Name": "fixture_data", "Source": "/var/lib/docker/volumes/fixture_data/_data",
+             "Destination": "/data", "RW": True, "Propagation": ""}]
+        definition = {"image": "synthetic-image", "volumes": [
+            {"type": "bind", "source": "/operator/a", "target": "/app/a", "read_only": True},
+            {"type": "bind", "source": "/operator/b", "target": "/app/b"},
+            {"type": "volume", "source": "data", "target": "/data"}]}
+        metadata = {"Image": "sha256:synthetic", "Config": {"Env": [],
+            "Labels": {"com.docker.compose.project": "fixture", "com.docker.compose.service": "mcp-http"}},
+            "HostConfig": {"RestartPolicy": {"Name": "no"}}, "State": {"Status": "running", "StartedAt": "unchanged", "ExitCode": 0},
+            "RestartCount": 0, "Mounts": mounts, "NetworkSettings": {"Networks": {"fixture_default": {}}}}
+        docker = SimpleNamespace(run=lambda *arguments, **kwargs: b'"container"\n',
+            inspect=lambda identifier: json.loads(json.dumps(metadata)),
+            json=lambda arguments: {"Id": "sha256:synthetic", "Config": {"Env": []}})
+        deployment = object.__new__(launcher.Deployment)
+        deployment.docker, deployment.project, deployment.rendered = docker, "fixture", {"volumes": {"data": {}}}
+        proposal = {"services": {"mcp-http": definition}}
+        baseline = deployment.runtime_inventory(proposal)
+        self.assertCountEqual(baseline["mcp-http"]["mounts"], mounts)
+        for order in (mounts[1:] + mounts[:1], list(reversed(mounts))):
+            metadata["Mounts"] = order
+            self.assertEqual(baseline, deployment.runtime_inventory(proposal))
+            self.assertEqual(metadata["Mounts"], order, "Capture must not rewrite Engine observations")
+        metadata["Mounts"] = json.loads(json.dumps(mounts))
+        metadata["Mounts"][0]["Propagation"] = "rshared"
+        changed = deployment.runtime_inventory(proposal)
+        self.assertNotEqual(launcher.stable_runtime_inventory(baseline), launcher.stable_runtime_inventory(changed))
+        metadata["Mounts"][0]["Source"] = "/unreviewed"
+        with self.assertRaisesRegex(launcher.Prerequisite, "runtime_mount_mismatch"):
+            deployment.runtime_inventory(proposal)
+
     def test_rendered_literal_dollars_match_engine_values_without_changing_image_defaults(self):
         raw = {"services": {"mcp-http": {"image": "synthetic-image", "environment": {"SOURCE": "$$SOURCE/$$$$/plain$"},
             "command": ["echo", "$$COMMAND"], "entrypoint": ["echo", "$$ENTRYPOINT"],

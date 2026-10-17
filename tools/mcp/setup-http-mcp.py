@@ -1495,7 +1495,11 @@ class Deployment:
                 "restartCount": metadata.get("RestartCount", 0), "state": state.get("Status"), "exitCode": state.get("ExitCode"),
                 "healthStatus": state.get("Health", {}).get("Status", "absent"),
                 "healthcheck": config.get("Healthcheck"), "labels": config.get("Labels", {}),
-                "mounts": metadata.get("Mounts", []), "networks": metadata.get("NetworkSettings", {}).get("Networks", {}),
+                # Engine builds this slice from an unordered mount map. Bind
+                # every record field, without treating its iteration order as
+                # a source/runtime change. Operator source order is untouched.
+                "mounts": sorted(metadata.get("Mounts", []), key=lambda mount: json.dumps(mount, sort_keys=True, separators=(",", ":"))),
+                "networks": metadata.get("NetworkSettings", {}).get("Networks", {}),
                 "ports": metadata.get("HostConfig", {}).get("PortBindings", {}),
                 "restartPolicy": metadata.get("HostConfig", {}).get("RestartPolicy", {}),
                 "environmentSha256": hashlib.sha256(json.dumps(environment_map(config.get("Env", [])), sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
