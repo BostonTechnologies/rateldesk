@@ -326,6 +326,68 @@ class LegacyRecipeTests(unittest.TestCase):
             launcher.apply_saved(self.deployment)
         self.assertEqual(["authority"], calls)
 
+    def first_export_payload(self):
+        launcher.write_private(self.output / "effective-deployment.json", self.frozen)
+        receipt = launcher.read_private_json(self.output / "host-approval.json")
+        payload = {name: (self.output / name).read_bytes() for name in receipt["exportHashes"]}
+        payload["host-settings.json"] = b'{"synthetic":"fresh approved settings"}\n'
+        receipt["exportHashes"]["host-settings.json"] = hashlib.sha256(payload["host-settings.json"]).hexdigest()
+        receipt["launcherAttempt"] = "fresh-attempt"
+        payload["host-approval.json"] = (json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n").encode()
+        for name in (*receipt["exportHashes"], "host-approval.json", "approved-compose-source.json"):
+            (self.output / name).unlink(missing_ok=True)
+        return payload
+
+    def test_first_named_volume_export_consumes_only_fresh_validated_in_memory_receipt(self):
+        payload = self.first_export_payload()
+        original_run = self.docker.run
+        checks = []
+        def exported(arguments, **kwargs):
+            if "export-check" in arguments:
+                self.assertFalse((self.output / "host-approval.json").exists())
+                checks.append(dict(self.deployment.legacy_compose_proof))
+                self.assertEqual(hashlib.sha256(payload["approved-proposal.json"]).hexdigest(),
+                    checks[-1]["RATELDESK_SETUP_APPROVED_RAW_SHA256"])
+                self.assertEqual((self.output / "deployment.json").read_bytes(), self.staged["deployment.json"])
+                self.assertEqual(hashlib.sha256(self.staged["deployment.json"]).hexdigest(),
+                    checks[-1]["RATELDESK_SETUP_REVIEWED_DEPLOYMENT_SHA256"])
+                resolved = json.loads(self.staged[".resolved-export.json"])
+                self.assertEqual({key: value for key, value in resolved.items() if not key.startswith("x-rateldesk-")},
+                    json.loads(self.staged[Path(checks[-1]["RATELDESK_SETUP_ACTUAL_COMPOSE_SOURCE"]).name]))
+                return b"validated fresh staged export"
+            return original_run(arguments, **kwargs)
+        def copy_from_volume(deployment, container, name, optional=False):
+            return payload[name]
+        with patch.object(launcher, "copy_from_tool", side_effect=copy_from_volume), \
+                patch.object(launcher, "stage_snapshot", side_effect=self.stage), \
+                patch.object(launcher, "approved_import_secret_mounts", return_value=[]), \
+                patch.object(self.docker, "run", side_effect=exported):
+            self.assertTrue(launcher.export_complete_document(self.deployment, "synthetic-named-volume-tool", "fresh-attempt"))
+        self.assertEqual(1, len(checks))
+        self.assertEqual(payload["host-approval.json"], (self.output / "host-approval.json").read_bytes())
+        self.assertEqual("saved-apply-pending", launcher.read_private_json(self.output / "launcher-state.json")["phase"])
+
+    def test_failed_new_export_preserves_previous_receipt_and_phase_without_using_them_as_authority(self):
+        payload = self.first_export_payload()
+        previous = b'{"approved":true,"intent":2,"sourceHash":"previous-generation"}\n'
+        previous_state = b'{"phase":"end-to-end-verified","sourceHash":"previous-generation"}\n'
+        launcher.write_private(self.output / "host-approval.json", previous)
+        launcher.write_private(self.output / "launcher-state.json", previous_state)
+        original_run = self.docker.run
+        def rejected(arguments, **kwargs):
+            if "export-check" in arguments:
+                self.assertEqual(previous, (self.output / "host-approval.json").read_bytes())
+                raise launcher.Prerequisite("docker_operation: synthetic export rejection")
+            return original_run(arguments, **kwargs)
+        with patch.object(launcher, "copy_from_tool", side_effect=lambda deployment, container, name, **kwargs: payload[name]), \
+                patch.object(launcher, "stage_snapshot", side_effect=self.stage), \
+                patch.object(self.docker, "run", side_effect=rejected), \
+                self.assertRaisesRegex(launcher.Prerequisite, "complete_export_invalid"):
+            launcher.export_complete_document(self.deployment, "synthetic-named-volume-tool", "fresh-attempt")
+        self.assertEqual(previous, (self.output / "host-approval.json").read_bytes())
+        self.assertEqual(previous_state, (self.output / "launcher-state.json").read_bytes())
+        self.assertEqual([], list(self.output.glob(".legacy-observation-*")))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

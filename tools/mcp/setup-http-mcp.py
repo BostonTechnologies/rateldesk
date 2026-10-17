@@ -1955,8 +1955,9 @@ def private_observation_bytes(path):
         fail("legacy_recipe_invalid", "Restore the bounded private approved files, or re-adopt the running deployment unchanged / review the explicit initializer alternative again. No existing resource was changed.")
 
 
-def legacy_approved_inputs(deployment):
-    receipt_bytes = private_observation_bytes(deployment.output / "host-approval.json")
+def legacy_approved_inputs(deployment, receipt_bytes=None):
+    if receipt_bytes is None:
+        receipt_bytes = private_observation_bytes(deployment.output / "host-approval.json")
     receipt = json.loads(receipt_bytes)
     hashes = receipt.get("exportHashes", {})
     if (receipt.get("approved") is not True or receipt.get("intent", 2) != 2 or not isinstance(hashes, dict)
@@ -2012,7 +2013,7 @@ def render_legacy_recipe(deployment, original, frozen, patch_bytes, paths):
 
 
 @contextmanager
-def legacy_compose_observation(deployment, actual_sources=None):
+def legacy_compose_observation(deployment, actual_sources=None, receipt_bytes=None):
     """Fresh host observation with in-memory digests, never a saved baseline."""
     if not deployment.legacy:
         yield
@@ -2022,7 +2023,7 @@ def legacy_compose_observation(deployment, actual_sources=None):
     paths = [deployment.output / name for name in names]
     staged = []
     try:
-        before = legacy_approved_inputs(deployment)
+        before = legacy_approved_inputs(deployment, receipt_bytes)
         _, files, frozen = before
         recipe = frozen.get("x-rateldesk-legacy-export-recipe")
         original = private_observation_bytes(deployment.output / "approved-compose-source.json")
@@ -2064,7 +2065,7 @@ def legacy_compose_observation(deployment, actual_sources=None):
             projection_bytes.append(content)
             staged.append(path.name)
             stage_snapshot(deployment, path.name)
-        if (legacy_approved_inputs(deployment) != before or private_observation_bytes(deployment.output / "approved-compose-source.json") != original
+        if (legacy_approved_inputs(deployment, receipt_bytes) != before or private_observation_bytes(deployment.output / "approved-compose-source.json") != original
                 or recipe != legacy_recipe_identity(deployment, original_digest)
                 or any(file_record(path) != record for path, record in zip(sources, actual_records))
                 or private_observation_bytes(reviewed_path) != expected_raw):
@@ -2080,7 +2081,7 @@ def legacy_compose_observation(deployment, actual_sources=None):
             "RATELDESK_SETUP_ACTUAL_COMPOSE_SHA256": hashlib.sha256(projection_bytes[1]).hexdigest()}
         def check_fresh_recipe():
             deployment.check_sources()
-            if (legacy_approved_inputs(deployment) != before or private_observation_bytes(reviewed_path) != expected_raw
+            if (legacy_approved_inputs(deployment, receipt_bytes) != before or private_observation_bytes(reviewed_path) != expected_raw
                     or private_observation_bytes(deployment.output / "approved-compose-source.json") != original
                     or recipe != legacy_recipe_identity(deployment, original_digest)):
                 fail("legacy_recipe_changed", "The approved source recipe changed during validation. Restore it or review the changed source.")
@@ -2123,7 +2124,10 @@ def export_complete_document(deployment, container, attempt):
     deployment.check_sources()
     # Retain the exact original unresolved input covered by administrator
     # SourceHash. A resume never replaces this copy with an imported document.
-    _, approved_files, approved_source = legacy_approved_inputs(deployment)
+    # First export has no committed host receipt for named-volume storage. Use
+    # only this invocation's validated receipt bytes until export-check succeeds;
+    # an older host receipt remains untouched if the new export fails.
+    _, approved_files, approved_source = legacy_approved_inputs(deployment, raw_receipt)
     original = private_observation_bytes(deployment.output / ".compose-source.json")
     original_digest = hashlib.sha256(original).hexdigest()
     if approved_source.get("x-rateldesk-legacy-export-recipe") != legacy_recipe_identity(deployment, original_digest):
@@ -2133,7 +2137,8 @@ def export_complete_document(deployment, container, attempt):
     complete_bytes = render_legacy_recipe(deployment, original, approved_source, approved_files["compose.host.json"], export_paths)
     write_private(deployment.output / "deployment.json", complete_bytes)
     try:
-        with legacy_compose_observation(deployment, [deployment.output / "deployment.json"]) as resolved_complete:
+        with legacy_compose_observation(deployment, [deployment.output / "deployment.json"], raw_receipt) as resolved_complete:
+            stage_snapshot(deployment, "deployment.json")
             write_private(deployment.output / ".resolved-export.json", resolved_complete)
             stage_snapshot(deployment, ".resolved-export.json")
             deployment.docker.run(tooling_arguments(deployment) + ["--rm", deployment.image,
