@@ -15,3 +15,10 @@ License: MIT (R3-MIT.txt)
 These notices accompany the shared setup library in CLI/stdio archives and
 the HTTP MCP image. Existing release SBOMs record the complete dependency
 inventory; this file records the licenses introduced by the setup feature.
+
+PyYAML 6.0.3 (pure Python source parser, vendored for host source review)
+Copyright 2017-2021 Ingy döt Net; Copyright 2006-2016 Kirill Simonov
+Source: https://pypi.org/project/PyYAML/6.0.3/
+Source archive SHA-256: d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f
+Provenance: tools/mcp/vendor/PyYAML.json
+License: MIT (PyYAML-MIT.txt)

@@ -5,6 +5,7 @@
 **/obj
 node_modules
 artifacts
+work/
 TestResults
 test-results
 playwright-report

@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Helpdesk.AgentClient;
+using Helpdesk.Mcp.Http.Configuration;
 using Helpdesk.Setup;
 using Helpdesk.Shared.DTOs.Auth;
 using Microsoft.Extensions.Configuration;
@@ -29,7 +30,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
         var source = Legacy();
         var before = source.ToJsonString();
         fixture.WriteSource(source);
-        var proposal = HttpMcpEffectiveDeployment.Create(Settings);
+        var proposal = CreateLegacy(Settings);
         Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
         Assert.Empty(proposal.CompleteDeployment["services"]!["mcp-http"]!["configs"]!.AsArray());
         Assert.NotNull(proposal.CompleteDeployment["configs"]!["legacy-outbound"]);
@@ -38,7 +39,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
         Assert.Contains(proposal.Changes, change => change.Contains("legacy config-file mapping", StringComparison.Ordinal));
         Assert.Equal(before, source.ToJsonString());
         Assert.Empty(HttpMcpEffectiveDeployment.CheckApprovedEffective(proposal, proposal.CompleteDeployment));
-        Assert.Empty(HttpMcpEffectiveDeployment.Validate(proposal.CompleteDeployment, Settings));
+        Assert.Empty(ValidateLegacy(proposal.CompleteDeployment, Settings));
         Assert.Contains("chmod 0400", proposal.CompleteDeployment["services"]!["mcp-config-init"]!["command"]![0]!.GetValue<string>());
     }
 
@@ -62,7 +63,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
         source["configs"]!["legacy-outbound"]!["file"] = path;
         source["x-rateldesk-source-files"] = new JsonArray(new JsonObject { ["path"] = path, ["sha256"] = rawHash });
         fixture.WriteSource(source);
-        var proposal = HttpMcpEffectiveDeployment.Create(HttpMcpEffectiveDeployment.Adopt(Settings));
+        var proposal = CreateLegacy(HttpMcpEffectiveDeployment.Adopt(Settings));
         Assert.Equal(!tamperProviderHash, proposal.Valid);
         Assert.Equal(tamperProviderHash, proposal.Diagnostics.Any(item => item.Code == "HOST_LEGACY_CONFIG_SOURCE"));
         Assert.Equal(bytes, File.ReadAllBytes(path));
@@ -86,7 +87,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
         fixture.WriteSource(source);
         var adopted = HttpMcpEffectiveDeployment.Adopt(Settings);
         Assert.Equal("gateway", adopted.Outbound!.CredentialMode);
-        var proposal = HttpMcpEffectiveDeployment.Create(adopted);
+        var proposal = CreateLegacy(adopted);
         Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
         Assert.Empty(proposal.CompleteDeployment["services"]!["mcp-http"]!["configs"]!.AsArray());
         Assert.Empty(HttpMcpEffectiveDeployment.CheckApprovedEffective(proposal, proposal.CompleteDeployment));
@@ -108,7 +109,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
         if (failure == "changed-hash") Files(source, "mcp-http")[0]!["sha256"] = new string('f', 64);
         if (failure == "unselected") Env(source, "mcp-http")["Helpdesk__Mcp__ConfigurationPath"] = "/other/config.json";
         fixture.WriteSource(source);
-        var proposal = HttpMcpEffectiveDeployment.Create(Settings);
+        var proposal = CreateLegacy(Settings);
         Assert.False(proposal.Valid);
         Assert.Contains(proposal.Diagnostics, item => item.Code == "HOST_LEGACY_CONFIG_SOURCE");
         Assert.Null(proposal.Overlay["x-rateldesk-mount-migrations"]);
@@ -135,7 +136,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
         source["services"]!["mcp-http"]![kind] ??= new JsonArray();
         source["services"]!["mcp-http"]![kind]!.AsArray().Add(new JsonObject { ["source"] = "legacy-outbound", ["target"] = destination, ["type"] = kind == "volumes" ? "bind" : null });
         fixture.WriteSource(source);
-        var proposal = HttpMcpEffectiveDeployment.Create(Settings);
+        var proposal = CreateLegacy(Settings);
         Assert.Equal(!conflict, proposal.Valid);
         Assert.Equal(conflict, proposal.Diagnostics.Any(item => item.Code == "HOST_MOUNT_COLLISION"));
         if (!conflict && destination.Contains("extra", StringComparison.Ordinal))
@@ -151,18 +152,18 @@ public sealed class HttpMcpEffectiveDeploymentTests
         using var fixture = new Fixture();
         var source = Complete();
         source["services"]!["mcp-http"]!["volumes"]!.AsArray().Add(mount);
-        Assert.Equal(conflict, HttpMcpEffectiveDeployment.Validate(source, Settings).Any(item => item.Code == "HOST_MOUNT_COLLISION"));
+        Assert.Equal(conflict, ValidateLegacy(source, Settings).Any(item => item.Code == "HOST_MOUNT_COLLISION"));
         fixture.WriteSource(source);
-        Assert.Equal(!conflict, HttpMcpEffectiveDeployment.Create(Settings).Valid);
+        Assert.Equal(!conflict, CreateLegacy(Settings).Valid);
     }
 
     [Fact]
     public void Already_migrated_generation_reuses_its_runtime_volume_and_source_changes_require_new_approval()
     {
         using var fixture = new Fixture(); fixture.WriteSource(Legacy());
-        var original = HttpMcpEffectiveDeployment.Create(Settings);
+        var original = CreateLegacy(Settings);
         fixture.WriteSource(original.CompleteDeployment);
-        var rerun = HttpMcpEffectiveDeployment.Create(Settings);
+        var rerun = CreateLegacy(Settings);
         Assert.True(rerun.Valid, HostDeploymentWorkflow.Describe(rerun.Diagnostics));
         Assert.DoesNotContain(rerun.Changes, change => change.Contains("legacy config-file mapping", StringComparison.Ordinal));
         Assert.Single(rerun.CompleteDeployment["services"]!["mcp-http"]!["volumes"]!.AsArray(), item => item?["target"]?.GetValue<string>() == "/run/rateldesk-mcp");
@@ -193,7 +194,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
         Files(source, "mcp-http")[0] = Provider("/run/rateldesk-mcp/config.json", content);
         fixture.WriteSource(source);
         var adopted = HttpMcpEffectiveDeployment.Adopt(Settings);
-        var proposal = HttpMcpEffectiveDeployment.Create(adopted);
+        var proposal = CreateLegacy(adopted);
         Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
         Assert.Equal("authentik", proposal.Settings.AuthenticationMode);
         Assert.Equal(original.Resolve(), proposal.Settings.Outbound!.Resolve());
@@ -201,7 +202,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
         Assert.DoesNotContain(secret, JsonSerializer.Serialize(proposal.Approval));
         Assert.DoesNotContain(secret, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
         var changed = adopted with { Outbound = original with { IntegrationCredential = "rdk_unreviewed_replacement" } };
-        Assert.Contains(HttpMcpEffectiveDeployment.Create(changed).Diagnostics, item => item.Code == "HOST_LEGACY_CONFIG_SOURCE");
+        Assert.Contains(CreateLegacy(changed).Diagnostics, item => item.Code == "HOST_LEGACY_CONFIG_SOURCE");
     }
 
     [Fact]
@@ -210,11 +211,11 @@ public sealed class HttpMcpEffectiveDeploymentTests
         using var fixture = new Fixture(); var source = Complete();
         source["services"]!["mcp-http"]!["configs"] = new JsonArray("output");
         fixture.WriteSource(source);
-        Assert.Contains(HttpMcpEffectiveDeployment.Create(Settings).Diagnostics, item => item.Code == "HOST_MOUNT_COLLISION");
+        Assert.Contains(CreateLegacy(Settings).Diagnostics, item => item.Code == "HOST_MOUNT_COLLISION");
         source = Complete();
         source["services"]!["mcp-http"]!["volumes"]!.AsArray().Add(new JsonObject { ["type"] = "bind", ["source"] = "/owner/unknown", ["target"] = "/output" });
         fixture.WriteSource(source);
-        Assert.Contains(HttpMcpEffectiveDeployment.Create(Settings).Diagnostics, item => item.Code == "HOST_MOUNT_COLLISION");
+        Assert.Contains(CreateLegacy(Settings).Diagnostics, item => item.Code == "HOST_MOUNT_COLLISION");
     }
 
     [Fact]
@@ -223,13 +224,13 @@ public sealed class HttpMcpEffectiveDeploymentTests
         using var fixture = new Fixture(); var source = Complete();
         source["services"]!["mcp-http"]!["volumes"]!.AsArray().Add(new JsonObject { ["type"] = "volume", ["source"] = "run-directory", ["target"] = "/run" });
         fixture.WriteSource(source);
-        Assert.Contains(HttpMcpEffectiveDeployment.Create(Settings).Diagnostics, item => item.Code == "HOST_MOUNT_COLLISION");
+        Assert.Contains(CreateLegacy(Settings).Diagnostics, item => item.Code == "HOST_MOUNT_COLLISION");
         source["x-rateldesk-mount-ancestor-checks"] = new JsonArray(new JsonObject
         {
             ["service"] = "mcp-http", ["source"] = "run-directory", ["target"] = "/run", ["children"] = new JsonArray("/run/rateldesk-mcp")
         });
         fixture.WriteSource(source);
-        var proposal = HttpMcpEffectiveDeployment.Create(Settings);
+        var proposal = CreateLegacy(Settings);
         Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
         Assert.Contains(proposal.CompleteDeployment["services"]!["mcp-http"]!["volumes"]!.AsArray(), mount => mount?["target"]?.GetValue<string>() == "/run");
     }
@@ -238,7 +239,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
     public void Runtime_observation_rejects_an_unreviewed_config_volume_even_with_identical_provider_bytes()
     {
         using var fixture = new Fixture(); fixture.WriteSource(Complete());
-        var proposal = HttpMcpEffectiveDeployment.Create(Settings);
+        var proposal = CreateLegacy(Settings);
         var runtime = proposal.CompleteDeployment.DeepClone().AsObject();
         var mount = Assert.Single(runtime["services"]!["mcp-http"]!["volumes"]!.AsArray(), item => item?["target"]?.GetValue<string>() == "/run/rateldesk-mcp");
         mount!["source"] = "unreviewed-runtime-volume";
@@ -253,11 +254,434 @@ public sealed class HttpMcpEffectiveDeploymentTests
         var mounts = source["services"]!["mcp-http"]!["volumes"]!.AsArray();
         mounts[2] = "/run/rateldesk-mcp:ro";
         fixture.WriteSource(source);
-        var proposal = HttpMcpEffectiveDeployment.Create(Settings);
+        var proposal = CreateLegacy(Settings);
         Assert.False(proposal.Valid);
         Assert.Contains(proposal.Diagnostics, item => item.Code == "HOST_RUNTIME_CONFIG_STORAGE_REQUIRED");
         Assert.Null(proposal.Overlay["volumes"]![""]);
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Existing_four_service_gateway_is_adopted_without_generation_storage_requirements_or_source_changes(bool legacyFile)
+    {
+        using var fixture = new Fixture();
+        var source = FourServiceGateway(legacyFile);
+        fixture.WriteSource(source);
+        fixture.WriteRuntime(source);
+        Environment.SetEnvironmentVariable(HttpMcpEffectiveDeployment.RuntimeSourceVariable, fixture.Runtime);
+        var sourceBytes = File.ReadAllBytes(fixture.Source);
+        var runtimeBytes = File.ReadAllBytes(fixture.Runtime);
+
+        var proposal = HttpMcpEffectiveDeployment.AdoptBaseline(Settings);
+
+        Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
+        Assert.True(proposal.IsAdoption);
+        Assert.Equal(HttpMcpHostIntent.VerifyExisting, proposal.Intent);
+        Assert.Empty(proposal.Overlay);
+        Assert.Contains(proposal.Changes, change => change.StartsWith("No deployment changes", StringComparison.Ordinal));
+        Assert.Equal(4, proposal.CompleteDeployment["services"]!.AsObject().Count);
+        Assert.True(JsonNode.DeepEquals(source, proposal.CompleteDeployment));
+        Assert.Null(proposal.CompleteDeployment["services"]!["web"]!["healthcheck"]);
+        Assert.Null(proposal.CompleteDeployment["services"]!["mcp-config-init"]);
+        Assert.Empty(HttpMcpEffectiveDeployment.Validate(source, Settings));
+        Assert.Empty(HttpMcpEffectiveDeployment.Observe(proposal, fixture.Runtime));
+        Assert.Empty(HttpMcpEffectiveDeployment.CheckApprovedEffective(proposal, source));
+        Assert.Equal(sourceBytes, File.ReadAllBytes(fixture.Source));
+        Assert.Equal(runtimeBytes, File.ReadAllBytes(fixture.Runtime));
+        Assert.False(Directory.Exists(fixture.ExportDirectory));
+    }
+
+    [Theory]
+    [InlineData("additional-service")]
+    [InlineData("missing-database")]
+    [InlineData("unhealthy")]
+    [InlineData("stopped")]
+    [InlineData("labels")]
+    [InlineData("command")]
+    [InlineData("mounts")]
+    [InlineData("networks")]
+    [InlineData("healthcheck")]
+    [InlineData("container-identity")]
+    [InlineData("started-at")]
+    [InlineData("restart-count")]
+    [InlineData("image")]
+    public void Adopted_runtime_rejects_unreviewed_topology_health_and_container_configuration_changes(string change)
+    {
+        using var fixture = new Fixture();
+        var source = FourServiceGateway();
+        fixture.WriteSource(source);
+        fixture.WriteRuntime(source);
+        Environment.SetEnvironmentVariable(HttpMcpEffectiveDeployment.RuntimeSourceVariable, fixture.Runtime);
+        var proposal = HttpMcpEffectiveDeployment.AdoptBaseline(Settings);
+        Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
+        var runtime = source.DeepClone().AsObject();
+        var inventory = runtime["x-rateldesk-runtime-inventory"]!.AsObject();
+        var web = inventory["web"]!.AsObject();
+        switch (change)
+        {
+            case "additional-service":
+                runtime["services"]!["worker"] = new JsonObject { ["image"] = "synthetic-worker:fixture" };
+                inventory["worker"] = web.DeepClone();
+                break;
+            case "missing-database":
+                runtime["services"]!.AsObject().Remove("db");
+                inventory.Remove("db");
+                break;
+            case "unhealthy": web["healthStatus"] = "unhealthy"; break;
+            case "stopped": web["state"] = "exited"; break;
+            case "labels": web["labels"]!["owner"] = "unreviewed"; break;
+            case "command": runtime["services"]!["web"]!["command"] = new JsonArray("--urls=http://+:8999"); break;
+            case "mounts": web["mounts"]!.AsArray().Add(new JsonObject { ["source"] = "/unreviewed", ["destination"] = "/unreviewed" }); break;
+            case "networks": web["networks"]!["unreviewed"] = new JsonObject(); break;
+            case "healthcheck": web["healthcheck"] = new JsonObject { ["Test"] = new JsonArray("CMD", "true") }; break;
+            case "container-identity": web["containerId"] = "unreviewed-container"; break;
+            case "started-at": web["startedAt"] = "2026-10-17T01:00:00Z"; break;
+            case "restart-count": web["restartCount"] = 1; break;
+            case "image": runtime["x-rateldesk-image-ids"]!["web"] = "sha256:" + new string('f', 64); break;
+            default: throw new ArgumentOutOfRangeException(nameof(change));
+        }
+        fixture.WriteRuntime(runtime);
+
+        Assert.NotEmpty(HttpMcpEffectiveDeployment.Observe(proposal, fixture.Runtime));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Required_gateway_change_is_one_reviewable_environment_setting_and_keeps_the_four_service_source_strategy(bool legacyFile)
+    {
+        using var fixture = new Fixture();
+        var source = FourServiceGateway(legacyFile);
+        fixture.WriteSource(source);
+        var sourceBytes = File.ReadAllBytes(fixture.Source);
+
+        var proposal = HttpMcpEffectiveDeployment.Create(Settings with { DelegationTimeoutSeconds = 21 });
+
+        Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
+        Assert.Equal(HttpMcpHostIntent.PrepareChanges, proposal.Intent);
+        Assert.False(proposal.IsAdoption);
+        Assert.Single(proposal.Overlay);
+        var service = Assert.Single(proposal.Overlay["services"]!.AsObject());
+        Assert.Equal("mcp-http", service.Key);
+        var setting = Assert.Single(service.Value!["environment"]!.AsObject());
+        Assert.Equal("Helpdesk__Mcp__DelegationTimeoutSeconds", setting.Key);
+        Assert.Equal("21", setting.Value!.GetValue<string>());
+        Assert.Equal(4, proposal.CompleteDeployment["services"]!.AsObject().Count);
+        var expected = source.DeepClone().AsObject();
+        Env(expected, "mcp-http")["Helpdesk__Mcp__DelegationTimeoutSeconds"] = "21";
+        Assert.True(JsonNode.DeepEquals(expected, proposal.CompleteDeployment));
+        Assert.Equal(sourceBytes, File.ReadAllBytes(fixture.Source));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Web_enable_change_preserves_the_implicit_mcp_timeout_without_an_mcp_patch(bool legacyFile)
+    {
+        using var fixture = new Fixture();
+        var source = FourServiceGateway(legacyFile);
+        Env(source, "mcp-http").Remove("Helpdesk__Mcp__DelegationTimeoutSeconds");
+        Assert.Empty(source["x-rateldesk-image-environment"]!["mcp-http"]!.AsArray());
+        Assert.All(Files(source, "mcp-http"), file => Assert.DoesNotContain("DelegationTimeoutSeconds", file!["content"]!.GetValue<string>()));
+        Assert.Empty(HttpMcpEffectiveDeployment.Validate(source, Settings));
+        Env(source, "web")["WebGateway__Mcp__Enabled"] = "false";
+        var disabled = HttpMcpEffectiveDeployment.Validate(source, Settings);
+        Assert.Contains(disabled, diagnostic => diagnostic.Code == "WEB_MCP_DISABLED");
+        Assert.All(disabled, diagnostic => Assert.True(diagnostic.Code == "WEB_MCP_DISABLED" ||
+            diagnostic.Code == "HOST_ROUTE_INVALID" && diagnostic.Key == "/mcp/{**catch-all}"));
+        fixture.WriteSource(source);
+        var sourceBytes = File.ReadAllBytes(fixture.Source);
+        var settings = HttpMcpEffectiveDeployment.Adopt(Settings, fixture.Source);
+        Assert.Equal(new HelpdeskMcpHttpOptions().DelegationTimeoutSeconds, settings.DelegationTimeoutSeconds);
+
+        var proposal = HttpMcpEffectiveDeployment.Create(settings);
+
+        Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
+        var expectedOverlay = JsonNode.Parse("""{"services":{"web":{"environment":{"WebGateway__Mcp__Enabled":"true"}}}}""");
+        Assert.True(JsonNode.DeepEquals(expectedOverlay, proposal.Overlay), proposal.Overlay.ToJsonString());
+        var expected = source.DeepClone().AsObject();
+        Env(expected, "web")["WebGateway__Mcp__Enabled"] = "true";
+        Assert.True(JsonNode.DeepEquals(expected, proposal.CompleteDeployment));
+        Assert.Equal(4, proposal.ServiceCountAfter);
+        Assert.Equal(sourceBytes, File.ReadAllBytes(fixture.Source));
+    }
+
+    [Theory]
+    [InlineData("implicit-default", 20, 21)]
+    [InlineData("environment", 35, 20)]
+    [InlineData("protected-file", 35, 20)]
+    [InlineData("image-environment", 35, 20)]
+    [InlineData("command", 35, 20)]
+    public void Requested_timeout_changes_are_preserved_after_resolving_the_current_option(string provider, int currentTimeout, int requestedTimeout)
+    {
+        using var fixture = new Fixture();
+        var source = FourServiceGateway();
+        const string key = "Helpdesk__Mcp__DelegationTimeoutSeconds";
+        Env(source, "mcp-http").Remove(key);
+        switch (provider)
+        {
+            case "implicit-default": Assert.Equal(new HelpdeskMcpHttpOptions().DelegationTimeoutSeconds, currentTimeout); break;
+            case "environment": Env(source, "mcp-http")[key] = currentTimeout.ToString(); break;
+            case "protected-file": Files(source, "mcp-http").Add(Provider("/app/appsettings.json", JsonSerializer.Serialize(new { Helpdesk = new { Mcp = new { DelegationTimeoutSeconds = currentTimeout } } }))); break;
+            case "image-environment": source["x-rateldesk-image-environment"]!["mcp-http"] = new JsonArray(key + "=" + currentTimeout); break;
+            case "command": source["services"]!["mcp-http"]!["command"] = new JsonArray("--Helpdesk:Mcp:DelegationTimeoutSeconds=" + currentTimeout); break;
+            default: throw new ArgumentOutOfRangeException(nameof(provider));
+        }
+        Assert.Empty(HttpMcpEffectiveDeployment.Validate(source, Settings with { DelegationTimeoutSeconds = currentTimeout }));
+        fixture.WriteSource(source);
+
+        var proposal = HttpMcpEffectiveDeployment.Create(Settings with { DelegationTimeoutSeconds = requestedTimeout });
+
+        var service = Assert.Single(proposal.Overlay["services"]!.AsObject());
+        Assert.Equal("mcp-http", service.Key);
+        var setting = Assert.Single(service.Value!["environment"]!.AsObject());
+        Assert.Equal(key, setting.Key);
+        Assert.Equal(requestedTimeout.ToString(), setting.Value!.GetValue<string>());
+        if (provider == "command")
+            Assert.Contains(proposal.Diagnostics, diagnostic => diagnostic.Code == "HOST_EFFECTIVE_OPTIONS_MISMATCH");
+        else
+            Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
+        var driftedProvider = source.DeepClone().AsObject();
+        Env(driftedProvider, "mcp-http")[key] = "36";
+        Assert.Contains(HttpMcpEffectiveDeployment.CheckApprovedEffective(proposal, driftedProvider), diagnostic => diagnostic.Code == "HOST_SOURCE_CHANGED");
+    }
+
+    [Fact]
+    public void Malformed_existing_timeout_can_be_corrected_with_an_explicit_reviewed_value()
+    {
+        using var fixture = new Fixture();
+        var source = FourServiceGateway();
+        const string key = "Helpdesk__Mcp__DelegationTimeoutSeconds";
+        Env(source, "mcp-http")[key] = "not-a-timeout";
+        Assert.Contains(HttpMcpEffectiveDeployment.Validate(source, Settings), diagnostic => diagnostic.Code == "HOST_EFFECTIVE_INVALID");
+        fixture.WriteSource(source);
+
+        var proposal = HttpMcpEffectiveDeployment.Create(Settings);
+
+        Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
+        var service = Assert.Single(proposal.Overlay["services"]!.AsObject());
+        Assert.Equal("mcp-http", service.Key);
+        var setting = Assert.Single(service.Value!["environment"]!.AsObject());
+        Assert.Equal(key, setting.Key);
+        Assert.Equal(Settings.DelegationTimeoutSeconds.ToString(), setting.Value!.GetValue<string>());
+    }
+
+    [Fact]
+    public void Adopting_an_existing_deployment_requires_a_running_runtime_observation()
+    {
+        using var fixture = new Fixture();
+        var source = FourServiceGateway();
+        fixture.WriteSource(source);
+        var missing = HttpMcpEffectiveDeployment.AdoptBaseline(Settings);
+        Assert.False(missing.Valid);
+        Assert.Contains(missing.Diagnostics, item => item.Code == "HOST_RUNTIME_REQUIRED");
+        source["x-rateldesk-runtime-inventory"]!["web"]!["state"] = "exited";
+        fixture.WriteRuntime(source);
+        Environment.SetEnvironmentVariable(HttpMcpEffectiveDeployment.RuntimeSourceVariable, fixture.Runtime);
+        Assert.False(HttpMcpEffectiveDeployment.AdoptBaseline(Settings).Valid);
+    }
+
+    [Fact]
+    public void Custom_service_names_that_overlap_role_names_keep_distinct_source_and_runtime_binding()
+    {
+        using var fixture = new Fixture(); var source = FourServiceGateway();
+        var services = source["services"]!.AsObject();
+        var api = services["api"]!.DeepClone(); var web = services["web"]!.DeepClone();
+        services.Remove("api"); services.Remove("web"); services["web"] = api; services["portal"] = web;
+        source["x-rateldesk-service-roles"] = new JsonObject { ["api"] = "web", ["web"] = "portal", ["mcp-http"] = "mcp-http" };
+        var inventory = source["x-rateldesk-runtime-inventory"]!.AsObject();
+        var apiRuntime = inventory["api"]!.DeepClone(); var webRuntime = inventory["web"]!.DeepClone();
+        inventory.Remove("api"); inventory.Remove("web"); inventory["web"] = apiRuntime; inventory["portal"] = webRuntime;
+        fixture.WriteSource(source); fixture.WriteRuntime(source);
+        Environment.SetEnvironmentVariable(HttpMcpEffectiveDeployment.RuntimeSourceVariable, fixture.Runtime);
+        var proposal = HttpMcpEffectiveDeployment.AdoptBaseline(Settings);
+        Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
+        var changed = source.DeepClone().AsObject(); changed["services"]!["web"]!["labels"] = new JsonObject { ["owner"] = "changed" };
+        Assert.Contains(HttpMcpEffectiveDeployment.CheckApprovedEffective(proposal, changed), failure => failure.Code == "HOST_SOURCE_CHANGED" && failure.Layer == "web");
+        fixture.WriteRuntime(changed);
+        Assert.Contains(HttpMcpEffectiveDeployment.Observe(proposal, fixture.Runtime), failure => failure.Code == "HOST_RUNTIME_TOPOLOGY_MISMATCH" && failure.Layer == "web");
+    }
+
+    [Fact]
+    public void Preparing_multiple_role_changes_preserves_separate_patches_when_actual_names_overlap_roles()
+    {
+        using var fixture = new Fixture(); var source = FourServiceGateway();
+        var services = source["services"]!.AsObject();
+        var api = services["api"]!.DeepClone(); var web = services["web"]!.DeepClone();
+        services.Remove("api"); services.Remove("web"); services["web"] = api; services["portal"] = web;
+        source["x-rateldesk-service-roles"] = new JsonObject { ["api"] = "web", ["web"] = "portal", ["mcp-http"] = "mcp-http" };
+        fixture.WriteSource(source);
+        var revised = Settings with { PublicOrigin = "https://updated.example.test" };
+
+        var proposal = HttpMcpEffectiveDeployment.Create(revised);
+
+        Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
+        var changes = proposal.Overlay["services"]!.AsObject();
+        Assert.Equal(new[] { "mcp-http", "portal", "web" }, changes.Select(service => service.Key).OrderBy(name => name, StringComparer.Ordinal));
+        var apiChange = Assert.Single(changes["web"]!["environment"]!.AsObject());
+        Assert.Equal("IntegrationCredentials__Pairing__PublicOrigin", apiChange.Key);
+        Assert.Equal(revised.PublicOrigin, apiChange.Value!.GetValue<string>());
+        var webChange = Assert.Single(changes["portal"]!["environment"]!.AsObject());
+        Assert.Equal("WebGateway__PublicOrigin", webChange.Key);
+        Assert.Equal(revised.PublicOrigin, webChange.Value!.GetValue<string>());
+        Assert.Equal(revised.PublicOrigin, proposal.CompleteDeployment["services"]!["web"]!["environment"]!["IntegrationCredentials__Pairing__PublicOrigin"]!.GetValue<string>());
+        Assert.Equal(revised.PublicOrigin, proposal.CompleteDeployment["services"]!["portal"]!["environment"]!["WebGateway__PublicOrigin"]!.GetValue<string>());
+        Assert.Equal(4, proposal.ServiceCountAfter);
+        Assert.Null(proposal.CompleteDeployment["services"]!["api"]);
+    }
+
+    [Fact]
+    public void Duplicate_actual_service_names_for_distinct_roles_are_rejected_before_patch_translation()
+    {
+        using var fixture = new Fixture(); var source = FourServiceGateway();
+        source["x-rateldesk-service-roles"] = new JsonObject { ["api"] = "web", ["web"] = "web", ["mcp-http"] = "mcp-http" };
+        fixture.WriteSource(source);
+
+        Assert.Contains(HttpMcpEffectiveDeployment.Validate(source, Settings), failure => failure.Code == "HOST_SERVICE_ROLE_CONFLICT");
+        var error = Assert.Throws<AgentClientValidationException>(() => HttpMcpEffectiveDeployment.Create(Settings with { PublicOrigin = "https://updated.example.test" }));
+        Assert.StartsWith("HOST_SERVICE_ROLE_CONFLICT:", error.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("api", "ConnectionStrings__DefaultConnection")]
+    [InlineData("db", "POSTGRES_DB")]
+    [InlineData("db", "POSTGRES_PASSWORD")]
+    public void Approved_narrow_change_rejects_unreviewed_effective_environment_even_after_owner_applies_it(string service, string key)
+    {
+        using var fixture = new Fixture(); var source = FourServiceGateway();
+        source["services"]![service]!["environment"] ??= new JsonObject();
+        Env(source, service)[key] = "synthetic-reviewed";
+        source["x-rateldesk-source-files"] = new JsonArray(new JsonObject { ["path"] = "/synthetic/compose.yml", ["sha256"] = new string('a', 64) });
+        fixture.WriteSource(source);
+        var proposal = HttpMcpEffectiveDeployment.Create(Settings with { DelegationTimeoutSeconds = 21 });
+        Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
+        Assert.Empty(HttpMcpEffectiveDeployment.CheckApprovedEffective(proposal, proposal.CompleteDeployment));
+
+        // The saved document's bytes are unchanged, while an inherited input
+        // now resolves differently. A matching owner-applied runtime cannot
+        // authorize a change outside this reviewed timeout correction.
+        var current = proposal.CompleteDeployment.DeepClone().AsObject();
+        Env(current, service)[key] = "synthetic-unreviewed-private-value";
+        Assert.True(JsonNode.DeepEquals(source["x-rateldesk-source-files"], current["x-rateldesk-source-files"]));
+        var failures = HttpMcpEffectiveDeployment.CheckApprovedEffective(proposal, current);
+        Assert.Contains(failures, failure => failure.Code == "HOST_SOURCE_CHANGED" && failure.Layer == service && failure.Key == "complete environment");
+        Assert.DoesNotContain("synthetic-unreviewed-private-value", HostDeploymentWorkflow.Describe(failures));
+    }
+
+    [Fact]
+    public async Task Approved_adoption_resumes_without_a_generated_compose_document_or_apply_phase()
+    {
+        using var fixture = new Fixture();
+        var source = FourServiceGateway(legacyFile: true);
+        fixture.WriteSource(source);
+        fixture.WriteRuntime(source);
+        Environment.SetEnvironmentVariable(HttpMcpEffectiveDeployment.RuntimeSourceVariable, fixture.Runtime);
+        var sourceBytes = File.ReadAllBytes(fixture.Source);
+        var runtimeBytes = File.ReadAllBytes(fixture.Runtime);
+        var proposal = HttpMcpEffectiveDeployment.AdoptBaseline(Settings);
+        Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
+        using var handler = new ApprovalTransport(proposal);
+        using var client = new HttpClient(handler);
+        using var workflow = new HostDeploymentWorkflow(Settings.PublicOrigin, client);
+
+        await workflow.SaveApprovedAsync(proposal,
+            new(new string('a', 64), "ABCD-EFGH", Settings.PublicOrigin + "/account/integration-credentials/approve?kind=host", DateTimeOffset.UtcNow.AddMinutes(5), 1),
+            fixture.ExportDirectory, false, CancellationToken.None);
+
+        Assert.Equal(1, handler.Calls);
+        Assert.False(File.Exists(Path.Combine(fixture.ExportDirectory, "deployment.json")));
+        Assert.False(File.Exists(Path.Combine(fixture.ExportDirectory, "compose.host.json")));
+        var phase = JsonNode.Parse(File.ReadAllText(Path.Combine(fixture.ExportDirectory, "host-phase.json")));
+        Assert.Equal("adopted-verify-pending", phase!["phase"]!.GetValue<string>());
+        var resumed = HostDeploymentWorkflow.ResumeApproved(fixture.ExportDirectory);
+        Assert.True(resumed.IsAdoption);
+        Assert.Equal(proposal.SourceHash, resumed.SourceHash);
+        Assert.Equal(proposal.ProposalHash, resumed.ProposalHash);
+        Assert.Empty(resumed.Overlay);
+        Assert.Empty(HttpMcpEffectiveDeployment.Observe(resumed, fixture.Runtime));
+        Assert.Equal(sourceBytes, File.ReadAllBytes(fixture.Source));
+        Assert.Equal(runtimeBytes, File.ReadAllBytes(fixture.Runtime));
+
+        Env(source, "mcp-http")["Helpdesk__Mcp__DelegationTimeoutSeconds"] = "21";
+        fixture.WriteSource(source);
+        Assert.Contains("HOST_SOURCE_CHANGED", Assert.Throws<AgentClientValidationException>(() => HostDeploymentWorkflow.ResumeApproved(fixture.ExportDirectory)).Message);
+    }
+
+    [Fact]
+    public async Task Source_change_during_adoption_consent_rejects_the_checkpoint_before_polling_or_writing()
+    {
+        using var fixture = new Fixture();
+        var source = FourServiceGateway();
+        fixture.WriteSource(source);
+        fixture.WriteRuntime(source);
+        Environment.SetEnvironmentVariable(HttpMcpEffectiveDeployment.RuntimeSourceVariable, fixture.Runtime);
+        var proposal = HttpMcpEffectiveDeployment.AdoptBaseline(Settings);
+        Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
+        source["services"]!["web"]!["labels"] = new JsonObject { ["owner"] = "new-owner" };
+        fixture.WriteSource(source);
+        using var handler = new ApprovalTransport(proposal);
+        using var client = new HttpClient(handler);
+        using var workflow = new HostDeploymentWorkflow(Settings.PublicOrigin, client);
+
+        var error = await Assert.ThrowsAsync<AgentClientValidationException>(() => workflow.SaveApprovedAsync(proposal,
+            new(new string('a', 64), "ABCD-EFGH", Settings.PublicOrigin + "/account/integration-credentials/approve?kind=host", DateTimeOffset.UtcNow.AddMinutes(5), 1),
+            fixture.ExportDirectory, false, CancellationToken.None));
+
+        Assert.Contains("HOST_SOURCE_CHANGED", error.Message);
+        Assert.Equal(0, handler.Calls);
+        Assert.False(Directory.Exists(fixture.ExportDirectory));
+    }
+
+    internal static JsonObject FourServiceGateway(bool legacyFile = false)
+    {
+        var source = Complete();
+        source.Remove("x-rateldesk-storage");
+        source.Remove("volumes");
+        var mcp = Env(source, "mcp-http");
+        mcp.Remove("RATELDESK_MCP_HOST_DIRECTORY");
+        mcp.Remove("RATELDESK_MCP_CLIENT_DIRECTORY");
+        source["services"]!["mcp-http"]!["volumes"] = new JsonArray();
+        if (legacyFile)
+        {
+            mcp.Remove("Helpdesk__Mcp__Outbound__ApiBaseUrl");
+            mcp.Remove("Helpdesk__Mcp__Outbound__CredentialMode");
+            Files(source, "mcp-http")[0] = Provider("/run/rateldesk-mcp/config.json", JsonSerializer.Serialize(
+                AgentClientConfiguration.Empty with { ApiBaseUrl = Settings.ApiBaseUrl, CredentialMode = "gateway", CredentialTarget = Settings.ApiBaseUrl }, AgentClientConfiguration.JsonOptions));
+            source["configs"] = new JsonObject { ["existing-outbound"] = new JsonObject { ["file"] = "/synthetic/private/outbound.json" } };
+            source["services"]!["mcp-http"]!["configs"] = new JsonArray(new JsonObject
+            {
+                ["source"] = "existing-outbound", ["target"] = "/run/rateldesk-mcp/config.json"
+            });
+        }
+        else
+        {
+            mcp.Remove("Helpdesk__Mcp__ConfigurationPath");
+            mcp.Remove("RATELDESK_MCP_CONFIG");
+            Files(source, "mcp-http").Clear();
+        }
+        source["services"]!["db"] = new JsonObject { ["image"] = "synthetic-postgres:fixture" };
+        source["x-rateldesk-image-ids"]!["db"] = "sha256:" + new string('d', 64);
+        source["x-rateldesk-docker-daemon"] = "synthetic-daemon";
+        source["x-rateldesk-docker-context"] = "synthetic-context";
+        source["x-rateldesk-project"] = "synthetic-project";
+        source["x-rateldesk-runtime-inventory"] = new JsonObject(source["services"]!.AsObject().Select(service =>
+            KeyValuePair.Create<string, JsonNode?>(service.Key, new JsonObject
+            {
+                ["containerId"] = "synthetic-" + service.Key,
+                ["startedAt"] = "2026-10-17T00:00:00Z", ["restartCount"] = 0, ["state"] = "running", ["healthStatus"] = null,
+                ["healthcheck"] = null, ["labels"] = new JsonObject { ["owner"] = "synthetic-operator" },
+                ["mounts"] = new JsonArray(), ["networks"] = new JsonObject { ["synthetic-private"] = new JsonObject() },
+                ["ports"] = new JsonObject(), ["restartPolicy"] = new JsonObject { ["Name"] = "unless-stopped", ["MaximumRetryCount"] = 0 }
+            })));
+        return source;
+    }
+
+    private static HttpMcpDeploymentProposal CreateLegacy(HttpMcpHostingSettings settings, string? snapshotPath = null)
+        => HttpMcpEffectiveDeployment.Create(settings, snapshotPath, HttpMcpHostIntent.LegacyInitializer);
+
+    private static IReadOnlyList<DeploymentDiagnostic> ValidateLegacy(JsonObject complete, HttpMcpHostingSettings settings)
+        => HttpMcpEffectiveDeployment.Validate(complete, settings, requireSetupStorage: true);
 
     private static JsonObject Legacy()
     {
@@ -282,7 +706,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
                 source["services"]![service]!["environment"] = new JsonArray(environment.Select(entry => JsonValue.Create(entry.Key + "=" + entry.Value!.GetValue<string>())).ToArray());
             }
         fixture.WriteSource(source);
-        var proposal = HttpMcpEffectiveDeployment.Create(Settings, fixture.Source);
+        var proposal = CreateLegacy(Settings, fixture.Source);
         Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
         Assert.Equal(Settings.ApiBaseUrl, proposal.Settings.ApiBaseUrl);
         Assert.Equal("customer-west", proposal.Settings.Instance);
@@ -330,7 +754,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
         else
         {
             Assert.DoesNotContain("image-site", adopted.Instance, StringComparison.Ordinal);
-            Assert.NotEmpty(HttpMcpEffectiveDeployment.Validate(source, Settings));
+            Assert.NotEmpty(ValidateLegacy(source, Settings));
         }
     }
 
@@ -342,7 +766,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
         Env(source, "mcp-http")["RATELDESK_MCP_INTEGRATION_CREDENTIAL"] = "rdk_lower_alias_secret";
         Env(source, "mcp-http")["RATELDESK_MCP_CREDENTIAL_MODE"] = "integration";
         fixture.WriteSource(source);
-        var proposal = HttpMcpEffectiveDeployment.Create(Settings, fixture.Source);
+        var proposal = CreateLegacy(Settings, fixture.Source);
         Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
         var overlay = proposal.Overlay["services"]!["mcp-http"]!["environment"]!;
         Assert.Equal("", overlay["Helpdesk__Mcp__Outbound__IntegrationCredential"]!.GetValue<string>());
@@ -358,7 +782,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
     {
         var source = Complete();
         Env(source, "mcp-http")[duplicate] = "untrusted-private-value";
-        var failure = Assert.Single(HttpMcpEffectiveDeployment.Validate(source, Settings));
+        var failure = Assert.Single(ValidateLegacy(source, Settings));
         Assert.Equal("HOST_EFFECTIVE_INVALID", failure.Code);
         Assert.DoesNotContain("untrusted-private-value", HostDeploymentWorkflow.Describe([failure]));
     }
@@ -372,7 +796,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
         Files(source, "mcp-http").Insert(0, Provider("/app/appsettings.json",
             """{"Helpdesk":{"Mcp":{"AllowedOrigins":["https://desk.example.test:8443","https://invalid.example.test/path"]}}}"""));
         fixture.WriteSource(source);
-        var proposal = HttpMcpEffectiveDeployment.Create(Settings, fixture.Source);
+        var proposal = CreateLegacy(Settings, fixture.Source);
         Assert.False(proposal.Valid);
         Assert.Contains(proposal.Diagnostics, diagnostic => diagnostic.Code == "MCP_OPTIONS_INVALID" && diagnostic.Key.Contains("AllowedOrigins", StringComparison.Ordinal));
         Assert.All(proposal.Diagnostics, diagnostic => Assert.False(string.IsNullOrWhiteSpace(diagnostic.NextAction)));
@@ -388,10 +812,10 @@ public sealed class HttpMcpEffectiveDeploymentTests
         Env(source, "web")["ReverseProxy__Clusters__customStatus__Destinations__one__Address"] = "http://custom.private:8080/";
         fixture.WriteSource(source);
         var before = File.ReadAllBytes(fixture.Source);
-        Assert.True(HttpMcpEffectiveDeployment.Create(Settings, fixture.Source).Valid);
+        Assert.True(CreateLegacy(Settings, fixture.Source).Valid);
         Assert.Equal(before, File.ReadAllBytes(fixture.Source));
         Env(source, "web")["ReverseProxy__Clusters__mcpCluster__Destinations__operator__Address"] = "http://other.private:8223/";
-        var failure = HttpMcpEffectiveDeployment.Validate(source, Settings);
+        var failure = ValidateLegacy(source, Settings);
         Assert.Contains(failure, diagnostic => diagnostic.Code == "HOST_ROUTE_DESTINATION" && diagnostic.Layer == "web");
         Assert.Equal("http://custom.private:8080/", Env(source, "web")["ReverseProxy__Clusters__customStatus__Destinations__one__Address"]!.GetValue<string>());
     }
@@ -403,7 +827,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
         var source = Complete();
         Env(source, "web")["WebGateway__Mcp__HardDisable"] = "true";
         fixture.WriteSource(source);
-        var proposal = HttpMcpEffectiveDeployment.Create(Settings, fixture.Source);
+        var proposal = CreateLegacy(Settings, fixture.Source);
         Assert.False(proposal.Valid);
         Assert.Contains(proposal.Diagnostics, diagnostic => diagnostic.Code == "WEB_MCP_DISABLED");
         Assert.Equal("true", Env(source, "web")["WebGateway__Mcp__HardDisable"]!.GetValue<string>());
@@ -416,7 +840,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
     {
         var source = Complete();
         source["x-rateldesk-storage"]![kind] = null;
-        Assert.Contains(HttpMcpEffectiveDeployment.Validate(source, Settings), diagnostic => diagnostic.Code == "HOST_STORAGE_REQUIRED" && diagnostic.Key == kind);
+        Assert.Contains(ValidateLegacy(source, Settings), diagnostic => diagnostic.Code == "HOST_STORAGE_REQUIRED" && diagnostic.Key == kind);
     }
 
     [Fact]
@@ -424,10 +848,10 @@ public sealed class HttpMcpEffectiveDeploymentTests
     {
         var source = Complete();
         source["x-rateldesk-storage"]!["host"]!["source"] = "fixture-client-data";
-        Assert.Contains(HttpMcpEffectiveDeployment.Validate(source, Settings), diagnostic => diagnostic.Code == "HOST_STORAGE_ISOLATION");
+        Assert.Contains(ValidateLegacy(source, Settings), diagnostic => diagnostic.Code == "HOST_STORAGE_ISOLATION");
         source = Complete();
         source["services"]!["api"]!["volumes"] = new JsonArray(new JsonObject { ["type"] = "volume", ["source"] = "client-store", ["target"] = "/private/clients" });
-        Assert.Contains(HttpMcpEffectiveDeployment.Validate(source, Settings), diagnostic => diagnostic.Code == "HOST_STORAGE_API_EXPOSURE");
+        Assert.Contains(ValidateLegacy(source, Settings), diagnostic => diagnostic.Code == "HOST_STORAGE_API_EXPOSURE");
     }
 
     [Fact]
@@ -435,7 +859,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
     {
         var source = Complete();
         source["services"]!["mcp-http"]!["volumes"] = new JsonArray();
-        Assert.NotEmpty(HttpMcpEffectiveDeployment.Validate(source, Settings));
+        Assert.NotEmpty(ValidateLegacy(source, Settings));
     }
 
     [Fact]
@@ -443,7 +867,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
     {
         var source = Complete();
         Env(source, "web")["WebGateway__Mcp__AuthenticationMode"] = "authentik";
-        var diagnostics = HttpMcpEffectiveDeployment.Validate(source, Settings);
+        var diagnostics = ValidateLegacy(source, Settings);
         Assert.Single(diagnostics.Where(diagnostic => diagnostic.Code == "HOST_AUTHENTICATION_MISMATCH"));
     }
 
@@ -473,7 +897,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
         Assert.Equal("authentik", adopted.AuthenticationMode);
         Assert.Equal(secret, adopted.Outbound!.IntegrationCredential);
         Assert.Equal(Settings.ApiBaseUrl, adopted.Outbound.ApiBaseUrl);
-        var proposal = HttpMcpEffectiveDeployment.Create(external, fixture.Source);
+        var proposal = CreateLegacy(external, fixture.Source);
         Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
         Assert.DoesNotContain(secret, JsonSerializer.Serialize(proposal.Approval));
         Assert.DoesNotContain(secret, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
@@ -484,7 +908,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
     {
         using var fixture = new Fixture();
         fixture.WriteSource(Complete());
-        var proposal = HttpMcpEffectiveDeployment.Create(Settings);
+        var proposal = CreateLegacy(Settings);
         Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
         var changed = Complete();
         changed["services"]!["worker"] = new JsonObject { ["image"] = "synthetic-worker:v2" };
@@ -507,7 +931,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
         var source = Complete();
         source["x-rateldesk-source-files"] = new JsonArray(new JsonObject { ["path"] = "/owner/compose.json", ["sha256"] = new string('d', 64) });
         fixture.WriteSource(source);
-        var proposal = HttpMcpEffectiveDeployment.Create(Settings);
+        var proposal = CreateLegacy(Settings);
         using var handler = new ApprovalTransport(proposal);
         using var client = new HttpClient(handler);
         using var workflow = new HostDeploymentWorkflow(Settings.PublicOrigin, client);
@@ -540,7 +964,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
     {
         using var fixture = new Fixture();
         fixture.WriteSource(Complete());
-        var proposal = HttpMcpEffectiveDeployment.Create(Settings);
+        var proposal = CreateLegacy(Settings);
         Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
         Assert.Equal("HOST_RUNTIME_REQUIRED", Assert.Single(HttpMcpEffectiveDeployment.Observe(proposal, "")).Code);
         fixture.WriteRuntime(Complete());
@@ -560,7 +984,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
     {
         using var fixture = new Fixture();
         fixture.WriteSource(Complete());
-        var proposal = HttpMcpEffectiveDeployment.Create(Settings);
+        var proposal = CreateLegacy(Settings);
         var runtime = Complete();
         Files(runtime, "mcp-http").Insert(0, Provider("/app/appsettings.json",
             """{"Helpdesk":{"Mcp":{"AllowedOrigins":["https://desk.example.test:8443","https://unreviewed.example.test"]}}}"""));
@@ -569,7 +993,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
         Assert.True(new Helpdesk.Mcp.Http.Configuration.HelpdeskMcpHttpOptionsValidator().Validate(null,
             new Helpdesk.Mcp.Http.Configuration.HelpdeskMcpHttpOptions { PublicResourceUri = Settings.PublicResourceUri,
                 AuthenticationMode = "gateway", AllowedOrigins = [Settings.PublicOrigin, "https://unreviewed.example.test"] }).Succeeded);
-        Assert.Contains(HttpMcpEffectiveDeployment.Validate(runtime, Settings), diagnostic => diagnostic.Code == "HOST_EFFECTIVE_OPTIONS_MISMATCH");
+        Assert.Contains(ValidateLegacy(runtime, Settings), diagnostic => diagnostic.Code == "HOST_EFFECTIVE_OPTIONS_MISMATCH");
         fixture.WriteRuntime(runtime);
         Assert.NotEmpty(HttpMcpEffectiveDeployment.Observe(proposal, fixture.Runtime));
     }
@@ -609,7 +1033,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
         var source = Complete();
         source["services"]![service]!["command"] = new JsonArray(argument);
         fixture.WriteSource(source);
-        var proposal = HttpMcpEffectiveDeployment.Create(Settings);
+        var proposal = CreateLegacy(Settings);
         Assert.False(proposal.Valid);
         Assert.Contains(proposal.Diagnostics, diagnostic => diagnostic.Code is "HOST_API_TARGET_MISMATCH" or "HOST_EFFECTIVE_INVALID");
         Assert.DoesNotContain("unreviewed.private", HostDeploymentWorkflow.Describe(proposal.Diagnostics));
@@ -622,7 +1046,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
         var source = Complete();
         source["services"]!["mcp-http"]!["entrypoint"] = new JsonArray("/bin/sh", "-ec", "exec dotnet Helpdesk.Mcp.Http.dll");
         fixture.WriteSource(source);
-        var proposal = HttpMcpEffectiveDeployment.Create(Settings);
+        var proposal = CreateLegacy(Settings);
         Assert.False(proposal.Valid);
         Assert.Contains(proposal.Diagnostics, diagnostic => diagnostic.Code == "HOST_EFFECTIVE_INVALID");
     }
@@ -642,11 +1066,11 @@ public sealed class HttpMcpEffectiveDeploymentTests
         SelectProviderRoot(source, service, provider, alternate);
         fixture.WriteSource(source);
         var before = File.ReadAllBytes(fixture.Source);
-        var diagnostic = Assert.Single(HttpMcpEffectiveDeployment.Validate(source, Settings));
+        var diagnostic = Assert.Single(ValidateLegacy(source, Settings));
         Assert.Equal("HOST_EFFECTIVE_INVALID", diagnostic.Code);
         Assert.DoesNotContain(alternate, HostDeploymentWorkflow.Describe([diagnostic]));
         Assert.False(string.IsNullOrWhiteSpace(diagnostic.NextAction));
-        var proposal = HttpMcpEffectiveDeployment.Create(Settings, fixture.Source);
+        var proposal = CreateLegacy(Settings, fixture.Source);
         Assert.False(proposal.Valid);
         Assert.Contains(proposal.Diagnostics, item => item.Code == "HOST_EFFECTIVE_INVALID");
         Assert.DoesNotContain(alternate, JsonSerializer.Serialize(proposal.Approval));
@@ -672,11 +1096,11 @@ public sealed class HttpMcpEffectiveDeploymentTests
             Files(source, service).Insert(0, Provider("/app/appsettings.json", "{}"));
         }
         fixture.WriteSource(source);
-        Assert.Empty(HttpMcpEffectiveDeployment.Validate(source, Settings));
+        Assert.Empty(ValidateLegacy(source, Settings));
         var adopted = HttpMcpEffectiveDeployment.Adopt(Settings, fixture.Source);
         Assert.Equal(Settings.PublicOrigin, adopted.PublicOrigin);
         Assert.Equal(Settings.ApiBaseUrl, adopted.Outbound!.ApiBaseUrl);
-        var proposal = HttpMcpEffectiveDeployment.Create(Settings, fixture.Source);
+        var proposal = CreateLegacy(Settings, fixture.Source);
         Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
     }
 
@@ -702,7 +1126,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
         SelectProviderRoot(source, "mcp-http", "command-two-token", alternate);
         Assert.DoesNotContain(Files(source, "mcp-http"), file => file?["path"]?.GetValue<string>() is { } path && path.StartsWith(alternate, StringComparison.Ordinal));
         fixture.WriteSource(source);
-        var proposal = HttpMcpEffectiveDeployment.Create(Settings, fixture.Source);
+        var proposal = CreateLegacy(Settings, fixture.Source);
         Assert.False(proposal.Valid);
         Assert.Contains(proposal.Diagnostics, item => item.Code == "HOST_EFFECTIVE_INVALID");
         Assert.DoesNotContain("unreviewed.example.test", HostDeploymentWorkflow.Describe(proposal.Diagnostics));
@@ -730,7 +1154,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
         var adopted = HttpMcpEffectiveDeployment.Adopt(Settings, fixture.Source);
         Assert.Equal(Settings.ApiBaseUrl, adopted.Outbound!.ApiBaseUrl);
         Assert.Equal("gateway", adopted.Outbound.CredentialMode);
-        Assert.Empty(HttpMcpEffectiveDeployment.Validate(source, Settings));
+        Assert.Empty(ValidateLegacy(source, Settings));
     }
 
     [Theory]
@@ -745,7 +1169,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
         Env(source, "mcp-http")["Helpdesk__Mcp__ConfigurationPath"] = configuredPath;
         Env(source, "mcp-http")["RATELDESK_MCP_CONFIG"] = legacy;
         fixture.WriteSource(source);
-        Assert.Equal("HOST_EFFECTIVE_INVALID", Assert.Single(HttpMcpEffectiveDeployment.Validate(source, Settings)).Code);
+        Assert.Equal("HOST_EFFECTIVE_INVALID", Assert.Single(ValidateLegacy(source, Settings)).Code);
         var error = Assert.Throws<AgentClientValidationException>(() => HttpMcpEffectiveDeployment.Adopt(Settings, fixture.Source));
         Assert.StartsWith("HOST_OUTBOUND_PROVIDER_MISSING:", error.Message, StringComparison.Ordinal);
         Assert.DoesNotContain(legacy, error.Message);
@@ -767,7 +1191,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
         if (captured) Files(source, "mcp-http").Add(Provider(commandPath, JsonSerializer.Serialize(AgentClientConfiguration.Empty with
         { ApiBaseUrl = "http://lower-file.private:8222/", CredentialMode = "gateway" }, AgentClientConfiguration.JsonOptions)));
         fixture.WriteSource(source);
-        var diagnostics = HttpMcpEffectiveDeployment.Validate(source, Settings);
+        var diagnostics = ValidateLegacy(source, Settings);
         if (!captured)
         {
             Assert.Equal("HOST_EFFECTIVE_INVALID", Assert.Single(diagnostics).Code);
@@ -777,7 +1201,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
         Assert.Empty(diagnostics);
         var adopted = HttpMcpEffectiveDeployment.Adopt(Settings, fixture.Source);
         Assert.Equal(Settings.ApiBaseUrl, adopted.Outbound!.ApiBaseUrl);
-        var proposal = HttpMcpEffectiveDeployment.Create(Settings, fixture.Source);
+        var proposal = CreateLegacy(Settings, fixture.Source);
         Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
         Assert.Contains("highest command-line precedence", Assert.Single(proposal.ReviewSettings, setting => setting.Key == "Downstream identity target").Source);
     }
@@ -792,7 +1216,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
         source["services"]!["mcp-http"]!["command"] = new JsonArray("--Helpdesk:Mcp:ConfigurationPath", " ");
         Files(source, "mcp-http").Add(Provider(canonical, "the unselected canonical provider is deliberately invalid JSON"));
         fixture.WriteSource(source);
-        Assert.Empty(HttpMcpEffectiveDeployment.Validate(source, Settings));
+        Assert.Empty(ValidateLegacy(source, Settings));
         var adopted = HttpMcpEffectiveDeployment.Adopt(Settings, fixture.Source);
         Assert.Equal("gateway", adopted.Outbound!.CredentialMode);
         Assert.Equal(Settings.ApiBaseUrl, adopted.Outbound.ApiBaseUrl);
@@ -819,7 +1243,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
         Env(source, "mcp-http")["Authentication__AuthentikMcp__RequiredGroups__0"] = "assistant";
         Files(source, "mcp-http")[0] = Provider("/run/rateldesk-mcp/config.json", JsonSerializer.Serialize(external.Outbound, AgentClientConfiguration.JsonOptions));
         fixture.WriteSource(source);
-        var proposal = HttpMcpEffectiveDeployment.Create(external);
+        var proposal = CreateLegacy(external);
         Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
         Env(source, "mcp-http")["Authentication__AuthentikMcp__Authority"] = "https://issuer-b.example.test/application/o/mcp/";
         fixture.WriteRuntime(source);
@@ -842,12 +1266,12 @@ public sealed class HttpMcpEffectiveDeploymentTests
         source["x-rateldesk-source-files"] = new JsonArray(Enumerable.Range(0, 60)
             .Select(index => (JsonNode)new JsonObject { ["path"] = $"/owner/source-{index}.json", ["sha256"] = new string('a', 64) }).ToArray());
         fixture.WriteSource(source);
-        var proposal = HttpMcpEffectiveDeployment.Create(Settings);
+        var proposal = CreateLegacy(Settings);
         Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
         var command = Assert.Single(proposal.ReviewSettings, setting => setting.Key == "Web API backend");
         Assert.Contains(composeCommand ? "services.web.command" : "web image Config.Cmd", command.Source);
         Assert.Contains("highest", command.Source);
-        Assert.Contains("compose.host.json", Assert.Single(proposal.ReviewSettings, setting => setting.Key == "Public Web origin").Source);
+        Assert.Contains("ordered owning Compose sources", Assert.Single(proposal.ReviewSettings, setting => setting.Key == "Public Web origin").Source);
         Assert.Contains(proposal.ReviewSettings, setting => setting.Key == "Pairing public origin");
         Assert.Contains(proposal.ReviewSettings, setting => setting.Key == "Downstream identity mode" && setting.Value == "gateway");
         Assert.Contains(proposal.ReviewSettings, setting => setting.Key == "Provider precedence" && setting.Value.Contains("legacy aliases", StringComparison.Ordinal));
@@ -869,7 +1293,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
     {
         using var fixture = new Fixture();
         fixture.WriteSource(Complete());
-        var proposal = HttpMcpEffectiveDeployment.Create(Settings);
+        var proposal = CreateLegacy(Settings);
         using var handler = new ApprovalTransport(proposal);
         using var client = new HttpClient(handler);
         using var workflow = new HostDeploymentWorkflow(Settings.PublicOrigin, client);
@@ -909,7 +1333,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
     {
         using var fixture = new Fixture();
         fixture.WriteSource(Complete());
-        var proposal = HttpMcpEffectiveDeployment.Create(Settings);
+        var proposal = CreateLegacy(Settings);
         using var handler = new ApprovalTransport(proposal);
         using var client = new HttpClient(handler);
         using var workflow = new HostDeploymentWorkflow(Settings.PublicOrigin, client);
@@ -936,7 +1360,7 @@ public sealed class HttpMcpEffectiveDeploymentTests
         var source = Complete();
         source["x-rateldesk-source-files"] = new JsonArray(new JsonObject { ["path"] = "/owner/compose.json", ["sha256"] = new string('d', 64) });
         fixture.WriteSource(source);
-        var proposal = HttpMcpEffectiveDeployment.Create(Settings);
+        var proposal = CreateLegacy(Settings);
         Assert.True(proposal.Valid, HostDeploymentWorkflow.Describe(proposal.Diagnostics));
         using var handler = new ApprovalTransport(proposal);
         using var client = new HttpClient(handler);

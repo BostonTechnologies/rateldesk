@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Fast launcher contracts; no running services, credentials, or image downloads."""
 import argparse
+from contextlib import nullcontext
 import importlib.util
 import json
 import os
@@ -37,7 +38,7 @@ class LauncherContracts(unittest.TestCase):
         self.source = self.directory / "compose.json"
         self.source.write_text('{"services":{}}')
         self.args = launcher.parser().parse_args(["--compose-file", str(self.source), "--project", "fixture",
-            "--manager", "external-compose"])
+            "--manager", "external-compose", "--intent", "legacy-initializer"])
 
     def tearDown(self):
         self.temporary.cleanup()
@@ -191,13 +192,15 @@ class LauncherContracts(unittest.TestCase):
             self.deployment()
         self.assertFalse((self.directory / ".rateldesk-http-mcp-fixture").exists())
 
-    def test_untracked_compose_dependencies_fail_with_complete_export_action(self):
+    def test_untracked_compose_dependencies_fail_without_replacing_manager_source(self):
         for text in ('include:\n  - child.yml\n', '{"services":{"api":{"extends":{"file":"child.yml","service":"api"}}}}',
                      'services: {api: {extends: {file: child.yml, service: api}}}'):
             self.source.write_text(text)
             with self.assertRaisesRegex(launcher.Prerequisite, "compose_dependency_unsupported") as failure:
                 launcher.check_compose_dependencies(self.source)
-            self.assertIn("--no-interpolate --no-env-resolution", str(failure.exception))
+            self.assertIn("Keep the original saved YAML", str(failure.exception))
+            self.assertIn("ordinary client endpoint diagnostics", str(failure.exception))
+            self.assertEqual(self.source.read_text(), text)
 
     def test_private_output_does_not_repair_existing_world_readable_storage(self):
         output = self.directory / "existing"
@@ -414,7 +417,9 @@ class LauncherContracts(unittest.TestCase):
                     raise launcher.Prerequisite("docker_operation: unavailable")
                 raise AssertionError("An unapproved Docker operation was attempted")
         deployment.docker = AuthorityUnavailableDocker()
-        with patch.object(deployment, "prepare_storage"), patch.object(launcher, "stage_snapshot"), self.assertRaisesRegex(launcher.Prerequisite, "approval_revalidation"):
+        with patch.object(deployment, "prepare_storage"), patch.object(launcher, "stage_snapshot"), \
+                patch.object(launcher, "legacy_compose_observation", return_value=nullcontext()), \
+                self.assertRaisesRegex(launcher.Prerequisite, "approval_revalidation"):
             launcher.apply_saved(deployment)
         self.assertTrue(any("approval-check" in arguments for arguments in calls))
         self.assertFalse(any("up" in arguments for arguments in calls))
@@ -470,11 +475,90 @@ class LauncherContracts(unittest.TestCase):
         def stage(current, name):
             staged[name] = launcher.read_private_json(current.output / name)
         with patch.object(deployment, "prepare_storage"), patch.object(launcher, "stage_snapshot", side_effect=stage), \
+             patch.object(launcher, "legacy_compose_observation", side_effect=lambda *args: nullcontext()), \
              patch.object(launcher.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)), \
              self.assertRaisesRegex(launcher.Prerequisite, "runtime_revalidation"):
             launcher.run_setup(deployment, self.args)
         self.assertTrue(any("observation-check" in arguments for arguments in calls))
         self.assertEqual(launcher.read_private_json(deployment.output / "launcher-state.json")["phase"], "applied-verify-pending")
+
+    def legacy_runtime_fixture(self):
+        deployment = self.deployment()
+        deployment.image = "fixture-image"
+        image_id = "sha256:" + "b" * 64
+        stores = {purpose: {"type": "volume", "source": "actual-" + purpose, "target": target,
+            "readOnly": False, "private": True, "uid": 10001} for purpose, target in
+            (("host", launcher.HOST_TARGET), ("client", launcher.CLIENT_TARGET))}
+        proposal = {"name": deployment.project,
+            "services": {name: {"image": "fixture-image", "environment": {}, "volumes": []} for name in launcher.SERVICE_NAMES},
+            "volumes": {"host-alias": {"external": True, "name": stores["host"]["source"]},
+                "client-alias": {"external": True, "name": stores["client"]["source"]},
+                "protected-alias": {"name": deployment.project + "_protected-alias"},
+                "unrelated": {"external": True, "name": "preserve-existing"}},
+            "x-rateldesk-image-ids": {name: image_id for name in launcher.SERVICE_NAMES}}
+        mounts = [{"Type": "volume", "Name": store["source"], "Source": "/daemon/private/" + purpose,
+            "Destination": store["target"], "RW": True} for purpose, store in stores.items()]
+        mounts += [{"Type": "volume", "Name": deployment.project + "_protected-alias",
+            "Source": "/daemon/private/runtime", "Destination": "/run/rateldesk-mcp", "RW": False},
+            {"Type": "bind", "Source": str(self.directory / "read-only operator data"),
+                "Destination": "/srv/operator-data", "RW": False}]
+        class RuntimeDocker:
+            def run(self, arguments, **kwargs):
+                if arguments[0] != "ps":
+                    raise AssertionError("Runtime fixture attempted a resource mutation")
+                service = next(value.rsplit("=", 1)[1] for value in arguments if value.startswith("label=com.docker.compose.service="))
+                return (json.dumps(service) + "\n").encode()
+            def inspect(self, service):
+                return {"Image": image_id, "Config": {"Image": "fixture-image", "Env": [],
+                    "Labels": {"com.docker.compose.oneoff": "false"}},
+                    "Mounts": mounts if service == "mcp-http" else []}
+        deployment.docker = RuntimeDocker()
+        launcher.write_private(deployment.output / "launcher-state.json", {"storage": stores})
+        return deployment, proposal, mounts, stores
+
+    def test_legacy_runtime_volume_names_resolve_exact_engine_identities_with_project_and_source_aliases(self):
+        deployment, proposal, mounts, stores = self.legacy_runtime_fixture()
+        original = json.dumps(proposal, sort_keys=True)
+        with patch.object(deployment, "configuration_providers", return_value=[]), \
+                patch.object(launcher, "inspect_mount_ancestors", return_value=[]):
+            deployment.observe_runtime(proposal)
+        observed = launcher.read_private_json(deployment.output / "runtime-environment.json")
+        self.assertEqual(proposal["name"], observed["name"])
+        self.assertEqual(stores, observed["x-rateldesk-storage"])
+        self.assertEqual(proposal["volumes"], {key: observed["volumes"][key] for key in proposal["volumes"]})
+        for physical in (stores["host"]["source"], stores["client"]["source"], deployment.project + "_protected-alias"):
+            self.assertEqual({"external": True, "name": physical}, observed["volumes"].get(physical))
+        self.assertEqual([{"type": mount["Type"], "source": mount.get("Name") or mount["Source"],
+            "target": mount["Destination"], "read_only": not mount["RW"]} for mount in mounts],
+            observed["services"]["mcp-http"]["volumes"])
+        self.assertEqual(original, json.dumps(proposal, sort_keys=True))
+
+    def test_legacy_runtime_volume_alias_collision_cannot_remap_an_engine_identity(self):
+        deployment, proposal, _, _ = self.legacy_runtime_fixture()
+        proposal["volumes"]["actual-host"] = {"name": "different-physical-volume"}
+        original = json.dumps(proposal, sort_keys=True)
+        with patch.object(deployment, "configuration_providers", return_value=[]), \
+                patch.object(launcher, "inspect_mount_ancestors", return_value=[]), \
+                self.assertRaisesRegex(launcher.Prerequisite, "runtime_volume_identity_ambiguous"):
+            deployment.observe_runtime(proposal)
+        self.assertFalse((deployment.output / "runtime-environment.json").exists())
+        self.assertEqual(original, json.dumps(proposal, sort_keys=True))
+
+    def test_legacy_runtime_wrong_or_read_only_store_still_fails_before_verification(self):
+        for change in ("different-volume", "read-only", "bind"):
+            deployment, proposal, mounts, _ = self.legacy_runtime_fixture()
+            if change == "different-volume":
+                mounts[0]["Name"] = "different-host-volume"
+            elif change == "read-only":
+                mounts[0]["RW"] = False
+            else:
+                mounts[0].pop("Name")
+                mounts[0]["Type"] = "bind"
+            code = "runtime_storage_missing" if change == "read-only" else "runtime_storage_mismatch"
+            with self.subTest(change=change), patch.object(deployment, "configuration_providers", return_value=[]), \
+                    patch.object(launcher, "inspect_mount_ancestors", return_value=[]), \
+                    self.assertRaisesRegex(launcher.Prerequisite, code):
+                deployment.observe_runtime(proposal)
 
     def test_new_verify_demotes_previous_success_before_initial_docker_observation(self):
         deployment = self.deployment()
@@ -780,7 +864,8 @@ class LauncherContracts(unittest.TestCase):
                     return b"removed"
                 raise AssertionError(arguments)
         deployment.docker = ComposeWithImageFixture()
-        proposal = deployment.snapshot()
+        with patch.object(launcher, "legacy_recipe_identity", side_effect=lambda current, digest: {"unresolvedSourceSha256": digest}):
+            proposal = deployment.snapshot()
         self.assertTrue(any(item["path"] == str(optional) and item.get("present") is False for item in proposal["x-rateldesk-source-files"]))
         retained = launcher.read_private_json(deployment.output / ".compose-source.json")
         self.assertEqual(retained["services"]["mcp-http"]["env_file"][0]["path"], "${OPTIONAL_ROOT}/optional.env")
@@ -818,11 +903,11 @@ class LauncherContracts(unittest.TestCase):
         with patch.dict(os.environ, {"DOCKER_CONTEXT": "approved"}, clear=True):
             docker = launcher.Docker()
         docker.daemon_identity = "original"
-        docker.check_selection({"dockerSelection": {"DOCKER_CONTEXT": "approved"}, "dockerDaemonIdentity": "original"})
+        docker.check_selection({"dockerSelection": docker.selection, "dockerDaemonIdentity": "original"})
         with self.assertRaisesRegex(launcher.Prerequisite, "docker_selection_changed"):
-            docker.check_selection({"dockerSelection": {"DOCKER_CONTEXT": "another"}})
+            docker.check_selection({"dockerSelection": {**docker.selection, "DOCKER_CONTEXT": "another"}})
         with self.assertRaisesRegex(launcher.Prerequisite, "docker_daemon_changed"):
-            docker.check_selection({"dockerSelection": {"DOCKER_CONTEXT": "approved"}, "dockerDaemonIdentity": "another"})
+            docker.check_selection({"dockerSelection": docker.selection, "dockerDaemonIdentity": "another"})
 
     def test_client_tooling_keeps_selection_and_redacts_docker_start_failure(self):
         deployment = self.deployment()
@@ -893,6 +978,31 @@ class LauncherContracts(unittest.TestCase):
         with patch.object(launcher.subprocess, "run", side_effect=FileNotFoundError()), \
                 self.assertRaisesRegex(launcher.Prerequisite, "docker_cli_missing"):
             launcher.Docker().run(["info"])
+
+    def test_export_validation_errors_report_only_fixed_rule_labels_and_keep_raw_values_private(self):
+        private = "synthetic-protected-value-never-print"
+        stderr = ("HOST_SOURCE_CHANGED [mcp-config-init] service configuration (" + private + "): " + private + "\n"
+            "HOST_SOURCE_CHANGED [deployment] configs references (" + private + "): " + private + "\n"
+            "HOST_SOURCE_CHANGED [" + private + "] " + private + " (" + private + "): " + private + "\n"
+            "HOST_EFFECTIVE_INVALID [configuration] effective configuration (" + private + "): " + private + "\n"
+            "HOST_" + private.upper() + ": " + private)
+        def failed(command, **kwargs):
+            kwargs["stderr"].write(stderr.encode())
+            return subprocess.CompletedProcess(command, 78)
+        arguments = ["run", "--rm", "synthetic-image", "host", "export-check", "--export-directory", "/output"]
+        with patch.object(launcher.subprocess, "run", side_effect=failed), \
+                self.assertRaisesRegex(launcher.Prerequisite, "docker_operation") as failure:
+            launcher.Docker().run(arguments)
+        self.assertEqual(["HOST_EFFECTIVE_INVALID", "HOST_SOURCE_CHANGED", "HOST_SOURCE_CHANGED[deployment:configs references]",
+            "HOST_SOURCE_CHANGED[mcp-config-init:service configuration]"], failure.exception.export_validation_rules)
+        self.assertNotIn(private, str(failure.exception))
+        self.assertNotIn(private, repr(failure.exception.export_validation_rules))
+        self.assertNotIn(private.upper(), repr(failure.exception.export_validation_rules))
+        # The same stderr from another command must retain the generic error;
+        # deployment-controlled process output is never a general diagnostic API.
+        with patch.object(launcher.subprocess, "run", side_effect=failed), self.assertRaises(launcher.Prerequisite) as failure:
+            launcher.Docker().run(["run", "--rm", "synthetic-image", "host", "preflight"])
+        self.assertFalse(hasattr(failure.exception, "export_validation_rules"))
 
     def test_missing_capabilities_stop_before_source_storage_wizard_and_consent(self):
         for version, missing in (("2.26.1-4", "--no-env-resolution"), ("2.39.4", "--no-path-resolution"),

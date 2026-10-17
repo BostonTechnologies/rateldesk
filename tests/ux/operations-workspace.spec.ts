@@ -49,8 +49,11 @@ test('legacy bookmarks, categories, metrics, Back/Forward and job proxy remain u
   await expect(page.getByRole('tab', { name: 'SLA', exact: true })).toBeFocused();
   await page.getByRole('tab', { name: 'Workflows' }).click();
   await expect(page).toHaveURL(/tab=workflows/);
-  for (const category of ['Overdue', 'Escalated', 'Retries pending', 'Callback rejections', 'Binding issues', 'Critical failures']) {
-    await page.getByRole('button', { name: new RegExp(`^${category}`) }).click();
+  for (const [category, key] of [['Overdue', 'overdue'], ['Escalated', 'escalated'], ['Retries pending', 'retries'], ['Callback rejections', 'callbacks'], ['Binding issues', 'bindings'], ['Critical failures', 'critical']]) {
+    const selected = page.getByRole('button', { name: new RegExp(`^${category}`) });
+    await selected.click();
+    await expect(page).toHaveURL(url => url.pathname === '/ops' && url.searchParams.get('category') === key);
+    await expect(selected).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('.workflow-operations table')).toHaveCount(1);
     if (category === 'Callback rejections') await expect(page.locator('.workflow-operations a[href*=correlationId]')).toHaveAttribute('href', '/notifications?category=DomainEvent.Orchestration&correlationId=synthetic%20correlation');
   }

@@ -102,19 +102,47 @@ public sealed class HttpMcpHostingCoordinatorTests
     [Theory]
     [InlineData("http")]
     [InlineData("https")]
-    public void Custom_listener_requires_matching_shared_destination_and_exports_matching_healthcheck(string scheme)
+    public void Explicit_initializer_alternative_exports_a_matching_custom_listener_healthcheck(string scheme)
     {
         Assert.NotEmpty(HttpMcpHostingCoordinator.Validate(Gateway with { Listener = "http://+:8333" }));
         var directory = Path.Combine(Path.GetTempPath(), "rateldesk-listener-" + Guid.NewGuid().ToString("N"));
         try
         {
-            var export = HttpMcpHostingCoordinator.Export(Gateway with { Listener = $"{scheme}://+:8333", McpDestination = $"{scheme}://mcp-http:8333/" }, directory);
+            var settings = Gateway with { Listener = $"{scheme}://+:8333", McpDestination = $"{scheme}://mcp-http:8333/" };
+            var export = HttpMcpHostingCoordinator.Export(settings, directory,
+                composeOverride: HttpMcpHostingCoordinator.ComposeOverlay(settings, legacyInitializer: true));
             using var compose = JsonDocument.Parse(File.ReadAllText(export.Files[2]));
             Assert.Contains("127.0.0.1:8333/health/live", compose.RootElement.GetProperty("services").GetProperty("mcp-http").GetProperty("healthcheck").GetProperty("test")[1].GetString());
             Assert.Equal(scheme == "https", compose.RootElement.GetProperty("services").GetProperty("mcp-http").GetProperty("healthcheck").GetProperty("test")[1].GetString()!.Contains("--no-check-certificate", StringComparison.Ordinal));
             Assert.Contains("RATELDESK_MCP_CONFIG_FILE", compose.RootElement.GetProperty("services").GetProperty("mcp-config-init").GetProperty("volumes")[0].GetProperty("source").GetString());
         }
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
+    }
+
+    [Fact]
+    public void Default_gateway_overlay_contains_only_configuration_changes_without_new_services_or_serving_mounts()
+    {
+        var overlay = HttpMcpHostingCoordinator.ComposeOverlay(Gateway);
+        var services = overlay["services"]!.AsObject();
+        Assert.Equal(new[] { "api", "mcp-http", "web" }, services.Select(service => service.Key).Order(StringComparer.Ordinal));
+        Assert.Null(overlay["volumes"]);
+        Assert.All(services, service =>
+        {
+            var value = service.Value!.AsObject();
+            Assert.Single(value);
+            Assert.NotNull(value["environment"]);
+            Assert.Null(value["healthcheck"]);
+            Assert.Null(value["volumes"]);
+            Assert.Null(value["depends_on"]);
+            Assert.Null(value["command"]);
+        });
+        var environment = services["mcp-http"]!["environment"]!.AsObject();
+        Assert.Equal("gateway", environment["Helpdesk__Mcp__Outbound__CredentialMode"]!.GetValue<string>());
+        Assert.Equal(Gateway.ApiBaseUrl, environment["Helpdesk__Mcp__Outbound__ApiBaseUrl"]!.GetValue<string>());
+        Assert.Null(environment["Helpdesk__Mcp__ConfigurationPath"]);
+        Assert.Null(environment["RATELDESK_MCP_CONFIG"]);
+        Assert.Null(environment["RATELDESK_MCP_HOST_DIRECTORY"]);
+        Assert.Null(environment["RATELDESK_MCP_CLIENT_DIRECTORY"]);
     }
 
     [Theory]

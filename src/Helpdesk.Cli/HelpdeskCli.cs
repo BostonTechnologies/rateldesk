@@ -70,6 +70,7 @@ internal static partial class HelpdeskCli
 
         globals.AddTo(root);
         root.AddCommand(BuildSetupCommand(runtime, globals));
+        Helpdesk.Setup.HostDeploymentCommands.Register(root, runtime.Out, runtime.Error);
         root.AddCommand(BuildLocalStatusCommand(runtime, globals));
         root.AddCommand(BuildLocalValidateCommand(runtime, globals, "config-validate"));
         root.AddCommand(BuildDoctorCommand(runtime, globals));

@@ -170,9 +170,11 @@ public sealed partial class Program
             .WithPromptsFromAssembly(typeof(HelpdeskPrompts).Assembly)
             .WithRequestFilters(filters => filters.AddCallToolFilter(next => (context, cancellationToken) =>
             {
-                SetupVerificationAuthorization.RequireStatus(context.User, context.Params.Name, context.Params.Arguments);
                 var services = context.Services ?? throw new InvalidOperationException("MCP request context does not have a service provider.");
-                return services.GetRequiredService<McpToolInvocationAudit>().InvokeAsync(next, context, cancellationToken);
+                return services.GetRequiredService<McpToolInvocationAudit>().InvokeAsync(
+                    (request, ct) => SetupVerificationAuthorization.InvokeToolAsync(
+                        request.User, request.Params.Name, request.Params.Arguments, token => next(request, token), ct),
+                    context, cancellationToken);
             })
                 .AddReadResourceFilter(next => (context, ct) => { SetupVerificationAuthorization.RequireOrdinary(context.User); return next(context, ct); })
                 .AddGetPromptFilter(next => (context, ct) => { SetupVerificationAuthorization.RequireOrdinary(context.User); return next(context, ct); })

@@ -40,6 +40,7 @@ public sealed class SetupViewModel : ReactiveViewModel
     private Task? _verificationPolling;
     private PairingSession? _hostSession;
     private bool _hostApproved;
+    private bool _adoptedVerification;
     private IReadOnlyDictionary<string, string> _hostManaged = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
     public SetupViewModel(ISetupWorkflow workflow, SetupOptions options,
@@ -50,6 +51,7 @@ public sealed class SetupViewModel : ReactiveViewModel
         _hostWorkflowFactory = hostWorkflowFactory ?? (origin => new HostDeploymentWorkflow(origin));
         _verificationFactory = verificationFactory ?? (directory => new HostVerificationWorkflow(directory));
         _options = options;
+        HostIntent = options.Hosting ? HttpMcpEffectiveDeployment.SelectedIntent : HttpMcpHostIntent.VerifyExisting;
         Transport = options.Transport;
         IsHosting = options.Hosting;
         Profile.Value = options.Profile;
@@ -64,7 +66,7 @@ public sealed class SetupViewModel : ReactiveViewModel
         if (options.Authentication is not null) Authentication = options.Authentication;
         Step.Value = options.VerificationDirectory is null ? SetupStep.Instance : SetupStep.Verification;
         Status.Value = options.VerificationDirectory is null ? "Enter your RatelDesk Web URL. [Enter] Next · [F2] Advanced"
-            : "Applied—verify pending. Next checks the saved generation and requests temporary status consent.";
+            : "Host verification pending. Next checks the reviewed checkpoint and requests temporary status consent.";
         Instance.Skip(1).Subscribe(_ => InvalidateTarget()).DisposeWith(Subscriptions);
         Profile.Skip(1).Subscribe(_ => InvalidateTarget()).DisposeWith(Subscriptions);
         NativeApiTarget.Skip(1).Subscribe(_ => InvalidateTarget()).DisposeWith(Subscriptions);
@@ -86,10 +88,10 @@ public sealed class SetupViewModel : ReactiveViewModel
     public SetupApprovalContext ApprovalContext { get; private set; }
     public int ExitCode { get; private set; }
     public HostVerificationResult? VerificationResult { get; private set; }
-    public string ApprovalTitle => ApprovalContext switch { SetupApprovalContext.Host => "Host deployment approval", SetupApprovalContext.Verification => "Temporary status verification", _ => "Client access approval" };
+    public string ApprovalTitle => ApprovalContext switch { SetupApprovalContext.Host => HostIntent == HttpMcpHostIntent.VerifyExisting ? "Existing baseline approval" : "Host deployment approval", SetupApprovalContext.Verification => "Temporary status verification", _ => "Client access approval" };
     public string ApprovalPurpose => ApprovalContext switch
     {
-        SetupApprovalContext.Host => "Review this deployment; no business access is issued.",
+        SetupApprovalContext.Host => HostIntent == HttpMcpHostIntent.VerifyExisting ? "Adopt the existing baseline; no deployment changes or business grants." : "Review configuration changes; no business access is issued.",
         SetupApprovalContext.Verification => "Status only; temporary access is cleaned up after verification.",
         _ => $"{(Transport == SetupTransport.Http ? "MCP" : "API")} access; choose organization and exact permissions in the browser."
     };
@@ -117,6 +119,16 @@ public sealed class SetupViewModel : ReactiveViewModel
     public ReactiveProperty<string> RequiredGroups { get; } = new("rateldesk-mcp");
     public ReactiveProperty<string> OutputDirectory { get; } = new("");
     public bool IsHosting { get; private set; }
+    public HttpMcpHostIntent HostIntent { get; private set; }
+    public string HostServiceSummary => _hostProposal is { } proposal
+        ? $"Defined services: {proposal.ServiceCountBefore} → {proposal.ServiceCountAfter}" : "";
+    public string HostChangeSummary => HostIntent switch
+    {
+        HttpMcpHostIntent.VerifyExisting => "No deployment changes; zero service recreation.",
+        HttpMcpHostIntent.LegacyInitializer => "Advanced initializer topology: includes a defined one-shot service and reviewed serving mounts.",
+        _ => "Only the reviewed configuration changes may be applied by the deployment owner."
+    };
+    public string VerificationPending => _adoptedVerification ? "Adopted—verify pending" : "Applied—verify pending";
     public SetupTransport Transport { get; private set; }
     public string Authentication { get; private set; } = "browser";
     public string HostAuthentication { get; private set; } = "gateway";
@@ -148,9 +160,26 @@ public sealed class SetupViewModel : ReactiveViewModel
                 if (OutputDirectory.Value.Length == 0) OutputDirectory.Value = SetupInput.HostDirectory;
                 LoadHosting(); if (Instance.Value.Length == 0) Instance.Value = HostPublicOrigin.Value;
             }
-            else LoadClientProfile(preserveUrl: true);
+            else
+            {
+                LoadClientProfile(preserveUrl: true);
+                if (Step.Value == SetupStep.Hosting) Step.Value = SetupStep.Instance;
+            }
         }
-        Status.Value = hosting ? "Configure this MCP server; personal client profiles are separate." : "Connect a personal client profile.";
+        Status.Value = hosting ? HostIntent == HttpMcpHostIntent.VerifyExisting
+            ? "Verify this existing deployment unchanged; personal client profiles are separate."
+            : "Prepare explicitly reviewed configuration changes; personal client profiles are separate."
+            : "Connect a personal client profile.";
+    }
+    public void SelectHostIntent(HttpMcpHostIntent intent)
+    {
+        if (!IsHosting) SelectPurpose(true);
+        if (HostIntent != intent) { InvalidateTarget(preserveDraft: true); HostIntent = intent; }
+        Status.Value = intent == HttpMcpHostIntent.VerifyExisting
+            ? "Verify the detected deployment unchanged. Only private checkpoints and temporary verifier consent are created."
+            : intent == HttpMcpHostIntent.LegacyInitializer
+                ? "Advanced initializer layout changes topology. Review the actual service count and recreation impact before approval."
+                : "Prepare explicit configuration changes. Review and owner apply are required before fresh verification.";
     }
     public void SelectTransport(SetupTransport transport)
     {
@@ -255,6 +284,7 @@ public sealed class SetupViewModel : ReactiveViewModel
                     await Task.WhenAll(_cleanup);
                     if (token.IsCancellationRequested || generation != _generation) return;
                     _verifier = _verificationFactory(_options.VerificationDirectory!);
+                    _adoptedVerification = _verifier.IsAdoption;
                     HostPublicOrigin.Value = _verifier.Origin;
                     if (!_verifier.Supported)
                     { await _verifier.DisposeAsync(); _verifier = null; throw new AgentClientValidationException(HostVerificationWorkflow.ExternalMessage); }
@@ -265,7 +295,7 @@ public sealed class SetupViewModel : ReactiveViewModel
                     if (token.IsCancellationRequested || generation != _generation) return;
                     _verificationSession = verificationSession;
                     ApprovalContext = SetupApprovalContext.Verification;
-                    ApprovalSummary = "Applied host generation retained. No deployment or ordinary client approval is requested.";
+                    ApprovalSummary = (_adoptedVerification ? "Adopted baseline retained." : "Applied host generation retained.") + " No deployment or ordinary client approval is requested.";
                     Detail.Value = ApprovalSummary + "\n" + ApprovalPurpose;
                     Step.Value = SetupStep.Approval;
                     Status.Value = "Temporary status approval pending.";
@@ -297,7 +327,7 @@ public sealed class SetupViewModel : ReactiveViewModel
                         break;
                     }
                     var origin = SetupInput.NormalizeWebUrl(Instance.Value);
-                    if (Managed("apiBaseUrl") && !AgentClientConfigurationValidator.SameTarget(new Uri(_profile!.Resolution.Configuration.ApiBaseUrl!), new Uri(origin)))
+                    if (!IsHosting && Managed("apiBaseUrl") && !AgentClientConfigurationValidator.SameTarget(new Uri(_profile!.Resolution.Configuration.ApiBaseUrl!), new Uri(origin)))
                         throw new AgentClientValidationException("The instance URL is externally managed. Change its owning environment, or use a separate environment/profile.");
                     if (Instance.Value != origin)
                     {
@@ -311,7 +341,8 @@ public sealed class SetupViewModel : ReactiveViewModel
                         HostPublicOrigin.Value = origin;
                         SetupInput.CheckPrivateStorage(System.IO.Path.Combine(OutputDirectory.Value, "host-settings.json"));
                         Step.Value = SetupStep.Hosting;
-                        Status.Value = "Review the server settings. Advanced shows deployment topology and authentication.";
+                        Status.Value = HostIntent == HttpMcpHostIntent.VerifyExisting ? "Verify the detected existing deployment unchanged. Next requests administrator baseline review."
+                            : "Prepare explicit configuration changes. Advanced shows the editable deployment settings.";
                         break;
                     }
                     _workflow.PreflightStorage(Profile.Value, Transport);
@@ -416,7 +447,9 @@ public sealed class SetupViewModel : ReactiveViewModel
                     _hosting = BuildHostingSettings();
                     var failures = HttpMcpHostingCoordinator.Validate(_hosting);
                     if (failures.Count > 0) throw new AgentClientValidationException(string.Join(" ", failures));
-                    _hostProposal = HttpMcpEffectiveDeployment.Create(_hosting);
+                    _hostProposal = HostIntent == HttpMcpHostIntent.VerifyExisting
+                        ? HttpMcpEffectiveDeployment.AdoptBaseline(_hosting)
+                        : HttpMcpEffectiveDeployment.Create(_hosting, intent: HostIntent);
                     if (!_hostProposal.Valid) throw new AgentClientValidationException(HostDeploymentWorkflow.Describe(_hostProposal.Diagnostics));
                     await Task.WhenAll(_cleanup);
                     if (token.IsCancellationRequested || generation != _generation) return;
@@ -429,12 +462,13 @@ public sealed class SetupViewModel : ReactiveViewModel
                     _hostSession = hostSession;
                     ApprovalContext = SetupApprovalContext.Host;
                     DetailsVisible.Value = false;
-                    ApprovalSummary = string.Join("; ", _hostProposal.Changes.Take(2).Select(change => TerminalText.Sanitize(change, 180)));
-                    if (ApprovalSummary.Length == 0) ApprovalSummary = "Review the exact server configuration and protected storage changes.";
+                    ApprovalSummary = HostServiceSummary + " · " + (HostIntent == HttpMcpHostIntent.VerifyExisting
+                        ? "No changes; zero recreation." : "Review owner-applied changes.");
                     Detail.Value = JsonSerializer.Serialize(HttpMcpHostingCoordinator.Preview(_hosting), AgentClientConfiguration.JsonOptions) +
                         "\n\n" + string.Join('\n', _hostProposal.Changes) + "\nTrusted host review: " + TerminalText.Sanitize(hostSession.VerificationUri) + "\nCode: " + TerminalText.Sanitize(hostSession.HumanCode);
                     Step.Value = SetupStep.Approval;
-                    Status.Value = "Host deployment approval pending. An administrator reviews this exact proposal; no gateway credential is created.";
+                    Status.Value = HostIntent == HttpMcpHostIntent.VerifyExisting ? "Baseline review pending. Approval records the existing deployment; it does not apply configuration."
+                        : "Host deployment approval pending. An administrator reviews this exact proposal; no gateway credential is created.";
                     _ = PollHostApprovalAsync(generation, token, hostSession, hostWorkflow, hostProposal);
                     break;
                 case SetupStep.Review:
@@ -445,11 +479,20 @@ public sealed class SetupViewModel : ReactiveViewModel
                         if (!_hostApproved || _hostProposal is null || _hostSession is null || _hostWorkflow is null)
                             throw new AgentClientValidationException("Review and explicitly approve this effective deployment before saving.");
                         var export = await _hostWorkflow.SaveApprovedAsync(_hostProposal, _hostSession, OutputDirectory.Value, overwriteConfirmed, token);
+                        if (_closing || token.IsCancellationRequested || generation != _generation) return;
                         _saved = true;
+                        if (_hostProposal.IsAdoption)
+                        {
+                            _adoptedVerification = true;
+                            Detail.Value = "Existing baseline reviewed and recorded privately. Deployment sources, topology and running services are unchanged.\n" + export.ApplyInstructions + "\nStart a new process with the exact --verify command printed by the host launcher. Temporary status consent and fresh source/runtime checks remain required.";
+                            Step.Value = SetupStep.Complete;
+                            Status.Value = "Existing baseline adopted; fresh verification pending. No apply or restart is required.";
+                            break;
+                        }
                         Detail.Value = "Private host output: " + TerminalText.Sanitize(OutputDirectory.Value) + "\n" + string.Join('\n', export.Files.Select(path => TerminalText.Sanitize(path))) +
-                            "\n\nOn the Docker host, run the same deployment launcher with --apply (release-owned Compose), or import deployment.json through the owning manager.\nAfter recreation, start a fresh invocation using the exact --verify command printed by the host launcher (retains Docker configuration, context, host and TLS selections).\nThis requests a separate temporary status verifier and checks observed runtime, catalog and API-backed status.";
+                            "\n\n" + export.ApplyInstructions + "\nAfter owner apply, start a fresh invocation using the exact --verify command printed by the host launcher (retains Docker configuration, context, host and TLS selections).\nThis requests a separate temporary status verifier and checks observed runtime, catalog and API-backed status.";
                         Step.Value = SetupStep.Complete;
-                        Status.Value = "Saved—apply pending. Deployment-owner apply and end-to-end verification remain required.";
+                        Status.Value = "Changes prepared—not applied. Deployment-owner apply and fresh end-to-end verification remain required.";
                         break;
                     }
                     if (!_saved && !overwriteConfirmed && _profile?.Resolution.Revision is not null) { ConfirmOverwrite.Value = true; break; }
@@ -542,10 +585,10 @@ public sealed class SetupViewModel : ReactiveViewModel
                 if (poll.Status is "pending" or "slow_down") continue;
                 if (poll.Credential is null)
                 {
-                    await ApplyAsync(generation, token, () => Status.Value = $"Temporary status approval {TerminalText.Sanitize(poll.Status)}. Back returns to the applied-host verification checkpoint.");
+                    await ApplyAsync(generation, token, () => Status.Value = $"Temporary status approval {TerminalText.Sanitize(poll.Status)}. Back returns to the same host verification checkpoint.");
                     return;
                 }
-                await ApplyAsync(generation, token, () => { Busy.Value = true; Step.Value = SetupStep.Checks; Status.Value = "Applied—verify pending. Running read-only checks and temporary access cleanup…"; });
+                await ApplyAsync(generation, token, () => { Busy.Value = true; Step.Value = SetupStep.Checks; Status.Value = VerificationPending + ". Running read-only checks and temporary access cleanup…"; });
                 var result = await verifier.RunAsync(token);
                 await ApplyAsync(generation, token, () =>
                 {
@@ -559,12 +602,12 @@ public sealed class SetupViewModel : ReactiveViewModel
                 });
                 return;
             }
-            await ApplyAsync(generation, token, () => Status.Value = "Temporary status approval expired. Back returns to applied—verify pending; no host reprovisioning is needed.");
+            await ApplyAsync(generation, token, () => Status.Value = "Temporary status approval expired. Back returns to " + VerificationPending + "; no host reprovisioning is needed.");
         }
         catch (OperationCanceledException) { }
         catch (Exception exception) when (exception is AgentClientValidationException or HttpRequestException or IOException)
         { await ApplyAsync(generation, CancellationToken.None, () =>
-            { Busy.Value = false; Step.Value = SetupStep.Verification; Status.Value = SafeError(exception) + " Applied host settings remain verify pending; retry temporary verification here."; }); }
+            { Busy.Value = false; Step.Value = SetupStep.Verification; Status.Value = SafeError(exception) + " The reviewed host checkpoint remains verify pending; retry temporary verification here."; }); }
     }
 
     private async Task PollHostApprovalAsync(long generation, CancellationToken token, PairingSession session,
@@ -580,7 +623,12 @@ public sealed class SetupViewModel : ReactiveViewModel
                 {
                     if (poll.ProposalHash != proposal.ProposalHash || poll.SourceHash != proposal.SourceHash)
                         throw new AgentClientValidationException("The approved host generation differs from the reviewed proposal. Start a new review.");
-                    await ApplyAsync(generation, token, () => { _hostApproved = true; Step.Value = SetupStep.Review; Status.Value = "Administrator approved the reviewed generation. Next saves the protected export; apply is still pending."; });
+                    await ApplyAsync(generation, token, () =>
+                    {
+                        _hostApproved = true; Step.Value = SetupStep.Review;
+                        Status.Value = proposal.IsAdoption ? "Administrator reviewed the unchanged baseline. Next records a private checkpoint; fresh verification follows."
+                            : "Administrator approved the reviewed changes. Next prepares the private candidate; owner apply is still pending.";
+                    });
                     return;
                 }
                 if (poll.Status is "denied" or "expired" or "cancelled")
@@ -818,7 +866,7 @@ public sealed class SetupViewModel : ReactiveViewModel
     public void Back()
     {
         if (_closing || (Busy.Value && Step.Value is not (SetupStep.Approval or SetupStep.Verification)) || Step.Value == SetupStep.Complete) return;
-        if (_saved && !_acknowledged) { Status.Value = "Secure save completed; retry Next to acknowledge delivery before changing this profile."; return; }
+        if (!IsHosting && _saved && !_acknowledged) { Status.Value = "Secure save completed; retry Next to acknowledge delivery before changing this profile."; return; }
         var previous = Step.Value;
         var context = ApprovalContext;
         InvalidateTarget(preserveDraft: true);
@@ -835,7 +883,7 @@ public sealed class SetupViewModel : ReactiveViewModel
         };
         _review = null;
         Status.Value = context == SetupApprovalContext.Verification && previous == SetupStep.Approval
-            ? "Applied—verify pending. Temporary consent cancelled; Next retries verification of the same applied host generation."
+            ? VerificationPending + ". Temporary consent cancelled; Next retries verification of the same reviewed host generation."
             : previous == SetupStep.Approval && context == SetupApprovalContext.Host
                 ? "Host draft retained. Review your settings before requesting fresh deployment approval."
                 : "Inputs are preserved. Review any changed target before authentication.";

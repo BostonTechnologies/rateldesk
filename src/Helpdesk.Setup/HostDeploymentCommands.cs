@@ -13,7 +13,8 @@ public static class HostDeploymentCommands
         {
             var command = new Command(action, action == "verify" ? "Observe applied configuration and request a narrow temporary status verifier." : "Validate the complete proposed deployment before approval.");
             var directory = new Option<string?>("--export-directory"); var url = new Option<string?>("--url");
-            command.Options.Add(directory); command.Options.Add(url);
+            var intentOption = new Option<string?>("--intent") { Description = "verify-existing, prepare-changes, or the separately reviewed legacy-initializer alternative" };
+            command.Options.Add(directory); command.Options.Add(url); command.Options.Add(intentOption);
             command.SetAction(async (parse, ct) =>
             {
                 try
@@ -48,8 +49,16 @@ public static class HostDeploymentCommands
                     }
                     var settings = HttpMcpEffectiveDeployment.Adopt(HttpMcpHostingCoordinator.Load(path));
                     if (parse.GetValue(url) is { } supplied) settings = settings with { PublicOrigin = SetupInput.NormalizeWebUrl(supplied) };
-                    var proposal = HttpMcpEffectiveDeployment.Create(settings);
-                    await output.WriteLineAsync(JsonSerializer.Serialize(new { valid = proposal.Valid, proposal.SourceHash, proposal.ProposalHash, proposal.Changes, proposal.Diagnostics }, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+                    var intent = parse.GetValue(intentOption) switch
+                    {
+                        null => HttpMcpEffectiveDeployment.SelectedIntent,
+                        "verify-existing" => HttpMcpHostIntent.VerifyExisting,
+                        "prepare-changes" => HttpMcpHostIntent.PrepareChanges,
+                        "legacy-initializer" => HttpMcpHostIntent.LegacyInitializer,
+                        _ => throw new AgentClientValidationException("HOST_INTENT_INVALID: Select verify-existing, prepare-changes or legacy-initializer.")
+                    };
+                    var proposal = HttpMcpEffectiveDeployment.Create(settings, intent: intent);
+                    await output.WriteLineAsync(JsonSerializer.Serialize(new { valid = proposal.Valid, intent = proposal.Intent.ToString(), proposal.ServiceCountBefore, proposal.ServiceCountAfter, proposal.Changes, proposal.Diagnostics }, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
                     return proposal.Valid ? 0 : SetupRunner.ConfigurationError;
                 }
                 catch (Exception exception) when (exception is AgentClientValidationException or HttpRequestException or IOException or UnauthorizedAccessException or InvalidOperationException or FormatException or JsonException)

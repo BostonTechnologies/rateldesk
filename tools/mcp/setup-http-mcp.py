@@ -6,6 +6,7 @@ interprets a shell command from deployment metadata and never prints a rendered
 deployment, container environment, or Docker error containing its input.
 """
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -19,6 +20,10 @@ import sys
 import tempfile
 import uuid
 from datetime import datetime, timezone
+import importlib.util
+_tool_spec = importlib.util.spec_from_file_location("rateldesk_compose_toolchain", Path(__file__).with_name("compose_toolchain.py"))
+compose_toolchain = importlib.util.module_from_spec(_tool_spec)
+_tool_spec.loader.exec_module(compose_toolchain)
 try:
     import resource
 except ImportError:  # Unix host launchers normally have resource; byte checks remain portable.
@@ -36,7 +41,9 @@ RELEVANT_PREFIXES = ("helpdesk__", "helpdesk:", "rateldesk_mcp_", "authenticatio
                      "aspnetcore_", "dotnet_")
 PROXY_KEYS = {"http_proxy", "https_proxy", "all_proxy", "no_proxy"}
 DOCKER_SELECTION_KEYS = ("DOCKER_CONFIG", "DOCKER_CONTEXT", "DOCKER_HOST", "DOCKER_TLS",
-                         "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH", "DOCKER_API_VERSION")
+                         "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH", "DOCKER_API_VERSION",
+                         compose_toolchain.BINARY_KEY, compose_toolchain.DIGEST_KEY, compose_toolchain.VERSION_KEY,
+                         compose_toolchain.CONTEXT_KEY)
 COMPOSE_FLOOR = "2.35.0"
 COMPOSE_FLAGS = ("--no-env-resolution", "--no-interpolate", "--no-path-resolution", "--format")
 ANCESTOR_INSPECTION_SCRIPT = 'for path do test ! -L "$path"; if test -e "$path"; then test -d "$path"; test -x "$path"; fi; done'
@@ -48,6 +55,31 @@ class Prerequisite(Exception):
 
 def fail(code, action):
     raise Prerequisite(f"{code}: {action}")
+
+
+def export_validation_rules(reason):
+    """Return fixed rule labels only; never forward validator/process text."""
+    codes = ("HOST_SOURCE_CHANGED", "HOST_EXPORT_CHANGED", "HOST_COMPOSE_OBSERVATION_INVALID", "HOST_EFFECTIVE_INVALID", "HOST_SERVICE_MISSING",
+        "HOST_SERVICE_ROLE_CONFLICT", "HOST_MOUNT_COLLISION", "HOST_RUNTIME_CONFIG_MOUNT",
+        "HOST_RUNTIME_CONFIG_STORAGE_REQUIRED", "HOST_STORAGE_REQUIRED", "HOST_STORAGE_MOUNT_MISSING",
+        "HOST_STORAGE_ISOLATION", "HOST_STORAGE_API_EXPOSURE", "HOST_API_TARGET_MISMATCH",
+        "HOST_AUTHENTICATION_MISMATCH", "HOST_RESOURCE_MISMATCH", "HOST_PAIRING_ORIGIN_MISMATCH",
+        "HOST_INSTANCE_MISMATCH", "HOST_LISTENER_MISMATCH", "HOST_EFFECTIVE_OPTIONS_MISMATCH",
+        "HOST_ROUTE_INVALID", "HOST_ROUTE_DESTINATION", "MCP_OPTIONS_INVALID", "MCP_EXTERNAL_INVALID",
+        "MCP_OUTBOUND_MODE", "WEB_MCP_DISABLED")
+    topology = [(service, key) for service in SERVICE_NAMES for key in
+                ("service configuration", "effective imported configuration")]
+    topology += [("deployment", key) for key in ("defined service inventory", "volumes references", "configs references",
+        "secrets references", "networks references")]
+    topology += [("mcp-config-init", "service configuration"), ("mcp-config-init", "protected initializer")]
+    rules = set()
+    for line in reason.splitlines():
+        for code in codes:
+            if line.startswith(code.casefold() + " ") or line.startswith(code.casefold() + ":"):
+                labels = [f"{code}[{layer}:{key}]" for layer, key in topology if code == "HOST_SOURCE_CHANGED"
+                          and line.startswith(f"{code} [{layer}] {key} (".casefold())]
+                rules.update(labels or [code])
+    return sorted(rules)[:16]
 
 
 def safe_label(value, maximum=256):
@@ -115,7 +147,7 @@ def check_compose_dependencies(path):
         dependency = bool(re.search(r"(?m)^\s*(?:['\"]?(?:include|extends)['\"]?)\s*:", content)
                           or re.search(r"[{},]\s*['\"]?(?:include|extends)['\"]?\s*:", content))
     if dependency:
-        fail("compose_dependency_unsupported", "Compose include/extends sources cannot be fully source-bound by this launcher. Use Docker Compose to export a complete private saved document with --no-interpolate --no-env-resolution --format json, register that document with the same deployment owner, then rerun setup against it.")
+        fail("compose_dependency_unsupported", "Full source/runtime host verification cannot bind include/extends dependencies with this launcher. Keep the original saved YAML; review its dependency files through the owning manager or use ordinary client endpoint diagnostics. No source replacement or deployment apply was requested.")
 
 
 def private_directory(path):
@@ -168,8 +200,18 @@ def read_private_json(path):
 class Docker:
     def __init__(self, output=None):
         self.output = output
+        self.compose_tool = None
         # Capture only CLI selection, never the private config/credential file.
         self.selection = {key: os.environ[key] for key in DOCKER_SELECTION_KEYS if key in os.environ}
+        # Docker's implicit config and TLS paths depend on HOME. Make their
+        # original locations explicit so a new terminal/process cannot retain
+        # the same daemon while silently selecting different registry helpers.
+        if not self.selection.get("DOCKER_CONFIG"):
+            self.selection["DOCKER_CONFIG"] = str(Path.home() / ".docker")
+        if (self.selection.get("DOCKER_TLS") or self.selection.get("DOCKER_TLS_VERIFY")) and not self.selection.get("DOCKER_CERT_PATH"):
+            # Docker CLI InstallFlags defaults certificates to config.Dir(),
+            # which already honors DOCKER_CONFIG, unless DOCKER_CERT_PATH is set.
+            self.selection["DOCKER_CERT_PATH"] = self.selection["DOCKER_CONFIG"]
         for key, value in self.selection.items():
             safe_label(value, 4096)
             if key == "DOCKER_HOST" and re.search(r"://[^/]*@", value):
@@ -177,6 +219,24 @@ class Docker:
             if key in ("DOCKER_CONFIG", "DOCKER_CERT_PATH") and value:
                 self.selection[key] = str(Path(value).absolute())
         self.daemon_identity = None
+        if self.selection.get(compose_toolchain.BINARY_KEY):
+            self.compose_tool = compose_toolchain.Selection(self.selection[compose_toolchain.BINARY_KEY],
+                self.selection.get(compose_toolchain.DIGEST_KEY), fail)
+            self.selection.update(self.compose_tool.environment())
+
+    def configure(self, args):
+        if args.compose_binary and args.prepare_compose:
+            fail("compose_tool_conflict", "Choose --compose-binary or --prepare-compose, not both.")
+        if args.compose_cache and not args.prepare_compose:
+            fail("compose_tool_conflict", "--compose-cache is used with explicit --prepare-compose only.")
+        if args.compose_binary:
+            self.compose_tool = compose_toolchain.Selection(args.compose_binary, args.compose_sha256, fail)
+        elif args.prepare_compose:
+            self.compose_tool = compose_toolchain.prepare(args.prepare_compose, fail, cache=args.compose_cache)
+        elif args.compose_sha256:
+            fail("compose_tool_conflict", "Supply --compose-binary with --compose-sha256.")
+        if self.compose_tool:
+            self.selection.update(self.compose_tool.environment())
 
     def process_environment(self):
         environment = os.environ.copy()
@@ -185,10 +245,30 @@ class Docker:
         environment.update(self.selection)
         return environment
 
-    def preflight(self):
-        """Probe the selected plugin with synthetic inputs before touching sources."""
+    def preflight(self, require_compose=True):
+        """Probe actual operation capabilities before reading deployment sources."""
+        if not require_compose:
+            self.bind_daemon()
+            return
+        try:
+            self._compose_preflight()
+        except Prerequisite as failure:
+            if (self.compose_tool is not None or not sys.stdin.isatty()
+                    or not str(failure).startswith(("compose_feature_unsupported:", "compose_plugin_missing:"))):
+                raise
+            self.compose_tool = compose_toolchain.choose(fail, output=sys.stderr)
+            self.selection.update(self.compose_tool.environment())
+            self._compose_preflight()
+
+    def _compose_preflight(self):
+        """Retain the complete beta.2 synthetic source/env/path/order probe."""
         version = self.run(["compose", "version", "--short"], maximum=1024).decode("utf-8", errors="replace").strip()
         self.compose_version = version if re.fullmatch(r"v?\d+\.\d+\.\d+[A-Za-z0-9.+-]{0,64}", version) else "unparseable"
+        if self.compose_tool:
+            expected_version = self.selection.get(compose_toolchain.VERSION_KEY)
+            if expected_version and expected_version != self.compose_version:
+                fail("compose_tool_changed", "The selected Compose version differs from the reviewed tool receipt. Restore that exact verified executable before resuming.")
+            self.selection[compose_toolchain.VERSION_KEY] = self.compose_version
         help_text = self.run(["compose", "config", "--help"], maximum=65536).decode("utf-8", errors="replace")
         for flag in COMPOSE_FLAGS:
             if flag not in help_text:
@@ -233,6 +313,25 @@ class Docker:
                 self.unsupported("config source/interpolation/env-file/path/order semantics")
             if not valid:
                 self.unsupported("config source/interpolation/env-file/path/order semantics")
+        self.bind_daemon()
+
+    def bind_daemon(self):
+        # Capture the effective context without changing the active context or
+        # copying config.json, registry authentication, or TLS private keys.
+        if not self.selection.get("DOCKER_CONTEXT") and not self.selection.get("DOCKER_HOST"):
+            context = self.run(["context", "show"], maximum=1024).decode("utf-8").strip()
+            safe_label(context, 256)
+            if not context:
+                fail("docker_context_unresolved", "The active Docker context could not be resolved. Supply the original explicit DOCKER_CONTEXT or DOCKER_HOST before setup.")
+            self.selection["DOCKER_CONTEXT"] = context
+        if self.selection.get("DOCKER_CONTEXT"):
+            context = self.json(["context", "inspect", "--format", "{{json .Endpoints.docker}}", self.selection["DOCKER_CONTEXT"]])
+            if not isinstance(context, dict) or not context.get("Host"):
+                fail("docker_context_unresolved", "The selected Docker context has no resolvable Docker endpoint. Restore that same context; setup will not fall back to a local daemon.")
+            context_digest = hashlib.sha256(json.dumps(context, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            if self.selection.get(compose_toolchain.CONTEXT_KEY) not in (None, context_digest):
+                fail("docker_context_changed", "The selected Docker context endpoint or TLS policy differs from the reviewed tool receipt. Restore the original context, or restart ordinary setup for a new review.")
+            self.selection[compose_toolchain.CONTEXT_KEY] = context_digest
         identity = self.run(["info", "--format", "{{json .ID}}"], maximum=1024)
         try:
             identifier = json.loads(identity)
@@ -240,23 +339,40 @@ class Docker:
                 raise ValueError()
         except (ValueError, UnicodeError):
             fail("docker_daemon_identity", "The selected Docker daemon did not provide its stable identity. Restore the selected Docker engine/context before setup; approval cannot bind an unidentified deployment.")
-        self.daemon_identity = hashlib.sha256(identifier.encode()).hexdigest()
+        identity = hashlib.sha256(identifier.encode()).hexdigest()
+        if self.daemon_identity is not None and identity != self.daemon_identity:
+            fail("docker_daemon_changed", "The selected Docker daemon changed during setup. Restore the original Docker context/host before proceeding; no operation was retried.")
+        self.daemon_identity = identity
 
     def unsupported(self, feature):
-        fail("compose_feature_unsupported", f"Selected Compose version {self.compose_version} lacks {feature}. Install Docker Compose v{COMPOSE_FLOOR} or newer through the host's supported package channel, then rerun the same command. Alternatively deliberately select a checksum-verified isolated plugin with DOCKER_CONFIG; keep that selection for setup, client setup, apply and --verify. The launcher never installs or replaces plugins.")
+        fail("compose_feature_unsupported", f"Selected Compose version {self.compose_version} lacks {feature}. Rerun with --compose-binary /absolute/path/docker-compose --compose-sha256 EXPECTED_SHA256, or explicitly consent to pinned private preparation with --prepare-compose /absolute/private/directory (offline: --compose-cache /absolute/platform/file). To cancel, install Docker Compose v{COMPOSE_FLOOR}+ through the host's supported package channel, then rerun. The normal Docker plugin/configuration/context is unchanged.")
 
     def check_selection(self, state):
         if "dockerSelection" in state and state["dockerSelection"] != self.selection:
             fail("docker_selection_changed", "The Docker configuration/context/host/TLS selection differs from this approved generation. Rerun its printed apply/verify command with the original explicit Docker settings; changed deployment ownership needs ordinary setup and new review.")
+        if state.get("composeVersion") and state["composeVersion"] != getattr(self, "compose_version", None):
+            fail("compose_tool_changed", "The selected Compose version differs from the reviewed checkpoint. Restore the reviewed tool or run ordinary setup for a new source review.")
         if state.get("dockerDaemonIdentity") and state["dockerDaemonIdentity"] != self.daemon_identity:
             fail("docker_daemon_changed", "This is a different Docker daemon from the approved generation. Restore the original Docker context/host; do not apply or verify another deployment's approval.")
 
-    def run(self, arguments, *, input_data=None, maximum=MAX_BYTES, optional=False):
+    def run(self, arguments, *, input_data=None, maximum=MAX_BYTES, optional=False, owner_tool=False):
+        selected_compose = self.compose_tool is not None and arguments and arguments[0] == "compose" and not owner_tool
+        guarded_compose = bool(arguments and arguments[0] == "compose"
+            and (selected_compose or owner_tool and self.daemon_identity is not None))
+        if guarded_compose:
+            self.bind_daemon()
+        if selected_compose:
+            # Both invocations retain precisely the original Docker config and
+            # its context/TLS/auth-helper selection. Bind before and after every
+            # private renderer/apply call; an unresolved daemon never falls back.
+            command = self.compose_tool.command(arguments[1:])
+        else:
+            command = ["docker", *arguments]
         # Temporary files bound memory even when an untrusted daemon/source emits
         # huge output. Stderr is deliberately never copied into a public error.
         with tempfile.TemporaryFile() as result, tempfile.TemporaryFile() as error:
             try:
-                completed = subprocess.run(["docker", *arguments], input=input_data, env=self.process_environment(),
+                completed = subprocess.run(command, input=input_data, env=self.process_environment(),
                                            stdout=result, stderr=error, timeout=45, check=False,
                                            preexec_fn=bound_child_files if resource else None)
             except subprocess.TimeoutExpired:
@@ -277,8 +393,14 @@ class Docker:
                     return None
                 error.seek(0)
                 reason = error.read(8192).decode("utf-8", errors="replace").casefold()
+                if any(arguments[index:index + 2] == ["host", "export-check"] for index in range(len(arguments) - 1)):
+                    rules = export_validation_rules(reason)
+                    if rules:
+                        failure = Prerequisite("docker_operation: The approved export failed its serving and mount validation; raw process output remains private.")
+                        failure.export_validation_rules = rules
+                        raise failure
                 if arguments[:2] == ["compose", "version"]:
-                    fail("compose_plugin_missing", "The selected Docker CLI cannot run its Compose plugin. Install/repair Docker Compose v2 in the selected Docker configuration, then rerun.")
+                    fail("compose_plugin_missing", "The selected Docker CLI cannot run its Compose plugin. Select an existing verified tool with --compose-binary /absolute/path/docker-compose --compose-sha256 EXPECTED_SHA256, or explicitly prepare pinned private Compose with --prepare-compose /absolute/private/directory (offline: add --compose-cache /absolute/platform/file). Otherwise install Docker Compose v2.35+ through the host supported package channel and rerun; no plugin/config/context was changed.")
                 if "permission denied" in reason or "access is denied" in reason:
                     code = "compose_source_permission" if arguments[0] == "compose" and "config" in arguments else "docker_permission_denied"
                     fail(code, "Docker could not read the selected source or access the selected daemon. Restore that source/daemon permission and retry; raw errors remain private.")
@@ -290,7 +412,10 @@ class Docker:
                     fail("compose_source_invalid", "Compose rejected the saved source or interpolation. Validate the private source with the selected Compose plugin, correct it, then rerun; no rendered values were printed.")
                 fail("docker_operation", "Docker could not resolve the saved deployment. Check its saved sources and local images, then retry. No raw environment was printed.")
             result.seek(0)
-            return result.read()
+            content = result.read()
+        if guarded_compose:
+            self.bind_daemon()
+        return content
 
     def json(self, arguments):
         try:
@@ -447,13 +572,13 @@ def selected_secret_references(proposal):
             document = json.loads(provider["content"])
             apply({field: str(value).strip() for field in fields
                    if (value := json_configuration_value(document, "Helpdesk:Mcp:Outbound:" + field)) is not None})
-    environment = effective_environment(proposal["x-rateldesk-image-environment"]["mcp-http"], proposal["services"]["mcp-http"].get("environment", {}))
+    environment = effective_environment(proposal["x-rateldesk-image-environment"]["mcp-http"], proposal["services"][proposal.get("x-rateldesk-service-roles", {}).get("mcp-http", "mcp-http")].get("environment", {}))
     suffixes = {"CredentialMode": "credential_mode", "IntegrationCredential": "integration_credential", "IntegrationCredentialFile": "integration_credential_file",
                 "AuthentikAppPassword": "authentik_app_password", "AuthentikAppPasswordFile": "authentik_app_password_file"}
     apply({field: environment["rateldesk_mcp_" + suffix].strip() for field, suffix in suffixes.items() if "rateldesk_mcp_" + suffix in environment})
     apply({field: environment["helpdesk__mcp__outbound__" + field.casefold()].strip() for field in fields
            if "helpdesk__mcp__outbound__" + field.casefold() in environment})
-    command = proposal["services"]["mcp-http"].get("command", proposal.get("x-rateldesk-image-commands", {}).get("mcp-http", []))
+    command = proposal["services"][proposal.get("x-rateldesk-service-roles", {}).get("mcp-http", "mcp-http")].get("command", proposal.get("x-rateldesk-image-commands", {}).get("mcp-http", []))
     command_layer = {}
     if isinstance(command, list):
         for index, argument in enumerate(command):
@@ -563,9 +688,278 @@ def metadata_paths(value):
     return value.split(",")
 
 
+def validate_runtime_options(definition, metadata):
+    """Attest configured inspect options; retain actual daemon defaults privately."""
+    from decimal import Decimal, InvalidOperation
+    host, config = metadata.get("HostConfig", {}), metadata.get("Config", {})
+
+    def mismatch(key):
+        fail("runtime_option_mismatch", f"The actual Docker option {key} differs from the saved source. Reconcile that exact option through its deployment owner, then review again; setup changed no service.")
+
+    def unsupported(key):
+        fail("runtime_option_unsupported", f"Full host attestation cannot resolve the configured {key} option. Keep the original saved source and review this exact option through its deployment owner; use ordinary client endpoint diagnostics until its runtime binding is supported. No reformatting or deployment change is required by this check.")
+
+    def integer(value, key):
+        if isinstance(value, bool) or not re.fullmatch(r"-?[0-9]+", str(value)):
+            unsupported(key)
+        return int(value)
+
+    def number(key, field, value):
+        expected = integer(value, key)
+        actual = host.get(field)
+        if actual is None or integer(actual, key) != expected:
+            mismatch(key)
+
+    def cpu_number(value, key):
+        try:
+            number = Decimal(str(value)) * 1000000000
+            if not number.is_finite() or number != number.to_integral_value():
+                unsupported(key)
+            return int(number)
+        except (InvalidOperation, ValueError):
+            unsupported(key)
+
+    for key, field in (("dns", "Dns"), ("dns_search", "DnsSearch"), ("dns_opt", "DnsOptions")):
+        if key in definition and definition[key] is not None:
+            if definition[key] != (host.get(field) or []):
+                mismatch(key)
+    if "extra_hosts" in definition:
+        def extra_hosts(values):
+            entries = values.items() if isinstance(values, dict) else (str(value).replace("=", ":", 1).split(":", 1) for value in values or [])
+            try:
+                return sorted((str(name), str(address)) for name, address in entries)
+            except (TypeError, ValueError):
+                unsupported("extra_hosts")
+        if extra_hosts(definition["extra_hosts"]) != extra_hosts(host.get("ExtraHosts")):
+            mismatch("extra_hosts")
+    if "sysctls" in definition:
+        expected = definition["sysctls"]
+        if not isinstance(expected, dict):
+            unsupported("sysctls")
+        if any(str((host.get("Sysctls") or {}).get(key)) != str(value) for key, value in expected.items()):
+            mismatch("sysctls")
+    if "devices" in definition:
+        expected = []
+        for device in definition["devices"] or []:
+            if not isinstance(device, dict) or not str(device.get("source", "")).startswith("/") or not str(device.get("target", "")).startswith("/"):
+                unsupported("devices")
+            expected.append((device["source"], device["target"], "".join(sorted(device.get("permissions") or "rwm"))))
+        actual = [(device.get("PathOnHost"), device.get("PathInContainer"), "".join(sorted(device.get("CgroupPermissions") or "rwm"))) for device in host.get("Devices") or []]
+        if sorted(expected) != sorted(actual):
+            mismatch("devices")
+    if "device_cgroup_rules" in definition and sorted(definition["device_cgroup_rules"] or []) != sorted(host.get("DeviceCgroupRules") or []):
+        mismatch("device_cgroup_rules")
+    if "ulimits" in definition:
+        actual = {entry.get("Name"): (entry.get("Soft"), entry.get("Hard")) for entry in host.get("Ulimits") or []}
+        for name, limits in (definition["ulimits"] or {}).items():
+            soft, hard = (limits.get("soft"), limits.get("hard")) if isinstance(limits, dict) else (limits, limits)
+            if actual.get(name) != (integer(soft, "ulimits"), integer(hard, "ulimits")):
+                mismatch("ulimits")
+    for key, field in (("pid", "PidMode"), ("ipc", "IpcMode"), ("uts", "UTSMode"), ("userns_mode", "UsernsMode"),
+                       ("cgroup", "CgroupnsMode"), ("cgroup_parent", "CgroupParent"), ("cpuset", "CpusetCpus"), ("isolation", "Isolation")):
+        if key in definition and definition[key] is not None:
+            if key in ("pid", "ipc") and str(definition[key]).startswith(("service:", "container:")):
+                unsupported(key)
+            if str(definition[key]) != str(host.get(field) or ""):
+                mismatch(key)
+    for key, field in (("hostname", "Hostname"), ("domainname", "Domainname")):
+        if key in definition and definition[key] != config.get(field):
+            mismatch(key)
+    numeric = (("mem_limit", "Memory"), ("mem_reservation", "MemoryReservation"), ("memswap_limit", "MemorySwap"),
+        ("mem_swappiness", "MemorySwappiness"), ("shm_size", "ShmSize"), ("pids_limit", "PidsLimit"),
+        ("cpu_period", "CpuPeriod"), ("cpu_quota", "CpuQuota"), ("cpu_shares", "CpuShares"),
+        ("cpu_rt_period", "CpuRealtimePeriod"), ("cpu_rt_runtime", "CpuRealtimeRuntime"),
+        ("cpu_count", "CpuCount"), ("cpu_percent", "CpuPercent"), ("oom_score_adj", "OomScoreAdj"))
+    for key, field in numeric:
+        if key in definition and definition[key] is not None:
+            number(key, field, definition[key])
+    if "cpus" in definition and cpu_number(definition["cpus"], "cpus") != (host.get("NanoCpus") or 0):
+        mismatch("cpus")
+    for key, field in (("oom_kill_disable", "OomKillDisable"), ("init", "Init")):
+        if key in definition and bool(definition[key]) != bool(host.get(field)):
+            mismatch(key)
+    for key, field in (("storage_opt", "StorageOpt"),):
+        if key in definition and (definition[key] or {}) != (host.get(field) or {}):
+            mismatch(key)
+    resources = definition.get("deploy", {}).get("resources", {}) or {}
+    for kind, fields in (("limits", (("memory", "Memory"), ("pids", "PidsLimit"))), ("reservations", (("memory", "MemoryReservation"),))):
+        values = resources.get(kind) or {}
+        for key, field in fields:
+            if key in values:
+                number("deploy.resources." + kind + "." + key, field, values[key])
+    limits = resources.get("limits") or {}
+    if "cpus" in limits and cpu_number(limits["cpus"], "deploy.resources.limits.cpus") != (host.get("NanoCpus") or 0):
+        mismatch("deploy.resources.limits.cpus")
+    reservations = resources.get("reservations") or {}
+    for key in ("cpus", "devices", "generic_resources"):
+        if reservations.get(key):
+            unsupported("deploy.resources.reservations." + key)
+    for key in ("gpus", "credential_spec", "use_api_socket", "provider", "blkio_config"):
+        if definition.get(key):
+            unsupported(key)
+    fields = ["Dns", "DnsSearch", "DnsOptions", "ExtraHosts", "Sysctls", "Devices", "DeviceCgroupRules", "Ulimits",
+        "PidMode", "IpcMode", "UTSMode", "UsernsMode", "CgroupnsMode", "CgroupParent", "CpusetCpus", "Isolation",
+        "Memory", "MemoryReservation", "MemorySwap", "MemorySwappiness", "ShmSize", "PidsLimit", "NanoCpus",
+        "CpuPeriod", "CpuQuota", "CpuShares", "CpuRealtimePeriod", "CpuRealtimeRuntime", "CpuCount", "CpuPercent",
+        "OomScoreAdj", "OomKillDisable", "Init", "StorageOpt", "DeviceRequests"]
+    return {"host": {field: host.get(field) for field in fields},
+        "config": {field: config.get(field) for field in ("Hostname", "Domainname", "User", "WorkingDir")}}
+
+
+def compose_runtime_model(document):
+    """Decode Compose's dollar escaping at the rendered runtime boundary.
+
+    `compose config` serializes literal dollars as $$ so its output can be fed
+    back into Compose. Engine inspect and application providers contain the
+    literal values instead. Decode only explicit service runtime values, once;
+    raw sources, interpolation inputs and image defaults remain untouched.
+    """
+    document = json.loads(json.dumps(document))
+
+    def literal(value):
+        if isinstance(value, str):
+            return value.replace("$$", "$")
+        if isinstance(value, list):
+            return [literal(item) for item in value]
+        return value
+
+    for service in document.get("services", {}).values():
+        environment = service.get("environment")
+        if isinstance(environment, dict):
+            service["environment"] = {key: literal(value) for key, value in environment.items()}
+        elif isinstance(environment, list):
+            service["environment"] = literal(environment)
+        for field in ("command", "entrypoint"):
+            if field in service:
+                service[field] = literal(service[field])
+        if isinstance(service.get("healthcheck"), dict) and "test" in service["healthcheck"]:
+            service["healthcheck"]["test"] = literal(service["healthcheck"]["test"])
+    return document
+
+
+def validate_runtime_topology(deployment, name, definition, metadata):
+    """Compare selected saved topology with actual inspect data, without writes."""
+    config, host = metadata.get("Config", {}), metadata.get("HostConfig", {})
+    validate_runtime_options(definition, metadata)
+    image = deployment.docker.json(["image", "inspect", "--format", "{{json .}}", definition["image"]])
+    image_config = image.get("Config", {})
+    if metadata.get("Image") != image.get("Id"):
+        fail("runtime_image_mismatch", "A running service image differs from its saved source; owner apply and new review are required.")
+    expected_environment = environment_map(image_config.get("Env", []))
+    for key, value in environment_map(definition.get("environment", {})).items():
+        if value is None:
+            expected_environment.pop(key, None)
+        else:
+            expected_environment[key] = value
+    actual_environment = environment_map(config.get("Env", []))
+    if any(actual_environment.get(key) != value for key, value in expected_environment.items()) or any(
+            key not in expected_environment and key.casefold() not in PROXY_KEYS for key in actual_environment):
+        fail("runtime_environment_mismatch", "A running service environment differs from its saved source/image defaults. No environment values were printed.")
+    if bool(host.get("Privileged", False)) != bool(definition.get("privileged", False)) or bool(host.get("ReadonlyRootfs", False)) != bool(definition.get("read_only", False)):
+        fail("runtime_security_mismatch", "The running privilege/read-only policy differs from saved source. Setup does not relax serving permissions.")
+    for source_field, actual_field in (("cap_add", "CapAdd"), ("cap_drop", "CapDrop"), ("group_add", "GroupAdd")):
+        if sorted(str(value).upper() for value in definition.get(source_field, []) or []) != sorted(str(value).upper() for value in host.get(actual_field, []) or []):
+            fail("runtime_security_mismatch", "The running capabilities or supplemental groups differ from saved source.")
+    def security_options(values):
+        return sorted(str(value).removesuffix(":true").removesuffix("=true") for value in values or [])
+    if security_options(definition.get("security_opt")) != security_options(host.get("SecurityOpt")):
+        fail("runtime_security_mismatch", "The actual security options differ from saved source.")
+    expected_health = dict(image_config.get("Healthcheck") or {})
+    health = definition.get("healthcheck")
+    if health is not None:
+        if health.get("disable"):
+            expected_health = {"Test": ["NONE"]}
+        else:
+            for key, field in (("test", "Test"), ("retries", "Retries")):
+                if key in health:
+                    expected_health[field] = health[key]
+            for key, field in (("interval", "Interval"), ("timeout", "Timeout"), ("start_period", "StartPeriod"), ("start_interval", "StartInterval")):
+                if key in health:
+                    expected_health[field] = duration_nanoseconds(health[key])
+    actual_health = {key: value for key, value in (config.get("Healthcheck") or {}).items() if value not in (0, None)}
+    expected_health = {key: value for key, value in expected_health.items() if value not in (0, None)}
+    if actual_health != expected_health:
+        fail("runtime_healthcheck_mismatch", "A saved and running healthcheck differ. Missing healthchecks remain absent; use the owner to reconcile the reviewed source.")
+    restart = definition.get("restart", "no")
+    restart_name, _, retries = restart.partition(":")
+    actual_restart = host.get("RestartPolicy", {})
+    if actual_restart.get("Name", "no") != restart_name or (retries and actual_restart.get("MaximumRetryCount") != int(retries)):
+        fail("runtime_restart_policy_mismatch", "The actual restart policy differs from saved source. No service was restarted.")
+    expected_mounts = []
+    for mount in definition.get("volumes", []):
+        if not isinstance(mount, dict) or not mount.get("source"):
+            fail("runtime_mount_unbound", "Anonymous or unresolved mounts cannot attest the saved runtime. Select their explicit source through the owner before review.")
+        kind, source = mount.get("type"), mount["source"]
+        if kind == "volume":
+            top = deployment.rendered.get("volumes", {}).get(source, {})
+            source = top.get("name") or (source if top.get("external") else deployment.project + "_" + source)
+        expected_mounts.append((kind, source, normalized_container_path(mount["target"]), bool(mount.get("read_only", False))))
+    for kind in ("configs", "secrets"):
+        for entry in definition.get(kind, []):
+            alias = entry if isinstance(entry, str) else entry.get("source")
+            spec = deployment.rendered.get(kind, {}).get(alias, {})
+            if not spec.get("file"):
+                fail("runtime_protected_source_unbound", "A config or secret has no inspectable saved file. Read it back through its owner before review.")
+            expected_mounts.append(("bind", spec["file"], container_file_target(kind, entry), True))
+    actual_mounts = [(mount.get("Type"), mount.get("Name") or mount.get("Source"),
+        normalized_container_path(mount.get("Destination", "")), not mount.get("RW", False)) for mount in metadata.get("Mounts", [])]
+    if sorted(expected_mounts) != sorted(actual_mounts):
+        fail("runtime_mount_mismatch", "Actual mounts differ from the saved source. Restore/review the owner's exact mount configuration; no resources were created.")
+    expected_labels = definition.get("labels", {})
+    actual_labels = config.get("Labels", {}) or {}
+    if not isinstance(expected_labels, dict) or any(str(actual_labels.get(key)) != str(value) for key, value in expected_labels.items()):
+        fail("runtime_owner_labels_mismatch", "The running owner/service labels differ from saved source. Select the actual deployment owner before review.")
+    if actual_labels.get("com.docker.compose.project") != deployment.project or actual_labels.get("com.docker.compose.service") != name:
+        fail("runtime_owner_labels_mismatch", "The running container does not belong to the selected source service/project.")
+    for field, image_field, actual in (("command", "Cmd", config.get("Cmd") or []), ("entrypoint", "Entrypoint", config.get("Entrypoint") or [])):
+        expected = (definition[field] if definition.get(field) is not None else image_config.get(image_field)) or []
+        if isinstance(expected, str):
+            expected = shlex.split(expected)
+        if actual != expected:
+            fail("runtime_command_mismatch", "The running command or entrypoint differs from saved source and image defaults.")
+    if config.get("WorkingDir", "") != (definition.get("working_dir") or image_config.get("WorkingDir", "")):
+        fail("runtime_working_directory_mismatch", "The actual application working directory differs from saved source and image defaults.")
+    if config.get("User", "") != (definition.get("user") or image_config.get("User", "")):
+        fail("runtime_user_mismatch", "The actual serving user differs from the reviewed source and image. Setup does not change the serving identity.")
+    expected_networks = definition.get("networks", {"default": {}})
+    expected_names = set()
+    for alias in expected_networks:
+        spec = deployment.rendered.get("networks", {}).get(alias, {})
+        expected_names.add(spec.get("name") or (alias if spec.get("external") else deployment.project + "_" + alias))
+    if definition.get("network_mode") not in (None, ""):
+        if host.get("NetworkMode") != definition["network_mode"]:
+            fail("runtime_network_mismatch", "The running network mode differs from saved source.")
+    elif expected_names != set(metadata.get("NetworkSettings", {}).get("Networks", {})):
+        fail("runtime_network_mismatch", "The running network attachment inventory differs from saved source.")
+    bindings = host.get("PortBindings") or {}
+    expected_ports = {}
+    for port in definition.get("ports", []):
+        if not isinstance(port, dict) or not port.get("published"):
+            fail("runtime_port_unbound", "Dynamic or unresolved published ports need an explicit owner source before host attestation.")
+        key = str(port["target"]) + "/" + port.get("protocol", "tcp")
+        expected_ports.setdefault(key, []).append((port.get("host_ip", ""), str(port["published"])))
+    actual_ports = {key: [(value.get("HostIp", ""), value.get("HostPort", "")) for value in values or []] for key, values in bindings.items()}
+    if expected_ports != actual_ports:
+        fail("runtime_port_mismatch", "The actual published port bindings differ from saved source.")
+
+
+def duration_nanoseconds(value):
+    if isinstance(value, (int, float)):
+        return int(value)
+    # This parses only the canonical duration emitted by Compose, never YAML.
+    units = {"ns": 1, "us": 1000, "µs": 1000, "ms": 1000000, "s": 1000000000, "m": 60000000000, "h": 3600000000000}
+    terms = re.findall(r"([0-9]+(?:\.[0-9]+)?)(ns|us|µs|ms|s|m|h)", value)
+    if not terms or "".join(number + unit for number, unit in terms) != value:
+        fail("runtime_healthcheck_duration", "A rendered healthcheck duration cannot be compared safely. Restore a supported canonical Compose duration.")
+    return int(sum(float(number) * units[unit] for number, unit in terms))
+
+
 class Deployment:
     def __init__(self, args, docker):
         self.args, self.docker = args, docker
+        self.roles = {role: getattr(args, role.replace("-", "_") + "_service", None) or role for role in SERVICE_NAMES}
+        self.intent = getattr(args, "intent", "verify-existing")
+        self.legacy = self.intent == "legacy-initializer"
         self.container, self.metadata = (None, None)
         if args.container or not args.compose_file:
             self.container, self.metadata = choose_container(docker, args.container)
@@ -616,6 +1010,9 @@ class Deployment:
         checkpoint = Path(args.output_directory or self.directory / f".rateldesk-http-mcp-{self.project}") / "launcher-state.json"
         if checkpoint.is_file():
             saved = read_private_json(checkpoint)
+            if args.verify or args.apply:
+                self.intent = saved.get("intent", self.intent)
+                self.legacy = self.intent == "legacy-initializer"
             if (args.verify or args.apply) and isinstance(docker, Docker):
                 docker.check_selection(saved)
             if saved.get("project") == self.project and saved.get("manager") in ("release-compose", "external-compose"):
@@ -625,7 +1022,7 @@ class Deployment:
             if not sys.stdin.isatty() or not sys.stdout.isatty():
                 fail("deployment_manager_unknown", "Supply --manager external-compose for a deployment manager, or --manager release-compose for an explicitly release-owned bundle. Unknown ownership cannot authorize apply.")
             print("Who applies this saved deployment?")
-            print("  1) Existing deployment manager — export the complete document")
+            print("  1) Existing deployment manager — retain saved source ownership")
             print("  2) Release-owned Compose bundle — review and apply on this host")
             choice = input("Deployment owner (1 or 2): ")
             self.manager = {"1": "external-compose", "2": "release-compose"}.get(choice)
@@ -651,7 +1048,7 @@ class Deployment:
                 self.env_files = [Path(path) for path in saved.get("envFiles", [])]
                 for path in self.sources + self.env_files:
                     file_record(path)
-        selected_is_mcp = labels.get("com.docker.compose.service") == "mcp-http"
+        selected_is_mcp = labels.get("com.docker.compose.service") == self.roles["mcp-http"] or "rateldesk-mcp-http" in (self.metadata or {}).get("Config", {}).get("Image", "")
         self.image = args.image or ((self.metadata or {}).get("Config", {}).get("Image") if selected_is_mcp else None) or (bundle or {}).get("image")
         approved_addition = read_private_json(state_path).get("mcpProposed", False) if state_path.is_file() else False
         self.foundation = bool(bundle or args.image or labels.get("com.docker.compose.service") == "web" or approved_addition)
@@ -708,6 +1105,8 @@ class Deployment:
                 f"RATELDESK_PROVIDER_PATH_{index}": value for index, (value, _) in enumerate(raw_providers)}}}})
             try:
                 resolved = self.docker.json(self.compose + ["-f", str(probe), "config", "--no-env-resolution", "--format", "json"])
+                if not self.legacy:
+                    resolved = compose_runtime_model(resolved)
                 paths = environment_map(resolved["services"][name]["environment"])
                 for index, (_, required) in enumerate(raw_providers):
                     value = paths.get(f"RATELDESK_PROVIDER_PATH_{index}")
@@ -726,9 +1125,25 @@ class Deployment:
         # a change in the render window must not become an approved generation.
         provider_initial = [file_record(path, optional=path in optional_paths) for path in dict.fromkeys(source_paths)]
         proposal = self.docker.json(self.compose + ["config", "--format", "json"])
+        if not self.legacy:
+            proposal = compose_runtime_model(proposal)
         services = proposal.get("services", {})
+        for role in SERVICE_NAMES:
+            if self.roles[role] in services:
+                continue
+            explicit = getattr(self.args, role.replace("-", "_") + "_service", None)
+            if explicit:
+                fail("service_missing", "The explicitly selected service role is absent from the saved source.")
+            family = {"api": "rateldesk-api", "web": "rateldesk-web", "mcp-http": "rateldesk-mcp-http"}[role]
+            matches = [name for name, service in services.items() if family in service.get("image", "")]
+            if len(matches) == 1:
+                self.roles[role] = matches[0]
+            elif not self.legacy:
+                fail("service_role_ambiguous", "Select custom service names with --api-service, --web-service and --mcp-http-service; setup never renames saved services.")
+        if len(set(self.roles.values())) != len(self.roles):
+            fail("service_role_ambiguous", "API, Web and MCP must select distinct existing service names.")
         self.rendered = proposal
-        if "mcp-http" not in services:
+        if self.roles["mcp-http"] not in services:
             image = self.image
             if not image:
                 api_image = services.get("api", {}).get("image", "")
@@ -745,20 +1160,21 @@ class Deployment:
             # This is an explicitly reviewed service addition, not a guessed
             # running configuration. The first Termina page still asks the URL;
             # no placeholder origin/resource is rendered or persisted.
-            services["mcp-http"] = {"image": image, "environment": {}, "volumes": []}
+            services[self.roles["mcp-http"]] = {"image": image, "environment": {}, "volumes": []}
             proposal["x-rateldesk-mcp-proposed"] = True
             self.image = image
-        self.image = self.image or services["mcp-http"].get("image")
+        self.image = self.image or services[self.roles["mcp-http"]].get("image")
         if not self.image:
             fail("image_missing", "Build the existing MCP image, then supply --image with that exact local image. Setup never downloads packages or invents an image family.")
-        if services["mcp-http"].get("image") != self.image:
+        if services[self.roles["mcp-http"]].get("image") != self.image:
             fail("image_source_mismatch", "The saved MCP image and selected container disagree. Restore the actual source before setup.")
         image_environment, image_ids, protected, image_entrypoints, image_commands, image_working_directories = {}, {}, {}, {}, {}, {}
         self.provider_source_records = {}
         for name in SERVICE_NAMES:
-            if name not in services:
+            service_name = self.roles[name]
+            if service_name not in services:
                 fail("service_missing", f"The saved deployment has no {name} service. Supply the complete saved deployment before host setup.")
-            image = services[name].get("image")
+            image = services[service_name].get("image")
             if not image:
                 fail("image_missing", f"The saved {name} service needs a built local image reference before setup.")
             image_bytes = self.docker.run(["image", "inspect", "--format", "{{json .}}", image], optional=True)
@@ -766,7 +1182,7 @@ class Deployment:
                 official = any(re.fullmatch(re.escape(prefix) + r"(?::[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?|@sha256:[a-f0-9]{64})", image)
                                for prefix in ("ghcr.io/bostontechnologies/rateldesk-api", "ghcr.io/bostontechnologies/rateldesk-web",
                                               "ghcr.io/bostontechnologies/rateldesk-mcp-http"))
-                if not official or self.args.preflight:
+                if not official or self.args.preflight or not self.legacy:
                     fail("image_unavailable", "The exact serving image is not available locally. Build the saved image, or pull the verified exact release image before read-only preflight. Setup never substitutes another version.")
                 self.docker.run(["pull", image], maximum=65536)
                 image_bytes = self.docker.run(["image", "inspect", "--format", "{{json .}}", image])
@@ -776,7 +1192,10 @@ class Deployment:
             image_entrypoints[name] = metadata.get("Config", {}).get("Entrypoint") or []
             image_commands[name] = metadata.get("Config", {}).get("Cmd") or []
             image_working_directories[name] = metadata.get("Config", {}).get("WorkingDir", "")
-            protected[name] = self.configuration_providers(name, services[name], image, source_paths,
+            existing_id, _ = (None, None) if self.legacy else unique_container(self.docker, self.project, service_name, running=True)
+            if not existing_id and not self.legacy:
+                fail("runtime_missing", "Existing deployment inspection needs its running serving containers. Restore them through their owner, or select an explicit Advanced provisioning workflow.")
+            protected[name] = self.configuration_providers(name, services[service_name], image, source_paths, existing_id,
                                                            image_environment=image_environment[name], image_command=image_commands[name],
                                                            image_working_directory=image_working_directories[name])
         records = [file_record(path, optional=path in optional_paths) for path in dict.fromkeys(source_paths)]
@@ -787,6 +1206,7 @@ class Deployment:
         if any(file_record(item["path"]) != item for item in self.provider_source_records.values()):
             fail("sources_changed", "A protected provider changed during inspection. Rerun setup with stable sources.")
         proposal["x-rateldesk-source-files"] = records
+        proposal["x-rateldesk-service-roles"] = self.roles
         proposal["x-rateldesk-image-environment"] = image_environment
         proposal["x-rateldesk-image-ids"] = image_ids
         proposal["x-rateldesk-image-entrypoints"] = image_entrypoints
@@ -796,15 +1216,29 @@ class Deployment:
         proposal["x-rateldesk-deployment-manager"] = self.manager
         proposal["x-rateldesk-project-directory"] = str(self.directory)
         proposal["x-rateldesk-project-name"] = self.project
-        proposal["x-rateldesk-mount-ancestor-checks"] = inspect_mount_ancestors(self.docker, proposal, self.image)
+        proposal["x-rateldesk-compose-files"] = [str(path) for path in self.sources]
+        proposal["x-rateldesk-interpolation-files"] = [str(path) for path in self.env_files]
+        proposal["x-rateldesk-docker-selection"] = getattr(self.docker, "selection", {})
+        proposal["x-rateldesk-compose-version"] = getattr(self.docker, "compose_version", None)
+        proposal["x-rateldesk-docker-daemon-identity"] = getattr(self.docker, "daemon_identity", None)
+        if self.legacy:
+            proposal["x-rateldesk-legacy-export-recipe"] = legacy_recipe_identity(self,
+                hashlib.sha256(read_bytes(self.output / ".compose-source.json", MAX_BYTES)).hexdigest())
+        proposal["x-rateldesk-mount-ancestor-checks"] = inspect_mount_ancestors(self.docker, proposal, self.image) if self.legacy else []
         self.capture_secret_mounts(proposal)
         self.validate_resume_sources(records, verify)
         if getattr(self, "imported_export_records", []):
             proposal["x-rateldesk-approved-export-files"] = self.imported_export_records
         write_private(self.output / "effective-deployment.json", proposal)
         write_private(self.output / "source-state.json", {"sources": records})
-        if verify:
+        if verify or not self.legacy:
             self.observe_runtime(proposal)
+        if not self.legacy:
+            _, payload_identity = native_executable(self.args)
+            proposal["x-rateldesk-native-payload-identity"] = payload_identity
+            inventory = read_private_json(self.output / "runtime-environment.json").get("x-rateldesk-runtime-inventory", {})
+            proposal["x-rateldesk-runtime-baseline-sha256"] = hashlib.sha256(json.dumps(stable_runtime_inventory(inventory), sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            write_private(self.output / "effective-deployment.json", proposal)
         self.proposal = proposal
         return proposal
 
@@ -818,14 +1252,14 @@ class Deployment:
             if not path.startswith("/") or ".." in Path(path).parts or path.endswith("docker.sock"):
                 fail("secret_reference", "Use an explicit absolute protected secret file inside the MCP container, without traversal or Docker access.")
             candidates = []
-            for mount in proposal["services"]["mcp-http"].get("volumes", []):
+            for mount in proposal["services"][self.roles["mcp-http"]].get("volumes", []):
                 target = normalized_container_path(mount.get("target", ""))
                 if target and (path == target or path.startswith(target + "/")):
                     source = mount.get("source")
                     if mount.get("type") == "volume":
                         source = proposal.get("volumes", {}).get(source, {}).get("name") or source
                     candidates.append((len(target), {"type": mount.get("type"), "source": source, "target": target}))
-            for secret in proposal["services"]["mcp-http"].get("secrets", []):
+            for secret in proposal["services"][self.roles["mcp-http"]].get("secrets", []):
                 name = secret if isinstance(secret, str) else secret.get("source")
                 target = container_file_target("secrets", secret)
                 file = proposal.get("secrets", {}).get(name, {}).get("file")
@@ -843,6 +1277,17 @@ class Deployment:
         proposal["x-rateldesk-secret-mounts"] = mounts
 
     def secret_digest(self, descriptor):
+        if not self.legacy:
+            identifier, _ = unique_container(self.docker, self.project, self.roles["mcp-http"], running=True)
+            if not identifier:
+                fail("runtime_missing", "The existing MCP container must be running to validate its protected file as its serving identity.")
+            result = self.docker.run(["exec", identifier, "/bin/sh", "-ec",
+                'test -f "$1"; test -r "$1"; test "$(wc -c < "$1")" -le 16384; sha256sum "$1"',
+                "secret-hash", descriptor["path"]], maximum=8192)
+            digest = result.decode().split(" ", 1)[0]
+            if not re.fullmatch(r"[a-f0-9]{64}", digest):
+                fail("secret_reference_hash", "The selected protected file is not readable by the actual serving identity.")
+            return digest
         result = self.docker.run(["run", "--rm", "--pull", "never", "--network", "none", "--read-only", "--cap-drop", "ALL",
             "--security-opt", "no-new-privileges", "--user", "10001:10001", "--mount", mount_argument(descriptor) + ",readonly",
             "--entrypoint", "/bin/sh", self.image, "-ec",
@@ -886,6 +1331,8 @@ class Deployment:
         mcp_config = None
         selected_json_path = None
         temporary = None
+        if container is None and not self.legacy:
+            fail("runtime_missing", "A running service is required for deployment-read-only provider inspection. No inspection container was created.")
         if container is None:
             identifier = self.docker.run(["create", "--network", "none", "--entrypoint", "/bin/true", image], maximum=256).decode().strip()
             if not re.fullmatch(r"[a-f0-9]{12,64}", identifier):
@@ -923,6 +1370,8 @@ class Deployment:
                         if mount.get("type") == "bind" and mount.get("target") == "/input/config.json":
                             replacements.setdefault(mcp_config, Path(mount["source"]))
                 path = provider_paths[index]
+                if index == 2 and not temporary and not self.legacy:
+                    self.docker.run(["exec", container, "/bin/sh", "-ec", 'test -f "$1"; test -r "$1"; test "$(wc -c < "$1")" -le 16384', "provider-readability", path], maximum=1024)
                 if path in replacements:
                     host_path = replacements[path]
                     try:
@@ -935,16 +1384,42 @@ class Deployment:
                         fail("sources_changed", "A protected provider changed while reading. Retry with stable sources.")
                     self.provider_source_records[str(host_path)] = record
                     origin = str(host_path)
+                    if not self.legacy and not temporary:
+                        # A bind can retain an old inode after an atomic host
+                        # replacement. Inspect the actual serving bytes as well
+                        # as the owner's current source, never substitute one
+                        # for the other in a full-host verification receipt.
+                        self.docker.run(["exec", container, "/bin/sh", "-ec",
+                            'test -f "$1"; test -r "$1"', "provider-readability", path], maximum=1024)
+                        observed_path = self.output / f".mounted-provider-{name}-{index}.json"
+                        observed_path.unlink(missing_ok=True)
+                        copied = self.docker.run(["cp", f"{container}:{path}", str(observed_path)], maximum=4096)
+                        if copied is None or observed_path.is_symlink() or not observed_path.is_file():
+                            fail("runtime_provider_unreadable", "The actual serving provider cannot be read safely. Restore the selected owner mapping before host review.")
+                        observed_path.chmod(0o600)
+                        actual_content = read_bytes(observed_path)
+                        if hashlib.sha256(actual_content).hexdigest() != record["sha256"]:
+                            fail("runtime_provider_mismatch", "The actual mounted configuration differs from the owner's saved file, including a possible stale bind inode. Reconcile that source/runtime generation through the owner, then review again; no service was changed.")
                 else:
                     destination = self.output / f".provider-{name}-{index}.json"
                     destination.unlink(missing_ok=True)
-                    copied = self.docker.run(["cp", f"{container}:{path}", str(destination)], optional=True, maximum=4096)
+                    if not self.legacy:
+                        presence = self.docker.run(["exec", container, "/bin/sh", "-ec",
+                            'if test -e "$1"; then if test -f "$1" && test -r "$1"; then printf present; else printf unreadable; fi; else printf absent; fi',
+                            "provider-presence", path], maximum=64)
+                        if presence == b"absent" and index < 2:
+                            continue
+                        if presence != b"present":
+                            fail("runtime_provider_unreadable", "A selected serving provider is absent or unreadable by its actual user. Restore its source/mapping before review.")
+                        copied = self.docker.run(["cp", f"{container}:{path}", str(destination)], maximum=4096)
+                    else:
+                        copied = self.docker.run(["cp", f"{container}:{path}", str(destination)], optional=True, maximum=4096)
                     if copied is None:
                         if name == "mcp-http" and path == mcp_config:
                             # Named config volume before first start: find its
                             # exact saved initializer bind; do not adopt a key
                             # from an unrelated deployment.
-                            _, current = unique_container(self.docker, self.project, "mcp-http")
+                            _, current = unique_container(self.docker, self.project, self.roles["mcp-http"])
                             current_id = (current or {}).get("Id")
                             if current_id and temporary:
                                 copied = self.docker.run(["cp", f"{current_id}:{path}", str(destination)], optional=True, maximum=4096)
@@ -975,28 +1450,63 @@ class Deployment:
         return providers
 
     def observe_runtime(self, proposal):
-        observed = {"services": {}, "x-rateldesk-image-ids": {}, "x-rateldesk-protected-configuration": {},
+        observed = {**json.loads(json.dumps(proposal)), "services": {}, "x-rateldesk-image-ids": {}, "x-rateldesk-protected-configuration": {},
                     "x-rateldesk-image-working-directories": proposal.get("x-rateldesk-image-working-directories", {}),
                     "x-rateldesk-observed-at-utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}
         for name in SERVICE_NAMES:
-            identifier, metadata = unique_container(self.docker, self.project, name, running=True)
+            service_name = self.roles[name]
+            identifier, metadata = unique_container(self.docker, self.project, service_name, running=True)
             if not identifier:
                 fail("runtime_missing", f"A running {name} container is required. Apply the reviewed deployment, then rerun --verify.")
             image = metadata.get("Image")
             if image != proposal["x-rateldesk-image-ids"][name]:
                 fail("runtime_image_mismatch", f"The running {name} image differs from the reviewed deployment. Recreate that service with the approved image before verification.")
-            service = {"environment": environment_map(relevant_environment(metadata.get("Config", {}).get("Env", []))),
+            service = json.loads(json.dumps(proposal["services"][service_name]))
+            service.update({"environment": environment_map(relevant_environment(metadata.get("Config", {}).get("Env", []))),
                        "image": metadata.get("Config", {}).get("Image"),
                        "command": metadata.get("Config", {}).get("Cmd") or [],
                        "entrypoint": metadata.get("Config", {}).get("Entrypoint") or [],
                        "working_dir": metadata.get("Config", {}).get("WorkingDir", ""),
                        "volumes": [{"type": mount.get("Type"), "source": mount.get("Name") or mount.get("Source"),
                                     "target": mount.get("Destination"), "read_only": not mount.get("RW", False)}
-                                   for mount in metadata.get("Mounts", [])]}
-            observed["services"][name] = service
+                                   for mount in metadata.get("Mounts", [])]})
+            # Keep source mount aliases while validating actual inspect mounts independently.
+            if not self.legacy:
+                actual_environment = service["environment"]
+                service = json.loads(json.dumps(proposal["services"][service_name]))
+                service["environment"] = actual_environment
+            observed["services"][service_name] = service
             observed["x-rateldesk-image-ids"][name] = image
             observed["x-rateldesk-protected-configuration"][name] = self.configuration_providers(name, service, image, [], identifier,
                 image_working_directory=metadata.get("Config", {}).get("WorkingDir", ""))
+        if not self.legacy:
+            observed["x-rateldesk-runtime-inventory"] = self.runtime_inventory(proposal)
+            for name, definition in proposal["services"].items():
+                if name not in observed["services"]:
+                    observed["services"][name] = json.loads(json.dumps(definition))
+            observed["x-rateldesk-runtime-topology-validated"] = True
+            write_private(self.output / "runtime-environment.json", observed)
+            return
+        # Engine mount sources are physical volume names, while saved Compose
+        # mounts use aliases. Bind those inspected identities explicitly in this
+        # runtime-only catalog so the consumer never adds a second project
+        # prefix. Retain source definitions, but never overwrite a conflicting
+        # alias: that would redirect an actual mount to a different volume.
+        volume_definitions = observed.setdefault("volumes", {})
+        for service in observed["services"].values():
+            for mount in service.get("volumes", []):
+                if mount.get("type") != "volume":
+                    continue
+                physical = mount.get("source")
+                if not isinstance(physical, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,255}", physical):
+                    fail("runtime_volume_identity_missing", "An inspected named volume lacks its exact Engine name. Restore the actual mount metadata before verification; no source or volume was changed.")
+                if physical in volume_definitions:
+                    definition = volume_definitions[physical]
+                    resolved = definition.get("name") or (physical if definition.get("external") or not observed.get("name") else observed["name"] + "_" + physical)
+                    if resolved != physical:
+                        fail("runtime_volume_identity_ambiguous", "An inspected physical volume name conflicts with a saved Compose alias for a different volume. Resolve that alias through the deployment owner before verification; no definition was replaced.")
+                else:
+                    volume_definitions[physical] = {"external": True, "name": physical}
         actual_mounts = observed["services"]["mcp-http"]["volumes"]
         storage = {}
         for purpose, target in (("host", HOST_TARGET), ("client", CLIENT_TARGET)):
@@ -1014,6 +1524,45 @@ class Deployment:
                 fail("runtime_storage_mismatch", "The running MCP stores differ from the approved mounts. Recreate it from the reviewed complete document before verification.")
         write_private(self.output / "runtime-environment.json", observed)
 
+    def runtime_inventory(self, proposal):
+        inventory = {}
+        selected_services = set(proposal.get("services", {}))
+        if len(selected_services) > 64:
+            fail("runtime_inventory_oversized", "The host inventory exceeds the bounded service limit; select a supported complete deployment before review.")
+        actual_services = set()
+        rows = self.docker.run(["ps", "--all", "--filter", "label=com.docker.compose.project=" + self.project,
+            "--format", "{{json .ID}}"], maximum=8192)
+        for row in rows.splitlines():
+            identifier = json.loads(row)
+            metadata = self.docker.inspect(identifier)
+            name = (metadata.get("Config", {}).get("Labels", {}) or {}).get("com.docker.compose.service")
+            if name:
+                actual_services.add(name)
+        if actual_services != selected_services:
+            fail("runtime_service_inventory_mismatch", "The actual project service names/count differ from the complete saved source, including stopped/one-shot services. Review the owner inventory; no service was added or removed.")
+        for name in proposal.get("services", {}):
+            identifier, metadata = unique_container(self.docker, self.project, name, running=False)
+            if not identifier:
+                fail("runtime_missing", "Every defined service in the adopted deployment must have one running container; no service was started.")
+            validate_runtime_topology(self, name, proposal["services"][name], metadata)
+            config, state = metadata.get("Config", {}), metadata.get("State", {})
+            inventory[name] = {"containerId": identifier, "startedAt": state.get("StartedAt"),
+                "restartCount": metadata.get("RestartCount", 0), "state": state.get("Status"), "exitCode": state.get("ExitCode"),
+                "healthStatus": state.get("Health", {}).get("Status", "absent"),
+                "healthcheck": config.get("Healthcheck"), "labels": config.get("Labels", {}),
+                # Engine builds this slice from an unordered mount map. Bind
+                # every record field, without treating its iteration order as
+                # a source/runtime change. Operator source order is untouched.
+                "mounts": sorted(metadata.get("Mounts", []), key=lambda mount: json.dumps(mount, sort_keys=True, separators=(",", ":"))),
+                "networks": metadata.get("NetworkSettings", {}).get("Networks", {}),
+                "ports": metadata.get("HostConfig", {}).get("PortBindings", {}),
+                "restartPolicy": metadata.get("HostConfig", {}).get("RestartPolicy", {}),
+                "environmentSha256": hashlib.sha256(json.dumps(environment_map(config.get("Env", [])), sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
+                "security": {key: metadata.get("HostConfig", {}).get(key) for key in ("Privileged", "ReadonlyRootfs", "CapAdd", "CapDrop", "SecurityOpt", "GroupAdd", "PidMode", "IpcMode")},
+                "user": config.get("User", ""), "workingDirectory": config.get("WorkingDir", ""),
+                "runtimeOptions": validate_runtime_options(proposal["services"][name], metadata)}
+        return inventory
+
     def validate_resume_sources(self, sources, verify):
         self.imported_export_records = []
         if not verify:
@@ -1024,6 +1573,16 @@ class Deployment:
         saved = read_private_json(state_path)
         if saved.get("sources") == sources:
             return
+        if not self.legacy:
+            candidates = saved.get("sourceCandidates", [])
+            expected = {item["path"]: dict(item) for item in saved.get("sources", [])}
+            for candidate in candidates:
+                if candidate["source"] not in expected or expected[candidate["source"]]["sha256"] != candidate["originalSha256"]:
+                    fail("approved_sources_changed", "The candidate source identity is not the reviewed baseline. Review a new proposal.")
+                expected[candidate["source"]]["sha256"] = candidate["candidateSha256"]
+            if candidates and expected == {item["path"]: item for item in sources}:
+                return
+            fail("approved_sources_changed", "Saved sources differ from the exact reviewed candidate. Reread and review them before verification; no saved hash was replaced.")
         # An external manager may persist exactly the one complete reviewed
         # document over its original single source. No arbitrary edit is allowed.
         if self.manager == "external-compose" and len(self.sources) == 1:
@@ -1104,7 +1663,7 @@ class Deployment:
     def prepare_storage(self, provision=True):
         storage = {}
         if self.metadata is None:
-            _, current = unique_container(self.docker, self.project, "mcp-http")
+            _, current = unique_container(self.docker, self.project, self.roles["mcp-http"])
             if not current:
                 _, current = unique_container(self.docker, self.project, "web")
             if current:
@@ -1196,7 +1755,10 @@ def tooling_arguments(deployment):
                 "--env", f"RATELDESK_MCP_CLIENT_DIRECTORY={CLIENT_TARGET}",
                 "--env", f"RATELDESK_SETUP_EFFECTIVE_COMPOSE_SOURCE={HOST_TARGET}/effective-deployment.json",
                 "--env", f"RATELDESK_SETUP_RUNTIME_ENVIRONMENT_SOURCE={HOST_TARGET}/runtime-environment.json",
-                "--env", f"RATELDESK_SETUP_DEPLOYMENT_MANAGER={deployment.manager}"]
+                "--env", f"RATELDESK_SETUP_DEPLOYMENT_MANAGER={deployment.manager}",
+                "--env", f"RATELDESK_SETUP_HOST_INTENT={deployment.intent}"]
+    for key, value in getattr(deployment, "legacy_compose_proof", {}).items():
+        command += ["--env", key + "=" + value]
     services = getattr(deployment, "proposal", {}).get("services", {})
     exclusions = None
     for name in ("mcp-http", "web"):
@@ -1385,6 +1947,177 @@ def migration_source_records(frozen, patch):
     return records
 
 
+def legacy_recipe_identity(deployment, source_digest):
+    deployment.docker.bind_daemon()
+    owner_version = deployment.docker.run(["compose", "version", "--short"], owner_tool=True, maximum=1024).decode().strip()
+    safe_label(owner_version, 256)
+    return {"schemaVersion": 1, "unresolvedSourceSha256": source_digest,
+        "project": deployment.project, "manager": deployment.manager, "projectDirectory": str(deployment.directory), "outputDirectory": str(deployment.output),
+        "composeFiles": [str(path) for path in deployment.sources], "envFiles": [str(path) for path in deployment.env_files],
+        "dockerSelection": dict(deployment.docker.selection), "dockerDaemonIdentity": deployment.docker.daemon_identity,
+        "rendererVersion": deployment.docker.compose_version, "ownerVersion": owner_version,
+        "rawFlags": ["config", "--no-interpolate", "--no-env-resolution", "--no-path-resolution", "--format", "json"],
+        "projectionFlags": ["config", "--format", "json"]}
+
+
+def private_observation_bytes(path):
+    try:
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        with os.fdopen(descriptor, "rb") as source:
+            info = os.fstat(source.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077:
+                raise OSError()
+            content = source.read(MAX_BYTES + 1)
+        if len(content) > MAX_BYTES:
+            raise OSError()
+        return content
+    except OSError:
+        fail("legacy_recipe_invalid", "Restore the bounded private approved files, or re-adopt the running deployment unchanged / review the explicit initializer alternative again. No existing resource was changed.")
+
+
+def legacy_approved_inputs(deployment, receipt_bytes=None):
+    if receipt_bytes is None:
+        receipt_bytes = private_observation_bytes(deployment.output / "host-approval.json")
+    receipt = json.loads(receipt_bytes)
+    hashes = receipt.get("exportHashes", {})
+    if (receipt.get("approved") is not True or receipt.get("intent", 2) != 2 or not isinstance(hashes, dict)
+            or not 1 <= len(hashes) <= 16 or not {"approved-proposal.json", "compose.host.json"}.issubset(hashes)):
+        fail("legacy_recipe_invalid", "The initializer checkpoint lacks a complete approved recipe. Re-adopt the running deployment unchanged or review the explicit initializer alternative again.")
+    files = {}
+    for name, expected in hashes.items():
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,100}", name):
+            fail("legacy_recipe_invalid", "The approved recipe has an invalid export path. Review a fresh initializer proposal.")
+        content = private_observation_bytes(deployment.output / name)
+        if hashlib.sha256(content).hexdigest() != str(expected).casefold():
+            fail("legacy_recipe_invalid", "An approved recipe file changed. Restore its reviewed bytes or review a fresh proposal; no saved hash was repaired.")
+        files[name] = content
+    frozen = private_observation_bytes(deployment.output / "approved-effective-deployment.json")
+    if hashlib.sha256(frozen).hexdigest() != str(receipt.get("sourceHash", "")).casefold():
+        fail("legacy_recipe_invalid", "The approved source generation changed. Restore it or review a new proposal.")
+    return receipt_bytes, files, json.loads(frozen)
+
+
+def preserve_source_definitions(document, source):
+    # Compose omits unused declarations from its effective model. Keep those
+    # exact source-only definitions without replacing a serving definition.
+    for kind in ("configs", "secrets", "volumes", "networks"):
+        for name, definition in source.get(kind, {}).items():
+            document.setdefault(kind, {}).setdefault(name, json.loads(json.dumps(definition)))
+    return document
+
+
+def legacy_compose_context(deployment):
+    command = ["compose", "--project-directory", str(deployment.directory), "--project-name", deployment.project]
+    for path in deployment.env_files or [Path("/dev/null")]:
+        command += ["--env-file", str(path)]
+    return command
+
+
+def render_legacy_recipe(deployment, original, frozen, patch_bytes, paths):
+    patch = json.loads(patch_bytes)
+    source = migrated_compose_source(json.loads(original), frozen, patch)
+    for mount in patch.get("services", {}).get("mcp-config-init", {}).get("volumes", []):
+        if mount.get("target") == "/input/config.json":
+            mount["source"] = str(deployment.output / "mcp-outbound.json")
+    source_path, patch_path = paths
+    source_bytes = (json.dumps(source, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    patch_content = (json.dumps(patch, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    write_private(source_path, source_bytes)
+    write_private(patch_path, patch_content)
+    command = legacy_compose_context(deployment) + ["-f", str(source_path), "-f", str(patch_path)]
+    rendered = deployment.docker.json(command + ["config", "--no-interpolate", "--no-env-resolution", "--no-path-resolution", "--format", "json"])
+    if private_observation_bytes(source_path) != source_bytes or private_observation_bytes(patch_path) != patch_content:
+        fail("legacy_recipe_changed", "A private recipe input changed during its render. Retry with the unchanged approved sources; nothing was applied.")
+    rendered = preserve_source_definitions(rendered, source)
+    return (json.dumps(rendered, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+@contextmanager
+def legacy_compose_observation(deployment, actual_sources=None, receipt_bytes=None):
+    """Fresh host observation with in-memory digests, never a saved baseline."""
+    if not deployment.legacy:
+        yield
+        return
+    prefix = ".legacy-observation-" + uuid.uuid4().hex
+    names = [prefix + suffix for suffix in ("-source.json", "-patch.json", "-input.json", "-expected.json", "-actual.json")]
+    paths = [deployment.output / name for name in names]
+    staged = []
+    try:
+        before = legacy_approved_inputs(deployment, receipt_bytes)
+        _, files, frozen = before
+        recipe = frozen.get("x-rateldesk-legacy-export-recipe")
+        original = private_observation_bytes(deployment.output / "approved-compose-source.json")
+        original_digest = hashlib.sha256(original).hexdigest()
+        if not isinstance(recipe, dict) or recipe != legacy_recipe_identity(deployment, original_digest):
+            fail("legacy_recipe_invalid", "The original source recipe or selected owner/tool/context changed. Re-adopt the running deployment unchanged or review the initializer alternative again; no receipt was rebased.")
+        deployment.check_sources()
+        expected_raw = render_legacy_recipe(deployment, original, frozen, files["compose.host.json"], paths[:2])
+        reviewed_path = deployment.output / "deployment.json"
+        if private_observation_bytes(reviewed_path) != expected_raw:
+            fail("legacy_recipe_changed", "The complete manager document differs from the exact approved source/patch recipe, including source-only declarations. Restore its reviewed bytes or obtain a new review; no state hash can renew approval.")
+        sources = list(actual_sources or deployment.sources)
+        actual_records = [file_record(path) for path in sources]
+        if actual_sources is None:
+            changed = [item for item in actual_records if item not in frozen.get("x-rateldesk-source-files", [])]
+            if changed and (len(changed) != 1 or changed[0]["sha256"] != hashlib.sha256(expected_raw).hexdigest()):
+                fail("legacy_recipe_changed", "The imported owner source differs from the exact approved complete document. Review the owner changes explicitly.")
+        approved = json.loads(files["approved-proposal.json"])
+        approved_input = (json.dumps({key: value for key, value in approved.items() if not key.startswith("x-rateldesk-")}, sort_keys=True, separators=(",", ":")) + "\n").encode()
+        write_private(paths[2], approved_input)
+        context = legacy_compose_context(deployment)
+        # Both proof projections use the same verified setup renderer. The
+        # original owner must independently render the exact same serving model.
+        expected = deployment.docker.json(context + ["-f", str(paths[2]), "config", "--format", "json"])
+        if private_observation_bytes(paths[2]) != approved_input:
+            fail("legacy_recipe_changed", "The exact approved render input changed. No deployment approval was renewed.")
+        actual_command = context.copy()
+        for path in sources:
+            actual_command += ["-f", str(path)]
+        actual = deployment.docker.json(actual_command + ["config", "--format", "json"])
+        owner_actual = json.loads(deployment.docker.run(actual_command + ["config", "--format", "json"], owner_tool=True))
+        strip_metadata = lambda model: {key: value for key, value in model.items() if not key.startswith("x-rateldesk-")}
+        if strip_metadata(owner_actual) != strip_metadata(actual):
+            fail("legacy_owner_semantics", "The original deployment owner's Compose tool resolves a different serving model. Review that owner/tool/source context explicitly; no generated document was applied.")
+        projection_bytes = []
+        for path, model in zip(paths[3:], (expected, actual)):
+            content = (json.dumps({key: value for key, value in model.items() if not key.startswith("x-rateldesk-")}, sort_keys=True, separators=(",", ":")) + "\n").encode()
+            write_private(path, content)
+            projection_bytes.append(content)
+            staged.append(path.name)
+            stage_snapshot(deployment, path.name)
+        if (legacy_approved_inputs(deployment, receipt_bytes) != before or private_observation_bytes(deployment.output / "approved-compose-source.json") != original
+                or recipe != legacy_recipe_identity(deployment, original_digest)
+                or any(file_record(path) != record for path, record in zip(sources, actual_records))
+                or private_observation_bytes(reviewed_path) != expected_raw):
+            fail("legacy_recipe_changed", "The approved recipe, source, tool or context changed while rendering. Restart review; no deployment was applied.")
+        deployment.check_sources()
+        deployment.legacy_compose_proof = {
+            "RATELDESK_SETUP_APPROVED_RAW_SHA256": hashlib.sha256(files["approved-proposal.json"]).hexdigest(),
+            "RATELDESK_SETUP_APPROVED_OVERLAY_SHA256": hashlib.sha256(files["compose.host.json"]).hexdigest(),
+            "RATELDESK_SETUP_REVIEWED_DEPLOYMENT_SHA256": hashlib.sha256(expected_raw).hexdigest(),
+            "RATELDESK_SETUP_EXPECTED_COMPOSE_SOURCE": HOST_TARGET + "/" + paths[3].name,
+            "RATELDESK_SETUP_EXPECTED_COMPOSE_SHA256": hashlib.sha256(projection_bytes[0]).hexdigest(),
+            "RATELDESK_SETUP_ACTUAL_COMPOSE_SOURCE": HOST_TARGET + "/" + paths[4].name,
+            "RATELDESK_SETUP_ACTUAL_COMPOSE_SHA256": hashlib.sha256(projection_bytes[1]).hexdigest()}
+        def check_fresh_recipe():
+            deployment.check_sources()
+            if (legacy_approved_inputs(deployment, receipt_bytes) != before or private_observation_bytes(reviewed_path) != expected_raw
+                    or private_observation_bytes(deployment.output / "approved-compose-source.json") != original
+                    or recipe != legacy_recipe_identity(deployment, original_digest)):
+                fail("legacy_recipe_changed", "The approved source recipe changed during validation. Restore it or review the changed source.")
+        deployment.legacy_compose_fence = check_fresh_recipe
+        yield actual
+        check_fresh_recipe()
+    finally:
+        deployment.legacy_compose_proof = {}
+        deployment.legacy_compose_fence = None
+        for path in paths:
+            path.unlink(missing_ok=True)
+        if staged:
+            deployment.docker.run(tooling_arguments(deployment) + ["--rm", "--entrypoint", "/bin/sh", deployment.image,
+                "-ec", 'for name do rm -f "/output/$name"; done', "remove-observation", *staged], maximum=4096)
+
+
 def export_complete_document(deployment, container, attempt):
     raw_receipt = copy_from_tool(deployment, container, "host-approval.json", optional=True)
     if raw_receipt is None:
@@ -1409,33 +2142,32 @@ def export_complete_document(deployment, container, attempt):
             fail("export_hash_mismatch", "A saved export does not match the approved generation. Nothing was applied; rerun setup.")
         write_private(deployment.output / name, content)
     deployment.check_sources()
-    # Compose performs the merge, including list/key semantics. Keep env_file
-    # declarations and interpolation expressions in a complete manager document;
-    # do not flatten them into an ephemeral values-only overlay.
-    patch = read_private_json(deployment.output / "compose.host.json")
-    source = migrated_compose_source(read_private_json(deployment.output / ".compose-source.json"), deployment.proposal, patch)
-    write_private(deployment.output / ".export-source.json", source)
-    for mount in patch.get("services", {}).get("mcp-config-init", {}).get("volumes", []):
-        if mount.get("target") == "/input/config.json":
-            mount["source"] = str(deployment.output / "mcp-outbound.json")
-    write_private(deployment.output / ".export-patch.json", patch)
-    command = ["compose", "--project-directory", str(deployment.directory), "--project-name", deployment.project]
-    for path in deployment.env_files or [Path("/dev/null")]:
-        command += ["--env-file", str(path)]
-    compose_context = command.copy()
-    command += ["-f", str(deployment.output / ".export-source.json"), "-f", str(deployment.output / ".export-patch.json"),
-                "config", "--no-interpolate", "--no-env-resolution", "--no-path-resolution", "--format", "json"]
-    complete = deployment.docker.json(command)
-    write_private(deployment.output / "deployment.json", complete)
-    resolved_complete = deployment.docker.json(compose_context + ["-f", str(deployment.output / "deployment.json"),
-        "config", "--format", "json"])
-    write_private(deployment.output / ".resolved-export.json", resolved_complete)
-    stage_snapshot(deployment, ".resolved-export.json")
+    # Retain the exact original unresolved input covered by administrator
+    # SourceHash. A resume never replaces this copy with an imported document.
+    # First export has no committed host receipt for named-volume storage. Use
+    # only this invocation's validated receipt bytes until export-check succeeds;
+    # an older host receipt remains untouched if the new export fails.
+    _, approved_files, approved_source = legacy_approved_inputs(deployment, raw_receipt)
+    original = private_observation_bytes(deployment.output / ".compose-source.json")
+    original_digest = hashlib.sha256(original).hexdigest()
+    if approved_source.get("x-rateldesk-legacy-export-recipe") != legacy_recipe_identity(deployment, original_digest):
+        fail("legacy_recipe_invalid", "The approved unresolved source/tool recipe is unavailable or changed. Re-adopt the running deployment unchanged or review the initializer alternative again.")
+    write_private(deployment.output / "approved-compose-source.json", original)
+    export_paths = [deployment.output / name for name in (".export-source.json", ".export-patch.json")]
+    complete_bytes = render_legacy_recipe(deployment, original, approved_source, approved_files["compose.host.json"], export_paths)
+    write_private(deployment.output / "deployment.json", complete_bytes)
     try:
-        deployment.docker.run(tooling_arguments(deployment) + ["--rm", deployment.image,
-            "host", "export-check", "--export-directory", HOST_TARGET], maximum=16384)
-    except Prerequisite:
-        fail("complete_export_invalid", "The complete manager document failed the approved serving and mount validation. Nothing was applied. Resolve its owning sources and run ordinary setup.")
+        with legacy_compose_observation(deployment, [deployment.output / "deployment.json"], raw_receipt) as resolved_complete:
+            stage_snapshot(deployment, "deployment.json")
+            write_private(deployment.output / ".resolved-export.json", resolved_complete)
+            stage_snapshot(deployment, ".resolved-export.json")
+            deployment.docker.run(tooling_arguments(deployment) + ["--rm", deployment.image,
+                "host", "export-check", "--export-directory", HOST_TARGET], maximum=16384)
+    except Prerequisite as error:
+        rules = getattr(error, "export_validation_rules", [])
+        diagnostic = " Validation rules: " + ", ".join(rules) + "." if rules else ""
+        fail("complete_export_invalid", "The complete manager document failed the approved serving and mount validation."
+            + diagnostic + " Nothing was applied. Resolve its owning sources and run ordinary setup.")
     deployment.check_sources()
     # Ordinary client setup and new verification replace effective-deployment.
     # Retain this exact receipt-bound source for dependency continuity after the
@@ -1469,6 +2201,300 @@ def export_complete_document(deployment, container, attempt):
     return True
 
 
+def native_executable(args):
+    selected = args.native_executable
+    if not selected:
+        directory = Path(__file__).resolve().parent
+        for candidate in (directory / "rateldesk", directory / "rateldesk-mcp"):
+            if candidate.is_file():
+                selected = str(candidate)
+                break
+    if not selected:
+        fail("native_setup_required", "Extract the verified matching native CLI or stdio archive and supply --native-executable /absolute/path/rateldesk-mcp. This deployment-read-only path does not create a tooling container or install a serving mount.")
+    selected = Path(selected).absolute()
+    if not selected.is_file() or not os.access(selected, os.X_OK):
+        fail("native_setup_unavailable", "Select an existing executable from the verified matching native archive with --native-executable.")
+    # Native archives include managed dependencies. Pin the complete sibling
+    # payload, including assemblies, so changing a DLL cannot reuse approval.
+    records = []
+    for candidate in sorted(selected.parent.iterdir()):
+        if candidate.is_file() and (candidate == selected or candidate.suffix in (".dll", ".json", ".so")):
+            digest = hashlib.sha256()
+            with candidate.open("rb") as source:
+                while chunk := source.read(65536):
+                    digest.update(chunk)
+            records.append([candidate.name, digest.hexdigest()])
+    identity = hashlib.sha256(json.dumps(records, separators=(",", ":")).encode()).hexdigest()
+    return str(selected), identity
+
+
+def native_environment(deployment):
+    environment = deployment.docker.process_environment()
+    environment.update({"RATELDESK_MCP_HOST_DIRECTORY": str(deployment.output),
+        "RATELDESK_SETUP_EFFECTIVE_COMPOSE_SOURCE": str(deployment.output / "effective-deployment.json"),
+        "RATELDESK_SETUP_RUNTIME_ENVIRONMENT_SOURCE": str(deployment.output / "runtime-environment.json"),
+        "RATELDESK_SETUP_DEPLOYMENT_MANAGER": deployment.manager,
+        "RATELDESK_SETUP_HOST_INTENT": deployment.intent})
+    if deployment.args.ca_file:
+        environment["SSL_CERT_FILE"] = str(Path(deployment.args.ca_file).absolute())
+    context = {"schemaVersion": 1, "compose": deployment.compose,
+        "sources": [str(path) for path in deployment.sources], "projectDirectory": str(deployment.directory),
+        "outputDirectory": str(deployment.output), "dockerSelection": deployment.docker.selection,
+        "daemonIdentity": deployment.docker.daemon_identity,
+        "effectiveSnapshot": str(deployment.output / "effective-deployment.json"),
+        "manager": deployment.manager, "ownerComposeRequired": True}
+    context_path = deployment.output / "source-review-context.json"
+    write_private(context_path, context)
+    editor = Path(__file__).resolve().parent / "source_review.py"
+    environment["RATELDESK_SETUP_SOURCE_REVIEW_COMMAND"] = json.dumps([sys.executable, str(editor), "--context", str(context_path)])
+    return environment
+
+
+def native_command(deployment, arguments, *, interactive=False):
+    executable, identity = native_executable(deployment.args)
+    state_path = deployment.output / "launcher-state.json"
+    if state_path.is_file() and (deployment.args.verify or deployment.args.apply):
+        expected = read_private_json(state_path).get("nativeExecutableSha256")
+        if expected and expected != identity:
+            fail("native_setup_changed", "The selected native setup payload changed after review. Use the reviewed executable or explicitly review a new baseline/proposal.")
+    environment = native_environment(deployment)
+    if interactive:
+        return subprocess.run([executable, *arguments], env=environment, check=False).returncode
+    try:
+        completed = subprocess.run([executable, *arguments], env=environment, check=False, capture_output=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        fail("native_setup_timeout", "The bounded native checkpoint validation timed out. No deployment completion was recorded.")
+    if completed.returncode:
+        # Native commands deliberately emit safe diagnostics; arbitrary stdout
+        # remains private because it may include protected source identities.
+        safe = completed.stderr.decode("utf-8", errors="replace")[-8192:]
+        if safe:
+            print(safe, file=sys.stderr, end="")
+        fail("native_checkpoint_validation", "The reviewed source/authority/runtime check did not pass. Restore the exact reviewed state or reopen a fresh review.")
+    return 0
+
+
+def save_native_checkpoint(deployment):
+    receipt = read_private_json(deployment.output / "host-approval.json")
+    approved = read_private_json(deployment.output / "approved-proposal.json")
+    _, identity = native_executable(deployment.args)
+    state = {"schemaVersion": 2, "phase": "adopted-verify-pending" if deployment.intent == "verify-existing" else "prepared-apply-pending",
+        "intent": deployment.intent, "project": deployment.project, "manager": deployment.manager,
+        "composeFiles": [str(path) for path in deployment.sources], "envFiles": [str(path) for path in deployment.env_files],
+        "sources": deployment.proposal["x-rateldesk-source-files"], "sourceHash": receipt["sourceHash"],
+        "proposalHash": receipt["proposalHash"], "exportHashes": receipt["exportHashes"],
+        "sourceCandidates": approved.get("x-rateldesk-source-candidates", []),
+        "baselineRuntimeInventory": read_private_json(deployment.output / "runtime-environment.json").get("x-rateldesk-runtime-inventory", {}),
+        "changedServices": [name for name, definition in deployment.proposal["services"].items() if approved.get("services", {}).get(name) != definition],
+        "dockerSelection": deployment.docker.selection, "dockerDaemonIdentity": deployment.docker.daemon_identity,
+        "composeVersion": deployment.docker.compose_version, "nativeExecutableSha256": identity}
+    write_private(deployment.output / "launcher-state.json", state)
+    return state
+
+
+def check_native_checkpoint(deployment, state):
+    receipt = read_private_json(deployment.output / "host-approval.json")
+    frozen = read_private_json(deployment.output / "approved-effective-deployment.json")
+    approved = read_private_json(deployment.output / "approved-proposal.json")
+    frozen_hash = hashlib.sha256(read_bytes(deployment.output / "approved-effective-deployment.json", MAX_BYTES)).hexdigest()
+    if frozen_hash != str(receipt.get("sourceHash", "")).casefold() or any(state.get(key) != receipt.get(key) for key in ("sourceHash", "proposalHash", "exportHashes")):
+        fail("approved_checkpoint_changed", "The launcher checkpoint differs from its reviewed administrator receipt. Reopen source review; no saved hash was repaired.")
+    changed = [name for name, definition in frozen.get("services", {}).items() if approved.get("services", {}).get(name) != definition]
+    expected_intent = {0: "verify-existing", 1: "prepare-changes", 2: "legacy-initializer"}.get(receipt.get("intent"))
+    if (state.get("intent") != expected_intent or state.get("sources") != frozen.get("x-rateldesk-source-files")
+            or state.get("sourceCandidates") != approved.get("x-rateldesk-source-candidates", [])
+            or state.get("changedServices") != changed
+            or state.get("dockerSelection") != frozen.get("x-rateldesk-docker-selection")
+            or state.get("dockerDaemonIdentity") != frozen.get("x-rateldesk-docker-daemon-identity")
+            or state.get("composeVersion") != frozen.get("x-rateldesk-compose-version")):
+        fail("approved_checkpoint_changed", "Source candidates, service impact or Docker selection differ from the exact approved proposal. Review the current source instead of editing a checkpoint.")
+    if (state.get("project") != frozen.get("x-rateldesk-project-name")
+            or state.get("manager") != frozen.get("x-rateldesk-deployment-manager")
+            or deployment.project != state.get("project") or deployment.manager != state.get("manager")
+            or str(deployment.directory) != frozen.get("x-rateldesk-project-directory")
+            or state.get("composeFiles") != frozen.get("x-rateldesk-compose-files")
+            or state.get("envFiles") != frozen.get("x-rateldesk-interpolation-files")
+            or [str(path) for path in deployment.sources] != state.get("composeFiles")
+            or [str(path) for path in deployment.env_files] != state.get("envFiles")):
+        fail("approved_owner_changed", "The deployment owner, project, working directory or ordered source selection changed after review. Re-read and review the current owner source.")
+    _, identity = native_executable(deployment.args)
+    if identity != frozen.get("x-rateldesk-native-payload-identity") or state.get("nativeExecutableSha256") != identity:
+        fail("native_setup_changed", "Use the exact reviewed native payload or review a new baseline/proposal; the saved receipt cannot authorize a different executable.")
+    inventory_hash = hashlib.sha256(json.dumps(stable_runtime_inventory(state.get("baselineRuntimeInventory", {})), sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    if inventory_hash != frozen.get("x-rateldesk-runtime-baseline-sha256"):
+        fail("approved_runtime_changed", "The launcher runtime baseline differs from its reviewed source checkpoint. Re-read and review the actual deployment.")
+    deployment.docker.check_selection(state)
+    expected_document = frozen if deployment.args.apply else approved
+    actual_document = {key: value for key, value in deployment.proposal.items() if not key.startswith("x-rateldesk-")}
+    expected_document = {key: value for key, value in expected_document.items() if not key.startswith("x-rateldesk-")}
+    if actual_document != expected_document:
+        fail("approved_effective_model_changed", "The full resolved deployment differs from the reviewed generation, including unrelated service settings or inherited interpolation values. Re-read and review the exact owner source/context; no values were printed.")
+    current_inventory = read_private_json(deployment.output / "runtime-environment.json").get("x-rateldesk-runtime-inventory", {})
+    unchanged = set(frozen.get("services", {})) - set(state.get("changedServices", []))
+    baseline = state.get("baselineRuntimeInventory", {})
+    if any(stable_runtime_inventory({name: current_inventory.get(name, {})}) != stable_runtime_inventory({name: baseline.get(name, {})}) for name in unchanged):
+        fail("approved_unaffected_runtime_changed", "An unchanged service's actual identity or runtime changed after review. Re-read/review the deployment instead of accepting an unrelated recreation or image change.")
+    for name, digest in state.get("exportHashes", {}).items():
+        if Path(name).name != name or hashlib.sha256(read_bytes(deployment.output / name, MAX_BYTES)).hexdigest() != digest.casefold():
+            fail("approved_export_changed", "A private reviewed checkpoint changed. Reopen setup to review the actual source; no hash was repaired.")
+    for item in state.get("sourceCandidates", []):
+        if hashlib.sha256(read_bytes(item["candidate"], MAX_SOURCE_BYTES)).hexdigest() != item["candidateSha256"]:
+            fail("approved_candidate_changed", "The reviewed source candidate changed. Prepare and approve a new proposal before owner apply.")
+
+
+def stable_runtime_inventory(inventory):
+    result = json.loads(json.dumps(inventory))
+    for value in result.values():
+        value.pop("state", None)
+        value.pop("healthStatus", None)
+    return result
+
+
+def revalidate_apply_runtime(deployment, state):
+    deployment.docker.bind_daemon()
+    deployment.observe_runtime(deployment.proposal)
+    current = read_private_json(deployment.output / "runtime-environment.json").get("x-rateldesk-runtime-inventory", {})
+    expected = state.get("baselineRuntimeInventory")
+    if not expected or stable_runtime_inventory(current) != stable_runtime_inventory(expected):
+        fail("approved_runtime_changed", "The actual containers, images, mounts or owner topology changed after review. Re-read and review the current deployment before applying; no stale approval was used.")
+
+
+def apply_native(deployment):
+    if deployment.manager != "release-compose":
+        fail("manager_apply_required", "Save and apply the private reviewed source candidates through the existing deployment manager, then run the printed --verify command against its actual saved sources. The launcher does not overwrite manager-owned YAML.")
+    state = read_private_json(deployment.output / "launcher-state.json")
+    if state.get("intent") != "prepare-changes":
+        fail("adoption_has_no_apply", "An adopted baseline has no deployment changes. Use --verify; no service was applied or restarted.")
+    check_native_checkpoint(deployment, state)
+    deployment.validate_resume_sources(deployment.proposal["x-rateldesk-source-files"], True)
+    native_command(deployment, ["host", "approval-check", "--export-directory", str(deployment.output)])
+    candidates = state.get("sourceCandidates", [])
+    changed_services = state.get("changedServices")
+    if (not isinstance(changed_services, list) or not changed_services or len(set(changed_services)) != len(changed_services)
+            or not set(changed_services).issubset(deployment.proposal.get("services", {}))):
+        fail("approved_service_impact_invalid", "The exact approved affected-service list is missing or inconsistent. Review the proposal before owner apply; no broad apply was attempted.")
+    if not candidates:
+        fail("no_deployment_changes", "The reviewed proposal has no source changes. Adopt and verify the existing deployment instead.")
+    deployment.check_sources()
+    revalidate_apply_runtime(deployment, state)
+    # Release-owned writes retain a private byte-for-byte backup and the source's
+    # existing mode. External sources never enter this branch.
+    for item in candidates:
+        source = Path(item["source"])
+        if file_record(source)["sha256"] != item["originalSha256"]:
+            fail("approved_sources_changed", "The saved source changed before apply. Review it again; no stale proposal was applied.")
+    staged = []
+    try:
+        for item in candidates:
+            source = Path(item["source"])
+            candidate_data = read_bytes(item["candidate"])
+            if hashlib.sha256(candidate_data).hexdigest() != item["candidateSha256"]:
+                fail("approved_candidate_changed", "The reviewed source candidate changed before staging. Prepare and approve a new proposal before owner apply; no changed candidate was saved.")
+            backup = deployment.output / ("backup-" + item["originalSha256"] + "-" + source.name)
+            if not backup.exists():
+                original_data = read_bytes(source)
+                if hashlib.sha256(original_data).hexdigest() != item["originalSha256"]:
+                    fail("approved_sources_changed", "The original source changed while its private backup was read. Review the current owner source before apply.")
+                write_private(backup, original_data)
+            if file_record(backup)["sha256"] != item["originalSha256"]:
+                fail("approved_backup_changed", "A retained private backup differs from the reviewed original source. Restore its exact reviewed bytes or review a new generation before owner apply; the backup was not overwritten.")
+            mode = stat.S_IMODE(source.stat().st_mode)
+            descriptor, temporary = tempfile.mkstemp(dir=source.parent, prefix=".rateldesk-reviewed-")
+            staged.append((item, source, temporary, mode))
+            with os.fdopen(descriptor, "wb") as target:
+                os.fchmod(target.fileno(), 0o600)
+                target.write(candidate_data)
+                target.flush(); os.fsync(target.fileno())
+        deployment.check_sources()
+        revalidate_apply_runtime(deployment, state)
+        check_native_checkpoint(deployment, state)
+        # Validate every staged source before replacing any owner file. Each
+        # exact payload is checked again at its own atomic replacement boundary.
+        for item, _, temporary, _ in staged:
+            if file_record(temporary)["sha256"] != item["candidateSha256"]:
+                fail("approved_staged_source_changed", "A privately staged source differs from its reviewed candidate. Review the retained checkpoints before owner apply; no staged changes were saved.")
+        state["phase"] = "source-save-in-progress"
+        state["savedSources"] = []
+        write_private(deployment.output / "launcher-state.json", state)
+        for item, source, temporary, mode in staged:
+            if file_record(source)["sha256"] != item["originalSha256"]:
+                fail("approved_sources_changed", "A source changed during save. Private backups and source-save progress were retained; reread the owner's sources and review recovery before apply.")
+            if file_record(temporary)["sha256"] != item["candidateSha256"]:
+                fail("approved_staged_source_changed", "A staged source changed during save. Private backups and source-save progress were retained; review recovery before owner apply.")
+            os.chmod(temporary, mode)
+            os.replace(temporary, source)
+            state["savedSources"].append(str(source))
+            write_private(deployment.output / "launcher-state.json", state)
+    finally:
+        for _, _, temporary, _ in staged:
+            Path(temporary).unlink(missing_ok=True)
+    state["phase"] = "source-saved-apply-pending"
+    write_private(deployment.output / "launcher-state.json", state)
+    # Compose computes and recreates only the actually changed services from the
+    # original ordered saved sources. No replacement generated document exists.
+    deployment.docker.run(deployment.compose + ["up", "--pull", "never", "--no-build", "-d", "--no-deps", *changed_services], maximum=16384, owner_tool=True)
+    state["phase"] = "applied-verify-pending"
+    write_private(deployment.output / "launcher-state.json", state)
+    print("Reviewed source saved and owner apply completed; fresh verification pending:")
+    print("  " + resume_command(deployment, "--verify"))
+    return 0
+
+
+def run_native_setup(deployment, args):
+    if args.apply:
+        return apply_native(deployment)
+    options = args.wizard_options[1:] if args.wizard_options[:1] == ["--"] else args.wizard_options
+    environment = native_environment(deployment)
+    if args.verify:
+        state = read_private_json(deployment.output / "launcher-state.json")
+        check_native_checkpoint(deployment, state)
+        arguments = ["host", "verify", "--export-directory", str(deployment.output)]
+    elif args.preflight:
+        arguments = ["host", "preflight", "--export-directory", str(deployment.output)]
+    else:
+        arguments = ["setup", "--target", "http-host", "--export-directory", str(deployment.output)]
+    deployment.check_sources()
+    baseline_inventory = read_private_json(deployment.output / "runtime-environment.json").get("x-rateldesk-runtime-inventory", {}) if not args.verify and not args.preflight else None
+    prior_receipt = hashlib.sha256(read_bytes(deployment.output / "host-approval.json")).hexdigest() if not args.verify and not args.preflight and (deployment.output / "host-approval.json").is_file() else None
+    result = native_command(deployment, [*arguments, *options], interactive=True)
+    deployment.check_sources()
+    if result or args.preflight:
+        return result
+    if args.verify:
+        deployment.observe_runtime(deployment.proposal)
+        deployment.check_sources()
+        native_command(deployment, ["host", "observation-check", "--export-directory", str(deployment.output)])
+        state["phase"] = "existing-verified-unchanged" if deployment.intent == "verify-existing" else "end-to-end-verified"
+        write_private(deployment.output / "launcher-state.json", state)
+        print("Existing deployment verified unchanged." if deployment.intent == "verify-existing" else "End-to-end verified after approved owner apply.")
+        return 0
+    if not (deployment.output / "host-approval.json").is_file() or (prior_receipt is not None and hashlib.sha256(read_bytes(deployment.output / "host-approval.json")).hexdigest() == prior_receipt):
+        return 0  # cancelled before approval: no completed generation is invented.
+    if baseline_inventory is not None:
+        deployment.observe_runtime(deployment.proposal)
+        current_inventory = read_private_json(deployment.output / "runtime-environment.json").get("x-rateldesk-runtime-inventory", {})
+        if stable_runtime_inventory(current_inventory) != stable_runtime_inventory(baseline_inventory):
+            fail("reviewed_runtime_changed", "The running deployment changed during administrator review. Reopen a fresh baseline/proposal review; no deployment was applied.")
+    state = save_native_checkpoint(deployment)
+    if deployment.intent == "verify-existing":
+        print("Existing baseline adopted; no deployment changes. Fresh verification pending:")
+    else:
+        print("Changes prepared, not applied. Save/apply each candidate through the source owner:")
+        for item in state["sourceCandidates"]:
+            print("  " + shlex.quote(item["candidate"]) + " -> " + shlex.quote(item["source"]))
+    print("  " + resume_command(deployment, "--verify"))
+    if deployment.intent == "prepare-changes" and deployment.manager == "release-compose":
+        print("Explicit release-owner apply: " + resume_command(deployment, "--apply"))
+    return 0
+
+
+def run_native_client(args):
+    executable, _ = native_executable(args)
+    options = args.wizard_options[1:] if args.wizard_options[:1] == ["--"] else args.wizard_options
+    # Native client setup has no Docker/Compose preflight or source dependency.
+    return subprocess.run([executable, "setup", "--target", "http-client", *options], check=False).returncode
+
+
 def resume_command(deployment, mode):
     # Display only shell-quoted arguments generated by this helper. The helper
     # itself executes argument arrays and never evaluates this string.
@@ -1479,8 +2505,14 @@ def resume_command(deployment, mode):
         command += ["--compose-file", str(path)]
     for path in deployment.env_files:
         command += ["--env-file", str(path)]
+    for role in SERVICE_NAMES:
+        if getattr(deployment, "roles", {}).get(role, role) != role:
+            command += ["--" + role + "-service", deployment.roles[role]]
     if deployment.args.ca_file:
         command += ["--ca-file", deployment.args.ca_file]
+    command += ["--intent", deployment.intent]
+    if deployment.args.native_executable:
+        command += ["--native-executable", deployment.args.native_executable]
     command.append(mode)
     selection = getattr(deployment.docker, "selection", {})
     if selection:
@@ -1498,17 +2530,19 @@ def apply_saved(deployment):
     deployment.check_sources()
     for name in ("effective-deployment.json", "launcher-state.json", "deployment.json"):
         stage_snapshot(deployment, name)
-    try:
-        deployment.docker.run(tooling_arguments(deployment) + ["--rm", deployment.image,
-            "host", "approval-check", "--export-directory", HOST_TARGET], maximum=16384)
-    except Prerequisite:
-        fail("approval_revalidation", "Current administrator approval/authority could not be reconfirmed. Check the trusted Web URL and approval checkpoint, then retry; rerun ordinary setup if authority or the approved generation changed. Nothing was applied.")
-    deployment.check_sources()
-    command = ["compose", "--project-directory", str(deployment.directory), "--project-name", deployment.project]
-    for path in deployment.env_files or [Path("/dev/null")]:
-        command += ["--env-file", str(path)]
-    command += ["-f", str(deployment.output / "deployment.json"), "up", "-d", "api", "web", "mcp-http"]
-    deployment.docker.run(command, maximum=16384)
+    with legacy_compose_observation(deployment):
+        try:
+            deployment.docker.run(tooling_arguments(deployment) + ["--rm", deployment.image,
+                "host", "approval-check", "--export-directory", HOST_TARGET], maximum=16384)
+        except Prerequisite:
+            fail("approval_revalidation", "Current administrator approval/authority could not be reconfirmed. Check the trusted Web URL and approval checkpoint, then retry; rerun ordinary setup if authority or the approved generation changed. Nothing was applied.")
+        deployment.legacy_compose_fence()
+        deployment.check_sources()
+        expected = deployment.legacy_compose_proof["RATELDESK_SETUP_REVIEWED_DEPLOYMENT_SHA256"]
+        if hashlib.sha256(private_observation_bytes(deployment.output / "deployment.json")).hexdigest() != expected:
+            fail("legacy_recipe_changed", "The reviewed manager document changed during the authority check. No owner apply was started; review the changed source explicitly.")
+        command = legacy_compose_context(deployment) + ["-f", str(deployment.output / "deployment.json"), "up", "--pull", "never", "--no-build", "-d", "api", "web", "mcp-http"]
+        deployment.docker.run(command, maximum=16384)
     state["phase"] = "applied-verify-pending"
     write_private(deployment.output / "launcher-state.json", state)
     print("Applied — verify pending. Recreate completed; end-to-end verification still requires a fresh invocation:")
@@ -1523,13 +2557,15 @@ def begin_verification(deployment):
     if not path.is_file():
         fail("generation_missing", "No approved saved generation exists. Run ordinary setup first.")
     state = read_private_json(path)
-    state["phase"] = "applied-verify-pending"
+    state["phase"] = "adopted-verify-pending" if deployment.intent == "verify-existing" else "applied-verify-pending"
     state["verificationStartedAtUtc"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     write_private(path, state)
     deployment.verification_started = True
 
 
 def run_setup(deployment, args):
+    if not deployment.legacy:
+        return run_native_setup(deployment, args)
     if args.apply:
         return apply_saved(deployment)
     if args.verify:
@@ -1544,6 +2580,13 @@ def run_setup(deployment, args):
         stage_snapshot(deployment, "launcher-state.json")
         stage_snapshot(deployment, "deployment.json")
     deployment.check_sources()
+    if args.verify:
+        with legacy_compose_observation(deployment):
+            return run_legacy_tool(deployment, args, state)
+    return run_legacy_tool(deployment, args)
+
+
+def run_legacy_tool(deployment, args, state=None):
     attempt = uuid.uuid4().hex
     name = f"{deployment.project}-mcp-setup-{attempt[:12]}"
     command = tooling_arguments(deployment) + ["--name", name, "--env", f"RATELDESK_SETUP_ATTEMPT={attempt}"]
@@ -1581,8 +2624,9 @@ def run_setup(deployment, args):
             stage_snapshot(deployment, "runtime-environment.json")
             deployment.check_sources()
             try:
-                deployment.docker.run(tooling_arguments(deployment) + ["--rm", deployment.image,
-                    "host", "observation-check", "--export-directory", HOST_TARGET], maximum=16384)
+                with legacy_compose_observation(deployment):
+                    deployment.docker.run(tooling_arguments(deployment) + ["--rm", deployment.image,
+                        "host", "observation-check", "--export-directory", HOST_TARGET], maximum=16384)
             except Prerequisite:
                 fail("runtime_revalidation", "The final fresh Docker observation did not match the approved generation. Verification remains pending. Restore/recreate the reviewed deployment, then invoke --verify again; unchanged sources need no new host provisioning consent.")
             deployment.check_sources()
@@ -1598,7 +2642,16 @@ def run_setup(deployment, args):
 
 def parser():
     command = argparse.ArgumentParser(description="Set up an existing RatelDesk HTTP MCP deployment on its Docker host.",
-        epilog=f"Requires Docker Compose v{COMPOSE_FLOOR}+ with tested source/interpolation/env-file capabilities and access to the selected daemon. DOCKER_CONFIG/context/host/TLS selections are preserved in printed resume commands. No plugin is installed automatically. Client setup: ./setup-http-mcp.sh --target http-client. Explicit setup before serving needs saved Compose sources and a built existing image.")
+        epilog=f"Host source verification requires tested Compose capabilities (v{COMPOSE_FLOOR}+ reference). Native client setup/doctor has no Compose requirement. Missing features offer existing verified standalone selection, explicit private pinned preparation, or cancellation. Original Docker config/context/TLS/auth helpers remain selected; receipts retain the setup-only tool digest. Client setup: ./setup-http-mcp.sh --target http-client. Explicit setup before serving needs saved Compose sources and a built existing image.")
+    command.add_argument("--compose-binary", help="Existing standalone Compose executable; requires independently expected --compose-sha256.")
+    command.add_argument("--compose-sha256", help="Expected upstream SHA-256 of --compose-binary; checked before every execution.")
+    command.add_argument("--prepare-compose", metavar="PRIVATE_DIRECTORY", help="Explicit consent to prepare/reuse pinned setup-only Compose v2.39.4 in this private directory. Does not change the normal Docker plugin/config/context.")
+    command.add_argument("--compose-cache", metavar="VERIFIED_PLATFORM_FILE", help="Offline source for --prepare-compose; checked against the repository-owned platform digest.")
+    command.add_argument("--intent", choices=("verify-existing", "prepare-changes", "legacy-initializer"), default="verify-existing", help="Verify an existing deployment unchanged (default), prepare minimal source changes, or explicitly select the Advanced legacy initializer topology.")
+    command.add_argument("--native-executable", help="Existing native rateldesk-mcp executable from a verified matching CLI/stdio distribution. Host inspection creates no tooling container.")
+    command.add_argument("--api-service", help="Existing custom API service name; inferred from the application image when unambiguous.")
+    command.add_argument("--web-service", help="Existing custom Web service name.")
+    command.add_argument("--mcp-http-service", help="Existing custom MCP service name.")
     command.add_argument("--container")
     command.add_argument("--compose-file", action="append", default=[])
     command.add_argument("--env-file", action="append", default=[])
@@ -1623,7 +2676,10 @@ def main(argv=None):
         fail("mode_conflict", "Choose only one of --verify, --apply or --preflight.")
     if args.target != "http-host" and (args.verify or args.apply or args.preflight):
         fail("mode_conflict", "Client setup verifies its own consumer. --verify, --apply and --preflight belong to host setup.")
+    if args.target == "http-client":
+        return run_native_client(args)
     docker = Docker()
+    docker.configure(args)
     docker.preflight()
     deployment = Deployment(args, docker)
     if args.verify:
@@ -1632,7 +2688,7 @@ def main(argv=None):
     if args.apply:
         deployment.validate_resume_sources(proposal["x-rateldesk-source-files"], True)
     print(f"Using saved Compose project {deployment.project}. Deployment owner: {deployment.manager}.")
-    print("Private server setup and personal client stores are separate and persistent.")
+    print("Deployment source remains authoritative. Private host checkpoints are separate from personal client profiles.")
     return run_setup(deployment, args)
 
 

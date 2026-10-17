@@ -424,6 +424,10 @@ jobs:
         if: matrix.name == 'mcp-http'
         run: python3 tools/ci/run-mcp-compose-capability-acceptance.py --download --image "${{ matrix.image }}"
 
+      - name: Verify deliberate private Compose onramp and unchanged Docker selection
+        if: matrix.name == 'mcp-http'
+        run: python3 tools/ci/run-mcp-private-compose-acceptance.py --download
+
   release-assets:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance }}
     name: Release asset rehearsal
@@ -509,6 +513,18 @@ jobs:
       - name: Check out triggering commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Set up .NET SDK from global.json
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          global-json-file: global.json
+
+      - name: Set up Node.js for actual host browser consent
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
       - name: Validate and start the documented local stack
         run: |
           docker compose -f docker/docker-compose.yml config --quiet
@@ -516,13 +532,35 @@ jobs:
           curl --retry 6 --retry-all-errors --retry-delay 2 --fail --show-error --silent http://127.0.0.1:8222/health/live > /dev/null
           tools/ci/smoke-first-run-local.sh
 
-      - name: Verify reviewed legacy MCP migration and fresh-process recovery
+      - name: Prepare native and browser host acceptance tools
+        run: |
+          dotnet publish src/Helpdesk.Mcp/Helpdesk.Mcp.csproj --configuration Release \
+            --runtime linux-x64 --self-contained true --output work/native-setup
+          npm ci
+          npx playwright install --with-deps chromium
+          docker pull postgres:16
+          docker pull portainer/portainer-ce@sha256:4786931dc7c588ff1c242696fe1eb3f7f9c5dafb136b6c713aff7745dd5bd407
+
+      - name: Build the HTTP MCP acceptance image
+        timeout-minutes: 10
+        run: docker build --file docker/mcp-http/Dockerfile --tag rateldesk-mcp-http:setup-acceptance .
+
+      - name: Verify pristine adoption, minimal owner apply and retained legacy configuration
         timeout-minutes: 15
         run: |
-          docker build --file docker/mcp-http/Dockerfile --tag rateldesk-mcp-http:setup-acceptance .
           python3 tools/ci/run-mcp-host-lifecycle-acceptance.py \
             --api-image rateldesk-api --web-image rateldesk-web \
-            --mcp-image rateldesk-mcp-http:setup-acceptance --case legacy
+            --mcp-image rateldesk-mcp-http:setup-acceptance \
+            --native-executable work/native-setup/rateldesk-mcp --external-manager \
+            --legacy-compose-onramp --download-compose-fixtures --case all
+
+      - name: Verify the explicitly selected legacy initializer lifecycle
+        timeout-minutes: 10
+        run: |
+          python3 tools/ci/run-mcp-host-lifecycle-acceptance.py \
+            --api-image rateldesk-api --web-image rateldesk-web \
+            --mcp-image rateldesk-mcp-http:setup-acceptance \
+            --legacy-compose-onramp --download-compose-fixtures --case legacy
 
       - name: Collect Compose logs
         if: always()

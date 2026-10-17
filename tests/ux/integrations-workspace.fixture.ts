@@ -132,7 +132,7 @@ test('host and client codes never switch approval kind and host consent binds ex
  await expect(dialog).toContainText('office-private');
  await expect(dialog).toContainText('AllowedOrigins'); await expect(dialog).toContainText('Compose environment');
  await expect(dialog.getByTestId('credential-permission-selector')).toHaveCount(0);
- await dialog.getByRole('checkbox', { name: 'I authorize these exact deployment settings and source generation.', exact: true }).check();
+ await dialog.getByRole('checkbox', { name: 'I approve this exact baseline or configuration proposal and its source generation.', exact: true }).check();
  await dialog.getByRole('button', { name: 'Approve host', exact: true }).click();
  await expect(page.getByRole('status')).toContainText('Connection approved');
  const calls = (await (await request.get(`${fixture}/state`)).json()).calls;
@@ -207,8 +207,12 @@ async function assertSystemReviewFits(page: Page, name: string, width: number, h
  return dialog;
 }
 async function selectSystemChoice(page: Page, label: string, name: string) {
- await page.getByRole('combobox', { name: label, exact: true }).click();
- await page.getByRole('listbox').getByRole('option', { name, exact: true }).click();
+ const selected = page.getByRole('combobox', { name: label, exact: true });
+ await selected.click();
+ const options = page.getByRole('listbox');
+ await options.getByRole('option', { name, exact: true }).click();
+ await expect(selected).toHaveText(name);
+ await expect(options).toBeHidden();
 }
 for (const theme of ['light', 'dark']) for (const width of [390, 1366, 1920]) {
  test(`compact system connections ${theme} ${width}px bounded reviews and authorized context`, async ({ page }, info) => {
@@ -293,8 +297,12 @@ test('system connection context, interrupted save, durable resume and row-local 
  const dialog = page.getByRole('dialog', { name: 'Systems paired', exact: true });
  await expect(dialog.getByRole('combobox', { name: 'RatelDesk organization', exact: true })).toHaveText('Synthetic Beta');
  await selectSystemChoice(page, 'NetRatel tenant', 'Synthetic monitoring');
- await dialog.getByLabel('Connection name', { exact: true }).fill('Synthetic resumed connection');
+ const connectionName = dialog.getByLabel('Connection name', { exact: true });
+ await connectionName.fill('Synthetic resumed connection');
+ await connectionName.press('Tab');
  await dialog.getByRole('checkbox', { name: 'Run automation — RatelDesk → NetRatel', exact: true }).check();
+ await expect(dialog.getByTestId('save-system-connection')).toBeEnabled();
+ await expect(connectionName).toHaveValue('Synthetic resumed connection');
  await request.get(`${fixture}/fault?mode=mapping-save`);
  await dialog.getByTestId('save-system-connection').click();
  await expect(dialog.getByRole('alert')).toContainText('Synthetic mapping save unavailable');
@@ -308,6 +316,7 @@ test('system connection context, interrupted save, durable resume and row-local 
  expect(saves[1].payload).toMatchObject({ pairId: 'pair-awaiting', netRatelTenantId: 'tenant-a', ratelDeskOrganizationId: 'org-b', runAutomation: true });
  const mappingId = saves[1].payload.id;
  await page.reload();
+ await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true', { timeout: 20_000 });
  await expect(panel.locator(`[data-connection-id="${mappingId}"]`)).toContainText('Synthetic resumed connection');
  await expect(page.getByRole('dialog')).toHaveCount(0);
  await panel.locator(`[data-connection-id="${mappingId}"]`).getByRole('button', { name: 'View', exact: true }).click();
