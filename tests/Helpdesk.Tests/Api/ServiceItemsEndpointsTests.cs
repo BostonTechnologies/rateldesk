@@ -30,6 +30,29 @@ namespace Helpdesk.Tests.Api;
 public sealed class ServiceItemsEndpointsTests
 {
     [Fact]
+    public async Task MCP_service_search_maps_query_alias_to_real_q_filter_and_authorized_totals()
+    {
+        await using var harness = await ServiceItemsTestHarness.CreateAsync(customerId: "customer-1");
+        var ignored = await harness.Client.GetFromJsonAsync<PagedResponse<ServiceItemDto>>("/api/v1/service-items/search?query=needle&pageSize=25");
+        var expected = await harness.Client.GetFromJsonAsync<PagedResponse<ServiceItemDto>>("/api/v1/service-items/search?q=needle&pageSize=25");
+        Assert.NotEmpty(expected!.Items);
+        Assert.True(ignored!.TotalCount > expected.TotalCount);
+        var tools = Helpdesk.Tests.Mcp.TicketAdapterHttpTests.Tools(harness.Client, "SelfService.User");
+        foreach (var alias in new[] { "query", "q" })
+        {
+            var result = await tools.helpdesk_services("search_items", System.Text.Json.JsonSerializer.SerializeToElement(new Dictionary<string, object> { [alias] = "needle", ["pageSize"] = 25, ["includeTotal"] = true }));
+            Assert.True(result.Success, result.Summary);
+            var actual = System.Text.Json.JsonSerializer.Deserialize<PagedResponse<ServiceItemDto>>(result.Data!.ToJsonString(), new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+            Assert.Equal(expected.TotalCount, actual!.TotalCount);
+            Assert.Equal(expected.Items.Select(item => item.Id).Order(), actual.Items.Select(item => item.Id).Order());
+            Assert.DoesNotContain(actual.Items, item => item.Id is "form-hidden" or "form-customer-two" or "form-customer-parent");
+            var noMatch = await tools.helpdesk_services("search_items", System.Text.Json.JsonSerializer.SerializeToElement(new Dictionary<string, object> { [alias] = "campaign-impossible-search", ["pageSize"] = 25 }));
+            Assert.Equal(0, noMatch.Data!["totalCount"]!.GetValue<int>());
+            Assert.Empty(noMatch.Data!["items"]!.AsArray());
+        }
+    }
+
+    [Fact]
     public async Task GetServiceItems_ReturnsRecursiveVisibleRequestCounts_ForServiceFolders()
     {
         await using var harness = await ServiceItemsTestHarness.CreateAsync();

@@ -143,7 +143,9 @@ public sealed class McpOperationCatalogTests
         Assert.Contains("inside request", incident.ProtocolTool.Description, StringComparison.Ordinal);
         Assert.Contains("outer operation field", properties.GetProperty("operation").GetProperty("description").GetString(), StringComparison.Ordinal);
         Assert.Contains("inside this request object", request.GetProperty("description").GetString(), StringComparison.Ordinal);
-        Assert.Equal(JsonValueKind.True, properties.GetProperty("confirm").GetProperty("const").ValueKind);
+        Assert.Equal("boolean", properties.GetProperty("confirm").GetProperty("type").GetString());
+        Assert.DoesNotContain("confirm", create.GetProperty("required").EnumerateArray().Select(value => value.GetString()));
+        Assert.Contains("request", create.GetProperty("required").EnumerateArray().Select(value => value.GetString()));
         Assert.True(request.GetProperty("additionalProperties").GetBoolean() == false);
         Assert.True(request.GetProperty("properties").TryGetProperty("title", out _));
         Assert.False(request.GetProperty("properties").TryGetProperty("subject", out _));
@@ -248,7 +250,7 @@ public sealed class McpOperationCatalogTests
             Assert.True(response.Success, $"{operation.Tool}.{operation.Operation}: {response.Summary}");
 
             if (operation.HttpMethod == "LOCAL" || operation.Tool == "helpdesk_health" || operation.Tool == "helpdesk_config") continue;
-            var expectedPath = operation.PathTemplate.Split(" then ", StringSplitOptions.None)[0].Replace("{incidentId}", "incident-1", StringComparison.Ordinal).Replace("{requestId}", "request-1", StringComparison.Ordinal).Replace("{changeId}", "change-1", StringComparison.Ordinal).Replace("{taskId}", "task-1", StringComparison.Ordinal).Replace("{organizationId}", "organization-1", StringComparison.Ordinal).Replace("{customerId}", "customer-1", StringComparison.Ordinal).Replace("{userId}", "user-1", StringComparison.Ordinal).Replace("{roleId}", "role-1", StringComparison.Ordinal).Replace("{categoryId}", "category-1", StringComparison.Ordinal).Replace("{serviceId}", "service-1", StringComparison.Ordinal).Replace("{requestFormId}", "form-1", StringComparison.Ordinal).Replace("{notificationId}", "notification-1", StringComparison.Ordinal).Replace("{ticketType}", "incidents", StringComparison.Ordinal).Replace("{ticketId}", "incident-1", StringComparison.Ordinal).Replace("{invocationId}", "00000000-0000-0000-0000-000000000001", StringComparison.Ordinal).Replace("{email}", "operator%40example.test", StringComparison.Ordinal);
+            var expectedPath = operation.PathTemplate.Split(" then ", StringSplitOptions.None)[0].Replace("{incidentId}", "incident-1", StringComparison.Ordinal).Replace("{requestId}", "request-1", StringComparison.Ordinal).Replace("{changeId}", "change-1", StringComparison.Ordinal).Replace("{taskId}", "task-1", StringComparison.Ordinal).Replace("{organizationId}", "organization-1", StringComparison.Ordinal).Replace("{tenantId}", "1", StringComparison.Ordinal).Replace("{customerId}", "customer-1", StringComparison.Ordinal).Replace("{userId}", "user-1", StringComparison.Ordinal).Replace("{roleId}", "role-1", StringComparison.Ordinal).Replace("{categoryId}", "category-1", StringComparison.Ordinal).Replace("{serviceId}", "service-1", StringComparison.Ordinal).Replace("{requestFormId}", "form-1", StringComparison.Ordinal).Replace("{notificationId}", "notification-1", StringComparison.Ordinal).Replace("{ticketType}", "incidents", StringComparison.Ordinal).Replace("{ticketId}", "incident-1", StringComparison.Ordinal).Replace("{invocationId}", "00000000-0000-0000-0000-000000000001", StringComparison.Ordinal).Replace("{email}", "operator%40example.test", StringComparison.Ordinal);
             var calls = client.ReceivedCalls().Select(call => call.GetArguments()).ToArray();
             Assert.Contains(calls, arguments => arguments.OfType<string>().Any(path => path.StartsWith(expectedPath, StringComparison.Ordinal)));
             if (operation.HttpMethod is not ("GET" or "LOCAL"))
@@ -318,6 +320,7 @@ public sealed class McpOperationCatalogTests
             "helpdesk_notifications" => operation.Operation == "mark_read" ? """{"ids":["notification-1"]}""" : """{"notificationId":"notification-1"}""",
             "helpdesk_connectivity" => """{}""",
             "helpdesk_raw" => operation.Operation == "get_incident" ? """{"incidentId":"incident-1"}""" : operation.Operation == "get_request" ? """{"requestId":"request-1"}""" : operation.Operation == "get_change" ? """{"changeId":"change-1"}""" : """{}""",
+            "helpdesk_admin_mutations" when operation.Operation == "update_organization_branding" => """{"tenantId":1,"brandName":"Matrix"}""",
             "helpdesk_admin_mutations" => """{"organizationId":"organization-1","customerId":"customer-1","userId":"user-1","roleId":"role-1","categoryId":"category-1","serviceId":"service-1","requestFormId":"form-1","requestId":"request-1"}""",
             _ => """{}"""
         };
@@ -339,6 +342,7 @@ public sealed class McpOperationCatalogTests
             "assign" => $"{{\"ids\":[\"{id}\"],\"assignedToId\":\"user-1\"}}",
             "assign_self" => $"{{\"ids\":[\"{id}\"],\"agentUserEmail\":\"operator@example.test\"}}",
             "add_worklog" => $"{{\"{idName}\":\"{id}\",\"hours\":0,\"notes\":\"matrix\",\"isInternalNote\":true}}",
+            "lifecycle" => """{"changeId":"change-1","lifecycleState":"Draft"}""",
             "close" => """{"incidentId":"incident-1","closureNote":"matrix"}""",
             "state" => $"{{\"{idName}\":\"{id}\",\"newState\":\"Resolved\"}}",
             _ => $"{{\"{idName}\":\"{id}\"}}"

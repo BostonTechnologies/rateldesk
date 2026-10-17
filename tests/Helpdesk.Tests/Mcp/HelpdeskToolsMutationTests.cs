@@ -70,7 +70,7 @@ public sealed class HelpdeskToolsMutationTests
     [Theory]
     [InlineData("helpdesk_incidents", "state", "{\"incidentId\":\"INC-123\",\"newState\":\"Resolved\"}")]
     [InlineData("helpdesk_requests", "assign", "{\"ids\":[\"REQ-123\"],\"assignedToId\":\"user-1\"}")]
-    [InlineData("helpdesk_changes", "lifecycle", "{\"changeId\":\"CHG-123\",\"action\":\"submit\"}")]
+    [InlineData("helpdesk_changes", "lifecycle", "{\"changeId\":\"CHG-123\",\"lifecycleState\":\"Submitted\"}")]
     [InlineData("helpdesk_request_tasks", "complete", "{\"taskId\":\"TASK-123\"}")]
     public async Task Unconfirmed_ticket_mutations_never_call_the_api(string toolName, string operation, string json)
     {
@@ -597,7 +597,7 @@ public sealed class HelpdeskToolsMutationTests
         => body is JsonObject value && value["notes"]?.ToString() == "BTClaw closed this test incident." && value["isInternalNote"]?.GetValue<bool>() == true;
 
     private static bool HasResolvedState(JsonNode? body)
-        => body is JsonObject value && value["newState"]?.ToString() == "Resolved";
+        => body is JsonObject value && value["newState"]?.GetValue<int>() == (int)TicketState.Resolved;
 
     private static bool IsResolvedState(JsonNode? body)
         => body is JsonObject value && value["newState"]?.GetValue<int>() == (int)TicketState.Resolved;

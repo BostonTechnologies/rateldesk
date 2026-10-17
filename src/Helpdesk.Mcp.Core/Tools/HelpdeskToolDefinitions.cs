@@ -78,7 +78,7 @@ public static class HelpdeskToolDefinitions
                     ["default"] = false,
                     ["description"] = definition.RequiresConfirmation
                         ? "Required as true to perform this mutation. Calling with false performs no upstream change."
-                        : "Unused for this read-only operation."
+                        : definition.Effect == "read" ? "Unused for this read operation." : "This narrowly authorized autonomous write does not require confirmation; existing API authority and invocation binding still apply."
                 }
             };
 
@@ -86,15 +86,7 @@ public static class HelpdeskToolDefinitions
                 properties["request"] = RequestSchema(definition);
 
             var required = new JsonArray("operation");
-            if (definition.RequiresConfirmation)
-            {
-                properties["confirm"] = new JsonObject
-                {
-                    ["const"] = true,
-                    ["description"] = "Required as true to perform this mutation. Omit it or use false to receive a confirmation preview without an upstream change."
-                };
-                required.Add("confirm");
-            }
+            if (definition.RequestContract != "None") required.Add("request");
 
             alternatives.Add(new JsonObject
             {
@@ -107,281 +99,35 @@ public static class HelpdeskToolDefinitions
 
         return new JsonObject
         {
+            ["$schema"] = "https://json-schema.org/draft/2020-12/schema",
             ["type"] = "object",
             ["description"] = EnvelopeGuidance,
             ["oneOf"] = alternatives
         };
     }
 
-    private static JsonObject RequestSchema(McpOperationDefinition definition)
+    public static JsonObject RequestSchema(McpOperationDefinition definition) => McpRequestSchemas.Create(definition);
+
+    // Runtime and discovery use the same allowed-property tree. Deliberately open
+    // form JSON strings are never traversed or constrained as MCP envelope fields.
+    public static string? ValidateSupportedFields(string tool, string operation, JsonElement? request)
     {
-        var properties = new JsonObject();
-        var required = new JsonArray();
-
-        foreach (var identifier in PathIdentifiers(definition.PathTemplate))
-            AddString(properties, required, identifier, $"Helpdesk identifier used by the {definition.Operation} operation.");
-
-        switch (definition.RequestContract)
-        {
-            case "ListRequest":
-            case "TicketOperationRequest":
-                AddInteger(properties, "page", "Optional one-based page number.");
-                AddInteger(properties, "pageSize", "Optional bounded page size.");
-                AddString(properties, null, "query", "Optional bounded search text.");
-                break;
-            case "SearchRequest":
-                AddString(properties, required, "query", "Search text.");
-                AddInteger(properties, "limit", "Maximum results; the server caps this value.");
-                break;
-            case "LogSearchRequest":
-                AddString(properties, null, "since", "ISO-8601 lower time bound.");
-                AddString(properties, null, "correlationId", "Correlation identifier.");
-                AddString(properties, null, "contains", "Redacted diagnostic search text.");
-                AddInteger(properties, "limit", "1 through 100; defaults to 50.");
-                break;
-            case "ConfigKeyRequest":
-                AddEnum(properties, required, "key", ["apiBaseUrl", "authentikScope"], "Allowlisted persisted configuration key.");
-                break;
-            case "ConfigValueRequest":
-                AddEnum(properties, required, "key", ["apiBaseUrl", "authentikScope"], "Allowlisted persisted configuration key.");
-                AddString(properties, required, "value", "New non-secret value.");
-                break;
-            case "NotificationMarkReadRequest":
-                AddStringArray(properties, required, "ids", "Notification identifiers to mark read.");
-                break;
-            case "TicketStateRequest":
-            case "BulkTicketStateRequest":
-                AddEnum(properties, required, "newState", ["New", "WaitingReply", "Replied", "InProgress", "PendingApproval", "OnHold", "Resolved"], "Target ticket state.");
-                if (definition.Operation.StartsWith("bulk_", StringComparison.Ordinal)) AddStringArray(properties, required, "ids", "Ticket identifiers.");
-                break;
-            case "TicketAssignmentRequest":
-                AddStringArray(properties, required, "ids", "Ticket identifiers.");
-                AddString(properties, required, "assignedToId", "Helpdesk user identifier to assign.");
-                break;
-            case "ConfiguredAgentAssignmentRequest":
-                AddStringArray(properties, required, "ids", "Ticket identifiers.");
-                AddString(properties, null, "agentUserEmail", "Optional configured-agent user email override.");
-                break;
-            case "IncidentWorklogRequest":
-            case "TicketWorklogRequest":
-                AddNumber(properties, required, "hours", "Non-negative worklog hours; use 0 for a diagnostic note.");
-                AddString(properties, required, "notes", "Worklog text.");
-                AddBoolean(properties, null, "isInternalNote", "Whether the note is internal; defaults to true where supported.");
-                break;
-            case "IncidentCloseRequest":
-                AddString(properties, required, "closureNote", "Required closure note written before resolution.");
-                AddBoolean(properties, null, "isInternalNote", "Whether the closure note is internal; defaults to true.");
-                break;
-            case "RequestTaskCreateRequest":
-                AddString(properties, required, "title", "Short task title.");
-                AddString(properties, required, "description", "Task description.");
-                AddString(properties, required, "requestId", "Parent Helpdesk request identifier.");
-                AddString(properties, required, "organizationId", "Owning organization identifier required by task authorization.");
-                AddEnum(properties, null, "priority", ["Low", "Medium", "High", "Critical"], "Optional task priority.");
-                AddString(properties, null, "customerId", "Optional customer identifier.");
-                AddStringArray(properties, null, "linkedAssetIds", "Optional linked asset identifiers.");
-                AddStringArray(properties, null, "attachments", "Optional attachment references.");
-                properties["dueDate"] = new JsonObject { ["type"] = "string", ["format"] = "date-time", ["description"] = "Optional due date and time." };
-                break;
-            case "RequestTaskUpdateRequest":
-                AddString(properties, null, "title", "Optional replacement task title; it cannot be blank.");
-                AddString(properties, null, "description", "Optional replacement task description; it cannot be blank.");
-                AddEnum(properties, null, "priority", ["Low", "Medium", "High", "Critical"], "Optional task priority.");
-                AddString(properties, null, "assignedToId", "Optional Helpdesk user identifier; use clearAssignment to remove an assignment.");
-                AddBoolean(properties, null, "clearAssignment", "Set true to remove the current assignment; cannot be combined with assignedToId.");
-                AddStringArray(properties, null, "linkedAssetIds", "Optional complete replacement linked-asset identifiers; an empty array clears the list.");
-                AddStringArray(properties, null, "attachments", "Optional complete replacement attachment references; an empty array clears the list.");
-                properties["dueDate"] = new JsonObject { ["type"] = "string", ["format"] = "date-time", ["description"] = "Optional replacement due date and time; use clearDueDate to remove it." };
-                AddBoolean(properties, null, "clearDueDate", "Set true to remove the due date; cannot be combined with dueDate.");
-                break;
-            case "BulkRequestTaskActionRequest":
-                AddStringArray(properties, required, "ids", "Request-task identifiers.");
-                break;
-            case "TicketCountRequest":
-                AddEnum(properties, required, "ticketType", ["incidents", "requests", "changes"], "Ticket collection used to select the route.");
-                AddString(properties, required, "ticketId", "Ticket identifier.");
-                break;
-        }
-
-        if (definition.Tool == "helpdesk_incidents" && definition.Operation == "list")
-        {
-            const string aliasRule = "Optional incident search text, sent as API q. query and q are aliases: null or blank values leave search unfiltered; equivalent trimmed values deduplicate; conflicting nonempty values fail validation.";
-            foreach (var alias in new[] { "query", "q" })
-                properties[alias] = new JsonObject { ["type"] = new JsonArray("string", "null"), ["description"] = aliasRule };
-            foreach (var flag in new[] { "includeTotal", "activeOnly", "historicOnly", "summaryOnly" })
-                AddBoolean(properties, null, flag, "Optional incident API list flag; applied with the search before paging.");
-            properties["state"] = new JsonObject { ["type"] = new JsonArray("string", "integer"), ["description"] = "Optional incident API state filter; preserves the API's active/historic defaults when absent." };
-            AddEnum(properties, null, "view", ["all", "active", "historic"], "Optional incident API list view.");
-        }
-
-        if (definition.Operation == "bulk_create")
-            AddBulkCreateFields(definition.Tool, properties, required);
-        else if (definition.Operation == "create")
-            AddCreateFields(definition.Tool, properties, required);
-        else if (definition.Operation == "update")
-            AddUpdateFields(definition.Tool, properties);
-
-        var schema = new JsonObject
-        {
-            ["type"] = "object",
-            ["additionalProperties"] = !IsClosedRequestContract(definition.RequestContract),
-            ["description"] = $"{definition.RequestContract} for {definition.Tool} operation {definition.Operation}. All operation-specific fields belong inside this request object, never at the tool root.",
-            ["properties"] = properties,
-            ["required"] = new JsonArray(required.Select(value => value!.GetValue<string>())
-                .Distinct(StringComparer.Ordinal).Select(value => JsonValue.Create(value)).ToArray())
-        };
-        if (definition.RequestContract == "RequestTaskUpdateRequest")
-        {
-            var updateAlternatives = new JsonArray();
-            foreach (var field in new[] { "title", "description", "priority", "assignedToId", "linkedAssetIds", "attachments", "dueDate" })
-                updateAlternatives.Add(new JsonObject { ["required"] = new JsonArray(field) });
-            updateAlternatives.Add(new JsonObject { ["required"] = new JsonArray("clearAssignment"), ["properties"] = new JsonObject { ["clearAssignment"] = new JsonObject { ["const"] = true } } });
-            updateAlternatives.Add(new JsonObject { ["required"] = new JsonArray("clearDueDate"), ["properties"] = new JsonObject { ["clearDueDate"] = new JsonObject { ["const"] = true } } });
-            schema["anyOf"] = updateAlternatives;
-        }
-        return schema;
-    }
-
-    private static bool IsClosedRequestContract(string requestContract) => requestContract is
-        "ListRequest" or "TicketOperationRequest" or "SearchRequest" or "LogSearchRequest" or
-        "ConfigKeyRequest" or "ConfigValueRequest" or "NotificationMarkReadRequest" or
-        "TicketStateRequest" or "BulkTicketStateRequest" or "TicketAssignmentRequest" or
-        "ConfiguredAgentAssignmentRequest" or "IncidentWorklogRequest" or "TicketWorklogRequest" or
-        "IncidentCloseRequest" or "TicketCountRequest" or "IncidentRequest" or "RequestRequest" or
-        "ChangeRequest" or "RequestTaskRequest" or "RequestTaskCreateRequest" or "RequestTaskUpdateRequest" or "BulkRequestTaskActionRequest" or "NotificationRequest" or "RequestFormRequest" or
-        "RequestFormsByServiceRequest" or "OrganizationRequest" or "CustomerRequest" or "UserEmailRequest" or
-        "ServiceRequest" or "RoleRequest" or "CategoryRequest" or "IncidentCreateRequest" or
-        "IncidentBulkCreateRequest" or "RequestBulkCreateRequest" or "ChangeBulkCreateRequest";
-
-    private static void AddCreateFields(string tool, JsonObject properties, JsonArray required)
-    {
-        if (tool is "helpdesk_incidents" or "helpdesk_requests" or "helpdesk_changes")
-        {
-            AddString(properties, required, "title", "Short ticket title. Do not use subject.");
-            AddString(properties, required, "description", "Ticket description.");
-            AddEnum(properties, null, "priority", ["Low", "Medium", "High", "Critical"], "Ticket priority; defaults to Low.");
-        }
-
-        if (tool == "helpdesk_incidents")
-        {
-            AddString(properties, required, "customerId", "Customer identifier. Required for incident creation; use helpdesk_customers list to find an enabled customer.");
-            AddString(properties, required, "organizationId", "Organization identifier that owns customerId. Required for incident creation; it must match the selected customer.");
-            AddString(properties, null, "assignedToId", "Optional Helpdesk user identifier.");
-            AddStringArray(properties, null, "linkedAssetIds", "Optional linked asset identifiers.");
-            AddStringArray(properties, null, "attachments", "Optional attachment references.");
-            properties["dueDate"] = new JsonObject { ["type"] = "string", ["format"] = "date-time", ["description"] = "Optional due date and time." };
-            AddString(properties, null, "impact", "Optional incident impact summary.");
-            AddStringArray(properties, null, "ccRecipients", "Optional CC email addresses; maximum 20.");
-            properties["requesterEmail"] = new JsonObject { ["type"] = "string", ["format"] = "email", ["description"] = "Optional requester email address." };
-            AddStringArray(properties, null, "categoryIds", "Optional category identifiers.");
-        }
-
-        if (tool == "helpdesk_requests")
-        {
-            AddString(properties, required, "customerId", "Enabled customer identifier; required with organizationId.");
-            AddString(properties, required, "organizationId", "Organization that owns customerId.");
-        }
-
-        if (tool == "helpdesk_changes")
-        {
-            AddString(properties, required, "organizationId", "Organization that owns the change.");
-            AddString(properties, required, "requestedForUserId", "Helpdesk user requesting the change.");
-            AddString(properties, required, "implementorUserId", "Helpdesk user implementing the change.");
-            properties["implementationStartAt"] = new JsonObject { ["type"] = "string", ["format"] = "date-time", ["description"] = "Required implementation window start." };
-            required.Add("implementationStartAt");
-            properties["implementationEndAt"] = new JsonObject { ["type"] = "string", ["format"] = "date-time", ["description"] = "Required implementation window end after implementationStartAt." };
-            required.Add("implementationEndAt");
-            AddEnum(properties, required, "changeType", ["Standard", "Normal", "Emergency"], "Change classification.");
-            properties["changeTemplate"] = ChangeTemplateSchema();
-            required.Add("changeTemplate");
-        }
-    }
-
-    private static void AddBulkCreateFields(string tool, JsonObject properties, JsonArray required)
-    {
-        var itemProperties = new JsonObject();
-        var itemRequired = new JsonArray();
-        AddCreateFields(tool, itemProperties, itemRequired);
-        properties["items"] = new JsonObject
-        {
-            ["type"] = "array",
-            ["minItems"] = 1,
-            ["maxItems"] = 25,
-            ["description"] = "One to 25 ticket-create objects with the same contract as create.",
-            ["items"] = new JsonObject
-            {
-                ["type"] = "object",
-                ["additionalProperties"] = false,
-                ["properties"] = itemProperties,
-                ["required"] = itemRequired
-            }
-        };
-        required.Add("items");
-    }
-
-    private static JsonObject ChangeTemplateSchema()
-    {
-        var properties = new JsonObject
-        {
-            ["scopeOfChange"] = new JsonObject { ["type"] = "string", ["minLength"] = 1 },
-            ["affectedSystems"] = StringArraySchema(),
-            ["implementationSteps"] = StringArraySchema(),
-            ["validationSteps"] = StringArraySchema(),
-            ["rollbackPlan"] = new JsonObject { ["type"] = "string" },
-            ["rollbackReference"] = new JsonObject { ["type"] = "string" },
-            ["riskClassification"] = new JsonObject { ["type"] = "string" },
-            ["changeDescription"] = new JsonObject { ["type"] = "string" },
-            ["businessJustification"] = new JsonObject { ["type"] = "string" },
-            ["impactAssessment"] = new JsonObject { ["type"] = "string" },
-            ["riskAssessment"] = new JsonObject { ["type"] = "string" },
-            ["preChangeChecks"] = StringArraySchema(),
-            ["testingPlan"] = new JsonObject { ["type"] = "string" },
-            ["isPreApproved"] = new JsonObject { ["type"] = "boolean" },
-            ["existingRunbookReference"] = new JsonObject { ["type"] = "string" },
-            ["dependencies"] = OptionalStringArraySchema(),
-            ["emergencyReason"] = new JsonObject { ["type"] = "string" },
-            ["businessImpactIfNotImplemented"] = new JsonObject { ["type"] = "string" },
-            ["immediateRiskAssessment"] = new JsonObject { ["type"] = "string" },
-            ["incidentReference"] = new JsonObject { ["type"] = "string" },
-            ["postChangeValidation"] = new JsonObject { ["type"] = "string" }
-        };
-        return new JsonObject { ["type"] = "object", ["additionalProperties"] = false, ["description"] = "ITIL change template. All changes require scopeOfChange, affectedSystems, implementationSteps, validationSteps, and rollbackPlan or rollbackReference. Normal also requires businessJustification, impactAssessment, riskAssessment, preChangeChecks, and testingPlan; Standard requires isPreApproved and existingRunbookReference; Emergency requires emergencyReason, businessImpactIfNotImplemented, immediateRiskAssessment, and postChangeValidation.", ["properties"] = properties };
-    }
-
-    private static JsonObject StringArraySchema() => new() { ["type"] = "array", ["minItems"] = 1, ["items"] = new JsonObject { ["type"] = "string", ["minLength"] = 1 } };
-
-    private static JsonObject OptionalStringArraySchema() => new() { ["type"] = "array", ["items"] = new JsonObject { ["type"] = "string", ["minLength"] = 1 } };
-
-    private static void AddUpdateFields(string tool, JsonObject properties)
-    {
-        if (tool is "helpdesk_incidents" or "helpdesk_requests" or "helpdesk_changes")
-            AddEnum(properties, null, "priority", ["Low", "Medium", "High", "Critical"], "Updated ticket priority.");
-    }
-
-    private static IEnumerable<string> PathIdentifiers(string path)
-    {
-        var start = 0;
-        while (start < path.Length)
-        {
-            var open = path.IndexOf('{', start);
-            if (open < 0) yield break;
-            var close = path.IndexOf('}', open + 1);
-            if (close < 0) yield break;
-            yield return path[(open + 1)..close];
-            start = close + 1;
-        }
+        var definition = McpOperationCatalog.All.SingleOrDefault(item => item.Tool == tool && item.Operation == operation);
+        if (definition is null || (definition.RequestContract == "None" && (request is null || request.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined))) return null;
+        return McpRequestSchemas.ValidateSupportedFields(RequestSchema(definition), request);
     }
 
     private static string Title(string tool) => string.Join(' ', tool["helpdesk_".Length..].Split('_').Select(word => char.ToUpperInvariant(word[0]) + word[1..])) + " Helpdesk";
 
     private static string Description(string tool, IReadOnlyList<McpOperationDefinition> definitions)
     {
-        var reads = definitions.Where(item => !item.RequiresConfirmation).Select(item => item.Operation).Distinct(StringComparer.Ordinal).ToArray();
-        var mutations = definitions.Where(item => item.RequiresConfirmation).Select(item => item.Operation).Distinct(StringComparer.Ordinal).ToArray();
+        var reads = definitions.Where(item => item.Effect == "read").Select(item => item.Operation).Distinct(StringComparer.Ordinal).ToArray();
+        var mutations = definitions.Where(item => item.Effect != "read").Select(item => item.Operation).Distinct(StringComparer.Ordinal).ToArray();
         var readText = reads.Length == 0 ? "" : $" Read operations: {string.Join(", ", reads)}.";
-        var mutationText = mutations.Length == 0 ? "" : $" Mutations: {string.Join(", ", mutations)}; every mutation requires confirm=true and a matching operation-specific request.";
-        var searchText = tool == "helpdesk_incidents" ? " For list, request.query maps to API q; request.q is an alias. Null or blank search is unfiltered, equivalent trimmed aliases deduplicate, and conflicting nonempty aliases fail validation. The API filters authorized records before counts and paging." : "";
-        return $"Use {tool} for its Helpdesk domain only. {EnvelopeGuidance}{ChangeTemplateGuidance(tool)}{WorklogGuidance(tool)}{searchText}{readText}{mutationText}";
+        var mutationText = mutations.Length == 0 ? "" : $" Write operations: {string.Join(", ", mutations)}. Operations marked confirmationRequired need confirm=true to execute; omitted/false confirmation returns a preview. Autonomous writes retain their existing API authority and prerequisites.";
+        var searchText = tool is "helpdesk_incidents" or "helpdesk_requests" or "helpdesk_changes" or "helpdesk_request_tasks" ? " For list, request.query maps to API q; request.q is an alias. Null or blank search is unfiltered, equivalent trimmed aliases deduplicate, and conflicting nonempty aliases fail validation. The API filters authorized records before counts and paging." : "";
+        var rawText = tool == "helpdesk_raw" ? " Fixed named allowlisted GET reads only: system_version, get_incident, get_request, get_change. rawEnabled=false means arbitrary raw access is disabled; request cannot select a method, path, host or target. Existing identity and authority restrictions apply." : "";
+        return $"Use {tool} for its Helpdesk domain only. {EnvelopeGuidance}{rawText}{ChangeTemplateGuidance(tool)}{WorklogGuidance(tool)}{searchText}{readText}{mutationText}";
     }
 
     private static string ChangeTemplateGuidance(string tool) => tool == "helpdesk_changes"
@@ -396,36 +142,4 @@ public static class HelpdeskToolDefinitions
         _ => ""
     };
 
-    private static void AddString(JsonObject properties, JsonArray? required, string name, string description)
-    {
-        properties[name] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["description"] = description };
-        required?.Add(name);
-    }
-
-    private static void AddInteger(JsonObject properties, string name, string description)
-        => properties[name] = new JsonObject { ["type"] = "integer", ["description"] = description };
-
-    private static void AddNumber(JsonObject properties, JsonArray? required, string name, string description)
-    {
-        properties[name] = new JsonObject { ["type"] = "number", ["minimum"] = 0, ["description"] = description };
-        required?.Add(name);
-    }
-
-    private static void AddBoolean(JsonObject properties, JsonArray? required, string name, string description)
-    {
-        properties[name] = new JsonObject { ["type"] = "boolean", ["description"] = description };
-        required?.Add(name);
-    }
-
-    private static void AddEnum(JsonObject properties, JsonArray? required, string name, IReadOnlyList<string> values, string description)
-    {
-        properties[name] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray(values.Select(value => JsonValue.Create(value)).ToArray()), ["description"] = description };
-        required?.Add(name);
-    }
-
-    private static void AddStringArray(JsonObject properties, JsonArray? required, string name, string description)
-    {
-        properties[name] = new JsonObject { ["type"] = "array", ["minItems"] = 1, ["items"] = new JsonObject { ["type"] = "string", ["minLength"] = 1 }, ["description"] = description };
-        required?.Add(name);
-    }
 }

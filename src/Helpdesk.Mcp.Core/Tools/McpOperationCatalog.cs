@@ -9,17 +9,20 @@ public sealed record McpOperationDefinition(
     string HttpMethod,
     string PathTemplate,
     bool RequiresConfirmation,
-    string Description);
+    string Description)
+{
+    public string Effect => HttpMethod is "GET" || (HttpMethod == "LOCAL" && !RequiresConfirmation) ? "read"
+        : Tool == "helpdesk_connectivity" ? "external_io" : HttpMethod == "LOCAL" ? "local_write" : "write";
+}
 
 /// <summary>
 /// The checked-in contract used by MCP discovery, tests, and operator documentation.
-/// It intentionally lists only agent-safe API/CLI operations; secret-returning,
-/// unrestricted raw, callback, debug, and identity-provider operations stay excluded.
+/// It lists supported MCP adapters; API identity, authority and domain rules remain
+/// authoritative. Secret-returning, unrestricted raw and debug operations stay excluded.
 /// </summary>
 public static class McpOperationCatalog
 {
-    // v19 documents the incident-only query/q search alias contract.
-    public const string Revision = "2026-10-17.mcp-incident-search-v19";
+    public const string Revision = "2026-10-17.mcp-executable-contracts-v20";
 
     public static IReadOnlyList<McpOperationDefinition> All { get; } =
     [
@@ -90,21 +93,15 @@ public static class McpOperationCatalog
         .Distinct(StringComparer.Ordinal)
         .ToArray();
 
-    public static JsonArray ToJson() => new(All.Select(item => new JsonObject
-    {
-        ["tool"] = item.Tool,
-        ["operation"] = item.Operation,
-        ["requestContract"] = item.RequestContract,
-        ["method"] = item.HttpMethod,
-        ["pathTemplate"] = item.PathTemplate,
-        ["confirmationRequired"] = item.RequiresConfirmation,
-        ["description"] = item.Description
-    }).ToArray());
+    public static JsonArray ToJson() => new(All.Select(McpOperationMetadata.ToJson).ToArray());
+
+    public static string CatalogHash => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+        System.Text.Encoding.UTF8.GetBytes(ToJson().ToJsonString()))).ToLowerInvariant();
 
     private static McpOperationDefinition Read(string tool, string operation, string contract, string path, string description) => new(tool, operation, contract, "GET", path, false, description);
     private static McpOperationDefinition Local(string tool, string operation, string contract, bool confirmationRequired, string description) => new(tool, operation, contract, "LOCAL", "local", confirmationRequired, description);
     private static McpOperationDefinition Ticket(string tool, string ticketType, string idName, string contract, string operation, string method, bool confirmationRequired) => new(tool, operation, contract, method, TicketPath(ticketType, idName, operation), confirmationRequired, $"{operation} {ticketType}.");
-    private static McpOperationDefinition TicketCount(string tool, string ticketType, string idName, string operation) => new(tool, operation, $"{ticketType[..^1]}CountRequest", "GET", $"/api/v1/{ticketType}/{{{idName}}}/{operation.Replace('_', '/')}", false, $"Read {operation} for one {ticketType[..^1]}.");
+    private static McpOperationDefinition TicketCount(string tool, string ticketType, string idName, string operation) => new(tool, operation, $"{char.ToUpperInvariant(ticketType[0])}{ticketType[1..^1]}CountRequest", "GET", $"/api/v1/{ticketType}/{{{idName}}}/{operation.Replace('_', '/')}", false, $"Read {operation} for one {ticketType[..^1]}.");
     private static string TicketPath(string ticketType, string idName, string operation) => operation switch
     {
         "create" or "bulk_create" => $"/api/v1/{ticketType}/",
@@ -142,11 +139,11 @@ public static class McpOperationCatalog
             yield return Operation(resource.Item1, "get", $"{resource.Item3[..1].ToUpperInvariant()}{resource.Item3[1..]}Request", "GET", $"{resource.Item2}/{{{resource.Item3}Id}}", false);
         }
         yield return Operation("helpdesk_categories", "list", "ListRequest", "GET", "/api/v1/categories/", false);
-        yield return Operation("helpdesk_customers", "auth_status", "CustomerRequest", "GET", "/api/v1/customers/{customerId}/auth-status", false);
+        yield return Operation("helpdesk_customers", "auth_status", "CustomerRequest", "GET", "/api/v1/customers/{customerId}/auth/status", false);
         yield return Operation("helpdesk_users", "by_email", "UserEmailRequest", "GET", "/api/v1/users/by-email/{email}", false);
         foreach (var operation in new[] { "users", "customers", "organizations" }) yield return Operation("helpdesk_search", operation, "SearchRequest", "GET", $"/api/v1/global-search/{operation}", false);
 
-        yield return Operation("helpdesk_tickets", "mark_as_seen", "TicketMutationRequest", "POST", "/api/v1/tickets/{ticketId}/mark-as-seen", true);
+        yield return Operation("helpdesk_tickets", "mark_as_seen", "TicketSeenRequest", "POST", "/api/v1/tickets/{ticketId}/mark-as-seen", true);
 
         yield return Operation("helpdesk_services", "list", "ListRequest", "GET", "/api/v1/services/", false);
         yield return Operation("helpdesk_services", "get", "ServiceRequest", "GET", "/api/v1/services/{serviceId}", false);
@@ -156,7 +153,7 @@ public static class McpOperationCatalog
 
         foreach (var operation in new[] { "requests", "request_users" }) yield return Operation("helpdesk_self_service", operation, "ListRequest", "GET", $"/api/v1/self-service/{operation.Replace('_', '-')}", false);
         yield return Operation("helpdesk_self_service", "get_request", "RequestRequest", "GET", "/api/v1/self-service/requests/{requestId}", false);
-        foreach (var operation in new[] { "list", "get", "summary", "unread_errors" }) yield return Operation("helpdesk_notifications", operation, operation == "get" ? "NotificationRequest" : "ListRequest", "GET", operation switch { "summary" => "/api/v1/notifications/error-summary", "unread_errors" => "/api/v1/notifications/unread-errors", "get" => "/api/v1/notifications/{notificationId}", _ => "/api/v1/notifications" }, false);
+        foreach (var operation in new[] { "list", "get", "summary", "unread_errors" }) yield return Operation("helpdesk_notifications", operation, operation == "get" ? "NotificationRequest" : operation == "summary" ? "None" : "ListRequest", "GET", operation switch { "summary" => "/api/v1/notifications/error-summary", "unread_errors" => "/api/v1/notifications/unread-errors", "get" => "/api/v1/notifications/{notificationId}", _ => "/api/v1/notifications" }, false);
         yield return Operation("helpdesk_notifications", "mark_read", "NotificationMarkReadRequest", "POST", "/api/v1/notifications/mark-read", true);
 
         foreach (var (operation, path) in new[]
@@ -167,22 +164,29 @@ public static class McpOperationCatalog
                      ("orchestration_request_definitions", "/api/v1/admin/orchestration/catalog/request-definitions"),
                      ("orchestration_bindings", "/api/v1/admin/orchestration/bindings")
                  }) yield return Operation("helpdesk_connectivity", operation, "None", "GET", path, false);
-        yield return Operation("helpdesk_connectivity", "orchestration_test", "ConnectivityTestRequest", "POST", "/api/v1/admin/orchestration/test", true);
+        yield return Operation("helpdesk_connectivity", "orchestration_test", "None", "POST", "/api/v1/admin/orchestration/test", true);
         yield return Local("helpdesk_schema", "list", "None", false, "Read the executable MCP operation catalog.");
         foreach (var operation in new[] { "list", "ticket_state", "ticket_priority", "request_task_status", "change_lifecycle_state" }) yield return Local("helpdesk_enums", operation, "None", false, "Read enum metadata.");
         yield return Local("helpdesk_examples", "list", "None", false, "Read operator examples.");
-        yield return Operation("helpdesk_raw", "system_version", "AllowlistedReadRequest", "GET", "/api/v1/system/version", false);
+        yield return Operation("helpdesk_raw", "system_version", "None", "GET", "/api/v1/system/version", false);
         yield return Operation("helpdesk_raw", "get_incident", "AllowlistedReadRequest", "GET", "/api/v1/incidents/{incidentId}", false);
         yield return Operation("helpdesk_raw", "get_request", "AllowlistedReadRequest", "GET", "/api/v1/requests/{requestId}", false);
         yield return Operation("helpdesk_raw", "get_change", "AllowlistedReadRequest", "GET", "/api/v1/changes/{changeId}", false);
 
-        foreach (var (operation, method, path) in AdminOperations()) yield return Operation("helpdesk_admin_mutations", operation, "AdministrativeMutationRequest", method, path, true);
+        foreach (var (operation, method, path) in AdminOperations()) yield return Operation("helpdesk_admin_mutations", operation, operation == "provision_user" ? "None" : "AdministrativeMutationRequest", method, path, true);
     }
 
     private static IEnumerable<McpOperationDefinition> TicketRemainder(string tool, string type, string idName, IReadOnlyList<string> operations)
     {
         foreach (var operation in operations)
-            yield return Operation(tool, operation, operation == "bulk_create" ? $"{type[..^1]}BulkCreateRequest" : "TicketOperationRequest", operation == "list" ? "GET" : "POST", operation == "list" ? $"/api/v1/{type}/" : TicketPath(type, idName, operation), operation != "list");
+            yield return Operation(tool, operation, operation switch
+                {
+                    "bulk_create" => $"{char.ToUpperInvariant(type[0])}{type[1..^1]}BulkCreateRequest",
+                    "bulk_state" => "BulkTicketStateRequest",
+                    "assign" => "TicketAssignmentRequest",
+                    "assign_self" => "ConfiguredAgentAssignmentRequest",
+                    _ => "ListRequest"
+                }, operation == "list" ? "GET" : "POST", operation == "list" ? $"/api/v1/{type}/" : TicketPath(type, idName, operation), operation != "list");
     }
 
     private static string RequestTaskPath(string operation) => operation switch
@@ -217,15 +221,15 @@ public static class McpOperationCatalog
         yield return ("create_request_form", "POST", "/api/v1/request-forms");
         yield return ("create_service_request_form", "POST", "/api/v1/services/{serviceId}/forms/");
         yield return ("provision_user", "POST", "/api/v1/users/provision");
-        yield return ("update_organization_branding", "PUT", "/api/v1/tenants/{organizationId}/branding");
+        yield return ("update_organization_branding", "PUT", "/api/v1/tenants/{tenantId}/branding");
         yield return ("update_request_form", "PUT", "/api/v1/request-forms/{requestFormId}");
         yield return ("delete_request_form", "DELETE", "/api/v1/request-forms/{requestFormId}");
         yield return ("create_self_service_request", "POST", "/api/v1/self-service/requests");
-        foreach (var operation in new[] { "customer_invite", "customer_resend_invite", "customer_disable_login", "customer_sync_authentik" }) yield return (operation, "POST", "/api/v1/customers/{customerId}/" + operation[9..].Replace('_', '-'));
+        foreach (var operation in new[] { "customer_invite", "customer_resend_invite", "customer_disable_login", "customer_sync_authentik" }) yield return (operation, "POST", "/api/v1/customers/{customerId}/auth/" + operation[9..].Replace('_', '-'));
     }
 
     private static McpOperationDefinition Operation(string tool, string operation, string contract, string method, string path, bool confirmationRequired) => new(tool, operation, contract, method, path, confirmationRequired,
-        tool == "helpdesk_incidents" && operation == "list"
-            ? "List authorized incidents. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging."
+        tool is "helpdesk_incidents" or "helpdesk_requests" or "helpdesk_changes" && operation == "list"
+            ? "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging."
             : $"{operation} operation.");
 }

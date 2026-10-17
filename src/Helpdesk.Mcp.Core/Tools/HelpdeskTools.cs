@@ -91,19 +91,28 @@ public sealed class HelpdeskTools(
     public async Task<HelpdeskToolResponse> helpdesk_logs(string operation = "search", JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default)
     {
         if (operation != "search") return Invalid("helpdesk_logs", operation, ["search"]);
-        var payload = Object(request);
-        if (payload?["since"] is null && payload?["correlationId"] is null && payload?["contains"] is null) return Validation("Logs require request.since, request.correlationId, or request.contains.");
-        var limit = payload?["limit"]?.GetValue<int?>() ?? 50;
+        if (request is not { ValueKind: JsonValueKind.Object } element) return Validation("request must be an object.");
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        if (element.EnumerateObject().Any(property => !names.Add(property.Name))) return Validation("request must not contain duplicate properties.");
+        var payload = Object(request)!;
+        foreach (var field in new[] { "correlationId", "contains", "level" })
+            if (payload.ContainsKey(field) && !HasText(payload[field])) return Validation($"request.{field} must be a nonempty string.");
+        if (payload["since"] is { } since && (since.GetValueKind() != JsonValueKind.Number || since is not JsonValue cursor || !cursor.TryGetValue<long>(out var sinceCursor) || sinceCursor < 0))
+            return Validation("request.since must be a nonnegative integer log cursor.");
+        if (payload["since"] is null && payload["correlationId"] is null && payload["contains"] is null) return Validation("Logs require request.since, request.correlationId, or request.contains.");
+        var limit = 50;
+        if (payload["limit"] is { } value && (value.GetValueKind() != JsonValueKind.Number || value is not JsonValue count || !count.TryGetValue<int>(out limit)))
+            return Validation("request.limit must be an integer between 1 and 100.");
         if (limit is < 1 or > 100) return Validation("request.limit must be between 1 and 100.");
-        payload!["limit"] = limit;
-        return await Execute(() => client.GetAsync(Query("/api/v1/ops/ai-agent/logs", payload), true, cancellationToken), "Operational diagnostics read.").ConfigureAwait(false);
+        payload["limit"] = limit;
+        return await Execute(() => client.GetAsync(Query("/api/v1/ops/ai-agent/logs", payload, "correlationId"), true, cancellationToken), "Operational diagnostics read.").ConfigureAwait(false);
     }
 
     [McpServerTool(UseStructuredContent = true), Description("Manage incidents. Read operations: list, get, peek, timeline, timeline_count, attachments_count, listeners_count. For list, request.query searches through the API q parameter; request.q is also supported. Blank searches are unfiltered; equivalent trimmed aliases deduplicate and conflicting nonempty aliases fail validation. Confirmed mutations: create, bulk_create, update, delete, state, bulk_state, assign, assign_self, add_worklog, close. In caller-bound mode, assign_self uses the authenticated application identity; external agents use their configured agent identity. close requires request.incidentId and request.closureNote, writes an internal closure note by default, then sets the incident state to Resolved. Every mutation requires confirm:true.")]
     public Task<HelpdeskToolResponse> helpdesk_incidents(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default) => TicketOperation("helpdesk_incidents", "/api/v1/incidents", "incidentId", operation, request, confirm, cancellationToken);
-    [McpServerTool(UseStructuredContent = true), Description("Manage service requests. Reads: list, get, tasks, timeline, timeline_count, attachments_count, listeners_count. Confirmed mutations: create, bulk_create, update, delete, state, bulk_state, assign, assign_self, add_worklog. state requires request.requestId and request.newState; bulk_state requires request.ids and request.newState; assign requires request.ids and request.assignedToId. Every mutation requires confirm:true.")]
+    [McpServerTool(UseStructuredContent = true), Description("Manage service requests. List query/q aliases map to API q; blank searches are unfiltered, equivalent trimmed aliases deduplicate, and conflicting nonempty values fail validation. Reads: list, get, tasks, timeline, timeline_count, attachments_count, listeners_count. Confirmed mutations: create, bulk_create, update, delete, state, bulk_state, assign, assign_self, add_worklog. state requires request.requestId and request.newState; bulk_state requires request.ids and request.newState; assign requires request.ids and request.assignedToId. Every mutation requires confirm:true.")]
     public Task<HelpdeskToolResponse> helpdesk_requests(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default) => TicketOperation("helpdesk_requests", "/api/v1/requests", "requestId", operation, request, confirm, cancellationToken);
-    [McpServerTool(UseStructuredContent = true), Description("Manage changes. Reads: list, get, timeline, worklogs, timeline_count, attachments_count, listeners_count. Confirmed mutations: create, bulk_create, update, delete, state, bulk_state, assign, assign_self, add_worklog, lifecycle. Every mutation requires confirm:true.")]
+    [McpServerTool(UseStructuredContent = true), Description("Manage changes. List query/q aliases map to API q; blank searches are unfiltered, equivalent trimmed aliases deduplicate, and conflicting nonempty values fail validation. Reads: list, get, timeline, worklogs, timeline_count, attachments_count, listeners_count. Confirmed mutations: create, bulk_create, update, delete, state, bulk_state, assign, assign_self, add_worklog, lifecycle. Every mutation requires confirm:true.")]
     public Task<HelpdeskToolResponse> helpdesk_changes(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default) => TicketOperation("helpdesk_changes", "/api/v1/changes", "changeId", operation, request, confirm, cancellationToken);
 
     [McpServerTool(UseStructuredContent = true), Description("Report AiAssistant AI investigation progress to its existing Helpdesk AI worklog. Operations: report. This narrowly scoped autonomous update does not create a normal worklog or change ticket state; it requires invocationId, eventId, ticketId, ticketType, correlationId, status, and message. The existing authenticated MCP/API identity is required. Tenant scope is derived from the matched Helpdesk invocation; the tool cannot select, override, or bypass it.")]
@@ -112,13 +121,13 @@ public sealed class HelpdeskTools(
         if (operation != "report") return Invalid("helpdesk_ai_assistant", operation, ["report"]);
         if (!TryRequest<AiAssistantWorklogRequest>(request, out var update, out var error)) return Validation(error);
         if (update.TicketType is not ("incidents" or "requests" or "changes")) return Validation("request.ticketType must be incidents, requests, or changes.");
-        if (!Enum.TryParse<AiInvestigationStatus>(update.Status, true, out var status)) return Validation("request.status is not a valid AI investigation status.");
+        if (!Enum.TryParse<AiInvestigationStatus>(update.Status, true, out var status) || !Enum.IsDefined(status)) return Validation("request.status is not a valid AI investigation status.");
         if (string.IsNullOrWhiteSpace(update.EventId) || string.IsNullOrWhiteSpace(update.TicketId) || string.IsNullOrWhiteSpace(update.CorrelationId) || string.IsNullOrWhiteSpace(update.Message)) return Validation("eventId, ticketId, correlationId, and message are required.");
         var dto = new AppendAiInvestigationWorklogDto(update.EventId, update.TicketId, update.TicketType, update.CorrelationId, status, update.Severity, update.Message, update.MetadataJson, update.ArtifactReferencesJson, update.RunReference, DateTimeOffset.UtcNow);
-        return await Execute(() => client.SendAsync(HttpMethod.Post, $"/api/v1/ai-assistant/investigations/{update.InvocationId}/worklog", JsonSerializer.SerializeToNode(dto), true, cancellationToken), "AI investigation worklog updated.").ConfigureAwait(false);
+        return await Mutation("report", [update.TicketId], true, HttpMethod.Post, $"/api/v1/ai-assistant/investigations/{update.InvocationId}/worklog", JsonSerializer.SerializeToNode(dto), cancellationToken).ConfigureAwait(false);
     }
 
-    [McpServerTool(UseStructuredContent = true), Description("Manage request tasks. Reads: list, get. Confirmed mutations: create, update, delete, start, complete, fail, retry, bulk_start, bulk_complete, bulk_retry. Single-task actions require request.taskId; bulk actions require request.ids. Every mutation requires confirm:true.")]
+    [McpServerTool(UseStructuredContent = true), Description("Manage request tasks. List query/q aliases map to API q; blank searches are unfiltered, equivalent trimmed aliases deduplicate, and conflicting nonempty values fail validation. Reads: list, get. Confirmed mutations: create, update, delete, start, complete, fail, retry, bulk_start, bulk_complete, bulk_retry. Single-task actions require request.taskId; bulk actions require request.ids. Every mutation requires confirm:true.")]
     public Task<HelpdeskToolResponse> helpdesk_request_tasks(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default) => TaskOperation(operation, request, confirm, cancellationToken);
     [McpServerTool(UseStructuredContent = true), Description("Inspect organizations. Operations: list, get, tenants, tenant_lookup, change_participants. tenants and tenant_lookup are global administrative reads; remaining detail operations require organizationId.")]
     public async Task<HelpdeskToolResponse> helpdesk_organizations(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default)
@@ -143,12 +152,23 @@ public sealed class HelpdeskTools(
         return await LookupRead("helpdesk_users", "/api/v1/users", "userId", operation, request, cancellationToken).ConfigureAwait(false);
     }
 
-    [McpServerTool(UseStructuredContent = true), Description("Search bounded Helpdesk lookup data. Operations: users, customers, organizations. request.query is required and request.limit is capped at 50.")]
+    [McpServerTool(UseStructuredContent = true), Description("Search bounded Helpdesk lookup data. Operations: users, customers, organizations. request.query or request.q is required. request.limit and request.pageSize are aliases capped at 25. The existing API requires HelpdeskAdmin authority.")]
     public async Task<HelpdeskToolResponse> helpdesk_search(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default)
     {
         if (operation is not ("users" or "customers" or "organizations")) return Invalid("helpdesk_search", operation, ["users", "customers", "organizations"]);
-        var query = String(request, "query"); if (string.IsNullOrWhiteSpace(query)) return Validation("request.query is required.");
-        var payload = Object(request) ?? new JsonObject(); var limit = Math.Clamp(payload["limit"]?.GetValue<int?>() ?? 20, 1, 50); payload["limit"] = limit;
+        if (NormalizeSearchAliases(request, out var payload) is { } aliasError) return Validation(aliasError);
+        if (string.IsNullOrWhiteSpace(payload?["q"]?.GetValue<string>())) return Validation("request.query or request.q is required.");
+        int? limit = null, pageSize = null;
+        foreach (var field in new[] { "limit", "pageSize" })
+        {
+            if (payload![field] is not { } value) continue;
+            if (value.GetValueKind() != JsonValueKind.Number || value is not JsonValue number || !number.TryGetValue<int>(out var parsed) || parsed < 1)
+                return Validation($"request.{field} must be a positive integer.");
+            if (field == "limit") limit = parsed; else pageSize = parsed;
+        }
+        if (limit.HasValue && pageSize.HasValue && limit != pageSize) return Validation("request.limit and request.pageSize must specify the same bound when both are provided.");
+        payload!.Remove("limit");
+        payload["pageSize"] = Math.Min(pageSize ?? limit ?? 20, 25);
         return await Execute(() => client.GetAsync(Query($"/api/v1/global-search/{operation}", payload), true, cancellationToken), "Bounded search completed.").ConfigureAwait(false);
     }
 
@@ -179,11 +199,17 @@ public sealed class HelpdeskTools(
     public Task<HelpdeskToolResponse> helpdesk_categories(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default)
         => operation == "list" ? CollectionRead("helpdesk_categories", "/api/v1/categories", "categoryId", operation, request, cancellationToken) : Task.FromResult(Invalid("helpdesk_categories", operation, ["list"]));
 
-    [McpServerTool(UseStructuredContent = true), Description("Inspect service catalog data. Operations: list, get, items, search_items, breadcrumb. Non-list operations require request.serviceId except search_items, which requires request.query.")]
+    [McpServerTool(UseStructuredContent = true), Description("Inspect service catalog data. Operations: list, get, items, search_items, breadcrumb. Non-list operations require request.serviceId except search_items, which requires nonempty request.query or request.q and normalizes both aliases to API q.")]
     public async Task<HelpdeskToolResponse> helpdesk_services(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default)
     {
         if (operation == "list") return await Execute(() => client.GetAsync(Query("/api/v1/services/", Object(request)), true, cancellationToken), "Services list completed.").ConfigureAwait(false);
-        if (operation == "search_items") { var query = String(request, "query"); return string.IsNullOrWhiteSpace(query) ? Validation("request.query is required.") : await Execute(() => client.GetAsync(Query("/api/v1/service-items/search", Object(request)), true, cancellationToken), "Service item search completed.").ConfigureAwait(false); }
+        if (operation == "search_items")
+        {
+            if (NormalizeSearchAliases(request, out var search) is { } aliasError) return Validation(aliasError);
+            return string.IsNullOrWhiteSpace(search?["q"]?.GetValue<string>())
+                ? Validation("request.query or request.q is required.")
+                : await Execute(() => client.GetAsync(Query("/api/v1/service-items/search", search), true, cancellationToken), "Service item search completed.").ConfigureAwait(false);
+        }
         var id = String(request, "serviceId"); if (string.IsNullOrWhiteSpace(id)) return Validation("request.serviceId is required.");
         if (operation is not ("get" or "items" or "breadcrumb")) return Invalid("helpdesk_services", operation, ["list", "get", "items", "search_items", "breadcrumb"]);
         var path = operation == "items" ? $"/api/v1/service-items/{Uri.EscapeDataString(id)}" : operation == "breadcrumb" ? $"/api/v1/services/{Uri.EscapeDataString(id)}/breadcrumb" : $"/api/v1/services/{Uri.EscapeDataString(id)}";
@@ -239,7 +265,7 @@ public sealed class HelpdeskTools(
     }
 
     [McpServerTool(UseStructuredContent = true), Description("Read MCP schema metadata. Operation must be list.")]
-    public Task<HelpdeskToolResponse> helpdesk_schema(string operation = "list", JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default) => operation != "list" ? Task.FromResult(Invalid("helpdesk_schema", operation, ["list"])) : Task.FromResult(Completed("Schema metadata read.", new JsonObject { ["catalogRevision"] = McpOperationCatalog.Revision, ["operations"] = McpOperationCatalog.ToJson() }));
+    public Task<HelpdeskToolResponse> helpdesk_schema(string operation = "list", JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default) => operation != "list" ? Task.FromResult(Invalid("helpdesk_schema", operation, ["list"])) : Task.FromResult(Completed("Schema metadata read.", new JsonObject { ["catalogRevision"] = McpOperationCatalog.Revision, ["catalogHash"] = McpOperationCatalog.CatalogHash, ["operations"] = McpOperationCatalog.ToJson() }));
 
     [McpServerTool(UseStructuredContent = true), Description("Read Helpdesk enum metadata. Operation is list or a closed enum name: ticket_state, ticket_priority, request_task_status, change_lifecycle_state.")]
     public Task<HelpdeskToolResponse> helpdesk_enums(string operation = "list", JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default)
@@ -271,9 +297,10 @@ public sealed class HelpdeskTools(
         }));
     }
 
-    [McpServerTool(UseStructuredContent = true), Description("Controlled raw Helpdesk access. Disabled by default; only exact read-only method-and-path allowlist operations exist. It never accepts URLs, paths, hosts, or request bodies.")]
+    [McpServerTool(UseStructuredContent = true), Description("Four fixed allowlisted Helpdesk reads are enabled. Arbitrary raw access is disabled; only exact read-only method-and-path allowlist operations exist. It never accepts URLs, paths, hosts, or request bodies.")]
     public async Task<HelpdeskToolResponse> helpdesk_raw(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default)
     {
+        if (HelpdeskToolDefinitions.ValidateSupportedFields("helpdesk_raw", operation, request) is { } fieldError) return Validation(fieldError);
         var id = operation switch { "get_incident" => String(request, "incidentId"), "get_request" => String(request, "requestId"), "get_change" => String(request, "changeId"), _ => null };
         var path = operation switch
         {
@@ -315,7 +342,7 @@ public sealed class HelpdeskTools(
             "delete_service" => (HttpMethod.Delete, "/api/v1/services", "serviceId"),
             "create_request_form" => (HttpMethod.Post, "/api/v1/request-forms", "requestFormId"),
             "create_service_request_form" => (HttpMethod.Post, "/api/v1/services", "serviceId"),
-            "update_organization_branding" => (HttpMethod.Put, "/api/v1/tenants", "organizationId"),
+            "update_organization_branding" => (HttpMethod.Put, "/api/v1/tenants", "tenantId"),
             "update_request_form" => (HttpMethod.Put, "/api/v1/request-forms", "requestFormId"),
             "delete_request_form" => (HttpMethod.Delete, "/api/v1/request-forms", "requestFormId"),
             "customer_invite" => (HttpMethod.Post, "/api/v1/customers", "customerId"),
@@ -326,25 +353,32 @@ public sealed class HelpdeskTools(
             _ => default
         };
         if (map.Item1 is null) return Invalid("helpdesk_admin_mutations", operation, ["create_organization", "update_organization", "delete_organization", "create_customer", "update_customer", "delete_customer", "create_user", "update_user", "delete_user", "provision_user", "create_role", "update_role", "delete_role", "create_category", "update_category", "delete_category", "create_service", "update_service", "delete_service", "create_request_form", "create_service_request_form", "update_request_form", "delete_request_form", "customer_invite", "customer_resend_invite", "customer_disable_login", "customer_sync_authentik", "create_self_service_request"]);
-        var id = String(request, map.Item3);
-        var isCreate = (operation.StartsWith("create_", StringComparison.Ordinal) || operation == "provision_user") && operation is not ("create_self_service_request" or "create_service_request_form");
+        var id = operation == "update_organization_branding" ? TenantId(request) : String(request, map.Item3);
+        var isCreate = (operation.StartsWith("create_", StringComparison.Ordinal) || operation == "provision_user") && operation != "create_service_request_form";
         if (!isCreate && string.IsNullOrWhiteSpace(id)) return Validation($"request.{map.Item3} is required.");
-        var suffix = operation switch { "customer_invite" => "/invite", "customer_resend_invite" => "/resend-invite", "customer_disable_login" => "/disable-login", "customer_sync_authentik" => "/sync-authentik", _ => "" };
+        var suffix = operation switch { "customer_invite" => "/auth/invite", "customer_resend_invite" => "/auth/resend-invite", "customer_disable_login" => "/auth/disable-login", "customer_sync_authentik" => "/auth/sync-authentik", _ => "" };
         var path = operation == "create_service_request_form" ? $"/api/v1/services/{Uri.EscapeDataString(id!)}/forms/" : operation == "update_organization_branding" ? $"/api/v1/tenants/{Uri.EscapeDataString(id!)}/branding" : isCreate || operation == "create_self_service_request" ? map.Item2 : $"{map.Item2}/{Uri.EscapeDataString(id!)}{suffix}";
         return await Mutation(operation, string.IsNullOrWhiteSpace(id) ? [] : [id], confirm, map.Item1, path, isCreate ? payload : BodyWithout(payload, map.Item3), cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<HelpdeskToolResponse> TicketOperation(string tool, string basePath, string idName, string operation, JsonElement? request, bool confirm, CancellationToken ct)
     {
-        if (tool == "helpdesk_incidents" && operation == "list") return await ListIncidents(request, ct).ConfigureAwait(false);
-        if (operation == "list") return await Execute(() => client.GetAsync(Query(basePath + "/", Object(request)), true, ct), $"{tool} list completed.").ConfigureAwait(false);
+        if (operation == "update" && HelpdeskToolDefinitions.ValidateSupportedFields(tool, operation, request) is { } fieldError) return Validation(fieldError);
+        if (operation == "update" && PriorityValidation(Object(request)) is { } priorityError) return Validation(priorityError);
+        if (operation is "state" or "bulk_state" or "lifecycle")
+        {
+            var field = operation == "lifecycle" ? "lifecycleState" : "newState";
+            if (Object(request)?[field] is null) return Validation($"request.{field} is required.");
+        }
+        if (operation is "create" or "update" or "state" or "bulk_state" or "lifecycle" && TicketEnumValidation(Object(request)) is { } enumError) return Validation(enumError);
+        if (operation == "list") return await ListTickets(tool, basePath, request, ct).ConfigureAwait(false);
         if (operation is "timeline_count" or "attachments_count" or "listeners_count") return await DomainTicketCount(tool, basePath, idName, operation, request, ct).ConfigureAwait(false);
         if (operation == "create")
         {
             var createRequest = Object(request);
             var validation = TicketCreateValidation(tool, createRequest, "request");
             if (validation is not null) return Validation(validation);
-            return await Mutation(operation, [], confirm, HttpMethod.Post, basePath + "/", NormalizeTicketPriority(createRequest), ct).ConfigureAwait(false);
+            return await Mutation(operation, [], confirm, HttpMethod.Post, basePath + "/", NormalizeTicketEnums(NormalizeTicketPriority(createRequest)), ct).ConfigureAwait(false);
         }
         if (operation == "bulk_create") return await BulkCreateTickets(operation, tool, basePath, Object(request), confirm, ct).ConfigureAwait(false);
         var id = String(request, idName);
@@ -354,7 +388,7 @@ public sealed class HelpdeskTools(
         {
             var ids = Strings(Object(request), "ids");
             var path = operation == "bulk_state" ? basePath + "/bulk/state" : basePath + "/bulk/assign";
-            return ids.Count == 0 ? Validation("request.ids must contain at least one identifier.") : await Mutation(operation, ids, confirm, HttpMethod.Post, path, Object(request), ct).ConfigureAwait(false);
+            return ids.Count == 0 ? Validation("request.ids must contain at least one identifier.") : await Mutation(operation, ids, confirm, HttpMethod.Post, path, NormalizeTicketEnums(Object(request)), ct).ConfigureAwait(false);
         }
         if (operation is "update" or "delete" or "state" or "add_worklog")
         {
@@ -364,12 +398,13 @@ public sealed class HelpdeskTools(
             var mutationSuffix = operation == "state" ? "/state" : operation == "add_worklog" ? "/worklogs" : "";
             var mutationBody = BodyWithout(Object(request), idName);
             if (operation == "update") mutationBody = NormalizeTicketPriority(mutationBody as JsonObject);
+            mutationBody = NormalizeTicketEnums(mutationBody as JsonObject);
             return await Mutation(operation, [id], confirm, method, $"{basePath}/{Uri.EscapeDataString(id)}{mutationSuffix}", mutationBody, ct).ConfigureAwait(false);
         }
         if (tool == "helpdesk_changes" && operation == "lifecycle")
         {
             if (string.IsNullOrWhiteSpace(id)) return Validation($"request.{idName} is required.");
-            return await Mutation(operation, [id], confirm, HttpMethod.Post, $"{basePath}/{Uri.EscapeDataString(id)}/lifecycle", BodyWithout(Object(request), idName), ct).ConfigureAwait(false);
+            return await Mutation(operation, [id], confirm, HttpMethod.Post, $"{basePath}/{Uri.EscapeDataString(id)}/lifecycle", NormalizeTicketEnums(BodyWithout(Object(request), idName) as JsonObject), ct).ConfigureAwait(false);
         }
         if (string.IsNullOrWhiteSpace(id)) return Validation($"request.{idName} is required.");
         var allowed = tool == "helpdesk_incidents" ? new[] { "get", "peek", "timeline" } : tool == "helpdesk_requests" ? new[] { "get", "tasks", "timeline" } : new[] { "get", "timeline", "worklogs" };
@@ -378,38 +413,50 @@ public sealed class HelpdeskTools(
         return await Execute(() => client.GetAsync($"{basePath}/{Uri.EscapeDataString(id)}{suffix}", true, ct), $"{tool} {operation} completed.").ConfigureAwait(false);
     }
 
-    private async Task<HelpdeskToolResponse> ListIncidents(JsonElement? request, CancellationToken ct)
+    private static string? NormalizeSearchAliases(JsonElement? request, out JsonObject? payload)
     {
+        payload = null;
         if (request is { ValueKind: not (JsonValueKind.Object or JsonValueKind.Null or JsonValueKind.Undefined) })
-            return Validation("request must be an object.");
+            return "request must be an object.";
         if (request is { ValueKind: JsonValueKind.Object } element)
         {
             var names = new HashSet<string>(StringComparer.Ordinal);
             if (element.EnumerateObject().Any(property => !names.Add(property.Name)))
-                return Validation("request must not contain duplicate properties.");
+                return "request must not contain duplicate properties.";
         }
-
-        var payload = Object(request);
+        payload = Object(request);
         foreach (var alias in new[] { "query", "q" })
             if (payload?[alias] is { } value && value.GetValueKind() != JsonValueKind.String)
-                return Validation($"request.{alias} must be a string or null.");
-
+                return $"request.{alias} must be a string or null.";
         var query = payload?["query"]?.GetValue<string>();
         var q = payload?["q"]?.GetValue<string>();
         var hasQuery = !string.IsNullOrWhiteSpace(query);
         var hasQ = !string.IsNullOrWhiteSpace(q);
         if (hasQuery && hasQ && !string.Equals(query!.Trim(), q!.Trim(), StringComparison.Ordinal))
-            return Validation("request.query and request.q must specify the same search text when both are nonempty.");
-
-        // Object makes a separate payload. Preserve API trimming/length rules and
-        // leave the generic query builder and all other tools' contracts intact.
+            return "request.query and request.q must specify the same search text when both are nonempty.";
+        // Clone before changing aliases; the API retains its own trim/length policy.
         if (payload is not null)
         {
             payload.Remove("query");
             payload.Remove("q");
             if (hasQ || hasQuery) payload["q"] = hasQ ? q : query;
         }
-        return await Execute(() => client.GetAsync(Query("/api/v1/incidents/", payload), true, ct), "helpdesk_incidents list completed.").ConfigureAwait(false);
+        return null;
+    }
+
+    private async Task<HelpdeskToolResponse> ListTickets(string tool, string basePath, JsonElement? request, CancellationToken ct)
+    {
+        if (NormalizeSearchAliases(request, out var payload) is { } error) return Validation(error);
+        // Identifier filters are explicit per API contract. Route/body selectors stay
+        // excluded by Query everywhere else; do not globally forward *Id fields.
+        string[] identifierFilters = tool switch
+        {
+            "helpdesk_incidents" => ["organizationId", "excludeId", "customerOrgId", "forId", "assigneeId"],
+            "helpdesk_requests" or "helpdesk_changes" => ["customerOrgId", "forId", "assigneeId"],
+            "helpdesk_request_tasks" => ["assignedToId", "requestId", "serviceId"],
+            _ => []
+        };
+        return await Execute(() => client.GetAsync(Query(basePath + "/", payload, identifierFilters), true, ct), $"{tool} list completed.").ConfigureAwait(false);
     }
 
     private async Task<HelpdeskToolResponse> BulkCreateTickets(string operation, string tool, string basePath, JsonObject? request, bool confirm, CancellationToken ct)
@@ -423,7 +470,8 @@ public sealed class HelpdeskTools(
             if (item is not JsonObject value) return Validation("Every request.items entry must be an object.");
             var validation = TicketCreateValidation(tool, value, "request.items entry");
             if (validation is not null) return Validation(validation);
-            normalizedItems.Add(NormalizeTicketPriority(value)!);
+            if (TicketEnumValidation(value) is { } enumError) return Validation(enumError);
+            normalizedItems.Add(NormalizeTicketEnums(NormalizeTicketPriority(value))!);
         }
         if (!confirm) return Response(false, "confirmation_required", $"This would create {items.Count} tickets.", AffectedIds: [], Confirmation: new HelpdeskConfirmation("confirm", true, operation, []));
         var created = new JsonArray();
@@ -434,7 +482,7 @@ public sealed class HelpdeskTools(
             var ids = created.OfType<JsonObject>().Select(value => value["id"]?.ToString()).Where(value => !string.IsNullOrWhiteSpace(value)).Cast<string>().ToArray();
             return Response(true, "completed", $"Created {created.Count} tickets.", created, AffectedIds: ids);
         }
-        catch (AgentClientRemoteException ex) { return Response(false, Status(ex.StatusCode), ex.Message, created, AffectedIds: [], Failure: new HelpdeskToolFailure(ex.Code, ex.StatusCode >= 500, ex.StatusCode), CorrelationId: ex.CorrelationId); }
+        catch (AgentClientRemoteException ex) { return Response(false, Status(ex.StatusCode), ex.Message, created, AffectedIds: [], NextActions: ["Read created records and reconcile the partial result before submitting another create."], Failure: new HelpdeskToolFailure(ex.Code, false, ex.StatusCode), CorrelationId: ex.CorrelationId); }
     }
 
     private async Task<HelpdeskToolResponse> AssignTicketsToConfiguredAgent(string operation, string basePath, JsonObject? request, bool confirm, CancellationToken ct)
@@ -456,7 +504,7 @@ public sealed class HelpdeskTools(
             var body = new JsonObject { ["ids"] = JsonSerializer.SerializeToNode(ids), ["assignedToId"] = userId };
             return await Mutation("assign", [.. ids, userId], true, HttpMethod.Post, basePath + "/bulk/assign", body, ct).ConfigureAwait(false);
         }
-        catch (AgentClientRemoteException ex) { return Response(false, Status(ex.StatusCode), ex.Message, AffectedIds: ids, Failure: new HelpdeskToolFailure(ex.Code, ex.StatusCode >= 500, ex.StatusCode), CorrelationId: ex.CorrelationId); }
+        catch (AgentClientRemoteException ex) { return Response(false, Status(ex.StatusCode), ex.Message, AffectedIds: ids, NextActions: ["Read ticket assignments before submitting another mutation."], Failure: new HelpdeskToolFailure(ex.Code, false, ex.StatusCode), CorrelationId: ex.CorrelationId); }
     }
 
     private async Task<string?> ResolveConfiguredAgentUserIdAsync(JsonObject? request, CancellationToken ct)
@@ -534,14 +582,15 @@ public sealed class HelpdeskTools(
         {
             return Response(false, Status(ex.StatusCode), ex.Message, AffectedIds: affectedIds,
                 NextActions: ["Inspect the incident timeline. The closure note may have been recorded before the state update failed."],
-                Failure: new HelpdeskToolFailure(ex.Code, ex.StatusCode >= 500, ex.StatusCode), CorrelationId: ex.CorrelationId);
+                Failure: new HelpdeskToolFailure(ex.Code, false, ex.StatusCode), CorrelationId: ex.CorrelationId);
         }
     }
 
     private async Task<HelpdeskToolResponse> TaskOperation(string operation, JsonElement? request, bool confirm, CancellationToken ct)
     {
         const string basePath = "/api/v1/request-tasks";
-        if (operation is "list" or "get") return await CollectionRead("helpdesk_request_tasks", basePath, "taskId", operation, request, ct).ConfigureAwait(false);
+        if (operation == "list") return await ListTickets("helpdesk_request_tasks", basePath, request, ct).ConfigureAwait(false);
+        if (operation == "get") return await CollectionRead("helpdesk_request_tasks", basePath, "taskId", operation, request, ct).ConfigureAwait(false);
         if (operation == "create")
         {
             var payload = Object(request);
@@ -562,7 +611,9 @@ public sealed class HelpdeskTools(
         if (operation == "update" && RequestTaskUpdateValidation(updatePayload) is { } updateValidation) return Validation(updateValidation);
         var method = operation == "update" ? HttpMethod.Patch : operation == "delete" ? HttpMethod.Delete : HttpMethod.Post;
         var suffix = operation is "update" or "delete" ? "" : "/" + operation;
-        return await Mutation(operation, [id], confirm, method, $"{basePath}/{Uri.EscapeDataString(id)}{suffix}", BodyWithout(updatePayload, "taskId"), ct).ConfigureAwait(false);
+        var body = BodyWithout(updatePayload, "taskId") as JsonObject;
+        if (operation == "update") body = NormalizeTicketPriority(body);
+        return await Mutation(operation, [id], confirm, method, $"{basePath}/{Uri.EscapeDataString(id)}{suffix}", body, ct).ConfigureAwait(false);
     }
     private async Task<HelpdeskToolResponse> CollectionRead(string tool, string basePath, string idName, string operation, JsonElement? request, CancellationToken ct)
     {
@@ -575,7 +626,7 @@ public sealed class HelpdeskTools(
         var id = String(request, idName); if (string.IsNullOrWhiteSpace(id)) return Validation($"request.{idName} is required.");
         var allowed = tool switch { "helpdesk_organizations" => new[] { "get", "tenants", "tenant_lookup" }, "helpdesk_customers" => new[] { "get", "auth_status" }, _ => new[] { "get" } };
         if (!allowed.Contains(operation)) return Invalid(tool, operation, ["list", .. allowed]);
-        var suffix = operation switch { "tenants" => "/tenants", "tenant_lookup" => "/tenant-lookup", "auth_status" => "/auth-status", _ => "" };
+        var suffix = operation switch { "tenants" => "/tenants", "tenant_lookup" => "/tenant-lookup", "auth_status" => "/auth/status", _ => "" };
         return await Execute(() => client.GetAsync($"{basePath}/{Uri.EscapeDataString(id)}{suffix}", true, ct), $"{tool} {operation} completed.").ConfigureAwait(false);
     }
     private Task<HelpdeskToolResponse> Read(string tool, string operation, IReadOnlyList<string> allowed, string path, JsonElement? request, CancellationToken ct) => !allowed.Contains(operation) ? Task.FromResult(Invalid(tool, operation, allowed)) : Execute(() => client.GetAsync(path, true, ct), $"{tool} {operation} completed.");
@@ -586,9 +637,18 @@ public sealed class HelpdeskTools(
         {
             var data = await client.SendAsync(method, path, body, true, ct).ConfigureAwait(false);
             var correlationId = (data as JsonObject)?["correlationId"]?.ToString();
+            if (operation.StartsWith("bulk_", StringComparison.Ordinal) && data is JsonObject outcome
+                && outcome["updated"] is JsonValue count && count.TryGetValue<int>(out var updated) && updated == 0)
+                return Response(true, "no_op", $"{operation} changed no records.", data, AffectedIds: [],
+                    NextActions: ["Check the selected records and operation prerequisites; zero updated records does not establish a successful mutation."], CorrelationId: correlationId);
             return Response(true, "completed", $"{operation} completed.", data, AffectedIds: affectedIds, CorrelationId: correlationId);
         }
-        catch (AgentClientRemoteException ex) { return Response(false, Status(ex.StatusCode), ex.Message, AffectedIds: affectedIds, Failure: new HelpdeskToolFailure(ex.Code, ex.StatusCode >= 500, ex.StatusCode), CorrelationId: ex.CorrelationId); }
+        catch (AgentClientRemoteException ex)
+        {
+            return Response(false, Status(ex.StatusCode), ex.Message, AffectedIds: affectedIds,
+                NextActions: ex.StatusCode >= 500 ? ["The write outcome may be uncertain. Read the affected record and its timeline using the correlation ID before considering another mutation."] : null,
+                Failure: new HelpdeskToolFailure(ex.Code, false, ex.StatusCode), CorrelationId: ex.CorrelationId);
+        }
     }
     private async Task<HelpdeskToolResponse> Execute(Func<Task<JsonNode?>> action, string summary) { try { return Completed(summary, await action().ConfigureAwait(false)); } catch (AgentClientRemoteException ex) { return Response(false, Status(ex.StatusCode), ex.Message, Failure: new HelpdeskToolFailure(ex.Code, ex.StatusCode >= 500, ex.StatusCode), CorrelationId: ex.CorrelationId); } catch (AgentClientValidationException ex) { return Validation(ex.Message); } }
     private HelpdeskToolResponse Completed(string summary, JsonNode? data)
@@ -624,7 +684,7 @@ public sealed class HelpdeskTools(
             if (ChangeTemplateValidation(request?["changeType"]?.ToString(), changeTemplate) is { } templateError)
                 return $"{subject}.changeTemplate {templateError}";
         }
-        return null;
+        return PriorityValidation(request);
     }
 
     private static string? ChangeTemplateValidation(string? changeType, JsonObject template)
@@ -682,7 +742,7 @@ public sealed class HelpdeskTools(
             return "request.title and request.description are required to create a request task.";
         if (string.IsNullOrWhiteSpace(request?["requestId"]?.ToString())) return "request.requestId is required to create a request task.";
         if (string.IsNullOrWhiteSpace(request?["organizationId"]?.ToString())) return "request.organizationId is required to create a request task.";
-        return null;
+        return PriorityValidation(request);
     }
 
     private static string? RequestTaskUpdateValidation(JsonObject? request)
@@ -692,7 +752,7 @@ public sealed class HelpdeskTools(
         if (unsupported is not null) return $"request.{unsupported} is not supported for request-task update.";
         if (request["title"] is not null && !HasText(request["title"])) return "request.title cannot be empty.";
         if (request["description"] is not null && !HasText(request["description"])) return "request.description cannot be empty.";
-        if (request["priority"] is not null && (!HasText(request["priority"]) || !Enum.TryParse<TicketPriority>(request["priority"]!.ToString(), true, out _))) return "request.priority must be Low, Medium, High, or Critical.";
+        if (PriorityValidation(request) is { } priorityError) return priorityError;
         if (request["assignedToId"] is not null && !HasText(request["assignedToId"])) return "request.assignedToId cannot be empty; use clearAssignment to remove an assignment.";
         if (request["clearAssignment"] is not null && request["clearAssignment"]?.ToJsonString() is not ("true" or "false")) return "request.clearAssignment must be a boolean.";
         if (request["clearDueDate"] is not null && request["clearDueDate"]?.ToJsonString() is not ("true" or "false")) return "request.clearDueDate must be a boolean.";
@@ -751,24 +811,80 @@ public sealed class HelpdeskTools(
         }
     }
     private static JsonNode? BodyWithout(JsonObject? value, params string[] names) { if (value is null) return null; var copy = value.DeepClone().AsObject(); foreach (var name in names) copy.Remove(name); return copy; }
+    private static string? TicketEnumValidation(JsonObject? request)
+    {
+        if (request is null) return null;
+        foreach (var field in new[] { "state", "newState", "lifecycleState" })
+        {
+            if (request[field] is not { } value) continue;
+            var type = field == "lifecycleState" ? typeof(ChangeLifecycleState) : typeof(TicketState);
+            if (!TryDefinedEnum(type, value, out _)) return $"request.{field} must be a defined {type.Name} value.";
+        }
+        return null;
+    }
+    private static bool TryDefinedEnum(Type type, JsonNode value, out object? parsed)
+    {
+        parsed = null;
+        return value.GetValueKind() is JsonValueKind.String or JsonValueKind.Number
+            && Enum.TryParse(type, value.ToString(), true, out parsed) && parsed is not null && Enum.IsDefined(type, parsed);
+    }
+    private static JsonObject? NormalizeTicketEnums(JsonObject? request)
+    {
+        if (request is null) return null;
+        var normalized = request.DeepClone().AsObject();
+        foreach (var field in new[] { "state", "newState", "lifecycleState" })
+        {
+            if (normalized[field] is not { } value) continue;
+            var type = field == "lifecycleState" ? typeof(ChangeLifecycleState) : typeof(TicketState);
+            if (TryDefinedEnum(type, value, out var parsed)) normalized[field] = Convert.ToInt32(parsed);
+        }
+        return normalized;
+    }
+    private static string? PriorityValidation(JsonObject? request)
+    {
+        if (request is null || !request.ContainsKey("priority")) return null;
+        return TryPriority(request["priority"], out _) ? null : "request.priority must be Low, Medium, High, or Critical.";
+    }
+    private static bool TryPriority(JsonNode? value, out TicketPriority priority)
+    {
+        priority = default;
+        return value?.GetValueKind() == JsonValueKind.String
+            && Enum.GetNames<TicketPriority>().Any(name => string.Equals(name, value.GetValue<string>(), StringComparison.OrdinalIgnoreCase))
+            && Enum.TryParse(value.GetValue<string>(), true, out priority)
+            && Enum.IsDefined(priority);
+    }
     private static JsonObject? NormalizeTicketPriority(JsonObject? request)
     {
         if (request is null) return null;
         var normalized = request.DeepClone().AsObject();
-        if (normalized["priority"]?.GetValueKind() == JsonValueKind.String &&
-            Enum.TryParse<TicketPriority>(normalized["priority"]?.GetValue<string>(), true, out var priority))
+        if (TryPriority(normalized["priority"], out var priority))
             normalized["priority"] = (int)priority;
         return normalized;
     }
     private static IReadOnlyList<string> Strings(JsonObject? value, string property) => value?[property] is JsonArray array ? array.Select(x => x?.ToString()).Where(x => !string.IsNullOrWhiteSpace(x)).Cast<string>().ToArray() : [];
     private static string? String(JsonElement? element, string property) => element is { ValueKind: JsonValueKind.Object } value && value.TryGetProperty(property, out var node) && node.ValueKind == JsonValueKind.String ? node.GetString() : null;
+    private static string? TenantId(JsonElement? request)
+        => request is { ValueKind: JsonValueKind.Object } value && value.TryGetProperty("tenantId", out var id)
+            && id.ValueKind == JsonValueKind.Number && id.TryGetInt32(out var numeric) && numeric > 0
+            ? numeric.ToString(System.Globalization.CultureInfo.InvariantCulture) : null;
     private static bool IsHttpUrl(string? value) => Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.Scheme is "https" or "http";
-    private static string Query(string path, JsonObject? values) => values is null || values.Count == 0 ? path : path + "?" + string.Join("&", values.Where(x => x.Value is not null && x.Key is not "id" && !x.Key.EndsWith("Id", StringComparison.Ordinal)).Select(x => Uri.EscapeDataString(x.Key) + "=" + Uri.EscapeDataString(x.Value!.ToString())));
+    private static string Query(string path, JsonObject? values, params string[] identifierFilters)
+    {
+        if (values is null) return path;
+        var parameters = values
+            .Where(pair => pair.Value is not null && pair.Key is not "id" && (!pair.Key.EndsWith("Id", StringComparison.Ordinal) || identifierFilters.Contains(pair.Key, StringComparer.Ordinal)))
+            .SelectMany(pair => identifierFilters.Length > 0 && pair.Value is JsonArray array
+                ? array.Where(value => value is not null).Select(value => KeyValuePair.Create(pair.Key, value!.ToString()))
+                : [KeyValuePair.Create(pair.Key, pair.Value!.ToString())])
+            .Select(pair => Uri.EscapeDataString(pair.Key) + "=" + Uri.EscapeDataString(pair.Value));
+        var query = string.Join("&", parameters);
+        return query.Length == 0 ? path : path + "?" + query;
+    }
     private string AuthStatusPath => UsesCallerBoundIdentity
         ? "/api/v1/auth/me"
         : "/api/v1/auth/ai-agent/status";
     private bool UsesCallerBoundIdentity => string.Equals(client.Configuration?.CredentialMode, "integration", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(client.Configuration?.CredentialMode, "gateway", StringComparison.OrdinalIgnoreCase);
 
-    private JsonNode Capabilities() => new JsonObject { ["server"] = "Helpdesk.Mcp", ["instance"] = hostContext.Instance, ["catalogRevision"] = hostContext.CatalogRevision, ["transport"] = hostContext.Transport, ["resourceUri"] = hostContext.ResourceUri, ["apiBaseUrl"] = hostContext.CanonicalApiBaseUrl, ["credentialMode"] = client.Configuration?.CredentialMode ?? "authentik", ["authStatusPath"] = AuthStatusPath, ["phase"] = 3, ["mutationsEnabled"] = true, ["rawEnabled"] = false, ["mutationConfirmationRequired"] = true, ["configurationWritesEnabled"] = configurationSurface.CanPersist, ["obsoleteMutationProofToolExposed"] = false };
+    private JsonNode Capabilities() => new JsonObject { ["server"] = "Helpdesk.Mcp", ["instance"] = hostContext.Instance, ["catalogRevision"] = hostContext.CatalogRevision, ["catalogHash"] = McpOperationCatalog.CatalogHash, ["transport"] = hostContext.Transport, ["resourceUri"] = hostContext.ResourceUri, ["apiBaseUrl"] = hostContext.CanonicalApiBaseUrl, ["credentialMode"] = client.Configuration?.CredentialMode ?? "authentik", ["authStatusPath"] = AuthStatusPath, ["phase"] = 3, ["mutationsEnabled"] = true, ["rawEnabled"] = false, ["arbitraryRawAccessEnabled"] = false, ["allowlistedRawReadsEnabled"] = true, ["allowlistedRawOperations"] = new JsonArray("system_version", "get_incident", "get_request", "get_change"), ["autonomousWriteOperations"] = new JsonArray("helpdesk_ai_assistant.report"), ["mutationConfirmationRequired"] = true, ["configurationWritesEnabled"] = configurationSurface.CanPersist, ["obsoleteMutationProofToolExposed"] = false };
 }
