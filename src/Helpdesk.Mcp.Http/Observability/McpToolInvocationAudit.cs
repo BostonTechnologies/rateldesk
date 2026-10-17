@@ -1,4 +1,6 @@
 using Helpdesk.Mcp.Configuration;
+using Helpdesk.Mcp.Http.Authorization;
+using Helpdesk.Mcp.Tools;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using System.Diagnostics;
@@ -15,12 +17,21 @@ public sealed class McpToolInvocationAudit(
     HelpdeskMcpHostContext hostContext,
     ILogger<McpToolInvocationAudit> logger)
 {
+    private static readonly IReadOnlySet<string> KnownTools = McpOperationCatalog.All
+        .Select(operation => operation.Tool).ToHashSet(StringComparer.Ordinal);
+
     public async ValueTask<CallToolResult> InvokeAsync(
         McpRequestHandler<CallToolRequestParams, CallToolResult> next,
         RequestContext<CallToolRequestParams> context,
         CancellationToken cancellationToken)
     {
         var startedAt = Stopwatch.GetTimestamp();
+        // The verifier guard rejects arbitrary selectors before SDK validation.
+        // Derive safe labels before invocation so cancellation/error logs cannot
+        // expose those selectors either; the original request remains unchanged.
+        var denied = SetupVerificationAuthorization.IsDenied(context.User, context.Params.Name, context.Params.Arguments);
+        var tool = denied ? KnownTools.Contains(context.Params.Name) ? context.Params.Name : "unknown" : Token(context.Params.Name);
+        var operation = denied ? SetupVerificationAuthorization.OperationDeniedCode : Operation(context.Params.Arguments);
         try
         {
             var result = await next(context, cancellationToken).ConfigureAwait(false);
@@ -30,8 +41,8 @@ public sealed class McpToolInvocationAudit(
                 "MCP tool invocation completed. Instance={Instance} Transport={Transport} Tool={Tool} Operation={Operation} Caller={Caller} Success={Success} TransportSucceeded={TransportSucceeded} ProtocolSucceeded={ProtocolSucceeded} OperationSucceeded={OperationSucceeded} OverallSucceeded={OverallSucceeded} ResultStatus={ResultStatus} CorrelationId={CorrelationId} DurationMs={DurationMs} TraceId={TraceId}",
                 hostContext.Instance,
                 hostContext.Transport,
-                Token(context.Params.Name),
-                Operation(context.Params.Arguments),
+                tool,
+                operation,
                 Caller(context.User),
                 result.IsError is not true, // Preserve historical Success mapping; new fields describe actual operation success.
                 outcome.TransportSucceeded,
@@ -50,8 +61,8 @@ public sealed class McpToolInvocationAudit(
                 "MCP tool invocation failed. Instance={Instance} Transport={Transport} Tool={Tool} Operation={Operation} Caller={Caller} DurationMs={DurationMs} TraceId={TraceId}",
                 hostContext.Instance,
                 hostContext.Transport,
-                Token(context.Params.Name),
-                Operation(context.Params.Arguments),
+                tool,
+                operation,
                 Caller(context.User),
                 Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
                 Activity.Current?.TraceId.ToString());

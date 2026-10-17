@@ -437,6 +437,7 @@ public sealed class McpHttpHostTests
         Assert.Contains("ProtocolSucceeded=True", denialAudit, StringComparison.Ordinal);
         Assert.Contains("OperationSucceeded=False", denialAudit, StringComparison.Ordinal);
         Assert.Contains("ResultStatus=forbidden", denialAudit, StringComparison.Ordinal);
+        Assert.Contains("Operation=setup_verification_operation_denied", denialAudit, StringComparison.Ordinal);
         Assert.All(audit.Messages, message =>
         {
             Assert.DoesNotContain(verifier.Bearer, message, StringComparison.Ordinal);
@@ -455,6 +456,70 @@ public sealed class McpHttpHostTests
         using var revoked = await client.SendAsync(revokedRequest, deadline.Token);
         Assert.Equal(HttpStatusCode.Unauthorized, revoked.StatusCode);
         Assert.DoesNotContain("setup_verification_operation_denied", await revoked.Content.ReadAsStringAsync(deadline.Token), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Verifier_rejected_selectors_are_redacted_in_production_sdk_audit()
+    {
+        await using var authority = await McpGatewayRealAccessPipelineTests.GatewayAccessHarness.CreateAsync();
+        var verifier = await authority.CreateCredentialAsync("org-b", "mcp-setup");
+        var ordinary = await authority.CreateCredentialAsync("org-b");
+        var resource = McpGatewayRealAccessPipelineTests.GatewayAccessHarness.ResourceUri;
+        using var environment = new McpHostEnvironment(apiBaseUrl: "https://api.example", publicResourceUri: resource, gateway: true);
+        using var audit = new AuditLogCollector();
+        using var authorityGate = new SemaphoreSlim(1, 1);
+        HttpMessageHandler AuthorityHandler() => new SerializedAuthorityHandler(authority.CreateHandler(), authorityGate);
+        var handlers = 0;
+        using var factory = CreateFactory(environment.SigningKey, audit,
+            apiHandlerFactory: AuthorityHandler, delegationHandlerFactory: AuthorityHandler,
+            configureServices: services => services.AddMcpServer().WithRequestFilters(filters => filters.AddCallToolFilter(next => (context, ct) =>
+            {
+                Interlocked.Increment(ref handlers);
+                return next(context, ct);
+            })));
+        using var client = CreateClient(factory, resource);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", verifier.Bearer);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        await using var mcp = await McpClient.CreateAsync(new HttpClientTransport(new HttpClientTransportOptions
+        {
+            Endpoint = new Uri(resource)
+        }, client), new McpClientOptions { ProtocolVersion = "2025-03-26" }, cancellationToken: deadline.Token);
+
+        var status = await mcp.CallToolAsync("helpdesk_auth", new Dictionary<string, object?> { ["operation"] = "status" }, cancellationToken: deadline.Token);
+        Assert.True(status.StructuredContent!.Value.GetProperty("success").GetBoolean());
+        Assert.Contains(audit.Messages, message => message.Contains("Tool=helpdesk_auth Operation=status", StringComparison.Ordinal));
+        Assert.Equal(1, handlers);
+
+        foreach (var (tool, selector, expectedTool) in new[]
+        {
+            ("helpdesk_auth", "private-ticket-marker", "helpdesk_auth"),
+            ("helpdesk_incidents", "private-business-marker", "helpdesk_incidents"),
+            ("private-tool-marker", "private-selector-marker", "unknown")
+        })
+        {
+            var previousCount = audit.Messages.Count;
+            var denied = await mcp.CallToolAsync(tool, new Dictionary<string, object?> { ["operation"] = selector }, cancellationToken: deadline.Token);
+            Assert.True(denied.IsError);
+            Assert.Equal("setup_verification_operation_denied", denied.StructuredContent!.Value.GetProperty("failure").GetProperty("code").GetString());
+            Assert.False(denied.StructuredContent.Value.GetProperty("success").GetBoolean());
+            Assert.Equal(1, handlers);
+            Assert.Empty(authority.IncidentListQueries);
+            var message = Assert.Single(audit.Messages.Skip(previousCount));
+            Assert.Contains("Tool=" + expectedTool + " Operation=setup_verification_operation_denied", message, StringComparison.Ordinal);
+            Assert.Contains("ProtocolSucceeded=True", message, StringComparison.Ordinal);
+            Assert.Contains("OperationSucceeded=False", message, StringComparison.Ordinal);
+            Assert.Contains("ResultStatus=forbidden", message, StringComparison.Ordinal);
+        }
+        Assert.All(audit.Messages, message =>
+        {
+            Assert.DoesNotContain("private-", message, StringComparison.Ordinal);
+            Assert.DoesNotContain(verifier.Bearer, message, StringComparison.Ordinal);
+        });
+
+        using var allowed = await HttpCallAsync(client, ordinary.Bearer, 70, "tools/call", ToolCallParameters("helpdesk_capabilities", "get"));
+        Assert.True(StructuredContent(allowed.RootElement).GetProperty("success").GetBoolean());
+        Assert.Equal(2, handlers);
+        Assert.Contains(audit.Messages, message => message.Contains("Tool=helpdesk_capabilities Operation=get", StringComparison.Ordinal));
     }
 
     [Fact]

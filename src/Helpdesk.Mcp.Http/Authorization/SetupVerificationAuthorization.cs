@@ -45,7 +45,7 @@ public static class SetupVerificationAuthorization
         if (IsDenied(user, name, arguments)) Deny();
     }
 
-    private static bool IsDenied(ClaimsPrincipal? user, string name, IDictionary<string, JsonElement>? arguments)
+    internal static bool IsDenied(ClaimsPrincipal? user, string name, IDictionary<string, JsonElement>? arguments)
         => user?.HasClaim("setup_verification", "true") == true &&
             (name != "helpdesk_auth" || arguments is null || arguments.Keys.Any(key => key is not ("operation" or "confirm" or "request")) ||
             !arguments.TryGetValue("operation", out var operation) || operation.ValueKind != JsonValueKind.String || operation.GetString() != "status" ||
