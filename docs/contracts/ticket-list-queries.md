@@ -1,5 +1,29 @@
 # Ticket list queries
 
+## MCP search aliases
+
+MCP `list` on incidents, requests, changes and request tasks accepts `request.query`
+and `request.q`, and sends the selected search through the API's `q` parameter.
+Omitted, null and whitespace-only aliases are unfiltered. Equal values after
+trimming deduplicate; contradictory nonempty aliases, duplicate keys and wrong
+types reject before network I/O. The API retains its search bounds and encoding.
+Matching and impossible searches filter before totals and paging, within the
+caller's existing organization scope.
+
+List ID filters are endpoint-specific. Ticket organization/for/assignee arrays
+use repeated query parameters where supported; task `requestId`, `assignedToId`
+and `serviceId` remain scalar filters. Route selector IDs are not automatically
+forwarded as filters, and unrelated endpoint queries retain their contracts.
+The confirmed `helpdesk_services.search_items` search also maps its `query`/`q`
+aliases to that endpoint's actual `q` filter. The broader
+[ID-filter audit #196](https://github.com/BostonTechnologies/RatelDesk/issues/196)
+remains open and separate. See [MCP operation contracts](mcp-operation-contracts.md).
+
+The three administrator global lookups map advertised `query`/`limit` to API
+`q`/`pageSize` with their existing maximum of 25. Logs preserve the explicitly
+supported `correlationId` filter. These are endpoint-specific mappings; they do
+not authorize generic forwarding of every field ending in `Id`.
+
 The incident, request and change workspace lists show tickets independently of AI
 provenance. Their normal navigation, refresh and filter reset never send an
 AI-only predicate. The AI Assistant, stored provenance and audit history remain

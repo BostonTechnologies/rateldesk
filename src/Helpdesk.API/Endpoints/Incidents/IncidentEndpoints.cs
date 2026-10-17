@@ -487,6 +487,11 @@ public static class IncidentEndpoints
                 return Results.Forbid();
             }
 
+            if (dto.State is { } state && !Enum.IsDefined(state))
+            {
+                return Results.BadRequest("Invalid ticket state.");
+            }
+
             var previousState = existingIncident.State;
             var previousAssignedToId = existingIncident.AssignedToId;
 
@@ -1096,6 +1101,11 @@ public static class IncidentEndpoints
             if (!access.CanManageIncident(incident.OrganizationId))
             {
                 return Results.Forbid();
+            }
+
+            if (!Enum.IsDefined(req.NewState))
+            {
+                return Results.BadRequest("Invalid ticket state.");
             }
 
             var previousState = incident.State;

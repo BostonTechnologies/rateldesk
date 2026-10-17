@@ -86,20 +86,43 @@ public sealed class HelpdeskAgentClient : IHelpdeskAgentClient
         if (authenticated)
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", await GetAccessTokenAsync(cancellationToken).ConfigureAwait(false));
 
-        using var requestCancellation = CreateRequestCancellation(cancellationToken, ApiRequestTimeout);
-        using var response = await SendAndReadHeadersAsync(
-            client,
-            request,
-            requestCancellation.Token,
-            cancellationToken,
-            "api_request_timeout",
-            "Helpdesk API request timed out.").ConfigureAwait(false);
-        var text = await ReadResponseAsync(response.Content, requestCancellation.Token, cancellationToken, "api_request_timeout", "Helpdesk API response timed out.").ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
-            throw new AgentClientRemoteException("api_request_failed", $"Helpdesk API request failed with HTTP {(int)response.StatusCode}.", (int)response.StatusCode, null)
-            { CorrelationId = SafeCorrelation(response) };
+        // Keep a write trace even if its committed response never reaches the caller.
+        // This is a correlation identifier, not an idempotency key or permission to replay.
+        string? correlationId = method != HttpMethod.Get && method != HttpMethod.Head && method != HttpMethod.Options
+            ? $"corr-{Guid.NewGuid():N}" : null;
+        if (correlationId is not null)
+            request.Headers.Add("X-Correlation-Id", correlationId);
 
-        return string.IsNullOrWhiteSpace(text) ? null : JsonNode.Parse(text);
+        using var requestCancellation = CreateRequestCancellation(cancellationToken, ApiRequestTimeout);
+        try
+        {
+            using var response = await SendAndReadHeadersAsync(
+                client,
+                request,
+                requestCancellation.Token,
+                cancellationToken,
+                "api_request_timeout",
+                "Helpdesk API request timed out.").ConfigureAwait(false);
+            correlationId = SafeCorrelation(response) ?? correlationId;
+            var text = await ReadResponseAsync(response.Content, requestCancellation.Token, cancellationToken, "api_request_timeout", "Helpdesk API response timed out.").ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+                throw new AgentClientRemoteException("api_request_failed", $"Helpdesk API request failed with HTTP {(int)response.StatusCode}.", (int)response.StatusCode, null)
+                { CorrelationId = correlationId };
+
+            return string.IsNullOrWhiteSpace(text) ? null : JsonNode.Parse(text);
+        }
+        catch (AgentClientRemoteException exception) when (exception.CorrelationId is null && correlationId is not null)
+        {
+            throw new AgentClientRemoteException(exception.Code, exception.Message, exception.StatusCode, null) { CorrelationId = correlationId };
+        }
+        catch (Exception exception) when (exception is HttpRequestException or IOException)
+        {
+            throw new AgentClientRemoteException("api_connection_lost", "Helpdesk API connection ended before a complete response was received.", 502, null) { CorrelationId = correlationId };
+        }
+        catch (JsonException)
+        {
+            throw new AgentClientRemoteException("api_response_invalid", "Helpdesk API returned an invalid JSON response.", 502, null) { CorrelationId = correlationId };
+        }
     }
 
     private static string? SafeCorrelation(HttpResponseMessage response)

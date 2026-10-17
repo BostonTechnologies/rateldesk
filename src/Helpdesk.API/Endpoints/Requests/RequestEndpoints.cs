@@ -370,11 +370,13 @@ public static class RequestEndpoints
             var access = await accessService.ResolveAsync(user, token);
             if (!access.CanManageRequest(existing.OrganizationId)) return Results.Forbid();
 
+            if (dto.State.HasValue && !Enum.IsDefined(dto.State.Value)) return Results.BadRequest("Invalid ticket state.");
+            if (dto.Priority.HasValue && !Enum.IsDefined(dto.Priority.Value)) return Results.BadRequest("Invalid ticket priority.");
             var previousState = existing.State;
 
-            existing.State = dto.State;
+            existing.State = dto.State ?? existing.State;
             ApplyClosedAtTransition(existing, previousState, existing.State);
-            existing.Priority = dto.Priority;
+            existing.Priority = dto.Priority ?? existing.Priority;
             existing.UpdatedAt = DateTime.UtcNow;
 
             await using var tx = await db.Database.BeginTransactionAsync(token);
@@ -588,6 +590,7 @@ public static class RequestEndpoints
                 return Results.Forbid();
             }
 
+            if (!Enum.IsDefined(req.NewState)) return Results.BadRequest("Invalid ticket state.");
             var previousState = request.State;
             if (previousState == req.NewState)
             {

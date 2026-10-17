@@ -110,6 +110,24 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
           expect(footer!.y + footer!.height).toBeLessThanOrEqual(501);
           await expect(review.getByRole('button', { name: 'Approve connection', exact: true })).toBeVisible();
         }
+        if (suite === 'pending-mail') {
+          await page.locator('.pending-mail tbody input[type="checkbox"]').first().check();
+          await page.getByRole('button', { name: 'Cancel selected', exact: true }).click();
+          const review = page.getByRole('dialog');
+          await expect(review).toContainText('1 explicitly selected record(s)');
+          await review.getByRole('textbox', { name: 'Reason' }).fill('Synthetic native zoom review');
+          const confirm = review.getByRole('button', { name: 'Cancel deliveries', exact: true });
+          await expect(confirm).toBeEnabled();
+          await confirm.scrollIntoViewIfNeeded();
+          const bounds = await review.boundingBox();
+          expect(bounds!.x).toBeGreaterThanOrEqual(0); expect(bounds!.y).toBeGreaterThanOrEqual(0);
+          expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width / 2 + 1);
+          expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(501);
+          await confirm.focus(); await page.keyboard.press('Tab');
+          expect(await review.evaluate(el => el.contains(document.activeElement))).toBe(true);
+          const state = await (await request.get('http://127.0.0.1:18700/fixture/state')).json();
+          expect(state.actions).toEqual([]); expect(state.retries).toEqual([]); expect(state.submissions).toEqual([]);
+        }
         if (suite === 'email') {
           await page.getByRole('button', { name: 'Preview: Synthetic service notice' }).focus();
           const preview = page.getByRole('dialog', { name: 'Email preview' });

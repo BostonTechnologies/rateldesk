@@ -1,0 +1,71 @@
+@using Helpdesk.Shared.DTOs.Email
+@using System.Text.RegularExpressions
+
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.subtitle1">@Records.Length explicitly selected record(s)</MudText>
+        @foreach (var text in Explanation)
+        {
+            <MudText Typo="Typo.body2" Class="my-2">@text</MudText>
+        }
+        <div class="pending-email-review-records" role="region" aria-label="Selected deliveries" tabindex="0">
+            @foreach (var row in Records)
+            {
+                <MudPaper Outlined="true" Class="pa-2 my-1">
+                    <div>@row.TrackingId · @row.EmailRecipient</div>
+                    <div>Sender: @(row.Sender ?? "Review sender binding")</div>
+                    <small>Delivery ID: @row.Id</small>
+                </MudPaper>
+            }
+        </div>
+        @if (RequireReason || RequireEvidence)
+        {
+            <MudTextField T="string" Label="@(RequireEvidence ? "Non-delivery evidence reference" : "Reason")"
+                Value="input" ValueChanged="InputChanged" Immediate="true" Variant="Variant.Outlined" Required="true"
+                Error="@(validationError is not null)" ErrorText="@validationError"
+                HelperText="@(RequireEvidence ? "8–128 characters. Start with a letter or digit; use letters, digits, . _ : / - only. No sensitive information." : "1–200 characters; no credentials.")" />
+        }
+        @if (RequireEvidence)
+        {
+            <MudCheckBox T="bool" @bind-Value="nonDeliveryVerified" Label="I verified non-delivery for every listed recipient." />
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton OnClick="Submit" Color="Color.Primary" Variant="Variant.Filled"
+            Disabled="@(submitted || !IsValid)">@ConfirmLabel</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+    [Parameter] public PendingEmailRow[] Records { get; set; } = [];
+    [Parameter] public string[] Explanation { get; set; } = [];
+    [Parameter] public string ConfirmLabel { get; set; } = "Confirm";
+    [Parameter] public bool RequireReason { get; set; }
+    [Parameter] public bool RequireEvidence { get; set; }
+
+    private string input = string.Empty;
+    private string? validationError;
+    private bool nonDeliveryVerified, submitted;
+    // Match the authoritative MailboxOutgoingRetryService evidence-reference contract.
+    private static readonly Regex EvidenceFormat = new(@"\A[A-Za-z0-9][A-Za-z0-9._:/-]{7,127}\z", RegexOptions.CultureInvariant);
+    private bool IsValid => (!RequireReason || !string.IsNullOrWhiteSpace(input) && input.Length <= 200) &&
+        (!RequireEvidence || EvidenceFormat.IsMatch(input) && nonDeliveryVerified);
+
+    private void InputChanged(string value)
+    {
+        input = value;
+        validationError = RequireEvidence && !EvidenceFormat.IsMatch(input)
+            ? "Enter a valid evidence reference (8–128 characters)."
+            : RequireReason && (string.IsNullOrWhiteSpace(input) || input.Length > 200)
+                ? "Enter a reason of 1–200 characters." : null;
+    }
+    private void Submit()
+    {
+        if (submitted || !IsValid) return;
+        submitted = true;
+        Dialog.Close(DialogResult.Ok(input));
+    }
+    private void Cancel() => Dialog.Cancel();
+}

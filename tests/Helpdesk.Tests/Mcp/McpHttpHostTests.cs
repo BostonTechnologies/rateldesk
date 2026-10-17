@@ -922,6 +922,105 @@ public sealed class McpHttpHostTests
         Assert.Equal(0, outbound.CallCount);
     }
 
+    [Fact]
+    public async Task Real_Mcp_client_constructs_affected_preview_payloads_from_discovery_without_upstream_writes()
+    {
+        using var environment = new McpHostEnvironment();
+        var outbound = new AgentClientBoundaryProbe();
+        using var factory = CreateFactory(environment.SigningKey, boundaryProbe: outbound);
+        using var http = CreateClient(factory);
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", CreateToken(environment.SigningKey, ["helpdesk.mcp"], ["ai-assistant"]));
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        await using var mcp = await McpClient.CreateAsync(new HttpClientTransport(new HttpClientTransportOptions
+        {
+            Endpoint = new Uri(ResourceUri)
+        }, http), cancellationToken: deadline.Token);
+        var discovery = await mcp.ListToolsAsync(cancellationToken: deadline.Token);
+        foreach (var (tool, operation) in new[]
+        {
+            ("helpdesk_changes", "lifecycle"), ("helpdesk_changes", "bulk_state"), ("helpdesk_changes", "assign"),
+            ("helpdesk_admin_mutations", "create_role"), ("helpdesk_admin_mutations", "update_role"),
+            ("helpdesk_admin_mutations", "create_self_service_request"), ("helpdesk_request_tasks", "update")
+        })
+        {
+            var schemaElement = discovery.Single(item => item.Name == tool).JsonSchema;
+            var arguments = McpExecutableSchemaTests.ArgumentsFromDiscovery(schemaElement, operation);
+            arguments["confirm"] = false;
+            var validator = Json.Schema.JsonSchema.FromText(schemaElement.GetRawText());
+            Assert.True(validator.Evaluate(arguments).IsValid, arguments.ToJsonString());
+            var result = await mcp.CallToolAsync(tool, arguments.Deserialize<Dictionary<string, object?>>()!, cancellationToken: deadline.Token);
+            Assert.Equal("confirmation_required", result.StructuredContent!.Value.GetProperty("status").GetString());
+            arguments.Remove("confirm");
+            Assert.True(validator.Evaluate(arguments).IsValid);
+            result = await mcp.CallToolAsync(tool, arguments.Deserialize<Dictionary<string, object?>>()!, cancellationToken: deadline.Token);
+            Assert.Equal("confirmation_required", result.StructuredContent!.Value.GetProperty("status").GetString());
+        }
+        Assert.Equal(0, outbound.ApiRequests);
+    }
+
+    [Fact]
+    public async Task Bounded_real_Mcp_gateway_reads_keep_schema_results_and_tenant_scope_stable()
+    {
+        await using var authority = await McpGatewayRealAccessPipelineTests.GatewayAccessHarness.CreateAsync(unscopedData: true);
+        await authority.SeedIncidentSearchAsync();
+        var credential = await authority.CreateCredentialAsync("org-a", permissions: HelpdeskPermissions.IncidentRead);
+        var resource = McpGatewayRealAccessPipelineTests.GatewayAccessHarness.ResourceUri;
+        using var environment = new McpHostEnvironment(apiBaseUrl: "https://api.example", publicResourceUri: resource, gateway: true);
+        using var authorityGate = new SemaphoreSlim(1, 1);
+        HttpMessageHandler Handler() => new SerializedAuthorityHandler(authority.CreateHandler(), authorityGate);
+        using var factory = CreateFactory(environment.SigningKey, apiHandlerFactory: Handler, delegationHandlerFactory: Handler);
+        using var http = CreateClient(factory, resource);
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", credential.Bearer);
+        var extended = int.TryParse(Environment.GetEnvironmentVariable("RATELDESK_MCP_READ_SOAK_SECONDS"), out var seconds) && seconds > 0;
+        seconds = Math.Clamp(seconds, 1, 900);
+        var rounds = extended ? seconds : 4;
+        using var overall = new CancellationTokenSource(TimeSpan.FromSeconds(extended ? seconds + 60 : 30));
+        await using var mcp = await McpClient.CreateAsync(new HttpClientTransport(new HttpClientTransportOptions { Endpoint = new Uri(resource) }, http), cancellationToken: overall.Token);
+        var discovery = await mcp.ListToolsAsync(cancellationToken: overall.Token);
+        var incidentSchema = discovery.Single(tool => tool.Name == "helpdesk_incidents").JsonSchema;
+        var listArguments = McpExecutableSchemaTests.ArgumentsFromDiscovery(incidentSchema, "list");
+        listArguments["request"]!["query"] = "needle";
+        listArguments["request"]!["page"] = 1; listArguments["request"]!["pageSize"] = 1; listArguments["request"]!["includeTotal"] = true;
+        var validator = Json.Schema.JsonSchema.FromText(incidentSchema.GetRawText());
+        Assert.True(validator.Evaluate(listArguments).IsValid);
+        string? catalogHash = null;
+        var calls = 0;
+        var duration = Stopwatch.StartNew();
+        for (var round = 0; round < rounds; round++)
+        {
+            using var callDeadline = CancellationTokenSource.CreateLinkedTokenSource(overall.Token);
+            callDeadline.CancelAfter(TimeSpan.FromSeconds(10));
+            var list = await mcp.CallToolAsync("helpdesk_incidents", listArguments.Deserialize<Dictionary<string, object?>>()!, cancellationToken: callDeadline.Token);
+            var listResponse = list.StructuredContent!.Value;
+            Assert.True(listResponse.GetProperty("success").GetBoolean());
+            var page = listResponse.GetProperty("data");
+            Assert.Equal(2, page.GetProperty("totalCount").GetInt32());
+            var row = Assert.Single(page.GetProperty("items").EnumerateArray());
+            var id = row.GetProperty("id").GetString(); Assert.Equal("incident-beta", id);
+            var getArguments = McpExecutableSchemaTests.ArgumentsFromDiscovery(incidentSchema, "get");
+            getArguments["request"]!["incidentId"] = id;
+            Assert.True(validator.Evaluate(getArguments).IsValid);
+            var get = await mcp.CallToolAsync("helpdesk_incidents", getArguments.Deserialize<Dictionary<string, object?>>()!, cancellationToken: callDeadline.Token);
+            Assert.True(get.StructuredContent!.Value.GetProperty("success").GetBoolean());
+            Assert.Equal(id, get.StructuredContent.Value.GetProperty("data").GetProperty("id").GetString());
+            var capabilities = await mcp.CallToolAsync("helpdesk_capabilities", new Dictionary<string, object?> { ["operation"] = "get" }, cancellationToken: callDeadline.Token);
+            Assert.True(capabilities.StructuredContent!.Value.GetProperty("success").GetBoolean());
+            var metadata = capabilities.StructuredContent.Value.GetProperty("data");
+            Assert.Equal(McpOperationCatalog.Revision, metadata.GetProperty("catalogRevision").GetString());
+            var currentHash = metadata.GetProperty("catalogHash").GetString();
+            Assert.NotEmpty(currentHash!); catalogHash ??= currentHash; Assert.Equal(catalogHash, currentHash);
+            calls += 3;
+            if (extended)
+            {
+                var pause = TimeSpan.FromSeconds(round + 1) - duration.Elapsed;
+                if (pause > TimeSpan.Zero) await Task.Delay(pause, overall.Token);
+            }
+        }
+        Assert.Equal(rounds * 3, calls);
+        Assert.True(calls >= 12 || extended);
+        Assert.Equal(rounds, authority.IncidentListQueries.Count);
+    }
+
     private static WebApplicationFactory<Helpdesk.Mcp.Http.Program> CreateFactory(ECDsa signingKey, AuditLogCollector? audit = null, OutboundCallProbe? outboundProbe = null, McpJwtValidation? jwt = null, AgentClientBoundaryProbe? boundaryProbe = null, GatewayDelegationProbe? delegationProbe = null, Func<HttpMessageHandler>? apiHandlerFactory = null, Func<HttpMessageHandler>? delegationHandlerFactory = null, Action<IServiceCollection>? configureServices = null)
         => new WebApplicationFactory<Helpdesk.Mcp.Http.Program>().WithWebHostBuilder(builder =>
         {

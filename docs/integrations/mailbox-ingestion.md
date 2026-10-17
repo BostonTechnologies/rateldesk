@@ -82,6 +82,18 @@ Before enabling a real source, the mailbox administrator must grant the provider
 
 ## Pending delivery queue
 
+Pending Emails uses application dialogs for cancellation/removal reasons,
+non-delivery evidence and sender-route review. Review the explicitly listed
+delivery IDs, recipients and sender before confirming. Reasons are 1–200
+characters. A non-delivery evidence reference is 8–128 characters, starts with a
+letter/digit and uses letters, digits, `.`, `_`, `:`, `/` or `-`; also confirm
+that every listed recipient was checked. Keep credentials and sensitive content
+out of these fields. Cancel, Escape or dismiss sends no action and preserves the
+selection. A dialog/API failure leaves an operable page; inspect per-ID results
+and refresh before deciding what to do next. Native browser prompts are not
+required. Navigation that changes the page/filter generation invalidates an
+open review before submission; refresh and review the current selection again.
+
 Administrators open `/admin/pending-emails` to search ticket tracking references,
 subjects and recipients. Filtering and totals apply to the complete database
 before sorting and paging. Pages contain 25 rows by default, with 50 and 100

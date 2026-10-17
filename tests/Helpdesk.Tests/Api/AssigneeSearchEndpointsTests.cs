@@ -8,6 +8,8 @@ using Helpdesk.API.Endpoints.Changes;
 using Helpdesk.API.Endpoints.Incidents;
 using Helpdesk.API.Endpoints.Requests;
 using Helpdesk.API.Endpoints.Ticketing;
+using Helpdesk.API.Endpoints.System;
+using Helpdesk.API.Endpoints.Search;
 using Helpdesk.Application.Services.SupportNotifications;
 using Helpdesk.Application.Services.Changes;
 using Helpdesk.Application.Timeline;
@@ -240,7 +242,7 @@ public sealed class AssigneeSearchEndpointsTests
             });
             var app = builder.Build();
             app.UseAuthentication(); app.UseAuthorization();
-            app.MapTicketingLookupEndpoints(); app.MapIncidentEndpoints(); app.MapRequestEndpoints(); app.MapChangeEndpoints();
+            app.MapTicketingLookupEndpoints(); app.MapIncidentEndpoints(); app.MapRequestEndpoints(); app.MapChangeEndpoints(); app.MapSystemTokenEndpoints(); app.MapGlobalSearchLookupEndpoints();
             await app.StartAsync();
             var client = app.GetTestClient();
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "admin");

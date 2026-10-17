@@ -10,6 +10,8 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Testcontainers.PostgreSql;
 
@@ -103,6 +105,116 @@ public sealed class PendingEmailQueueTests
         Assert.Equal("Email queued for delivery.", (await restarted.TicketTimelineEvents.SingleAsync(x => x.Id == timeline)).MessageText);
         Assert.Equal(2, await restarted.ActivityLogs.CountAsync());
         Assert.All(await restarted.ActivityLogs.ToListAsync(), x => Assert.Equal("admin-a", x.UserId));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Exact_18_campaign_cancellations_preserve_history_601_unrelated_rows_and_zero_submissions(bool postgres)
+    {
+        await using var fixture = await Database.CreateAsync(postgres);
+        var campaignIds = new HashSet<Guid>();
+        await using (var seed = fixture.Open())
+        {
+            seed.Incidents.AddRange(new Incident { Id = "campaign-ticket", TrackingId = "INC-CAMPAIGN", Title = "Disposable campaign" },
+                new Incident { Id = "unrelated-ticket", TrackingId = "INC-BASELINE", Title = "Unrelated baseline" });
+            seed.WorkLogs.Add(new WorkLog { TicketId = "campaign-ticket", NotesText = "Retain synthetic worklog", Hours = 1 });
+            seed.Attachments.Add(new Attachment { TicketId = "campaign-ticket", FileName = "synthetic.txt", FilePath = "synthetic.txt", SizeBytes = 42, ContentType = "text/plain" });
+            seed.TicketTimelineEvents.Add(new() { TicketId = "campaign-ticket", EventType = TimelineEventType.TechnicianReply, MessageText = "Retain synthetic reply", MessageHtml = "<p>Retain synthetic reply</p>" });
+            for (var i = 0; i < 619; i++)
+            {
+                var delivery = new TicketTimelineEvent
+                {
+                    TicketId = i < 18 ? "campaign-ticket" : "unrelated-ticket", EventType = TimelineEventType.EmailDelivery,
+                    CreatedUtc = fixture.Clock.Now.AddMinutes(i), EmailStatus = EmailDeliveryStatus.Failed,
+                    EmailRecipient = $"recipient{i}@example.test", MessageText = $"Retain delivery history {i}",
+                    MessageHtml = $"<p>Retain delivery history {i}</p>", RetryCount = 2, RetryError = "NoEffectiveMailbox"
+                };
+                seed.TicketTimelineEvents.Add(delivery);
+                if (i < 18) campaignIds.Add(delivery.Id);
+                seed.Set<MailboxOutboxEffect>().Add(new()
+                {
+                    Kind = MailboxEffectKind.Email, DeliveryEventId = delivery.Id, EffectKey = $"synthetic-campaign-{i}",
+                    State = MailboxEffectState.NeedsReview, LastErrorCode = "NoEffectiveMailbox", Attempts = 2, Fence = 7,
+                    Payload = JsonSerializer.Serialize(new IngressEmailEffect([delivery.EmailRecipient], "Synthetic unsent delivery",
+                        "<p>Synthetic unsent body</p>", [], delivery.TicketId, [], null, null, true, null, delivery.Id)
+                        { SenderBindingError = "NoEffectiveMailbox" })
+                });
+            }
+            await seed.SaveChangesAsync();
+        }
+        Dictionary<Guid, string> unrelatedEffects, unrelatedTimeline, campaignHistory, campaignPayloads;
+        await using (var before = fixture.Open())
+        {
+            var effects = await before.Set<MailboxOutboxEffect>().AsNoTracking().ToListAsync();
+            unrelatedEffects = effects.Where(x => !campaignIds.Contains(x.DeliveryEventId!.Value)).ToDictionary(x => x.Id, x => JsonSerializer.Serialize(x));
+            campaignPayloads = effects.Where(x => campaignIds.Contains(x.DeliveryEventId!.Value)).ToDictionary(x => x.DeliveryEventId!.Value, x => x.Payload);
+            var timeline = await before.TicketTimelineEvents.AsNoTracking().ToListAsync();
+            unrelatedTimeline = timeline.Where(x => !campaignIds.Contains(x.Id)).ToDictionary(x => x.Id, x => JsonSerializer.Serialize(x));
+            campaignHistory = timeline.Where(x => campaignIds.Contains(x.Id)).ToDictionary(x => x.Id, x => JsonSerializer.Serialize(x));
+        }
+        var outcomes = new List<PendingEmailActionResult>();
+        await using (var control = fixture.Open())
+        {
+            foreach (var id in campaignIds)
+                outcomes.Add(await fixture.Actions(control).ApplyAsync(id, "cancel", "synthetic-operator", "Synthetic cancellation regression", default));
+            foreach (var id in campaignIds)
+                Assert.Equal("AlreadyCancelled", (await fixture.Actions(control).ApplyAsync(id, "cancel", "synthetic-operator", "Synthetic repeated cancellation", default)).Outcome);
+        }
+        Assert.Equal(campaignIds.Order(), outcomes.Select(x => x.Id).Order());
+        Assert.All(outcomes, x => Assert.Equal("Cancelled", x.Outcome));
+
+        // Run the production dispatcher in fresh scopes. A transport resolution is forbidden;
+        // this queue contains only cancelled campaign rows and unchanged NeedsReview baselines.
+        var transportRequests = 0;
+        var services = new ServiceCollection();
+        services.AddScoped(_ => fixture.Open());
+        services.AddScoped<IIngressEffectContext, IngressEffectContext>();
+        services.AddSingleton<TimeProvider>(fixture.Clock);
+        services.AddScoped<MailboxOutboxStore>();
+        services.AddScoped<MailboxEmailService>(_ =>
+        {
+            Interlocked.Increment(ref transportRequests);
+            throw new InvalidOperationException("Synthetic cancellation must make zero transport submissions.");
+        });
+        await using (var provider = services.BuildServiceProvider())
+        using (var dispatcher = new MailboxOutboxDispatcher(provider.GetRequiredService<IServiceScopeFactory>(), NullLogger<MailboxOutboxDispatcher>.Instance))
+            Assert.Equal(0, await dispatcher.DispatchBatchAsync());
+        Assert.Equal(0, transportRequests);
+
+        await using var verify = fixture.Open();
+        var allEffects = await verify.Set<MailboxOutboxEffect>().AsNoTracking().ToListAsync();
+        Assert.Equal(619, allEffects.Count);
+        Assert.Equal(601, unrelatedEffects.Count);
+        foreach (var row in allEffects.Where(x => !campaignIds.Contains(x.DeliveryEventId!.Value)))
+            Assert.Equal(unrelatedEffects[row.Id], JsonSerializer.Serialize(row));
+        foreach (var row in allEffects.Where(x => campaignIds.Contains(x.DeliveryEventId!.Value)))
+        {
+            Assert.Equal(MailboxEffectState.Cancelled, row.State); Assert.Equal(8, row.Fence);
+            Assert.Equal(campaignPayloads[row.DeliveryEventId!.Value], row.Payload);
+            Assert.Equal("NoEffectiveMailbox", row.LastErrorCode); Assert.Equal(2, row.Attempts);
+            Assert.Null(await fixture.Store(verify).TryClaimAsync(row.Id, "synthetic-restarted-worker", default));
+        }
+        var allTimeline = await verify.TicketTimelineEvents.AsNoTracking().ToListAsync();
+        Assert.Equal(620, allTimeline.Count);
+        foreach (var row in allTimeline)
+        {
+            if (!campaignIds.Contains(row.Id)) Assert.Equal(unrelatedTimeline[row.Id], JsonSerializer.Serialize(row));
+            else
+            {
+                Assert.Equal(EmailDeliveryStatus.Cancelled, row.EmailStatus);
+                row.EmailStatus = EmailDeliveryStatus.Failed; // Compare every retained history field to its original value.
+                Assert.Equal(campaignHistory[row.Id], JsonSerializer.Serialize(row));
+            }
+        }
+        Assert.Equal("Retain synthetic worklog", (await verify.WorkLogs.SingleAsync()).NotesText);
+        Assert.Equal("synthetic.txt", (await verify.Attachments.SingleAsync()).FileName);
+        var audits = await verify.ActivityLogs.AsNoTracking().ToListAsync();
+        Assert.Equal(18, audits.Count);
+        Assert.Equal(campaignIds.Select(x => x.ToString("D")).Order(), audits.Select(x => x.RelatedEntityId).Order());
+        Assert.All(audits, x => Assert.Contains("Synthetic cancellation regression", x.Message));
+        Assert.Empty(await fixture.Store(verify).GetCandidatesAsync(64, default));
+        Assert.DoesNotContain(allEffects, x => x.State is MailboxEffectState.Submitting or MailboxEffectState.Completed);
     }
 
     [Theory]

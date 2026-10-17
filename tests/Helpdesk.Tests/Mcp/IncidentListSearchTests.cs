@@ -118,9 +118,7 @@ public sealed class IncidentListSearchTests
         var tools = Tools(out var client);
         var request = Request("""{"query":"match","page":2,"id":"ignored","organizationId":"ignored"}""");
 
-        Assert.True((await tools.helpdesk_requests("list", request)).Success);
-        Assert.True((await tools.helpdesk_changes("list", request)).Success);
-        Assert.True((await tools.helpdesk_services("search_items", request)).Success);
+        Assert.True((await tools.helpdesk_services("list", request)).Success);
 
         foreach (var call in client.ReceivedCalls().Where(call => call.GetMethodInfo().Name == nameof(IHelpdeskAgentClient.GetAsync)))
         {

@@ -1,6 +1,7 @@
 using Helpdesk.Application.Events;
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Pairing;
 using Helpdesk.Shared.DTOs.Orchestration;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
@@ -19,6 +20,20 @@ public static class ExternalOrchestrationEndpoints
 
         group.MapGet("/", async (IOrchestrationConnectivityService connectivity, CancellationToken ct) =>
             Results.Ok(await connectivity.GetOrchestrationSettingsAsync(ct)));
+
+        group.MapPost("/test", async (IOrchestrationConnectivityService connectivity, CancellationToken ct) =>
+        {
+            try
+            {
+                return Results.Ok(await connectivity.TestOrchestrationConnectivityAsync(ct));
+            }
+            catch (PairingFailure failure)
+            {
+                return Results.Json(new { code = failure.Code, message = failure.Message }, statusCode: failure.Status);
+            }
+        })
+            .WithName("TestOrchestrationConnectivity")
+            .WithSummary("Tests the configured orchestration peer without submitting automation work");
 
         group.MapGet("/catalog/jobs", async (
             IOrchestrationCatalogService catalog,

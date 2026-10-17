@@ -2,9 +2,26 @@
 
 RatelDesk has one repository-owned release line. The root `Directory.Build.props` is the source of truth for `VersionPrefix` and `VersionSuffix`. Applications and release outputs inherit those values. Prereleases remain immutable.
 
+## 0.1.2-beta.4 — MCP campaign candidate
+
+The candidate targets the next unused beta following beta.3. See the
+[candidate notes](../release-notes/0.1.2-beta.4.md),
+[operation contracts](../contracts/mcp-operation-contracts.md) and
+[finding-to-test manifest](../implementation/0.1.2-beta.4-mcp-regressions.md).
+[#218](https://github.com/BostonTechnologies/RatelDesk/issues/218) owns reviewed
+PR/main validation and verified public distribution; the later owner deployment,
+positive campaign and explicit retained-mail cleanup remain under
+[#219](https://github.com/BostonTechnologies/RatelDesk/issues/219).
+
+Recheck tags under both accepted prefixes, all releases and registry allocation
+before assigning/tagging the immutable beta. Preserve the five normal gates,
+actual SQLite/PostgreSQL HTTP evidence and relevant existing deep acceptance.
+Candidate notes are not a release receipt. The unchanged channel/distribution
+policy below applies; this beta never moves `latest`.
+
 ## 0.1.2-beta.3 — host verification candidate
 
-The current source targets `0.1.2-beta.3`; the
+The beta.3 source targeted `0.1.2-beta.3`; the
 [candidate summary](../release-notes/README.md) and
 [operator procedure](../mcp-http/setup.md) distinguish unchanged host adoption,
 explicit configuration changes and ordinary client grants. The delivery tracker
