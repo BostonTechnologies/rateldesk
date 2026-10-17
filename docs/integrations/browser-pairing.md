@@ -23,7 +23,7 @@ approve/deny actions; recoverable errors retain the entered code.
 The terminal's compact approval view keeps purpose, URL/code, status/expiry and
 actions ahead of extended **Details**. Host **Back** returns to Hosting, client
 **Back** returns to client authentication/profile, and temporary-verifier **Back**
-returns to its applied-host verification checkpoint. Pending old attempts cannot
+returns to its adopted/applied-host verification checkpoint. Pending old attempts cannot
 advance a changed proposal.
 
 Ordinary client review shows the name, API/MCP purpose and resource, then requires selection of one
@@ -41,10 +41,15 @@ no broad grant is selected automatically.
 
 ## Host proposal and temporary verification consent
 
-Host review approves the redacted effective deployment proposal and source
-generation. It issues no consumer credential or persistent downstream gateway
-identity. Changed material sources require renewed review. Apply/recreation
-still belongs to the declared deployment owner.
+Host review identifies **Adopt existing baseline — no deployment changes** or an
+explicit configuration-change proposal. The compact terminal shows purpose and
+defined service count before/after; Details retains the redacted provider/source
+review. Approval records current administrator review of that exact generation.
+It issues no consumer credential or persistent downstream gateway identity.
+Adoption has no fictitious apply stage. Only deliberate changes require the
+declared deployment owner's save/deploy/recreation. Changed material sources
+require explicit re-read/review; unchanged fresh verification does not repeat
+provisioning consent.
 
 The separately identified **Temporary verification client** shows its exact
 status-check purpose, reviewed organization/resource and five-minute maximum

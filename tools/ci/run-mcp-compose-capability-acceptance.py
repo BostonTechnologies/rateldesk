@@ -58,8 +58,23 @@ def wizard(image, directory, target):
     source.write_text(json.dumps({"services": {name: {"image": image,
         "environment": {"Helpdesk__Mcp__AuthenticationMode": "gateway", "Helpdesk__Mcp__Outbound__CredentialMode": "gateway"}}
         for name in launcher.SERVICE_NAMES}}))
-    arguments = ["--compose-file", str(source), "--project", project, "--manager", "external-compose", "--target", target]
-    terminal = lifecycle.Terminal(arguments, directory)
+    # This image lane retains the explicitly selected Advanced initializer's
+    # beta.2 entry regression. The default no-change host lifecycle runs in the
+    # separate native/terminal/browser acceptance lane.
+    name = project + "-client-fixture"
+    if target == "http-host":
+        arguments = ["--compose-file", str(source), "--project", project, "--manager", "external-compose",
+            "--intent", "legacy-initializer"]
+        terminal = lifecycle.Terminal(arguments, directory)
+    else:
+        # The published image's explicit client entrypoint does not need any
+        # Compose host discovery/provisioning. Native CLI independence is also
+        # covered by the native acceptance and bounded launcher contracts.
+        arguments = ["run", "--rm", "--name", name, "--pull", "never", "--interactive", "--tty",
+            "--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+            "--tmpfs", "/tmp:rw,nosuid,nodev,size=16777216,mode=1777",
+            "--env", "RATELDESK_MCP_CLIENT_DIRECTORY=/tmp/private-client", image, "setup", "--mode", "client"]
+        terminal = lifecycle.Terminal(arguments, directory, executable="docker")
     try:
         terminal.until("RatelDesk Web URL", seconds=60)
         terminal.send(b"\x03")
@@ -67,6 +82,9 @@ def wizard(image, directory, target):
         assert "Short code:" not in terminal.text() and "Code:" not in terminal.text(), "Unexpected approval issued"
     finally:
         terminal.close()
+        if target == "http-client":
+            launcher.Docker().run(["rm", "--force", name], optional=True, maximum=4096)
+            assert not launcher.Docker().run(["ps", "--all", "--filter", "name=^/" + name + "$", "--format", "{{.ID}}"], maximum=4096).strip(), "Client fixture cleanup incomplete"
         for suffix in ("http-host-setup", "http-client-data"):
             name = project + "-" + suffix
             metadata = launcher.Docker().run(["volume", "inspect", "--format", "{{json .}}", name], optional=True)
@@ -78,7 +96,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--download", action="store_true")
     parser.add_argument("--fixture-directory", type=Path)
-    parser.add_argument("--image", help="Already built local MCP image; additionally prove host/client pristine wizard entry.")
+    parser.add_argument("--image", help="Already built local MCP image; additionally prove explicit Advanced initializer host and independent image-client wizard entry.")
     args = parser.parse_args()
     if os.uname().machine != "x86_64":
         parser.error("Pinned binary fixture acceptance runs on Linux x86_64")
@@ -112,7 +130,7 @@ def main():
                         wizard(args.image, directory, "http-host" if version == "2.35.0" else "http-client")
                 detail = "unsupported flag rejected before sources/consent" if version in ("2.26.1", "2.34.0") else "source/order/interpolation/env-file/path capabilities and selected daemon"
                 if args.image and version in ("2.35.0", "2.39.4"):
-                    detail += "; pristine " + ("host" if version == "2.35.0" else "client") + " wizard Web URL reached and cancelled before approval"
+                    detail += "; " + ("explicit Advanced initializer host" if version == "2.35.0" else "independent image client") + " wizard Web URL reached and cancelled before approval"
                 print(f"PASS Compose {version}: checksum verified; " + detail, flush=True)
 
 

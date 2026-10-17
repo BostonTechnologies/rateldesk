@@ -1,73 +1,129 @@
 # Set up HTTP MCP
 
 Start here for existing RatelDesk local accounts and **gateway** HTTP MCP.
-Enter the Web URL, review/approve hosting, apply through its owner, verify,
-then optionally approve a client. Host approval creates no consumer access,
+Choose **Verify existing deployment**, **Prepare configuration changes**, or
+**Connect a client**. A working deployment defaults to verification unchanged.
+Host baseline/proposal approval creates no consumer access,
 downstream administrator credential or shared signing key. Browser sign-in uses
 your normal account flow; no account password is entered in the terminal.
 Existing linked-OIDC accounts can use gateway credentials too. Preserve an
 explicitly selected external Authentik/OAuth mode; its complete reference is
 [configuration](configuration.md).
 
-## Prepare the server
+## Verify or change the server
 
 Use Web, API, HTTP MCP and tools from the same verified release. You need Docker access on the deployment host, administrator access to RatelDesk, its public HTTPS Web URL and authority to apply through the existing deployment owner. Preserve the database, ingress, volumes and protected configuration.
 
-1. Extract the verified deployment archive into a separate tools directory. Open a terminal **on the deployment host**, enter that directory and run:
+1. Extract the verified deployment archive and matching native CLI or stdio
+   archive into private tools directories. Open a terminal **on the Docker
+   host**, enter the deployment directory and select the verified native apphost:
 
    ```sh
-   ./setup-http-mcp.sh
+   ./setup-http-mcp.sh --native-executable "$NATIVE_SETUP"
    ```
 
-   The launcher checks the selected Compose implementation before deployment work,
-   then discovers the existing container and saved sources. Resolve its precise
-   prerequisite diagnosis before approval. Preserve any deliberately selected
+   `NATIVE_SETUP` is the absolute path to the extracted `rateldesk` or
+   `rateldesk-mcp` executable. A colocated matching native executable is selected
+   automatically. No tooling container, serving mount or restart is needed.
+
+2. Let the launcher discover the existing container, ordered source files and
+   deployment owner; choose only when a source or instance is ambiguous. If the
+   selected Compose lacks a required capability, select an existing verified
+   isolated binary, explicitly prepare the pinned private tool, or cancel:
+
+   ```sh
+   ./setup-http-mcp.sh --native-executable "$NATIVE_SETUP" \
+     --prepare-compose "$PRIVATE_COMPOSE_DIRECTORY"
+   ```
+
+   This is explicit consent to a private, integrity-checked Compose v2.39.4;
+   it preserves the global plugin and Docker context. Offline verified cache
+   and existing-binary choices are in [Compose prerequisites](deployment.md#compose-prerequisites-and-docker-selection).
+   Preserve any deliberately selected
    `DOCKER_CONFIG`, Docker context/host and TLS settings for setup, apply, client
    setup and fresh verification; see [Compose prerequisites](deployment.md#compose-prerequisites-and-docker-selection).
    Source-checkout and manual alternatives are in the [deployment reference](deployment.md).
 
-2. Enter the **RatelDesk Web URL**, either its root or `/mcp` address. Review the normalized Web and MCP addresses. Existing instance, API destination and authentication settings are retained. **Advanced** exposes deliberate topology changes; a hostname never chooses a different instance or authentication mode.
+3. Enter one **RatelDesk Web URL**, either its root or `/mcp` address. Existing
+   instance, private API destination and authentication mode are retained.
+   Keep **Verify existing deployment** for an unchanged deployment. To request
+   a real correction, choose **Prepare configuration changes**; **Advanced**
+   exposes editable settings. The equivalent explicit launch is:
 
-3. Review the short redacted change summary; **Details** opens the extended review.
+   ```sh
+   ./setup-http-mcp.sh --native-executable "$NATIVE_SETUP" --intent prepare-changes
+   ```
+
+4. Review the purpose, defined service count before/after and short redacted
+   no-change/change summary; **Details** opens the extended review.
    The approval URL/code, purpose, status and actions remain in the compact view.
    Open the trusted URL on this or another device, sign in as an authorized
    administrator and choose **Review host**. Explicitly approve the proposal.
-   The recognized legacy config-file mount is migrated in this reviewed complete
-   proposal, preserving protected settings; it needs no manual export repair.
-   Resolve other reported source/mount conflicts first. Host **Back** returns to
-   Hosting and cancels the old approval attempt.
+   Existing valid protected files and their mappings are retained. Host **Back**
+   preserves the same host draft and cancels the old attempt. The normal four
+   services remain four: API, Web, MCP and database. A missing Docker healthcheck
+   is reported as absent; verification does not add one.
 
-4. Save the proposal. **Saved—apply pending** means the running services still need updating. For release-owned Compose, use the exact reviewed apply command. For an external deployment manager, privately review the complete exported deployment document and apply it through that same manager. Keep the printed checkpoint and durable storage; preserve unrelated services and volumes.
+5. Save the reviewed baseline or candidate. **Existing baseline adopted; fresh
+   verification pending** has no apply stage: source bytes and Docker resources
+   stay unchanged. **Changes prepared—not applied** requires the displayed owner
+   action. For an external manager, review the minimal readable source diff and
+   save/deploy through that same manager. For release-owned Compose, use the exact
+   printed apply command. Do not import generated JSON, add `mcp-config-init`,
+   replace source formatting or add serving mounts merely to verify. Deliberate
+   changes may recreate only their reviewed affected services. Keep the private
+   checkpoint outside deployment sources.
 
-5. After recreation, run a **new process** with the command below.
-   **Applied—verify pending** requires live checks. Separately approve the
+6. After baseline adoption, or separately after approved owner apply, run a
+   **new process** using the exact quoted command printed by the launcher:
+
+   ```sh
+   ./setup-http-mcp.sh --native-executable "$NATIVE_SETUP" --verify
+   ```
+
+   The printed command also retains selected sources, Docker identity and private
+   Compose selection. **Adopted—verify pending** / **Applied—verify pending**
+   requires fresh saved-source/runtime checks. Separately approve the
    **Temporary verification client**: it has only short-lived,
    organization/resource-bound status access and is cleaned up afterward.
    A cleanup-pending result requires the displayed recovery action. Verifier
-   **Back** returns to the applied-host verification checkpoint.
+   **Back** returns to the same adopted/applied verification checkpoint.
 
-   ```sh
-   ./setup-http-mcp.sh --verify
-   ```
-
-   Finish at **End-to-end verified** after observed runtime configuration,
+   Finish at **Existing deployment verified unchanged**, or **End-to-end verified
+   after approved owner apply**, after observed runtime configuration,
    authentication, compatible MCP initialization, the actual catalog and
    successful API-backed `helpdesk_auth/status`. Keep the sanitized result and
    next action. This verification does not grant incident access.
 
-6. Optionally connect an ordinary HTTP MCP client from this same **Docker-host
-   tools directory**:
+## Connect an ordinary client
 
-   ```sh
-   ./setup-http-mcp.sh --target http-client -- --profile incident-reader
-   ```
+Optionally connect a client from this same **Docker-host tools directory**:
 
-   Enter the Web URL, open the visible approval URL and choose **Review client**.
-   Explicitly select one enabled organization, exact permissions (for example
-   `Incident.Read`) and expiry. Save to the displayed durable private client
-   store and use its protected configuration snippet. Client **Back** returns
-   to its authentication/profile context. Each consumer/organization needs its
-   own credential; the temporary verifier is never a reusable client.
+```sh
+./setup-http-mcp.sh --target http-client -- --profile incident-reader
+```
+
+Enter the Web URL, open the visible approval URL and choose **Review client**.
+Explicitly select one enabled organization, exact permissions (for example
+`Incident.Read`) and expiry. Save to the displayed durable private client
+store and use its protected configuration snippet. Client **Back** returns
+to its authentication/profile context. Each consumer/organization needs its
+own credential; the temporary verifier is never a reusable client.
+
+From the extracted **native CLI archive**, the equivalent HTTP client flow is:
+
+```sh
+RATELDESK_MCP_CLIENT_DIRECTORY="$PRIVATE_CLIENT_DIRECTORY" \
+  ./rateldesk setup --target http-client \
+  --url https://rateldesk.example.test/mcp/ --profile incident-reader
+
+# CLIENT_PROFILE is the actual protected file displayed by setup.
+./rateldesk --config "$CLIENT_PROFILE" doctor --network --authenticate
+```
+
+Native client setup/doctor needs no Compose feature upgrade. Client doctor
+success establishes client checks; host acceptance additionally requires source
+and runtime binding plus fresh host verification.
 
 ## Check or reconnect a saved client
 
@@ -96,10 +152,12 @@ Host verification cleanup leaves ordinary client credentials intact.
 
 ## Resume hosting after a change
 
-For the unchanged applied generation, use `--verify`. If any material source or
-proposal changed, run ordinary `./setup-http-mcp.sh` with the same ordered
-source, storage and deployment-owner selectors, review/approve the new proposal,
-apply through that owner, then invoke `--verify` again. Preserve the selected
+For the unchanged adopted/applied generation, use the printed `--verify` command.
+If source, environment, image or Docker identity changed, re-read the actual
+saved sources and review a new baseline or explicit `--intent prepare-changes`
+candidate. A manager's reformatting also needs explicit re-read/review; a
+candidate's bytes do not prove what the manager saved. Apply actual changes
+through that owner, then invoke `--verify` again. Preserve the selected
 Docker environment. Never edit a protected receipt/hash or reuse stale approval.
 See [recovery](troubleshooting.md#recovery-and-rotation) and
 [migration](deployment.md#migration-persistence-and-rotation).

@@ -28,11 +28,13 @@ External OAuth client setup verifies protected-resource metadata and saves only
 public client settings. Its authentication/initialize/tool steps stay unverified
 until the selected OAuth-capable MCP client signs in and connects.
 
-Host verification additionally compares the observed serving configuration with
-the approved source generation. **Saved—apply pending** requires the deployment
-owner's apply/recreation; **Applied—verify pending** requires the authenticated
-live check. Re-run the deployment host's `./setup-http-mcp.sh --verify` from a
-new invocation after recreation. Unchanged sources reuse approval; changed
+Host verification additionally binds actual saved sources, effective settings,
+Docker identity and observed runtime. **Existing baseline adopted; fresh
+verification pending** has no apply/restart stage. **Changes prepared—not applied**
+requires the deployment owner's reviewed save/deploy; **Adopted—verify pending**
+or **Applied—verify pending** requires fresh authenticated checks. Re-run the
+exact printed Docker-host `--verify` command in a new process after adoption or
+owner apply. Unchanged sources reuse baseline/proposal review; changed
 sources stop for revalidation. A temporary verifier never becomes the host
 downstream identity or an ordinary consumer profile. When cleanup cannot be
 confirmed, keep its bounded cleanup-pending action and retry rather than
@@ -51,10 +53,11 @@ client credentials and their private profiles while valid.
   including integrity verification for a deliberately selected isolated plugin.
   Keep that same Docker configuration/context/host/TLS selection on later
   client, apply and fresh verification commands.
-- **Legacy config mount conflicts with runtime storage:** ordinary setup
-  migrates the recognized selected file in the complete reviewed proposal.
-  Resolve an unreadable protected source or unknown overlapping mount before
-  approval, then review/apply a new proposal. Do not repair the approved export
+- **Protected config mount cannot be validated:** normal adoption retains a valid
+  selected file/config/secret mapping. Resolve an unreadable protected source or
+  unsupported overlap at its owning source before approval. A deliberate minimal
+  change must preserve unrelated mappings; initializer migration is a separately
+  reviewed Advanced alternative. Do not repair an approved candidate
   manually; see [migration](deployment.md#migration-persistence-and-rotation).
 - **404 JSON on `/mcp`:** MCP generation is unselected or hard-disabled. Confirm
   the overlay configures both Web Enabled/Destination and the HTTP service.
@@ -74,9 +77,10 @@ client credentials and their private profiles while valid.
   an example target. MCP has no ambient CLI fallback. Canonical Outbound keys
   beat dedicated aliases; explicitly empty env clears a value. Remove conflicting
   inline/file secrets or mixed-mode fields before retrying.
-- **Permission/ownership error:** the serving process is UID 10001. The file-init
-  helper copies the protected input to its volume as UID 10001 with mode 0400;
-  the server mounts it read-only. Secret-file references must exist inside the
+- **Permission/ownership error:** the serving process is UID 10001. Normal
+  verification uses private native checkpoints and does not add a serving mount
+  or repair deployment ownership. In an already-approved initializer layout, its
+  helper copies protected input as UID 10001 with mode 0400. Secret-file references must exist inside the
   container and be owned/readable by that UID. Host paths inside a JSON profile
   are not automatically container mounts. Reject symlink paths instead of
   relying on them for configuration.
@@ -97,7 +101,7 @@ client credentials and their private profiles while valid.
   status and expiry in the main approval view; extended preview is in **Details**.
   Host **Back** returns to Hosting, ordinary-client **Back** returns to its
   authentication/profile context, and verifier **Back** returns to the
-  applied-host verification checkpoint. Re-entering approval starts the
+  adopted/applied-host verification checkpoint. Re-entering approval starts the
   appropriate current attempt; an old approval cannot approve changed sources.
 - **Public URL advertises private DNS/HTTP:** align trusted API pairing origin,
   Web origin/resource and MCP PublicResourceUri. Public HTTPS identity can differ
@@ -113,12 +117,19 @@ Preserve API database, bootstrap state, data-protection keys and attachments.
 HTTP MCP needs no API database/key mount. A read-only MCP configuration does
 not require making the API key ring available to it.
 
-For unchanged applied host settings, invoke `./setup-http-mcp.sh --verify` from
-a new Docker-host process. For changed sources/proposal, invoke ordinary setup
-with the same ordered Compose/env sources, storage and owner selectors; review
-and approve the new proposal, apply through that owner, then verify. Preserve
+For unchanged adopted/applied host settings, use the exact printed `--verify`
+command from a new Docker-host process. For changed sources/env/images or manager
+reformatting, re-read actual saved sources with the same ordered Compose/env
+sources, storage and owner selectors; explicitly review the new baseline or
+`--intent prepare-changes` correction, apply actual edits through that owner,
+then verify. Preserve
 the selected Docker environment throughout. Never edit protected receipts or
 reuse a stale source/proposal hash.
+
+An endpoint-only check is not full host acceptance. Missing source/runtime binding,
+unavailable daemon identity or an unexecuted external-manager save/deploy remains
+an explicit incomplete gate. Test fixtures, a disposable real manager and owner
+acceptance provide distinct evidence; a fixture is never live-manager acceptance.
 
 Reload an explicitly selected ordinary profile while its credential is valid;
 no new client approval is needed. Use the [saved-profile doctor template](setup.md#check-or-reconnect-a-saved-client)

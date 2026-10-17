@@ -2,9 +2,27 @@
 
 RatelDesk has one repository-owned release line. The root `Directory.Build.props` is the source of truth for `VersionPrefix` and `VersionSuffix`. Applications and release outputs inherit those values. Prereleases remain immutable.
 
+## 0.1.2-beta.3 — host verification candidate
+
+The current source targets `0.1.2-beta.3`; the
+[candidate summary](../release-notes/README.md) and
+[operator procedure](../mcp-http/setup.md) distinguish unchanged host adoption,
+explicit configuration changes and ordinary client grants. The delivery tracker
+is [#198](https://github.com/BostonTechnologies/rateldesk/issues/198), with host
+acceptance/publication under [#204](https://github.com/BostonTechnologies/rateldesk/issues/204).
+Preserve beta.2 client setup/reload, incident search, permission enforcement and
+temporary-verifier cleanup. Its immutable evidence describes only that version.
+
+This is a candidate description, not a publication receipt. Keep #198 and #204
+open until the actual host terminal/browser/source-review journeys, fresh
+adoption and approved-apply verification, reviewed merge, required final-head
+PR/exact-main checks, hosted publication and independent public archive/image
+verification complete. No owner deployment or stable-channel promotion is
+included. Apply the existing release workflow and immutable-artifact policy below.
+
 ## 0.1.2-beta.2 — MCP setup and incident-search corrections
 
-The current source targets `0.1.2-beta.2`; see the
+The beta.2 source targets `0.1.2-beta.2`; see the
 [candidate notes](../release-notes/0.1.2-beta.2.md) and
 [local-account URL-first setup guide](../mcp-http/setup.md). The focused delivery
 tracker is [#190](https://github.com/BostonTechnologies/rateldesk/issues/190),
@@ -323,15 +341,44 @@ API and HTTP MCP images:
 ```sh
 python3 tools/ci/run-mcp-host-lifecycle-acceptance.py \
   --api-image "$API_IMAGE" --web-image "$WEB_IMAGE" --mcp-image "$MCP_IMAGE" \
+  --native-executable "$EXTRACTED_MCP_APPHOST" \
+  --deployment-archive "$DEPLOYMENT_ARCHIVE" \
   --case all
 ```
 
-This lane uses unique fresh and existing deployment projects, real terminal
-setup and administrator consent, complete export/apply, full recreation and a
-new verification process. It checks catalog/status, identity preservation and a
-separate changed-source rejection. It neither publishes images nor accepts an
-owner deployment; browser layouts and public artifact integrity have their own
-lanes. Failed runs retain private redacted evidence under `work/mcp-host-lifecycle/`.
+`EXTRACTED_MCP_APPHOST` is the actual verified native `rateldesk-mcp` executable;
+`DEPLOYMENT_ARCHIVE` is the matching deployment `.tar.gz`, whose launcher is
+extracted by the lane. The default `--case all` runs `adopt`, `change` and
+`legacy-retain`: real four-service PostgreSQL deployments, actual 80x24/wide
+terminal input, browser administrator/verifier consent, reviewed readable source
+diffs and separate new verification processes. PostgreSQL must already be present
+(default `postgres:16`, or select `--database-image "$POSTGRES_IMAGE"`).
+
+The default changed-source owner is an automated saved-source adapter and does
+not establish live external-manager acceptance. To exercise an actual disposable
+Portainer save/deploy/read-back and the private Compose compatibility onramp, add:
+
+```sh
+--external-manager --legacy-compose-onramp \
+  --compose-fixture-cache "$VERIFIED_COMPOSE_2394" \
+  --legacy-compose-fixture-cache "$VERIFIED_COMPOSE_2261"
+```
+
+The pinned Portainer image must already be present. Compose fixtures are checked
+against repository-owned platform digests; `--download-compose-fixtures` explicitly
+permits their pinned downloads when offline caches are unavailable. The onramp
+keeps the global plugin, Docker context/daemon and credential-helper selection.
+Record automated source fixtures, actual disposable manager acceptance and owner
+testing separately. The older initializer fixtures remain explicitly selected
+`--case fresh|existing|legacy` compatibility lanes, outside default four-service
+acceptance.
+
+The lane checks source/config bytes, service counts, container starts/restarts,
+mounts/health/labels, ordinary credential identity/expiry and verifier cleanup;
+unchanged adoption creates no Docker resources or restarts. It neither publishes
+images nor changes an owner deployment. Public archive/image integrity remains a
+separate release gate. Failed runs retain private redacted evidence under
+`work/mcp-host-lifecycle/`.
 
 ### Staging and public verification
 

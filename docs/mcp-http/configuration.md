@@ -3,16 +3,21 @@
 ## Existing local accounts: start with the Web URL
 
 Use the [short HTTP MCP setup guide](setup.md). On the Docker host, run
-`./setup-http-mcp.sh` from the extracted deployment tools directory, enter
-`https://rateldesk.example.test` (or its `/mcp` URL), then review and explicitly
-approve the host proposal. Apply through the existing deployment owner and run
-a fresh `./setup-http-mcp.sh --verify`. Approve its separate, short-lived
+`./setup-http-mcp.sh --native-executable "$NATIVE_SETUP"` from the extracted
+deployment tools directory (`NATIVE_SETUP` is the absolute verified matching
+native CLI/stdio apphost). Enter `https://rateldesk.example.test` (or `/mcp`).
+Choose **Verify existing deployment** to adopt the current baseline without
+source changes, new services, mounts or restarts. Choose **Prepare configuration
+changes** only for deliberate minimal edits, review their readable diff/service
+count, then save/deploy through the existing owner. Run the printed fresh
+`./setup-http-mcp.sh --native-executable "$NATIVE_SETUP" --verify` command after
+adoption or separately after owner apply. Approve its separate, short-lived
 status-only verifier. Optionally connect an ordinary client with
 `./setup-http-mcp.sh --target http-client -- --profile incident-reader` and
 approve its organization, exact permissions and expiry.
 
-Local browser sign-in, gateway hosting and an ordinary MCP-purpose client
-credential are separate decisions. Gateway hosting needs no outbound
+Local browser sign-in, baseline/change review, temporary verification and an
+ordinary MCP-purpose client credential are separate decisions. Gateway hosting needs no outbound
 administrator credential or shared signing key, and host approval grants no
 incident access. Linked-OIDC account users can also use their own gateway
 credentials. Existing authentication selections remain intact; explicit external
@@ -72,7 +77,7 @@ Allow origins exactly as sent by authorized browser clients; they are origins,
 not MCP paths. Non-browser clients may omit Origin. A mismatching Origin on MCP
 returns 403. Configure the complete effective list when combining JSON and .NET
 providers; numeric .NET array overrides can retain lower-provider indices.
-The coordinated export emits the reviewed list. Gateway-origin settings and
+The reviewed source candidate retains the intended list. Gateway-origin settings and
 trust/reload rules are in the [Web gateway guide](../deployment/web-gateway.md).
 
 Public resource and approval URLs remain HTTPS. Private API/MCP backends on the

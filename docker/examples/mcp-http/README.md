@@ -4,8 +4,12 @@ Start with the short [server/client setup guide](../../../docs/mcp-http/setup.md
 for the discoverable deployment-host launcher. The recipes below are advanced
 standalone/manual alternatives; preserve an existing stack's owner and sources.
 In the extracted deployment tools directory on the Docker host, run
-`./setup-http-mcp.sh`, apply the reviewed proposal through its owner, then run a
-fresh `./setup-http-mcp.sh --verify`. Optional ordinary client setup is
+`./setup-http-mcp.sh --native-executable "$NATIVE_SETUP"` with the verified matching
+native apphost. Default **Verify existing deployment** records the current
+baseline without source edits, new services, mounts or restarts. For a necessary
+correction use `--intent prepare-changes`, review the minimal readable source
+diff/counts, then save/deploy through its existing owner. After either adoption
+or approved apply run the exact printed fresh `--verify` command. Optional ordinary client setup is
 `./setup-http-mcp.sh --target http-client -- --profile incident-reader`.
 Preserve the selected Docker configuration/context; the
 [deployment reference](../../../docs/mcp-http/deployment.md#compose-prerequisites-and-docker-selection)
@@ -17,9 +21,11 @@ migration and verification. The [Web gateway guide](../../../docs/deployment/web
 explains the optional single-origin route. Keep runnable recipes here and use
 the canonical guides for shared configuration rules.
 
-The launcher migrates the recognized legacy selected config-file mount in the
-complete reviewed proposal. Do not hand-edit an approved export to remove a
-mount collision; changed sources need ordinary setup and new review/approval.
+Normal adoption and minimal changes retain valid existing protected config-file
+mappings and the four-service topology. The initializer remains an explicitly
+reviewed Advanced alternative with its real extra service count. Do not hand-edit
+an approved export to remove a mount collision; changed sources need explicit
+re-read and new review/approval.
 The [verification guide](../../../docs/mcp-http/troubleshooting.md#check-incident-search)
 includes matching/no-match incident-list checks and the `query`/`q` alias rule.
 

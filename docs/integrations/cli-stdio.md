@@ -29,13 +29,29 @@ the wizard.
 rateldesk setup
 rateldesk-mcp setup
 rateldesk setup --target http-client --profile work-http
-rateldesk setup --mode host
 ```
 
 `--mode host` explicitly selects hosting; the existing
-`--target http-host` alias remains supported. Setup options include
+`--target http-host` alias remains supported, but full host acceptance requires
+actual Docker-host sources/runtime. From the extracted deployment tools
+directory, select the verified matching native apphost instead of adding setup
+mounts or a tooling service:
+
+```sh
+./setup-http-mcp.sh --native-executable "$NATIVE_SETUP"
+./setup-http-mcp.sh --native-executable "$NATIVE_SETUP" --intent prepare-changes
+# New process after baseline adoption or separately after approved owner apply:
+./setup-http-mcp.sh --native-executable "$NATIVE_SETUP" --verify
+```
+
+Use the exact quoted resume invocation printed by the launcher; it retains
+source/owner and Docker/Compose selection. **Verify existing deployment** is the
+default and has no apply stage. **Prepare configuration changes** reviews a
+minimal source candidate before the existing owner saves/deploys it. Defined
+service counts and recreation impact remain visible; a four-service gateway
+stays four by default. Client setup remains separate. Setup options include
 `--target cli|stdio|http-client|http-host`, `--profile NAME` or
-`--config PATH`, `--export-directory DIR` for host export, `--monochrome`, and
+`--config PATH`, `--export-directory DIR` for private host checkpoint/candidate storage, `--monochrome`, and
 `--stdio-executable PATH` for the stdio validation/launch target. The HTTP image
 dispatches the same explicit setup family before normal serving validation;
 see [HTTP deployment](../mcp-http/deployment.md).
@@ -86,6 +102,20 @@ against an explicitly selected private HTTP client file, use the
 [container/profile template](../mcp-http/setup.md#check-or-reconnect-a-saved-client).
 Keep any deliberately selected Docker configuration/context for host commands.
 
+From the extracted **native CLI directory**, HTTP client setup and fresh doctor
+also work independently of Compose:
+
+```sh
+RATELDESK_MCP_CLIENT_DIRECTORY="$PRIVATE_CLIENT_DIRECTORY" \
+  ./rateldesk setup --target http-client \
+  --url https://rateldesk.example.test/mcp/ --profile incident-reader
+./rateldesk --config "$CLIENT_PROFILE" doctor --network --authenticate
+```
+
+Use the actual protected `CLIENT_PROFILE` displayed by setup. Choose an enabled
+organization, exact permissions and expiry in the browser; a successful client
+doctor does not complete host source/runtime acceptance.
+
 ## Profiles and persistence
 
 Native named profiles use per-user application data under
@@ -110,8 +140,9 @@ provides that dedicated store, with `mcp/NAME.json` beneath it; otherwise its
 per-user default is local application data under
 `rateldesk/http-client/profiles/mcp/NAME.json`. Host output uses the separate
 `RATELDESK_MCP_HOST_DIRECTORY` or local application data under
-`rateldesk/http-host`. The launcher supplies protected durable container mounts;
-neither namespace imports the serving host's downstream identity. A successful
+`rateldesk/http-host`. Normal native host checkpoints stay outside deployment
+sources and need no serving mount; existing container client storage remains
+separate. Neither namespace imports the serving host's downstream identity. A successful
 Save requires a writable persistent store.
 
 Names contain 1–64 lowercase letters/digits/hyphens. Select profiles explicitly;

@@ -31,6 +31,8 @@ package_tool() {
     -p:Version="$version" -p:SourceRevisionId="$source_revision"
   mkdir -p "$package_directory"
   cp -a "$publish_directory/." "$package_directory/"
+  cp -a "$repository_root/tools/mcp/." "$package_directory/"
+  find "$package_directory" -type d -name __pycache__ -prune -exec rm -rf {} +
   cp "$repository_root/LICENSE" "$package_directory/LICENSE"
   python3 "$repository_root/tools/release/package-documentation.py" "$package_directory"
   cat > "$package_directory/README.txt" <<EOF
@@ -56,7 +58,8 @@ deployment_directory="$staging_directory/rateldesk-deployment-$version"
 rm -rf "$deployment_directory"
 mkdir -p "$deployment_directory"
 cp -a "$repository_root/docker/." "$deployment_directory/"
-cp "$repository_root/tools/mcp/setup-http-mcp.sh" "$repository_root/tools/mcp/setup-http-mcp.py" "$deployment_directory/"
+cp -a "$repository_root/tools/mcp/." "$deployment_directory/"
+find "$deployment_directory" -type d -name __pycache__ -prune -exec rm -rf {} +
 chmod 0755 "$deployment_directory/setup-http-mcp.sh" "$deployment_directory/setup-http-mcp.py"
 cp "$repository_root/LICENSE" "$deployment_directory/LICENSE"
 python3 "$repository_root/tools/release/package-documentation.py" "$deployment_directory" --flat-deployment
@@ -74,15 +77,24 @@ PY
 cat > "$deployment_directory/README.txt" <<EOF
 RatelDesk deployment $version
 
-From this extracted directory on the deployment host, run ./setup-http-mcp.sh.
-The adjacent Python helper requires Python 3; Docker with Compose is required.
-The launcher checks actual Compose capabilities and never installs packages.
-Enter the Web URL, review/approve the proposal, apply through its deployment
-owner, then run a fresh ./setup-http-mcp.sh --verify for temporary status verification.
+From this extracted directory on the Docker host, run ./setup-http-mcp.sh
+with --native-executable pointing to the verified matching rateldesk or
+rateldesk-mcp apphost (a colocated native executable is selected automatically).
+The adjacent helpers require Python 3; Docker with Compose is required.
+Default Verify existing deployment records a reviewed baseline unchanged:
+no source import, new service/mount, resource creation or restart.
+For a necessary correction use --intent prepare-changes, review the readable
+minimal source diff/service counts, then save/deploy through its existing owner.
+After adoption or separately after approved owner apply, use the exact printed
+NEW --verify invocation for temporary status consent and source/runtime checks.
+If Compose lacks a required capability, explicitly select an integrity-checked
+isolated binary or consent to --prepare-compose PRIVATE_DIRECTORY for the pinned
+setup-only tool; the normal plugin and Docker context remain unchanged.
 Optional ordinary client setup: ./setup-http-mcp.sh --target http-client -- --profile incident-reader
 Keep the same selected DOCKER_CONFIG/context/host/TLS settings for every command.
-Changed sources require ordinary setup and new approval; do not edit protected
-receipts or manually repair the reviewed legacy-mount migration.
+Changed sources/env/images require re-read and new review; do not edit protected
+receipts or manually repair an approved candidate. Four services remain four
+by default; an initializer is a separate Advanced topology choice.
 Follow docs/mcp-http/setup.md for the short guide
 and docs/mcp-http/deployment.md for alternate contexts and advanced configuration.
 

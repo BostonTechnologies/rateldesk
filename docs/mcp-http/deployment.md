@@ -8,8 +8,10 @@ deployment ownership, legacy recipes and migration.
 
 Run `tools/mcp/setup-http-mcp.sh` from a source checkout, or
 `./setup-http-mcp.sh` from the extracted deployment archive. The launcher needs
-Docker with Compose and Python 3 on the deployment host; it installs no packages.
-Its adjacent Python helper is included in the archive. It inspects Docker only
+Docker with Compose, Python 3 and the verified matching native CLI/stdio apphost
+on the deployment host. Use `--native-executable "$NATIVE_SETUP"` for its absolute
+path, or colocate it with the launcher. Its adjacent helpers are included in both
+deployment and native archives. It inspects Docker only
 on that host; the serving MCP container receives no Docker socket or root access.
 The archive's non-secret `setup-release.json` selects the exact inherited release
 version, base recipe and image for a fresh deployment with MCP not yet selected.
@@ -37,23 +39,33 @@ mounted read-only into tooling and included in the source-generation hash;
 certificate/hostname verification stays enabled. Normal publicly trusted HTTPS
 needs no CA option.
 
-`--apply` uses the reviewed release-owned apply action. External-manager mode
-exports the complete private deployment document for review and application
-through that manager. `--verify` reopens the persisted generation from a fresh
-process after recreation. Source changes invalidate the reviewed generation;
+`--intent verify-existing` is the default: record an administrator-reviewed
+existing baseline without editing deployment sources or creating, removing or
+restarting Docker resources. It creates only private local checkpoints and the
+explicit temporary verifier lifecycle. Credential issuance/revocation still
+performs API writes; this is deployment-read-only verification.
+
+`--intent prepare-changes` prepares only the requested correction. `--apply` uses
+the reviewed release-owned apply action. External-manager mode provides a
+private readable candidate and minimal diff; save/deploy through that same
+manager, whose saved sources remain authoritative. `--verify` reopens the
+checkpoint in a fresh process after adoption or approved owner apply. Source
+changes invalidate the reviewed generation;
 re-run preflight and obtain fresh review rather than editing the checkpoint.
 
-The launcher provisions separate private host output and client profile/secret
-directories, checks ownership and read/write access before approval, and retains
-the paths across invocations. It preserves unrelated services, custom ingress,
+The normal host path uses separate private native checkpoint storage outside
+deployment sources. It needs no new serving mount, tooling container or volume.
+Client profiles have their own private store. Existing mounts from older approved
+setups remain supported. The launcher preserves unrelated services, custom ingress,
 API targets, volumes and integration identities. Container-local paths are never
 presented as invented host paths. A terminal inside a container cannot discover
 or apply its deployment host's Compose sources; use the real launcher on that
 host for those actions.
 
-Choose the task first: **Connect a client** obtains an account-owned credential;
-**Configure HTTP MCP hosting** exports local deployment settings for an
-administrator/operator. Client pairing grants no server administration.
+Choose **Verify existing deployment**, **Prepare configuration changes**, or
+**Connect a client**. The first adopts a valid existing deployment unchanged;
+the second requires explicit review and owner apply; the third obtains an
+account-owned credential. Client pairing grants no server administration.
 The explicit Termina setup shares headless configuration, pairing, persistence
 and validation services with runtime. Normal startup never prompts.
 
@@ -71,23 +83,39 @@ features, source/env-file errors and timeouts have separate safe diagnoses; raw 
 stderr is not printed. Do not remove flags or replace `--no-env-resolution`
 with `--no-interpolate`: those operations have different semantics.
 
-For `compose_feature_unsupported`, use the printed detected version/missing
-capability and install Compose v2.35.0 or newer through the host's supported
-package channel. Alternatively obtain the matching host architecture's
-[official Compose release](https://github.com/docker/compose/releases/tag/v2.35.0)
-and verify its published SHA-256 checksum **before** placing
-it in a deliberately selected private Docker configuration's `cli-plugins`
-directory as the executable `docker-compose`. Nothing is downloaded or installed
-automatically. Preserve the system plugin and do not copy private Docker
-credentials into a workaround directory.
+For `compose_feature_unsupported`, choose an existing compatible isolated binary,
+explicit private preparation, or cancel. Existing-binary selection verifies the
+provided SHA-256 before execution:
+
+```sh
+./setup-http-mcp.sh --native-executable "$NATIVE_SETUP" \
+  --compose-binary "$VERIFIED_COMPOSE_BINARY" --compose-sha256 "$COMPOSE_SHA256"
+```
+
+Explicit private preparation pins upstream Compose v2.39.4 and verifies its
+platform-specific digest against repository-owned metadata before execution:
+
+```sh
+./setup-http-mcp.sh --native-executable "$NATIVE_SETUP" \
+  --prepare-compose "$PRIVATE_COMPOSE_DIRECTORY"
+```
+
+For offline preparation add `--compose-cache "$VERIFIED_COMPOSE_BINARY"`; the
+same pinned platform digest is required. Cancellation, interrupted downloads,
+unsupported architecture and integrity/network errors stop preparation safely.
+The standalone Compose selection preserves the original Docker CLI/config,
+context, host, TLS and credential-helper configuration. It does not replace the
+global plugin or change `DOCKER_CONFIG`; unresolved/changed daemon selection
+fails. The exact selected tool identity and quoted resume invocation are retained
+for fresh processes. Source candidates must also work with the owner's actual
+Compose capabilities. Native client setup/doctor does not require Compose.
 
 Keep explicit `DOCKER_CONFIG`, `DOCKER_CONTEXT`, `DOCKER_HOST`, `DOCKER_TLS`,
 `DOCKER_TLS_VERIFY`, `DOCKER_CERT_PATH` and `DOCKER_API_VERSION` selections for
 every setup, client, apply and `--verify` invocation.
 The launcher carries the selection into its printed follow-up commands; use
-those quoted commands instead of reconstructing them for another daemon. If
-the selected private Docker configuration needs a named context, configure that
-context deliberately there rather than silently falling back to the default.
+those quoted commands instead of reconstructing them for another daemon. Never
+copy Docker credentials or silently fall back to another context to run setup.
 
 ## Connect a client
 
@@ -152,6 +180,12 @@ filesystem profile path nor a guessed container name is a runnable substitute.
 
 ## Advanced standalone tooling
 
+These retained compatibility recipes create one-shot tooling resources and are
+not the unchanged-deployment verification path. Use the native launcher above
+for normal four-service adoption and source-preserving changes. A running MCP
+container console can connect a client; it cannot establish host source/runtime
+acceptance without the actual Docker-host launcher.
+
 The existing HTTP image includes setup and third-party licenses. These standalone
 Compose files require only setup output (and exact release version for the
 release recipe), so unrelated API/database/Authentik variables cannot block
@@ -213,12 +247,16 @@ wizard.
 ## Reviewed host exports and applying them
 
 The normal launcher binds discovery, preflight, the administrator's consent,
-export/apply and observed-runtime verification to one effective proposal and its
+adoption or deliberate candidate/apply, and observed-runtime verification to one
+reviewed generation and its
 source hashes. The redacted review shows winning sources and only required
 changes. Higher-priority inline environment can mask an env-file change; fix
 the winning source rather than relying on a lower-priority overlay. Revalidation
-runs before export/apply. Saved settings and currently serving settings remain
-distinct until recreation and observation.
+runs before save/apply and fresh verification. Adoption leaves source bytes,
+defined services, mounts, healthchecks, labels, Docker objects, container start
+times and restart counts unchanged. Missing Web healthchecks remain explicitly
+absent. Changed settings and currently serving settings remain distinct until
+owner apply and observation.
 
 The host workflow inspects existing exports and dedicated deployment environment
 or isolated MCP file inputs, showing managed values/source as read-only. It configures public
@@ -235,7 +273,21 @@ port 8223, so replace/remove that optional mapping explicitly for a changed
 listener. A custom HTTPS listener also needs deployment-owned TLS certificate
 configuration; the normal recipe terminates TLS at the outer ingress.
 
-The coordinator produces:
+Normal **Prepare configuration changes** retains the existing environment-only
+or valid protected-file strategy and its exact target binding. It prepares a
+minimal readable source-specific candidate/diff that preserves comments, key
+order, quoting, interpolation and relative references. Unsupported lossless edits
+stop before consent with a source-specific recovery action. Private Compose JSON
+is validation evidence, not a replacement manager document. Review service names
+and counts, changed mounts/configs/secrets, ports/networks, dependencies,
+commands/entrypoints, healthchecks, restart policy and affected-service recreation.
+The ordinary API/Web/MCP/database deployment remains four services.
+
+The deliberately selected **Advanced initializer topology**
+(`--intent legacy-initializer`) retains the older full export. It defines an
+additional one-shot service, `mcp-config-init`, and requires its own explicit
+topology review/approval. Already-approved initializer deployments remain
+supported; adoption does not remove them. Only this compatibility export produces:
 
 | File | Contents |
 | --- | --- |
@@ -244,7 +296,7 @@ The coordinator produces:
 | `compose.host.json` | Reviewed Web/API/MCP coordination and protected config-init source mount |
 | `APPLY.txt` | Preservation, interpolation and explicit apply/recreate instructions |
 
-The deployment-host launcher also writes `deployment.json`, the complete
+For this initializer alternative the launcher also writes `deployment.json`, the complete
 reviewed manager document, after validating it against the approved proposal.
 Apply this complete document through an external manager; `compose.host.json`
 alone is an overlay. Keep the launcher's private checkpoint/receipt files with
@@ -318,15 +370,15 @@ custom target, API-owned database/bootstrap/key ring, mounts and account
 credentials. Choose the same explicit ingress mode and exact resource. Adoption
 does not reset NetRatel/NetClaw/mailbox configuration or account identities.
 
-The recognized legacy selected outbound config at
-`/run/rateldesk-mcp/config.json` is read and validated through its protected
-source before consent. The complete reviewed proposal removes that obsolete
-child-file mapping and installs the protected replacement through the initializer
-and runtime volume. It retains effective settings, an explicit external
-downstream identity, unrelated mounts/services/env-file references and shared
-top-level definitions used elsewhere. It does not delete the source file or
-Docker volumes. Review the short migration summary; apply the complete export
-without hand-editing out the old mapping.
+The recognized selected outbound config at `/run/rateldesk-mcp/config.json` is
+read and validated through its protected source before consent. Valid existing
+file/config/secret mappings are retained for adoption and minimal changes;
+verification does not migrate them into an initializer volume. An intentional
+configuration correction retains effective unrelated settings, an explicit
+external downstream identity, mounts/services/env-file references and shared
+top-level definitions. Only the separately selected initializer alternative
+migrates its reviewed mapping into the runtime volume. It does not delete the
+source file or Docker volumes. No path requires hand-repairing an approved export.
 
 An unreadable/unowned/conflicting protected source or an unrecognized overlapping
 volume/config/secret mount stops setup for a specific prerequisite. Resolve its
@@ -335,9 +387,12 @@ configs/secrets, make the runtime volume writable or start the serving process
 as root to conceal the collision. Unrelated paths such as
 `/run/rateldesk-mcp-extra` are separate destinations.
 
-After a material source/proposal edit, run ordinary setup with the same source,
-storage and owner selection, obtain new review/approval, apply, then run fresh
-`--verify`. An unchanged applied generation can resume directly with `--verify`.
+After a material source/env/image edit, re-read the actual saved sources with the
+same storage/owner selection. Review a new baseline, or use
+`--intent prepare-changes` for a necessary correction and apply through its owner,
+then run fresh `--verify`. An unchanged adopted or applied generation can resume
+directly with the printed `--verify` command. Manager reformatting requires
+explicit re-read/review; do not replace a saved source hash silently.
 Protected approval receipts/hashes are not operator-editable recovery inputs.
 Reruns preserve ordinary client identity/expiry; the status-only verifier is
 separately approved and cleaned up.

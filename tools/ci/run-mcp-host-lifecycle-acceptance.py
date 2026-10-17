@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""Explicit disposable full-host lane: real launcher, approval, recreation, NEW verify.
+"""Disposable four-service host lane: actual launcher, browser and NEW verification.
 
 Use already built current-source images. This never pulls, publishes, updates an
 owner deployment, or removes persistent volumes outside its unique test project.
-API consent exercises the actual administrator/organization authorization path;
-browser layout and public distribution integrity are separate acceptance lanes.
+Default cases exercise unchanged adoption, a narrow reviewed source correction,
+and retained legacy configuration with real PostgreSQL. The saved-source apply
+adapter is explicitly separate from optional actual Portainer owner acceptance. Advanced
+beta.2 initializer fixtures remain available as individually selected cases.
 """
 import argparse
-from contextlib import closing
+from contextlib import closing, ExitStack
 import errno
 import fcntl
+import hashlib
 import http.cookiejar
 import json
 import os
@@ -18,6 +21,7 @@ import pty
 import re
 import secrets
 import select
+import shlex
 import signal
 import socket
 import sqlite3
@@ -57,16 +61,24 @@ def port():
 
 
 class Terminal:
-    def __init__(self, arguments, directory, executable=LAUNCHER):
+    def __init__(self, arguments, directory, executable=LAUNCHER, environment=None):
         self.child, self.fd = pty.fork()
         if self.child == 0:
             os.chdir(directory)
             os.environ["TERM"] = "xterm-256color"
+            if environment:
+                os.environ.update(environment)
             os.execvp(str(executable), [str(executable), *arguments])
         fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
         os.kill(self.child, signal.SIGWINCH)
         self.traffic = bytearray()
         self.status = None
+        self.rows, self.columns = 24, 80
+
+    def resize(self, rows, columns):
+        fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0))
+        os.kill(self.child, signal.SIGWINCH)
+        self.rows, self.columns = rows, columns
 
     def send(self, value):
         os.write(self.fd, value)
@@ -78,12 +90,12 @@ class Terminal:
         return raw_terminal_text(self.traffic)
 
     def screen(self):
-        return terminal_text(self.traffic, rows=24, columns=80)
+        return terminal_text(self.traffic, rows=self.rows, columns=self.columns)
 
-    def until(self, expression, seconds=120):
+    def until(self, expression, seconds=120, since=0):
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
-            match = re.search(expression, self.text())
+            match = re.search(expression, terminal_text(self.traffic[since:], history=True))
             if match:
                 return match
             if len(self.traffic) > 4 * 1024 * 1024:
@@ -104,6 +116,21 @@ class Terminal:
             completed, status = os.waitpid(self.child, os.WNOHANG)
             if completed:
                 self.status = os.waitstatus_to_exitcode(status)
+                # The launcher prints its safely quoted resume command after
+                # the wizard leaves the alternate screen, immediately before
+                # exit. Drain already buffered PTY output before inspecting it.
+                while select.select([self.fd], [], [], 0)[0]:
+                    try:
+                        data = os.read(self.fd, 65536)
+                    except OSError as failure:
+                        if failure.errno != errno.EIO:
+                            raise
+                        break
+                    if not data:
+                        break
+                    self.traffic.extend(data)
+                    if len(self.traffic) > 4 * 1024 * 1024:
+                        raise RuntimeError("Disposable terminal output exceeded its bound")
                 if self.status != expected:
                     raise RuntimeError(f"Disposable launcher exited {self.status}, expected {expected}")
                 return
@@ -157,6 +184,16 @@ class Fixture:
         self.cookies = http.cookiejar.CookieJar()
         self.http = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(self.cookies))
         self.terminals = []
+
+    def write_model(self, model):
+        self.source.write_text(json.dumps(model))
+
+    def customize_model(self, model):
+        return model
+
+    def initialize(self):
+        checked([*self.compose, "run", "--rm", "--no-deps", "api", "--initialize-unattended"], timeout=300)
+        self.seed_incidents()
 
     def request(self, path, payload=None, expected=(200,), method=None):
         request = urllib.request.Request(self.api + path,
@@ -247,12 +284,12 @@ class Fixture:
         model = {"name": self.project, "services": services, "volumes": {"state": {}, "unrelated": {}}}
         if self.legacy:
             model["configs"] = {"legacy-outbound": {"file": str(self.legacy_config)}}
-        self.source.write_text(json.dumps(model))
+        model = self.customize_model(model)
+        self.write_model(model)
         self.source.chmod(0o600)
         if self.legacy:
             self.reproduce_old_collision(model)
-        checked([*self.compose, "run", "--rm", "--no-deps", "api", "--initialize-unattended"], timeout=300)
-        self.seed_incidents()
+        self.initialize()
         checked([*self.compose, "up", "--pull", "never", "-d"], timeout=180)
         deadline = time.monotonic() + 150
         while time.monotonic() < deadline:
@@ -330,10 +367,10 @@ class Fixture:
 
     def launcher_arguments(self):
         if not self.existing:
-            return ["--ca-file", str(self.ca), "--image", self.args.mcp_image]
+            return ["--ca-file", str(self.ca), "--image", self.args.mcp_image, "--intent", "legacy-initializer"]
         return ["--project", self.project, "--project-directory", str(self.directory), "--compose-file", str(self.source),
                 "--env-file", str(self.environment), "--manager", "external-compose" if self.existing else "release-compose",
-                "--image", self.args.mcp_image, "--ca-file", str(self.ca)]
+                "--image", self.args.mcp_image, "--ca-file", str(self.ca), "--intent", "legacy-initializer"]
 
     def terminal(self, arguments, executable=LAUNCHER):
         if executable == LAUNCHER:
@@ -355,7 +392,7 @@ class Fixture:
         while time.monotonic() < deadline:
             try:
                 request = urllib.request.Request(f"https://127.0.0.1:{self.web_port}/api/v1/integration-credentials/pairing/capabilities",
-                    headers={"Host": f"desk.fixture.test:{self.web_port}", "Accept": "application/json"})
+                    headers={"Host": self.origin.split("://", 1)[1], "Accept": "application/json"})
                 with trusted.open(request, timeout=5) as response:
                     capabilities = json.loads(response.read(16384))
                     if response.status == 200 and capabilities.get("pairingSupported") and capabilities.get("publicOrigin", "").rstrip("/") == self.origin:
@@ -413,8 +450,8 @@ class Fixture:
         console.until("RatelDesk Web URL")
         console.send(b"\x03")
         console.finish()
-        setup = self.terminal(self.launcher_arguments() + ["--target", "http-client", "--", "--profile", "incident-reader",
-            "--url", self.origin, "--monochrome"])
+        setup = self.terminal(self.console_arguments(identifier, "setup", "--mode", "client", "--profile", "incident-reader",
+            "--url", self.origin, "--monochrome", interactive=True), executable="docker")
         setup.until("RatelDesk Web URL")
         setup.send(b"\x0e")
         setup.until("Continue to browser approval")
@@ -473,14 +510,14 @@ class Fixture:
         self.probe_incident_search(identifier)
         print("PASS: full container recreation retained ordinary identity/expiry; NEW explicit-profile status/doctor and existing-identity wizard reload passed without replacement consent", flush=True)
 
-    def probe_incident_search(self, identifier):
-        secret = checked(["docker", "exec", identifier, "cat", self.console_secret_reference]).decode().strip()
+    def probe_incident_search(self, identifier=None, secret=None):
+        secret = secret or checked(["docker", "exec", identifier, "cat", self.console_secret_reference]).decode().strip()
         trusted = urllib.request.build_opener(urllib.request.ProxyHandler({}),
             urllib.request.HTTPSHandler(context=ssl.create_default_context(cafile=str(self.ca))))
         def rpc(method, parameters):
             request = urllib.request.Request(f"https://127.0.0.1:{self.web_port}/mcp",
                 data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": parameters}).encode(),
-                headers={"Host": f"desk.fixture.test:{self.web_port}", "Content-Type": "application/json",
+                headers={"Host": self.origin.split("://", 1)[1], "Content-Type": "application/json",
                     "Authorization": "Bearer " + secret, "Accept": "application/json, text/event-stream",
                     "MCP-Protocol-Version": "2025-03-26"})
             with trusted.open(request, timeout=30) as response:
@@ -494,6 +531,7 @@ class Fixture:
             "clientInfo": {"name": "beta2-disposable-acceptance", "version": "1"}})
         assert initialized.get("protocolVersion")
         tools = rpc("tools/list", {})["tools"]
+        assert len(tools) == 28, "The actual complete supported catalog must remain 28 tools"
         assert {tool["name"] for tool in tools} >= {"helpdesk_incidents", "helpdesk_requests", "helpdesk_auth"}
         def call(name, operation, request=None):
             arguments = {"operation": operation}
@@ -533,16 +571,16 @@ class Fixture:
         setup = self.terminal(normal)
         setup.until("RatelDesk Web URL")
         setup.send(b"\x0e")
-        setup.until("Review the server settings")
+        setup.until("Prepare explicit configuration changes")
         setup.send(b"\x0e")
         setup.until("Host deployment approval pending")
         code = setup.until(r"[Cc]ode:\s*([A-Z2-9]{4}-[A-Z2-9]{4})").group(1)
         primary = setup.screen()
         assert all(value in primary for value in [code, "Open browser", "Copy URL and code", "Details", "Back", "Cancel"]), "Host approval URL/code/actions must be immediately available at 80x24"
         self.approve_host(code)
-        setup.until("Administrator approved the reviewed generation")
+        setup.until("Administrator approved the reviewed changes")
         setup.send(b"\x0e")
-        setup.until("Saved.apply pending")
+        setup.until("Changes prepared")
         setup.send(b"\x0e")
         setup.finish()
         complete = self.output / "deployment.json"
@@ -576,7 +614,7 @@ class Fixture:
         time.sleep(5)
         identifier = checked([*applied, "ps", "--quiet", "mcp-http"]).decode().strip()
         before_verification = {item["id"] for item in self.request("/api/v1/integration-credentials/")}
-        verify = self.terminal(["--container", identifier, "--ca-file", str(self.ca), "--verify"])
+        verify = self.terminal(["--container", identifier, "--ca-file", str(self.ca), "--intent", "legacy-initializer", "--verify"])
         code = verify.until(r"[Cc]ode:\s*([A-Z2-9]{4}-[A-Z2-9]{4})").group(1)
         # Read only this attempt's private cancellation capability, before approval.
         # It never enters a command argument, assertion message or evidence output.
@@ -635,7 +673,7 @@ class Fixture:
         changed = json.loads(self.source.read_bytes())
         changed["services"]["untouched"]["environment"] = {"PRESERVE_ME": "separate changed-source fixture"}
         self.source.write_text(json.dumps(changed))
-        rejected = subprocess.run([str(self.launcher), "--container", identifier, "--ca-file", str(self.ca), "--verify"],
+        rejected = subprocess.run([str(self.launcher), "--container", identifier, "--ca-file", str(self.ca), "--intent", "legacy-initializer", "--verify"],
             cwd=self.directory, capture_output=True, timeout=180)
         assert rejected.returncode == 78 and b"approved_sources_changed" in rejected.stderr
         assert json.loads((self.output / "launcher-state.json").read_bytes())["phase"] == "applied-verify-pending", "A failed NEW verification attempt must clear the prior verified phase"
@@ -669,7 +707,9 @@ class Fixture:
         evidence.chmod(0o700)
         def save(name, content):
             text = content.decode("utf-8", errors="replace") if isinstance(content, bytes) else content
-            for secret in (self.password, self.pfx_password, getattr(self, "ordinary_secret", ""), getattr(self, "verifier_device_code", "")):
+            for secret in (self.password, self.pfx_password, getattr(self, "ordinary_secret", ""), getattr(self, "verifier_device_code", ""),
+                    getattr(self, "database_password", ""), getattr(self, "client_secret", ""), getattr(self, "guard_secret", ""),
+                    *getattr(self, "device_capabilities", [])):
                 if secret:
                     text = text.replace(secret, "[redacted]")
             text = re.sub(r"rdk_[A-Za-z0-9_.-]{10,}", "[redacted credential]", text)
@@ -687,24 +727,556 @@ class Fixture:
         print(f"FAIL: private redacted acceptance evidence: {evidence}", flush=True)
 
 
+class PreservedFixture(Fixture):
+    """Actual four-service PostgreSQL host journey, without setup serving mounts.
+
+    The default owner is a saved-source adapter. --external-manager performs
+    actual Portainer source save/deploy/read-back for the change case.
+    """
+
+    def __init__(self, args, changed=False, legacy=False):
+        super().__init__(args, existing=True, legacy=legacy)
+        self.changed = changed
+        self.origin = f"https://localhost:{self.web_port}"
+        self.source = self.directory / "compose.yml"
+        self.compose[-1] = str(self.source)
+        self.native = args.native_executable.resolve()
+        self.client_directory = self.directory / "private-client"
+        self.client_environment = {"RATELDESK_MCP_CLIENT_DIRECTORY": str(self.client_directory),
+            "SSL_CERT_FILE": str(self.ca), "NO_PROXY": "localhost,127.0.0.1", "no_proxy": "localhost,127.0.0.1"}
+        self.manager = None
+        self.onramp = None
+        self.device_capabilities = []
+        self.original_source = self.source
+
+    def prepare(self):
+        super().prepare()
+        if self.changed and self.args.external_manager:
+            from mcp_external_manager_acceptance import PortainerOwner
+            self.manager = PortainerOwner(self.directory / "external-owner", mounts=[self.directory])
+            self.manager.start()
+            self.manager_stack = self.manager.create(self.project, self.source, self.environment)
+            self.source = Path(self.manager_stack["source"])
+            self.compose[-1] = str(self.source)
+            self.compose[self.compose.index("--project-directory") + 1] = str(self.source.parent)
+            assert self.source.read_bytes() == self.original_source.read_bytes()
+
+    def customize_model(self, model):
+        services = model["services"]
+        services.pop("untouched")
+        model["volumes"].pop("unrelated")
+        model["volumes"]["database"] = {}
+        services["postgres"] = {"image": self.args.database_image, "environment": {
+            "POSTGRES_DB": "rateldesk", "POSTGRES_USER": "rateldesk", "POSTGRES_PASSWORD": "${FIXTURE_DATABASE_PASSWORD}"},
+            "volumes": ["database:/var/lib/postgresql/data"], "healthcheck": {
+                "test": ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"], "interval": "2s", "timeout": "3s", "retries": 30}}
+        services["api"]["environment"].update({"Bootstrap__Unattended__Provider": "PostgreSql",
+            "Bootstrap__Unattended__PostgreSqlConnectionString": "Host=postgres;Port=5432;Database=rateldesk;Username=rateldesk;Password=${FIXTURE_DATABASE_PASSWORD}"})
+        services["api"]["depends_on"] = {"postgres": {"condition": "service_healthy"}}
+        if self.changed:
+            services["web"]["environment"]["WebGateway__Mcp__Enabled"] = "false"
+        self.database_password = secrets.token_urlsafe(24)
+        with self.environment.open("a") as stream:
+            stream.write("FIXTURE_DATABASE_PASSWORD=" + self.database_password + "\n")
+        for service in services.values():
+            service["pull_policy"] = "never"
+            service["labels"] = {"com.rateldesk.deployment.manager": "external-compose", "fixture.preserve": "operator-owned"}
+        return model
+
+    def write_model(self, model):
+        # A fixture writer, never an operator-source editor. The tested product
+        # must preserve these comments, anchors, interpolation and block scalar.
+        def scalar(value):
+            return json.dumps(value, ensure_ascii=False)
+        def render(value, indent=0):
+            prefix = " " * indent
+            lines = []
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    if key == "labels":
+                        lines.append(prefix + "labels: *operator-labels")
+                    elif isinstance(item, (dict, list)) and item:
+                        lines.append(prefix + scalar(key) + ":")
+                        lines.extend(render(item, indent + 2))
+                    else:
+                        lines.append(prefix + scalar(key) + ": " + scalar(item))
+            else:
+                for item in value:
+                    if isinstance(item, (dict, list)) and item:
+                        lines.append(prefix + "-")
+                        lines.extend(render(item, indent + 2))
+                    else:
+                        lines.append(prefix + "- " + scalar(item))
+            return lines
+        preamble = ("# Disposable operator YAML: preserve comments, order and quoting.\n"
+            "x-operator-labels: &operator-labels\n"
+            "  com.rateldesk.deployment.manager: external-compose\n"
+            "  fixture.preserve: operator-owned\n"
+            "x-operator-notes: |\n"
+            "  Preserve this readable block verbatim.\n"
+            "  Only explicitly reviewed gateway settings may change.\n")
+        self.source.write_text(preamble + "\n".join(render(model)) + "\n")
+
+    def sql(self, statement):
+        return checked([*self.compose, "exec", "-T", "postgres", "psql", "-U", "rateldesk", "-d", "rateldesk",
+            "--no-psqlrc", "--tuples-only", "--no-align", "--set", "ON_ERROR_STOP=1"], input_data=statement.encode(), timeout=60).decode().strip()
+
+    def initialize(self):
+        checked(["docker", "image", "inspect", self.args.database_image])
+        checked([*self.compose, "up", "--pull", "never", "-d", "postgres"], timeout=120)
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            result = subprocess.run([*self.compose, "exec", "-T", "postgres", "pg_isready", "-U", "rateldesk", "-d", "rateldesk"], capture_output=True, timeout=10)
+            if result.returncode == 0:
+                break
+            time.sleep(0.5)
+        else:
+            raise RuntimeError("Disposable PostgreSQL readiness timeout")
+        checked([*self.compose, "run", "--rm", "--no-deps", "api", "--initialize-unattended"], timeout=300)
+        self.seed_incidents()
+
+    def seed_incidents(self):
+        def literal(value):
+            return "'" + str(value).replace("'", "''") + "'"
+        organization = self.sql('SELECT o."Id" FROM "Organizations" o JOIN "Users" u ON u."OrganizationId" = o."Id" '
+            'WHERE u."Email" = ' + literal(self.email) + ' AND o."Name" = ' + literal(self.organization_name) + ';').splitlines()
+        assert len(organization) == 1, "Expected exactly one synthetic fixture organization"
+        self.seed_organization = organization[0]
+        columns = [json.loads(line) for line in self.sql("SELECT row_to_json(c) FROM (SELECT column_name, data_type, is_nullable, column_default "
+            "FROM information_schema.columns WHERE table_name = 'Tickets' ORDER BY ordinal_position) c;").splitlines()]
+        assert columns, "Expected actual PostgreSQL ticket hierarchy table"
+        self.incident_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
+        for index, identifier in enumerate(self.incident_ids):
+            values = {column["column_name"]: (0 if column["data_type"] in ("integer", "double precision", "numeric", "bigint") else
+                "false" if column["data_type"] == "boolean" else "{}" if column["data_type"] == "ARRAY" else "")
+                for column in columns if column["is_nullable"] == "NO" and column["column_default"] is None}
+            values.update({"Id": identifier, "Discriminator": "Incident", "Title": "Beta2 needle" if index == 0 else "Beta2 baseline",
+                "Description": "Synthetic disposable acceptance fixture", "OrganizationId": self.seed_organization,
+                "CreatedAt": "2026-10-17 00:00:00", "TrackingId": "INC-BETA3-" + str(index),
+                "LinkedAssetIds": "{}", "Attachments": "{}", "CcRecipientsJson": "[]"})
+            names = list(values)
+            self.sql('INSERT INTO "Tickets" (' + ','.join('"' + name + '"' for name in names) + ') VALUES (' +
+                ','.join(literal(values[name]) for name in names) + ');')
+
+    def launcher_arguments(self):
+        # The preserved path deliberately excludes the separately retained
+        # historical initializer fixture's explicit Advanced intent.
+        arguments = super().launcher_arguments()[:-2]
+        arguments[arguments.index("--project-directory") + 1] = str(self.source.parent)
+        return [*arguments, "--native-executable", str(self.native), "--output-directory", str(self.output)]
+
+    def terminal(self, arguments, executable=LAUNCHER):
+        if self.onramp and executable == LAUNCHER:
+            selected_arguments = self.onramp.terminal_prefix(arguments, executable=self.launcher)
+            terminal = Terminal(selected_arguments, self.directory, "env", self.client_environment)
+            self.terminals.append(terminal)
+            if "http-client" not in arguments:
+                self.onramp.select_existing(terminal)
+            return terminal
+        if executable == LAUNCHER:
+            executable = self.launcher
+        terminal = Terminal(arguments, self.directory, executable, self.client_environment)
+        self.terminals.append(terminal)
+        return terminal
+
+    def browser_consent(self, code, kind):
+        request = {"origin": self.origin, "email": self.email, "password": self.password, "kind": kind,
+            "code": code, "organizationId": self.organization, "permissions": ["Incident.Read"]}
+        if kind == "host":
+            request["summaries"] = ["Defined services: 4 → 4", "postgres"]
+            if self.changed:
+                request["summaries"] += ["Source diff:", "WebGateway__Mcp__Enabled", "false", "true"]
+                request["sourceDiff"] = True
+        response = json.loads(checked(["node", str(ROOT / "tools/ci/mcp-host-browser-consent.mjs")],
+            input_data=json.dumps(request).encode(), timeout=120))
+        assert response == {"approved": True, "kind": kind, "browser": "chromium", "interactiveConsent": True}
+
+    def inventory(self):
+        containers = checked(["docker", "ps", "--all", "--quiet", "--filter", "label=com.docker.compose.project=" + self.project]).decode().split()
+        metadata = json.loads(checked(["docker", "inspect", *containers])) if containers else []
+        return {"containers": sorted(({"id": item["Id"], "name": item["Name"], "started": item["State"]["StartedAt"],
+            "restarts": item["RestartCount"], "running": item["State"]["Running"], "mounts": item["Mounts"], "healthcheck": item["Config"].get("Healthcheck"),
+            "labels": item["Config"].get("Labels"), "image": item["Image"]} for item in metadata), key=lambda item: item["id"]),
+            "volumes": sorted(checked(["docker", "volume", "ls", "--quiet", "--filter", "label=com.docker.compose.project=" + self.project]).decode().split()),
+            "networks": sorted(checked(["docker", "network", "ls", "--quiet", "--filter", "label=com.docker.compose.project=" + self.project]).decode().split())}
+
+    def assert_no_resource_events(self, since):
+        events = checked(["docker", "events", "--since", str(since), "--until", str(time.time()), "--format", "{{json .}}"], timeout=30)
+        prohibited = {"create", "destroy", "start", "restart", "stop", "kill", "die", "connect", "disconnect", "mount", "unmount"}
+        for line in events.splitlines():
+            event = json.loads(line)
+            attributes = event.get("Actor", {}).get("Attributes", {})
+            owned = (attributes.get("com.docker.compose.project") == self.project or
+                attributes.get("com.rateldesk.setup.project") == self.project or
+                any(str(value).startswith(self.project) for key, value in attributes.items() if key in ("name", "container")))
+            assert not (owned and event.get("Action", event.get("status")) in prohibited), "Deployment-read-only setup must not create, remove, restart or attach Docker resources, including transient helpers"
+
+    def native_profile(self):
+        path = self.client_directory / "mcp/incident-reader.json"
+        raw = path.read_bytes()
+        assert len(raw) <= 65536
+        profile = json.loads(raw)
+        assert profile["clientTransport"] == "http" and profile["credentialPurpose"] == "mcp"
+        assert profile["credentialTarget"] == self.origin and profile["mcpResourceUri"] == self.origin + "/mcp"
+        assert profile["credentialOrganizationId"] == self.organization and profile["credentialPermissions"] == ["Incident.Read"]
+        assert not profile.get("integrationCredential") and not profile.get("authentikAppPassword")
+        secret = Path(profile["integrationCredentialFile"])
+        assert secret.is_relative_to(self.client_directory) and secret.suffix == ".secret"
+        for private in (path, secret):
+            assert private.stat().st_mode & 0o777 == 0o600, "Native profile and referenced credential must remain owner-only"
+        for private in (path.parent, secret.parent):
+            assert private.stat().st_mode & 0o777 == 0o700, "Native client directories must remain private"
+        return path, raw, secret.read_bytes()
+
+    def complete_native_client(self):
+        self.wait_console_endpoint()
+        before = {item["id"] for item in self.request("/api/v1/integration-credentials/")}
+        setup = self.terminal([*self.launcher_arguments(), "--target", "http-client", "--", "--profile", "incident-reader",
+            "--url", self.origin, "--monochrome"])
+        setup.until("RatelDesk Web URL")
+        setup.send(b"\x0e")
+        setup.until("Continue to browser approval")
+        setup.send(b"\x0e")
+        code = setup.until(r"Short code:\s*([A-Z2-9]{4}-[A-Z2-9]{4})").group(1)
+        previous_code = code
+        offset = len(setup.traffic)
+        setup.send(b"\x02")
+        setup.until("Inputs are preserved", since=offset)
+        offset = len(setup.traffic)
+        setup.send(b"\x0e")
+        code = setup.until(r"Short code:\s*([A-Z2-9]{4}-[A-Z2-9]{4})", since=offset).group(1)
+        assert code != previous_code, "Ordinary-client Back must retain client authentication and fence the former request"
+        self.browser_consent(code, "ordinary")
+        setup.until("Approved organization:")
+        setup.send(b"\x0e")
+        setup.until("Client profile saved. Review transport checks and launch instructions")
+        setup.send(b"\x0e")
+        setup.finish()
+        self.profile_snapshot = self.native_profile()
+        self.client_secret = self.profile_snapshot[2].decode().strip()
+        credentials = [item for item in self.request("/api/v1/integration-credentials/") if item["id"] not in before]
+        assert len(credentials) == 1 and credentials[0]["purpose"] == "mcp" and credentials[0]["permissions"] == ["Incident.Read"]
+        self.client_credential = credentials[0]
+        print("PASS: actual native client terminal and browser consent; one-day Incident.Read grant and protected profile", flush=True)
+
+    def reload_native_client(self):
+        assert self.native_profile() == self.profile_snapshot, "Fresh invocation must retain exact ordinary profile and secret"
+        path, _, secret = self.profile_snapshot
+        environment = os.environ.copy()
+        environment.update(self.client_environment)
+        def native(*arguments):
+            result = subprocess.run([str(self.native), "--config", str(path), *arguments], env=environment,
+                capture_output=True, timeout=90)
+            if result.returncode:
+                raise CommandFailure([str(self.native)], result)
+            return json.loads(result.stdout)
+        assert native("status")["profilePath"] == str(path)
+        checks = {item["name"]: item["status"] for item in native("doctor", "--network", "--authenticate")["checks"]}
+        assert all(checks.get(name) == "passed" for name in ("initialize", "catalog", "authentication", "tool-result"))
+        assert "failed" not in checks.values()
+        credential = next(item for item in self.request("/api/v1/integration-credentials/") if item["id"] == self.client_credential["id"])
+        assert credential.get("revokedAtUtc") is None and credential["expiresAtUtc"] == self.client_credential["expiresAtUtc"]
+        self.probe_incident_search(secret=secret.decode().strip())
+
+    def review_host(self, intent):
+        normal = [*self.launcher_arguments(), "--intent", intent, "--", "--url", self.origin, "--instance", "synthetic-private-west", "--monochrome"]
+        cancelled = self.terminal(normal)
+        cancelled.until("RatelDesk Web URL")
+        cancelled.send(b"\x03")
+        cancelled.finish(expected=2)
+        assert not (self.output / "host-approval.json").exists(), "Canceled draft must not produce approval"
+        setup = self.terminal(normal)
+        setup.until("RatelDesk Web URL")
+        setup.send(b"\x0e")
+        setup.until("Verify the detected existing deployment|Prepare explicit configuration changes")
+        setup.send(b"\x0e")
+        code = setup.until(r"[Cc]ode:\s*([A-Z2-9]{4}-[A-Z2-9]{4})").group(1)
+        # Back cancels this pending proposal and retains the actual host draft.
+        previous_code = code
+        offset = len(setup.traffic)
+        setup.send(b"\x02")
+        setup.until("Host draft retained", since=offset)
+        offset = len(setup.traffic)
+        setup.send(b"\x0e")
+        code = setup.until(r"[Cc]ode:\s*([A-Z2-9]{4}-[A-Z2-9]{4})", since=offset).group(1)
+        assert code != previous_code, "Back must fence/cancel the former host proposal before a fresh request"
+        screen = setup.screen()
+        assert all(value in screen for value in (code, "Open browser", "Copy URL and code", "Details", "Back", "Cancel")), "Host approval actions/code must fit 80x24"
+        assert "4 → 4" in screen, "The host review must show the actual unchanged defined-service count at 80x24"
+        assert (re.search(r"No (?:deployment )?changes", screen) if intent == "verify-existing" else "change" in screen), "The host review must state its change/no-change purpose"
+        offset = len(setup.traffic)
+        setup.resize(36, 120)
+        setup.until(re.escape(code), since=offset)
+        assert all(value in setup.screen() for value in (code, "4 → 4", "Open browser", "Details", "Back", "Cancel")), "Wide host review must retain count/code/actions after real terminal resize"
+        self.browser_consent(code, "host")
+        setup.until("Administrator reviewed the unchanged baseline|Administrator approved the reviewed changes")
+        setup.send(b"\x0e")
+        setup.until("Existing baseline adopted|Changes prepared", seconds=60)
+        setup.send(b"\x0e")
+        setup.finish()
+        printed = [line.strip() for line in setup.raw_text().splitlines()
+            if line.strip().startswith("env ") and line.strip().endswith("--verify")]
+        assert len(printed) == 1, "The completed host path must print one safely quoted NEW-process verification command"
+        self.resume_command = shlex.split(printed[0])
+        assert self.resume_command[0] == "env" and str(self.launcher) in self.resume_command and self.resume_command[-1] == "--verify"
+
+    def verify_fresh(self):
+        before = {item["id"] for item in self.request("/api/v1/integration-credentials/")}
+        # Execute the exact advertised argument vector, without shell evaluation.
+        verify = self.terminal(self.resume_command[1:], executable=self.resume_command[0])
+        code = verify.until(r"[Cc]ode:\s*([A-Z2-9]{4}-[A-Z2-9]{4})").group(1)
+        journal = json.loads((self.output / "verifier-cleanup.json").read_bytes())
+        previous_code, previous_device = code, journal["deviceCode"]
+        self.device_capabilities.append(previous_device)
+        reviewed_checkpoint = (self.output / "host-approval.json").read_bytes()
+        offset = len(verify.traffic)
+        verify.send(b"\x02")
+        verify.until("Temporary consent cancelled", since=offset)
+        offset = len(verify.traffic)
+        verify.send(b"\x0e")
+        code = verify.until(r"[Cc]ode:\s*([A-Z2-9]{4}-[A-Z2-9]{4})", since=offset).group(1)
+        assert code != previous_code and (self.output / "host-approval.json").read_bytes() == reviewed_checkpoint, "Verifier Back must retain the reviewed host checkpoint and fence its former temporary request"
+        cancelled = self.request("/api/v1/integration-credentials/pairing/poll", {"deviceCode": previous_device})
+        assert cancelled["status"] == "cancelled" and cancelled.get("credential") is None
+        journal = json.loads((self.output / "verifier-cleanup.json").read_bytes())
+        device_code = journal.get("deviceCode")
+        self.device_capabilities.append(device_code)
+        assert re.fullmatch(r"[A-Fa-f0-9]{64}", device_code or "")
+        self.browser_consent(code, "verifier")
+        verify.until("End-to-end verified|Existing deployment verified unchanged", seconds=120)
+        verify.finish(seconds=120)
+        credentials = self.request("/api/v1/integration-credentials/")
+        created = [item for item in credentials if item["id"] not in before]
+        assert len(created) == 1 and created[0]["purpose"] == "mcp-setup" and not created[0]["permissions"]
+        assert created[0].get("revokedAtUtc") is not None
+        assert not (self.output / "verifier-cleanup.json").exists()
+        poll = self.request("/api/v1/integration-credentials/pairing/poll", {"deviceCode": device_code})
+        assert poll["status"] == "cancelled" and poll.get("credential") is None
+        self.request("/api/v1/integration-credentials/" + created[0]["id"] + "/record", expected=(204,), method="DELETE")
+        assert {item["id"] for item in self.request("/api/v1/integration-credentials/")} == before
+        ordinary = next(item for item in self.request("/api/v1/integration-credentials/") if item["id"] == self.ordinary_id)
+        assert ordinary.get("revokedAtUtc") is None and ordinary["expiresAtUtc"] == self.ordinary_expiry
+        print("PASS: NEW host verification process, real browser status-only consent, complete catalog/status and revoked/deleted temporary identity", flush=True)
+
+    def probe_temporary_guard(self):
+        """Exercise the real older-protocol denial result and former-bearer 401.
+
+        The owning instrumented HTTP tests separately prove zero downstream and
+        handler invocations; a public transport response alone cannot count them.
+        """
+        trusted = urllib.request.build_opener(urllib.request.ProxyHandler({}),
+            urllib.request.HTTPSHandler(context=ssl.create_default_context(cafile=str(self.ca))))
+        def rpc(secret, method, parameters, expected=200):
+            request = urllib.request.Request(f"https://127.0.0.1:{self.web_port}/mcp",
+                data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": parameters}).encode(),
+                headers={"Host": self.origin.split("://", 1)[1], "Content-Type": "application/json", "Authorization": "Bearer " + secret,
+                    "Accept": "application/json, text/event-stream", "MCP-Protocol-Version": "2025-03-26"})
+            try:
+                with trusted.open(request, timeout=30) as response:
+                    status, content = response.status, response.read(1024 * 1024 + 1)
+            except urllib.error.HTTPError as response:
+                status, content = response.code, response.read(16384)
+            assert status == expected, "Temporary verifier transport returned an unexpected status"
+            assert len(content) <= 1024 * 1024
+            if expected != 200:
+                return None
+            text = content.decode()
+            if not text.lstrip().startswith("{"):
+                text = '\n'.join(line[5:].lstrip() for line in text.splitlines() if line.startswith("data:"))
+            payload = json.loads(text)
+            assert "error" not in payload, "Known verifier denial must retain its safe tool-result contract"
+            return payload["result"]
+        before = {item["id"] for item in self.request("/api/v1/integration-credentials/")}
+        session = self.request("/api/v1/integration-credentials/pairing/start", {"name": "Synthetic status-only boundary probe",
+            "purpose": "mcp", "mcpResourceUri": self.origin + "/mcp", "grantKind": "setup-verification"})
+        device_code = session["deviceCode"]
+        self.device_capabilities.append(device_code)
+        secret = None
+        try:
+            self.browser_consent(session["humanCode"], "verifier")
+            delivered = self.request("/api/v1/integration-credentials/pairing/poll", {"deviceCode": device_code})
+            credential = delivered["credential"]
+            assert credential["grantKind"] == "setup-verification" and credential["permissions"] == []
+            secret = credential["secret"]
+            self.guard_secret = secret
+            assert rpc(secret, "initialize", {"protocolVersion": "2025-03-26", "capabilities": {},
+                "clientInfo": {"name": "disposable-verifier-boundary", "version": "1"}})["protocolVersion"] == "2025-03-26"
+            assert len(rpc(secret, "tools/list", {})["tools"]) == 28
+            status = rpc(secret, "tools/call", {"name": "helpdesk_auth", "arguments": {"operation": "status"}})
+            assert status.get("isError") is not True and status["structuredContent"]["success"]
+            denied = rpc(secret, "tools/call", {"name": "helpdesk_incidents", "arguments": {"operation": "list", "request": {}}})
+            assert denied.get("isError") is True
+            contract = denied.get("structuredContent") or json.loads(next(item["text"] for item in denied["content"] if item.get("type") == "text"))
+            assert contract["success"] is False and contract["failure"]["code"] == "setup_verification_operation_denied"
+            assert not contract.get("data") and contract["nextActions"]
+            self.request("/api/v1/integration-credentials/pairing/cancel", {"deviceCode": device_code}, expected=(204,))
+            rpc(secret, "tools/list", {}, expected=401)
+        finally:
+            self.request("/api/v1/integration-credentials/pairing/cancel", {"deviceCode": device_code}, expected=(204,))
+            created = [item for item in self.request("/api/v1/integration-credentials/") if item["id"] not in before]
+            assert len(created) == 1 and created[0].get("revokedAtUtc") is not None and not created[0]["permissions"]
+            self.request("/api/v1/integration-credentials/" + created[0]["id"] + "/record", expected=(204,), method="DELETE")
+        assert {item["id"] for item in self.request("/api/v1/integration-credentials/")} == before
+        print("PASS: actual 2025-03-26 status-only verifier returns stable isError denial with no business data; canceled bearer returns 401 and revoked record is deleted", flush=True)
+
+    def apply_saved_source_adapter(self):
+        candidates = json.loads((self.output / "launcher-state.json").read_bytes())["sourceCandidates"]
+        assert len(candidates) == 1, "The narrow gateway correction must touch only its authoritative YAML source"
+        record = candidates[0]
+        source, candidate = Path(record["source"]), Path(record["candidate"])
+        assert source == self.source and candidate.is_relative_to(self.output)
+        original, prepared = source.read_bytes(), candidate.read_bytes()
+        assert hashlib.sha256(original).hexdigest() == record["originalSha256"]
+        assert hashlib.sha256(prepared).hexdigest() == record["candidateSha256"]
+        before_lines, after_lines = original.splitlines(), prepared.splitlines()
+        assert len(before_lines) == len(after_lines)
+        changes = [(old, new) for old, new in zip(before_lines, after_lines) if old != new]
+        assert len(changes) == 1 and b"WebGateway__Mcp__Enabled" in changes[0][0]
+        assert b"false" in changes[0][0] and b"true" in changes[0][1]
+        assert b"# Disposable operator YAML" in prepared and b"*operator-labels" in prepared and b"x-operator-notes: |" in prepared
+        self.applied = self.compose
+        if self.manager:
+            result = self.manager.apply(self.manager_stack, candidate, record["originalSha256"])
+            assert result["readBackExact"] and source.read_bytes() == prepared
+        else:
+            source.write_bytes(prepared)  # Explicit disposable saved-source owner adapter.
+            checked([*self.compose, "up", "--pull", "never", "-d"], timeout=180)
+        self.wait_console_endpoint()
+        print("PASS: " + ("actual Portainer CE save/deploy/read-back applied one exact readable YAML setting" if self.manager else
+            "explicit saved-source owner adapter applied one readable YAML setting; this is not live external-manager acceptance"), flush=True)
+
+    def close(self):
+        try:
+            if self.manager:
+                self.manager.close()
+        finally:
+            self.source = self.original_source
+            self.compose[-1] = str(self.source)
+            self.compose[self.compose.index("--project-directory") + 1] = str(self.directory)
+            super().close()
+
+    def reject_changed_source(self):
+        before = {item["id"] for item in self.request("/api/v1/integration-credentials/")}
+        original = self.source.read_bytes()
+        try:
+            self.source.write_bytes(original + b"\n# Separate concurrent-owner edit: renewed source review required.\n")
+            environment = os.environ.copy()
+            environment.update(self.client_environment)
+            result = subprocess.run(self.resume_command,
+                cwd=self.directory, env=environment, capture_output=True, timeout=120)
+            assert result.returncode == 78 and b"approved_sources_changed" in result.stderr, "Concurrent owner source changes must stop fresh verification before consent"
+            assert {item["id"] for item in self.request("/api/v1/integration-credentials/")} == before
+            state = json.loads((self.output / "launcher-state.json").read_bytes())
+            assert state["phase"] not in ("end-to-end-verified", "existing-verified-unchanged"), "Rejected verification must invalidate the prior completed phase"
+        finally:
+            self.source.write_bytes(original)
+        print("PASS: actual saved-source concurrent edit is rejected before new verifier issuance; no checkpoint hash is repaired", flush=True)
+
+    def run(self):
+        self.prepare()
+        self.applied = self.compose
+        baseline_source, baseline_env = self.source.read_bytes(), self.environment.read_bytes()
+        dependencies = [self.environment, self.directory / "fixture.pfx", self.ca]
+        if self.legacy:
+            dependencies.append(self.legacy_config)
+        baseline_dependencies = {path: path.read_bytes() for path in dependencies}
+        before = self.inventory()
+        adoption_started = time.time()
+        assert len(before["containers"]) == 4
+        assert all(item["running"] for item in before["containers"]), "The pristine baseline must have four actual running services"
+        assert all(item["restarts"] == 0 for item in before["containers"])
+        web = next(item for item in before["containers"] if item["labels"].get("com.docker.compose.service") == "web")
+        assert not web["healthcheck"], "The Web fixture deliberately has no Docker healthcheck"
+        if not self.changed:
+            self.complete_native_client()
+        self.review_host("prepare-changes" if self.changed else "verify-existing")
+        assert self.source.read_bytes() == baseline_source and self.environment.read_bytes() == baseline_env
+        assert self.inventory() == before, "Review/adoption must create no Docker resources or restart/recreate serving containers"
+        self.assert_no_resource_events(adoption_started)
+        if self.changed:
+            self.apply_saved_source_adapter()
+            after = self.inventory()
+            assert len(after["containers"]) == 4 and len(after["volumes"]) == len(before["volumes"])
+            assert all(item["running"] for item in after["containers"])
+            for previous in before["containers"]:
+                service = previous["labels"]["com.docker.compose.service"]
+                current = next(item for item in after["containers"] if item["labels"]["com.docker.compose.service"] == service)
+                if service != "web":
+                    assert current == previous, "Only the explicitly corrected Web service may be recreated"
+                else:
+                    assert current["id"] != previous["id"] and current["started"] != previous["started"], "The approved real Web setting correction must be applied to the running service"
+            print("PASS: defined services api/web/mcp-http/postgres remain 4 → 4; exact source delta WebGateway__Mcp__Enabled false → true; only Web was recreated", flush=True)
+            self.complete_native_client()
+            verified_source, verified_env, verified_runtime = self.source.read_bytes(), self.environment.read_bytes(), after
+        else:
+            assert not (self.output / "deployment.json").exists(), "No-change adoption must not require a generated deployment document"
+            verified_source, verified_env, verified_runtime = baseline_source, baseline_env, before
+            print("PASS: unchanged four-service source/config bytes and Docker events/inventory; zero recreation/restarts; Web has no Docker healthcheck", flush=True)
+        verification_started = time.time()
+        self.verify_fresh()
+        self.reload_native_client()
+        if not self.changed and not self.legacy:
+            self.probe_temporary_guard()
+        # Repeat from another NEW process; the unchanged baseline is retained.
+        self.verify_fresh()
+        assert self.source.read_bytes() == verified_source and self.environment.read_bytes() == verified_env
+        assert all(path.read_bytes() == content for path, content in baseline_dependencies.items()), "Host adoption/apply/verification must preserve unrelated source/configuration dependencies byte-for-byte"
+        assert self.native_profile() == self.profile_snapshot, "Repeated host verification must not replace the ordinary client identity"
+        assert self.inventory() == verified_runtime, "Fresh verification must leave Docker objects, starts/restarts, mounts, healthchecks and labels unchanged"
+        self.assert_no_resource_events(verification_started)
+        if self.legacy:
+            assert self.legacy_config.read_text() == json.dumps({"apiBaseUrl": "http://api:8222/", "credentialMode": "gateway"})
+        self.reject_changed_source()
+        host_session = json.loads((self.output / "host-approval-session.json").read_bytes())
+        self.device_capabilities.append(host_session["deviceCode"])
+        private_values = [self.password, self.pfx_password, self.database_password, self.ordinary_secret,
+            self.client_secret, getattr(self, "guard_secret", ""), *self.device_capabilities]
+        assert all(not value or all(value not in terminal.raw_text() for terminal in self.terminals) for value in private_values), "Actual terminal rendering must not expose credentials or device capabilities"
+        if self.onramp:
+            state = json.loads((self.output / "launcher-state.json").read_bytes())
+            assert state["composeVersion"] == "2.39.4"
+            assert state["dockerSelection"]["DOCKER_CONTEXT"] == self.onramp.context
+            self.onramp.assert_unchanged()
+            print("PASS: actual incompatible 2.26.1 choice reached native client, four-service host/browser review and exact printed NEW verification commands with verified private 2.39.4; original plugin/config/context unchanged", flush=True)
+        print("PASS: four-service " + ("necessary-change" if self.changed else "unchanged adoption") + " host lifecycle; source/dependency bytes, full Docker inventory and ordinary identity/expiry preserved", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--api-image", required=True)
     parser.add_argument("--web-image", required=True)
     parser.add_argument("--mcp-image", required=True)
-    parser.add_argument("--case", choices=("fresh", "existing", "legacy", "all"), default="all")
+    parser.add_argument("--case", choices=("adopt", "change", "legacy-retain", "fresh", "existing", "legacy", "all"), default="all")
+    parser.add_argument("--native-executable", type=Path, help="Actual extracted native rateldesk-mcp executable; required for preserved host cases.")
+    parser.add_argument("--database-image", default="postgres:16", help="Already present PostgreSQL fixture image; never pulled by this lane.")
+    parser.add_argument("--external-manager", action="store_true", help="Use the actual disposable Portainer owner for the change case; requires the pinned image already present.")
+    parser.add_argument("--legacy-compose-onramp", action="store_true", help="Start adoption with a real private 2.26.1 plugin and exercise the deliberate compatible-tool choice.")
+    parser.add_argument("--compose-fixture-cache", type=Path, help="Offline verified 2.39.4 platform fixture for the onramp.")
+    parser.add_argument("--legacy-compose-fixture-cache", type=Path, help="Offline verified 2.26.1 platform fixture for the onramp.")
+    parser.add_argument("--download-compose-fixtures", action="store_true", help="Explicitly allow pinned disposable Compose fixture downloads for --legacy-compose-onramp.")
     parser.add_argument("--deployment-archive", type=Path, help="Exercise launchers from this extracted deployment archive.")
     args = parser.parse_args()
-    cases = [(False, False), (True, False), (True, True)] if args.case == "all" else [(args.case != "fresh", args.case == "legacy")]
-    for existing, legacy in cases:
-        fixture = Fixture(args, existing, legacy)
-        try:
-            fixture.run()
-        except Exception as failure:
-            fixture.record_failure(failure)
-            raise
-        finally:
-            fixture.close()
+    cases = ["adopt", "change", "legacy-retain"] if args.case == "all" else [args.case]
+    if any(case in ("adopt", "change", "legacy-retain") for case in cases) and (not args.native_executable or not args.native_executable.is_file()):
+        parser.error("Preserved host acceptance requires --native-executable pointing to the actual extracted rateldesk-mcp executable")
+    for case in cases:
+        with ExitStack() as resources:
+            fixture = (PreservedFixture(args, changed=case == "change", legacy=case == "legacy-retain") if case in ("adopt", "change", "legacy-retain")
+                else Fixture(args, case != "fresh", case == "legacy"))
+            if case == "adopt" and args.legacy_compose_onramp:
+                from private_compose_fixture import legacy_compose_fixture
+                fixture.onramp = resources.enter_context(legacy_compose_fixture(compose_cache=args.compose_fixture_cache,
+                    legacy_cache=args.legacy_compose_fixture_cache, download=args.download_compose_fixtures))
+                # Reproduce the original synthetic shell PATH for exact printed
+                # resume invocations; its credential helper remains selectable.
+                fixture.client_environment["PATH"] = fixture.onramp.environment["PATH"]
+            try:
+                fixture.run()
+            except Exception as failure:
+                fixture.record_failure(failure)
+                raise
+            finally:
+                fixture.close()
 
 
 if __name__ == "__main__":
