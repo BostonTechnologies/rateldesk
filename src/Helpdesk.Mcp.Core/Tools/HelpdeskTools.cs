@@ -99,7 +99,7 @@ public sealed class HelpdeskTools(
         return await Execute(() => client.GetAsync(Query("/api/v1/ops/ai-agent/logs", payload), true, cancellationToken), "Operational diagnostics read.").ConfigureAwait(false);
     }
 
-    [McpServerTool(UseStructuredContent = true), Description("Manage incidents. Read operations: list, get, peek, timeline, timeline_count, attachments_count, listeners_count. Confirmed mutations: create, bulk_create, update, delete, state, bulk_state, assign, assign_self, add_worklog, close. In caller-bound mode, assign_self uses the authenticated application identity; external agents use their configured agent identity. close requires request.incidentId and request.closureNote, writes an internal closure note by default, then sets the incident state to Resolved. Every mutation requires confirm:true.")]
+    [McpServerTool(UseStructuredContent = true), Description("Manage incidents. Read operations: list, get, peek, timeline, timeline_count, attachments_count, listeners_count. For list, request.query searches through the API q parameter; request.q is also supported. Blank searches are unfiltered; equivalent trimmed aliases deduplicate and conflicting nonempty aliases fail validation. Confirmed mutations: create, bulk_create, update, delete, state, bulk_state, assign, assign_self, add_worklog, close. In caller-bound mode, assign_self uses the authenticated application identity; external agents use their configured agent identity. close requires request.incidentId and request.closureNote, writes an internal closure note by default, then sets the incident state to Resolved. Every mutation requires confirm:true.")]
     public Task<HelpdeskToolResponse> helpdesk_incidents(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default) => TicketOperation("helpdesk_incidents", "/api/v1/incidents", "incidentId", operation, request, confirm, cancellationToken);
     [McpServerTool(UseStructuredContent = true), Description("Manage service requests. Reads: list, get, tasks, timeline, timeline_count, attachments_count, listeners_count. Confirmed mutations: create, bulk_create, update, delete, state, bulk_state, assign, assign_self, add_worklog. state requires request.requestId and request.newState; bulk_state requires request.ids and request.newState; assign requires request.ids and request.assignedToId. Every mutation requires confirm:true.")]
     public Task<HelpdeskToolResponse> helpdesk_requests(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default) => TicketOperation("helpdesk_requests", "/api/v1/requests", "requestId", operation, request, confirm, cancellationToken);
@@ -250,7 +250,26 @@ public sealed class HelpdeskTools(
     }
 
     [McpServerTool(UseStructuredContent = true), Description("Read safe Helpdesk operator examples. Operation must be list.")]
-    public Task<HelpdeskToolResponse> helpdesk_examples(string operation = "list", JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default) => operation != "list" ? Task.FromResult(Invalid("helpdesk_examples", operation, ["list"])) : Task.FromResult(Completed("Operator examples read.", new JsonObject { ["examples"] = new JsonArray("triage_incident", "diagnose_request_task", "review_change", "controlled_operator_action"), ["normalChangeTemplate"] = NormalChangeTemplateExample() }));
+    public Task<HelpdeskToolResponse> helpdesk_examples(string operation = "list", JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default)
+    {
+        if (operation != "list") return Task.FromResult(Invalid("helpdesk_examples", operation, ["list"]));
+        return Task.FromResult(Completed("Operator examples read.", new JsonObject
+        {
+            ["examples"] = new JsonArray("triage_incident", "diagnose_request_task", "review_change", "controlled_operator_action"),
+            ["normalChangeTemplate"] = NormalChangeTemplateExample(),
+            ["incidentListSearch"] = new JsonObject
+            {
+                ["tool"] = "helpdesk_incidents",
+                ["arguments"] = new JsonObject
+                {
+                    ["operation"] = "list",
+                    ["request"] = new JsonObject { ["query"] = "synthetic search text", ["page"] = 1, ["pageSize"] = 10, ["includeTotal"] = true }
+                },
+                ["aliasRule"] = "query maps to API q. q is also accepted; equivalent trimmed values deduplicate, conflicting nonempty values fail validation, and null or blank values leave search unfiltered.",
+                ["noMatchExpectation"] = "A search absent from the authorized records returns empty items and totalCount zero; filtering happens before paging."
+            }
+        }));
+    }
 
     [McpServerTool(UseStructuredContent = true), Description("Controlled raw Helpdesk access. Disabled by default; only exact read-only method-and-path allowlist operations exist. It never accepts URLs, paths, hosts, or request bodies.")]
     public async Task<HelpdeskToolResponse> helpdesk_raw(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default)
@@ -317,6 +336,7 @@ public sealed class HelpdeskTools(
 
     private async Task<HelpdeskToolResponse> TicketOperation(string tool, string basePath, string idName, string operation, JsonElement? request, bool confirm, CancellationToken ct)
     {
+        if (tool == "helpdesk_incidents" && operation == "list") return await ListIncidents(request, ct).ConfigureAwait(false);
         if (operation == "list") return await Execute(() => client.GetAsync(Query(basePath + "/", Object(request)), true, ct), $"{tool} list completed.").ConfigureAwait(false);
         if (operation is "timeline_count" or "attachments_count" or "listeners_count") return await DomainTicketCount(tool, basePath, idName, operation, request, ct).ConfigureAwait(false);
         if (operation == "create")
@@ -356,6 +376,40 @@ public sealed class HelpdeskTools(
         if (!allowed.Contains(operation)) return Invalid(tool, operation, ["list", .. allowed]);
         var suffix = operation switch { "peek" => "/peek", "timeline" => "/timeline", "tasks" => "/tasks", "worklogs" => "/worklogs", _ => "" };
         return await Execute(() => client.GetAsync($"{basePath}/{Uri.EscapeDataString(id)}{suffix}", true, ct), $"{tool} {operation} completed.").ConfigureAwait(false);
+    }
+
+    private async Task<HelpdeskToolResponse> ListIncidents(JsonElement? request, CancellationToken ct)
+    {
+        if (request is { ValueKind: not (JsonValueKind.Object or JsonValueKind.Null or JsonValueKind.Undefined) })
+            return Validation("request must be an object.");
+        if (request is { ValueKind: JsonValueKind.Object } element)
+        {
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            if (element.EnumerateObject().Any(property => !names.Add(property.Name)))
+                return Validation("request must not contain duplicate properties.");
+        }
+
+        var payload = Object(request);
+        foreach (var alias in new[] { "query", "q" })
+            if (payload?[alias] is { } value && value.GetValueKind() != JsonValueKind.String)
+                return Validation($"request.{alias} must be a string or null.");
+
+        var query = payload?["query"]?.GetValue<string>();
+        var q = payload?["q"]?.GetValue<string>();
+        var hasQuery = !string.IsNullOrWhiteSpace(query);
+        var hasQ = !string.IsNullOrWhiteSpace(q);
+        if (hasQuery && hasQ && !string.Equals(query!.Trim(), q!.Trim(), StringComparison.Ordinal))
+            return Validation("request.query and request.q must specify the same search text when both are nonempty.");
+
+        // Object makes a separate payload. Preserve API trimming/length rules and
+        // leave the generic query builder and all other tools' contracts intact.
+        if (payload is not null)
+        {
+            payload.Remove("query");
+            payload.Remove("q");
+            if (hasQ || hasQuery) payload["q"] = hasQ ? q : query;
+        }
+        return await Execute(() => client.GetAsync(Query("/api/v1/incidents/", payload), true, ct), "helpdesk_incidents list completed.").ConfigureAwait(false);
     }
 
     private async Task<HelpdeskToolResponse> BulkCreateTickets(string operation, string tool, string basePath, JsonObject? request, bool confirm, CancellationToken ct)

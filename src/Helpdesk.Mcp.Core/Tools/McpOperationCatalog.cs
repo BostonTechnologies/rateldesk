@@ -18,8 +18,8 @@ public sealed record McpOperationDefinition(
 /// </summary>
 public static class McpOperationCatalog
 {
-    // v9 records collection paths for ticket list operations and exact raw-read routes.
-    public const string Revision = "2026-09-05.mcp-prod-recovery-v18";
+    // v19 documents the incident-only query/q search alias contract.
+    public const string Revision = "2026-10-17.mcp-incident-search-v19";
 
     public static IReadOnlyList<McpOperationDefinition> All { get; } =
     [
@@ -224,5 +224,8 @@ public static class McpOperationCatalog
         foreach (var operation in new[] { "customer_invite", "customer_resend_invite", "customer_disable_login", "customer_sync_authentik" }) yield return (operation, "POST", "/api/v1/customers/{customerId}/" + operation[9..].Replace('_', '-'));
     }
 
-    private static McpOperationDefinition Operation(string tool, string operation, string contract, string method, string path, bool confirmationRequired) => new(tool, operation, contract, method, path, confirmationRequired, $"{operation} operation.");
+    private static McpOperationDefinition Operation(string tool, string operation, string contract, string method, string path, bool confirmationRequired) => new(tool, operation, contract, method, path, confirmationRequired,
+        tool == "helpdesk_incidents" && operation == "list"
+            ? "List authorized incidents. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging."
+            : $"{operation} operation.");
 }

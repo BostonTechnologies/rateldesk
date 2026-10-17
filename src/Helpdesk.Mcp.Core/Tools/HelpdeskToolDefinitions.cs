@@ -203,6 +203,17 @@ public static class HelpdeskToolDefinitions
                 break;
         }
 
+        if (definition.Tool == "helpdesk_incidents" && definition.Operation == "list")
+        {
+            const string aliasRule = "Optional incident search text, sent as API q. query and q are aliases: null or blank values leave search unfiltered; equivalent trimmed values deduplicate; conflicting nonempty values fail validation.";
+            foreach (var alias in new[] { "query", "q" })
+                properties[alias] = new JsonObject { ["type"] = new JsonArray("string", "null"), ["description"] = aliasRule };
+            foreach (var flag in new[] { "includeTotal", "activeOnly", "historicOnly", "summaryOnly" })
+                AddBoolean(properties, null, flag, "Optional incident API list flag; applied with the search before paging.");
+            properties["state"] = new JsonObject { ["type"] = new JsonArray("string", "integer"), ["description"] = "Optional incident API state filter; preserves the API's active/historic defaults when absent." };
+            AddEnum(properties, null, "view", ["all", "active", "historic"], "Optional incident API list view.");
+        }
+
         if (definition.Operation == "bulk_create")
             AddBulkCreateFields(definition.Tool, properties, required);
         else if (definition.Operation == "create")
@@ -369,7 +380,8 @@ public static class HelpdeskToolDefinitions
         var mutations = definitions.Where(item => item.RequiresConfirmation).Select(item => item.Operation).Distinct(StringComparer.Ordinal).ToArray();
         var readText = reads.Length == 0 ? "" : $" Read operations: {string.Join(", ", reads)}.";
         var mutationText = mutations.Length == 0 ? "" : $" Mutations: {string.Join(", ", mutations)}; every mutation requires confirm=true and a matching operation-specific request.";
-        return $"Use {tool} for its Helpdesk domain only. {EnvelopeGuidance}{ChangeTemplateGuidance(tool)}{WorklogGuidance(tool)}{readText}{mutationText}";
+        var searchText = tool == "helpdesk_incidents" ? " For list, request.query maps to API q; request.q is an alias. Null or blank search is unfiltered, equivalent trimmed aliases deduplicate, and conflicting nonempty aliases fail validation. The API filters authorized records before counts and paging." : "";
+        return $"Use {tool} for its Helpdesk domain only. {EnvelopeGuidance}{ChangeTemplateGuidance(tool)}{WorklogGuidance(tool)}{searchText}{readText}{mutationText}";
     }
 
     private static string ChangeTemplateGuidance(string tool) => tool == "helpdesk_changes"
