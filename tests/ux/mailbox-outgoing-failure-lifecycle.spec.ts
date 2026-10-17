@@ -317,27 +317,31 @@ test('published incoming and outgoing outages isolate mailboxes and repair faile
   const route = await routeResponse.json() as {
     canRetry: boolean; originalMailboxId: string; currentMailboxId: string;
     originalMailboxAddress: string; currentMailboxAddress: string;
-    fence: number; currentMailboxVersion: number; currentOutgoingVersion: number;
+    fence: number; currentMailboxVersion: number; currentOutgoingVersion: number; recipients: string[];
   };
   expect(route.canRetry, JSON.stringify(route)).toBe(true);
   expect(route.originalMailboxId).toBe(dedicated.id);
   expect(route.currentMailboxId).toBe(global.id);
   expect(route.originalMailboxAddress).toBe('support@tenant-a.example.test');
   expect(route.currentMailboxAddress).toBe('global@tenant-b.example.test');
+  expect(route.recipients).toContain('requester@tenant-a.example.test');
   await page.goto(`/admin/pending-emails?search=${encodeURIComponent(beforeRevertIncident.trackingId)}`);
   await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
   const heldTicketLink = page.getByRole('link', { name: beforeRevertIncident.trackingId, exact: true });
   await expect(heldTicketLink).toHaveAttribute('href', `/incidents/${beforeRevertIncident.id}`);
   const heldRow = page.getByRole('row').filter({ has: heldTicketLink });
   await expect(heldRow).toHaveCount(1);
-  const routeConfirmation = page.waitForEvent('dialog');
-  const reviewRoute = heldRow.getByRole('button', { name: 'Review / retry', exact: true }).click();
-  const routeDialog = await routeConfirmation;
-  expect(routeDialog.type()).toBe('confirm');
-  expect(routeDialog.message()).toContain('The original sender was support@tenant-a.example.test.');
-  expect(routeDialog.message()).toContain('The current ticket route is global@tenant-b.example.test');
-  await routeDialog.accept();
-  await reviewRoute;
+  await heldRow.getByRole('button', { name: 'Review / retry', exact: true }).click();
+  const routeDialog = page.getByRole('dialog');
+  await expect(routeDialog).toContainText('Review changed sender route');
+  await expect(routeDialog).toContainText('1 explicitly selected record(s)');
+  await expect(routeDialog.getByRole('region', { name: 'Selected deliveries' })).toContainText(heldDelivery.id);
+  await expect(routeDialog).toContainText(`Original sender: ${route.originalMailboxAddress}.`);
+  await expect(routeDialog).toContainText(`Current ticket route: ${route.currentMailboxAddress}`);
+  await expect(routeDialog).toContainText(`Current incoming revision ${route.currentMailboxVersion}; outgoing revision ${route.currentOutgoingVersion}.`);
+  for (const recipient of route.recipients) await expect(routeDialog).toContainText(recipient);
+  await routeDialog.getByRole('button', { name: 'Queue with current sender', exact: true }).click();
+  await expect(routeDialog).toBeHidden();
   await expect(page.getByText('Delivery queued with the confirmed current sender.')).toBeVisible();
   await expect.poll(() => requesterMail().filter(message => message.subject.includes(beforeRevertIncident.trackingId) &&
     message.from.includes('global@tenant-b.example.test')).length,

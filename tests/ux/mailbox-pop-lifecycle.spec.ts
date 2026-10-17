@@ -170,26 +170,32 @@ test('mailbox POP3 lifecycle: dedicated IMAP and POP3 work without any global ma
   await page.getByRole('button', { name: 'Save outgoing' }).click();
   await expect(page.getByTestId('mailbox-outgoing-editor').getByText('Outgoing settings saved.', { exact: true })).toBeVisible();
   const disabledDelivery = (await failedDeliveries()).find(item => item.ticketId === disabledIncident.id)!;
-  const retryPreview = await (await page.request.get(
-    `/api/v1/timeline/${disabledDelivery.id}/outgoing-retry-preview`)).json() as
-    { canRetry: boolean; mailboxAddress: string; originalOutgoingVersion: number; currentOutgoingVersion: number };
+  const retryPreviewResponse = await page.request.get(
+    `/api/v1/timeline/${disabledDelivery.id}/outgoing-retry-preview`);
+  expect(retryPreviewResponse.ok(), await retryPreviewResponse.text()).toBe(true);
+  const retryPreview = await retryPreviewResponse.json() as
+    { canRetry: boolean; mailboxAddress: string; originalOutgoingVersion: number; currentOutgoingVersion: number;
+      originalMailboxVersion: number; currentMailboxVersion: number; recipients: string[] };
   expect(retryPreview.canRetry).toBe(true);
   expect(retryPreview.mailboxAddress).toBe('pop@tenant-c.example.test');
+  expect(retryPreview.recipients).toContain('requester@tenant-c.example.test');
   await page.goto(`/admin/pending-emails?search=${encodeURIComponent(disabledIncident.trackingId)}`);
   await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
   const disabledTicketLink = page.getByRole('link', { name: disabledIncident.trackingId, exact: true });
   await expect(disabledTicketLink).toHaveAttribute('href', `/incidents/${disabledIncident.id}`);
   const disabledRow = page.getByRole('row').filter({ has: disabledTicketLink });
   await expect(disabledRow).toHaveCount(1);
-  const senderConfirmation = page.waitForEvent('dialog');
-  const reviewSender = disabledRow.getByRole('button', { name: 'Review / retry', exact: true }).click();
-  const senderDialog = await senderConfirmation;
-  expect(senderDialog.type()).toBe('confirm');
-  expect(senderDialog.message()).toContain('pop@tenant-c.example.test');
-  expect(senderDialog.message()).toContain('Adopt incoming revision');
-  expect(senderDialog.message()).toContain(`outgoing revision ${retryPreview.originalOutgoingVersion} → ${retryPreview.currentOutgoingVersion}`);
-  await senderDialog.accept();
-  await reviewSender;
+  await disabledRow.getByRole('button', { name: 'Review / retry', exact: true }).click();
+  const senderDialog = page.getByRole('dialog');
+  await expect(senderDialog).toContainText('Review current outgoing settings');
+  await expect(senderDialog).toContainText('1 explicitly selected record(s)');
+  await expect(senderDialog.getByRole('region', { name: 'Selected deliveries' })).toContainText(disabledDelivery.id);
+  await expect(senderDialog).toContainText(`Sender: ${retryPreview.mailboxAddress}`);
+  await expect(senderDialog).toContainText(`Adopt incoming revision ${retryPreview.originalMailboxVersion} → ${retryPreview.currentMailboxVersion}`);
+  await expect(senderDialog).toContainText(`outgoing revision ${retryPreview.originalOutgoingVersion} → ${retryPreview.currentOutgoingVersion}`);
+  for (const recipient of retryPreview.recipients) await expect(senderDialog).toContainText(recipient);
+  await senderDialog.getByRole('button', { name: 'Queue retry', exact: true }).click();
+  await expect(senderDialog).toBeHidden();
   await expect(page.getByText('Delivery queued with the confirmed sender revisions.')).toBeVisible();
   await expect.poll(() => (fixture('messages', ['--account', 'requester-c']) as MailMessage[]).filter(message =>
     message.subject.includes(disabledIncident.trackingId) &&
