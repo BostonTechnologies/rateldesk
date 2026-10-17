@@ -43,6 +43,38 @@ public sealed class HttpMcpEffectiveDeploymentTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Legacy_utf8_BOM_source_preserves_raw_bytes_and_requires_its_exact_raw_provider_digest(bool tamperProviderHash)
+    {
+        using var fixture = new Fixture(); var source = Legacy();
+        var content = Files(source, "mcp-http")[0]!["content"]!.GetValue<string>();
+        var path = Path.Combine(Path.GetDirectoryName(fixture.Source)!, "legacy-outbound.json");
+        SecureConfigurationFiles.WritePrivateDocument(path, "\uFEFF" + content);
+        var bytes = File.ReadAllBytes(path);
+        Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, bytes[..3]);
+        var rawHash = Convert.ToHexString(SHA256.HashData(bytes));
+        // Match the launcher's utf-8-sig decoding and independent raw-file hash.
+        var captured = Provider("/run/rateldesk-mcp/config.json", File.ReadAllText(path));
+        Assert.Equal(content, captured["content"]!.GetValue<string>());
+        captured["sha256"] = tamperProviderHash ? new string('f', 64) : rawHash;
+        Files(source, "mcp-http")[0] = captured;
+        source["configs"]!["legacy-outbound"]!["file"] = path;
+        source["x-rateldesk-source-files"] = new JsonArray(new JsonObject { ["path"] = path, ["sha256"] = rawHash });
+        fixture.WriteSource(source);
+        var proposal = HttpMcpEffectiveDeployment.Create(HttpMcpEffectiveDeployment.Adopt(Settings));
+        Assert.Equal(!tamperProviderHash, proposal.Valid);
+        Assert.Equal(tamperProviderHash, proposal.Diagnostics.Any(item => item.Code == "HOST_LEGACY_CONFIG_SOURCE"));
+        Assert.Equal(bytes, File.ReadAllBytes(path));
+        Assert.Equal(rawHash, proposal.CompleteDeployment["x-rateldesk-source-files"]![0]!["sha256"]!.GetValue<string>());
+        if (!tamperProviderHash)
+        {
+            Assert.Empty(proposal.CompleteDeployment["services"]!["mcp-http"]!["configs"]!.AsArray());
+            Assert.Empty(HttpMcpEffectiveDeployment.CheckApprovedEffective(proposal, proposal.CompleteDeployment));
+        }
+    }
+
+    [Theory]
     [InlineData("/run/rateldesk-mcp/./config.json")]
     [InlineData("/run/rateldesk-mcp/sub/../config.json")]
     public void Equivalent_selected_provider_paths_adopt_and_migrate_the_normalized_captured_source(string selected)

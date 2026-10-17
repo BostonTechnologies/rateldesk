@@ -38,6 +38,11 @@ downstream identity or an ordinary consumer profile. When cleanup cannot be
 confirmed, keep its bounded cleanup-pending action and retry rather than
 reporting completed cleanup.
 
+Verification cleanup revokes its temporary credential and clears protected
+delivery. Credential management retains the revoked record for inspection;
+the owner can delete that specific revoked entry separately. Keep ordinary
+client credentials and their private profiles while valid.
+
 ## Common failures
 
 - **Compose prerequisite fails before the URL prompt:** use the detected

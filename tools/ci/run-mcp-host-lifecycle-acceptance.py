@@ -176,6 +176,14 @@ class Fixture:
     def prepare(self):
         for image in (self.args.api_image, self.args.web_image, self.args.mcp_image):
             checked(["docker", "image", "inspect", image])
+        web_image = self.args.web_image
+        if not self.existing:
+            # Match actual release discovery without publishing or pulling. A
+            # generic local tag is intentionally not trusted as a RatelDesk Web
+            # foundation by the launcher.
+            self.fixture_web_image = "ghcr.io/bostontechnologies/rateldesk-web:fixture-" + self.project
+            checked(["docker", "tag", web_image, self.fixture_web_image])
+            web_image = self.fixture_web_image
         key, pfx = self.directory / "fixture.key", self.directory / "fixture.pfx"
         checked(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-keyout", str(key),
                  "-out", str(self.ca), "-subj", "/CN=desk.fixture.test", "-addext", "subjectAltName=DNS:desk.fixture.test,DNS:localhost,IP:127.0.0.1"])
@@ -197,7 +205,7 @@ class Fixture:
         services = {
             "api": {"image": self.args.api_image, "environment": api_environment, "volumes": ["state:/fixture"],
                     "ports": [f"127.0.0.1:{self.api_port}:8222"]},
-            "web": {"image": self.args.web_image, "environment": {
+            "web": {"image": web_image, "environment": {
                 "ASPNETCORE_ENVIRONMENT": "Production", "ASPNETCORE_URLS": f"https://+:{self.web_port}",
                 "ASPNETCORE_Kestrel__Certificates__Default__Path": "/fixture-cert/fixture.pfx",
                 "ASPNETCORE_Kestrel__Certificates__Default__Password": "${FIXTURE_PFX_PASSWORD}",
@@ -262,6 +270,7 @@ class Fixture:
         created = self.request("/api/v1/integration-credentials/", {"name": "Identity preservation fixture", "purpose": "api",
             "organizationId": self.organization, "permissions": ["Incident.Read"], "lifetimeDays": 1}, expected=(201,))
         self.ordinary_id = created["id"]
+        self.ordinary_expiry = created["expiresAtUtc"]
         self.ordinary_secret = created["secret"]
 
     def reproduce_old_collision(self, model):
@@ -566,8 +575,18 @@ class Fixture:
         checked([*applied, "up", "--pull", "never", "-d"], timeout=180)
         time.sleep(5)
         identifier = checked([*applied, "ps", "--quiet", "mcp-http"]).decode().strip()
+        before_verification = {item["id"] for item in self.request("/api/v1/integration-credentials/")}
         verify = self.terminal(["--container", identifier, "--ca-file", str(self.ca), "--verify"])
         code = verify.until(r"[Cc]ode:\s*([A-Z2-9]{4}-[A-Z2-9]{4})").group(1)
+        # Read only this attempt's private cancellation capability, before approval.
+        # It never enters a command argument, assertion message or evidence output.
+        journal_read = subprocess.run(["docker", "exec", identifier, "head", "-c", "8193", "/output/verifier-cleanup.json"],
+            capture_output=True, timeout=30)
+        if journal_read.returncode or len(journal_read.stdout) > 8192:
+            raise RuntimeError("This run's bounded private verifier cleanup journal is unavailable.")
+        journal = json.loads(journal_read.stdout)
+        self.verifier_device_code = journal.get("deviceCode")
+        assert journal.get("origin") == self.origin and re.fullmatch(r"[A-Fa-f0-9]{64}", self.verifier_device_code or "")
         review = self.request("/api/v1/integration-credentials/pairing/review", {"humanCode": code})
         assert review["grantKind"] == "setup-verification"
         self.request("/api/v1/integration-credentials/pairing/approve", {"humanCode": code,
@@ -576,8 +595,43 @@ class Fixture:
         verify.finish(seconds=120)
         self.reload_console_client(identifier)
         credentials = self.request("/api/v1/integration-credentials/")
-        assert any(item["id"] == self.ordinary_id and item.get("revokedAtUtc") is None for item in credentials)
-        assert {item["id"] for item in credentials} == {self.ordinary_id, self.console_credential_id}, "Temporary verifier must be durably deleted while ordinary credentials remain"
+        # Scalar-only evidence distinguishes unexpected fixture identities from a
+        # retained verifier record without publishing account names, IDs or grants.
+        print("OBSERVE: post-verification credential cleanup " + json.dumps({"count": len(credentials), "records": [
+            {"kind": "setup-verification" if item.get("purpose") == "mcp-setup" else "ordinary",
+             "purpose": item.get("purpose") if item.get("purpose") in ("api", "mcp", "mcp-setup") else "other",
+             "revoked": item.get("revokedAtUtc") is not None,
+             "expectedApi": item.get("id") == self.ordinary_id,
+             "expectedMcp": item.get("id") == self.console_credential_id,
+             "permissionsEmpty": not item.get("permissions")}
+            for item in credentials]}), flush=True)
+        verifier_records = [item for item in credentials if item["id"] not in before_verification]
+        assert len(verifier_records) == 1, "Verification must issue exactly one separately owned temporary record"
+        verifier_record = verifier_records[0]
+        assert verifier_record["purpose"] == "mcp-setup" and verifier_record.get("revokedAtUtc") is not None
+        assert verifier_record.get("permissions") == []
+        assert verifier_record["id"] not in (self.ordinary_id, self.console_credential_id)
+        cancelled = self.request("/api/v1/integration-credentials/pairing/poll", {"deviceCode": self.verifier_device_code})
+        assert cancelled["status"] == "cancelled" and cancelled.get("credential") is None
+        checked(["docker", "exec", identifier, "test", "!", "-e", "/output/verifier-cleanup.json"])
+        print("PASS: automatic verifier cleanup revoked only this run's temporary status identity, removed its private cleanup journal and rejected protected-delivery retrieval", flush=True)
+        # The API intentionally retains revoked credential history. Match the
+        # beta.1 owner cleanup through its existing authenticated record-delete
+        # endpoint, selecting only this attempt's already-revoked status record.
+        try:
+            self.request("/api/v1/integration-credentials/" + verifier_record["id"] + "/record", expected=(204,), method="DELETE")
+        except RuntimeError:
+            raise RuntimeError("Explicit fixture-owner temporary record deletion failed.") from None
+        credentials = self.request("/api/v1/integration-credentials/")
+        assert {item["id"] for item in credentials} == {self.ordinary_id, self.console_credential_id}, "Explicit fixture-owner deletion must durably remove only the temporary verifier record"
+        ordinary = next(item for item in credentials if item["id"] == self.ordinary_id)
+        console_credential = next(item for item in credentials if item["id"] == self.console_credential_id)
+        assert ordinary.get("revokedAtUtc") is None and ordinary["expiresAtUtc"] == self.ordinary_expiry
+        assert console_credential.get("revokedAtUtc") is None and console_credential["expiresAtUtc"] == self.console_credential_expiry
+        cancelled_again = self.request("/api/v1/integration-credentials/pairing/poll", {"deviceCode": self.verifier_device_code})
+        assert cancelled_again["status"] == "cancelled" and cancelled_again.get("credential") is None
+        assert {item["id"] for item in self.request("/api/v1/integration-credentials/")} == before_verification
+        print("PASS: explicit fixture-owner deletion durably removed this run's revoked verifier record; both ordinary identities and expiries remain active and delivery remains unavailable", flush=True)
         changed = json.loads(self.source.read_bytes())
         changed["services"]["untouched"]["environment"] = {"PRESERVE_ME": "separate changed-source fixture"}
         self.source.write_text(json.dumps(changed))
@@ -586,7 +640,7 @@ class Fixture:
         assert rejected.returncode == 78 and b"approved_sources_changed" in rejected.stderr
         assert json.loads((self.output / "launcher-state.json").read_bytes())["phase"] == "applied-verify-pending", "A failed NEW verification attempt must clear the prior verified phase"
         for terminal in self.terminals:
-            assert self.password not in terminal.raw_text() and self.ordinary_secret not in terminal.raw_text()
+            assert self.password not in terminal.raw_text() and self.ordinary_secret not in terminal.raw_text() and self.verifier_device_code not in terminal.raw_text()
         print("PASS: " + ("existing external-manager" if self.existing else "fresh release-owned") + " actual launcher cancel/reopen, source-bound administrator approval, complete preserved export/apply, full recreation + NEW verified invocation, API-backed status/catalog, identity preservation and separate changed-source rejection", flush=True)
 
     def close(self):
@@ -605,6 +659,8 @@ class Fixture:
         for suffix in ("http-host-setup", "http-client-data"):
             name = self.project + "-" + suffix
             subprocess.run(["docker", "volume", "rm", name], capture_output=True, timeout=30)
+        if getattr(self, "fixture_web_image", None):
+            subprocess.run(["docker", "image", "rm", self.fixture_web_image], capture_output=True, timeout=30)
         self.temporary.cleanup()
 
     def record_failure(self, failure):
@@ -613,7 +669,7 @@ class Fixture:
         evidence.chmod(0o700)
         def save(name, content):
             text = content.decode("utf-8", errors="replace") if isinstance(content, bytes) else content
-            for secret in (self.password, self.pfx_password, getattr(self, "ordinary_secret", "")):
+            for secret in (self.password, self.pfx_password, getattr(self, "ordinary_secret", ""), getattr(self, "verifier_device_code", "")):
                 if secret:
                     text = text.replace(secret, "[redacted]")
             text = re.sub(r"rdk_[A-Za-z0-9_.-]{10,}", "[redacted credential]", text)

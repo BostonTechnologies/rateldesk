@@ -440,7 +440,12 @@ public static class HttpMcpEffectiveDeployment
             var captured = files?.Where(file => file?["path"]?.GetValue<string>() is { } path && NormalizeDestination(path) == RuntimeConfiguration).ToArray();
             if (legacy.Length != 1 || selected is null || NormalizeDestination(selected) != RuntimeConfiguration || captured is not { Length: 1 } ||
                 source["configs"]?[legacy[0].Source] is not JsonObject || captured[0]?["content"]?.GetValue<string>() is not { } content || string.IsNullOrWhiteSpace(content)) return [Failure()];
-            if (captured[0]?["sha256"]?.GetValue<string>() is { } hash && !string.Equals(Hash(content), hash, StringComparison.OrdinalIgnoreCase)) return [Failure()];
+            // Capture decodes UTF-8 with utf-8-sig while retaining the raw file
+            // digest. Reconstruct exactly that optional BOM without changing
+            // the source hash or accepting any other byte transformation.
+            if (captured[0]?["sha256"]?.GetValue<string>() is { } hash &&
+                !string.Equals(Hash(content), hash, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(Hash("\uFEFF" + content), hash, StringComparison.OrdinalIgnoreCase)) return [Failure()];
             var actual = Outbound(source, configuration, env);
             var prior = actual.Resolve();
             var reviewed = settings.Outbound?.Resolve();
