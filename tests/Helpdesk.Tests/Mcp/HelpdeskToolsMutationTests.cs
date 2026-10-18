@@ -28,13 +28,15 @@ public sealed class HelpdeskToolsMutationTests
         Assert.True(response.Failure?.Retryable);
     }
 
-    [Fact]
-    public async Task Integration_credential_auth_status_uses_application_identity_endpoint()
+    [Theory]
+    [InlineData("integration")]
+    [InlineData(" Integration ")]
+    public async Task Integration_credential_auth_status_uses_application_identity_endpoint(string credentialMode)
     {
         var client = Substitute.For<IHelpdeskAgentClient>();
         client.Configuration.Returns(new AgentClientConfiguration("https://api.example", null, null, null, null, null, null)
         {
-            CredentialMode = "integration",
+            CredentialMode = credentialMode,
             IntegrationCredential = "rdk_test"
         });
         client.GetAsync("/api/v1/auth/me", true, Arg.Any<CancellationToken>())
@@ -48,13 +50,15 @@ public sealed class HelpdeskToolsMutationTests
         await client.DidNotReceive().GetAsync("/api/v1/auth/ai-agent/status", true, Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task Gateway_credential_auth_status_uses_application_identity_endpoint()
+    [Theory]
+    [InlineData("gateway")]
+    [InlineData(" Gateway ")]
+    public async Task Gateway_credential_auth_status_uses_application_identity_endpoint(string credentialMode)
     {
         var client = Substitute.For<IHelpdeskAgentClient>();
         client.Configuration.Returns(new AgentClientConfiguration("https://api.example", null, null, null, null, null, null)
         {
-            CredentialMode = "gateway"
+            CredentialMode = credentialMode
         });
         client.GetAsync("/api/v1/auth/me", true, Arg.Any<CancellationToken>())
             .Returns(new JsonObject { ["authMode"] = "integration" });

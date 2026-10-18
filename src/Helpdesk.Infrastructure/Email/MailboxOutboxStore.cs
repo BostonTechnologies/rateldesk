@@ -13,12 +13,14 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
     public const int MaximumAttempts = 5;
     private static readonly TimeSpan ClaimDuration = TimeSpan.FromMinutes(5);
 
+    public Task<bool> OwnsDeliveryHistoryAsync(Guid deliveryEventId, CancellationToken ct = default) =>
+        db.Set<MailboxOutboxEffect>().AsNoTracking().AnyAsync(x =>
+            x.Kind == MailboxEffectKind.Email && x.DeliveryEventId == deliveryEventId, ct);
+
     public async Task<MailboxOutboxEffect> QueueDirectAsync(IngressEmailEffect email, CancellationToken ct)
     {
         if (context.IsActive) throw new InvalidOperationException("Ingress mail must use its receipt transaction.");
-        if (email.TimelineDeliveryId is { } existingId && await db.TicketTimelineEvents.AsNoTracking()
-            .AnyAsync(x => x.Id == existingId && (x.EmailStatus == EmailDeliveryStatus.Cancelled || x.EmailStatus == EmailDeliveryStatus.Removed), ct))
-            throw new InvalidOperationException("Cancelled or removed delivery cannot be queued again.");
+        await ValidateDeliveryBindingAsync(email, ct);
         var now = timeProvider.GetUtcNow();
         var row = new MailboxOutboxEffect
         {
@@ -27,11 +29,12 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
             DeliveryEventId = email.TimelineDeliveryId
         };
         row.DispatchGroup = EmailDispatchGroup(email.MailboxId, row.Id);
-        if (!email.SuppressTimeline && !string.IsNullOrWhiteSpace(email.TicketId))
+        if (email.TimelineDeliveryId is null && !email.SuppressTimeline && !string.IsNullOrWhiteSpace(email.TicketId))
         {
             var delivery = new TicketTimelineEvent
             {
                 TicketId = email.TicketId, EventType = TimelineEventType.EmailDelivery,
+                WorkLogId = email.WorkLogId,
                 CreatedUtc = now, CreatedByUserId = "system", CreatedByUserName = "System",
                 EmailStatus = EmailDeliveryStatus.Pending, EmailRecipient = string.Join(",", email.Recipients),
                 MessageText = "Email queued for delivery."
@@ -64,12 +67,14 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
             if (effect.Kind == MailboxEffectKind.Email)
             {
                 var email = Deserialize<IngressEmailEffect>(effect.Payload);
+                await ValidateDeliveryBindingAsync(email, ct);
                 row.DispatchGroup = EmailDispatchGroup(email.MailboxId, row.Id);
                 if (email.TimelineDeliveryId is null && !email.SuppressTimeline && !string.IsNullOrWhiteSpace(email.TicketId))
                 {
                     var delivery = new TicketTimelineEvent
                     {
                         TicketId = email.TicketId, EventType = TimelineEventType.EmailDelivery,
+                        WorkLogId = email.WorkLogId,
                         CreatedUtc = now, CreatedByUserId = "system", CreatedByUserName = "System",
                         EmailStatus = EmailDeliveryStatus.Pending, EmailRecipient = string.Join(",", email.Recipients),
                         MessageText = "Email queued for delivery."
@@ -84,6 +89,42 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
             db.Set<MailboxOutboxEffect>().Add(row);
         }
         await db.SaveChangesAsync(ct);
+    }
+
+    private async Task ValidateDeliveryBindingAsync(IngressEmailEffect email, CancellationToken ct)
+    {
+        if (email.WorkLogId is { } worklogId)
+        {
+            var worklog = await db.WorkLogs.AsNoTracking().SingleOrDefaultAsync(x => x.Id == worklogId, ct)
+                ?? db.ChangeTracker.Entries<WorkLog>()
+                    .Where(x => x.State == Microsoft.EntityFrameworkCore.EntityState.Added && x.Entity.Id == worklogId)
+                    .Select(x => x.Entity).SingleOrDefault();
+            if (worklog is null || worklog.TicketId != email.TicketId || worklog.IsInternalNote)
+                throw new InvalidOperationException("Delivery requires the exact public worklog for this ticket.");
+        }
+
+        if (email.TimelineDeliveryId is not { } timelineId)
+        {
+            if (email.SuppressTimeline && !string.IsNullOrWhiteSpace(email.TicketId))
+                throw new InvalidOperationException("Ticket email requires its canonical delivery history.");
+            return;
+        }
+
+        var delivery = await db.TicketTimelineEvents.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == timelineId, ct)
+            ?? db.ChangeTracker.Entries<TicketTimelineEvent>()
+                .Where(x => x.State == Microsoft.EntityFrameworkCore.EntityState.Added && x.Entity.Id == timelineId)
+                .Select(x => x.Entity).SingleOrDefault();
+        if (delivery is null || delivery.EventType != TimelineEventType.EmailDelivery ||
+            string.IsNullOrWhiteSpace(email.TicketId) || delivery.TicketId != email.TicketId ||
+            delivery.EmailStatus != EmailDeliveryStatus.Pending ||
+            delivery.WorkLogId != email.WorkLogId)
+            throw new InvalidOperationException("Delivery history does not match the pending ticket email.");
+
+        if (db.ChangeTracker.Entries<MailboxOutboxEffect>().Any(x =>
+                x.State == Microsoft.EntityFrameworkCore.EntityState.Added && x.Entity.DeliveryEventId == timelineId) ||
+            await db.Set<MailboxOutboxEffect>().AsNoTracking().AnyAsync(x => x.DeliveryEventId == timelineId, ct))
+            throw new InvalidOperationException("Delivery history already has a durable owner; use its supported retry flow.");
     }
 
     public async Task<IReadOnlyList<Guid>> GetCandidatesAsync(int count, CancellationToken ct)
@@ -393,6 +434,7 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
         Id = delivery.Id, TicketId = delivery.TicketId, CreatedUtc = delivery.CreatedUtc,
         CreatedByUserId = delivery.CreatedByUserId, CreatedByUserName = delivery.CreatedByUserName,
         EventType = delivery.EventType, MessageHtml = delivery.MessageHtml, MessageText = delivery.MessageText,
+        WorkLogId = delivery.WorkLogId,
         EmailStatus = delivery.EmailStatus, EmailRecipient = delivery.EmailRecipient,
         RetryCount = delivery.RetryCount, IsRetryable = delivery.IsRetryable
     };

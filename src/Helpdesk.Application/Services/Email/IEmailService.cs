@@ -48,10 +48,20 @@ public sealed record EmailSendRequest(string[] Recipients, string Subject, strin
     public string? FromName { get; init; }
     public string? ReplyTo { get; init; }
     public bool SuppressTimeline { get; init; }
+    /// <summary>The existing delivery history owned by this request; queue acceptance must not complete it.</summary>
+    public Guid? TimelineDeliveryId { get; init; }
+    public string? WorkLogId { get; init; }
 }
 
 /// <summary>Indicates that a successful send call means durable queue acceptance.</summary>
 public interface IDurableEmailService
 {
     bool QueuesDelivery { get; }
+
+    /// <summary>
+    /// Reconciles an interrupted send against the exact history owner. Null means
+    /// ownership cannot be established, so callers must retain the current history.
+    /// </summary>
+    Task<bool?> OwnsDeliveryHistoryAsync(Guid deliveryEventId, CancellationToken ct = default) =>
+        Task.FromResult<bool?>(null);
 }

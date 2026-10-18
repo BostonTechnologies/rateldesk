@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Diagnostics;
+using System.Data.Common;
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
@@ -9,12 +10,14 @@ using Helpdesk.API.Endpoints.AiAssistant;
 using Helpdesk.API.Endpoints.Ops;
 using Helpdesk.API.Ops;
 using Helpdesk.AgentClient;
+using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Mcp.Tools;
 using Helpdesk.Shared.DTOs;
 using Helpdesk.Shared.Models;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
@@ -33,6 +36,7 @@ public sealed class AiInvestigationMcpHttpTests
         using var signingKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var key = new ECDsaSecurityKey(signingKey);
         var capture = new WebhookCapture();
+        var callbackReads = new CallbackReadBarrier();
         var logs = new AiAgentOpsLogBuffer();
         string logTrace;
         using (var activity = new Activity("Synthetic matching trace").SetIdFormat(ActivityIdFormat.W3C).Start())
@@ -47,6 +51,7 @@ public sealed class AiInvestigationMcpHttpTests
             {
                 services.AddSingleton<IHttpClientFactory>(capture);
                 services.AddSingleton(logs);
+                services.AddDbContext<HelpdeskDbContext>(options => options.AddInterceptors(callbackReads));
                 services.AddAuthentication().AddJwtBearer("AuthentikAiAgent", options =>
                 {
                     options.TokenValidationParameters = new TokenValidationParameters
@@ -111,10 +116,10 @@ public sealed class AiInvestigationMcpHttpTests
         var absentLogs = await tools.helpdesk_logs("search", JsonSerializer.SerializeToElement(new { contains = "absent-synthetic-diagnostic" }));
         Assert.True(absentLogs.Success, absentLogs.Summary);
         Assert.Empty(absentLogs.Data!["items"]!.AsArray());
-        object Report(string eventId, string status, string? ticket = null, string? correlation = null) => new
+        object Report(string eventId, string status, string? ticket = null, string? correlation = null, string? runReference = "synthetic-ai-run") => new
         {
             invocationId = invocation.Id, eventId, ticketId = ticket ?? ticketId, ticketType = "incidents",
-            correlationId = correlation ?? invocation.CorrelationId, status, message = "Synthetic investigation evidence.", runReference = "synthetic-ai-run"
+            correlationId = correlation ?? invocation.CorrelationId, status, message = "Synthetic investigation evidence.", runReference
         };
         async Task<HelpdeskToolResponse> ReportAsync(object payload) => await tools.helpdesk_ai_assistant("report", JsonSerializer.SerializeToElement(payload));
 
@@ -125,6 +130,10 @@ public sealed class AiInvestigationMcpHttpTests
         // Duplicate callbacks retain their existing event and do not move the invocation backwards.
         var duplicate = await ReportAsync(Report("synthetic-progress", "Progress"));
         Assert.True(duplicate.Success, duplicate.Summary);
+        // RunReference is invocation metadata, not a per-event snapshot. Replays
+        // cannot use that field to rewrite the invocation's current reference.
+        var conflictingRunReference = await ReportAsync(Report("synthetic-progress", "Progress", runReference: "synthetic-conflicting-run"));
+        Assert.True(conflictingRunReference.Success, conflictingRunReference.Summary);
         await h.EditAsync(async db =>
         {
             var stored = await db.AiInvestigationInvocations.SingleAsync();
@@ -156,6 +165,97 @@ public sealed class AiInvestigationMcpHttpTests
             Assert.Equal(2, await db.AiInvestigationWorklogEntries.CountAsync(entry => entry.Source == AiInvestigationSource.AiAssistant));
             Assert.Equal(AiInvestigationStatus.Completed, (await db.AiInvestigationInvocations.SingleAsync()).Status);
         });
+
+        // An exact historical retry remains successful after completion, while a
+        // new callback or conflicting reuse of the ID cannot change the outcome.
+        foreach (var rejectedReport in new[]
+        {
+            Report("late-progress", "Progress"),
+            Report("synthetic-progress", "Finding")
+        })
+        {
+            var rejected = await ReportAsync(rejectedReport);
+            Assert.False(rejected.Success);
+            Assert.Equal(400, rejected.Failure!.UpstreamStatus);
+        }
+
+        foreach (var terminalStatus in new[] { "Failed", "Cancelled" })
+        {
+            var nextDispatch = dispatch with { IdempotencyKey = $"synthetic-ai-{terminalStatus}" };
+            using var nextResponse = await h.AdminAsync(HttpMethod.Post, $"/api/v1/incidents/{ticketId}/ai-assistant/investigations", nextDispatch);
+            Assert.Equal(HttpStatusCode.Accepted, nextResponse.StatusCode);
+            var nextInvocation = (await nextResponse.Content.ReadFromJsonAsync<AiInvestigationInvocationDto>())!;
+            object NextReport(string eventId, string status) => new
+            {
+                invocationId = nextInvocation.Id, eventId, ticketId, ticketType = "incidents",
+                correlationId = nextInvocation.CorrelationId, status, message = "Synthetic investigation evidence."
+            };
+
+            var collision = await ReportAsync(NextReport("synthetic-progress", "Progress"));
+            Assert.False(collision.Success);
+            Assert.Equal(400, collision.Failure!.UpstreamStatus);
+            await h.EditAsync(async db =>
+            {
+                Assert.Equal(AiInvestigationStatus.Queued, (await db.AiInvestigationInvocations.SingleAsync(item => item.Id == nextInvocation.Id)).Status);
+                Assert.False(await db.AiInvestigationWorklogEntries.AnyAsync(item => item.InvocationId == nextInvocation.Id && item.Source == AiInvestigationSource.AiAssistant));
+            });
+
+            if (terminalStatus == "Failed")
+            {
+                // Both requests observe no existing callback before either writes.
+                // The existing unique event index must produce one stored event,
+                // and an identical loser must reconcile as an idempotent success.
+                callbackReads.Arm();
+                var concurrent = NextReport("concurrent-progress", "Progress");
+                var responses = await Task.WhenAll(ReportAsync(concurrent), ReportAsync(concurrent));
+                Assert.All(responses, response => Assert.True(response.Success, response.Summary));
+                await h.EditAsync(async db =>
+                {
+                    var callbacks = await db.AiInvestigationWorklogEntries.Where(item => item.InvocationId == nextInvocation.Id && item.Source == AiInvestigationSource.AiAssistant).ToListAsync();
+                    Assert.Equal("concurrent-progress", Assert.Single(callbacks).CallbackEventId);
+                });
+            }
+
+            var terminal = NextReport($"terminal-{terminalStatus}", terminalStatus);
+            var terminalResult = await ReportAsync(terminal);
+            Assert.True(terminalResult.Success, terminalResult.Summary);
+            var terminalRetry = await ReportAsync(terminal);
+            Assert.True(terminalRetry.Success, terminalRetry.Summary);
+            var late = await ReportAsync(NextReport($"late-{terminalStatus}", "Progress"));
+            Assert.False(late.Success);
+            Assert.Equal(400, late.Failure!.UpstreamStatus);
+        }
+        await h.EditAsync(async db =>
+        {
+            var invocations = await db.AiInvestigationInvocations.ToListAsync();
+            Assert.Equal(3, invocations.Count);
+            Assert.Equal(AiInvestigationStatus.Completed, invocations.Single(item => item.Id == invocation.Id).Status);
+            Assert.Contains(invocations, item => item.Status == AiInvestigationStatus.Failed);
+            Assert.Contains(invocations, item => item.Status == AiInvestigationStatus.Cancelled);
+            Assert.Equal(5, await db.AiInvestigationWorklogEntries.CountAsync(item => item.Source == AiInvestigationSource.AiAssistant));
+            Assert.Equal(TicketState.New, (await db.Incidents.SingleAsync()).State);
+            Assert.Equal(0, await db.WorkLogs.CountAsync());
+        });
+    }
+
+    private sealed class CallbackReadBarrier : DbCommandInterceptor
+    {
+        private readonly TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int remaining;
+
+        public void Arm() => Volatile.Write(ref remaining, 2);
+
+        public override async ValueTask<DbDataReader> ReaderExecutedAsync(DbCommand command, CommandExecutedEventData eventData,
+            DbDataReader result, CancellationToken cancellationToken = default)
+        {
+            if (Volatile.Read(ref remaining) > 0 && command.CommandText.Contains("\"AiInvestigationWorklogEntries\"", StringComparison.Ordinal) &&
+                command.CommandText.Contains("\"CallbackEventId\" =", StringComparison.Ordinal))
+            {
+                if (Interlocked.Decrement(ref remaining) == 0) release.TrySetResult();
+                await release.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+            }
+            return result;
+        }
     }
 
     private sealed class WebhookCapture : IHttpClientFactory

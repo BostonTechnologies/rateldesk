@@ -56,6 +56,14 @@ internal static class McpRequestSchemas
                 Field(fields, required, "key", Named("apiBaseUrl", "authentikScope"), true);
                 if (op == "set") Field(fields, required, "value", Text(), true);
                 break;
+            case "OrchestrationSelectionRequest":
+                fields["organizationId"] = Nullable(Text());
+                fields["organizationId"]!["pattern"] = "\\S";
+                fields["organizationId"]!["description"] = "Optional exact local organization with a saved eligible automation mapping. Omit for the existing unique-connection resolver.";
+                fields["connectionId"] = Nullable(TypeSchema(typeof(Guid)));
+                fields["connectionId"]!["not"] = new JsonObject { ["const"] = Guid.Empty.ToString("D") };
+                fields["connectionId"]!["description"] = "Optional non-empty saved SystemConnection ID. The API enforces its mapping, capability and organization; this is not an authority grant.";
+                break;
             case "NotificationMarkReadRequest":
                 Field(fields, required, "ids", new JsonObject { ["type"] = "array", ["minItems"] = 1, ["items"] = TypeSchema(typeof(Guid)) }, true); break;
             case "BulkRequestTaskActionRequest":

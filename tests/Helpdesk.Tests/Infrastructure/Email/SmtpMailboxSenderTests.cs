@@ -590,7 +590,7 @@ public sealed class SmtpMailboxSenderTests
         Assert.Equal("InvalidMailboxAddress", result.ErrorCode);
     }
 
-    private sealed class SmtpFixture : IAsyncDisposable
+    internal sealed class SmtpFixture : IAsyncDisposable
     {
         private readonly TcpListener listener;
         private readonly string? rejectRecipient;
@@ -620,7 +620,8 @@ public sealed class SmtpMailboxSenderTests
             this.trustCertificate = trustCertificate;
             this.disconnectAfterData = disconnectAfterData;
             using var key = RSA.Create(2048);
-            var request = new CertificateRequest("CN=localhost", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            // Retry tests keep multiple trusted endpoints alive; each root needs a distinct issuer identity.
+            var request = new CertificateRequest($"CN=localhost, OU={Guid.NewGuid():N}", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
             var san = new SubjectAlternativeNameBuilder();
             san.AddDnsName("localhost");
             request.CertificateExtensions.Add(san.Build());

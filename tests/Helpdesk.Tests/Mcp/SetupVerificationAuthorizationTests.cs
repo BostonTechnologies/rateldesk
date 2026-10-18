@@ -22,6 +22,7 @@ public sealed class SetupVerificationAuthorizationTests
     [InlineData("helpdesk_auth", "{}")]
     [InlineData("helpdesk_auth", "{\"operation\":null}")]
     [InlineData("helpdesk_auth", "{\"operation\":\"other\"}")]
+    [InlineData("helpdesk_auth", "{\"operation\":\"access\"}")]
     [InlineData("helpdesk_auth", "{\"operation\":\"status\",\"confirm\":true}")]
     [InlineData("helpdesk_auth", "{\"operation\":\"status\",\"confirm\":\"false\"}")]
     [InlineData("helpdesk_auth", "{\"operation\":\"status\",\"request\":{}}")]

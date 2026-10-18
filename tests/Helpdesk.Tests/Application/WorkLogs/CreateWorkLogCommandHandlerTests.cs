@@ -32,18 +32,7 @@ public class CreateWorkLogCommandHandlerTests
         var notificationService = Substitute.For<INotificationService>();
 
         var emailService = Substitute.For<IEmailService>();
-        emailService.SendEmailAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IEnumerable<string>?>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult(true));
-        emailService.SendEmailAsync(
-            Arg.Any<IEnumerable<string>>(),
-            Arg.Any<string>(),
-            Arg.Any<string>(),
-            Arg.Any<IEnumerable<string>?>(),
-            Arg.Any<CancellationToken>(),
-            Arg.Any<string?>(),
-            Arg.Any<IEnumerable<EmailAttachmentData>?>(),
-            Arg.Any<string?>(),
-            Arg.Any<string?>(),
-            Arg.Any<bool>()).Returns(Task.FromResult(true));
+        emailService.SendEmailAsync(Arg.Any<EmailSendRequest>(), Arg.Any<CancellationToken>()).Returns(true);
 
         var templateRepo = Substitute.For<IRepository<EmailTemplate>>();
         templateRepo.GetAllAsync().Returns(new[]
@@ -110,16 +99,10 @@ public class CreateWorkLogCommandHandlerTests
 
         await emailService.Received(1)
             .SendEmailAsync(
-                Arg.Is<IEnumerable<string>>(a => a.Contains("a@b.com")),
-                Arg.Is<string>(s => s.Contains("INC-1")),
-                Arg.Any<string>(),
-                Arg.Is<IEnumerable<string>?>(cc => cc != null && cc.Contains("cc1@b.com") && cc.Contains("cc2@b.com")),
-                Arg.Any<CancellationToken>(),
-                "t1",
-                Arg.Any<IEnumerable<EmailAttachmentData>?>(),
-                Arg.Any<string?>(),
-                Arg.Any<string?>(),
-                true);
+                Arg.Is<EmailSendRequest>(email => email.Recipients.Contains("a@b.com") &&
+                    email.Subject.Contains("INC-1") && email.Cc.Contains("cc1@b.com") && email.Cc.Contains("cc2@b.com") &&
+                    email.TicketId == "t1" && email.SuppressTimeline && email.TimelineDeliveryId != null && email.WorkLogId != null),
+                Arg.Any<CancellationToken>());
 
         await timelineRepo.Received(1).UpdateAsync(Arg.Is<TicketTimelineEvent>(e =>
             e.TicketId == "t1" &&
@@ -193,18 +176,7 @@ public class CreateWorkLogCommandHandlerTests
 
         await handler.Handle(new CreateWorkLogCommand("t1", 1, "note", "tech", "Tech User"), CancellationToken.None);
 
-        await emailService.DidNotReceive()
-            .SendEmailAsync(
-                Arg.Any<IEnumerable<string>>(),
-                Arg.Any<string>(),
-                Arg.Any<string>(),
-                Arg.Any<IEnumerable<string>?>(),
-                Arg.Any<CancellationToken>(),
-                Arg.Any<string?>(),
-                Arg.Any<IEnumerable<EmailAttachmentData>?>(),
-                Arg.Any<string?>(),
-                Arg.Any<string?>(),
-                Arg.Any<bool>());
+        await emailService.DidNotReceive().SendEmailAsync(Arg.Any<EmailSendRequest>(), Arg.Any<CancellationToken>());
         await notificationService.DidNotReceive().NotifyUserAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
         await workLogRepo.Received(1).CreateAsync(Arg.Any<WorkLog>());
     }
@@ -223,18 +195,7 @@ public class CreateWorkLogCommandHandlerTests
         var notificationService = Substitute.For<INotificationService>();
 
         var emailService = Substitute.For<IEmailService>();
-        emailService.SendEmailAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IEnumerable<string>?>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult(true));
-        emailService.SendEmailAsync(
-            Arg.Any<IEnumerable<string>>(),
-            Arg.Any<string>(),
-            Arg.Any<string>(),
-            Arg.Any<IEnumerable<string>?>(),
-            Arg.Any<CancellationToken>(),
-            Arg.Any<string?>(),
-            Arg.Any<IEnumerable<EmailAttachmentData>?>(),
-            Arg.Any<string?>(),
-            Arg.Any<string?>(),
-            Arg.Any<bool>()).Returns(Task.FromResult(true));
+        emailService.SendEmailAsync(Arg.Any<EmailSendRequest>(), Arg.Any<CancellationToken>()).Returns(true);
 
         var templateRepo = Substitute.For<IRepository<EmailTemplate>>();
         templateRepo.GetAllAsync().Returns(new[]
@@ -295,16 +256,9 @@ public class CreateWorkLogCommandHandlerTests
 
         await emailService.Received(1)
             .SendEmailAsync(
-                Arg.Is<IEnumerable<string>>(a => a.Contains("cc@b.com")),
-                Arg.Is<string>(s => s.Contains("INC-1")),
-                Arg.Any<string>(),
-                Arg.Is<IEnumerable<string>?>(cc => cc == null || !cc.Any()),
-                Arg.Any<CancellationToken>(),
-                "t1",
-                Arg.Any<IEnumerable<EmailAttachmentData>?>(),
-                Arg.Any<string?>(),
-                Arg.Any<string?>(),
-                true);
+                Arg.Is<EmailSendRequest>(email => email.Recipients.Contains("cc@b.com") &&
+                    email.Subject.Contains("INC-1") && email.Cc.Length == 0 && email.TicketId == "t1" && email.SuppressTimeline),
+                Arg.Any<CancellationToken>());
 
         await timelineRepo.Received(1).UpdateAsync(Arg.Is<TicketTimelineEvent>(e =>
             e.TicketId == "t1" &&
@@ -374,18 +328,7 @@ public class CreateWorkLogCommandHandlerTests
 
         await handler.Handle(new CreateWorkLogCommand("t1", 1, "note", "tech", "Tech User"), CancellationToken.None);
 
-        await emailService.DidNotReceive()
-            .SendEmailAsync(
-                Arg.Any<IEnumerable<string>>(),
-                Arg.Any<string>(),
-                Arg.Any<string>(),
-                Arg.Any<IEnumerable<string>?>(),
-                Arg.Any<CancellationToken>(),
-                Arg.Any<string?>(),
-                Arg.Any<IEnumerable<EmailAttachmentData>?>(),
-                Arg.Any<string?>(),
-                Arg.Any<string?>(),
-                Arg.Any<bool>());
+        await emailService.DidNotReceive().SendEmailAsync(Arg.Any<EmailSendRequest>(), Arg.Any<CancellationToken>());
 
         await timelineRepo.Received(1).CreateAsync(Arg.Is<TicketTimelineEvent>(e =>
             e.TicketId == "t1" &&
@@ -410,7 +353,7 @@ public class CreateWorkLogCommandHandlerTests
         var notificationService = Substitute.For<INotificationService>();
 
         var emailService = Substitute.For<IEmailService>();
-        emailService.SendEmailAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IEnumerable<string>?>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult(true));
+        emailService.SendEmailAsync(Arg.Any<EmailSendRequest>(), Arg.Any<CancellationToken>()).Returns(true);
 
         var templateRepo = Substitute.For<IRepository<EmailTemplate>>();
         templateRepo.GetAllAsync().Returns(new[]
@@ -470,7 +413,7 @@ public class CreateWorkLogCommandHandlerTests
         var command = new CreateWorkLogCommand("t1", 1, "note", "tech", "Tech User", IsInternalNote: true);
         await handler.Handle(command, CancellationToken.None);
 
-        await emailService.DidNotReceive().SendEmailAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IEnumerable<string>?>(), Arg.Any<CancellationToken>());
+        await emailService.DidNotReceive().SendEmailAsync(Arg.Any<EmailSendRequest>(), Arg.Any<CancellationToken>());
         await notificationService.DidNotReceive().NotifyUserAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
         await workLogRepo.Received(1).CreateAsync(Arg.Is<WorkLog>(x => x.IsInternalNote));
         await timelineRepo.Received(1).CreateAsync(Arg.Is<TicketTimelineEvent>(x => x.EventType == TimelineEventType.InternalNote));

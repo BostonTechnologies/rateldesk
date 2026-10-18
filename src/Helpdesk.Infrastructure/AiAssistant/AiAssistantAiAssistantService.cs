@@ -71,15 +71,104 @@ public sealed class AiAssistantAiAssistantService(HelpdeskDbContext db, ITenantC
     }
     public async Task<bool> AppendMcpWorklogAsync(Guid invocationId, AppendAiInvestigationWorklogDto update, CancellationToken ct)
     {
+        var area = update.TicketType?.ToLowerInvariant() switch
+        {
+            "incidents" => AiAssistantTicketArea.Incidents,
+            "requests" => AiAssistantTicketArea.Requests,
+            "changes" => AiAssistantTicketArea.Changes,
+            _ => (AiAssistantTicketArea?)null
+        };
+        if (area is null || !Enum.IsDefined(update.Status) || string.IsNullOrWhiteSpace(update.EventId) ||
+            string.IsNullOrWhiteSpace(update.TicketId) || string.IsNullOrWhiteSpace(update.CorrelationId) ||
+            string.IsNullOrWhiteSpace(update.Message)) return false;
+
         var invocation = await db.AiInvestigationInvocations.SingleOrDefaultAsync(x => x.Id == invocationId && x.CorrelationId == update.CorrelationId, ct);
         // The MCP endpoint is authenticated with the existing AI-agent policy. Its tenant
         // scope is bound to this persisted invocation (and its ticket/correlation), not to
         // a tenant claim supplied by the MCP identity or request payload.
-        if (invocation is null || update.TicketId != invocation.TicketId || Area(update.TicketType) != invocation.TicketArea) return false;
-        if (await db.AiInvestigationWorklogEntries.AnyAsync(x => x.CallbackEventId == update.EventId, ct)) return true;
-        invocation.Status = update.Status; invocation.AiAssistantRunReference = update.RunReference ?? invocation.AiAssistantRunReference;
-        var entry = new AiInvestigationWorklogEntry { InvocationId = invocation.Id, OrganizationId = invocation.OrganizationId, TicketId = invocation.TicketId, TicketArea = invocation.TicketArea, Source = AiInvestigationSource.AiAssistant, Status = update.Status, Severity = update.Severity, Message = Redact(update.Message), MetadataJson = update.MetadataJson, ArtifactReferencesJson = update.ArtifactReferencesJson, CallbackEventId = update.EventId, CorrelationId = update.CorrelationId, OccurredUtc = update.OccurredUtc }; db.AiInvestigationWorklogEntries.Add(entry); await db.SaveChangesAsync(ct); await Publish(invocation.TicketId, entry); return true;
+        if (invocation is null || update.TicketId != invocation.TicketId || area != invocation.TicketArea) return false;
+        var previous = await FindCallbackAsync(update.EventId, ct);
+        if (previous is not null) return MatchesCallback(previous, invocation, update);
+        if (IsTerminal(invocation.Status)) return false;
+
+        var entry = new AiInvestigationWorklogEntry
+        {
+            InvocationId = invocation.Id, OrganizationId = invocation.OrganizationId, TicketId = invocation.TicketId,
+            TicketArea = invocation.TicketArea, Source = AiInvestigationSource.AiAssistant, Status = update.Status,
+            Severity = update.Severity, Message = Redact(update.Message), MetadataJson = update.MetadataJson,
+            ArtifactReferencesJson = update.ArtifactReferencesJson, CallbackEventId = update.EventId,
+            CorrelationId = update.CorrelationId, OccurredUtc = update.OccurredUtc
+        };
+        var relational = db.Database.IsRelational();
+        await using var transaction = relational && db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(ct)
+            : null;
+        if (relational)
+        {
+            // Predicate and event insert share a transaction. A concurrent terminal
+            // callback cannot be overwritten after the earlier tracked read.
+            var updated = await db.AiInvestigationInvocations.Where(candidate =>
+                    candidate.Id == invocation.Id && candidate.OrganizationId == invocation.OrganizationId &&
+                    candidate.TicketId == update.TicketId && candidate.TicketArea == area &&
+                    candidate.CorrelationId == update.CorrelationId &&
+                    candidate.Status != AiInvestigationStatus.Completed && candidate.Status != AiInvestigationStatus.Failed &&
+                    candidate.Status != AiInvestigationStatus.Cancelled)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(candidate => candidate.Status, update.Status)
+                    .SetProperty(candidate => candidate.AiAssistantRunReference, candidate => update.RunReference ?? candidate.AiAssistantRunReference), ct);
+            if (updated == 0)
+            {
+                if (transaction is not null) await transaction.RollbackAsync(ct);
+                var concurrent = await FindCallbackAsync(update.EventId, ct);
+                return concurrent is not null && MatchesCallback(concurrent, invocation, update);
+            }
+        }
+        else
+        {
+            invocation.Status = update.Status;
+            invocation.AiAssistantRunReference = update.RunReference ?? invocation.AiAssistantRunReference;
+        }
+        db.AiInvestigationWorklogEntries.Add(entry);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+            if (transaction is not null) await transaction.CommitAsync(ct);
+        }
+        catch (DbUpdateException exception) when (transaction is not null && IsCallbackUniqueViolation(exception))
+        {
+            await transaction.RollbackAsync(ct);
+            db.Entry(entry).State = Microsoft.EntityFrameworkCore.EntityState.Detached;
+            await db.Entry(invocation).ReloadAsync(ct);
+            var concurrent = await FindCallbackAsync(update.EventId, ct);
+            // The database's existing global event-ID index remains authoritative.
+            // A collision is successful only when this exact bound event exists.
+            if (concurrent is null) throw;
+            return MatchesCallback(concurrent, invocation, update);
+        }
+        if (relational) await db.Entry(invocation).ReloadAsync(ct);
+        await Publish(invocation.TicketId, entry);
+        return true;
     }
+
+    private Task<AiInvestigationWorklogEntry?> FindCallbackAsync(string eventId, CancellationToken ct) =>
+        db.AiInvestigationWorklogEntries.AsNoTracking().SingleOrDefaultAsync(entry => entry.CallbackEventId == eventId, ct);
+
+    // The adapter supplies the current time when occurredUtc is omitted. A retry
+    // retains the event's timestamp. RunReference is invocation metadata, not an
+    // event snapshot; matching retries cannot rewrite its current value.
+    private static bool MatchesCallback(AiInvestigationWorklogEntry entry, AiInvestigationInvocation invocation, AppendAiInvestigationWorklogDto update) =>
+        entry.InvocationId == invocation.Id && entry.OrganizationId == invocation.OrganizationId &&
+        entry.TicketId == invocation.TicketId && entry.TicketArea == invocation.TicketArea &&
+        entry.CorrelationId == invocation.CorrelationId && entry.Source == AiInvestigationSource.AiAssistant &&
+        entry.Status == update.Status && entry.Severity == update.Severity && entry.Message == Redact(update.Message) &&
+        entry.MetadataJson == update.MetadataJson && entry.ArtifactReferencesJson == update.ArtifactReferencesJson;
+
+    private static bool IsTerminal(AiInvestigationStatus status) =>
+        status is AiInvestigationStatus.Completed or AiInvestigationStatus.Failed or AiInvestigationStatus.Cancelled;
+
+    private static bool IsCallbackUniqueViolation(DbUpdateException exception) => exception.InnerException is
+        Npgsql.PostgresException { SqlState: "23505", ConstraintName: "IX_AiInvestigationWorklogEntries_CallbackEventId" } or
+        Microsoft.Data.Sqlite.SqliteException { SqliteExtendedErrorCode: 2067 };
     private async Task<Ticket> TicketAsync(string id, string type, CancellationToken ct)
     {
         var ticket = await db.Set<Ticket>().IgnoreQueryFilters().SingleOrDefaultAsync(x => x.Id == id, ct);
@@ -117,7 +206,7 @@ public sealed class AiAssistantAiAssistantService(HelpdeskDbContext db, ITenantC
     private async Task DispatchAiAssistantAsync(AiInvestigationInvocation invocation, AiAssistantWebhookConfiguration config, Ticket ticket, CancellationToken ct)
     {
         var secret = ResolveSecret(config);
-        if (string.IsNullOrWhiteSpace(secret)) { invocation.Status = AiInvestigationStatus.Failed; invocation.FailureMessage = "Webhook signing secret is unavailable."; await db.SaveChangesAsync(ct); return; }
+        if (string.IsNullOrWhiteSpace(secret)) { invocation.FailureMessage = "Webhook signing secret is unavailable."; await PersistDispatchFailureAsync(invocation, ct); return; }
         var ticketType = invocation.TicketArea.ToString().ToLowerInvariant();
         var body = JsonSerializer.Serialize(new
         {
@@ -153,7 +242,28 @@ public sealed class AiAssistantAiAssistantService(HelpdeskDbContext db, ITenantC
             catch (Exception ex) when (attempt < 3) { invocation.FailureMessage = ex.Message; await Task.Delay(TimeSpan.FromSeconds(attempt), ct); }
             catch (Exception ex) { invocation.FailureMessage = ex.Message; }
         }
-        invocation.Status = AiInvestigationStatus.Failed; config.LastHealthMessage = invocation.FailureMessage; await db.SaveChangesAsync(ct);
+        config.LastHealthMessage = invocation.FailureMessage;
+        await PersistDispatchFailureAsync(invocation, ct);
+    }
+
+    private async Task PersistDispatchFailureAsync(AiInvestigationInvocation invocation, CancellationToken ct)
+    {
+        // Delivery attempts and health remain useful even when a callback already
+        // completed the run while the outbound HTTP response was pending.
+        await db.SaveChangesAsync(ct);
+        if (db.Database.IsRelational())
+        {
+            await db.AiInvestigationInvocations.Where(candidate => candidate.Id == invocation.Id &&
+                    candidate.Status != AiInvestigationStatus.Completed && candidate.Status != AiInvestigationStatus.Failed &&
+                    candidate.Status != AiInvestigationStatus.Cancelled)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(candidate => candidate.Status, AiInvestigationStatus.Failed), ct);
+            await db.Entry(invocation).ReloadAsync(ct);
+            return;
+        }
+        await db.Entry(invocation).ReloadAsync(ct);
+        if (IsTerminal(invocation.Status)) return;
+        invocation.Status = AiInvestigationStatus.Failed;
+        await db.SaveChangesAsync(ct);
     }
     private string? ResolveSecret(AiAssistantWebhookConfiguration configuration)
     {

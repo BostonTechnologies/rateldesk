@@ -18,14 +18,24 @@ public static class ExternalOrchestrationEndpoints
             .WithTags("External orchestration")
             .RequireAuthorization("HelpdeskAdmin");
 
-        group.MapGet("/", async (IOrchestrationConnectivityService connectivity, CancellationToken ct) =>
-            Results.Ok(await connectivity.GetOrchestrationSettingsAsync(ct)));
-
-        group.MapPost("/test", async (IOrchestrationConnectivityService connectivity, CancellationToken ct) =>
+        group.MapGet("/", async ([FromQuery] string? organizationId, [FromQuery] Guid? connectionId, IOrchestrationConnectivityService connectivity, CancellationToken ct) =>
         {
             try
             {
-                return Results.Ok(await connectivity.TestOrchestrationConnectivityAsync(ct));
+                return Results.Ok(await connectivity.GetOrchestrationSettingsAsync(organizationId, connectionId, ct));
+            }
+            catch (PairingFailure failure)
+            {
+                return Results.Json(new { code = failure.Code, message = failure.Message }, statusCode: failure.Status);
+            }
+        });
+
+        group.MapPost("/test", async ([FromQuery] string? organizationId, [FromQuery] Guid? connectionId, IOrchestrationConnectivityService connectivity, CancellationToken ct) =>
+        {
+            try
+            {
+                var settings = await connectivity.GetResolvedOrchestrationSettingsAsync(organizationId, connectionId, ct);
+                return Results.Ok(await connectivity.TestOrchestrationConnectivityAsync(settings, ct));
             }
             catch (PairingFailure failure)
             {
@@ -36,63 +46,87 @@ public static class ExternalOrchestrationEndpoints
             .WithSummary("Tests the configured orchestration peer without submitting automation work");
 
         group.MapGet("/catalog/jobs", async (
+            [FromQuery] string? organizationId,
+            [FromQuery] Guid? connectionId,
             IOrchestrationCatalogService catalog,
             CancellationToken ct) =>
         {
             try
             {
-                var results = await catalog.ListJobsAsync(ct);
+                var results = await catalog.ListJobsAsync(organizationId, connectionId, ct);
                 return Results.Ok(results);
             }
             catch (InvalidOperationException ex)
             {
-                return Results.BadRequest(ex.Message);
+                return ex is PairingFailure failure
+                    ? Results.Json(new { code = failure.Code, message = failure.Message }, statusCode: failure.Status)
+                    : ex is IntegrationProviderConfigurationConflictException conflict
+                        ? Results.Json(new { code = conflict.Code, message = conflict.Message }, statusCode: StatusCodes.Status409Conflict)
+                        : Results.BadRequest(ex.Message);
             }
         });
 
         group.MapGet("/catalog/tenants", async (
+            [FromQuery] string? organizationId,
+            [FromQuery] Guid? connectionId,
             IOrchestrationCatalogService catalog,
             CancellationToken ct) =>
         {
             try
             {
-                var results = await catalog.ListTenantsAsync(ct);
+                var results = await catalog.ListTenantsAsync(organizationId, connectionId, ct);
                 return Results.Ok(results);
             }
             catch (InvalidOperationException ex)
             {
-                return Results.BadRequest(ex.Message);
+                return ex is PairingFailure failure
+                    ? Results.Json(new { code = failure.Code, message = failure.Message }, statusCode: failure.Status)
+                    : ex is IntegrationProviderConfigurationConflictException conflict
+                        ? Results.Json(new { code = conflict.Code, message = conflict.Message }, statusCode: StatusCodes.Status409Conflict)
+                        : Results.BadRequest(ex.Message);
             }
         });
 
         group.MapGet("/catalog/request-definitions", async (
+            [FromQuery] string? organizationId,
+            [FromQuery] Guid? connectionId,
             IOrchestrationCatalogService catalog,
             CancellationToken ct) =>
         {
             try
             {
-                var results = await catalog.ListRequestDefinitionsAsync(ct);
+                var results = await catalog.ListRequestDefinitionsAsync(organizationId, connectionId, ct);
                 return Results.Ok(results);
             }
             catch (InvalidOperationException ex)
             {
-                return Results.BadRequest(ex.Message);
+                return ex is PairingFailure failure
+                    ? Results.Json(new { code = failure.Code, message = failure.Message }, statusCode: failure.Status)
+                    : ex is IntegrationProviderConfigurationConflictException conflict
+                        ? Results.Json(new { code = conflict.Code, message = conflict.Message }, statusCode: StatusCodes.Status409Conflict)
+                        : Results.BadRequest(ex.Message);
             }
         });
 
         group.MapPost("/catalog/request-definitions", async (
             CreateOrchestrationCatalogRequestDefinitionDto dto,
+            [FromQuery] string? organizationId,
+            [FromQuery] Guid? connectionId,
             IOrchestrationCatalogService catalog,
             CancellationToken ct) =>
         {
             try
             {
-                var created = await catalog.CreateRequestDefinitionAsync(dto, ct);
+                var created = await catalog.CreateRequestDefinitionAsync(dto, organizationId, connectionId, ct);
                 return Results.Created($"/api/v1/admin/orchestration/catalog/request-definitions/{created.RequestDefinitionId}", created);
             }
             catch (InvalidOperationException ex)
             {
-                return Results.BadRequest(ex.Message);
+                return ex is PairingFailure failure
+                    ? Results.Json(new { code = failure.Code, message = failure.Message }, statusCode: failure.Status)
+                    : ex is IntegrationProviderConfigurationConflictException conflict
+                        ? Results.Json(new { code = conflict.Code, message = conflict.Message }, statusCode: StatusCodes.Status409Conflict)
+                        : Results.BadRequest(ex.Message);
             }
         });
 
@@ -127,7 +161,11 @@ public static class ExternalOrchestrationEndpoints
             }
             catch (InvalidOperationException ex)
             {
-                return Results.BadRequest(ex.Message);
+                return ex is PairingFailure failure
+                    ? Results.Json(new { code = failure.Code, message = failure.Message }, statusCode: failure.Status)
+                    : ex is IntegrationProviderConfigurationConflictException conflict
+                        ? Results.Json(new { code = conflict.Code, message = conflict.Message }, statusCode: StatusCodes.Status409Conflict)
+                        : Results.BadRequest(ex.Message);
             }
         });
 
@@ -156,7 +194,11 @@ public static class ExternalOrchestrationEndpoints
             }
             catch (InvalidOperationException ex)
             {
-                return Results.BadRequest(ex.Message);
+                return ex is PairingFailure failure
+                    ? Results.Json(new { code = failure.Code, message = failure.Message }, statusCode: failure.Status)
+                    : ex is IntegrationProviderConfigurationConflictException conflict
+                        ? Results.Json(new { code = conflict.Code, message = conflict.Message }, statusCode: StatusCodes.Status409Conflict)
+                        : Results.BadRequest(ex.Message);
             }
         });
 
@@ -191,7 +233,11 @@ public static class ExternalOrchestrationEndpoints
             }
             catch (InvalidOperationException ex)
             {
-                return Results.BadRequest(ex.Message);
+                return ex is PairingFailure failure
+                    ? Results.Json(new { code = failure.Code, message = failure.Message }, statusCode: failure.Status)
+                    : ex is IntegrationProviderConfigurationConflictException conflict
+                        ? Results.Json(new { code = conflict.Code, message = conflict.Message }, statusCode: StatusCodes.Status409Conflict)
+                        : Results.BadRequest(ex.Message);
             }
         });
 
@@ -232,7 +278,11 @@ public static class ExternalOrchestrationEndpoints
             }
             catch (InvalidOperationException ex)
             {
-                return Results.BadRequest(ex.Message);
+                return ex is PairingFailure failure
+                    ? Results.Json(new { code = failure.Code, message = failure.Message }, statusCode: failure.Status)
+                    : ex is IntegrationProviderConfigurationConflictException conflict
+                        ? Results.Json(new { code = conflict.Code, message = conflict.Message }, statusCode: StatusCodes.Status409Conflict)
+                        : Results.BadRequest(ex.Message);
             }
         });
 
@@ -248,7 +298,11 @@ public static class ExternalOrchestrationEndpoints
             }
             catch (InvalidOperationException ex)
             {
-                return Results.BadRequest(ex.Message);
+                return ex is PairingFailure failure
+                    ? Results.Json(new { code = failure.Code, message = failure.Message }, statusCode: failure.Status)
+                    : ex is IntegrationProviderConfigurationConflictException conflict
+                        ? Results.Json(new { code = conflict.Code, message = conflict.Message }, statusCode: StatusCodes.Status409Conflict)
+                        : Results.BadRequest(ex.Message);
             }
         });
 
@@ -264,7 +318,11 @@ public static class ExternalOrchestrationEndpoints
             }
             catch (InvalidOperationException ex)
             {
-                return Results.BadRequest(ex.Message);
+                return ex is PairingFailure failure
+                    ? Results.Json(new { code = failure.Code, message = failure.Message }, statusCode: failure.Status)
+                    : ex is IntegrationProviderConfigurationConflictException conflict
+                        ? Results.Json(new { code = conflict.Code, message = conflict.Message }, statusCode: StatusCodes.Status409Conflict)
+                        : Results.BadRequest(ex.Message);
             }
         });
 
@@ -280,7 +338,11 @@ public static class ExternalOrchestrationEndpoints
             }
             catch (InvalidOperationException ex)
             {
-                return Results.BadRequest(ex.Message);
+                return ex is PairingFailure failure
+                    ? Results.Json(new { code = failure.Code, message = failure.Message }, statusCode: failure.Status)
+                    : ex is IntegrationProviderConfigurationConflictException conflict
+                        ? Results.Json(new { code = conflict.Code, message = conflict.Message }, statusCode: StatusCodes.Status409Conflict)
+                        : Results.BadRequest(ex.Message);
             }
         });
 
@@ -296,7 +358,11 @@ public static class ExternalOrchestrationEndpoints
             }
             catch (InvalidOperationException ex)
             {
-                return Results.BadRequest(ex.Message);
+                return ex is PairingFailure failure
+                    ? Results.Json(new { code = failure.Code, message = failure.Message }, statusCode: failure.Status)
+                    : ex is IntegrationProviderConfigurationConflictException conflict
+                        ? Results.Json(new { code = conflict.Code, message = conflict.Message }, statusCode: StatusCodes.Status409Conflict)
+                        : Results.BadRequest(ex.Message);
             }
         });
     }

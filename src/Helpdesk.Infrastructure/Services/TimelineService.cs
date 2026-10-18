@@ -4,6 +4,7 @@ using Helpdesk.Application.Tickets;
 using Helpdesk.Application.Timeline;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.Email;
+using Helpdesk.Infrastructure.Html;
 using Helpdesk.Shared.DTOs.Worklog;
 using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
@@ -53,8 +54,6 @@ public class TimelineService(
         if (!evt.IsRetryable) throw new InvalidOperationException("This delivery requires individual outcome review.");
 
         var durable = _emailService is IDurableEmailService { QueuesDelivery: true };
-        if (durable && effectContext is null)
-            throw new InvalidOperationException("Durable timeline retry requires a delivery context.");
 
         var ccRecipients = await _db.Tickets
             .AsNoTracking()
@@ -75,10 +74,10 @@ public class TimelineService(
         await _timelineEventBus.PublishAsync(ToDto(evt, ccRecipients));
 
         var previousTimelineId = effectContext?.TimelineDeliveryId;
-        if (durable) effectContext!.TimelineDeliveryId = evt.Id;
+        if (durable && effectContext is not null) effectContext.TimelineDeliveryId = evt.Id;
         try
         {
-            var sent = await SendWorklogEmailAsync(evt, durable, ct);
+            var sent = await SendWorklogEmailAsync(evt, ct);
             if (!sent)
             {
                 evt.EmailStatus = EmailDeliveryStatus.Failed;
@@ -92,12 +91,19 @@ public class TimelineService(
                 return;
 
             evt.EmailStatus = EmailDeliveryStatus.Delivered;
+            evt.MessageText = "Email accepted by provider.";
             evt.RetryError = null;
             await _db.SaveChangesAsync(ct);
             await _timelineEventBus.PublishAsync(ToDto(evt, ccRecipients));
         }
         catch (Exception ex)
         {
+            if (_emailService is IDurableEmailService { QueuesDelivery: true } durableEmail)
+            {
+                var ownsHistory = await durableEmail.OwnsDeliveryHistoryAsync(evt.Id, CancellationToken.None);
+                if (ownsHistory is true) return;
+                if (ownsHistory is null) throw;
+            }
             evt.EmailStatus = EmailDeliveryStatus.Failed;
             evt.RetryError = ex.Message;
             await _db.SaveChangesAsync(ct);
@@ -106,7 +112,7 @@ public class TimelineService(
         }
         finally
         {
-            if (durable) effectContext!.TimelineDeliveryId = previousTimelineId;
+            if (durable && effectContext is not null) effectContext.TimelineDeliveryId = previousTimelineId;
         }
     }
 
@@ -156,7 +162,6 @@ public class TimelineService(
 
     private async Task<bool> SendWorklogEmailAsync(
         TicketTimelineEvent evt,
-        bool suppressTimeline,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(evt.EmailRecipient) ||
@@ -170,6 +175,26 @@ public class TimelineService(
             .FirstOrDefaultAsync(x => x.Id == evt.TicketId, ct);
         if (ticket is null)
             throw new InvalidOperationException("Ticket not found for retry.");
+
+        var updateHtml = evt.MessageHtml;
+        string? updateText;
+        if (!string.IsNullOrWhiteSpace(evt.WorkLogId))
+        {
+            var worklog = await _db.WorkLogs.AsNoTracking().SingleOrDefaultAsync(x =>
+                x.Id == evt.WorkLogId && x.TicketId == evt.TicketId && !x.IsInternalNote, ct);
+            if (worklog is null)
+                throw new InvalidOperationException("The original public worklog is unavailable for this ticket.");
+            updateHtml = worklog.NotesHtml;
+            updateText = worklog.NotesText;
+        }
+        else if (string.IsNullOrWhiteSpace(updateHtml))
+        {
+            // A delivery status message is not the original customer update. Historical
+            // content can only be replayed from an explicit snapshot or exact worklog ID.
+            throw new InvalidOperationException("Original email content is unavailable; individual review is required.");
+        }
+        else
+            updateText = new HtmlToPlainTextConverter().Convert(updateHtml);
 
         var template = await _db.EmailTemplates
             .AsNoTracking()
@@ -197,8 +222,8 @@ public class TimelineService(
             UserName = customer?.Name ?? "Customer",
             TicketRef = ticketRef,
             TicketLink = BuildSignedPublicTicketLink(publicUrl, ticketRef, recipient),
-            UpdateMessageHtml = evt.MessageHtml ?? string.Empty,
-            UpdateMessageText = evt.MessageText ?? string.Empty,
+            UpdateMessageHtml = updateHtml ?? string.Empty,
+            UpdateMessageText = updateText ?? string.Empty,
             LayoutHtml = layout?.HtmlContent ?? string.Empty,
             BrandName = branding.BrandName,
             Brand = branding.TemplateBrand,
@@ -212,16 +237,16 @@ public class TimelineService(
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        return await _emailService.SendEmailAsync(
-            new[] { recipient },
-            subject,
-            body,
-            ccFinal.Count > 0 ? ccFinal : null,
-            ct,
-            evt.TicketId,
-            fromName: branding.FromName,
-            replyTo: branding.ReplyTo,
-            suppressTimeline: suppressTimeline);
+        return await _emailService.SendEmailAsync(new EmailSendRequest([recipient], subject, body)
+        {
+            Cc = ccFinal.ToArray(),
+            TicketId = evt.TicketId,
+            FromName = branding.FromName,
+            ReplyTo = branding.ReplyTo,
+            SuppressTimeline = true,
+            TimelineDeliveryId = evt.Id,
+            WorkLogId = evt.WorkLogId
+        }, ct);
     }
 
     private static TicketTimelineEventDto ToDto(TicketTimelineEvent evt, IReadOnlyCollection<string>? ccRecipients = null)

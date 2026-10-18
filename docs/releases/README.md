@@ -2,6 +2,19 @@
 
 RatelDesk has one repository-owned release line. The root `Directory.Build.props` is the source of truth for `VersionPrefix` and `VersionSuffix`. Applications and release outputs inherit those values. Prereleases remain immutable.
 
+## 0.1.2-beta.6 — durable delivery and MCP acceptance repairs
+
+[Release notes](../release-notes/0.1.2-beta.6.md) cover canonical mail delivery
+history, actual HTTP execution identity, AI callback binding and scoped
+notification aggregation. The [individual acceptance register](../implementation/0.1.2-beta.6-acceptance/README.md)
+retains all 59 blockers and the full fresh campaign. Delivery
+[#226](https://github.com/BostonTechnologies/RatelDesk/issues/226) requires a
+reviewed merge, the five normal PR/main gates and verified immutable public
+distribution. [#219](https://github.com/BostonTechnologies/RatelDesk/issues/219)
+remains open for independently verified deployed acceptance. Release publication
+does not populate live receipts, confer instance authority, change saved mail
+controls or move the stable channel.
+
 ## 0.1.2-beta.5 — MCP campaign repairs
 
 [Release notes](../release-notes/0.1.2-beta.5.md) cover the general notification
@@ -344,10 +357,13 @@ workflow alone does not prove which checks are enforced there.
 
 Incident/service acceptance requires Docker and actual authenticated HTTP,
 SQLite/PostgreSQL and golden-contract tests. Its TRX validator rejects absent,
-failed or skipped selected results and requires eight named test classes, with
+failed or skipped selected results and requires thirteen named test classes, with
 actual `postgres: true` and `postgres: false` cases for receiver, service identity,
 managed orchestration callback, pairing service/upgrade and service identity
-migration coverage. Do not substitute an empty pass or a skipped provider run.
+migration coverage. Beta.6 also requires both providers for canonical worklog
+mail, invocation-bound AI callbacks and dispatch races, saved orchestration
+connection selection, and notification summary aggregation. Do not
+substitute an empty pass or a skipped provider run.
 
 Deep Playwright/mailbox/image/archive/Compose acceptance is an existing explicit
 `workflow_dispatch` option (`deep_acceptance=true`); skipped deep jobs on ordinary

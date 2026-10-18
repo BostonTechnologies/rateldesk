@@ -7,10 +7,10 @@ credential requirements, authority, identifiers and prerequisites. The API
 resolves live access; discovery does not grant permission. These MCP contracts
 apply to stdio and HTTP transports against the same product version; the
 [CLI guide](../integrations/cli-stdio.md) describes command-line syntax.
-The [inventory delta](mcp-operation-inventory-delta.json) maps all 154 beta.4
-operations to the retained current operations; no operation names were added or
-removed. Updated routes/contracts and the new metadata remain distinct from
-runtime acceptance evidence.
+The [inventory delta](mcp-operation-inventory-delta.json) retains all 154 beta.4
+operations and records the additive beta.6 `helpdesk_auth.access` operation.
+Updated routes/contracts and the new metadata remain distinct from runtime
+acceptance evidence.
 
 ## Requests, previews and effects
 
@@ -48,6 +48,18 @@ external I/O and require confirmation even though they submit no automation job.
 Local non-secret configuration writes also depend on the transport's persisted
 configuration surface.
 
+An AI callback event ID belongs to its stored invocation, organization, ticket
+and correlation. Reusing it for a different binding or different recorded
+status/severity/message/metadata/artifacts is rejected. A matching retry retains
+the original event and timestamp without rewriting the invocation's current
+run reference; run reference is not stored as an event snapshot. Completed, Failed and Cancelled
+invocations reject new callback events; retries of already stored matching
+events do not reopen them. A delayed dispatch failure also preserves the stored
+terminal result while retaining delivery attempts and failure health. These
+[source repairs](https://github.com/BostonTechnologies/RatelDesk/issues/234)
+retain the exact AI authentication scheme and token expiry checks. Synthetic
+provider regressions do not establish deployed provider acceptance.
+
 ## Persistence and uncertainty
 
 Incident state updates reject undefined states before changing records,
@@ -80,6 +92,15 @@ tenant and binding. Manual-task retry is unsupported; a zero updated count is a
 no-op. Bulk mutations with `updated:0` report `status:"no_op"` and no affected
 IDs, with eligibility/readback guidance. Preserve these distinctions when
 reporting campaign results.
+
+Orchestration settings, jobs, tenants, request-definition reads and the confirmed
+connectivity test accept optional `request.organizationId` and
+`request.connectionId`. These select an existing eligible saved automation
+mapping; the API validates its organization and connection capability. Omission
+retains the existing unique-connection resolver. Invalid, ambiguous or mismatched
+selection cannot authorize a different peer or tenant. The binding-inventory
+operation retains its existing request contract. See
+[issue #231](https://github.com/BostonTechnologies/RatelDesk/issues/231).
 
 ## Notification summaries and persisted effort
 
@@ -140,6 +161,19 @@ Account state, expiry, revocation, resource binding, permissions and organizatio
 scope remain enforced. An unavailable backend or denied request never selects a
 different target or authentication mode. See [HTTP configuration](../mcp-http/configuration.md)
 and [access control](../security/rbac.md).
+
+Live capabilities, schema and status resources include `configuredIdentity`,
+which identifies the active host modes and shared/request-bound execution
+boundary without asserting verified authority. `helpdesk_auth.access` is an
+additive read of the current API execution principal at `/api/v1/auth/me` in every
+mode. In external HTTP mode it reports the separately configured downstream
+principal, not the ingress OAuth caller. Existing `helpdesk_auth.status` keeps
+its original mode-specific behavior and remains the only operation authorized
+for a temporary setup verifier. The beta.6 catalog contains 28 tools and 155
+operations, retaining the complete 154-operation historical corpus. Follow the
+[external authority provisioning procedure](../mcp-http/configuration.md#provision-an-explicit-external-authority)
+for actual administrator/AI identity prerequisites and their independent
+expiry, revocation and isolation evidence.
 
 `tenantId` for branding is a positive integer obtained from the tenant lookup;
 an organization ID is a different identifier. Branding persistence looks up that

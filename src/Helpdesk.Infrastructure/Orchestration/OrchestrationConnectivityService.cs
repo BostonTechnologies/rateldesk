@@ -20,9 +20,10 @@ public sealed class OrchestrationConnectivityService(
     private readonly IOrchestrationProtectedDiagnosticsClient? _protectedDiagnostics = protectedDiagnostics;
 
     public async Task<OrchestrationConnectivitySettingsDto> GetOrchestrationSettingsAsync(CancellationToken cancellationToken = default)
-        => _providerSettings is not null
-            ? await _providerSettings.GetOrchestratorSettingsAsync(cancellationToken)
-            : ToDto(new OrchestrationResolvedSettings());
+        => ToDto(await GetResolvedOrchestrationSettingsAsync(cancellationToken));
+
+    public async Task<OrchestrationConnectivitySettingsDto> GetOrchestrationSettingsAsync(string? organizationId, Guid? connectionId, CancellationToken cancellationToken = default)
+        => ToDto(await GetResolvedOrchestrationSettingsAsync(organizationId, connectionId, cancellationToken));
 
     public async Task<OrchestrationConnectivityTestResultDto> TestOrchestrationConnectivityAsync(CancellationToken cancellationToken = default)
     {
@@ -232,7 +233,11 @@ public sealed class OrchestrationConnectivityService(
             HealthPath = settings.HealthPath,
             IngestPath = settings.IngestPath,
             CatalogPath = settings.CatalogPath,
-            ClientId = settings.ClientId
+            ClientId = settings.ClientId,
+            ProfileFingerprint = settings.ProfileFingerprint,
+            PeerInstanceId = settings.Pairing?.PeerInstanceId,
+            PeerTenantId = settings.Pairing?.PeerTenantId,
+            LocalTenantId = settings.Pairing?.LocalTenantId
         };
     }
 

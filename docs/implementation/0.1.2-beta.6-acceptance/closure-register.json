@@ -1,0 +1,4615 @@
+{
+  "schemaVersion": 1,
+  "release": "0.1.2-beta.6",
+  "productionReadiness": "NO",
+  "acceptanceIssue": "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+  "sourceObservations": [
+    {
+      "id": "B6-SRC-AI-01",
+      "classification": "source_review",
+      "historicalReproducedFailure": false,
+      "title": "Bind duplicate callback event handling to the actual invocation",
+      "issue": "https://github.com/BostonTechnologies/RatelDesk/issues/234",
+      "acceptanceObligations": [
+        "B6-B01",
+        "S3"
+      ]
+    },
+    {
+      "id": "B6-SRC-AI-02",
+      "classification": "source_review",
+      "historicalReproducedFailure": false,
+      "title": "Prevent an out-of-order callback from regressing a terminal invocation",
+      "issue": "https://github.com/BostonTechnologies/RatelDesk/issues/234",
+      "acceptanceObligations": [
+        "B6-B01",
+        "S3"
+      ]
+    }
+  ],
+  "historicalBaseline": {
+    "version": "0.1.2-beta.5",
+    "sourceRevision": "07ec0a48f4b24656f56eac265e38ac24c687ffa4",
+    "toolCount": 28,
+    "operationCount": 154,
+    "passedOperationsToRerun": 91,
+    "failedOperationsToRerun": 2,
+    "blockedOperationsToExecute": 59,
+    "intentionalHttpRestrictions": [
+      "helpdesk_config.set",
+      "helpdesk_config.unset"
+    ]
+  },
+  "dependencies": [
+    {
+      "id": "original_case_corpus",
+      "requirement": "Original immutable case corpus, beta.5 reproduction evidence and historical results; absent from this public template.",
+      "state": "MISSING",
+      "owner": null,
+      "acknowledgement": null,
+      "demonstratedAt": null,
+      "evidence": null
+    },
+    {
+      "id": "administrator_http_identity",
+      "requirement": "Supported bounded HTTP identity with actual required administrator authority and documented issuance, expiry and revocation.",
+      "state": "PENDING",
+      "owner": null,
+      "acknowledgement": null,
+      "demonstratedAt": null,
+      "evidence": null
+    },
+    {
+      "id": "provider_configuration",
+      "requirement": "Actual enabled identity/provider mode and selected orchestration peer; no authentication or target fallback.",
+      "state": "PENDING",
+      "owner": null,
+      "acknowledgement": null,
+      "demonstratedAt": null,
+      "evidence": null
+    },
+    {
+      "id": "ai_identity_and_invocation",
+      "requirement": "Exact AuthentikAiAgent scheme, issuer/audience/groups and a real invocation binding.",
+      "state": "PENDING",
+      "owner": null,
+      "acknowledgement": null,
+      "demonstratedAt": null,
+      "evidence": null
+    },
+    {
+      "id": "eligible_support_caller",
+      "requirement": "Actual eligible caller, approved support membership and organization-restricted coverage.",
+      "state": "PENDING",
+      "owner": null,
+      "acknowledgement": null,
+      "demonstratedAt": null,
+      "evidence": null
+    },
+    {
+      "id": "linked_customer_identity",
+      "requirement": "Authenticated enabled linked customer, owned requests and eligible form audience.",
+      "state": "PENDING",
+      "owner": null,
+      "acknowledgement": null,
+      "demonstratedAt": null,
+      "evidence": null
+    },
+    {
+      "id": "automation_peer_tenant_binding",
+      "requirement": "Failed automated tasks plus peer, organization tenant linkage, binding and callback identity.",
+      "state": "PENDING",
+      "owner": null,
+      "acknowledgement": null,
+      "demonstratedAt": null,
+      "evidence": null
+    },
+    {
+      "id": "isolated_mail_capture",
+      "requirement": "Isolated sender and independent capture receipts; preserve paused worker, disabled saved sender and unrelated queues.",
+      "state": "PENDING",
+      "owner": null,
+      "acknowledgement": null,
+      "demonstratedAt": null,
+      "evidence": null
+    },
+    {
+      "id": "distinct_actors_and_approver",
+      "requirement": "Distinct notification actors and actual designated change approver.",
+      "state": "PENDING",
+      "owner": null,
+      "acknowledgement": null,
+      "demonstratedAt": null,
+      "evidence": null
+    },
+    {
+      "id": "historical_timeline_snapshots",
+      "requirement": "Signed public history and controlled legacy transactional snapshots with exact provenance.",
+      "state": "PENDING",
+      "owner": null,
+      "acknowledgement": null,
+      "demonstratedAt": null,
+      "evidence": null
+    },
+    {
+      "id": "credential_boundary_fixtures",
+      "requirement": "Scoped, foreign-organization, expired, separately disposable revoked and fresh status-only credentials.",
+      "state": "PENDING",
+      "owner": null,
+      "acknowledgement": null,
+      "demonstratedAt": null,
+      "evidence": null
+    },
+    {
+      "id": "prospective_latency_budget",
+      "requirement": "Prospectively agreed notification-summary latency workload, metric and budget.",
+      "state": "PENDING",
+      "owner": null,
+      "acknowledgement": null,
+      "demonstratedAt": null,
+      "evidence": null
+    }
+  ],
+  "obligations": [
+    {
+      "id": "B6-B01",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_ai_assistant.report",
+      "title": "helpdesk_ai_assistant.report",
+      "group": "exact_ai_identity",
+      "dependencies": [
+        "ai_identity_and_invocation",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/234"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B02",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_connectivity.orchestration",
+      "title": "helpdesk_connectivity.orchestration",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration",
+        "automation_peer_tenant_binding"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B03",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_connectivity.orchestration_jobs",
+      "title": "helpdesk_connectivity.orchestration_jobs",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration",
+        "automation_peer_tenant_binding"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B04",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_connectivity.orchestration_tenants",
+      "title": "helpdesk_connectivity.orchestration_tenants",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration",
+        "automation_peer_tenant_binding"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B05",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_connectivity.orchestration_request_definitions",
+      "title": "helpdesk_connectivity.orchestration_request_definitions",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration",
+        "automation_peer_tenant_binding"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B06",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_connectivity.orchestration_bindings",
+      "title": "helpdesk_connectivity.orchestration_bindings",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration",
+        "automation_peer_tenant_binding"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B07",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_connectivity.orchestration_test",
+      "title": "helpdesk_connectivity.orchestration_test",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration",
+        "automation_peer_tenant_binding"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B08",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_incidents.peek",
+      "title": "helpdesk_incidents.peek",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B09",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_incidents.assign_self",
+      "title": "helpdesk_incidents.assign_self",
+      "group": "eligible_self_assignment",
+      "dependencies": [
+        "eligible_support_caller"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/229"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B10",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_search.users",
+      "title": "helpdesk_search.users",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B11",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_search.customers",
+      "title": "helpdesk_search.customers",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B12",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_search.organizations",
+      "title": "helpdesk_search.organizations",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B13",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_requests.assign_self",
+      "title": "helpdesk_requests.assign_self",
+      "group": "eligible_self_assignment",
+      "dependencies": [
+        "eligible_support_caller"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/229"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B14",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_customers.list",
+      "title": "helpdesk_customers.list",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B15",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_customers.get",
+      "title": "helpdesk_customers.get",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B16",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_customers.auth_status",
+      "title": "helpdesk_customers.auth_status",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B17",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_admin_mutations.create_organization",
+      "title": "helpdesk_admin_mutations.create_organization",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B18",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_admin_mutations.update_organization",
+      "title": "helpdesk_admin_mutations.update_organization",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B19",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_admin_mutations.delete_organization",
+      "title": "helpdesk_admin_mutations.delete_organization",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B20",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_admin_mutations.create_customer",
+      "title": "helpdesk_admin_mutations.create_customer",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B21",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_admin_mutations.update_customer",
+      "title": "helpdesk_admin_mutations.update_customer",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B22",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_admin_mutations.delete_customer",
+      "title": "helpdesk_admin_mutations.delete_customer",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B23",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_admin_mutations.create_user",
+      "title": "helpdesk_admin_mutations.create_user",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B24",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_admin_mutations.update_user",
+      "title": "helpdesk_admin_mutations.update_user",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B25",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_admin_mutations.delete_user",
+      "title": "helpdesk_admin_mutations.delete_user",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B26",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_admin_mutations.create_category",
+      "title": "helpdesk_admin_mutations.create_category",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B27",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_admin_mutations.update_category",
+      "title": "helpdesk_admin_mutations.update_category",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B28",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_admin_mutations.delete_category",
+      "title": "helpdesk_admin_mutations.delete_category",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B29",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_admin_mutations.create_service",
+      "title": "helpdesk_admin_mutations.create_service",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B30",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_admin_mutations.update_service",
+      "title": "helpdesk_admin_mutations.update_service",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B31",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_admin_mutations.delete_service",
+      "title": "helpdesk_admin_mutations.delete_service",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B32",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_admin_mutations.create_request_form",
+      "title": "helpdesk_admin_mutations.create_request_form",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B33",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_admin_mutations.create_service_request_form",
+      "title": "helpdesk_admin_mutations.create_service_request_form",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B34",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_admin_mutations.provision_user",
+      "title": "helpdesk_admin_mutations.provision_user",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration",
+        "linked_customer_identity"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B35",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_admin_mutations.update_organization_branding",
+      "title": "helpdesk_admin_mutations.update_organization_branding",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B36",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_admin_mutations.update_request_form",
+      "title": "helpdesk_admin_mutations.update_request_form",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B37",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_admin_mutations.delete_request_form",
+      "title": "helpdesk_admin_mutations.delete_request_form",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B38",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_admin_mutations.customer_invite",
+      "title": "helpdesk_admin_mutations.customer_invite",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration",
+        "isolated_mail_capture"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B39",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_admin_mutations.customer_resend_invite",
+      "title": "helpdesk_admin_mutations.customer_resend_invite",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration",
+        "isolated_mail_capture"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B40",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_admin_mutations.customer_disable_login",
+      "title": "helpdesk_admin_mutations.customer_disable_login",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B41",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_admin_mutations.customer_sync_authentik",
+      "title": "helpdesk_admin_mutations.customer_sync_authentik",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B42",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_request_tasks.retry",
+      "title": "helpdesk_request_tasks.retry",
+      "group": "eligible_automation_retry",
+      "dependencies": [
+        "automation_peer_tenant_binding",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/231"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B43",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_request_tasks.bulk_retry",
+      "title": "helpdesk_request_tasks.bulk_retry",
+      "group": "eligible_automation_retry",
+      "dependencies": [
+        "automation_peer_tenant_binding",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/231"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B44",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_self_service.requests",
+      "title": "helpdesk_self_service.requests",
+      "group": "linked_customer_identity",
+      "dependencies": [
+        "linked_customer_identity"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/230"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B45",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_self_service.get_request",
+      "title": "helpdesk_self_service.get_request",
+      "group": "linked_customer_identity",
+      "dependencies": [
+        "linked_customer_identity"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/230"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B46",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_request_forms.by_service",
+      "title": "helpdesk_request_forms.by_service",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B47",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_changes.bulk_state",
+      "title": "helpdesk_changes.bulk_state",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B48",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_changes.assign",
+      "title": "helpdesk_changes.assign",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B49",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_changes.assign_self",
+      "title": "helpdesk_changes.assign_self",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "preview": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B50",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_users.list",
+      "title": "helpdesk_users.list",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B51",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_users.get",
+      "title": "helpdesk_users.get",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B52",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_users.by_email",
+      "title": "helpdesk_users.by_email",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B53",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_logs.search",
+      "title": "helpdesk_logs.search",
+      "group": "exact_ai_identity",
+      "dependencies": [
+        "ai_identity_and_invocation",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/234"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B54",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_organizations.list",
+      "title": "helpdesk_organizations.list",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B55",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_organizations.get",
+      "title": "helpdesk_organizations.get",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B56",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_organizations.tenants",
+      "title": "helpdesk_organizations.tenants",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B57",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_organizations.tenant_lookup",
+      "title": "helpdesk_organizations.tenant_lookup",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B58",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_organizations.change_participants",
+      "title": "helpdesk_organizations.change_participants",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-B59",
+      "kind": "historical_blocker",
+      "operation": "helpdesk_services.list",
+      "title": "helpdesk_services.list",
+      "group": "instance_global_authority",
+      "dependencies": [
+        "administrator_http_identity",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "RD-B5-MCP-001",
+      "kind": "release_defect",
+      "operation": null,
+      "title": "Durable worklog queue acceptance must not claim email delivery",
+      "group": "mail_truthfulness",
+      "dependencies": [
+        "isolated_mail_capture",
+        "original_case_corpus"
+      ],
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/227"
+      ],
+      "cases": {
+        "manual_failure_missing_sender": "positive",
+        "manual_failure_disabled_sender": "positive",
+        "paused_worker": "positive",
+        "internal_note_no_mail": "positive",
+        "public_note_closure_workflow": "positive",
+        "captured_success": "positive",
+        "captured_failure": "positive",
+        "captured_partial": "positive",
+        "captured_uncertain": "positive",
+        "duplicate": "positive",
+        "cancellation": "positive",
+        "retry": "positive",
+        "exact_event_effect_binding": "positive",
+        "sqlite_regression": "implementation",
+        "postgresql_regression": "implementation"
+      },
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "manual_failure_missing_sender": null,
+        "manual_failure_disabled_sender": null,
+        "paused_worker": null,
+        "internal_note_no_mail": null,
+        "public_note_closure_workflow": null,
+        "captured_success": null,
+        "captured_failure": null,
+        "captured_partial": null,
+        "captured_uncertain": null,
+        "duplicate": null,
+        "cancellation": null,
+        "retry": null,
+        "exact_event_effect_binding": null,
+        "sqlite_regression": null,
+        "postgresql_regression": null
+      },
+      "closure": null
+    },
+    {
+      "id": "S1",
+      "kind": "mandatory_scenario",
+      "operation": null,
+      "title": "Captured mail lifecycle",
+      "group": "S1",
+      "dependencies": [
+        "isolated_mail_capture"
+      ],
+      "cases": {
+        "invitation": "positive",
+        "submission": "positive",
+        "reply": "positive",
+        "forward": "positive",
+        "retry": "positive",
+        "cancellation": "positive",
+        "partial_outcome": "positive",
+        "uncertain_outcome": "positive"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/227",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/232"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "invitation": null,
+        "submission": null,
+        "reply": null,
+        "forward": null,
+        "retry": null,
+        "cancellation": null,
+        "partial_outcome": null,
+        "uncertain_outcome": null
+      },
+      "closure": null
+    },
+    {
+      "id": "S2",
+      "kind": "mandatory_scenario",
+      "operation": null,
+      "title": "Notification actor isolation and actual change approval",
+      "group": "S2",
+      "dependencies": [
+        "distinct_actors_and_approver"
+      ],
+      "cases": {
+        "complete_authorized_populations": "positive",
+        "distinct_actors": "positive",
+        "cross_actor_isolation": "expected_negative",
+        "designated_approver_branches": "positive"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/211",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/222",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/232"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "complete_authorized_populations": null,
+        "distinct_actors": null,
+        "cross_actor_isolation": null,
+        "designated_approver_branches": null
+      },
+      "closure": null
+    },
+    {
+      "id": "S3",
+      "kind": "mandatory_scenario",
+      "operation": null,
+      "title": "Genuine orchestration and AI lifecycle",
+      "group": "S3",
+      "dependencies": [
+        "automation_peer_tenant_binding",
+        "ai_identity_and_invocation"
+      ],
+      "cases": {
+        "dispatch_and_callback": "positive",
+        "bound_ai_invocation": "positive",
+        "duplicate": "positive",
+        "out_of_order": "positive",
+        "wrong_binding": "expected_negative",
+        "timeout_recovery": "positive",
+        "parent_workflow_effects": "positive",
+        "cross_invocation_event_collision": "expected_negative",
+        "terminal_state_regression": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/231",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/234"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "dispatch_and_callback": null,
+        "bound_ai_invocation": null,
+        "duplicate": null,
+        "out_of_order": null,
+        "wrong_binding": null,
+        "timeout_recovery": null,
+        "parent_workflow_effects": null,
+        "cross_invocation_event_collision": null,
+        "terminal_state_regression": null
+      },
+      "closure": null
+    },
+    {
+      "id": "S4",
+      "kind": "mandatory_scenario",
+      "operation": null,
+      "title": "Exact historical timeline recovery",
+      "group": "S4",
+      "dependencies": [
+        "historical_timeline_snapshots"
+      ],
+      "cases": {
+        "signed_public_history": "positive",
+        "legacy_exact_recovery": "positive",
+        "legacy_unavailable_is_explicit": "positive",
+        "ambiguous_provenance_rejected": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/224",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/232"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "signed_public_history": null,
+        "legacy_exact_recovery": null,
+        "legacy_unavailable_is_explicit": null,
+        "ambiguous_provenance_rejected": null
+      },
+      "closure": null
+    },
+    {
+      "id": "S5",
+      "kind": "mandatory_scenario",
+      "operation": null,
+      "title": "Credential boundaries, reload, resumability and independent checks",
+      "group": "S5",
+      "dependencies": [
+        "credential_boundary_fixtures"
+      ],
+      "cases": {
+        "scoped_positive": "positive",
+        "foreign_organization": "expected_negative",
+        "expired": "expected_negative",
+        "separately_disposable_revoked": "expected_negative",
+        "fresh_status_only": "positive",
+        "fresh_process_profile_reload": "positive",
+        "resumability": "positive",
+        "independent_api_cli_ui_storage": "positive"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/232"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "scoped_positive": null,
+        "foreign_organization": null,
+        "expired": null,
+        "separately_disposable_revoked": null,
+        "fresh_status_only": null,
+        "fresh_process_profile_reload": null,
+        "resumability": null,
+        "independent_api_cli_ui_storage": null
+      },
+      "closure": null
+    },
+    {
+      "id": "RD-MCP-001",
+      "kind": "historical_finding",
+      "operation": null,
+      "title": "Reject undefined incident states atomically",
+      "group": "original_eleven_families",
+      "dependencies": [
+        "original_case_corpus"
+      ],
+      "cases": {
+        "fresh_family_regression": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/207",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "fresh_family_regression": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "RD-MCP-002",
+      "kind": "historical_finding",
+      "operation": null,
+      "title": "Preserve flat task lifecycle responses and uncertain-outcome reconciliation",
+      "group": "original_eleven_families",
+      "dependencies": [
+        "original_case_corpus"
+      ],
+      "cases": {
+        "fresh_family_regression": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/208",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "fresh_family_regression": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "RD-MCP-003",
+      "kind": "historical_finding",
+      "operation": null,
+      "title": "Preserve query aliases, filtered counts and paging in all four ticket lists",
+      "group": "original_eleven_families",
+      "dependencies": [
+        "original_case_corpus"
+      ],
+      "cases": {
+        "fresh_family_regression": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/209",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "fresh_family_regression": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "RD-MCP-004",
+      "kind": "historical_finding",
+      "operation": null,
+      "title": "Preserve named task priorities and atomic invalid-edit rejection",
+      "group": "original_eleven_families",
+      "dependencies": [
+        "original_case_corpus"
+      ],
+      "cases": {
+        "fresh_family_regression": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/210",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "fresh_family_regression": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "RD-MCP-005",
+      "kind": "historical_finding",
+      "operation": null,
+      "title": "Preserve governed change state, approval, edit-lock and lifecycle routes",
+      "group": "original_eleven_families",
+      "dependencies": [
+        "original_case_corpus"
+      ],
+      "cases": {
+        "fresh_family_regression": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/211",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "fresh_family_regression": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "RD-MCP-006",
+      "kind": "historical_finding",
+      "operation": null,
+      "title": "Preserve customer authentication routes, provider authority and delivery evidence",
+      "group": "original_eleven_families",
+      "dependencies": [
+        "original_case_corpus"
+      ],
+      "cases": {
+        "fresh_family_regression": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/212",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "fresh_family_regression": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "RD-MCP-007",
+      "kind": "historical_finding",
+      "operation": null,
+      "title": "Preserve executable schemas, previews and autonomous AI report binding",
+      "group": "original_eleven_families",
+      "dependencies": [
+        "original_case_corpus"
+      ],
+      "cases": {
+        "fresh_family_regression": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/213",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "fresh_family_regression": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "RD-MCP-008",
+      "kind": "historical_finding",
+      "operation": null,
+      "title": "Reject unsupported ticket edit fields atomically",
+      "group": "original_eleven_families",
+      "dependencies": [
+        "original_case_corpus"
+      ],
+      "cases": {
+        "fresh_family_regression": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/214",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "fresh_family_regression": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "RD-MCP-009",
+      "kind": "historical_finding",
+      "operation": null,
+      "title": "Preserve four fixed raw reads without arbitrary raw access",
+      "group": "original_eleven_families",
+      "dependencies": [
+        "original_case_corpus"
+      ],
+      "cases": {
+        "fresh_family_regression": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/215",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "fresh_family_regression": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "RD-MCP-010",
+      "kind": "historical_finding",
+      "operation": null,
+      "title": "Preserve mail dialog cancellation, reasons, evidence and queue behavior",
+      "group": "original_eleven_families",
+      "dependencies": [
+        "original_case_corpus"
+      ],
+      "cases": {
+        "fresh_family_regression": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/216",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "fresh_family_regression": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "RD-MCP-011",
+      "kind": "historical_finding",
+      "operation": null,
+      "title": "Preserve authority, transport, identifier and prerequisite contracts",
+      "group": "original_eleven_families",
+      "dependencies": [
+        "original_case_corpus"
+      ],
+      "cases": {
+        "fresh_family_regression": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/217",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "fresh_family_regression": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-R01",
+      "kind": "beta4_failed_operation",
+      "operation": "helpdesk_notifications.summary",
+      "title": "Rerun repaired helpdesk_notifications.summary",
+      "group": "beta4_failures_first",
+      "dependencies": [
+        "original_case_corpus"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/222",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-R02",
+      "kind": "beta4_failed_operation",
+      "operation": "helpdesk_incidents.list",
+      "title": "Rerun repaired helpdesk_incidents.list",
+      "group": "beta4_failures_first",
+      "dependencies": [
+        "original_case_corpus"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/223",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-R03",
+      "kind": "beta4_failed_operation",
+      "operation": "helpdesk_requests.list",
+      "title": "Rerun repaired helpdesk_requests.list",
+      "group": "beta4_failures_first",
+      "dependencies": [
+        "original_case_corpus"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/223",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-R04",
+      "kind": "beta4_failed_operation",
+      "operation": "helpdesk_changes.list",
+      "title": "Rerun repaired helpdesk_changes.list",
+      "group": "beta4_failures_first",
+      "dependencies": [
+        "original_case_corpus"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/223",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-R05",
+      "kind": "beta4_failed_operation",
+      "operation": "helpdesk_request_tasks.list",
+      "title": "Rerun repaired helpdesk_request_tasks.list",
+      "group": "beta4_failures_first",
+      "dependencies": [
+        "original_case_corpus"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/223",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-R06",
+      "kind": "beta4_failed_operation",
+      "operation": "helpdesk_incidents.timeline",
+      "title": "Rerun repaired helpdesk_incidents.timeline",
+      "group": "beta4_failures_first",
+      "dependencies": [
+        "original_case_corpus"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/224",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-R07",
+      "kind": "beta4_failed_operation",
+      "operation": "helpdesk_requests.timeline",
+      "title": "Rerun repaired helpdesk_requests.timeline",
+      "group": "beta4_failures_first",
+      "dependencies": [
+        "original_case_corpus"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/224",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-R08",
+      "kind": "beta4_failed_operation",
+      "operation": "helpdesk_changes.timeline",
+      "title": "Rerun repaired helpdesk_changes.timeline",
+      "group": "beta4_failures_first",
+      "dependencies": [
+        "original_case_corpus"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/224",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null
+      },
+      "closure": null
+    },
+    {
+      "id": "RD-B5-OBS-001",
+      "kind": "performance_observation",
+      "operation": "helpdesk_notifications.summary",
+      "title": "Profile summary latency against a prospectively agreed budget while preserving correct counts",
+      "group": "prospective_performance",
+      "dependencies": [
+        "prospective_latency_budget"
+      ],
+      "cases": {
+        "profile_and_budget": "positive",
+        "count_correctness": "positive"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/233"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "profile_and_budget": null,
+        "count_correctness": null
+      },
+      "closure": null
+    },
+    {
+      "id": "B6-N01",
+      "kind": "new_operation",
+      "operation": "helpdesk_auth.access",
+      "title": "Verify the actual configured HTTP execution identity and access",
+      "group": "beta6_catalog_addition",
+      "dependencies": [
+        "credential_boundary_fixtures",
+        "provider_configuration"
+      ],
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "setup_verification_denied": "expected_negative",
+        "scoped_admin_owner_stays_scoped": "positive",
+        "foreign_resource": "expected_negative",
+        "expired": "expected_negative",
+        "revoked": "expected_negative",
+        "disabled_account": "expected_negative",
+        "external_shared_principal_binding": "positive",
+        "external_admin_without_ai_scheme": "positive",
+        "discovery_metadata_is_not_verified_authority": "positive"
+      },
+      "issues": [
+        "https://github.com/BostonTechnologies/RatelDesk/issues/217",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/219",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/226",
+        "https://github.com/BostonTechnologies/RatelDesk/issues/228"
+      ],
+      "state": "OPEN",
+      "workStartedAt": null,
+      "owners": {
+        "accountable": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "implementation": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "prerequisite": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        },
+        "verifier": {
+          "name": null,
+          "acknowledgedAt": null,
+          "acknowledgement": null
+        }
+      },
+      "implementationEvidence": [],
+      "caseEvidence": {
+        "positive": null,
+        "isolation": null,
+        "setup_verification_denied": null,
+        "scoped_admin_owner_stays_scoped": null,
+        "foreign_resource": null,
+        "expired": null,
+        "revoked": null,
+        "disabled_account": null,
+        "external_shared_principal_binding": null,
+        "external_admin_without_ai_scheme": null,
+        "discovery_metadata_is_not_verified_authority": null
+      },
+      "closure": null
+    }
+  ],
+  "campaign": {
+    "id": null,
+    "startedAt": null,
+    "completedAt": null,
+    "sourceRevision": null,
+    "releaseManifest": null,
+    "deployment": null,
+    "catalog": null,
+    "operations": [],
+    "historicalCases": [],
+    "soak": null,
+    "restoration": null,
+    "independentReview": null
+  }
+}

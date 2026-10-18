@@ -28,6 +28,8 @@ public sealed class McpExecutableSchemaTests
             Assert.False(schema.Evaluate(wrongOperation).IsValid, $"{operation.Tool}.{operation.Operation} accepts unknown operation");
             if (operation.RequestContract != "None")
             {
+                arguments["request"] ??= new JsonObject();
+                AssertValid(schema, arguments, operation);
                 var requestSchema = HelpdeskToolDefinitions.RequestSchema(operation);
                 foreach (var name in requestSchema["required"]!.AsArray().Select(value => value!.GetValue<string>()))
                 {
@@ -40,7 +42,7 @@ public sealed class McpExecutableSchemaTests
                     Assert.False(schema.Evaluate(invalidEnum).IsValid, $"{operation.Tool}.{operation.Operation} accepts invalid request.{field.Key}");
                 }
                 var missingRequest = arguments.DeepClone().AsObject(); missingRequest.Remove("request");
-                Assert.False(schema.Evaluate(missingRequest).IsValid, $"{operation.Tool}.{operation.Operation} accepts missing required envelope");
+                Assert.Equal(!operation.RequiresRequest, schema.Evaluate(missingRequest).IsValid);
                 var wrongType = arguments.DeepClone().AsObject(); wrongType["request"] = 123;
                 Assert.False(schema.Evaluate(wrongType).IsValid, $"{operation.Tool}.{operation.Operation} accepts nonobject request");
                 var unknown = arguments.DeepClone().AsObject(); unknown["request"]!["unsupportedField"] = true;

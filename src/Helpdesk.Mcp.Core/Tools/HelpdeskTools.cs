@@ -46,9 +46,9 @@ public sealed class HelpdeskTools(
         "taskId", "title", "description", "priority", "assignedToId", "clearAssignment", "linkedAssetIds", "attachments", "dueDate", "clearDueDate"
     };
 
-    [McpServerTool(UseStructuredContent = true), Description("Read authentication status for the configured Helpdesk credential. Integration credentials use the application identity endpoint; Authentik agents use the AI-agent status endpoint. The MCP server never returns bearer tokens.")]
+    [McpServerTool(UseStructuredContent = true), Description("Read the downstream execution identity. access reads current API permissions, organization scope and linked customer for every credential mode. status preserves integration/gateway application status or exact Authentik AI-agent status. External HTTP hosts use their separately configured downstream principal, not the ingress caller. The MCP server never returns bearer tokens.")]
     public Task<HelpdeskToolResponse> helpdesk_auth(string operation = "status", JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default)
-        => Read("helpdesk_auth", operation, ["status"], AuthStatusPath, null, cancellationToken);
+        => Read("helpdesk_auth", operation, ["status", "access"], operation == "access" ? "/api/v1/auth/me" : AuthStatusPath, null, cancellationToken);
 
     [McpServerTool(UseStructuredContent = true), Description("Read live, readiness, and authenticated Helpdesk health.")]
     public async Task<HelpdeskToolResponse> helpdesk_health(string operation = "get", JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default)
@@ -256,16 +256,32 @@ public sealed class HelpdeskTools(
         var id = String(request, "notificationId"); return operation != "get" ? Invalid("helpdesk_notifications", operation, ["list", "get", "summary", "unread_errors", "mark_read"]) : string.IsNullOrWhiteSpace(id) ? Validation("request.notificationId is required.") : await Execute(() => client.GetAsync($"/api/v1/notifications/{Uri.EscapeDataString(id)}", true, cancellationToken), "Notification get completed.").ConfigureAwait(false);
     }
 
-    [McpServerTool(UseStructuredContent = true), Description("Inspect or test External orchestration orchestration connectivity. Reads: orchestration, orchestration_jobs, orchestration_tenants, orchestration_request_definitions, orchestration_bindings. orchestration_test is a confirmed mutation because it triggers outbound traffic; it requires confirm:true.")]
+    [McpServerTool(UseStructuredContent = true), Description("Inspect or test external orchestration connectivity. Reads: orchestration, orchestration_jobs, orchestration_tenants, orchestration_request_definitions, orchestration_bindings. Settings, catalogs and test accept optional request.organizationId and request.connectionId for a saved mapping. orchestration_test triggers outbound traffic and requires confirm:true.")]
     public Task<HelpdeskToolResponse> helpdesk_connectivity(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default)
     {
-        if (operation == "orchestration_test") return Mutation("orchestration_test", [], confirm, HttpMethod.Post, "/api/v1/admin/orchestration/test", Object(request), cancellationToken);
-        var path = operation switch { "orchestration" => "/api/v1/admin/orchestration", "orchestration_jobs" => "/api/v1/admin/orchestration/catalog/jobs", "orchestration_tenants" => "/api/v1/admin/orchestration/catalog/tenants", "orchestration_request_definitions" => "/api/v1/admin/orchestration/catalog/request-definitions", "orchestration_bindings" => "/api/v1/admin/orchestration/bindings", _ => null };
-        return path is null ? Task.FromResult(Invalid("helpdesk_connectivity", operation, ["orchestration", "orchestration_test", "orchestration_jobs", "orchestration_tenants", "orchestration_request_definitions", "orchestration_bindings"])) : Execute(() => client.GetAsync(path, true, cancellationToken), $"Connectivity {operation} completed.");
+        var path = operation switch { "orchestration" => "/api/v1/admin/orchestration", "orchestration_test" => "/api/v1/admin/orchestration/test", "orchestration_jobs" => "/api/v1/admin/orchestration/catalog/jobs", "orchestration_tenants" => "/api/v1/admin/orchestration/catalog/tenants", "orchestration_request_definitions" => "/api/v1/admin/orchestration/catalog/request-definitions", "orchestration_bindings" => "/api/v1/admin/orchestration/bindings", _ => null };
+        if (path is null) return Task.FromResult(Invalid("helpdesk_connectivity", operation, ["orchestration", "orchestration_test", "orchestration_jobs", "orchestration_tenants", "orchestration_request_definitions", "orchestration_bindings"]));
+        if (HelpdeskToolDefinitions.ValidateSupportedFields("helpdesk_connectivity", operation, request) is { } fieldError)
+            return Task.FromResult(Validation(fieldError));
+        var selection = Object(request);
+        if (selection?["organizationId"] is { } organization &&
+            (organization is not JsonValue organizationValue || !organizationValue.TryGetValue<string>(out var organizationId) || string.IsNullOrWhiteSpace(organizationId)))
+            return Task.FromResult(Validation("request.organizationId must be a non-empty organization ID when supplied."));
+        if (selection?["connectionId"] is { } connection)
+        {
+            if (connection is not JsonValue connectionValue || !connectionValue.TryGetValue<string>(out var connectionId) ||
+                !Guid.TryParse(connectionId, out var parsed) || parsed == Guid.Empty)
+                return Task.FromResult(Validation("request.connectionId must be a non-empty saved connection UUID when supplied."));
+            selection["connectionId"] = parsed.ToString("D");
+        }
+        var selectedPath = Query(path, selection, "organizationId", "connectionId");
+        return operation == "orchestration_test"
+            ? Mutation("orchestration_test", [], confirm, HttpMethod.Post, selectedPath, null, cancellationToken)
+            : Execute(() => client.GetAsync(selectedPath, true, cancellationToken), $"Connectivity {operation} completed.");
     }
 
     [McpServerTool(UseStructuredContent = true), Description("Read MCP schema metadata. Operation must be list.")]
-    public Task<HelpdeskToolResponse> helpdesk_schema(string operation = "list", JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default) => operation != "list" ? Task.FromResult(Invalid("helpdesk_schema", operation, ["list"])) : Task.FromResult(Completed("Schema metadata read.", new JsonObject { ["catalogRevision"] = McpOperationCatalog.Revision, ["catalogHash"] = McpOperationCatalog.CatalogHash, ["operations"] = McpOperationCatalog.ToJson() }));
+    public Task<HelpdeskToolResponse> helpdesk_schema(string operation = "list", JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default) => operation != "list" ? Task.FromResult(Invalid("helpdesk_schema", operation, ["list"])) : Task.FromResult(Completed("Schema metadata read.", new JsonObject { ["catalogRevision"] = McpOperationCatalog.Revision, ["catalogHash"] = McpOperationCatalog.CatalogHash, ["configuredIdentity"] = ConfiguredIdentity(), ["operations"] = McpOperationCatalog.ToJson() }));
 
     [McpServerTool(UseStructuredContent = true), Description("Read Helpdesk enum metadata. Operation is list or a closed enum name: ticket_state, ticket_priority, request_task_status, change_lifecycle_state.")]
     public Task<HelpdeskToolResponse> helpdesk_enums(string operation = "list", JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default)
@@ -886,8 +902,10 @@ public sealed class HelpdeskTools(
     private string AuthStatusPath => UsesCallerBoundIdentity
         ? "/api/v1/auth/me"
         : "/api/v1/auth/ai-agent/status";
-    private bool UsesCallerBoundIdentity => string.Equals(client.Configuration?.CredentialMode, "integration", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(client.Configuration?.CredentialMode, "gateway", StringComparison.OrdinalIgnoreCase);
+    private bool UsesCallerBoundIdentity => string.Equals(client.Configuration?.CredentialMode?.Trim(), "integration", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(client.Configuration?.CredentialMode?.Trim(), "gateway", StringComparison.OrdinalIgnoreCase);
 
-    private JsonNode Capabilities() => new JsonObject { ["server"] = "Helpdesk.Mcp", ["instance"] = hostContext.Instance, ["catalogRevision"] = hostContext.CatalogRevision, ["catalogHash"] = McpOperationCatalog.CatalogHash, ["transport"] = hostContext.Transport, ["resourceUri"] = hostContext.ResourceUri, ["apiBaseUrl"] = hostContext.CanonicalApiBaseUrl, ["credentialMode"] = client.Configuration?.CredentialMode ?? "authentik", ["authStatusPath"] = AuthStatusPath, ["phase"] = 3, ["mutationsEnabled"] = true, ["rawEnabled"] = false, ["arbitraryRawAccessEnabled"] = false, ["allowlistedRawReadsEnabled"] = true, ["allowlistedRawOperations"] = new JsonArray("system_version", "get_incident", "get_request", "get_change"), ["autonomousWriteOperations"] = new JsonArray("helpdesk_ai_assistant.report"), ["mutationConfirmationRequired"] = true, ["configurationWritesEnabled"] = configurationSurface.CanPersist, ["obsoleteMutationProofToolExposed"] = false };
+    private JsonObject ConfiguredIdentity() => HelpdeskMcpIdentityMetadata.ToJson(hostContext, client.Configuration);
+
+    private JsonNode Capabilities() => new JsonObject { ["server"] = "Helpdesk.Mcp", ["instance"] = hostContext.Instance, ["catalogRevision"] = hostContext.CatalogRevision, ["catalogHash"] = McpOperationCatalog.CatalogHash, ["transport"] = hostContext.Transport, ["resourceUri"] = hostContext.ResourceUri, ["apiBaseUrl"] = hostContext.CanonicalApiBaseUrl, ["credentialMode"] = client.Configuration?.CredentialMode ?? "authentik", ["authStatusPath"] = AuthStatusPath, ["configuredIdentity"] = ConfiguredIdentity(), ["phase"] = 3, ["mutationsEnabled"] = true, ["rawEnabled"] = false, ["arbitraryRawAccessEnabled"] = false, ["allowlistedRawReadsEnabled"] = true, ["allowlistedRawOperations"] = new JsonArray("system_version", "get_incident", "get_request", "get_change"), ["autonomousWriteOperations"] = new JsonArray("helpdesk_ai_assistant.report"), ["mutationConfirmationRequired"] = true, ["configurationWritesEnabled"] = configurationSurface.CanPersist, ["obsoleteMutationProofToolExposed"] = false };
 }

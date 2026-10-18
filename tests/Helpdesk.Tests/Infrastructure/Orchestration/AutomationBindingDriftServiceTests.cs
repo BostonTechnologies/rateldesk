@@ -229,10 +229,15 @@ public sealed class AutomationBindingDriftServiceTests
     private static HelpdeskDbContext CreateDb()
     {
         var options = new DbContextOptionsBuilder<HelpdeskDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .UseSqlite("Data Source=:memory:")
             .Options;
 
-        return new HelpdeskDbContext(options, new TestTenantContext(), new HttpContextAccessor());
+        var db = new HelpdeskDbContext(options, new TestTenantContext(), new HttpContextAccessor());
+        db.Database.OpenConnection();
+        db.Database.EnsureCreated();
+        db.Organizations.Add(new Organization { Id = "org-1", Name = "Synthetic organization" });
+        db.SaveChanges();
+        return db;
     }
 
     private static RequestForm CreateRequestForm(IReadOnlyList<FormField> fields, Dictionary<string, string>? payloadMapping)
@@ -329,6 +334,13 @@ public sealed class AutomationBindingDriftServiceTests
 
         public Task<IReadOnlyList<OrchestrationCatalogRequestDefinitionDto>> ListRequestDefinitionsAsync(CancellationToken cancellationToken = default)
             => Task.FromResult(requestDefinitions);
+
+        public Task<IReadOnlyList<OrchestrationCatalogRequestDefinitionDto>> ListRequestDefinitionsAsync(string? organizationId, Guid? connectionId, CancellationToken cancellationToken = default)
+        {
+            Assert.Equal("org-1", organizationId);
+            Assert.Null(connectionId);
+            return Task.FromResult(requestDefinitions);
+        }
 
         public Task<OrchestrationCatalogRequestDefinitionDto> CreateRequestDefinitionAsync(CreateOrchestrationCatalogRequestDefinitionDto request, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();

@@ -223,6 +223,7 @@ public class CreateWorkLogCommandHandler(
                         ticketDetails.OrganizationId);
                     await CreateEmailDeliveryEventAsync(
                         request.TicketId,
+                        log.Id,
                         "(none)",
                         [],
                         EmailDeliveryStatus.Failed,
@@ -241,6 +242,7 @@ public class CreateWorkLogCommandHandler(
                         ticketDetails.OrganizationId);
                     await CreateEmailDeliveryEventAsync(
                         request.TicketId,
+                        log.Id,
                         recipients[0],
                         recipients.Skip(1).ToArray(),
                         EmailDeliveryStatus.Failed,
@@ -286,6 +288,7 @@ public class CreateWorkLogCommandHandler(
 
                     var deliveryEvent = await CreateEmailDeliveryEventAsync(
                         request.TicketId,
+                        log.Id,
                         primaryRecipient,
                         ccFinal,
                         EmailDeliveryStatus.Pending,
@@ -304,31 +307,26 @@ public class CreateWorkLogCommandHandler(
                     try
                     {
                         var started = DateTimeOffset.UtcNow;
-                        bool sent;
-                        var previousDelivery = ingressEffects?.TimelineDeliveryId;
-                        try
+                        var queued = emailService is IDurableEmailService { QueuesDelivery: true };
+                        var sent = await emailService.SendEmailAsync(new EmailSendRequest(
+                            [primaryRecipient], subject, body)
                         {
-                            if (ingressEffects?.IsActive == true)
-                                ingressEffects.TimelineDeliveryId = deliveryEvent.Id;
-                            sent = await emailService.SendEmailAsync(
-                                new[] { primaryRecipient },
-                                subject,
-                                body,
-                                ccFinal.Count > 0 ? ccFinal : null,
-                                cancellationToken,
-                                request.TicketId,
-                                fromName: branding.FromName,
-                                replyTo: branding.ReplyTo,
-                                suppressTimeline: true);
-                        }
-                        finally
-                        {
-                            if (ingressEffects is not null)
-                                ingressEffects.TimelineDeliveryId = previousDelivery;
-                        }
+                            Cc = ccFinal.ToArray(),
+                            TicketId = request.TicketId,
+                            FromName = branding.FromName,
+                            ReplyTo = branding.ReplyTo,
+                            SuppressTimeline = true,
+                            TimelineDeliveryId = deliveryEvent.Id,
+                            WorkLogId = log.Id
+                        }, cancellationToken);
 
-                        if (ingressEffects?.IsActive == true)
-                            return log; // Keep the delivery Pending until the durable effect is dispatched.
+                        // Only the dispatcher has provider evidence. Do not update this tracked
+                        // event after queue acceptance: a worker may already have completed it.
+                        if (sent && (queued || ingressEffects?.IsActive == true))
+                        {
+                            HelpdeskTelemetry.RecordEmailDeliveryAttempt("worklog", "configured", "queued");
+                            return log;
+                        }
 
                         var durationMs = (DateTimeOffset.UtcNow - started).TotalMilliseconds;
                         HelpdeskTelemetry.RecordEmailDeliveryAttempt("worklog", "configured", sent ? "delivered" : "failed");
@@ -353,6 +351,27 @@ public class CreateWorkLogCommandHandler(
                     }
                     catch (Exception ex)
                     {
+                        if (emailService is IDurableEmailService { QueuesDelivery: true } durableEmail)
+                        {
+                            bool? ownsHistory;
+                            try
+                            {
+                                ownsHistory = await durableEmail.OwnsDeliveryHistoryAsync(deliveryEvent.Id, CancellationToken.None);
+                            }
+                            catch (Exception reconciliationError)
+                            {
+                                _logger.LogWarning(reconciliationError,
+                                    "Worklog email queue ownership could not be reconciled. DeliveryId={DeliveryId}", deliveryEvent.Id);
+                                return log;
+                            }
+                            if (ownsHistory is not false)
+                            {
+                                _logger.LogWarning(ex,
+                                    "Worklog email send interrupted; canonical delivery history retained. DeliveryId={DeliveryId} Owned={Owned}",
+                                    deliveryEvent.Id, ownsHistory);
+                                return log;
+                            }
+                        }
                         HelpdeskTelemetry.RecordEmailDeliveryAttempt("worklog", "configured", "failed_exception");
                         _logger.LogWarning(
                             ex,
@@ -518,6 +537,7 @@ public class CreateWorkLogCommandHandler(
 
     private static async Task<TicketTimelineEvent> CreateEmailDeliveryEventAsync(
         string ticketId,
+        string workLogId,
         string primaryRecipient,
         IReadOnlyCollection<string> ccRecipients,
         EmailDeliveryStatus status,
@@ -528,6 +548,7 @@ public class CreateWorkLogCommandHandler(
         var evt = new TicketTimelineEvent
         {
             TicketId = ticketId,
+            WorkLogId = workLogId,
             CreatedUtc = DateTimeOffset.UtcNow,
             CreatedByUserId = "system",
             CreatedByUserName = "System",
@@ -582,6 +603,7 @@ public class CreateWorkLogCommandHandler(
             EventType = evt.EventType,
             MessageHtml = evt.MessageHtml,
             MessageText = evt.MessageText,
+            WorkLogId = evt.WorkLogId,
             EmailStatus = evt.EmailStatus,
             EmailRecipient = evt.EmailRecipient,
             Recipients = recipients,

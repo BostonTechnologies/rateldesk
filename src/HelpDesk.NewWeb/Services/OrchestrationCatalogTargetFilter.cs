@@ -4,6 +4,16 @@ namespace HelpDesk.NewWeb.Services;
 
 public static class OrchestrationCatalogTargetFilter
 {
+    public static IReadOnlyList<OrchestrationCatalogRequestDefinitionDto> FilterForConnection(
+        IEnumerable<OrchestrationCatalogRequestDefinitionDto> definitions,
+        int? peerTenantId)
+        => peerTenantId is null ? [] : definitions
+            .Where(x => x.TenantId == peerTenantId && !string.IsNullOrWhiteSpace(x.RequestDefinitionId))
+            .DistinctBy(x => x.RequestDefinitionId, StringComparer.Ordinal)
+            .OrderBy(x => x.FolderPath, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(GetDisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
     public static IReadOnlyList<OrchestrationCatalogRequestDefinitionDto> FilterForOrganization(
         IEnumerable<OrchestrationCatalogRequestDefinitionDto> definitions,
         int? organizationOrchestrationTenantId,
