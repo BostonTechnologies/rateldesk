@@ -6,6 +6,22 @@ RatelDesk has an ASP.NET Core API and a Blazor web application. The default inst
 
 For built-in roles, scoped custom roles, and the bounded tenant-member delegation workflow, see [Roles and tenant-scoped access](../security/rbac.md).
 
+## Timeline effort after a beta.5 upgrade
+
+Back up the database together with bootstrap state, data-protection keys and
+attachments before applying the verified release through the existing deployment
+owner. SQLite and PostgreSQL upgrades add nullable effort/worklog fields without
+rewriting canonical WorkLogs or ticket totals. New timeline events retain exact
+hours across refresh. Pre-upgrade events have no direct worklog association;
+only exact, unambiguous retained transactional outbox snapshots can recover their
+effort. Other historical effort remains unavailable rather than being guessed
+from text or timestamps. Recovery never invents a worklog link or changes outbox
+history. The UI labels that state; API consumers should use nullable
+`recordedHours` to distinguish it from a recorded zero. The existing numeric
+`hours` field remains for compatibility. See the
+[effort contract](../contracts/mcp-operation-contracts.md#notification-summaries-and-persisted-effort)
+and [beta.5 notes](../release-notes/0.1.2-beta.5.md).
+
 ## First use and Docker
 
 Use [docker/docker-compose.yml](../../docker/docker-compose.yml) as the default starting point. It starts only Web and API in Production mode and persists four distinct concerns: bootstrap state, data-protection keys, SQLite data, and attachments. Run repository-relative Compose commands from a checked-out repository's root directory. After the first API start, open `http://localhost:8111/`, or your public application URL. Fresh root and login visits automatically open `/setup`.

@@ -1,5 +1,9 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -859,6 +863,52 @@ public sealed class McpHttpHostTests
     }
 
     [Fact]
+    public async Task Raw_http_and_stdio_ticket_pagination_rejects_invalid_wire_arguments_before_business_IO()
+    {
+        using var environment = new McpHostEnvironment();
+        var outbound = new AgentClientBoundaryProbe();
+        using var factory = CreateFactory(environment.SigningKey, boundaryProbe: outbound);
+        using var http = CreateClient(factory);
+        var backendBuilder = WebApplication.CreateSlimBuilder();
+        backendBuilder.WebHost.UseUrls("http://127.0.0.1:0");
+        backendBuilder.Logging.ClearProviders();
+        await using var backend = backendBuilder.Build();
+        var stdioCalls = 0;
+        backend.Run(context =>
+        {
+            Interlocked.Increment(ref stdioCalls);
+            return context.Response.WriteAsync("{}");
+        });
+        await backend.StartAsync();
+        var address = backend.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
+        await using var stdio = StdioMcpClient.Start(address, "rdk_synthetic-pagination");
+        var bearer = CreateToken(environment.SigningKey, ["helpdesk.mcp"], ["ai-assistant"]);
+        using var initialized = await stdio.CallAsync(1, "initialize", InitializeParameters());
+        Assert.True(initialized.RootElement.TryGetProperty("result", out _));
+        await stdio.NotifyAsync("notifications/initialized", new { });
+        var id = 2;
+        // These helpers write JSON-RPC directly; there is no MCP client/schema
+        // validator preventing invalid cases from reaching either running host.
+        foreach (var tool in new[] { "helpdesk_incidents", "helpdesk_requests", "helpdesk_changes", "helpdesk_request_tasks" })
+        foreach (var json in new[] { """{"page":0,"pageSize":10000}""", """{"page":null}""", """{"pageSize":"1"}""", """{"page":1.5}""", """{"pageSize":true}""", """{"page":[]}""", """{"pageSize":{}}""", """{"page":1000001}""", """{"pageSize":101}""", """{"page":2147483648}""", """{"page":1,"page":1}""", """{"pageSize":1,"pageSize":null}""", """{"Page":0,"PAGESIZE":10000}""", """{"page":1,"PAGE":0}""" })
+        {
+            var parameters = ToolCallParameters(tool, new { operation = "list", request = JsonSerializer.Deserialize<JsonElement>(json) });
+            using var httpResult = await HttpCallAsync(http, bearer, id++, "tools/call", parameters);
+            using var stdioResult = await stdio.CallAsync(id++, "tools/call", parameters);
+            foreach (var response in new[] { httpResult, stdioResult })
+            {
+                var content = StructuredContent(response.RootElement);
+                Assert.False(content.GetProperty("success").GetBoolean());
+                Assert.Equal("validation_failed", content.GetProperty("status").GetString());
+                Assert.Contains("request.page", content.GetProperty("summary").GetString(), StringComparison.Ordinal);
+            }
+        }
+        Assert.Equal(0, outbound.ApiRequests);
+        Assert.Equal(0, outbound.TokenRequests);
+        Assert.Equal(0, Volatile.Read(ref stdioCalls));
+    }
+
+    [Fact]
     public async Task Stdio_and_authenticated_http_discovery_are_protocol_equivalent()
     {
         using var environment = new McpHostEnvironment();
@@ -956,6 +1006,98 @@ public sealed class McpHttpHostTests
             Assert.Equal("confirmation_required", result.StructuredContent!.Value.GetProperty("status").GetString());
         }
         Assert.Equal(0, outbound.ApiRequests);
+    }
+
+    [Fact]
+    public async Task Notification_summary_over_HTTP_and_stdio_uses_real_authenticated_scoped_counts()
+    {
+        await using var fixture = await NotificationSummaryFixture.CreateAsync(false);
+        await using var api = await fixture.StartApiBridgeAsync();
+        using var environment = new McpHostEnvironment();
+        using var factory = CreateFactory(environment.SigningKey, apiHandlerFactory: fixture.CreateHandler);
+        using var http = CreateClient(factory);
+        await using var stdio = StdioMcpClient.Start(NotificationSummaryFixture.Address(api), fixture.Token);
+        var bearer = CreateToken(environment.SigningKey, ["helpdesk.mcp"], ["ai-assistant"]);
+        using var initialized = await stdio.CallAsync(1, "initialize", InitializeParameters());
+        Assert.True(initialized.RootElement.TryGetProperty("result", out _));
+        await stdio.NotifyAsync("notifications/initialized", new { });
+        using var httpInitialized = await HttpCallAsync(http, bearer, 1, "initialize", InitializeParameters());
+        using var stdioBefore = await stdio.CallAsync(2, "tools/call", ToolCallParameters("helpdesk_notifications", "summary"));
+        using var httpBefore = await HttpCallAsync(http, bearer, 2, "tools/call", ToolCallParameters("helpdesk_notifications", "summary"));
+        AssertCounts(stdioBefore, 7, 5, 3);
+        AssertCounts(httpBefore, 7, 5, 3);
+        Assert.Equal(2, fixture.Paths.Count(path => path == "/api/v1/notifications/summary"));
+        Assert.DoesNotContain("/api/v1/notifications/error-summary", fixture.Paths);
+
+        var snapshot = await fixture.PersistenceSnapshotAsync();
+        using var preview = await HttpCallAsync(http, bearer, 3, "tools/call", ToolCallParameters("helpdesk_notifications", new
+        {
+            operation = "mark_read", request = new { ids = fixture.MarkIds }
+        }));
+        Assert.Equal("confirmation_required", StructuredContent(preview.RootElement).GetProperty("status").GetString());
+        Assert.Equal(snapshot, await fixture.PersistenceSnapshotAsync());
+        using var confirmed = await HttpCallAsync(http, bearer, 4, "tools/call", ToolCallParameters("helpdesk_notifications", new
+        {
+            operation = "mark_read", request = new { ids = fixture.MarkIds }, confirm = true
+        }));
+        Assert.Equal(2, StructuredContent(confirmed.RootElement).GetProperty("data").GetProperty("updated").GetInt32());
+        using var stdioAfter = await stdio.CallAsync(3, "tools/call", ToolCallParameters("helpdesk_notifications", "summary"));
+        using var httpAfter = await HttpCallAsync(http, bearer, 5, "tools/call", ToolCallParameters("helpdesk_notifications", "summary"));
+        AssertCounts(stdioAfter, 7, 3, 1);
+        AssertCounts(httpAfter, 7, 3, 1);
+        await fixture.AssertInaccessibleRowsUnchangedAsync();
+
+        static void AssertCounts(JsonDocument response, int total, int unread, int errors)
+        {
+            var content = StructuredContent(response.RootElement);
+            Assert.True(content.GetProperty("success").GetBoolean(), content.GetRawText());
+            NotificationSummaryHttpTests.AssertCounters(JsonNode.Parse(content.GetProperty("data").GetRawText())!, total, unread, errors);
+        }
+    }
+
+    [Fact]
+    public async Task Timeline_effort_fields_survive_HTTP_and_stdio_transport_for_all_ticket_families()
+    {
+        var builder = Microsoft.AspNetCore.Builder.WebApplication.CreateBuilder();
+        builder.Logging.ClearProviders();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        await using var api = builder.Build();
+        api.Run(async context =>
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "http://api.example.test" + context.Request.Path);
+            request.Headers.TryAddWithoutValidation("Authorization", context.Request.Headers.Authorization.ToString());
+            using var response = TimelineTransportPayload.Respond(request);
+            context.Response.StatusCode = (int)response.StatusCode;
+            context.Response.ContentType = "application/json";
+            await response.Content.CopyToAsync(context.Response.Body, context.RequestAborted);
+        });
+        await api.StartAsync();
+        using var environment = new McpHostEnvironment();
+        using var factory = CreateFactory(environment.SigningKey, apiHandlerFactory: TimelineTransportPayload.CreateHandler);
+        using var http = CreateClient(factory);
+        await using var stdio = StdioMcpClient.Start(NotificationSummaryFixture.Address(api), TimelineTransportPayload.Token);
+        var bearer = CreateToken(environment.SigningKey, ["helpdesk.mcp"], ["ai-assistant"]);
+        using var initialize = await stdio.CallAsync(1, "initialize", InitializeParameters());
+        await stdio.NotifyAsync("notifications/initialized", new { });
+        using var httpInitialize = await HttpCallAsync(http, bearer, 1, "initialize", InitializeParameters());
+        var id = 2;
+        foreach (var family in new[] { "incidents", "requests", "changes" })
+        {
+            var arguments = new JsonObject
+            {
+                ["operation"] = "timeline",
+                ["request"] = new JsonObject { [family[..^1] + "Id"] = "ticket-wire" }
+            };
+            var parameters = new { name = "helpdesk_" + family, arguments };
+            using var fromStdio = await stdio.CallAsync(id, "tools/call", parameters);
+            using var fromHttp = await HttpCallAsync(http, bearer, id++, "tools/call", parameters);
+            foreach (var response in new[] { fromStdio, fromHttp })
+            {
+                var content = StructuredContent(response.RootElement);
+                Assert.True(content.GetProperty("success").GetBoolean(), content.GetRawText());
+                Assert.True(JsonNode.DeepEquals(JsonNode.Parse(TimelineTransportPayload.Json), JsonNode.Parse(content.GetProperty("data").GetRawText())));
+            }
+        }
     }
 
     [Fact]
@@ -1477,11 +1619,13 @@ public sealed class McpHttpHostTests
         private readonly Process _process = process;
         private readonly string _configurationPath = configurationPath;
 
-        public static StdioMcpClient Start()
+        public static StdioMcpClient Start(string apiBaseUrl = "https://api.example", string? integrationCredential = null)
         {
             var configurationPath = Path.Combine(Path.GetTempPath(), $"rateldesk-mcp-stdio-{Guid.NewGuid():N}.json");
-            new AgentClientConfigurationStore(configurationPath).Save(new AgentClientConfiguration(
-                "https://api.example",
+            new AgentClientConfigurationStore(configurationPath).Save(integrationCredential is not null
+                ? AgentClientConfiguration.Empty with { ApiBaseUrl = apiBaseUrl, CredentialMode = "integration", IntegrationCredential = integrationCredential }
+                : new AgentClientConfiguration(
+                apiBaseUrl,
                 "https://auth.example/token",
                 "helpdesk-mcp-test",
                 "helpdesk-mcp-test",
@@ -1498,7 +1642,7 @@ public sealed class McpHttpHostTests
             start.ArgumentList.Add(typeof(Helpdesk.Mcp.HelpdeskMcpStdioHost).Assembly.Location);
             start.Environment["RATELDESK_MCP_CONFIG"] = configurationPath;
             start.Environment["RATELDESK_MCP_INSTANCE"] = "dev";
-            start.Environment["RATELDESK_MCP_DEV_API_BASE_URL"] = "https://api.example";
+            start.Environment["RATELDESK_MCP_DEV_API_BASE_URL"] = apiBaseUrl;
             start.Environment["RATELDESK_API_BASE_URL"] = "https://api.example";
             start.Environment["RATELDESK_AUTHENTIK_TOKEN_URL"] = "https://auth.example/token";
             start.Environment["RATELDESK_AUTHENTIK_CLIENT_ID"] = "helpdesk-mcp-test";

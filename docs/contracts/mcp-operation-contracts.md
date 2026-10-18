@@ -7,7 +7,7 @@ credential requirements, authority, identifiers and prerequisites. The API
 resolves live access; discovery does not grant permission. These MCP contracts
 apply to stdio and HTTP transports against the same product version; the
 [CLI guide](../integrations/cli-stdio.md) describes command-line syntax.
-The [inventory delta](mcp-operation-inventory-delta.json) maps all 154 beta.3
+The [inventory delta](mcp-operation-inventory-delta.json) maps all 154 beta.4
 operations to the retained current operations; no operation names were added or
 removed. Updated routes/contracts and the new metadata remain distinct from
 runtime acceptance evidence.
@@ -81,6 +81,47 @@ no-op. Bulk mutations with `updated:0` report `status:"no_op"` and no affected
 IDs, with eligibility/readback guidance. Preserve these distinctions when
 reporting campaign results.
 
+## Notification summaries and persisted effort
+
+`helpdesk_notifications.summary` and CLI `notifications summary` use the general
+`GET /api/v1/notifications/summary` endpoint. `totalCount`, `unreadCount` and
+`unreadErrorCount` cover the actor's complete authorized notification population,
+not a campaign search subset. The latter includes unread Error/Critical notices.
+The separate error-only API endpoint and `unread_errors` operation retain their
+existing meanings. Personal receipts, ticket/organization visibility and
+`mark_read` confirmation remain enforced; previews change no receipts and
+repeated confirmed marking is idempotent for that actor.
+
+New worklog timeline events persist their exact decimal effort and `workLogId`
+when written. Incident, request and change timeline refreshes and live updates
+share that projection, including nonzero-hour internal notes. The additive
+`recordedHours` is the authoritative nullable effort measurement: zero means a
+measured zero; null means effort is unavailable (or not applicable for other
+event types). The legacy numeric `hours`
+field remains present and falls back to zero for clients that do not understand
+the additive contract. New clients must use `recordedHours` to decide whether
+to display effort. `workLogId` is null when no authoritative association exists.
+
+Pre-upgrade timeline rows contain neither a worklog link nor an effort snapshot.
+A retained transactional timeline-outbox payload can supply an authoritative
+snapshot for a Worklog/InternalNote event only when its exact event ID, ticket
+ID and event type agree. It must be a Timeline effect with a canonical ordinal
+key `0000:Timeline` through `0255:Timeline`, linked to an existing succeeded
+inbound receipt whose ticket and organization match the target. Original payload
+identity fields must be unambiguous. Hours must be explicitly numeric and finite,
+with no duplicate fields; every eligible exact candidate must contain the same
+valid effort. Missing/invalid effort on an identifiable candidate blocks recovery
+even if another candidate has a valid value. The migration may recover that effort snapshot; it does not
+invent a canonical `workLogId`. Missing, malformed or conflicting evidence leaves
+effort unavailable. Independently generated IDs, repeated text and nearby
+timestamps never establish a worklog association. Canonical WorkLogs, outbox
+records and effort totals remain unchanged; where a worklog is independently
+addressable, read its own authoritative hours. The signed public timeline projects directly from visible canonical WorkLogs,
+so those historical entries can expose known effort without joining ambiguous
+staff timeline events. An old numeric timeline zero alone is not evidence of zero work. New
+snapshots survive refresh without changing event identity/count/order, internal
+visibility or inline-image signing.
+
 ## Transport, identity and authority
 
 | Operation family | Required authority and prerequisites |
@@ -124,6 +165,6 @@ HTTP 2xx nor `updated:0` proves a business mutation. Independently read ticket
 seen-state after `helpdesk_tickets.mark_as_seen`; notification
 `helpdesk_notifications.mark_read` is a separate operation.
 
-See [list search aliases](ticket-list-queries.md#mcp-search-aliases), the
-[beta.4 regression manifest](../implementation/0.1.2-beta.4-mcp-regressions.md)
+See [list search and pagination](ticket-list-queries.md), the
+[beta.5 regression manifest](../implementation/0.1.2-beta.5-mcp-regressions.md)
 and [release engineering](../releases/README.md).

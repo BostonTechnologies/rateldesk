@@ -39,7 +39,7 @@ internal static partial class HelpdeskCli
         var category = new Option<string?>("--category") { Description = "Notification category." };
         notifications.AddCommand(GetProjectedListCommand(runtime, globals, "list", "notifications", "/api/v1/notifications", null, (page, "page"), (pageSize, "pageSize"), (limit, "pageSize"), (take, "pageSize"), (query, "search"), (severity, "severity"), (source, "source"), (category, "category")));
         notifications.AddCommand(GetProjectedByStringIdCommand(runtime, globals, "get", "/api/v1/notifications/{id}", "id", "notification"));
-        notifications.AddCommand(GetListCommand(runtime, globals, "summary", "/api/v1/notifications/error-summary"));
+        notifications.AddCommand(GetListCommand(runtime, globals, "summary", "/api/v1/notifications/summary"));
         var unreadTake = new Option<int?>("--take") { Description = "Maximum unread error notifications to return." };
         var unreadLimit = new Option<int?>("--limit") { Description = "Alias for --take." };
         notifications.AddCommand(GetProjectedListCommand(runtime, globals, "unread-errors", "notifications", "/api/v1/notifications/unread-errors", ctx => Query(("take", ValueToString(ResolvePageSize(null, ctx.ParseResult.GetValueForOption(unreadLimit), ctx.ParseResult.GetValueForOption(unreadTake), null)))), (unreadTake, "take"), (unreadLimit, "take")));
@@ -174,6 +174,9 @@ internal static partial class HelpdeskCli
             ["ticketId"] = CloneNode(source["ticketId"] ?? source["requestId"]),
             ["createdUtc"] = CloneNode(source["createdUtc"] ?? source["createdAt"]),
             ["createdByUserName"] = CloneNode(source["createdByUserName"] ?? source["actorName"]),
+            ["hours"] = CloneNode(source["hours"]),
+            ["recordedHours"] = CloneNode(source["recordedHours"]),
+            ["workLogId"] = CloneNode(source["workLogId"]),
             ["status"] = CloneNode(source["status"])
         };
         AddEnumFlexible(row, source, "eventType", typeof(TimelineEventType));

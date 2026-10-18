@@ -3872,6 +3872,9 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Property<int>("EventType")
                         .HasColumnType("integer");
 
+                    b.Property<double?>("Hours")
+                        .HasColumnType("double precision");
+
                     b.Property<DateTimeOffset?>("LastRetryUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -3889,6 +3892,9 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("TicketId")
                         .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("WorkLogId")
                         .HasColumnType("text");
 
                     b.HasKey("Id");

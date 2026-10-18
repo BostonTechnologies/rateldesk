@@ -1315,21 +1315,7 @@ public static class RequestEndpoints
 
     private static TicketTimelineEventDto ToTimelineDto(TicketTimelineEvent evt)
     {
-        return new TicketTimelineEventDto
-        {
-            Id = evt.Id,
-            TicketId = evt.TicketId,
-            CreatedUtc = evt.CreatedUtc,
-            CreatedByUserId = evt.CreatedByUserId,
-            CreatedByUserName = evt.CreatedByUserName,
-            EventType = evt.EventType,
-            MessageHtml = evt.MessageHtml,
-            MessageText = evt.MessageText,
-            EmailStatus = evt.EmailStatus,
-            EmailRecipient = evt.EmailRecipient,
-            RetryCount = evt.RetryCount,
-            IsRetryable = evt.IsRetryable
-        };
+        return TicketTimelineProjection.ToDto(evt);
     }
 
     private static async Task<RequestAuthorization> AuthorizeRequestAsync(

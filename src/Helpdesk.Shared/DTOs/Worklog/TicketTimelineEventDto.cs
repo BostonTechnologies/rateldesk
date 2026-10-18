@@ -17,7 +17,12 @@ public class TicketTimelineEventDto
         get => MessageText;
         set => MessageText = value;
     }
+    /// <summary>Compatibility value. Use RecordedHours to distinguish measured zero from unavailable effort.</summary>
     public double Hours { get; set; }
+    /// <summary>Recorded effort, including measured zero; null means effort is unavailable or not applicable.</summary>
+    public double? RecordedHours { get; set; }
+    /// <summary>The canonical worklog associated when this event was created, when known.</summary>
+    public string? WorkLogId { get; set; }
     public string? TechnicianName { get; set; }
     public EmailDeliveryStatus? EmailStatus { get; set; }
     public string? EmailRecipient { get; set; }

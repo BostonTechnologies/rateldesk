@@ -116,6 +116,27 @@ Use the actual protected `CLIENT_PROFILE` displayed by setup. Choose an enabled
 organization, exact permissions and expiry in the browser; a successful client
 doctor does not complete host source/runtime acceptance.
 
+## Ticket histories and effort
+
+Use `rateldesk incidents timeline ID --json`,
+`rateldesk changes timeline ID --json`, or
+`rateldesk requests ticket-timeline ID --json` for ticket history and worklog
+effort. The existing `rateldesk requests timeline ID` command continues to read
+workflow notification history from `/workflow-timeline`.
+
+Ticket timeline output includes `hours`, `recordedHours` and `workLogId`.
+`recordedHours` contains the persisted effort, including a measured zero. A null
+value means effort is unavailable or does not apply to that event; legacy
+numeric `hours` remains zero in that case for compatibility. The upgrade can
+restore a historical staff event's effort snapshot from an exact, unambiguous
+retained ingress publication tied to a successful receipt for the same ticket
+and organization. Its missing canonical worklog ID remains unavailable. Other
+staff history stays unavailable; note text and timestamps never establish an
+association. Signed public history reads its
+visible canonical worklogs directly, so those historical worklog values remain
+known. The Web timeline displays unavailable effort explicitly and preserves
+fractional hours after refresh.
+
 ## Profiles and persistence
 
 Native named profiles use per-user application data under

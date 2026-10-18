@@ -230,6 +230,8 @@ internal static class McpRequestSchemas
         fields["page"] = Integer(1); fields["pageSize"] = Integer(1, 100);
         if (tool is "helpdesk_incidents" or "helpdesk_requests" or "helpdesk_changes" or "helpdesk_request_tasks")
         {
+            fields["page"] = Integer(TicketListPagination.Minimum, TicketListPagination.MaximumPage);
+            fields["pageSize"] = Integer(TicketListPagination.Minimum, TicketListPagination.MaximumPageSize);
             const string rule = "Search sent as API q. query/q aliases accept null or blank as unfiltered; equivalent trimmed values deduplicate; conflicting nonempty values reject. Filtering precedes totals and paging.";
             foreach (var alias in new[] { "query", "q" }) fields[alias] = new JsonObject { ["type"] = new JsonArray("string", "null"), ["maxLength"] = 200, ["description"] = rule };
             fields["includeTotal"] = Boolean(); fields["historicOnly"] = Boolean();

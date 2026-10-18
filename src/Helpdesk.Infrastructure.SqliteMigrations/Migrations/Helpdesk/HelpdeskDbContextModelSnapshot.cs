@@ -3899,6 +3899,9 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.Property<int>("EventType")
                         .HasColumnType("INTEGER");
 
+                    b.Property<double?>("Hours")
+                        .HasColumnType("REAL");
+
                     b.Property<DateTimeOffset?>("LastRetryUtc")
                         .HasColumnType("TEXT");
 
@@ -3916,6 +3919,9 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
 
                     b.Property<string>("TicketId")
                         .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("WorkLogId")
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");

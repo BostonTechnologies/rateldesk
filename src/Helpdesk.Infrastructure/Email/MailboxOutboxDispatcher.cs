@@ -136,6 +136,21 @@ public sealed class MailboxOutboxDispatcher(IServiceScopeFactory scopes, ILogger
                         timeline.IsRetryable = current.IsRetryable;
                     }
                 }
+                else if (timeline.EventType is TimelineEventType.Worklog or TimelineEventType.InternalNote)
+                {
+                    // Retained pre-upgrade publications have numeric Hours but
+                    // lack the additive availability/link fields. Publish the
+                    // migrated durable snapshot using the exact event identity.
+                    var current = await services.GetRequiredService<HelpdeskDbContext>().TicketTimelineEvents
+                        .AsNoTracking().SingleOrDefaultAsync(x => x.Id == timeline.Id &&
+                            x.TicketId == timeline.TicketId && x.EventType == timeline.EventType, ct);
+                    if (current is not null)
+                    {
+                        timeline.Hours = current.Hours ?? 0;
+                        timeline.RecordedHours = current.Hours;
+                        timeline.WorkLogId = current.WorkLogId;
+                    }
+                }
                 await services.GetRequiredService<ITimelineEventBus>().PublishAsync(timeline);
                 return new("Accepted by provider");
             default:

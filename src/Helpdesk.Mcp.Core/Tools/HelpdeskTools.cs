@@ -246,7 +246,7 @@ public sealed class HelpdeskTools(
     public async Task<HelpdeskToolResponse> helpdesk_notifications(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default)
     {
         if (operation == "list") return await Execute(() => client.GetAsync(Query("/api/v1/notifications", Object(request)), true, cancellationToken), "Notifications list completed.").ConfigureAwait(false);
-        if (operation == "summary") return await Execute(() => client.GetAsync("/api/v1/notifications/error-summary", true, cancellationToken), "Notification summary completed.").ConfigureAwait(false);
+        if (operation == "summary") return await Execute(() => client.GetAsync("/api/v1/notifications/summary", true, cancellationToken), "Notification summary completed.").ConfigureAwait(false);
         if (operation == "unread_errors") return await Execute(() => client.GetAsync(Query("/api/v1/notifications/unread-errors", Object(request)), true, cancellationToken), "Unread errors completed.").ConfigureAwait(false);
         if (operation == "mark_read")
         {
@@ -446,7 +446,10 @@ public sealed class HelpdeskTools(
 
     private async Task<HelpdeskToolResponse> ListTickets(string tool, string basePath, JsonElement? request, CancellationToken ct)
     {
+        if (TicketListPagination.Validate(request, out var page, out var pageSize) is { } paginationError) return Validation(paginationError);
         if (NormalizeSearchAliases(request, out var payload) is { } error) return Validation(error);
+        if (page.HasValue) payload!["page"] = page.Value;
+        if (pageSize.HasValue) payload!["pageSize"] = pageSize.Value;
         // Identifier filters are explicit per API contract. Route/body selectors stay
         // excluded by Query everywhere else; do not globally forward *Id fields.
         string[] identifierFilters = tool switch
