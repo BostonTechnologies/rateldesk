@@ -50,7 +50,128 @@ configured downstream identity. It is not automatic per-user delegated RBAC.
 Authority/audience/scopes/groups do not replace downstream token credentials.
 Gateway rejection never falls back to Authentik. Linked-OIDC application users
 can instead obtain their own MCP-purpose credential after normal account linking
-and use gateway mode.
+and use gateway mode. Gateway ingress and `credentialMode=gateway` must be
+selected together; either mixed configuration is rejected before serving.
+
+## Discover the active execution identity
+
+`helpdesk_capabilities.get`, `helpdesk_schema.list`, `helpdesk://server/status`
+and `helpdesk://capabilities` include `configuredIdentity`. This describes the
+serving host's actual ingress and downstream credential modes, whether callers
+share a downstream principal, and which identity verification operation to use.
+`authorityVerified:false` means discovery has not called API to resolve that
+principal's authority. A listed operation or an external mode configuration
+does not establish permission to execute it.
+
+Call `helpdesk_auth.access` to read the existing `/api/v1/auth/me` projection:
+current API permissions, `isHelpdeskAdmin`, organization scope and linked
+customer. In external mode these fields describe the **downstream execution
+principal**; the ingress OAuth caller is separate. The original
+`helpdesk_auth.status` remains unchanged: gateway/integration credentials use
+`/api/v1/auth/me`, while an Authentik downstream identity uses the exact
+`AuthentikAiAgent` status policy. An ordinary external administrator can therefore
+use `access` even when it does not possess the separate AI scheme. A temporary
+setup verifier still permits only `helpdesk_auth.status`.
+
+| Intended operation | Supported existing HTTP identity | Required positive evidence |
+| --- | --- | --- |
+| Tenant operations and owned self-service | Gateway, with current account grants intersected with the approved organization/permissions | `access` shows the actual bounded principal; each operation also satisfies ownership, support membership and form eligibility |
+| Instance administration | An explicitly configured external host whose separate API principal actually has `HelpdeskAdmin` | `access.isHelpdeskAdmin` is true and each administrative operation has its own verified postcondition |
+| AI reporting and diagnostics | An explicitly configured external host whose separate token passes the API's exact `AuthentikAiAgent` scheme | `status` succeeds; a real invocation/report or known bounded diagnostic is verified separately |
+
+The 24 assignable tenant permissions never grant instance administration, even
+when the credential owner is an instance administrator. Gateway credentials and
+their execution tokens cannot satisfy the exact AI scheme. A denied operation
+remains a prerequisite or implementation obligation for the campaign; it is
+not reclassified as unsupported or counted as a successful positive case.
+The discovery and execution-identity changes are tracked in
+[issue #228](https://github.com/BostonTechnologies/RatelDesk/issues/228); fresh
+owner campaign acceptance remains separate under
+[issue #219](https://github.com/BostonTechnologies/RatelDesk/issues/219).
+
+## Provision an explicit external authority
+
+The instance owner and identity administrator must select the downstream
+principal, its actual authority, the ingress group allowed to use it, the
+approved task window and the expiry/revocation procedure. External mode admits
+callers to one **shared downstream authority**. It does not delegate each
+caller's tenant roles. Keep an external administrator host and an AI host
+separate from the ordinary gateway and from each other when their admitted
+populations or execution authority differ. They use the existing HTTP image
+with independently reviewed configurations and canonical HTTPS `/mcp` resources.
+
+1. Provision a real provider account and OAuth application for the intended API
+   principal. Use Authentik's supported [service account](https://docs.goauthentik.io/users-sources/user/account-types/service-accounts)
+   and [machine-to-machine token flow](https://docs.goauthentik.io/add-secure-apps/providers/oauth2/machine_to_machine).
+   The existing downstream client requests `client_credentials` with the explicit
+   application ID, account username and app password. Store the app password in
+   the private `AuthentikAppPasswordFile` reference; never use an ordinary human
+   account password or put a privileged secret into `credentialMode=gateway`.
+2. For normal external administration, the API must support `Oidc` or `Hybrid`
+   user authentication and validate the provider's exact issuer/audience/signing
+   key. The principal must already have actual administrator authority through
+   its persisted enabled application account or an explicitly authorized
+   provider group and `Authentication:Authentik:RoleMappings`. Review the exact
+   group membership and mapping. The MCP host does not create that role.
+3. For the separate AI principal, match the API's
+   `Authentication:AuthentikAiAgent:Authority`, `Audience` and `RequiredGroups`.
+   Its API access token is separate from the ingress token and must pass the
+   exact scheme. Configure distinct, unambiguous user/AI issuer settings for
+   the intended API policy. Do not add `HelpdeskAdmin` to AI `SessionRoles` to
+   simulate an administrator or to resolve a failed ordinary tenant grant.
+4. Configure MCP ingress independently using
+   `Authentication:AuthentikMcp:Authority`, the host's canonical `/mcp` audience,
+   and non-empty required scopes/groups. Restrict that ingress population to
+   callers authorized to exercise the entire downstream principal. Configure
+   the private API target and the separately reviewed downstream token source.
+   The MCP OAuth token is not forwarded to the API; audience blending and
+   fallback do not replace separate tokens. This follows the
+   [MCP authorization requirement for separate upstream tokens](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization).
+5. Issue app passwords and ingress grants with explicit campaign expiry, and
+   configure short API token lifetimes at the provider. Record issuer,
+   audience, subject/account reference, groups, resource, approved authority
+   and expiry in private evidence without recording secret values. Verify
+   `configuredIdentity`, `access`, and the exact AI `status` where applicable;
+   run each required operation and independently read its postcondition.
+6. Revoke the provider app password and ingress grants at the agreed end,
+   then prove rejected fresh requests. External JWT validation checks signed
+   claims and lifetime; this host does not introspect every token. Revoking a
+   password prevents new minting but does not itself invalidate every existing
+   JWT. The API's existing lifetime clock skew is two minutes. Capture the
+   provider's actual access-token expiry and any revocation latency. For linked
+   application accounts the API also resolves current enabled account state
+   and persisted roles; unlinked provider-group authority lasts for the token's
+   validated claims/lifetime. Gateway expiry/revocation remains the distinct
+   per-request database-backed path.
+
+For `provision_user`, use the authenticated external caller's established
+issuer/subject (or provider user identifier) and email. A non-administrator also
+needs an existing login link to an enabled customer and organization. This
+operation provisions that caller; request fields cannot select another user or
+create an identity link by matching email. An explicitly authorized unlinked
+external administrator receives its access projection without a fabricated
+customer. A gateway credential intentionally does not impersonate an external
+OIDC subject. For customer list/detail positives, independently establish the
+linked customer and owned requests. For incident/request self-assignment,
+establish the caller's eligible support membership through supported account
+and support administration, then verify each actual assignment separately.
+
+Exact AI authentication is not a claim that every campaign scenario is covered.
+The current diagnostic buffer is instance-level: the configured exact AI
+principal and admitted ingress callers must be authorized for that scope.
+Query filters bound the selected records, not the principal's authority.
+AI reporting binds each event to its stored
+invocation, organization, ticket and correlation. Conflicting event-ID reuse is
+rejected; matching historical retries retain the original event. Completed,
+Failed and Cancelled invocations reject new callbacks, including late progress.
+Token issuer, audience, groups and expiry remain validated by the exact AI
+scheme. The current invocation model has no separate report-expiry field;
+webhook `TimeoutSeconds` bounds the outbound HTTP call only and does not define
+an invocation-age deadline. Callback collision and terminal-ordering repairs are
+tracked in [issue #234](https://github.com/BostonTechnologies/RatelDesk/issues/234).
+Keep any unmet row open until its deployed positive and isolation checks pass.
+A configured external host or a synthetic provider contract test alone is no
+acceptance result.
 
 ## HTTP host settings
 

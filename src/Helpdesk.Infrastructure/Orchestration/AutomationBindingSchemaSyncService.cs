@@ -46,6 +46,7 @@ public sealed class AutomationBindingSchemaSyncService(
             .AsNoTracking()
             .Where(x => x.RequestFormId == binding.RequestFormId
                 && x.Enabled
+                && x.SystemConnectionId == binding.SystemConnectionId
                 && x.OrchestrationRequestDefinitionId == binding.OrchestrationRequestDefinitionId)
             .ToListAsync(cancellationToken);
         var relatedTaskIds = relatedBindings
@@ -66,15 +67,19 @@ public sealed class AutomationBindingSchemaSyncService(
 
         if (inputs.Count == 0)
         {
-            binding.LastSyncHash = syncHash;
-            binding.LastSyncVersion = "schema:v1";
-            binding.LastSyncedAtUtc = DateTimeOffset.UtcNow;
-            binding.LastSyncDirection = "HelpdeskToOrchestration";
-            binding.LastCorrelationId = correlationId;
-            binding.SyncState = AutomationBindingSyncState.InSync;
-            binding.UpdatedAtUtc = DateTimeOffset.UtcNow;
-
-            await _db.SaveChangesAsync(cancellationToken);
+            var definitions = await _stoCatalogService.ListRequestDefinitionsAsync(binding.OrganizationId, binding.SystemConnectionId, cancellationToken);
+            if (!definitions.Any(x => string.Equals(x.RequestDefinitionId, binding.OrchestrationRequestDefinitionId, StringComparison.Ordinal)))
+                throw new InvalidOperationException("The bound automation target is unavailable in the selected connection tenant.");
+            await AutomationBindingSelectionFence.SaveAsync(_db, [binding], () =>
+            {
+                binding.LastSyncHash = syncHash;
+                binding.LastSyncVersion = "schema:v1";
+                binding.LastSyncedAtUtc = DateTimeOffset.UtcNow;
+                binding.LastSyncDirection = "HelpdeskToOrchestration";
+                binding.LastCorrelationId = correlationId;
+                binding.SyncState = AutomationBindingSyncState.InSync;
+                binding.UpdatedAtUtc = DateTimeOffset.UtcNow;
+            }, cancellationToken);
             return MapDto(binding, requestForm, taskTemplate);
         }
 
@@ -83,27 +88,32 @@ public sealed class AutomationBindingSchemaSyncService(
             var remote = await _stoCatalogService.SyncRequestDefinitionInputsAsync(
                 binding.OrchestrationRequestDefinitionId,
                 inputs,
+                binding.OrganizationId,
+                binding.SystemConnectionId,
                 cancellationToken);
 
-            binding.OrchestrationRequestDefinitionName = FirstNonEmpty(remote.RequestDefinitionName, binding.OrchestrationRequestDefinitionName);
-            binding.OrchestrationJobDefinitionId = FirstNonEmpty(remote.OrchestrationJobDefinitionId, binding.OrchestrationJobDefinitionId);
-            binding.OrchestrationJobDefinitionName = FirstNonEmpty(remote.OrchestrationJobDefinitionName, binding.OrchestrationJobDefinitionName);
-            binding.LastSyncHash = syncHash;
-            binding.LastSyncVersion = "schema:v1";
-            binding.LastSyncedAtUtc = DateTimeOffset.UtcNow;
-            binding.LastSyncDirection = "HelpdeskToOrchestration";
-            binding.LastCorrelationId = correlationId;
-            binding.SyncState = AutomationBindingSyncState.InSync;
-            binding.UpdatedAtUtc = DateTimeOffset.UtcNow;
-
-            await _db.SaveChangesAsync(cancellationToken);
+            await AutomationBindingSelectionFence.SaveAsync(_db, [binding], () =>
+            {
+                binding.OrchestrationRequestDefinitionName = FirstNonEmpty(remote.RequestDefinitionName, binding.OrchestrationRequestDefinitionName);
+                binding.OrchestrationJobDefinitionId = FirstNonEmpty(remote.OrchestrationJobDefinitionId, binding.OrchestrationJobDefinitionId);
+                binding.OrchestrationJobDefinitionName = FirstNonEmpty(remote.OrchestrationJobDefinitionName, binding.OrchestrationJobDefinitionName);
+                binding.LastSyncHash = syncHash;
+                binding.LastSyncVersion = "schema:v1";
+                binding.LastSyncedAtUtc = DateTimeOffset.UtcNow;
+                binding.LastSyncDirection = "HelpdeskToOrchestration";
+                binding.LastCorrelationId = correlationId;
+                binding.SyncState = AutomationBindingSyncState.InSync;
+                binding.UpdatedAtUtc = DateTimeOffset.UtcNow;
+            }, cancellationToken);
         }
-        catch
+        catch (Exception exception) when (exception is not AutomationBindingSelectionChangedException)
         {
-            binding.SyncState = AutomationBindingSyncState.Broken;
-            binding.LastCorrelationId = correlationId;
-            binding.UpdatedAtUtc = DateTimeOffset.UtcNow;
-            await _db.SaveChangesAsync(cancellationToken);
+            await AutomationBindingSelectionFence.SaveAsync(_db, [binding], () =>
+            {
+                binding.SyncState = AutomationBindingSyncState.Broken;
+                binding.LastCorrelationId = correlationId;
+                binding.UpdatedAtUtc = DateTimeOffset.UtcNow;
+            }, cancellationToken);
             throw;
         }
 
@@ -223,6 +233,7 @@ public sealed class AutomationBindingSchemaSyncService(
         return new AutomationBindingDto
         {
             Id = binding.Id,
+            SystemConnectionId = binding.SystemConnectionId,
             OrganizationId = binding.OrganizationId,
             RequestFormId = binding.RequestFormId,
             RequestFormTitle = requestForm.Title,

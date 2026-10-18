@@ -51,6 +51,11 @@ public sealed record HelpdeskMcpHostContext
     [JsonPropertyName("catalogRevision")]
     public string CatalogRevision { get; }
 
+    /// <summary>The active transport authentication mode, supplied by its composition root.</summary>
+    [JsonPropertyName("ingressAuthenticationMode")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? IngressAuthenticationMode { get; init; }
+
     public bool MatchesApiBaseUrl(string? value)
         => Uri.TryCreate(value, UriKind.Absolute, out var candidate)
            && IsHttpUri(candidate)

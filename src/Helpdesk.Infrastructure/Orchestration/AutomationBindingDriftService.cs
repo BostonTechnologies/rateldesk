@@ -38,61 +38,66 @@ public sealed class AutomationBindingDriftService(
             return [];
         }
 
-        var remoteDefinitions = await _stoCatalogService.ListRequestDefinitionsAsync(cancellationToken);
-        var remoteById = remoteDefinitions.ToDictionary(x => x.RequestDefinitionId, StringComparer.OrdinalIgnoreCase);
+        var catalogs = new Dictionary<(string OrganizationId, Guid? ConnectionId), Dictionary<string, OrchestrationCatalogRequestDefinitionDto>>();
+        foreach (var selection in bindings.Where(x => x.Enabled).Select(x => (x.OrganizationId, x.SystemConnectionId)).Distinct())
+        {
+            var definitions = await _stoCatalogService.ListRequestDefinitionsAsync(selection.OrganizationId, selection.SystemConnectionId, cancellationToken);
+            catalogs.Add(selection, definitions.ToDictionary(x => x.RequestDefinitionId, StringComparer.OrdinalIgnoreCase));
+        }
         var requestFormIds = bindings.Select(x => x.RequestFormId).Distinct(StringComparer.Ordinal).ToList();
         var requestForms = await _db.RequestForms.AsNoTracking()
             .IgnoreQueryFilters()
             .Where(x => requestFormIds.Contains(x.Id))
             .ToDictionaryAsync(x => x.Id, cancellationToken);
 
-        foreach (var binding in bindings)
+        await AutomationBindingSelectionFence.SaveAsync(_db, bindings.Where(x => x.Enabled), () =>
         {
-            if (!binding.Enabled)
+            foreach (var binding in bindings)
             {
-                continue;
-            }
-
-            if (!remoteById.TryGetValue(binding.OrchestrationRequestDefinitionId, out var remote))
-            {
-                binding.SyncState = AutomationBindingSyncState.Broken;
-                binding.UpdatedAtUtc = DateTimeOffset.UtcNow;
-                continue;
-            }
-
-            if (!requestForms.TryGetValue(binding.RequestFormId, out var requestForm))
-            {
-                binding.SyncState = AutomationBindingSyncState.Broken;
-                binding.UpdatedAtUtc = DateTimeOffset.UtcNow;
-                continue;
-            }
-
-            var preview = BuildPreview(binding, requestForm, remote);
-            var hasDiffs = preview.Differences.Any(x => !string.Equals(x.ChangeType, "Unchanged", StringComparison.Ordinal));
-            var remoteHash = AutomationBindingSchemaHash.Compute(remote.Inputs.ToList());
-
-            if (!hasDiffs)
-            {
-                if (binding.SyncState != AutomationBindingSyncState.ImportPending)
+                if (!binding.Enabled)
                 {
-                    binding.SyncState = AutomationBindingSyncState.InSync;
+                    continue;
                 }
 
-                binding.LastSyncHash = remoteHash;
-                binding.LastSyncVersion ??= "schema:v1";
-            }
-            else if (binding.SyncState != AutomationBindingSyncState.ImportPending)
-            {
-                binding.SyncState = AutomationBindingSyncState.Drifted;
-            }
+                if (!catalogs[(binding.OrganizationId, binding.SystemConnectionId)].TryGetValue(binding.OrchestrationRequestDefinitionId, out var remote))
+                {
+                    binding.SyncState = AutomationBindingSyncState.Broken;
+                    binding.UpdatedAtUtc = DateTimeOffset.UtcNow;
+                    continue;
+                }
 
-            binding.OrchestrationRequestDefinitionName = FirstNonEmpty(remote.RequestDefinitionName, binding.OrchestrationRequestDefinitionName);
-            binding.OrchestrationJobDefinitionId = FirstNonEmpty(remote.OrchestrationJobDefinitionId, binding.OrchestrationJobDefinitionId);
-            binding.OrchestrationJobDefinitionName = FirstNonEmpty(remote.OrchestrationJobDefinitionName, binding.OrchestrationJobDefinitionName);
-            binding.UpdatedAtUtc = DateTimeOffset.UtcNow;
-        }
+                if (!requestForms.TryGetValue(binding.RequestFormId, out var requestForm))
+                {
+                    binding.SyncState = AutomationBindingSyncState.Broken;
+                    binding.UpdatedAtUtc = DateTimeOffset.UtcNow;
+                    continue;
+                }
 
-        await _db.SaveChangesAsync(cancellationToken);
+                var preview = BuildPreview(binding, requestForm, remote);
+                var hasDiffs = preview.Differences.Any(x => !string.Equals(x.ChangeType, "Unchanged", StringComparison.Ordinal));
+                var remoteHash = AutomationBindingSchemaHash.Compute(remote.Inputs.ToList());
+
+                if (!hasDiffs)
+                {
+                    if (binding.SyncState != AutomationBindingSyncState.ImportPending)
+                    {
+                        binding.SyncState = AutomationBindingSyncState.InSync;
+                    }
+
+                    binding.LastSyncHash = remoteHash;
+                    binding.LastSyncVersion ??= "schema:v1";
+                }
+                else if (binding.SyncState != AutomationBindingSyncState.ImportPending)
+                {
+                    binding.SyncState = AutomationBindingSyncState.Drifted;
+                }
+
+                binding.OrchestrationRequestDefinitionName = FirstNonEmpty(remote.RequestDefinitionName, binding.OrchestrationRequestDefinitionName);
+                binding.OrchestrationJobDefinitionId = FirstNonEmpty(remote.OrchestrationJobDefinitionId, binding.OrchestrationJobDefinitionId);
+                binding.OrchestrationJobDefinitionName = FirstNonEmpty(remote.OrchestrationJobDefinitionName, binding.OrchestrationJobDefinitionName);
+                binding.UpdatedAtUtc = DateTimeOffset.UtcNow;
+            }
+        }, cancellationToken);
 
         return bindings
             .Select(x => MapDto(x, requestForms.TryGetValue(x.RequestFormId, out var form) ? form : null))
@@ -128,7 +133,7 @@ public sealed class AutomationBindingDriftService(
             .FirstOrDefaultAsync(x => x.Id == binding.RequestFormId, cancellationToken)
             ?? throw new InvalidOperationException("Request form was not found for the automation binding.");
 
-        var remoteDefinitions = await _stoCatalogService.ListRequestDefinitionsAsync(cancellationToken);
+        var remoteDefinitions = await _stoCatalogService.ListRequestDefinitionsAsync(binding.OrganizationId, binding.SystemConnectionId, cancellationToken);
         var remote = remoteDefinitions.FirstOrDefault(x =>
             string.Equals(x.RequestDefinitionId, binding.OrchestrationRequestDefinitionId, StringComparison.OrdinalIgnoreCase))
             ?? throw new InvalidOperationException("The bound External orchestration request definition was not found.");
@@ -166,6 +171,7 @@ public sealed class AutomationBindingDriftService(
         return new AutomationBindingDto
         {
             Id = binding.Id,
+            SystemConnectionId = binding.SystemConnectionId,
             OrganizationId = binding.OrganizationId,
             RequestFormId = binding.RequestFormId,
             RequestFormTitle = requestForm?.Title ?? string.Empty,

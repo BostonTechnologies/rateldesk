@@ -38,7 +38,7 @@ public sealed class AutomationBindingImportService(
             .FirstOrDefaultAsync(x => x.Id == binding.RequestFormId, cancellationToken)
             ?? throw new InvalidOperationException("Request form was not found for the automation binding.");
 
-        var remoteDefinitions = await _stoCatalogService.ListRequestDefinitionsAsync(cancellationToken);
+        var remoteDefinitions = await _stoCatalogService.ListRequestDefinitionsAsync(binding.OrganizationId, binding.SystemConnectionId, cancellationToken);
         var remote = remoteDefinitions.FirstOrDefault(x =>
             string.Equals(x.RequestDefinitionId, binding.OrchestrationRequestDefinitionId, StringComparison.OrdinalIgnoreCase))
             ?? throw new InvalidOperationException("The bound External orchestration request definition was not found.");
@@ -52,25 +52,27 @@ public sealed class AutomationBindingImportService(
             throw new InvalidOperationException("Only automation task templates can import External orchestration inputs.");
         }
 
-        ApplyRemoteInputsToSchema(schema.Fields, taskTemplate, remote.Inputs);
-        requestForm.JsonSchema = RebuildSchemaDocument(requestForm.JsonSchema, schema.Fields, schema.Tasks);
+        await AutomationBindingSelectionFence.SaveAsync(_db, [binding], () =>
+        {
+            ApplyRemoteInputsToSchema(schema.Fields, taskTemplate, remote.Inputs);
+            requestForm.JsonSchema = RebuildSchemaDocument(requestForm.JsonSchema, schema.Fields, schema.Tasks);
 
-        binding.OrchestrationRequestDefinitionName = FirstNonEmpty(remote.RequestDefinitionName, binding.OrchestrationRequestDefinitionName);
-        binding.OrchestrationJobDefinitionId = FirstNonEmpty(remote.OrchestrationJobDefinitionId, binding.OrchestrationJobDefinitionId);
-        binding.OrchestrationJobDefinitionName = FirstNonEmpty(remote.OrchestrationJobDefinitionName, binding.OrchestrationJobDefinitionName);
-        binding.LastSyncHash = AutomationBindingSchemaHash.Compute(remote.Inputs.ToList());
-        binding.LastSyncVersion = "schema:v1";
-        binding.LastSyncedAtUtc = DateTimeOffset.UtcNow;
-        binding.LastSyncDirection = "OrchestrationToHelpdesk";
-        binding.LastReviewedDriftAtUtc = DateTimeOffset.UtcNow;
-        binding.SyncState = AutomationBindingSyncState.InSync;
-        binding.UpdatedAtUtc = DateTimeOffset.UtcNow;
-
-        await _db.SaveChangesAsync(cancellationToken);
+            binding.OrchestrationRequestDefinitionName = FirstNonEmpty(remote.RequestDefinitionName, binding.OrchestrationRequestDefinitionName);
+            binding.OrchestrationJobDefinitionId = FirstNonEmpty(remote.OrchestrationJobDefinitionId, binding.OrchestrationJobDefinitionId);
+            binding.OrchestrationJobDefinitionName = FirstNonEmpty(remote.OrchestrationJobDefinitionName, binding.OrchestrationJobDefinitionName);
+            binding.LastSyncHash = AutomationBindingSchemaHash.Compute(remote.Inputs.ToList());
+            binding.LastSyncVersion = "schema:v1";
+            binding.LastSyncedAtUtc = DateTimeOffset.UtcNow;
+            binding.LastSyncDirection = "OrchestrationToHelpdesk";
+            binding.LastReviewedDriftAtUtc = DateTimeOffset.UtcNow;
+            binding.SyncState = AutomationBindingSyncState.InSync;
+            binding.UpdatedAtUtc = DateTimeOffset.UtcNow;
+        }, cancellationToken);
 
         return new AutomationBindingDto
         {
             Id = binding.Id,
+            SystemConnectionId = binding.SystemConnectionId,
             OrganizationId = binding.OrganizationId,
             RequestFormId = binding.RequestFormId,
             RequestFormTitle = requestForm.Title,

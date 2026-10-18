@@ -86,7 +86,7 @@ public static class HelpdeskToolDefinitions
                 properties["request"] = RequestSchema(definition);
 
             var required = new JsonArray("operation");
-            if (definition.RequestContract != "None") required.Add("request");
+            if (definition.RequiresRequest) required.Add("request");
 
             alternatives.Add(new JsonObject
             {
@@ -113,7 +113,7 @@ public static class HelpdeskToolDefinitions
     public static string? ValidateSupportedFields(string tool, string operation, JsonElement? request)
     {
         var definition = McpOperationCatalog.All.SingleOrDefault(item => item.Tool == tool && item.Operation == operation);
-        if (definition is null || (definition.RequestContract == "None" && (request is null || request.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined))) return null;
+        if (definition is null || (!definition.RequiresRequest && (request is null || request.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined))) return null;
         return McpRequestSchemas.ValidateSupportedFields(RequestSchema(definition), request);
     }
 

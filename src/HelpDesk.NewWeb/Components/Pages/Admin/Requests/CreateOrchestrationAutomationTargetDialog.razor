@@ -1,5 +1,6 @@
 @using System.Net.Http.Json
 @using Helpdesk.Shared.DTOs.Orchestration
+@using HelpDesk.NewWeb.Services
 
 @inject IHttpClientFactory HttpClientFactory
 @inject ISnackbar Snackbar
@@ -63,6 +64,8 @@
     [Parameter] public string? InitialClientIdentity { get; set; }
     [Parameter] public string? InitialDescription { get; set; }
     [Parameter] public int? TenantId { get; set; }
+    [Parameter] public string? OrganizationId { get; set; }
+    [Parameter] public Guid? SystemConnectionId { get; set; }
 
     private MudForm form = default!;
     private bool creating;
@@ -87,6 +90,11 @@
         {
             return;
         }
+        if (string.IsNullOrWhiteSpace(OrganizationId) || SystemConnectionId is null || TenantId is not > 0)
+        {
+            Snackbar.Add("Select a current automation system connection before creating a target.", Severity.Warning);
+            return;
+        }
 
         creating = true;
         try
@@ -100,7 +108,8 @@
                 ClientIdentity = clientIdentity!.Trim()
             };
 
-            using var response = await Api.PostAsJsonAsync("api/v1/admin/orchestration/catalog/request-definitions", dto);
+            using var response = await Api.PostAsJsonAsync("api/v1/admin/orchestration/catalog/request-definitions"
+                + AutomationConnectionSelection.Query(OrganizationId, SystemConnectionId.Value), dto);
             if (!response.IsSuccessStatusCode)
             {
                 throw new InvalidOperationException(await response.Content.ReadAsStringAsync());

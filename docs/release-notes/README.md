@@ -1,5 +1,14 @@
 # Release notes
 
+## 0.1.2-beta.6
+
+[Durable delivery and MCP acceptance repairs](0.1.2-beta.6.md) preserve truthful
+mail history, expose actual downstream execution authority and bind AI callback
+replays to their invocation. Notification counters use one scoped database
+statement. The [individual acceptance register](../implementation/0.1.2-beta.6-acceptance/README.md)
+retains all 59 blocked operations and the complete fresh campaign requirements.
+Delivery is tracked by #226; deployed acceptance remains open under #219.
+
 ## 0.1.2-beta.5
 
 [MCP campaign repairs](0.1.2-beta.5.md) correct general notification summaries,

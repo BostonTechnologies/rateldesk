@@ -61,8 +61,11 @@ public sealed partial class Program
         builder.Services.AddOptions<HelpdeskMcpHttpOptions>()
             .Bind(builder.Configuration.GetSection(HelpdeskMcpHttpOptions.SectionName))
             .ValidateOnStart();
-        if (usesGatewayCredentials && !string.Equals(agentConfiguration.CredentialMode, "gateway", StringComparison.OrdinalIgnoreCase))
+        var usesGatewayDownstream = string.Equals(agentConfiguration.CredentialMode?.Trim(), "gateway", StringComparison.OrdinalIgnoreCase);
+        if (usesGatewayCredentials && !usesGatewayDownstream)
             throw new AgentClientValidationException("Local HTTP MCP gateway mode requires credentialMode=gateway and does not accept a deployment credential.");
+        if (!usesGatewayCredentials && usesGatewayDownstream)
+            throw new AgentClientValidationException("credentialMode=gateway requires HTTP gateway ingress so each API execution identity is supplied by its authenticated request.");
 
         AuthentikMcpOptions? authOptions = null;
         if (!usesGatewayCredentials)
@@ -74,7 +77,10 @@ public sealed partial class Program
             authOptions = builder.Configuration.GetSection(AuthentikMcpOptions.SectionName).Get<AuthentikMcpOptions>() ?? new AuthentikMcpOptions();
         }
 
-        var hostContext = target.ToHostContext("http", httpOptions.PublicResourceUri);
+        var hostContext = target.ToHostContext("http", httpOptions.PublicResourceUri) with
+        {
+            IngressAuthenticationMode = authenticationMode
+        };
         var resourceMetadataUri = usesGatewayCredentials
             ? null
             : new Uri(new Uri(hostContext.ResourceUri), "/.well-known/oauth-protected-resource/mcp");

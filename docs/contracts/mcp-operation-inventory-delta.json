@@ -17,19 +17,26 @@
     "fileSha256": "9fb1214150fbc159f48d32a5789dae1adf5072aa16e8919e282dac01bca90c5f"
   },
   "current": {
-    "catalogRevision": "2026-10-18.mcp-campaign-repairs-v21",
-    "catalogHash": "6d26bcead8f63a3f596d061b4284a0dbc356782240d9e5209c806dfba1e80ffe",
-    "schemaHash": "2f54b8dbecfdf9d2e64558c1a850f93bc53c7a9163fc18a5042bbab189491e03",
-    "operationCount": 154,
+    "catalogRevision": "2026-10-18.mcp-campaign-repairs-v22",
+    "catalogHash": "3290c0447eb033b327d9b15ea949c608bf0ae0a35c45556fda90b98abf3270bf",
+    "schemaHash": "cb1a42c9d8990caece7c2cff0c1e1d8e89f54d5d7bf639e7f057e7021f6406af",
+    "operationCount": 155,
     "toolCount": 28,
-    "fileSha256": "508b8e3e4d4dcf65b2b1d3812ec0900189dfa5d52b4d08d6b8606b37ba656b75"
+    "fileSha256": "66061736f4be91f0fecc50f81aaab23945a1dbf55ef230d7c17c69420a9ca7a9"
   },
-  "addedOperations": [],
+  "addedOperations": [
+    "helpdesk_auth.access"
+  ],
   "removedOperations": [],
   "intentionalChanges": [
     "General notification summary uses /api/v1/notifications/summary.",
     "Four MCP list schemas/runtime enforce explicit page 1..1000000 and pageSize 1..100, preserving omitted-field and REST/CLI behavior.",
-    "Three timeline operation descriptions document additive recordedHours/workLogId and explicitly unavailable legacy effort."
+    "Three timeline operation descriptions document additive recordedHours/workLogId and explicitly unavailable legacy effort.",
+    "Add helpdesk_auth.access as an authenticated read of the current downstream API principal at /api/v1/auth/me, retaining status behavior and the status-only verifier boundary.",
+    "Live configuredIdentity metadata distinguishes request-bound gateway execution from a separately configured shared external principal without asserting verified authority.",
+    "The complete 154-operation historical corpus is retained; the additive identity operation requires its own fresh positive and isolation evidence under B6-N01.",
+    "Orchestration settings, catalogs and confirmed connectivity test accept optional organizationId and connectionId for exact saved mapping selection; existing omitted-request behavior remains supported.",
+    "AI report prerequisites document stored bound-report replay semantics and terminal-state protection while retaining exact AI authentication and token lifetime validation."
   ],
   "campaignEvidence": {
     "baselineAggregate": {
@@ -845,7 +852,18 @@
         "confirmationRequired": false,
         "description": "report operation."
       },
-      "changes": {},
+      "changes": {
+        "prerequisites": {
+          "before": [
+            "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability.",
+            "Real authenticated existing invocation/event/ticket/correlation binding. Report appends AI worklog autonomously; duplicate event IDs and ticket/correlation binding are enforced by the API."
+          ],
+          "after": [
+            "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability.",
+            "Real authenticated existing invocation/organization/event/ticket/correlation binding under the exact AI scheme, including token lifetime validation. Report appends AI worklog autonomously; a matching duplicate retains its stored event, while conflicting event-ID reuse and new callbacks after Completed, Failed or Cancelled are rejected."
+          ]
+        }
+      },
       "effect": "write",
       "boundedIntegrationCredential": {
         "support": "denied_by_policy",
@@ -853,6 +871,108 @@
       },
       "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_auth.access",
+      "catalogStatus": "added",
+      "originalBeta3OperationKey": null,
+      "baselineContract": null,
+      "currentContract": {
+        "requestContract": "None",
+        "method": "GET",
+        "pathTemplate": "/api/v1/auth/me",
+        "confirmationRequired": false,
+        "description": "Read the current downstream execution principal's API permissions, organization scope and linked customer; external HTTP ingress identity remains separate."
+      },
+      "changes": {
+        "requestContract": {
+          "before": null,
+          "after": "None"
+        },
+        "method": {
+          "before": null,
+          "after": "GET"
+        },
+        "pathTemplate": {
+          "before": null,
+          "after": "/api/v1/auth/me"
+        },
+        "effect": {
+          "before": null,
+          "after": "read"
+        },
+        "readOnly": {
+          "before": null,
+          "after": true
+        },
+        "confirmationRequired": {
+          "before": null,
+          "after": false
+        },
+        "previewSupported": {
+          "before": null,
+          "after": false
+        },
+        "description": {
+          "before": null,
+          "after": "Read the current downstream execution principal's API permissions, organization scope and linked customer; external HTTP ingress identity remains separate."
+        },
+        "transports": {
+          "before": null,
+          "after": [
+            "stdio",
+            "http"
+          ]
+        },
+        "transportSupport": {
+          "before": null,
+          "after": {
+            "stdio": "Available with explicitly configured API identity; authority and prerequisites apply",
+            "http": "available_subject_to_identity_permission_scope_and_prerequisites"
+          }
+        },
+        "credentialModes": {
+          "before": null,
+          "after": [
+            "api-purpose account-bound credential (stdio)",
+            "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
+            "explicit external Authentik identity"
+          ]
+        },
+        "authority": {
+          "before": null,
+          "after": "Authenticated /api/v1/auth/me resolves current execution-principal authority in every credential mode. In external HTTP mode this is the separately configured shared downstream principal, not the ingress caller. Discovery configuration does not imply HelpdeskAdmin or exact AI authority."
+        },
+        "boundedIntegrationCredential": {
+          "before": null,
+          "after": {
+            "support": "permission_and_organization_intersection",
+            "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+          }
+        },
+        "identifiers": {
+          "before": null,
+          "after": []
+        },
+        "prerequisites": {
+          "before": null,
+          "after": [
+            "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability."
+          ]
+        },
+        "requestSchema": {
+          "before": null,
+          "after": null
+        }
+      },
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence",
+      "acceptanceObligation": "B6-N01"
     },
     {
       "operationKey": "helpdesk_auth.status",
@@ -872,7 +992,12 @@
         "confirmationRequired": false,
         "description": "Read the authenticated agent status."
       },
-      "changes": {},
+      "changes": {
+        "authority": {
+          "before": "Caller-bound integration/gateway uses authenticated /api/v1/auth/me; explicit external Authentik uses /api/v1/auth/ai-agent/status requiring exact AuthentikAiAgent scheme. No target or identity-mode fallback.",
+          "after": "Caller-bound integration/gateway uses authenticated /api/v1/auth/me; explicit external Authentik uses /api/v1/auth/ai-agent/status requiring exact AuthentikAiAgent scheme. No target or identity-mode fallback. Use access for current downstream API permissions in either mode."
+        }
+      },
       "effect": "read",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
@@ -2017,19 +2142,68 @@
         "description": "orchestration operation."
       },
       "currentContract": {
-        "requestContract": "None",
+        "requestContract": "OrchestrationSelectionRequest",
         "method": "GET",
         "pathTemplate": "/api/v1/admin/orchestration",
         "confirmationRequired": false,
         "description": "orchestration operation."
       },
-      "changes": {},
+      "changes": {
+        "requestContract": {
+          "before": "None",
+          "after": "OrchestrationSelectionRequest"
+        },
+        "prerequisites": {
+          "before": [
+            "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability.",
+            "Configured enabled external orchestration peer, permitted network connection and a unique/selected saved automation connection. Multiple unresolved connections return connection_selection_required (409); missing configuration is a prerequisite failure, not a successful probe. Test uses this integration's own connectivity service and causes outbound traffic, with zero job ingestion."
+          ],
+          "after": [
+            "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability.",
+            "Configured enabled external orchestration peer, permitted network connection and a unique/selected saved automation connection. Settings/catalog/test accept optional organizationId and connectionId to select an eligible saved mapping; binding inventory has its existing contract. Multiple unresolved connections return connection_selection_required (409); missing configuration is a prerequisite failure, not a successful probe. Test uses this integration's own connectivity service and causes outbound traffic, with zero job ingestion."
+          ]
+        },
+        "requestSchema": {
+          "before": null,
+          "after": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "organizationId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1,
+                "pattern": "\\S",
+                "description": "Optional exact local organization with a saved eligible automation mapping. Omit for the existing unique-connection resolver."
+              },
+              "connectionId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "not": {
+                  "const": "00000000-0000-0000-0000-000000000000"
+                },
+                "description": "Optional non-empty saved SystemConnection ID. The API enforces its mapping, capability and organization; this is not an authority grant."
+              }
+            },
+            "required": [],
+            "description": "OrchestrationSelectionRequest for helpdesk_connectivity operation orchestration. All operation-specific fields belong inside this request object, never at the tool root."
+          }
+        }
+      },
       "effect": "read",
       "boundedIntegrationCredential": {
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [],
+      "newRequestProperties": [
+        "connectionId",
+        "organizationId"
+      ],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
@@ -2050,7 +2224,18 @@
         "confirmationRequired": false,
         "description": "orchestration_bindings operation."
       },
-      "changes": {},
+      "changes": {
+        "prerequisites": {
+          "before": [
+            "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability.",
+            "Configured enabled external orchestration peer, permitted network connection and a unique/selected saved automation connection. Multiple unresolved connections return connection_selection_required (409); missing configuration is a prerequisite failure, not a successful probe. Test uses this integration's own connectivity service and causes outbound traffic, with zero job ingestion."
+          ],
+          "after": [
+            "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability.",
+            "Configured enabled external orchestration peer, permitted network connection and a unique/selected saved automation connection. Settings/catalog/test accept optional organizationId and connectionId to select an eligible saved mapping; binding inventory has its existing contract. Multiple unresolved connections return connection_selection_required (409); missing configuration is a prerequisite failure, not a successful probe. Test uses this integration's own connectivity service and causes outbound traffic, with zero job ingestion."
+          ]
+        }
+      },
       "effect": "read",
       "boundedIntegrationCredential": {
         "support": "denied_by_policy",
@@ -2071,19 +2256,68 @@
         "description": "orchestration_jobs operation."
       },
       "currentContract": {
-        "requestContract": "None",
+        "requestContract": "OrchestrationSelectionRequest",
         "method": "GET",
         "pathTemplate": "/api/v1/admin/orchestration/catalog/jobs",
         "confirmationRequired": false,
         "description": "orchestration_jobs operation."
       },
-      "changes": {},
+      "changes": {
+        "requestContract": {
+          "before": "None",
+          "after": "OrchestrationSelectionRequest"
+        },
+        "prerequisites": {
+          "before": [
+            "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability.",
+            "Configured enabled external orchestration peer, permitted network connection and a unique/selected saved automation connection. Multiple unresolved connections return connection_selection_required (409); missing configuration is a prerequisite failure, not a successful probe. Test uses this integration's own connectivity service and causes outbound traffic, with zero job ingestion."
+          ],
+          "after": [
+            "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability.",
+            "Configured enabled external orchestration peer, permitted network connection and a unique/selected saved automation connection. Settings/catalog/test accept optional organizationId and connectionId to select an eligible saved mapping; binding inventory has its existing contract. Multiple unresolved connections return connection_selection_required (409); missing configuration is a prerequisite failure, not a successful probe. Test uses this integration's own connectivity service and causes outbound traffic, with zero job ingestion."
+          ]
+        },
+        "requestSchema": {
+          "before": null,
+          "after": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "organizationId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1,
+                "pattern": "\\S",
+                "description": "Optional exact local organization with a saved eligible automation mapping. Omit for the existing unique-connection resolver."
+              },
+              "connectionId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "not": {
+                  "const": "00000000-0000-0000-0000-000000000000"
+                },
+                "description": "Optional non-empty saved SystemConnection ID. The API enforces its mapping, capability and organization; this is not an authority grant."
+              }
+            },
+            "required": [],
+            "description": "OrchestrationSelectionRequest for helpdesk_connectivity operation orchestration_jobs. All operation-specific fields belong inside this request object, never at the tool root."
+          }
+        }
+      },
       "effect": "read",
       "boundedIntegrationCredential": {
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [],
+      "newRequestProperties": [
+        "connectionId",
+        "organizationId"
+      ],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
@@ -2098,19 +2332,68 @@
         "description": "orchestration_request_definitions operation."
       },
       "currentContract": {
-        "requestContract": "None",
+        "requestContract": "OrchestrationSelectionRequest",
         "method": "GET",
         "pathTemplate": "/api/v1/admin/orchestration/catalog/request-definitions",
         "confirmationRequired": false,
         "description": "orchestration_request_definitions operation."
       },
-      "changes": {},
+      "changes": {
+        "requestContract": {
+          "before": "None",
+          "after": "OrchestrationSelectionRequest"
+        },
+        "prerequisites": {
+          "before": [
+            "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability.",
+            "Configured enabled external orchestration peer, permitted network connection and a unique/selected saved automation connection. Multiple unresolved connections return connection_selection_required (409); missing configuration is a prerequisite failure, not a successful probe. Test uses this integration's own connectivity service and causes outbound traffic, with zero job ingestion."
+          ],
+          "after": [
+            "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability.",
+            "Configured enabled external orchestration peer, permitted network connection and a unique/selected saved automation connection. Settings/catalog/test accept optional organizationId and connectionId to select an eligible saved mapping; binding inventory has its existing contract. Multiple unresolved connections return connection_selection_required (409); missing configuration is a prerequisite failure, not a successful probe. Test uses this integration's own connectivity service and causes outbound traffic, with zero job ingestion."
+          ]
+        },
+        "requestSchema": {
+          "before": null,
+          "after": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "organizationId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1,
+                "pattern": "\\S",
+                "description": "Optional exact local organization with a saved eligible automation mapping. Omit for the existing unique-connection resolver."
+              },
+              "connectionId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "not": {
+                  "const": "00000000-0000-0000-0000-000000000000"
+                },
+                "description": "Optional non-empty saved SystemConnection ID. The API enforces its mapping, capability and organization; this is not an authority grant."
+              }
+            },
+            "required": [],
+            "description": "OrchestrationSelectionRequest for helpdesk_connectivity operation orchestration_request_definitions. All operation-specific fields belong inside this request object, never at the tool root."
+          }
+        }
+      },
       "effect": "read",
       "boundedIntegrationCredential": {
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [],
+      "newRequestProperties": [
+        "connectionId",
+        "organizationId"
+      ],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
@@ -2125,19 +2408,68 @@
         "description": "orchestration_tenants operation."
       },
       "currentContract": {
-        "requestContract": "None",
+        "requestContract": "OrchestrationSelectionRequest",
         "method": "GET",
         "pathTemplate": "/api/v1/admin/orchestration/catalog/tenants",
         "confirmationRequired": false,
         "description": "orchestration_tenants operation."
       },
-      "changes": {},
+      "changes": {
+        "requestContract": {
+          "before": "None",
+          "after": "OrchestrationSelectionRequest"
+        },
+        "prerequisites": {
+          "before": [
+            "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability.",
+            "Configured enabled external orchestration peer, permitted network connection and a unique/selected saved automation connection. Multiple unresolved connections return connection_selection_required (409); missing configuration is a prerequisite failure, not a successful probe. Test uses this integration's own connectivity service and causes outbound traffic, with zero job ingestion."
+          ],
+          "after": [
+            "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability.",
+            "Configured enabled external orchestration peer, permitted network connection and a unique/selected saved automation connection. Settings/catalog/test accept optional organizationId and connectionId to select an eligible saved mapping; binding inventory has its existing contract. Multiple unresolved connections return connection_selection_required (409); missing configuration is a prerequisite failure, not a successful probe. Test uses this integration's own connectivity service and causes outbound traffic, with zero job ingestion."
+          ]
+        },
+        "requestSchema": {
+          "before": null,
+          "after": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "organizationId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1,
+                "pattern": "\\S",
+                "description": "Optional exact local organization with a saved eligible automation mapping. Omit for the existing unique-connection resolver."
+              },
+              "connectionId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "not": {
+                  "const": "00000000-0000-0000-0000-000000000000"
+                },
+                "description": "Optional non-empty saved SystemConnection ID. The API enforces its mapping, capability and organization; this is not an authority grant."
+              }
+            },
+            "required": [],
+            "description": "OrchestrationSelectionRequest for helpdesk_connectivity operation orchestration_tenants. All operation-specific fields belong inside this request object, never at the tool root."
+          }
+        }
+      },
       "effect": "read",
       "boundedIntegrationCredential": {
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [],
+      "newRequestProperties": [
+        "connectionId",
+        "organizationId"
+      ],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
@@ -2152,19 +2484,68 @@
         "description": "orchestration_test operation."
       },
       "currentContract": {
-        "requestContract": "None",
+        "requestContract": "OrchestrationSelectionRequest",
         "method": "POST",
         "pathTemplate": "/api/v1/admin/orchestration/test",
         "confirmationRequired": true,
         "description": "orchestration_test operation."
       },
-      "changes": {},
+      "changes": {
+        "requestContract": {
+          "before": "None",
+          "after": "OrchestrationSelectionRequest"
+        },
+        "prerequisites": {
+          "before": [
+            "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability.",
+            "Configured enabled external orchestration peer, permitted network connection and a unique/selected saved automation connection. Multiple unresolved connections return connection_selection_required (409); missing configuration is a prerequisite failure, not a successful probe. Test uses this integration's own connectivity service and causes outbound traffic, with zero job ingestion."
+          ],
+          "after": [
+            "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability.",
+            "Configured enabled external orchestration peer, permitted network connection and a unique/selected saved automation connection. Settings/catalog/test accept optional organizationId and connectionId to select an eligible saved mapping; binding inventory has its existing contract. Multiple unresolved connections return connection_selection_required (409); missing configuration is a prerequisite failure, not a successful probe. Test uses this integration's own connectivity service and causes outbound traffic, with zero job ingestion."
+          ]
+        },
+        "requestSchema": {
+          "before": null,
+          "after": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "organizationId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1,
+                "pattern": "\\S",
+                "description": "Optional exact local organization with a saved eligible automation mapping. Omit for the existing unique-connection resolver."
+              },
+              "connectionId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "not": {
+                  "const": "00000000-0000-0000-0000-000000000000"
+                },
+                "description": "Optional non-empty saved SystemConnection ID. The API enforces its mapping, capability and organization; this is not an authority grant."
+              }
+            },
+            "required": [],
+            "description": "OrchestrationSelectionRequest for helpdesk_connectivity operation orchestration_test. All operation-specific fields belong inside this request object, never at the tool root."
+          }
+        }
+      },
       "effect": "external_io",
       "boundedIntegrationCredential": {
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [],
+      "newRequestProperties": [
+        "connectionId",
+        "organizationId"
+      ],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
@@ -3514,13 +3895,13 @@
         "description": "Read total, unread and unread Error/Critical counts for the actor's complete authorized notification population."
       },
       "changes": {
-        "description": {
-          "before": "summary operation.",
-          "after": "Read total, unread and unread Error/Critical counts for the actor's complete authorized notification population."
-        },
         "pathTemplate": {
           "before": "/api/v1/notifications/error-summary",
           "after": "/api/v1/notifications/summary"
+        },
+        "description": {
+          "before": "summary operation.",
+          "after": "Read total, unread and unread Error/Critical counts for the actor's complete authorized notification population."
         }
       },
       "effect": "read",
@@ -5850,5 +6231,14 @@
       "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     }
-  ]
+  ],
+  "previousBeta5": {
+    "sourceCommit": "07ec0a48f4b24656f56eac265e38ac24c687ffa4",
+    "catalogRevision": "2026-10-18.mcp-campaign-repairs-v21",
+    "catalogHash": "6d26bcead8f63a3f596d061b4284a0dbc356782240d9e5209c806dfba1e80ffe",
+    "schemaHash": "2f54b8dbecfdf9d2e64558c1a850f93bc53c7a9163fc18a5042bbab189491e03",
+    "operationCount": 154,
+    "toolCount": 28,
+    "fileSha256": "508b8e3e4d4dcf65b2b1d3812ec0900189dfa5d52b4d08d6b8606b37ba656b75"
+  }
 }

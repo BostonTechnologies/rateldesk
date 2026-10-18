@@ -51,14 +51,14 @@ public sealed class OrchestrationCatalogServiceTests
     [Fact]
     public async Task Job_and_tenant_catalogues_validate_their_required_fields()
     {
-        var jobSut = CreateSut("[{\"id\":\"job-1\",\"name\":\"Provision\"}]");
-        var tenantSut = CreateSut("[{\"tenantId\":7,\"name\":\"Operations\"}]");
+        var jobSut = CreateSut("[{\"id\":\"job-1\",\"name\":\"Provision\",\"tenantId\":17}]");
+        var tenantSut = CreateSut("[{\"tenantId\":17,\"name\":\"Operations\"}]");
 
         var jobs = await jobSut.ListJobsAsync();
         var tenants = await tenantSut.ListTenantsAsync();
 
         Assert.Equal("job-1", Assert.Single(jobs).Id);
-        Assert.Equal(7, Assert.Single(tenants).TenantId);
+        Assert.Equal(17, Assert.Single(tenants).TenantId);
     }
 
     private static OrchestrationCatalogService CreateSut(string responseBody)

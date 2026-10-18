@@ -9,6 +9,7 @@ public sealed record NotificationRequest(string NotificationId);
 public sealed record SearchRequest(string Query, int? Limit = null);
 public sealed record ListRequest(int? Page = null, int? PageSize = null, string? Query = null, string? Q = null);
 public sealed record LogSearchRequest(long? Since, string? CorrelationId, string? Contains, int? Limit = null, string? Level = null);
+public sealed record OrchestrationSelectionRequest(string? OrganizationId = null, Guid? ConnectionId = null);
 public sealed record TicketMutationRequest(string? IncidentId = null, string? RequestId = null, string? ChangeId = null, IReadOnlyList<string>? Ids = null);
 public sealed record RequestTaskMutationRequest(string? TaskId = null, IReadOnlyList<string>? Ids = null, string? AssignedToId = null);
 public sealed record TicketSeenRequest(string TicketId);

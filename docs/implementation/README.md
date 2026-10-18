@@ -13,3 +13,4 @@ guidance is linked from the [documentation index](../README.md).
 - [Administration workspace comparisons and validation](admin-workspace-evidence-0.1.1.md)
 - [0.1.2-beta.4 MCP finding-to-test map and owner retest checklist](0.1.2-beta.4-mcp-regressions.md)
 - [0.1.2-beta.5 MCP regression and next-campaign handoff](0.1.2-beta.5-mcp-regressions.md)
+- [0.1.2-beta.6 individual acceptance register and executable closure gate](0.1.2-beta.6-acceptance/README.md)

@@ -140,6 +140,10 @@ public sealed class RequestTaskPayloadBuildResult
 public interface IOrchestrationConnectivityService
 {
     Task<OrchestrationConnectivitySettingsDto> GetOrchestrationSettingsAsync(CancellationToken cancellationToken = default);
+    Task<OrchestrationConnectivitySettingsDto> GetOrchestrationSettingsAsync(string? organizationId, Guid? connectionId, CancellationToken cancellationToken = default)
+        => organizationId is null && connectionId is null
+            ? GetOrchestrationSettingsAsync(cancellationToken)
+            : throw new NotSupportedException("Explicit orchestration connection selection is not supported by this provider.");
     Task<OrchestrationConnectivityTestResultDto> TestOrchestrationConnectivityAsync(CancellationToken cancellationToken = default);
     Task<OrchestrationConnectivityTestResultDto> TestOrchestrationConnectivityAsync(
         OrchestrationResolvedSettings settings,
@@ -241,6 +245,22 @@ public interface IOrchestrationCatalogService
         string requestDefinitionId,
         IReadOnlyList<OrchestrationCatalogInputDefinitionDto> inputs,
         CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<OrchestrationCatalogJobDto>> ListJobsAsync(string? organizationId, Guid? connectionId, CancellationToken cancellationToken = default)
+        => organizationId is null && connectionId is null ? ListJobsAsync(cancellationToken)
+            : throw new NotSupportedException("Explicit orchestration connection selection is not supported by this provider.");
+    Task<IReadOnlyList<OrchestrationCatalogTenantDto>> ListTenantsAsync(string? organizationId, Guid? connectionId, CancellationToken cancellationToken = default)
+        => organizationId is null && connectionId is null ? ListTenantsAsync(cancellationToken)
+            : throw new NotSupportedException("Explicit orchestration connection selection is not supported by this provider.");
+    Task<IReadOnlyList<OrchestrationCatalogRequestDefinitionDto>> ListRequestDefinitionsAsync(string? organizationId, Guid? connectionId, CancellationToken cancellationToken = default)
+        => organizationId is null && connectionId is null ? ListRequestDefinitionsAsync(cancellationToken)
+            : throw new NotSupportedException("Explicit orchestration connection selection is not supported by this provider.");
+    Task<OrchestrationCatalogRequestDefinitionDto> CreateRequestDefinitionAsync(CreateOrchestrationCatalogRequestDefinitionDto request, string? organizationId, Guid? connectionId, CancellationToken cancellationToken = default)
+        => organizationId is null && connectionId is null ? CreateRequestDefinitionAsync(request, cancellationToken)
+            : throw new NotSupportedException("Explicit orchestration connection selection is not supported by this provider.");
+    Task<OrchestrationCatalogRequestDefinitionDto> SyncRequestDefinitionInputsAsync(string requestDefinitionId, IReadOnlyList<OrchestrationCatalogInputDefinitionDto> inputs, string? organizationId, Guid? connectionId, CancellationToken cancellationToken = default)
+        => organizationId is null && connectionId is null ? SyncRequestDefinitionInputsAsync(requestDefinitionId, inputs, cancellationToken)
+            : throw new NotSupportedException("Explicit orchestration connection selection is not supported by this provider.");
 }
 
 public interface IRequestTaskPayloadBuilder

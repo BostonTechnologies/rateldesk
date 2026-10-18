@@ -24,6 +24,11 @@ def main(path: str) -> None:
         "PairingEndpointTests": False,
         "PairingUpgradeTests": True,
         "ServiceIdentityMigrationTests": True,
+        "WorklogMailDeliveryTests": True,
+        "AiInvestigationMcpHttpTests": True,
+        "AiInvestigationDispatchRaceTests": True,
+        "OrchestrationConnectionSelectionHttpTests": True,
+        "NotificationSummaryPerformanceTests": True,
     }
     for name, requires_providers in classes.items():
         names = [result.get("testName", "") for result in results if f".{name}." in result.get("testName", "")]

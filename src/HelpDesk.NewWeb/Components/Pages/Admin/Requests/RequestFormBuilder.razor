@@ -6,6 +6,7 @@
 @using Helpdesk.Shared.DTOs.Resources
 @using Helpdesk.Shared.DTOs.User
 @using Helpdesk.Shared.Models
+@using Helpdesk.Shared.Pairing
 @using HelpDesk.NewWeb.Services
 
 @inject IHttpClientFactory HttpClientFactory
@@ -63,7 +64,7 @@
                                        Variant="Variant.Outlined"
                                        Margin="Margin.Dense"
                                        Clearable="true"
-                                       HelperText="Tenant-scoped External orchestration automation requires a single organization linked to an External orchestration tenant.">
+                                       HelperText="Automation uses a saved system connection for this primary organization.">
                                 @foreach (var organization in organizations.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
                                 {
                                     <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
@@ -72,16 +73,16 @@
 
                             @if (SelectedOrganization is not null)
                             {
-                                <MudAlert Severity="@(SelectedOrganization.OrchestrationTenantId.HasValue ? Severity.Success : Severity.Warning)"
+                                <MudAlert Severity="@(AutomationConnectionChoices.Count > 0 ? Severity.Info : Severity.Warning)"
                                           Variant="Variant.Outlined"
                                           Dense="true">
-                                    @if (SelectedOrganization.OrchestrationTenantId.HasValue)
+                                    @if (AutomationConnectionChoices.Count > 0)
                                     {
-                                        <span>Organization linked to External orchestration tenant @SelectedOrganization.OrchestrationTenantName.</span>
+                                        <span>@AutomationConnectionChoices.Count saved automation connection(s) are available for this organization. Select and verify a connection on each automation task.</span>
                                     }
                                     else
                                     {
-                                        <span>This organization is not linked to an External orchestration tenant yet. Existing External orchestration bindings can be reviewed, but creating a new External orchestration target is blocked until the organization is linked.</span>
+                                        <span>No connected automation mapping is available for this organization. Configure its mapping in System connections.</span>
                                     }
                                 </MudAlert>
                             }
@@ -308,7 +309,7 @@
                                                     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="request-form-section-header">
                                                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
                                                             <MudText Typo="Typo.subtitle2">Automation Configuration</MudText>
-                                                            <MudTooltip Text="Automation runs through an enabled External orchestration binding. If tenant metadata is unavailable, all External orchestration targets are shown; verify folder and job before saving.">
+                                                            <MudTooltip Text="Automation targets must belong to the peer tenant on the selected saved system connection.">
                                                                 <MudIconButton Icon="@Icons.Material.Filled.Info"
                                                                                Size="Size.Small"
                                                                                Color="Color.Info"
@@ -336,6 +337,16 @@
                                                     }
                                                     else
                                                     {
+                                                        <MudSelect T="Guid?" Value="@(SelectedBinding?.SystemConnectionId ?? SelectedAutomationConnection?.ConnectionId)"
+                                                                   ValueChanged="OnAutomationConnectionChangedAsync" Label="Automation system connection"
+                                                                   Variant="Variant.Outlined" Margin="Margin.Dense"
+                                                                   HelperText="Choose the saved connection for this task and organization.">
+                                                            @foreach (var connection in AutomationConnectionChoices)
+                                                            {
+                                                                <MudSelectItem T="Guid?" Value="@((Guid?)connection.ConnectionId)">@($"{connection.Name} · {connection.PeerName} · tenant {connection.PeerTenantId}")</MudSelectItem>
+                                                            }
+                                                        </MudSelect>
+                                                        <MudButton Size="Size.Small" OnClick="ReloadAutomationConnectionsAsync" Disabled="@orchestrationCatalogLoading">Refresh system connections</MudButton>
                                                         @if (!CanCreateTenantScopedOrchestrationTarget)
                                                         {
                                                             <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mb-1">
@@ -1005,6 +1016,10 @@
     private readonly Dictionary<Guid, PayloadMappingDraft> payloadMappingDrafts = new();
     private List<OrchestrationCatalogRequestDefinitionDto> orchestrationRequestDefinitions = new();
     private List<OrchestrationCatalogJobDto> orchestrationJobs = new();
+    private List<PairingConnectionDto> systemConnections = new();
+    private OrchestrationConnectivitySettingsDto? selectedOrchestrationSettings;
+    private string? loadedOrchestrationSelection;
+    private int orchestrationLoadGeneration;
     private bool orchestrationCatalogLoading;
     private string? orchestrationCatalogError;
     private AutomationBindingDriftPreviewDto? selectedBindingDriftPreview;
@@ -1043,8 +1058,11 @@
     private bool refreshTaskDropContainerAfterRender;
     private int taskDropRenderVersion;
     private OrganizationDto? SelectedOrganization => organizations.FirstOrDefault(x => x.Id == model.OrganizationId);
+    private IReadOnlyList<AutomationConnectionChoice> AutomationConnectionChoices => AutomationConnectionSelection.ForOrganization(systemConnections, model.OrganizationId);
+    private AutomationConnectionChoice? SelectedAutomationConnection => AutomationConnectionSelection.Resolve(AutomationConnectionChoices, SelectedBinding?.SystemConnectionId);
+    private string OrchestrationSelectionKey => $"{model.OrganizationId}:{SelectedAutomationConnection?.ConnectionId}:{SelectedBinding?.SystemConnectionId}";
     private bool CanCreateTenantScopedOrchestrationTarget =>
-        !string.IsNullOrWhiteSpace(model.OrganizationId) && SelectedOrganization?.OrchestrationTenantId is not null;
+        !orchestrationCatalogLoading && AutomationConnectionSelection.IsVerified(SelectedAutomationConnection, selectedOrchestrationSettings);
     private string OrchestrationTargetCreationReadinessMessage
     {
         get
@@ -1054,12 +1072,15 @@
                 return "Select a primary organization before creating a new External orchestration automation target.";
             }
 
-            if (SelectedOrganization?.OrchestrationTenantId is null)
+            if (SelectedBinding?.SystemConnectionId is not null && SelectedAutomationConnection is null)
             {
-                return "The selected organization is not linked to an External orchestration tenant. Link it in Organization Management first.";
+                return "The stored automation connection is unavailable for this organization. Select a current connection and review the target.";
             }
-
-            return string.Empty;
+            if (AutomationConnectionChoices.Count == 0)
+                return "Save a connected system mapping with Run automation for this organization in System connections.";
+            if (SelectedAutomationConnection is null)
+                return "More than one automation connection is available. Select the connection for this task.";
+            return "The selected automation connection must be verified before choosing or creating a target.";
         }
     }
 
@@ -1089,10 +1110,7 @@
         && !OrchestrationCatalogTargetFilter.HasAnyTenantMetadata(orchestrationRequestDefinitions);
     private bool SelectedBindingTargetHasTenantMismatch => SelectedCatalogRequestDefinition is not null
         && OrchestrationCatalogTargetFilter.HasTenantMetadata(SelectedCatalogRequestDefinition)
-        && !OrchestrationCatalogTargetFilter.IsTenantMatch(
-            SelectedCatalogRequestDefinition,
-            SelectedOrganization?.OrchestrationTenantId,
-            SelectedOrganization?.OrchestrationTenantName);
+        && SelectedCatalogRequestDefinition.TenantId != SelectedAutomationConnection?.PeerTenantId;
     private IReadOnlyList<PayloadMappingRow> VisiblePayloadMappingRows => GetVisiblePayloadMappingRows();
     private IEnumerable<AutomationBindingInputDiffDto> VisibleDriftDifferences =>
         selectedBindingDriftPreview?.Differences.Where(x => !string.Equals(x.ChangeType, "Unchanged", StringComparison.Ordinal))
@@ -1130,8 +1148,6 @@
         organizations = await Api.GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations") ?? new();
         users = await Api.GetFromJsonAsync<List<UserDto>>("api/v1/users") ?? new();
         await LoadAvailableDatasetsAsync();
-        await LoadOrchestrationCatalogAsync();
-
         if (!_isNew)
         {
             var formDto = await Api.GetFromJsonAsync<RequestFormDto>($"api/v1/request-forms/{RequestFormId}");
@@ -1142,10 +1158,16 @@
                 await RefreshBindingDriftAsync(formDto.Id);
             }
         }
+        await ReloadAutomationConnectionsAsync();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (selectedTask?.Type == "automation" && loadedOrchestrationSelection != OrchestrationSelectionKey)
+        {
+            await LoadOrchestrationCatalogAsync();
+            await InvokeAsync(StateHasChanged);
+        }
         if (!refreshTaskDropContainerAfterRender)
         {
             return;
@@ -1517,18 +1539,15 @@
             return;
         }
 
-        var selectedDefinition = orchestrationRequestDefinitions.FirstOrDefault(x =>
+        var selectedDefinition = FilteredOrchestrationRequestDefinitions.FirstOrDefault(x =>
             string.Equals(x.RequestDefinitionId, value, StringComparison.OrdinalIgnoreCase));
-        if (selectedDefinition is null)
+        if (selectedDefinition is null || !CanCreateTenantScopedOrchestrationTarget)
         {
-            SelectedBinding.OrchestrationRequestDefinitionId = value.Trim();
-            SelectedBinding.OrchestrationRequestDefinitionName = null;
-            SelectedBinding.OrchestrationJobDefinitionId = null;
-            SelectedBinding.OrchestrationJobDefinitionName = null;
-            ResetSelectedPayloadMappingJobParamDraft();
+            Snackbar.Add("Select a target from the verified connection tenant.", Severity.Warning);
             return;
         }
 
+        SelectedBinding.SystemConnectionId = SelectedAutomationConnection!.ConnectionId;
         SelectedBinding.OrchestrationRequestDefinitionId = selectedDefinition.RequestDefinitionId;
         SelectedBinding.OrchestrationRequestDefinitionName = selectedDefinition.RequestDefinitionName;
         SelectedBinding.OrchestrationJobDefinitionId = Normalize(selectedDefinition.OrchestrationJobDefinitionId);
@@ -1570,12 +1589,14 @@
         {
             return;
         }
+        var originalBinding = SelectedBinding;
+        var originalConnection = SelectedAutomationConnection!;
 
         var parameters = new DialogParameters
         {
             [nameof(OrchestrationScriptLibraryDialog.Definitions)] = FilteredOrchestrationRequestDefinitions.ToList(),
             [nameof(OrchestrationScriptLibraryDialog.SelectedRequestDefinitionId)] = SelectedBinding.OrchestrationRequestDefinitionId,
-            [nameof(OrchestrationScriptLibraryDialog.OrganizationDisplayName)] = FirstNonEmpty(SelectedOrganization?.Name, SelectedOrganization?.OrchestrationTenantName),
+            [nameof(OrchestrationScriptLibraryDialog.OrganizationDisplayName)] = SelectedOrganization?.Name,
             [nameof(OrchestrationScriptLibraryDialog.TenantMetadataUnavailable)] = OrchestrationCatalogTenantMetadataUnavailable
         };
         var options = new DialogOptions
@@ -1588,6 +1609,14 @@
         var result = await dialog.Result;
         if (result.Canceled || result.Data is not OrchestrationCatalogRequestDefinitionDto selectedDefinition)
         {
+            return;
+        }
+        var currentConnection = SelectedAutomationConnection;
+        if (!ReferenceEquals(SelectedBinding, originalBinding) || currentConnection is null || currentConnection.ConnectionId != originalConnection.ConnectionId
+            || currentConnection.PeerTenantId != originalConnection.PeerTenantId
+            || !string.Equals(model.OrganizationId, originalConnection.OrganizationId, StringComparison.Ordinal))
+        {
+            Snackbar.Add("The task or automation connection changed while the library was open. Choose the target again.", Severity.Warning);
             return;
         }
 
@@ -1604,6 +1633,8 @@
             }
             return;
         }
+        var originalBinding = SelectedBinding;
+        var originalConnection = SelectedAutomationConnection!;
 
         var parameters = new DialogParameters
         {
@@ -1611,7 +1642,9 @@
             [nameof(CreateOrchestrationAutomationTargetDialog.InitialFolderPath)] = DefaultOrchestrationTargetFolderPath,
             [nameof(CreateOrchestrationAutomationTargetDialog.InitialClientIdentity)] = DefaultOrchestrationTargetClientIdentity,
             [nameof(CreateOrchestrationAutomationTargetDialog.InitialDescription)] = GetDefaultOrchestrationTargetDescription(),
-            [nameof(CreateOrchestrationAutomationTargetDialog.TenantId)] = SelectedOrganization?.OrchestrationTenantId
+            [nameof(CreateOrchestrationAutomationTargetDialog.TenantId)] = SelectedAutomationConnection!.PeerTenantId,
+            [nameof(CreateOrchestrationAutomationTargetDialog.OrganizationId)] = model.OrganizationId,
+            [nameof(CreateOrchestrationAutomationTargetDialog.SystemConnectionId)] = SelectedAutomationConnection.ConnectionId
         };
         var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
         var dialog = await DialogService.ShowAsync<CreateOrchestrationAutomationTargetDialog>("Create External orchestration Target", parameters, options);
@@ -1621,8 +1654,16 @@
             return;
         }
 
-        created.TenantId ??= SelectedOrganization?.OrchestrationTenantId;
-        created.TenantName ??= SelectedOrganization?.OrchestrationTenantName;
+        var currentConnection = SelectedAutomationConnection;
+        if (!ReferenceEquals(SelectedBinding, originalBinding)
+            || currentConnection is null || currentConnection.ConnectionId != originalConnection.ConnectionId
+            || currentConnection.PeerTenantId != originalConnection.PeerTenantId
+            || !string.Equals(model.OrganizationId, originalConnection.OrganizationId, StringComparison.Ordinal)
+            || !CanCreateTenantScopedOrchestrationTarget || created.TenantId != originalConnection.PeerTenantId)
+        {
+            Snackbar.Add("The target was created for the original connection, but the current task or connection no longer matches. Refresh and review it before binding.", Severity.Warning);
+            return;
+        }
 
         orchestrationRequestDefinitions.Add(created);
         orchestrationRequestDefinitions = orchestrationRequestDefinitions
@@ -1630,6 +1671,7 @@
             .ThenBy(x => x.RequestDefinitionName, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        SelectedBinding.SystemConnectionId = SelectedAutomationConnection.ConnectionId;
         SelectedBinding.OrchestrationRequestDefinitionId = created.RequestDefinitionId;
         SelectedBinding.OrchestrationRequestDefinitionName = created.RequestDefinitionName;
         SelectedBinding.OrchestrationJobDefinitionId = Normalize(created.OrchestrationJobDefinitionId);
@@ -1704,6 +1746,11 @@
                 if (!hasBinding)
                 {
                     Snackbar.Add($"Automation task '{task.Name}' requires an enabled External orchestration binding.", Severity.Error);
+                    return false;
+                }
+                if (binding?.SystemConnectionId is null || AutomationConnectionSelection.Resolve(AutomationConnectionChoices, binding.SystemConnectionId) is null)
+                {
+                    Snackbar.Add($"Automation task '{task.Name}' requires a current saved connection for this organization.", Severity.Error);
                     return false;
                 }
             }
@@ -2070,6 +2117,7 @@
         }
         ClearSelectedBindingDriftPreview();
         await LoadAvailableDatasetsAsync();
+        await LoadOrchestrationCatalogAsync();
     }
 
     private async Task LoadAvailableDatasetsAsync()
@@ -2324,27 +2372,71 @@
 
     private async Task LoadOrchestrationCatalogAsync()
     {
+        var generation = ++orchestrationLoadGeneration;
+        var connection = SelectedAutomationConnection;
+        loadedOrchestrationSelection = OrchestrationSelectionKey;
         orchestrationCatalogLoading = true;
         orchestrationCatalogError = null;
+        selectedOrchestrationSettings = null;
+        orchestrationRequestDefinitions = new();
+        orchestrationJobs = new();
 
         try
         {
-            orchestrationRequestDefinitions = await Api.GetFromJsonAsync<List<OrchestrationCatalogRequestDefinitionDto>>(
-                "api/v1/admin/orchestration/catalog/request-definitions") ?? new();
-            orchestrationJobs = await Api.GetFromJsonAsync<List<OrchestrationCatalogJobDto>>(
-                "api/v1/admin/orchestration/catalog/jobs") ?? new();
+            if (connection is null) return;
+            var query = AutomationConnectionSelection.Query(connection.OrganizationId, connection.ConnectionId);
+            var settings = await Api.GetFromJsonAsync<OrchestrationConnectivitySettingsDto>("api/v1/admin/orchestration/" + query);
+            if (!AutomationConnectionSelection.IsVerified(connection, settings))
+                throw new InvalidOperationException("The saved automation mapping no longer matches this connection and organization.");
+            var definitions = await Api.GetFromJsonAsync<List<OrchestrationCatalogRequestDefinitionDto>>(
+                "api/v1/admin/orchestration/catalog/request-definitions" + query) ?? new();
+            var jobs = await Api.GetFromJsonAsync<List<OrchestrationCatalogJobDto>>(
+                "api/v1/admin/orchestration/catalog/jobs" + query) ?? new();
+            if (generation != orchestrationLoadGeneration || loadedOrchestrationSelection != OrchestrationSelectionKey) return;
+            selectedOrchestrationSettings = settings;
+            orchestrationRequestDefinitions = definitions;
+            orchestrationJobs = jobs.Where(x => x.TenantId == connection.PeerTenantId).ToList();
+            if (SelectedBinding is not null)
+                SelectedBinding.SystemConnectionId = connection.ConnectionId;
+            loadedOrchestrationSelection = OrchestrationSelectionKey;
         }
         catch (Exception ex)
         {
-            orchestrationRequestDefinitions = new();
-            orchestrationJobs = new();
-            orchestrationCatalogError = ex.Message;
+            if (generation == orchestrationLoadGeneration)
+                orchestrationCatalogError = ex.Message;
         }
         finally
         {
-            orchestrationCatalogLoading = false;
-            SeedNewOrchestrationRequestDefinitionDefaults();
+            if (generation == orchestrationLoadGeneration)
+                orchestrationCatalogLoading = false;
         }
+    }
+
+    private async Task ReloadAutomationConnectionsAsync()
+    {
+        try
+        {
+            systemConnections = await Api.GetFromJsonAsync<List<PairingConnectionDto>>("api/v1/admin/system-connections/") ?? new();
+            await LoadOrchestrationCatalogAsync();
+        }
+        catch (Exception ex)
+        {
+            systemConnections = new();
+            await LoadOrchestrationCatalogAsync();
+            orchestrationCatalogError = ex.Message;
+        }
+    }
+
+    private async Task OnAutomationConnectionChangedAsync(Guid? connectionId)
+    {
+        if (SelectedBinding is null || connectionId == SelectedBinding.SystemConnectionId) return;
+        if (connectionId is not null && !AutomationConnectionChoices.Any(x => x.ConnectionId == connectionId))
+            return;
+        // A definition identifier is only meaningful within its saved peer connection.
+        OnSelectedCatalogRequestDefinitionChanged(null);
+        SelectedBinding.SystemConnectionId = connectionId;
+        ClearSelectedBindingDriftPreview();
+        await LoadOrchestrationCatalogAsync();
     }
 
     private AutomationBindingEditorModel GetBindingModel(RequestTaskTemplateModel task, bool createIfMissing = true)
@@ -2437,6 +2529,7 @@
                 {
                     var createDto = new CreateAutomationBindingDto
                     {
+                        SystemConnectionId = editor.SystemConnectionId,
                         RequestFormId = requestFormId,
                         TaskTemplateId = task.Id,
                         OrchestrationRequestDefinitionId = editor.OrchestrationRequestDefinitionId.Trim(),
@@ -2467,6 +2560,7 @@
             {
                 var updateDto = new UpdateAutomationBindingDto
                 {
+                    SystemConnectionId = editor.SystemConnectionId,
                     OrchestrationRequestDefinitionId = editor.OrchestrationRequestDefinitionId.Trim(),
                     OrchestrationRequestDefinitionName = Normalize(editor.OrchestrationRequestDefinitionName),
                     ClearOrchestrationRequestDefinitionName = string.IsNullOrWhiteSpace(editor.OrchestrationRequestDefinitionName),
@@ -2618,11 +2712,9 @@
 
     private IReadOnlyList<OrchestrationCatalogRequestDefinitionDto> GetFilteredOrchestrationRequestDefinitions()
     {
-        return OrchestrationCatalogTargetFilter.FilterForOrganization(
+        return OrchestrationCatalogTargetFilter.FilterForConnection(
             orchestrationRequestDefinitions,
-            SelectedOrganization?.OrchestrationTenantId,
-            SelectedOrganization?.OrchestrationTenantName,
-            SelectedBinding?.OrchestrationRequestDefinitionId);
+            CanCreateTenantScopedOrchestrationTarget ? SelectedAutomationConnection?.PeerTenantId : null);
     }
 
     private IReadOnlyList<PayloadMappingRow> GetVisiblePayloadMappingRows()
@@ -2802,6 +2894,7 @@
     private sealed class AutomationBindingEditorModel
     {
         public string? BindingId { get; set; }
+        public Guid? SystemConnectionId { get; set; }
         public string? OrchestrationRequestDefinitionId { get; set; }
         public string? OrchestrationRequestDefinitionName { get; set; }
         public string? OrchestrationJobDefinitionId { get; set; }
@@ -2812,6 +2905,7 @@
         public static AutomationBindingEditorModel FromDto(AutomationBindingDto dto) => new()
         {
             BindingId = dto.Id,
+            SystemConnectionId = dto.SystemConnectionId,
             OrchestrationRequestDefinitionId = dto.OrchestrationRequestDefinitionId,
             OrchestrationRequestDefinitionName = dto.OrchestrationRequestDefinitionName,
             OrchestrationJobDefinitionId = dto.OrchestrationJobDefinitionId,
@@ -2822,6 +2916,7 @@
 
         public AutomationBindingEditorModel CloneForTask() => new()
         {
+            SystemConnectionId = SystemConnectionId,
             OrchestrationRequestDefinitionId = OrchestrationRequestDefinitionId,
             OrchestrationRequestDefinitionName = OrchestrationRequestDefinitionName,
             OrchestrationJobDefinitionId = OrchestrationJobDefinitionId,
@@ -2833,6 +2928,7 @@
         public void ClearForDelete()
         {
             BindingId = null;
+            SystemConnectionId = null;
             OrchestrationRequestDefinitionId = null;
             OrchestrationRequestDefinitionName = null;
             OrchestrationJobDefinitionId = null;

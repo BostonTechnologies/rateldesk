@@ -18,8 +18,10 @@ namespace Helpdesk.Tests.Infrastructure.Email;
 
 public sealed class TimelineDurableRetryTests
 {
-    [Fact]
-    public async Task Legacy_timeline_retry_queues_with_original_delivery_id_and_remains_pending()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Legacy_retry_reuses_history_and_only_completes_synchronous_delivery(bool durable)
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -46,14 +48,12 @@ public sealed class TimelineDurableRetryTests
 
         var context = new IngressEffectContext();
         var email = Substitute.For<IEmailService, IDurableEmailService>();
-        ((IDurableEmailService)email).QueuesDelivery.Returns(true);
-        email.SendEmailAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Any<IEnumerable<string>?>(), Arg.Any<CancellationToken>(), Arg.Any<string?>(),
-            Arg.Any<IEnumerable<EmailAttachmentData>?>(), Arg.Any<string?>(), Arg.Any<string?>(),
-            Arg.Any<bool>()).Returns(call =>
+        ((IDurableEmailService)email).QueuesDelivery.Returns(durable);
+        email.SendEmailAsync(Arg.Any<EmailSendRequest>(), Arg.Any<CancellationToken>()).Returns(call =>
         {
-            Assert.Equal(delivery.Id, context.TimelineDeliveryId);
-            Assert.True(call.ArgAt<bool>(9));
+            Assert.Equal(durable ? delivery.Id : (Guid?)null, context.TimelineDeliveryId);
+            Assert.Equal(delivery.Id, call.Arg<EmailSendRequest>().TimelineDeliveryId);
+            Assert.True(call.Arg<EmailSendRequest>().SuppressTimeline);
             return Task.FromResult(true);
         });
         var renderer = Substitute.For<IEmailTemplateRenderer>();
@@ -74,12 +74,11 @@ public sealed class TimelineDurableRetryTests
         await service.RetryEmailAsync(delivery.Id, "admin", default);
 
         db.ChangeTracker.Clear();
-        Assert.Equal(EmailDeliveryStatus.Pending,
+        Assert.Equal(durable ? EmailDeliveryStatus.Pending : EmailDeliveryStatus.Delivered,
             (await db.TicketTimelineEvents.SingleAsync(x => x.Id == delivery.Id)).EmailStatus);
         Assert.Equal(1, await db.TicketTimelineEvents.CountAsync());
         Assert.Null(context.TimelineDeliveryId);
-        await email.Received(1).SendEmailAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<string>(),
-            Arg.Any<string>(), Arg.Any<IEnumerable<string>?>(), Arg.Any<CancellationToken>(),
-            ticket.Id, Arg.Any<IEnumerable<EmailAttachmentData>?>(), Arg.Any<string?>(), Arg.Any<string?>(), true);
+        await email.Received(1).SendEmailAsync(Arg.Is<EmailSendRequest>(request =>
+            request.TicketId == ticket.Id && request.TimelineDeliveryId == delivery.Id && request.SuppressTimeline), Arg.Any<CancellationToken>());
     }
 }

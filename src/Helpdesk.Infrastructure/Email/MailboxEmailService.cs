@@ -10,6 +10,10 @@ public sealed class MailboxEmailService(MailboxSenderResolver resolver, SmtpMail
     ILogger<MailboxEmailService> logger) : IEmailService, IDurableEmailService
 {
     public bool QueuesDelivery => true;
+
+    public async Task<bool?> OwnsDeliveryHistoryAsync(Guid deliveryEventId, CancellationToken ct = default) =>
+        await outbox.OwnsDeliveryHistoryAsync(deliveryEventId, ct);
+
     public Task<bool> SendEmailAsync(string recipient, string subject, string htmlMessage,
         IEnumerable<string>? cc = null, CancellationToken ct = default, string? ticketId = null,
         IEnumerable<EmailAttachmentData>? attachments = null, string? fromName = null,
@@ -34,9 +38,10 @@ public sealed class MailboxEmailService(MailboxSenderResolver resolver, SmtpMail
         var selected = await resolver.ResolveAsync(request.TicketId, null, ct);
         var email = new IngressEmailEffect(request.Recipients, request.Subject, request.HtmlMessage,
             request.Cc, request.TicketId, request.Attachments, request.FromName, request.ReplyTo,
-            request.SuppressTimeline, context.SupportDeliveryId, context.TimelineDeliveryId)
+            request.SuppressTimeline, context.SupportDeliveryId, request.TimelineDeliveryId ?? context.TimelineDeliveryId)
         {
             Bcc = request.Bcc,
+            WorkLogId = request.WorkLogId,
             MailboxId = selected.Mailbox?.Id,
             OrganizationId = selected.OrganizationId,
             SenderBindingError = selected.ErrorCode,

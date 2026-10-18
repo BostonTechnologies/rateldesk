@@ -11,6 +11,10 @@ public sealed record McpOperationDefinition(
     bool RequiresConfirmation,
     string Description)
 {
+    // Selection was added to existing no-request operations. Omission continues
+    // to use the API's unique saved-connection resolution.
+    public bool RequiresRequest => RequestContract is not "None" and not "OrchestrationSelectionRequest";
+
     public string Effect => HttpMethod is "GET" || (HttpMethod == "LOCAL" && !RequiresConfirmation) ? "read"
         : Tool == "helpdesk_connectivity" ? "external_io" : HttpMethod == "LOCAL" ? "local_write" : "write";
 }
@@ -22,11 +26,12 @@ public sealed record McpOperationDefinition(
 /// </summary>
 public static class McpOperationCatalog
 {
-    public const string Revision = "2026-10-18.mcp-campaign-repairs-v21";
+    public const string Revision = "2026-10-18.mcp-campaign-repairs-v22";
 
     public static IReadOnlyList<McpOperationDefinition> All { get; } =
     [
         Read("helpdesk_auth", "status", "None", "/api/v1/auth/ai-agent/status", "Read the authenticated agent status."),
+        Read("helpdesk_auth", "access", "None", "/api/v1/auth/me", "Read the current downstream execution principal's API permissions, organization scope and linked customer; external HTTP ingress identity remains separate."),
         Read("helpdesk_health", "get", "None", "/health/live, /health/ready, /api/v1/auth/ai-agent/status", "Read live, ready, and authenticated health."),
         Local("helpdesk_config", "show", "None", false, "Read redacted configuration."),
         Local("helpdesk_config", "get", "ConfigKeyRequest", false, "Read an allowlisted persisted configuration value."),
@@ -166,8 +171,8 @@ public static class McpOperationCatalog
                      ("orchestration_tenants", "/api/v1/admin/orchestration/catalog/tenants"),
                      ("orchestration_request_definitions", "/api/v1/admin/orchestration/catalog/request-definitions"),
                      ("orchestration_bindings", "/api/v1/admin/orchestration/bindings")
-                 }) yield return Operation("helpdesk_connectivity", operation, "None", "GET", path, false);
-        yield return Operation("helpdesk_connectivity", "orchestration_test", "None", "POST", "/api/v1/admin/orchestration/test", true);
+                 }) yield return Operation("helpdesk_connectivity", operation, operation == "orchestration_bindings" ? "None" : "OrchestrationSelectionRequest", "GET", path, false);
+        yield return Operation("helpdesk_connectivity", "orchestration_test", "OrchestrationSelectionRequest", "POST", "/api/v1/admin/orchestration/test", true);
         yield return Local("helpdesk_schema", "list", "None", false, "Read the executable MCP operation catalog.");
         foreach (var operation in new[] { "list", "ticket_state", "ticket_priority", "request_task_status", "change_lifecycle_state" }) yield return Local("helpdesk_enums", operation, "None", false, "Read enum metadata.");
         yield return Local("helpdesk_examples", "list", "None", false, "Read operator examples.");

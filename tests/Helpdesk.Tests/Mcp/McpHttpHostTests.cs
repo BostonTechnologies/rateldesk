@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using Helpdesk.AgentClient;
 using Helpdesk.Mcp.Http.Observability;
@@ -28,6 +29,7 @@ using Microsoft.AspNetCore.WebUtilities;
 using Helpdesk.Tests.Api;
 using Helpdesk.Setup;
 using Helpdesk.Shared.Auth;
+using Helpdesk.API.Ops;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 using Xunit;
@@ -109,6 +111,22 @@ public sealed class McpHttpHostTests
         Assert.DoesNotContain("[Ctrl+N", logs, StringComparison.Ordinal);
         Assert.DoesNotContain("\u001b", logs, StringComparison.Ordinal);
         Assert.DoesNotContain("rdk_unrelated_cli_identity", logs, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("gateway")]
+    [InlineData(" Gateway ")]
+    public void External_ingress_rejects_gateway_downstream_configuration_before_serving(string credentialMode)
+    {
+        using var environment = new McpHostEnvironment(gateway: true);
+        Environment.SetEnvironmentVariable("Helpdesk__Mcp__AuthenticationMode", "authentik");
+        var configuration = JsonNode.Parse(File.ReadAllText(environment.ConfigurationPath))!.AsObject();
+        configuration["credentialMode"] = credentialMode;
+        File.WriteAllText(environment.ConfigurationPath, configuration.ToJsonString());
+        using var factory = CreateFactory(environment.SigningKey);
+
+        var error = Assert.Throws<AgentClientValidationException>(() => CreateClient(factory));
+        Assert.Contains("requires HTTP gateway ingress", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -198,6 +216,194 @@ public sealed class McpHttpHostTests
     }
 
     [Fact]
+    public async Task External_http_discovery_distinguishes_configured_execution_identity_from_verified_authority()
+    {
+        using var environment = new McpHostEnvironment();
+        var outbound = new AgentClientBoundaryProbe();
+        using var factory = CreateFactory(environment.SigningKey, boundaryProbe: outbound);
+        using var client = CreateClient(factory);
+        var bearer = CreateToken(environment.SigningKey, ["helpdesk.mcp"], ["ai-assistant"]);
+
+        using var capabilities = await HttpCallAsync(client, bearer, 1, "tools/call", ToolCallParameters("helpdesk_capabilities", "get"));
+        using var catalog = await HttpCallAsync(client, bearer, 2, "tools/call", ToolCallParameters("helpdesk_schema", "list"));
+        var identity = StructuredContent(capabilities.RootElement).GetProperty("data").GetProperty("configuredIdentity");
+        Assert.Equal("authentik", identity.GetProperty("ingressAuthenticationMode").GetString());
+        Assert.Equal("authentik", identity.GetProperty("downstreamCredentialMode").GetString());
+        Assert.Equal("separately_configured_shared_principal", identity.GetProperty("executionIdentity").GetString());
+        Assert.False(identity.GetProperty("ingressCallerUsedForApi").GetBoolean());
+        Assert.False(identity.GetProperty("inboundTokenForwarded").GetBoolean());
+        Assert.False(identity.GetProperty("authorityVerified").GetBoolean());
+        Assert.Equal("requires_current_api_helpdesk_admin", identity.GetProperty("instanceAdministration").GetString());
+        Assert.Equal("requires_exact_authentik_ai_agent", identity.GetProperty("exactAiScheme").GetString());
+        Assert.Equal("helpdesk_auth.access", identity.GetProperty("accessVerificationOperation").GetString());
+        Assert.Equal(identity.GetRawText(), StructuredContent(catalog.RootElement).GetProperty("data").GetProperty("configuredIdentity").GetRawText());
+        foreach (var resource in new[] { "helpdesk://server/status", "helpdesk://capabilities" })
+        {
+            using var response = await HttpCallAsync(client, bearer, 3, "resources/read", new { uri = resource });
+            using var body = JsonDocument.Parse(response.RootElement.GetProperty("result").GetProperty("contents")[0].GetProperty("text").GetString()!);
+            Assert.Equal(identity.GetRawText(), body.RootElement.GetProperty("configuredIdentity").GetRawText());
+        }
+        Assert.Equal(0, outbound.TokenRequests);
+        Assert.Equal(0, outbound.ApiRequests);
+        Assert.DoesNotContain("test-only-password", identity.GetRawText(), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task External_http_access_reads_production_API_authority_with_a_separate_synthetic_provider_principal(bool administrator)
+    {
+        // Production API authentication and role projection; only provider signing
+        // material and its token endpoint are synthetic. These are separate tokens.
+        using var api = new SignedOidcApi("Hybrid");
+        await api.SeedLinkedUserAsync();
+        var downstreamToken = administrator
+            ? api.Token(subject: "synthetic-administrator", roles: ["external-administrators"])
+            : api.Token();
+        var requests = new ConcurrentQueue<string>();
+        using var environment = new McpHostEnvironment();
+        using var factory = CreateFactory(environment.SigningKey, apiHandlerFactory: () =>
+            new SyntheticProviderTokenHandler(downstreamToken, api.Factory.Server.CreateHandler(), requests));
+        using var client = CreateClient(factory);
+        var firstCaller = CreateToken(environment.SigningKey, ["helpdesk.mcp"], ["ai-assistant"], subject: "first-ingress-caller");
+        var secondCaller = CreateToken(environment.SigningKey, ["helpdesk.mcp"], ["ai-assistant"], subject: "second-ingress-caller");
+
+        foreach (var caller in new[] { firstCaller, secondCaller })
+        {
+            using var response = await HttpCallAsync(client, caller, 1, "tools/call", ToolCallParameters("helpdesk_auth", "access"));
+            var result = StructuredContent(response.RootElement);
+            Assert.True(result.GetProperty("success").GetBoolean(), result.GetRawText());
+            var access = result.GetProperty("data");
+            Assert.Equal(administrator, access.GetProperty("isHelpdeskAdmin").GetBoolean());
+            if (administrator)
+                Assert.Contains(HelpdeskPermissions.HelpdeskAdmin, access.GetProperty("permissions").EnumerateArray().Select(value => value.GetString()));
+            else
+            {
+                Assert.Equal("contact-a", access.GetProperty("customerId").GetString());
+                Assert.Equal(["tenant-a"], access.GetProperty("allowedOrganizationIds").EnumerateArray().Select(value => value.GetString()));
+                Assert.DoesNotContain("tenant-b", access.GetProperty("allowedOrganizationIds").EnumerateArray().Select(value => value.GetString()));
+            }
+            Assert.DoesNotContain(caller, result.GetRawText(), StringComparison.Ordinal);
+            Assert.DoesNotContain(downstreamToken, result.GetRawText(), StringComparison.Ordinal);
+        }
+        Assert.Equal(["/api/v1/auth/me", "/api/v1/auth/me"], requests.ToArray());
+    }
+
+    [Fact]
+    public async Task External_http_AI_status_and_bounded_logs_require_the_real_exact_API_scheme_and_separate_token()
+    {
+        const string aiIssuer = "https://provider.example.test/application/o/ai-reporter/";
+        const string aiAudience = "synthetic-ai-api";
+        const string aiGroup = "synthetic-ai-reporters";
+        const string marker = "Synthetic exact AI HTTP diagnostic";
+        using var provider = new SignedOidcApi("Hybrid");
+        using var api = provider.Factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Authentication:AuthentikAiAgent:Authority"] = aiIssuer,
+                ["Authentication:AuthentikAiAgent:Audience"] = aiAudience,
+                ["Authentication:AuthentikAiAgent:RequiredGroups:0"] = aiGroup
+            }));
+            builder.ConfigureServices(services => services.PostConfigure<JwtBearerOptions>("AuthentikAiAgent", options =>
+            {
+                var discovery = new OpenIdConnectConfiguration { Issuer = aiIssuer };
+                discovery.SigningKeys.Add(provider.Key);
+                options.ConfigurationManager = new Microsoft.IdentityModel.Protocols.StaticConfigurationManager<OpenIdConnectConfiguration>(discovery);
+            }));
+        });
+        api.Services.GetRequiredService<AiAgentOpsLogBuffer>().Add(LogLevel.Information, "Synthetic HTTP identity", new EventId(1), marker, null);
+        using var environment = new McpHostEnvironment();
+        var ingressToken = CreateToken(environment.SigningKey, ["helpdesk.mcp"], ["ai-assistant"]);
+        var validToken = provider.Token(issuer: aiIssuer, audience: aiAudience, roleClaim: "groups", roles: [aiGroup]);
+        foreach (var (token, permitted) in new[]
+        {
+            (validToken, true),
+            (provider.Token(issuer: aiIssuer + "foreign/", audience: aiAudience, roleClaim: "groups", roles: [aiGroup]), false),
+            (provider.Token(issuer: aiIssuer, audience: ResourceUri, roleClaim: "groups", roles: [aiGroup]), false),
+            (provider.Token(issuer: aiIssuer, audience: aiAudience, roleClaim: "groups", roles: ["other-group"]), false),
+            (provider.Token(issuer: aiIssuer, audience: aiAudience, roleClaim: "groups", roles: [aiGroup], expired: true), false),
+            (provider.Token(roles: ["external-administrators"]), false)
+        })
+        {
+            var paths = new ConcurrentQueue<string>();
+            using var factory = CreateFactory(environment.SigningKey, apiHandlerFactory: () =>
+                new SyntheticProviderTokenHandler(token, api.Server.CreateHandler(), paths));
+            using var client = CreateClient(factory);
+            using var status = await HttpCallAsync(client, ingressToken, 1, "tools/call", ToolCallParameters("helpdesk_auth", "status"));
+            var statusResult = StructuredContent(status.RootElement);
+            Assert.Equal(permitted, statusResult.GetProperty("success").GetBoolean());
+            if (permitted)
+            {
+                Assert.Equal("ai_agent", statusResult.GetProperty("data").GetProperty("authMode").GetString());
+                Assert.DoesNotContain(HelpdeskPermissions.HelpdeskAdmin, statusResult.GetProperty("data").GetProperty("roles").EnumerateArray().Select(value => value.GetString()));
+            }
+            else
+                Assert.Equal(401, statusResult.GetProperty("failure").GetProperty("upstreamStatus").GetInt32());
+            using var logs = await HttpCallAsync(client, ingressToken, 2, "tools/call", ToolCallParameters("helpdesk_logs", new { operation = "search", request = new { contains = marker, limit = 1 } }));
+            var logResult = StructuredContent(logs.RootElement);
+            Assert.Equal(permitted, logResult.GetProperty("success").GetBoolean());
+            if (permitted)
+            {
+                var data = logResult.GetProperty("data");
+                Assert.True(data.GetProperty("redacted").GetBoolean());
+                Assert.Equal(marker, Assert.Single(data.GetProperty("items").EnumerateArray()).GetProperty("message").GetString());
+            }
+            else
+                Assert.Equal(401, logResult.GetProperty("failure").GetProperty("upstreamStatus").GetInt32());
+            Assert.Equal(["/api/v1/auth/ai-agent/status", "/api/v1/ops/ai-agent/logs"], paths.ToArray());
+        }
+    }
+
+    [Fact]
+    public async Task HTTP_orchestration_selection_uses_exact_optional_queries_and_keeps_test_confirmation()
+    {
+        // A synthetic downstream responder observes adapter requests. API mapping
+        // and tenant authorization are tested separately against the real API.
+        using var environment = new McpHostEnvironment();
+        var outbound = new AgentClientBoundaryProbe();
+        using var factory = CreateFactory(environment.SigningKey, boundaryProbe: outbound);
+        using var client = CreateClient(factory);
+        var bearer = CreateToken(environment.SigningKey, ["helpdesk.mcp"], ["ai-assistant"]);
+        var selection = new { organizationId = "synthetic-org & scope", connectionId = "11111111-2222-3333-4444-555555555555" };
+        const string query = "?organizationId=synthetic-org%20%26%20scope&connectionId=11111111-2222-3333-4444-555555555555";
+        var id = 1;
+        foreach (var (operation, path) in new[]
+        {
+            ("orchestration", "/api/v1/admin/orchestration"),
+            ("orchestration_jobs", "/api/v1/admin/orchestration/catalog/jobs"),
+            ("orchestration_tenants", "/api/v1/admin/orchestration/catalog/tenants"),
+            ("orchestration_request_definitions", "/api/v1/admin/orchestration/catalog/request-definitions")
+        })
+        {
+            using var omitted = await HttpCallAsync(client, bearer, id++, "tools/call", ToolCallParameters("helpdesk_connectivity", operation));
+            Assert.True(StructuredContent(omitted.RootElement).GetProperty("success").GetBoolean());
+            Assert.Equal("GET " + path, outbound.ApiPathsAndQueries.Last());
+            using var selected = await HttpCallAsync(client, bearer, id++, "tools/call", ToolCallParameters("helpdesk_connectivity", new { operation, request = selection }));
+            Assert.True(StructuredContent(selected.RootElement).GetProperty("success").GetBoolean());
+            Assert.Equal("GET " + path + query, outbound.ApiPathsAndQueries.Last());
+        }
+
+        var beforePreview = outbound.ApiRequests;
+        using var preview = await HttpCallAsync(client, bearer, id++, "tools/call", ToolCallParameters("helpdesk_connectivity", new { operation = "orchestration_test", request = selection }));
+        Assert.Equal("confirmation_required", StructuredContent(preview.RootElement).GetProperty("status").GetString());
+        Assert.Equal(beforePreview, outbound.ApiRequests);
+        using var confirmed = await HttpCallAsync(client, bearer, id++, "tools/call", ToolCallParameters("helpdesk_connectivity", new { operation = "orchestration_test", request = selection, confirm = true }));
+        Assert.True(StructuredContent(confirmed.RootElement).GetProperty("success").GetBoolean());
+        Assert.Equal("POST /api/v1/admin/orchestration/test" + query, outbound.ApiPathsAndQueries.Last());
+
+        var beforeInvalid = outbound.ApiRequests;
+        foreach (var json in new[] { """{"organizationId":" "}""", """{"organizationId":1}""", """{"connectionId":"not-a-uuid"}""", """{"connectionId":"00000000-0000-0000-0000-000000000000"}""", """{"connectionId":[]}""", """{"apiBaseUrl":"https://other.example.test"}""", """{"organizationId":"a","organizationId":"b"}""" })
+        {
+            using var invalid = await HttpCallAsync(client, bearer, id++, "tools/call", ToolCallParameters("helpdesk_connectivity", new { operation = "orchestration_jobs", request = JsonSerializer.Deserialize<JsonElement>(json) }));
+            Assert.Equal("validation_failed", StructuredContent(invalid.RootElement).GetProperty("status").GetString());
+        }
+        using var invalidBindings = await HttpCallAsync(client, bearer, id, "tools/call", ToolCallParameters("helpdesk_connectivity", new { operation = "orchestration_bindings", request = selection }));
+        Assert.Equal("validation_failed", StructuredContent(invalidBindings.RootElement).GetProperty("status").GetString());
+        Assert.Equal(beforeInvalid, outbound.ApiRequests);
+    }
+
+    [Fact]
     public async Task Inbound_mcp_bearer_is_never_forwarded_to_the_helpdesk_api()
     {
         using var environment = new McpHostEnvironment();
@@ -244,6 +450,7 @@ public sealed class McpHttpHostTests
     public async Task Gateway_mcp_host_uses_a_real_authority_for_delegation_and_current_identity()
     {
         await using var authority = await McpGatewayRealAccessPipelineTests.GatewayAccessHarness.CreateAsync();
+        await authority.SetOwnerAdministratorAsync();
         var credential = await authority.CreateCredentialAsync("org-b");
         using var environment = new McpHostEnvironment(
             apiBaseUrl: "https://api.example",
@@ -259,6 +466,20 @@ public sealed class McpHttpHostTests
         var identityData = StructuredContent(identity.RootElement).GetProperty("data");
         Assert.Equal("owner", identityData.GetProperty("userId").GetString());
         Assert.Contains("org-b", identityData.GetProperty("allowedOrganizationIds").EnumerateArray().Select(value => value.GetString()));
+        Assert.False(identityData.GetProperty("isHelpdeskAdmin").GetBoolean());
+        using var accessResponse = await HttpCallAsync(client, credential.Bearer, 2, "tools/call", ToolCallParameters("helpdesk_auth", "access"));
+        var accessData = StructuredContent(accessResponse.RootElement).GetProperty("data");
+        Assert.False(accessData.GetProperty("isHelpdeskAdmin").GetBoolean());
+        Assert.Equal(["org-b"], accessData.GetProperty("allowedOrganizationIds").EnumerateArray().Select(value => value.GetString()));
+        using var capabilities = await HttpCallAsync(client, credential.Bearer, 3, "tools/call", ToolCallParameters("helpdesk_capabilities", "get"));
+        var configured = StructuredContent(capabilities.RootElement).GetProperty("data").GetProperty("configuredIdentity");
+        Assert.Equal("gateway", configured.GetProperty("ingressAuthenticationMode").GetString());
+        Assert.Equal("request_credential_owner", configured.GetProperty("executionIdentity").GetString());
+        Assert.True(configured.GetProperty("ingressCallerUsedForApi").GetBoolean());
+        Assert.Equal("denied_by_bounded_credential_policy", configured.GetProperty("instanceAdministration").GetString());
+        Assert.Equal("denied_by_bounded_credential_policy", configured.GetProperty("exactAiScheme").GetString());
+        using var administration = await HttpCallAsync(client, credential.Bearer, 4, "tools/call", ToolCallParameters("helpdesk_connectivity", "orchestration"));
+        Assert.Equal(403, StructuredContent(administration.RootElement).GetProperty("failure").GetProperty("upstreamStatus").GetInt32());
 
         await authority.SetCredentialRevokedAsync(credential.Id);
         using var revokedRequest = new HttpRequestMessage(HttpMethod.Post, "/mcp")
@@ -374,9 +595,9 @@ public sealed class McpHttpHostTests
         var checks = await McpSetupDiagnostics.CheckHttpAsync(profile, default, client);
         Assert.Contains(checks, check => check.Name == "catalog" && check.Status == "passed");
         Assert.Contains(checks, check => check.Name == "tool-result" && check.Status == "passed");
-        foreach (var tool in new[] { "helpdesk_capabilities", "helpdesk_health", "helpdesk_config" })
+        foreach (var (tool, operation) in new[] { ("helpdesk_capabilities", "get"), ("helpdesk_health", "get"), ("helpdesk_config", "show"), ("helpdesk_auth", "access") })
         {
-            using var rejected = await HttpCallAsync(client, credential.Bearer, 50, "tools/call", ToolCallParameters(tool, tool == "helpdesk_config" ? "show" : "get"));
+            using var rejected = await HttpCallAsync(client, credential.Bearer, 50, "tools/call", ToolCallParameters(tool, operation));
             Assert.False(rejected.RootElement.TryGetProperty("error", out _));
             Assert.True(rejected.RootElement.GetProperty("result").GetProperty("isError").GetBoolean());
             Assert.Equal("setup_verification_operation_denied", StructuredContent(rejected.RootElement).GetProperty("failure").GetProperty("code").GetString());
@@ -1361,14 +1582,14 @@ public sealed class McpHttpHostTests
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
-    private static string CreateToken(ECDsa signingKey, string[] scopes, string[] groups, string? issuer = null, string? audience = null)
+    private static string CreateToken(ECDsa signingKey, string[] scopes, string[] groups, string? issuer = null, string? audience = null, string subject = "ai-assistant-client")
     {
         var token = new JwtSecurityToken(
             issuer: issuer ?? Authority,
             audience: audience ?? ResourceUri,
             claims:
             [
-                new Claim("sub", "ai-assistant-client"),
+                new Claim("sub", subject),
                 new Claim("scope", string.Join(' ', scopes)),
                 .. groups.Select(group => new Claim("groups", group))
             ],
@@ -1507,17 +1728,35 @@ public sealed class McpHttpHostTests
         }
     }
 
+    private sealed class SyntheticProviderTokenHandler(string downstreamToken, HttpMessageHandler apiHandler, ConcurrentQueue<string> paths)
+        : DelegatingHandler(apiHandler)
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri?.AbsoluteUri == "https://auth.example/token")
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(JsonSerializer.Serialize(new { access_token = downstreamToken, expires_in = 300 }), Encoding.UTF8, "application/json")
+                });
+            Assert.Equal("Bearer " + downstreamToken, request.Headers.Authorization?.ToString());
+            paths.Enqueue(request.RequestUri!.AbsolutePath);
+            return base.SendAsync(request, cancellationToken);
+        }
+    }
+
     private sealed class AgentClientBoundaryProbe
     {
         private int _tokenRequests;
         private int _apiRequests;
         private string? _apiAuthorization;
         private readonly ConcurrentQueue<string> _apiAuthorizations = new();
+        private readonly ConcurrentQueue<string> _apiPathsAndQueries = new();
 
         public int TokenRequests => Volatile.Read(ref _tokenRequests);
         public int ApiRequests => Volatile.Read(ref _apiRequests);
         public string? ApiAuthorization => Volatile.Read(ref _apiAuthorization);
         public IReadOnlyCollection<string> ApiAuthorizations => _apiAuthorizations.ToArray();
+        public IReadOnlyCollection<string> ApiPathsAndQueries => _apiPathsAndQueries.ToArray();
 
         public HttpMessageHandler CreateHandler() => new ProbeHandler(this);
 
@@ -1535,6 +1774,7 @@ public sealed class McpHttpHostTests
                 }
 
                 Interlocked.Increment(ref probe._apiRequests);
+                probe._apiPathsAndQueries.Enqueue(request.Method + " " + request.RequestUri!.PathAndQuery);
                 Volatile.Write(ref probe._apiAuthorization, request.Headers.Authorization?.ToString());
                 if (request.Headers.Authorization is not null)
                     probe._apiAuthorizations.Enqueue(request.Headers.Authorization.ToString());

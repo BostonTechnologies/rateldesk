@@ -156,14 +156,19 @@ internal sealed class NotificationSummaryFixture : IAsyncDisposable
         CredentialTarget = "https://api.example.test"
     };
 
-    public static async Task<NotificationSummaryFixture> CreateAsync(bool postgres)
+    public static async Task<NotificationSummaryFixture> CreateAsync(bool postgres,
+        Action<IServiceCollection>? configureServices = null)
     {
         var harness = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true,
-            configureServices: services => services.AddAuthorization(options =>
+            configureServices: services =>
             {
-                options.AddPolicy("NotificationAccess", policy => policy.RequireAuthenticatedUser());
-                options.AddPolicy("HelpdeskAdmin", policy => policy.RequireAuthenticatedUser().RequireRole("HelpdeskAdmin"));
-            }), configureApp: app => app.MapNotificationEndpoints());
+                services.AddAuthorization(options =>
+                {
+                    options.AddPolicy("NotificationAccess", policy => policy.RequireAuthenticatedUser());
+                    options.AddPolicy("HelpdeskAdmin", policy => policy.RequireAuthenticatedUser().RequireRole("HelpdeskAdmin"));
+                });
+                configureServices?.Invoke(services);
+            }, configureApp: app => app.MapNotificationEndpoints());
         var fixture = new NotificationSummaryFixture(harness);
         var other = await harness.AddCredentialAsync();
         fixture.OtherToken = other.Token;
@@ -288,6 +293,33 @@ internal sealed class NotificationSummaryFixture : IAsyncDisposable
     {
         Assert.All(await db.Notifications.AsNoTracking().Where(row => HiddenIds.Contains(row.Id)).ToListAsync(), row => Assert.Null(row.ReadUtc));
         Assert.Empty(await db.NotificationReads.AsNoTracking().Where(row => HiddenIds.Contains(row.NotificationId)).ToListAsync());
+    });
+
+    public Task AddSummaryWorkloadAsync() => harness.EditAsync(db =>
+    {
+        for (var index = 0; index < 800; index++)
+        {
+            var id = Guid.NewGuid();
+            db.Notifications.Add(new NotificationEntity
+            {
+                Id = id, Title = "Synthetic summary workload", Message = "Synthetic notification",
+                CreatedUtc = DateTime.UtcNow, IsGlobal = true,
+                TenantId = index < 600 ? harness.OrganizationId : "notification-foreign",
+                Reference = "INC-NOTIFICATION",
+                Severity = index % 3 == 0 ? NotificationSeverity.Error : NotificationSeverity.Info
+            });
+            if (index % 4 == 0)
+                db.NotificationReads.Add(new NotificationReadEntity { NotificationId = id, UserId = "owner", ReadUtc = DateTime.UtcNow });
+            if (index % 5 == 0)
+                db.NotificationReads.Add(new NotificationReadEntity { NotificationId = id, UserId = "notification-other", ReadUtc = DateTime.UtcNow });
+        }
+        return Task.CompletedTask;
+    });
+
+    public Task ClearSummaryWorkloadAsync() => harness.EditAsync(async db =>
+    {
+        await db.NotificationReads.ExecuteDeleteAsync();
+        await db.Notifications.ExecuteDeleteAsync();
     });
 
     public ValueTask DisposeAsync() => harness.DisposeAsync();
