@@ -21,6 +21,12 @@ public class TicketTimelineEvent
 
     public string? MessageText { get; set; }
 
+    /// <summary>The canonical worklog recorded with this event, when known.</summary>
+    public string? WorkLogId { get; set; }
+
+    /// <summary>Effort captured at creation; null means no authoritative effort was recorded.</summary>
+    public double? Hours { get; set; }
+
     [NotMapped]
     public string? Message
     {

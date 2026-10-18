@@ -53,6 +53,9 @@ public sealed class TicketAdapterHttpTests
             Assert.Equal(4, second.Data!["totalCount"]!.GetValue<int>());
             Assert.Equal(2, Ids(second).Length);
             Assert.Empty(firstIds.Intersect(Ids(second)));
+            Assert.Equal(Enumerable.Range(0, 4).Select(index => $"search-{family}-{index}").Order(), firstIds.Concat(Ids(second)).Order());
+            var repeated = await List(tools, family, new JsonObject { [alias] = "campaign-match-alpha", ["customerOrgId"] = "org", ["page"] = 1, ["pageSize"] = 2, ["summaryOnly"] = true });
+            Assert.Equal(firstIds, Ids(repeated));
             Assert.DoesNotContain("search-" + family + "-5", firstIds.Concat(Ids(second)));
             var impossible = await List(tools, family, new JsonObject { [alias] = "campaign-impossible-search", ["page"] = 1, ["summaryOnly"] = true });
             Assert.True(impossible.Success, impossible.Summary);
@@ -111,6 +114,9 @@ public sealed class TicketAdapterHttpTests
             Assert.Equal(4, second.Data!["totalCount"]!.GetValue<int>());
             Assert.Equal(2, Ids(second).Length);
             Assert.Empty(Ids(first).Intersect(Ids(second)));
+            Assert.Equal(Enumerable.Range(0, 4).Select(index => $"search-task-{index}").Order(), Ids(first).Concat(Ids(second)).Order());
+            var repeated = await tools.helpdesk_request_tasks("list", Request(new JsonObject { [alias] = "campaign-match-alpha", ["requestId"] = "search-parent", ["assignedToId"] = "support-user", ["serviceId"] = "search-service", ["status"] = "Pending", ["page"] = 1, ["pageSize"] = 2 }));
+            Assert.Equal(Ids(first), Ids(repeated));
             foreach (var filter in new[] { "requestId", "assignedToId", "serviceId" })
             {
                 var impossible = await tools.helpdesk_request_tasks("list", Request(new JsonObject { [alias] = "campaign-match-alpha", [filter] = "impossible", ["page"] = 1 }));

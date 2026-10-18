@@ -22,7 +22,7 @@ public sealed record McpOperationDefinition(
 /// </summary>
 public static class McpOperationCatalog
 {
-    public const string Revision = "2026-10-17.mcp-executable-contracts-v20";
+    public const string Revision = "2026-10-18.mcp-campaign-repairs-v21";
 
     public static IReadOnlyList<McpOperationDefinition> All { get; } =
     [
@@ -100,7 +100,10 @@ public static class McpOperationCatalog
 
     private static McpOperationDefinition Read(string tool, string operation, string contract, string path, string description) => new(tool, operation, contract, "GET", path, false, description);
     private static McpOperationDefinition Local(string tool, string operation, string contract, bool confirmationRequired, string description) => new(tool, operation, contract, "LOCAL", "local", confirmationRequired, description);
-    private static McpOperationDefinition Ticket(string tool, string ticketType, string idName, string contract, string operation, string method, bool confirmationRequired) => new(tool, operation, contract, method, TicketPath(ticketType, idName, operation), confirmationRequired, $"{operation} {ticketType}.");
+    private static McpOperationDefinition Ticket(string tool, string ticketType, string idName, string contract, string operation, string method, bool confirmationRequired) => new(tool, operation, contract, method, TicketPath(ticketType, idName, operation), confirmationRequired,
+        operation == "timeline"
+            ? "Read the authorized timeline. recordedHours is the nullable authoritative effort snapshot and workLogId the associated worklog; null effort is unavailable or not applicable, distinct from measured zero. Legacy hours remains numeric for compatibility."
+            : $"{operation} {ticketType}.");
     private static McpOperationDefinition TicketCount(string tool, string ticketType, string idName, string operation) => new(tool, operation, $"{char.ToUpperInvariant(ticketType[0])}{ticketType[1..^1]}CountRequest", "GET", $"/api/v1/{ticketType}/{{{idName}}}/{operation.Replace('_', '/')}", false, $"Read {operation} for one {ticketType[..^1]}.");
     private static string TicketPath(string ticketType, string idName, string operation) => operation switch
     {
@@ -153,7 +156,7 @@ public static class McpOperationCatalog
 
         foreach (var operation in new[] { "requests", "request_users" }) yield return Operation("helpdesk_self_service", operation, "ListRequest", "GET", $"/api/v1/self-service/{operation.Replace('_', '-')}", false);
         yield return Operation("helpdesk_self_service", "get_request", "RequestRequest", "GET", "/api/v1/self-service/requests/{requestId}", false);
-        foreach (var operation in new[] { "list", "get", "summary", "unread_errors" }) yield return Operation("helpdesk_notifications", operation, operation == "get" ? "NotificationRequest" : operation == "summary" ? "None" : "ListRequest", "GET", operation switch { "summary" => "/api/v1/notifications/error-summary", "unread_errors" => "/api/v1/notifications/unread-errors", "get" => "/api/v1/notifications/{notificationId}", _ => "/api/v1/notifications" }, false);
+        foreach (var operation in new[] { "list", "get", "summary", "unread_errors" }) yield return Operation("helpdesk_notifications", operation, operation == "get" ? "NotificationRequest" : operation == "summary" ? "None" : "ListRequest", "GET", operation switch { "summary" => "/api/v1/notifications/summary", "unread_errors" => "/api/v1/notifications/unread-errors", "get" => "/api/v1/notifications/{notificationId}", _ => "/api/v1/notifications" }, false);
         yield return Operation("helpdesk_notifications", "mark_read", "NotificationMarkReadRequest", "POST", "/api/v1/notifications/mark-read", true);
 
         foreach (var (operation, path) in new[]
@@ -229,7 +232,12 @@ public static class McpOperationCatalog
     }
 
     private static McpOperationDefinition Operation(string tool, string operation, string contract, string method, string path, bool confirmationRequired) => new(tool, operation, contract, method, path, confirmationRequired,
-        tool is "helpdesk_incidents" or "helpdesk_requests" or "helpdesk_changes" && operation == "list"
-            ? "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging."
-            : $"{operation} operation.");
+        (tool, operation) switch
+        {
+            ("helpdesk_incidents" or "helpdesk_requests" or "helpdesk_changes" or "helpdesk_request_tasks", "list") =>
+                $"List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging. Explicit page must be an integer from {TicketListPagination.Minimum} to {TicketListPagination.MaximumPage}; pageSize from {TicketListPagination.Minimum} to {TicketListPagination.MaximumPageSize}. Omitted pagination retains API behavior.",
+            ("helpdesk_notifications", "summary") =>
+                "Read total, unread and unread Error/Critical counts for the actor's complete authorized notification population.",
+            _ => $"{operation} operation."
+        });
 }

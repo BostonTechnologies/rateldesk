@@ -35,6 +35,35 @@ option emits `aiInvolved`; the incident/change APIs historically ignore that
 parameter. These public contracts are retained. The obsolete workspace checkboxes
 are removed without deleting external options or provenance.
 
+## MCP pagination bounds
+
+For all four MCP ticket lists, explicitly supplied `request.page` must be an
+integer from 1 to 1,000,000 and `request.pageSize` an integer from 1 to 100.
+Discovery and the shared adapter use the same limits. JSON numeric spellings
+such as `1.0` and `1e0` are accepted when their mathematical value is integral;
+nulls, wrong types, fractional/out-of-range values and duplicate pagination
+properties produce field-specific structured validation errors before any
+business-operation API call. Gateway authentication and request-scoped token
+validation still run normally. The caller's JSON object is not changed.
+
+```json
+{"operation":"list","request":{"query":"example","page":1,"pageSize":100}}
+```
+
+`{"operation":"list","request":{"page":0,"pageSize":10000}}` is invalid on
+both MCP transports. Probe that request directly on the wire during acceptance;
+a client rejecting it locally does not prove server enforcement. A valid
+beyond-last page returns an empty page with the normal filtered total.
+
+Omitted pagination retains the endpoint's existing behavior: requests and
+changes remain unpaged when `page` is absent. Direct REST and CLI consumers keep
+their established normalization and defaults. The request-task REST endpoint
+uses overflow-safe offset arithmetic so a large positive page cannot wrap into
+earlier results; the new advertised MCP maximum does not add a REST page cap.
+Search aliases, permitted identifier filters, authorization, stable ordering and
+filtered counts remain unchanged. This repair does not complete the independent
+identifier-filter audit #196.
+
 ## Shared workspace filters
 
 Customer means the ticket's organization (`Ticket.OrganizationId`), displayed as

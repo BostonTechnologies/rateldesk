@@ -2,6 +2,17 @@
 
 RatelDesk has one repository-owned release line. The root `Directory.Build.props` is the source of truth for `VersionPrefix` and `VersionSuffix`. Applications and release outputs inherit those values. Prereleases remain immutable.
 
+## 0.1.2-beta.5 — MCP campaign repairs
+
+[Release notes](../release-notes/0.1.2-beta.5.md) cover the general notification
+summary, explicit MCP pagination validation and persisted timeline effort.
+The [regression/campaign handoff](../implementation/0.1.2-beta.5-mcp-regressions.md)
+keeps historical effort limits and retained-state prerequisites explicit.
+[#221](https://github.com/BostonTechnologies/RatelDesk/issues/221) owns verified
+public distribution. [#219](https://github.com/BostonTechnologies/RatelDesk/issues/219)
+remains open for the owner's separately deployed campaign. Use their exact
+source/tag/artifact receipts; source notes establish no deployed verdict.
+
 ## 0.1.2-beta.4 — MCP campaign candidate
 
 The candidate targets the next unused beta following beta.3. See the

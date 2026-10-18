@@ -1,34 +1,53 @@
 {
   "baseline": {
-    "sourceCommit": "c43925c557db54fc4c4f5b04f26b4ed278a2ddd5",
-    "catalogRevision": "2026-10-17.mcp-incident-search-v19",
-    "catalogHash": "c25f373a49c321da12f945dd8fde958c1ac5dc252c533066665b72aa982e031a",
-    "operationCount": 154,
-    "fileSha256": "9fb1214150fbc159f48d32a5789dae1adf5072aa16e8919e282dac01bca90c5f"
-  },
-  "current": {
+    "sourceCommit": "94c91712e880066ed3f4e87337bd2311adfc583a",
     "catalogRevision": "2026-10-17.mcp-executable-contracts-v20",
     "catalogHash": "dbf97fd8e4fb69bbee2843a5586a8820a6c0f77578ac9b978ac54484614a5f7f",
     "schemaHash": "6f040767ead3968f8e0178d2fabf9d58ebde6e00ba5a7ee92987f88206c91528",
     "operationCount": 154,
+    "toolCount": 28,
     "fileSha256": "e4102602e12726f62a611108a61ac218b1cf74bef4a3646476e9a4ae49ef4893"
+  },
+  "originalBeta3": {
+    "sourceCommit": "c43925c557db54fc4c4f5b04f26b4ed278a2ddd5",
+    "catalogRevision": "2026-10-17.mcp-incident-search-v19",
+    "catalogHash": "c25f373a49c321da12f945dd8fde958c1ac5dc252c533066665b72aa982e031a",
+    "operationCount": 154,
+    "toolCount": 28,
+    "fileSha256": "9fb1214150fbc159f48d32a5789dae1adf5072aa16e8919e282dac01bca90c5f"
+  },
+  "current": {
+    "catalogRevision": "2026-10-18.mcp-campaign-repairs-v21",
+    "catalogHash": "6d26bcead8f63a3f596d061b4284a0dbc356782240d9e5209c806dfba1e80ffe",
+    "schemaHash": "2f54b8dbecfdf9d2e64558c1a850f93bc53c7a9163fc18a5042bbab189491e03",
+    "operationCount": 154,
+    "toolCount": 28,
+    "fileSha256": "508b8e3e4d4dcf65b2b1d3812ec0900189dfa5d52b4d08d6b8606b37ba656b75"
   },
   "addedOperations": [],
   "removedOperations": [],
+  "intentionalChanges": [
+    "General notification summary uses /api/v1/notifications/summary.",
+    "Four MCP list schemas/runtime enforce explicit page 1..1000000 and pageSize 1..100, preserving omitted-field and REST/CLI behavior.",
+    "Three timeline operation descriptions document additive recordedHours/workLogId and explicitly unavailable legacy effort."
+  ],
   "campaignEvidence": {
     "baselineAggregate": {
-      "passed": 82,
-      "failed": 15,
-      "blocked": 55,
+      "passed": 85,
+      "failed": 8,
+      "blocked": 59,
       "unsupportedByDesign": 2
     },
-    "baselinePerOperationOutcomes": "Not supplied in the public handoff; original private evidence and dispositions must be preserved by the owner.",
-    "currentPerOperationOutcomes": "This is a contract inventory, not execution evidence. Use a fresh owner campaign and preserve positive, denial, unsupported, blocked prerequisite, no-op and unobserved outcomes separately."
+    "baselinePerOperationOutcomes": "Reported in the owner handoff; private coverage ZIP and original 926-case ledger were not supplied to this implementation workspace. Do not infer individual historical outcomes.",
+    "reportedFollowupCasesPassed": 7,
+    "historicalLiveDiscoverySha256": "88badc5447a18f5cb92f844971f3d70efc5461e3cde78eaddc9b605b8f486fd2",
+    "currentPerOperationOutcomes": "Contract correspondence only. Fresh deployed campaign evidence under #219 remains separate from development and public distribution acceptance."
   },
   "operations": [
     {
       "operationKey": "helpdesk_admin_mutations.create_category",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.create_category",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "POST",
@@ -49,20 +68,13 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "name",
-        "description",
-        "type",
-        "tenantId",
-        "parentCategoryId",
-        "sortOrder",
-        "isActive"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_admin_mutations.create_customer",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.create_customer",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "POST",
@@ -83,19 +95,13 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "id",
-        "name",
-        "email",
-        "organizationId",
-        "state",
-        "isEnabled"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_admin_mutations.create_organization",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.create_organization",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "POST",
@@ -116,23 +122,13 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "id",
-        "name",
-        "dnsName",
-        "contactInfo",
-        "assignedSlaId",
-        "itSupportOrganizationId",
-        "orchestrationTenantId",
-        "orchestrationTenantName",
-        "state",
-        "isEnabled"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_admin_mutations.create_request_form",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.create_request_form",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "POST",
@@ -153,20 +149,13 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "serviceId",
-        "title",
-        "description",
-        "jsonSchema",
-        "organizationId",
-        "allowedOrganizationIds",
-        "releaseStatus"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_admin_mutations.create_role",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.create_role",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "POST",
@@ -187,17 +176,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "name",
-        "permissions",
-        "key",
-        "ownerOrganizationId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_admin_mutations.create_self_service_request",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.create_self_service_request",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "POST",
@@ -218,21 +203,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "requestFormId",
-        "title",
-        "description",
-        "payloadJson",
-        "requesterEmail",
-        "requesterName",
-        "requestedForPersonId",
-        "requestedForPersonSource"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_admin_mutations.create_service",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.create_service",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "POST",
@@ -253,18 +230,13 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "name",
-        "description",
-        "parentId",
-        "allowedCustomerIds",
-        "allowedOrganizationIds"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_admin_mutations.create_service_request_form",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.create_service_request_form",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "POST",
@@ -285,20 +257,13 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "serviceId",
-        "title",
-        "description",
-        "jsonSchema",
-        "organizationId",
-        "allowedOrganizationIds",
-        "releaseStatus"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_admin_mutations.create_user",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.create_user",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "POST",
@@ -319,22 +284,17 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "name",
-        "email",
-        "role",
-        "isTestUser",
-        "organizationId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_admin_mutations.customer_disable_login",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.customer_disable_login",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "POST",
-        "pathTemplate": "/api/v1/customers/{customerId}/disable-login",
+        "pathTemplate": "/api/v1/customers/{customerId}/auth/disable-login",
         "confirmationRequired": true,
         "description": "customer_disable_login operation."
       },
@@ -345,29 +305,23 @@
         "confirmationRequired": true,
         "description": "customer_disable_login operation."
       },
-      "changes": {
-        "pathTemplate": {
-          "before": "/api/v1/customers/{customerId}/disable-login",
-          "after": "/api/v1/customers/{customerId}/auth/disable-login"
-        }
-      },
+      "changes": {},
       "effect": "write",
       "boundedIntegrationCredential": {
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "customerId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_admin_mutations.customer_invite",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.customer_invite",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "POST",
-        "pathTemplate": "/api/v1/customers/{customerId}/invite",
+        "pathTemplate": "/api/v1/customers/{customerId}/auth/invite",
         "confirmationRequired": true,
         "description": "customer_invite operation."
       },
@@ -378,29 +332,23 @@
         "confirmationRequired": true,
         "description": "customer_invite operation."
       },
-      "changes": {
-        "pathTemplate": {
-          "before": "/api/v1/customers/{customerId}/invite",
-          "after": "/api/v1/customers/{customerId}/auth/invite"
-        }
-      },
+      "changes": {},
       "effect": "write",
       "boundedIntegrationCredential": {
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "customerId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_admin_mutations.customer_resend_invite",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.customer_resend_invite",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "POST",
-        "pathTemplate": "/api/v1/customers/{customerId}/resend-invite",
+        "pathTemplate": "/api/v1/customers/{customerId}/auth/resend-invite",
         "confirmationRequired": true,
         "description": "customer_resend_invite operation."
       },
@@ -411,29 +359,23 @@
         "confirmationRequired": true,
         "description": "customer_resend_invite operation."
       },
-      "changes": {
-        "pathTemplate": {
-          "before": "/api/v1/customers/{customerId}/resend-invite",
-          "after": "/api/v1/customers/{customerId}/auth/resend-invite"
-        }
-      },
+      "changes": {},
       "effect": "write",
       "boundedIntegrationCredential": {
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "customerId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_admin_mutations.customer_sync_authentik",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.customer_sync_authentik",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "POST",
-        "pathTemplate": "/api/v1/customers/{customerId}/sync-authentik",
+        "pathTemplate": "/api/v1/customers/{customerId}/auth/sync-authentik",
         "confirmationRequired": true,
         "description": "customer_sync_authentik operation."
       },
@@ -444,25 +386,19 @@
         "confirmationRequired": true,
         "description": "customer_sync_authentik operation."
       },
-      "changes": {
-        "pathTemplate": {
-          "before": "/api/v1/customers/{customerId}/sync-authentik",
-          "after": "/api/v1/customers/{customerId}/auth/sync-authentik"
-        }
-      },
+      "changes": {},
       "effect": "write",
       "boundedIntegrationCredential": {
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "customerId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_admin_mutations.delete_category",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.delete_category",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "DELETE",
@@ -483,14 +419,13 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "categoryId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_admin_mutations.delete_customer",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.delete_customer",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "DELETE",
@@ -511,14 +446,13 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "customerId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_admin_mutations.delete_organization",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.delete_organization",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "DELETE",
@@ -539,14 +473,13 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "organizationId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_admin_mutations.delete_request_form",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.delete_request_form",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "DELETE",
@@ -567,14 +500,13 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "requestFormId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_admin_mutations.delete_role",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.delete_role",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "DELETE",
@@ -595,14 +527,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "roleId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_admin_mutations.delete_service",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.delete_service",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "DELETE",
@@ -623,14 +554,13 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "serviceId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_admin_mutations.delete_user",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.delete_user",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "DELETE",
@@ -651,16 +581,15 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "userId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_admin_mutations.provision_user",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.provision_user",
       "baselineContract": {
-        "requestContract": "AdministrativeMutationRequest",
+        "requestContract": "None",
         "method": "POST",
         "pathTemplate": "/api/v1/users/provision",
         "confirmationRequired": true,
@@ -673,12 +602,7 @@
         "confirmationRequired": true,
         "description": "provision_user operation."
       },
-      "changes": {
-        "requestContract": {
-          "before": "AdministrativeMutationRequest",
-          "after": "None"
-        }
-      },
+      "changes": {},
       "effect": "write",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
@@ -690,6 +614,7 @@
     {
       "operationKey": "helpdesk_admin_mutations.update_category",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.update_category",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "PUT",
@@ -710,20 +635,13 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "categoryId",
-        "name",
-        "description",
-        "type",
-        "parentCategoryId",
-        "sortOrder",
-        "isActive"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_admin_mutations.update_customer",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.update_customer",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "PUT",
@@ -744,19 +662,13 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "customerId",
-        "name",
-        "email",
-        "organizationId",
-        "state",
-        "isEnabled"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_admin_mutations.update_organization",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.update_organization",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "PUT",
@@ -777,27 +689,17 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "organizationId",
-        "name",
-        "dnsName",
-        "contactInfo",
-        "assignedSlaId",
-        "itSupportOrganizationId",
-        "orchestrationTenantId",
-        "orchestrationTenantName",
-        "state",
-        "isEnabled"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_admin_mutations.update_organization_branding",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.update_organization_branding",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "PUT",
-        "pathTemplate": "/api/v1/tenants/{organizationId}/branding",
+        "pathTemplate": "/api/v1/tenants/{tenantId}/branding",
         "confirmationRequired": true,
         "description": "update_organization_branding operation."
       },
@@ -808,31 +710,19 @@
         "confirmationRequired": true,
         "description": "update_organization_branding operation."
       },
-      "changes": {
-        "pathTemplate": {
-          "before": "/api/v1/tenants/{organizationId}/branding",
-          "after": "/api/v1/tenants/{tenantId}/branding"
-        }
-      },
+      "changes": {},
       "effect": "write",
       "boundedIntegrationCredential": {
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "tenantId",
-        "brandName",
-        "logoUrl",
-        "footerHtml",
-        "primaryColor",
-        "fromName",
-        "replyTo"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_admin_mutations.update_request_form",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.update_request_form",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "PUT",
@@ -853,22 +743,13 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "requestFormId",
-        "title",
-        "description",
-        "jsonSchema",
-        "serviceIdHasValue",
-        "serviceId",
-        "organizationId",
-        "allowedOrganizationIds",
-        "releaseStatus"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_admin_mutations.update_role",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.update_role",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "PUT",
@@ -889,16 +770,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "roleId",
-        "name",
-        "permissions"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_admin_mutations.update_service",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.update_service",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "PUT",
@@ -919,19 +797,13 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "serviceId",
-        "name",
-        "description",
-        "parentId",
-        "allowedCustomerIds",
-        "allowedOrganizationIds"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_admin_mutations.update_user",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_admin_mutations.update_user",
       "baselineContract": {
         "requestContract": "AdministrativeMutationRequest",
         "method": "PUT",
@@ -952,19 +824,13 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "userId",
-        "name",
-        "email",
-        "role",
-        "isTestUser",
-        "organizationId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_ai_assistant.report",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_ai_assistant.report",
       "baselineContract": {
         "requestContract": "AiAssistantWorklogRequest",
         "method": "POST",
@@ -985,24 +851,13 @@
         "support": "denied_by_policy",
         "reason": "The exact AuthentikAiAgent API authentication scheme is required. Ordinary integration credentials and gateway execution tokens cannot satisfy it, regardless of scoped grants. Explicit external Authentik downstream identity is supported; never switch modes as fallback."
       },
-      "newRequestProperties": [
-        "invocationId",
-        "eventId",
-        "ticketId",
-        "correlationId",
-        "message",
-        "ticketType",
-        "status",
-        "severity",
-        "metadataJson",
-        "artifactReferencesJson",
-        "runReference"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_auth.status",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_auth.status",
       "baselineContract": {
         "requestContract": "None",
         "method": "GET",
@@ -1029,6 +884,7 @@
     {
       "operationKey": "helpdesk_capabilities.get",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_capabilities.get",
       "baselineContract": {
         "requestContract": "None",
         "method": "LOCAL",
@@ -1055,6 +911,7 @@
     {
       "operationKey": "helpdesk_categories.list",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_categories.list",
       "baselineContract": {
         "requestContract": "ListRequest",
         "method": "GET",
@@ -1075,19 +932,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "type",
-        "search",
-        "ids",
-        "take",
-        "allScopes",
-        "includeInactive"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_changes.add_worklog",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_changes.add_worklog",
       "baselineContract": {
         "requestContract": "TicketWorklogRequest",
         "method": "POST",
@@ -1108,19 +959,15 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "changeId",
-        "hours",
-        "notes",
-        "isInternalNote"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_changes.assign",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_changes.assign",
       "baselineContract": {
-        "requestContract": "TicketOperationRequest",
+        "requestContract": "TicketAssignmentRequest",
         "method": "POST",
         "pathTemplate": "/api/v1/changes/bulk/assign",
         "confirmationRequired": true,
@@ -1133,28 +980,21 @@
         "confirmationRequired": true,
         "description": "assign operation."
       },
-      "changes": {
-        "requestContract": {
-          "before": "TicketOperationRequest",
-          "after": "TicketAssignmentRequest"
-        }
-      },
+      "changes": {},
       "effect": "write",
       "boundedIntegrationCredential": {
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "ids",
-        "assignedToId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_changes.assign_self",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_changes.assign_self",
       "baselineContract": {
-        "requestContract": "TicketOperationRequest",
+        "requestContract": "ConfiguredAgentAssignmentRequest",
         "method": "POST",
         "pathTemplate": "/api/v1/changes/bulk/assign",
         "confirmationRequired": true,
@@ -1167,28 +1007,21 @@
         "confirmationRequired": true,
         "description": "assign_self operation."
       },
-      "changes": {
-        "requestContract": {
-          "before": "TicketOperationRequest",
-          "after": "ConfiguredAgentAssignmentRequest"
-        }
-      },
+      "changes": {},
       "effect": "write",
       "boundedIntegrationCredential": {
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "ids",
-        "agentUserEmail"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_changes.attachments_count",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_changes.attachments_count",
       "baselineContract": {
-        "requestContract": "changeCountRequest",
+        "requestContract": "ChangeCountRequest",
         "method": "GET",
         "pathTemplate": "/api/v1/changes/{changeId}/attachments/count",
         "confirmationRequired": false,
@@ -1201,27 +1034,21 @@
         "confirmationRequired": false,
         "description": "Read attachments_count for one change."
       },
-      "changes": {
-        "requestContract": {
-          "before": "changeCountRequest",
-          "after": "ChangeCountRequest"
-        }
-      },
+      "changes": {},
       "effect": "read",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "changeId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_changes.bulk_create",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_changes.bulk_create",
       "baselineContract": {
-        "requestContract": "changeBulkCreateRequest",
+        "requestContract": "ChangeBulkCreateRequest",
         "method": "POST",
         "pathTemplate": "/api/v1/changes/",
         "confirmationRequired": true,
@@ -1234,27 +1061,21 @@
         "confirmationRequired": true,
         "description": "bulk_create operation."
       },
-      "changes": {
-        "requestContract": {
-          "before": "changeBulkCreateRequest",
-          "after": "ChangeBulkCreateRequest"
-        }
-      },
+      "changes": {},
       "effect": "write",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "items"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_changes.bulk_state",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_changes.bulk_state",
       "baselineContract": {
-        "requestContract": "TicketOperationRequest",
+        "requestContract": "BulkTicketStateRequest",
         "method": "POST",
         "pathTemplate": "/api/v1/changes/bulk/state",
         "confirmationRequired": true,
@@ -1267,27 +1088,19 @@
         "confirmationRequired": true,
         "description": "bulk_state operation."
       },
-      "changes": {
-        "requestContract": {
-          "before": "TicketOperationRequest",
-          "after": "BulkTicketStateRequest"
-        }
-      },
+      "changes": {},
       "effect": "write",
       "boundedIntegrationCredential": {
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "newState",
-        "comment",
-        "ids"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_changes.create",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_changes.create",
       "baselineContract": {
         "requestContract": "ChangeCreateRequest",
         "method": "POST",
@@ -1308,28 +1121,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "title",
-        "description",
-        "priority",
-        "organizationId",
-        "requestedForUserId",
-        "implementorUserId",
-        "approverUserIds",
-        "linkedAssetIds",
-        "attachments",
-        "dueDate",
-        "implementationStartAt",
-        "implementationEndAt",
-        "changeType",
-        "changeTemplate",
-        "categoryIds"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_changes.delete",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_changes.delete",
       "baselineContract": {
         "requestContract": "ChangeRequest",
         "method": "DELETE",
@@ -1350,14 +1148,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "changeId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_changes.get",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_changes.get",
       "baselineContract": {
         "requestContract": "ChangeRequest",
         "method": "GET",
@@ -1378,14 +1175,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "changeId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_changes.lifecycle",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_changes.lifecycle",
       "baselineContract": {
         "requestContract": "ChangeLifecycleRequest",
         "method": "POST",
@@ -1406,38 +1202,524 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "changeId",
-        "lifecycleState",
-        "comment"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_changes.list",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_changes.list",
       "baselineContract": {
-        "requestContract": "TicketOperationRequest",
-        "method": "GET",
-        "pathTemplate": "/api/v1/changes/",
-        "confirmationRequired": false,
-        "description": "list operation."
-      },
-      "currentContract": {
         "requestContract": "ListRequest",
         "method": "GET",
         "pathTemplate": "/api/v1/changes/",
         "confirmationRequired": false,
         "description": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging."
       },
+      "currentContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/changes/",
+        "confirmationRequired": false,
+        "description": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging. Explicit page must be an integer from 1 to 1000000; pageSize from 1 to 100. Omitted pagination retains API behavior."
+      },
       "changes": {
-        "requestContract": {
-          "before": "TicketOperationRequest",
-          "after": "ListRequest"
-        },
         "description": {
-          "before": "list operation.",
-          "after": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging."
+          "before": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging.",
+          "after": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging. Explicit page must be an integer from 1 to 1000000; pageSize from 1 to 100. Omitted pagination retains API behavior."
+        },
+        "requestSchema": {
+          "before": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "page": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "pageSize": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "query": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 200,
+                "description": "Search sent as API q. query/q aliases accept null or blank as unfiltered; equivalent trimmed values deduplicate; conflicting nonempty values reject. Filtering precedes totals and paging."
+              },
+              "q": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 200,
+                "description": "Search sent as API q. query/q aliases accept null or blank as unfiltered; equivalent trimmed values deduplicate; conflicting nonempty values reject. Filtering precedes totals and paging."
+              },
+              "includeTotal": {
+                "type": "boolean"
+              },
+              "historicOnly": {
+                "type": "boolean"
+              },
+              "activeOnly": {
+                "type": "boolean"
+              },
+              "summaryOnly": {
+                "type": "boolean"
+              },
+              "unassigned": {
+                "type": "boolean"
+              },
+              "descending": {
+                "type": "boolean"
+              },
+              "state": {
+                "enum": [
+                  "New",
+                  "WaitingReply",
+                  "Replied",
+                  "InProgress",
+                  "PendingApproval",
+                  "OnHold",
+                  "Resolved",
+                  0,
+                  1,
+                  2,
+                  3,
+                  4,
+                  5,
+                  6
+                ]
+              },
+              "view": {
+                "type": "string",
+                "enum": [
+                  "all",
+                  "active",
+                  "historic"
+                ]
+              },
+              "customerOrgId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                ]
+              },
+              "forId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                ]
+              },
+              "assigneeId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                ]
+              },
+              "stateValues": {
+                "oneOf": [
+                  {
+                    "enum": [
+                      "Draft",
+                      "Submitted",
+                      "PendingApproval",
+                      "ApprovedForImplementation",
+                      "ImplementationInProgress",
+                      "ImplementedSuccess",
+                      "ImplementedBackedOut",
+                      0,
+                      1,
+                      2,
+                      3,
+                      4,
+                      5,
+                      6
+                    ]
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "enum": [
+                        "Draft",
+                        "Submitted",
+                        "PendingApproval",
+                        "ApprovedForImplementation",
+                        "ImplementationInProgress",
+                        "ImplementedSuccess",
+                        "ImplementedBackedOut",
+                        0,
+                        1,
+                        2,
+                        3,
+                        4,
+                        5,
+                        6
+                      ]
+                    }
+                  }
+                ]
+              },
+              "priority": {
+                "oneOf": [
+                  {
+                    "enum": [
+                      "Low",
+                      "Medium",
+                      "High",
+                      "Critical",
+                      0,
+                      1,
+                      2,
+                      3
+                    ]
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "enum": [
+                        "Low",
+                        "Medium",
+                        "High",
+                        "Critical",
+                        0,
+                        1,
+                        2,
+                        3
+                      ]
+                    }
+                  }
+                ]
+              },
+              "timeField": {
+                "type": "string",
+                "enum": [
+                  "updated",
+                  "created"
+                ]
+              },
+              "sort": {
+                "type": "string",
+                "enum": [
+                  "updated",
+                  "created",
+                  "trackingId",
+                  "subject",
+                  "priority",
+                  "state"
+                ]
+              },
+              "from": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "to": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "lifecycleState": {
+                "enum": [
+                  "Draft",
+                  "Submitted",
+                  "PendingApproval",
+                  "ApprovedForImplementation",
+                  "ImplementationInProgress",
+                  "ImplementedSuccess",
+                  "ImplementedBackedOut",
+                  0,
+                  1,
+                  2,
+                  3,
+                  4,
+                  5,
+                  6
+                ]
+              }
+            },
+            "required": [],
+            "description": "ListRequest for helpdesk_changes operation list. All operation-specific fields belong inside this request object, never at the tool root."
+          },
+          "after": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "page": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000000
+              },
+              "pageSize": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "query": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 200,
+                "description": "Search sent as API q. query/q aliases accept null or blank as unfiltered; equivalent trimmed values deduplicate; conflicting nonempty values reject. Filtering precedes totals and paging."
+              },
+              "q": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 200,
+                "description": "Search sent as API q. query/q aliases accept null or blank as unfiltered; equivalent trimmed values deduplicate; conflicting nonempty values reject. Filtering precedes totals and paging."
+              },
+              "includeTotal": {
+                "type": "boolean"
+              },
+              "historicOnly": {
+                "type": "boolean"
+              },
+              "activeOnly": {
+                "type": "boolean"
+              },
+              "summaryOnly": {
+                "type": "boolean"
+              },
+              "unassigned": {
+                "type": "boolean"
+              },
+              "descending": {
+                "type": "boolean"
+              },
+              "state": {
+                "enum": [
+                  "New",
+                  "WaitingReply",
+                  "Replied",
+                  "InProgress",
+                  "PendingApproval",
+                  "OnHold",
+                  "Resolved",
+                  0,
+                  1,
+                  2,
+                  3,
+                  4,
+                  5,
+                  6
+                ]
+              },
+              "view": {
+                "type": "string",
+                "enum": [
+                  "all",
+                  "active",
+                  "historic"
+                ]
+              },
+              "customerOrgId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                ]
+              },
+              "forId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                ]
+              },
+              "assigneeId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                ]
+              },
+              "stateValues": {
+                "oneOf": [
+                  {
+                    "enum": [
+                      "Draft",
+                      "Submitted",
+                      "PendingApproval",
+                      "ApprovedForImplementation",
+                      "ImplementationInProgress",
+                      "ImplementedSuccess",
+                      "ImplementedBackedOut",
+                      0,
+                      1,
+                      2,
+                      3,
+                      4,
+                      5,
+                      6
+                    ]
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "enum": [
+                        "Draft",
+                        "Submitted",
+                        "PendingApproval",
+                        "ApprovedForImplementation",
+                        "ImplementationInProgress",
+                        "ImplementedSuccess",
+                        "ImplementedBackedOut",
+                        0,
+                        1,
+                        2,
+                        3,
+                        4,
+                        5,
+                        6
+                      ]
+                    }
+                  }
+                ]
+              },
+              "priority": {
+                "oneOf": [
+                  {
+                    "enum": [
+                      "Low",
+                      "Medium",
+                      "High",
+                      "Critical",
+                      0,
+                      1,
+                      2,
+                      3
+                    ]
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "enum": [
+                        "Low",
+                        "Medium",
+                        "High",
+                        "Critical",
+                        0,
+                        1,
+                        2,
+                        3
+                      ]
+                    }
+                  }
+                ]
+              },
+              "timeField": {
+                "type": "string",
+                "enum": [
+                  "updated",
+                  "created"
+                ]
+              },
+              "sort": {
+                "type": "string",
+                "enum": [
+                  "updated",
+                  "created",
+                  "trackingId",
+                  "subject",
+                  "priority",
+                  "state"
+                ]
+              },
+              "from": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "to": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "lifecycleState": {
+                "enum": [
+                  "Draft",
+                  "Submitted",
+                  "PendingApproval",
+                  "ApprovedForImplementation",
+                  "ImplementationInProgress",
+                  "ImplementedSuccess",
+                  "ImplementedBackedOut",
+                  0,
+                  1,
+                  2,
+                  3,
+                  4,
+                  5,
+                  6
+                ]
+              }
+            },
+            "required": [],
+            "description": "ListRequest for helpdesk_changes operation list. All operation-specific fields belong inside this request object, never at the tool root."
+          }
         }
       },
       "effect": "read",
@@ -1445,37 +1727,15 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "page",
-        "pageSize",
-        "query",
-        "q",
-        "includeTotal",
-        "historicOnly",
-        "activeOnly",
-        "summaryOnly",
-        "unassigned",
-        "descending",
-        "state",
-        "view",
-        "customerOrgId",
-        "forId",
-        "assigneeId",
-        "stateValues",
-        "priority",
-        "timeField",
-        "sort",
-        "from",
-        "to",
-        "lifecycleState"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_changes.listeners_count",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_changes.listeners_count",
       "baselineContract": {
-        "requestContract": "changeCountRequest",
+        "requestContract": "ChangeCountRequest",
         "method": "GET",
         "pathTemplate": "/api/v1/changes/{changeId}/listeners/count",
         "confirmationRequired": false,
@@ -1488,25 +1748,19 @@
         "confirmationRequired": false,
         "description": "Read listeners_count for one change."
       },
-      "changes": {
-        "requestContract": {
-          "before": "changeCountRequest",
-          "after": "ChangeCountRequest"
-        }
-      },
+      "changes": {},
       "effect": "read",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "changeId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_changes.state",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_changes.state",
       "baselineContract": {
         "requestContract": "TicketStateRequest",
         "method": "POST",
@@ -1527,16 +1781,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "changeId",
-        "newState",
-        "comment"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_changes.timeline",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_changes.timeline",
       "baselineContract": {
         "requestContract": "ChangeRequest",
         "method": "GET",
@@ -1549,24 +1800,28 @@
         "method": "GET",
         "pathTemplate": "/api/v1/changes/{changeId}/timeline",
         "confirmationRequired": false,
-        "description": "timeline changes."
+        "description": "Read the authorized timeline. recordedHours is the nullable authoritative effort snapshot and workLogId the associated worklog; null effort is unavailable or not applicable, distinct from measured zero. Legacy hours remains numeric for compatibility."
       },
-      "changes": {},
+      "changes": {
+        "description": {
+          "before": "timeline changes.",
+          "after": "Read the authorized timeline. recordedHours is the nullable authoritative effort snapshot and workLogId the associated worklog; null effort is unavailable or not applicable, distinct from measured zero. Legacy hours remains numeric for compatibility."
+        }
+      },
       "effect": "read",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "changeId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_changes.timeline_count",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_changes.timeline_count",
       "baselineContract": {
-        "requestContract": "changeCountRequest",
+        "requestContract": "ChangeCountRequest",
         "method": "GET",
         "pathTemplate": "/api/v1/changes/{changeId}/timeline/count",
         "confirmationRequired": false,
@@ -1579,25 +1834,19 @@
         "confirmationRequired": false,
         "description": "Read timeline_count for one change."
       },
-      "changes": {
-        "requestContract": {
-          "before": "changeCountRequest",
-          "after": "ChangeCountRequest"
-        }
-      },
+      "changes": {},
       "effect": "read",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "changeId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_changes.update",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_changes.update",
       "baselineContract": {
         "requestContract": "ChangeUpdateRequest",
         "method": "PUT",
@@ -1618,26 +1867,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "changeId",
-        "state",
-        "lifecycleState",
-        "priority",
-        "organizationId",
-        "requestedForUserId",
-        "implementorUserId",
-        "approverUserIds",
-        "implementationStartAt",
-        "implementationEndAt",
-        "categoryIds",
-        "changeType",
-        "changeTemplate"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_changes.worklogs",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_changes.worklogs",
       "baselineContract": {
         "requestContract": "ChangeRequest",
         "method": "GET",
@@ -1658,14 +1894,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "changeId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_config.get",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_config.get",
       "baselineContract": {
         "requestContract": "ConfigKeyRequest",
         "method": "LOCAL",
@@ -1686,14 +1921,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "key"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_config.set",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_config.set",
       "baselineContract": {
         "requestContract": "ConfigValueRequest",
         "method": "LOCAL",
@@ -1714,15 +1948,13 @@
         "support": "unavailable_by_policy_on_http",
         "reason": "HTTP configuration surface is read-only. Local stdio persistence requires configurationWritesEnabled=true."
       },
-      "newRequestProperties": [
-        "key",
-        "value"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_config.show",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_config.show",
       "baselineContract": {
         "requestContract": "None",
         "method": "LOCAL",
@@ -1749,6 +1981,7 @@
     {
       "operationKey": "helpdesk_config.unset",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_config.unset",
       "baselineContract": {
         "requestContract": "ConfigKeyRequest",
         "method": "LOCAL",
@@ -1769,14 +2002,13 @@
         "support": "unavailable_by_policy_on_http",
         "reason": "HTTP configuration surface is read-only. Local stdio persistence requires configurationWritesEnabled=true."
       },
-      "newRequestProperties": [
-        "key"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_connectivity.orchestration",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_connectivity.orchestration",
       "baselineContract": {
         "requestContract": "None",
         "method": "GET",
@@ -1803,6 +2035,7 @@
     {
       "operationKey": "helpdesk_connectivity.orchestration_bindings",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_connectivity.orchestration_bindings",
       "baselineContract": {
         "requestContract": "None",
         "method": "GET",
@@ -1829,6 +2062,7 @@
     {
       "operationKey": "helpdesk_connectivity.orchestration_jobs",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_connectivity.orchestration_jobs",
       "baselineContract": {
         "requestContract": "None",
         "method": "GET",
@@ -1855,6 +2089,7 @@
     {
       "operationKey": "helpdesk_connectivity.orchestration_request_definitions",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_connectivity.orchestration_request_definitions",
       "baselineContract": {
         "requestContract": "None",
         "method": "GET",
@@ -1881,6 +2116,7 @@
     {
       "operationKey": "helpdesk_connectivity.orchestration_tenants",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_connectivity.orchestration_tenants",
       "baselineContract": {
         "requestContract": "None",
         "method": "GET",
@@ -1907,8 +2143,9 @@
     {
       "operationKey": "helpdesk_connectivity.orchestration_test",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_connectivity.orchestration_test",
       "baselineContract": {
-        "requestContract": "ConnectivityTestRequest",
+        "requestContract": "None",
         "method": "POST",
         "pathTemplate": "/api/v1/admin/orchestration/test",
         "confirmationRequired": true,
@@ -1921,12 +2158,7 @@
         "confirmationRequired": true,
         "description": "orchestration_test operation."
       },
-      "changes": {
-        "requestContract": {
-          "before": "ConnectivityTestRequest",
-          "after": "None"
-        }
-      },
+      "changes": {},
       "effect": "external_io",
       "boundedIntegrationCredential": {
         "support": "denied_by_policy",
@@ -1938,10 +2170,11 @@
     {
       "operationKey": "helpdesk_customers.auth_status",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_customers.auth_status",
       "baselineContract": {
         "requestContract": "CustomerRequest",
         "method": "GET",
-        "pathTemplate": "/api/v1/customers/{customerId}/auth-status",
+        "pathTemplate": "/api/v1/customers/{customerId}/auth/status",
         "confirmationRequired": false,
         "description": "auth_status operation."
       },
@@ -1952,25 +2185,19 @@
         "confirmationRequired": false,
         "description": "auth_status operation."
       },
-      "changes": {
-        "pathTemplate": {
-          "before": "/api/v1/customers/{customerId}/auth-status",
-          "after": "/api/v1/customers/{customerId}/auth/status"
-        }
-      },
+      "changes": {},
       "effect": "read",
       "boundedIntegrationCredential": {
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "customerId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_customers.get",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_customers.get",
       "baselineContract": {
         "requestContract": "CustomerRequest",
         "method": "GET",
@@ -1991,14 +2218,13 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "customerId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_customers.list",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_customers.list",
       "baselineContract": {
         "requestContract": "ListRequest",
         "method": "GET",
@@ -2025,6 +2251,7 @@
     {
       "operationKey": "helpdesk_enums.change_lifecycle_state",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_enums.change_lifecycle_state",
       "baselineContract": {
         "requestContract": "None",
         "method": "LOCAL",
@@ -2051,6 +2278,7 @@
     {
       "operationKey": "helpdesk_enums.list",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_enums.list",
       "baselineContract": {
         "requestContract": "None",
         "method": "LOCAL",
@@ -2077,6 +2305,7 @@
     {
       "operationKey": "helpdesk_enums.request_task_status",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_enums.request_task_status",
       "baselineContract": {
         "requestContract": "None",
         "method": "LOCAL",
@@ -2103,6 +2332,7 @@
     {
       "operationKey": "helpdesk_enums.ticket_priority",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_enums.ticket_priority",
       "baselineContract": {
         "requestContract": "None",
         "method": "LOCAL",
@@ -2129,6 +2359,7 @@
     {
       "operationKey": "helpdesk_enums.ticket_state",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_enums.ticket_state",
       "baselineContract": {
         "requestContract": "None",
         "method": "LOCAL",
@@ -2155,6 +2386,7 @@
     {
       "operationKey": "helpdesk_examples.list",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_examples.list",
       "baselineContract": {
         "requestContract": "None",
         "method": "LOCAL",
@@ -2181,6 +2413,7 @@
     {
       "operationKey": "helpdesk_health.get",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_health.get",
       "baselineContract": {
         "requestContract": "None",
         "method": "GET",
@@ -2207,6 +2440,7 @@
     {
       "operationKey": "helpdesk_incidents.add_worklog",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_incidents.add_worklog",
       "baselineContract": {
         "requestContract": "IncidentWorklogRequest",
         "method": "POST",
@@ -2227,17 +2461,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "incidentId",
-        "hours",
-        "notes",
-        "isInternalNote"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_incidents.assign",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_incidents.assign",
       "baselineContract": {
         "requestContract": "TicketAssignmentRequest",
         "method": "POST",
@@ -2258,15 +2488,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "ids",
-        "assignedToId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_incidents.assign_self",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_incidents.assign_self",
       "baselineContract": {
         "requestContract": "ConfiguredAgentAssignmentRequest",
         "method": "POST",
@@ -2287,17 +2515,15 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "ids",
-        "agentUserEmail"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_incidents.attachments_count",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_incidents.attachments_count",
       "baselineContract": {
-        "requestContract": "incidentCountRequest",
+        "requestContract": "IncidentCountRequest",
         "method": "GET",
         "pathTemplate": "/api/v1/incidents/{incidentId}/attachments/count",
         "confirmationRequired": false,
@@ -2310,25 +2536,19 @@
         "confirmationRequired": false,
         "description": "Read attachments_count for one incident."
       },
-      "changes": {
-        "requestContract": {
-          "before": "incidentCountRequest",
-          "after": "IncidentCountRequest"
-        }
-      },
+      "changes": {},
       "effect": "read",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "incidentId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_incidents.bulk_create",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_incidents.bulk_create",
       "baselineContract": {
         "requestContract": "IncidentBulkCreateRequest",
         "method": "POST",
@@ -2349,14 +2569,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "items"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_incidents.bulk_state",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_incidents.bulk_state",
       "baselineContract": {
         "requestContract": "BulkTicketStateRequest",
         "method": "POST",
@@ -2377,16 +2596,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "newState",
-        "comment",
-        "ids"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_incidents.close",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_incidents.close",
       "baselineContract": {
         "requestContract": "IncidentCloseRequest",
         "method": "POST",
@@ -2407,16 +2623,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "incidentId",
-        "closureNote",
-        "isInternalNote"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_incidents.create",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_incidents.create",
       "baselineContract": {
         "requestContract": "IncidentCreateRequest",
         "method": "POST",
@@ -2437,26 +2650,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "title",
-        "description",
-        "priority",
-        "customerId",
-        "organizationId",
-        "assignedToId",
-        "linkedAssetIds",
-        "attachments",
-        "dueDate",
-        "impact",
-        "ccRecipients",
-        "requesterEmail",
-        "categoryIds"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_incidents.delete",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_incidents.delete",
       "baselineContract": {
         "requestContract": "IncidentRequest",
         "method": "DELETE",
@@ -2477,14 +2677,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "incidentId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_incidents.get",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_incidents.get",
       "baselineContract": {
         "requestContract": "IncidentRequest",
         "method": "GET",
@@ -2505,36 +2704,512 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "incidentId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_incidents.list",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_incidents.list",
       "baselineContract": {
-        "requestContract": "TicketOperationRequest",
-        "method": "GET",
-        "pathTemplate": "/api/v1/incidents/",
-        "confirmationRequired": false,
-        "description": "List authorized incidents. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging."
-      },
-      "currentContract": {
         "requestContract": "ListRequest",
         "method": "GET",
         "pathTemplate": "/api/v1/incidents/",
         "confirmationRequired": false,
         "description": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging."
       },
+      "currentContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/incidents/",
+        "confirmationRequired": false,
+        "description": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging. Explicit page must be an integer from 1 to 1000000; pageSize from 1 to 100. Omitted pagination retains API behavior."
+      },
       "changes": {
-        "requestContract": {
-          "before": "TicketOperationRequest",
-          "after": "ListRequest"
-        },
         "description": {
-          "before": "List authorized incidents. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging.",
-          "after": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging."
+          "before": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging.",
+          "after": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging. Explicit page must be an integer from 1 to 1000000; pageSize from 1 to 100. Omitted pagination retains API behavior."
+        },
+        "requestSchema": {
+          "before": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "page": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "pageSize": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "query": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 200,
+                "description": "Search sent as API q. query/q aliases accept null or blank as unfiltered; equivalent trimmed values deduplicate; conflicting nonempty values reject. Filtering precedes totals and paging."
+              },
+              "q": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 200,
+                "description": "Search sent as API q. query/q aliases accept null or blank as unfiltered; equivalent trimmed values deduplicate; conflicting nonempty values reject. Filtering precedes totals and paging."
+              },
+              "includeTotal": {
+                "type": "boolean"
+              },
+              "historicOnly": {
+                "type": "boolean"
+              },
+              "activeOnly": {
+                "type": "boolean"
+              },
+              "summaryOnly": {
+                "type": "boolean"
+              },
+              "unassigned": {
+                "type": "boolean"
+              },
+              "descending": {
+                "type": "boolean"
+              },
+              "state": {
+                "enum": [
+                  "New",
+                  "WaitingReply",
+                  "Replied",
+                  "InProgress",
+                  "PendingApproval",
+                  "OnHold",
+                  "Resolved",
+                  0,
+                  1,
+                  2,
+                  3,
+                  4,
+                  5,
+                  6
+                ]
+              },
+              "view": {
+                "type": "string",
+                "enum": [
+                  "all",
+                  "active",
+                  "historic"
+                ]
+              },
+              "customerOrgId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                ]
+              },
+              "forId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                ]
+              },
+              "assigneeId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                ]
+              },
+              "stateValues": {
+                "oneOf": [
+                  {
+                    "enum": [
+                      "New",
+                      "WaitingReply",
+                      "Replied",
+                      "InProgress",
+                      "PendingApproval",
+                      "OnHold",
+                      "Resolved",
+                      0,
+                      1,
+                      2,
+                      3,
+                      4,
+                      5,
+                      6
+                    ]
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "enum": [
+                        "New",
+                        "WaitingReply",
+                        "Replied",
+                        "InProgress",
+                        "PendingApproval",
+                        "OnHold",
+                        "Resolved",
+                        0,
+                        1,
+                        2,
+                        3,
+                        4,
+                        5,
+                        6
+                      ]
+                    }
+                  }
+                ]
+              },
+              "priority": {
+                "oneOf": [
+                  {
+                    "enum": [
+                      "Low",
+                      "Medium",
+                      "High",
+                      "Critical",
+                      0,
+                      1,
+                      2,
+                      3
+                    ]
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "enum": [
+                        "Low",
+                        "Medium",
+                        "High",
+                        "Critical",
+                        0,
+                        1,
+                        2,
+                        3
+                      ]
+                    }
+                  }
+                ]
+              },
+              "timeField": {
+                "type": "string",
+                "enum": [
+                  "updated",
+                  "created"
+                ]
+              },
+              "sort": {
+                "type": "string",
+                "enum": [
+                  "updated",
+                  "created",
+                  "trackingId",
+                  "subject",
+                  "priority",
+                  "state"
+                ]
+              },
+              "from": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "to": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "organizationId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "excludeId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "requesterEmail": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [],
+            "description": "ListRequest for helpdesk_incidents operation list. All operation-specific fields belong inside this request object, never at the tool root."
+          },
+          "after": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "page": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000000
+              },
+              "pageSize": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "query": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 200,
+                "description": "Search sent as API q. query/q aliases accept null or blank as unfiltered; equivalent trimmed values deduplicate; conflicting nonempty values reject. Filtering precedes totals and paging."
+              },
+              "q": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 200,
+                "description": "Search sent as API q. query/q aliases accept null or blank as unfiltered; equivalent trimmed values deduplicate; conflicting nonempty values reject. Filtering precedes totals and paging."
+              },
+              "includeTotal": {
+                "type": "boolean"
+              },
+              "historicOnly": {
+                "type": "boolean"
+              },
+              "activeOnly": {
+                "type": "boolean"
+              },
+              "summaryOnly": {
+                "type": "boolean"
+              },
+              "unassigned": {
+                "type": "boolean"
+              },
+              "descending": {
+                "type": "boolean"
+              },
+              "state": {
+                "enum": [
+                  "New",
+                  "WaitingReply",
+                  "Replied",
+                  "InProgress",
+                  "PendingApproval",
+                  "OnHold",
+                  "Resolved",
+                  0,
+                  1,
+                  2,
+                  3,
+                  4,
+                  5,
+                  6
+                ]
+              },
+              "view": {
+                "type": "string",
+                "enum": [
+                  "all",
+                  "active",
+                  "historic"
+                ]
+              },
+              "customerOrgId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                ]
+              },
+              "forId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                ]
+              },
+              "assigneeId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                ]
+              },
+              "stateValues": {
+                "oneOf": [
+                  {
+                    "enum": [
+                      "New",
+                      "WaitingReply",
+                      "Replied",
+                      "InProgress",
+                      "PendingApproval",
+                      "OnHold",
+                      "Resolved",
+                      0,
+                      1,
+                      2,
+                      3,
+                      4,
+                      5,
+                      6
+                    ]
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "enum": [
+                        "New",
+                        "WaitingReply",
+                        "Replied",
+                        "InProgress",
+                        "PendingApproval",
+                        "OnHold",
+                        "Resolved",
+                        0,
+                        1,
+                        2,
+                        3,
+                        4,
+                        5,
+                        6
+                      ]
+                    }
+                  }
+                ]
+              },
+              "priority": {
+                "oneOf": [
+                  {
+                    "enum": [
+                      "Low",
+                      "Medium",
+                      "High",
+                      "Critical",
+                      0,
+                      1,
+                      2,
+                      3
+                    ]
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "enum": [
+                        "Low",
+                        "Medium",
+                        "High",
+                        "Critical",
+                        0,
+                        1,
+                        2,
+                        3
+                      ]
+                    }
+                  }
+                ]
+              },
+              "timeField": {
+                "type": "string",
+                "enum": [
+                  "updated",
+                  "created"
+                ]
+              },
+              "sort": {
+                "type": "string",
+                "enum": [
+                  "updated",
+                  "created",
+                  "trackingId",
+                  "subject",
+                  "priority",
+                  "state"
+                ]
+              },
+              "from": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "to": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "organizationId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "excludeId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "requesterEmail": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [],
+            "description": "ListRequest for helpdesk_incidents operation list. All operation-specific fields belong inside this request object, never at the tool root."
+          }
         }
       },
       "effect": "read",
@@ -2542,39 +3217,15 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "page",
-        "pageSize",
-        "query",
-        "q",
-        "includeTotal",
-        "historicOnly",
-        "activeOnly",
-        "summaryOnly",
-        "unassigned",
-        "descending",
-        "state",
-        "view",
-        "customerOrgId",
-        "forId",
-        "assigneeId",
-        "stateValues",
-        "priority",
-        "timeField",
-        "sort",
-        "from",
-        "to",
-        "organizationId",
-        "excludeId",
-        "requesterEmail"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_incidents.listeners_count",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_incidents.listeners_count",
       "baselineContract": {
-        "requestContract": "incidentCountRequest",
+        "requestContract": "IncidentCountRequest",
         "method": "GET",
         "pathTemplate": "/api/v1/incidents/{incidentId}/listeners/count",
         "confirmationRequired": false,
@@ -2587,25 +3238,19 @@
         "confirmationRequired": false,
         "description": "Read listeners_count for one incident."
       },
-      "changes": {
-        "requestContract": {
-          "before": "incidentCountRequest",
-          "after": "IncidentCountRequest"
-        }
-      },
+      "changes": {},
       "effect": "read",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "incidentId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_incidents.peek",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_incidents.peek",
       "baselineContract": {
         "requestContract": "IncidentRequest",
         "method": "GET",
@@ -2626,14 +3271,13 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "incidentId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_incidents.state",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_incidents.state",
       "baselineContract": {
         "requestContract": "TicketStateRequest",
         "method": "POST",
@@ -2654,16 +3298,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "incidentId",
-        "newState",
-        "comment"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_incidents.timeline",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_incidents.timeline",
       "baselineContract": {
         "requestContract": "IncidentRequest",
         "method": "GET",
@@ -2676,24 +3317,28 @@
         "method": "GET",
         "pathTemplate": "/api/v1/incidents/{incidentId}/timeline",
         "confirmationRequired": false,
-        "description": "timeline incidents."
+        "description": "Read the authorized timeline. recordedHours is the nullable authoritative effort snapshot and workLogId the associated worklog; null effort is unavailable or not applicable, distinct from measured zero. Legacy hours remains numeric for compatibility."
       },
-      "changes": {},
+      "changes": {
+        "description": {
+          "before": "timeline incidents.",
+          "after": "Read the authorized timeline. recordedHours is the nullable authoritative effort snapshot and workLogId the associated worklog; null effort is unavailable or not applicable, distinct from measured zero. Legacy hours remains numeric for compatibility."
+        }
+      },
       "effect": "read",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "incidentId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_incidents.timeline_count",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_incidents.timeline_count",
       "baselineContract": {
-        "requestContract": "incidentCountRequest",
+        "requestContract": "IncidentCountRequest",
         "method": "GET",
         "pathTemplate": "/api/v1/incidents/{incidentId}/timeline/count",
         "confirmationRequired": false,
@@ -2706,25 +3351,19 @@
         "confirmationRequired": false,
         "description": "Read timeline_count for one incident."
       },
-      "changes": {
-        "requestContract": {
-          "before": "incidentCountRequest",
-          "after": "IncidentCountRequest"
-        }
-      },
+      "changes": {},
       "effect": "read",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "incidentId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_incidents.update",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_incidents.update",
       "baselineContract": {
         "requestContract": "IncidentUpdateRequest",
         "method": "PUT",
@@ -2745,19 +3384,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "incidentId",
-        "state",
-        "priority",
-        "ccRecipients",
-        "assignedToId",
-        "categoryIds"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_logs.search",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_logs.search",
       "baselineContract": {
         "requestContract": "LogSearchRequest",
         "method": "GET",
@@ -2778,18 +3411,13 @@
         "support": "denied_by_policy",
         "reason": "The exact AuthentikAiAgent API authentication scheme is required. Ordinary integration credentials and gateway execution tokens cannot satisfy it, regardless of scoped grants. Explicit external Authentik downstream identity is supported; never switch modes as fallback."
       },
-      "newRequestProperties": [
-        "since",
-        "correlationId",
-        "contains",
-        "level",
-        "limit"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_notifications.get",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_notifications.get",
       "baselineContract": {
         "requestContract": "NotificationRequest",
         "method": "GET",
@@ -2810,14 +3438,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "notificationId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_notifications.list",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_notifications.list",
       "baselineContract": {
         "requestContract": "ListRequest",
         "method": "GET",
@@ -2838,23 +3465,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "page",
-        "pageSize",
-        "search",
-        "source",
-        "category",
-        "sortBy",
-        "sortDir",
-        "severity",
-        "from",
-        "to"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_notifications.mark_read",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_notifications.mark_read",
       "baselineContract": {
         "requestContract": "NotificationMarkReadRequest",
         "method": "POST",
@@ -2875,16 +3492,15 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "ids"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_notifications.summary",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_notifications.summary",
       "baselineContract": {
-        "requestContract": "ListRequest",
+        "requestContract": "None",
         "method": "GET",
         "pathTemplate": "/api/v1/notifications/error-summary",
         "confirmationRequired": false,
@@ -2893,14 +3509,18 @@
       "currentContract": {
         "requestContract": "None",
         "method": "GET",
-        "pathTemplate": "/api/v1/notifications/error-summary",
+        "pathTemplate": "/api/v1/notifications/summary",
         "confirmationRequired": false,
-        "description": "summary operation."
+        "description": "Read total, unread and unread Error/Critical counts for the actor's complete authorized notification population."
       },
       "changes": {
-        "requestContract": {
-          "before": "ListRequest",
-          "after": "None"
+        "description": {
+          "before": "summary operation.",
+          "after": "Read total, unread and unread Error/Critical counts for the actor's complete authorized notification population."
+        },
+        "pathTemplate": {
+          "before": "/api/v1/notifications/error-summary",
+          "after": "/api/v1/notifications/summary"
         }
       },
       "effect": "read",
@@ -2914,6 +3534,7 @@
     {
       "operationKey": "helpdesk_notifications.unread_errors",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_notifications.unread_errors",
       "baselineContract": {
         "requestContract": "ListRequest",
         "method": "GET",
@@ -2934,14 +3555,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "take"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_organizations.change_participants",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_organizations.change_participants",
       "baselineContract": {
         "requestContract": "OrganizationRequest",
         "method": "GET",
@@ -2962,14 +3582,13 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "organizationId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_organizations.get",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_organizations.get",
       "baselineContract": {
         "requestContract": "OrganizationRequest",
         "method": "GET",
@@ -2990,14 +3609,13 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "organizationId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_organizations.list",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_organizations.list",
       "baselineContract": {
         "requestContract": "ListRequest",
         "method": "GET",
@@ -3024,6 +3642,7 @@
     {
       "operationKey": "helpdesk_organizations.tenant_lookup",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_organizations.tenant_lookup",
       "baselineContract": {
         "requestContract": "None",
         "method": "GET",
@@ -3050,6 +3669,7 @@
     {
       "operationKey": "helpdesk_organizations.tenants",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_organizations.tenants",
       "baselineContract": {
         "requestContract": "None",
         "method": "GET",
@@ -3076,6 +3696,7 @@
     {
       "operationKey": "helpdesk_raw.get_change",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_raw.get_change",
       "baselineContract": {
         "requestContract": "AllowlistedReadRequest",
         "method": "GET",
@@ -3096,14 +3717,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "changeId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_raw.get_incident",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_raw.get_incident",
       "baselineContract": {
         "requestContract": "AllowlistedReadRequest",
         "method": "GET",
@@ -3124,14 +3744,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "incidentId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_raw.get_request",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_raw.get_request",
       "baselineContract": {
         "requestContract": "AllowlistedReadRequest",
         "method": "GET",
@@ -3152,16 +3771,15 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "requestId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_raw.system_version",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_raw.system_version",
       "baselineContract": {
-        "requestContract": "AllowlistedReadRequest",
+        "requestContract": "None",
         "method": "GET",
         "pathTemplate": "/api/v1/system/version",
         "confirmationRequired": false,
@@ -3174,12 +3792,7 @@
         "confirmationRequired": false,
         "description": "system_version operation."
       },
-      "changes": {
-        "requestContract": {
-          "before": "AllowlistedReadRequest",
-          "after": "None"
-        }
-      },
+      "changes": {},
       "effect": "read",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
@@ -3191,6 +3804,7 @@
     {
       "operationKey": "helpdesk_request_forms.by_service",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_request_forms.by_service",
       "baselineContract": {
         "requestContract": "RequestFormsByServiceRequest",
         "method": "GET",
@@ -3211,14 +3825,13 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "serviceId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_request_forms.get",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_request_forms.get",
       "baselineContract": {
         "requestContract": "RequestFormRequest",
         "method": "GET",
@@ -3239,14 +3852,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "requestFormId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_request_tasks.bulk_complete",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_request_tasks.bulk_complete",
       "baselineContract": {
         "requestContract": "BulkRequestTaskActionRequest",
         "method": "POST",
@@ -3267,14 +3879,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "ids"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_request_tasks.bulk_retry",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_request_tasks.bulk_retry",
       "baselineContract": {
         "requestContract": "BulkRequestTaskActionRequest",
         "method": "POST",
@@ -3295,14 +3906,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "ids"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_request_tasks.bulk_start",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_request_tasks.bulk_start",
       "baselineContract": {
         "requestContract": "BulkRequestTaskActionRequest",
         "method": "POST",
@@ -3323,14 +3933,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "ids"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_request_tasks.complete",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_request_tasks.complete",
       "baselineContract": {
         "requestContract": "RequestTaskRequest",
         "method": "POST",
@@ -3351,14 +3960,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "taskId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_request_tasks.create",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_request_tasks.create",
       "baselineContract": {
         "requestContract": "RequestTaskCreateRequest",
         "method": "POST",
@@ -3379,22 +3987,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "title",
-        "description",
-        "requestId",
-        "organizationId",
-        "customerId",
-        "priority",
-        "linkedAssetIds",
-        "attachments",
-        "dueDate"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_request_tasks.delete",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_request_tasks.delete",
       "baselineContract": {
         "requestContract": "RequestTaskRequest",
         "method": "DELETE",
@@ -3415,14 +4014,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "taskId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_request_tasks.fail",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_request_tasks.fail",
       "baselineContract": {
         "requestContract": "RequestTaskRequest",
         "method": "POST",
@@ -3443,14 +4041,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "taskId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_request_tasks.get",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_request_tasks.get",
       "baselineContract": {
         "requestContract": "RequestTaskRequest",
         "method": "GET",
@@ -3471,14 +4068,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "taskId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_request_tasks.list",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_request_tasks.list",
       "baselineContract": {
         "requestContract": "ListRequest",
         "method": "GET",
@@ -3491,33 +4087,193 @@
         "method": "GET",
         "pathTemplate": "/api/v1/request-tasks/",
         "confirmationRequired": false,
-        "description": "list operation."
+        "description": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging. Explicit page must be an integer from 1 to 1000000; pageSize from 1 to 100. Omitted pagination retains API behavior."
       },
-      "changes": {},
+      "changes": {
+        "description": {
+          "before": "list operation.",
+          "after": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging. Explicit page must be an integer from 1 to 1000000; pageSize from 1 to 100. Omitted pagination retains API behavior."
+        },
+        "requestSchema": {
+          "before": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "page": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "pageSize": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "query": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 200,
+                "description": "Search sent as API q. query/q aliases accept null or blank as unfiltered; equivalent trimmed values deduplicate; conflicting nonempty values reject. Filtering precedes totals and paging."
+              },
+              "q": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 200,
+                "description": "Search sent as API q. query/q aliases accept null or blank as unfiltered; equivalent trimmed values deduplicate; conflicting nonempty values reject. Filtering precedes totals and paging."
+              },
+              "includeTotal": {
+                "type": "boolean"
+              },
+              "historicOnly": {
+                "type": "boolean"
+              },
+              "assignedToId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "requestId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "serviceId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "assignedToMe": {
+                "type": "boolean"
+              },
+              "status": {
+                "enum": [
+                  "Pending",
+                  "InProgress",
+                  "Completed",
+                  "Failed",
+                  "Skipped",
+                  "PendingApproval",
+                  "Cancelled",
+                  1,
+                  2,
+                  3,
+                  4,
+                  5,
+                  6,
+                  7
+                ]
+              },
+              "type": {
+                "enum": [
+                  "Manual",
+                  "Automation",
+                  "Approval",
+                  1,
+                  2,
+                  3
+                ]
+              }
+            },
+            "required": [],
+            "description": "ListRequest for helpdesk_request_tasks operation list. All operation-specific fields belong inside this request object, never at the tool root."
+          },
+          "after": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "page": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000000
+              },
+              "pageSize": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "query": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 200,
+                "description": "Search sent as API q. query/q aliases accept null or blank as unfiltered; equivalent trimmed values deduplicate; conflicting nonempty values reject. Filtering precedes totals and paging."
+              },
+              "q": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 200,
+                "description": "Search sent as API q. query/q aliases accept null or blank as unfiltered; equivalent trimmed values deduplicate; conflicting nonempty values reject. Filtering precedes totals and paging."
+              },
+              "includeTotal": {
+                "type": "boolean"
+              },
+              "historicOnly": {
+                "type": "boolean"
+              },
+              "assignedToId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "requestId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "serviceId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "assignedToMe": {
+                "type": "boolean"
+              },
+              "status": {
+                "enum": [
+                  "Pending",
+                  "InProgress",
+                  "Completed",
+                  "Failed",
+                  "Skipped",
+                  "PendingApproval",
+                  "Cancelled",
+                  1,
+                  2,
+                  3,
+                  4,
+                  5,
+                  6,
+                  7
+                ]
+              },
+              "type": {
+                "enum": [
+                  "Manual",
+                  "Automation",
+                  "Approval",
+                  1,
+                  2,
+                  3
+                ]
+              }
+            },
+            "required": [],
+            "description": "ListRequest for helpdesk_request_tasks operation list. All operation-specific fields belong inside this request object, never at the tool root."
+          }
+        }
+      },
       "effect": "read",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "page",
-        "pageSize",
-        "query",
-        "q",
-        "includeTotal",
-        "historicOnly",
-        "assignedToId",
-        "requestId",
-        "serviceId",
-        "assignedToMe",
-        "status",
-        "type"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_request_tasks.retry",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_request_tasks.retry",
       "baselineContract": {
         "requestContract": "RequestTaskRequest",
         "method": "POST",
@@ -3538,14 +4294,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "taskId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_request_tasks.start",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_request_tasks.start",
       "baselineContract": {
         "requestContract": "RequestTaskRequest",
         "method": "POST",
@@ -3566,14 +4321,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "taskId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_request_tasks.update",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_request_tasks.update",
       "baselineContract": {
         "requestContract": "RequestTaskUpdateRequest",
         "method": "PATCH",
@@ -3594,23 +4348,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "taskId",
-        "title",
-        "description",
-        "assignedToId",
-        "priority",
-        "linkedAssetIds",
-        "attachments",
-        "dueDate",
-        "clearAssignment",
-        "clearDueDate"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_requests.add_worklog",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_requests.add_worklog",
       "baselineContract": {
         "requestContract": "TicketWorklogRequest",
         "method": "POST",
@@ -3631,19 +4375,15 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "requestId",
-        "hours",
-        "notes",
-        "isInternalNote"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_requests.assign",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_requests.assign",
       "baselineContract": {
-        "requestContract": "TicketOperationRequest",
+        "requestContract": "TicketAssignmentRequest",
         "method": "POST",
         "pathTemplate": "/api/v1/requests/bulk/assign",
         "confirmationRequired": true,
@@ -3656,28 +4396,21 @@
         "confirmationRequired": true,
         "description": "assign operation."
       },
-      "changes": {
-        "requestContract": {
-          "before": "TicketOperationRequest",
-          "after": "TicketAssignmentRequest"
-        }
-      },
+      "changes": {},
       "effect": "write",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "ids",
-        "assignedToId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_requests.assign_self",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_requests.assign_self",
       "baselineContract": {
-        "requestContract": "TicketOperationRequest",
+        "requestContract": "ConfiguredAgentAssignmentRequest",
         "method": "POST",
         "pathTemplate": "/api/v1/requests/bulk/assign",
         "confirmationRequired": true,
@@ -3690,28 +4423,21 @@
         "confirmationRequired": true,
         "description": "assign_self operation."
       },
-      "changes": {
-        "requestContract": {
-          "before": "TicketOperationRequest",
-          "after": "ConfiguredAgentAssignmentRequest"
-        }
-      },
+      "changes": {},
       "effect": "write",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "ids",
-        "agentUserEmail"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_requests.attachments_count",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_requests.attachments_count",
       "baselineContract": {
-        "requestContract": "requestCountRequest",
+        "requestContract": "RequestCountRequest",
         "method": "GET",
         "pathTemplate": "/api/v1/requests/{requestId}/attachments/count",
         "confirmationRequired": false,
@@ -3724,27 +4450,21 @@
         "confirmationRequired": false,
         "description": "Read attachments_count for one request."
       },
-      "changes": {
-        "requestContract": {
-          "before": "requestCountRequest",
-          "after": "RequestCountRequest"
-        }
-      },
+      "changes": {},
       "effect": "read",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "requestId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_requests.bulk_create",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_requests.bulk_create",
       "baselineContract": {
-        "requestContract": "requestBulkCreateRequest",
+        "requestContract": "RequestBulkCreateRequest",
         "method": "POST",
         "pathTemplate": "/api/v1/requests/",
         "confirmationRequired": true,
@@ -3757,27 +4477,21 @@
         "confirmationRequired": true,
         "description": "bulk_create operation."
       },
-      "changes": {
-        "requestContract": {
-          "before": "requestBulkCreateRequest",
-          "after": "RequestBulkCreateRequest"
-        }
-      },
+      "changes": {},
       "effect": "write",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "items"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_requests.bulk_state",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_requests.bulk_state",
       "baselineContract": {
-        "requestContract": "TicketOperationRequest",
+        "requestContract": "BulkTicketStateRequest",
         "method": "POST",
         "pathTemplate": "/api/v1/requests/bulk/state",
         "confirmationRequired": true,
@@ -3790,27 +4504,19 @@
         "confirmationRequired": true,
         "description": "bulk_state operation."
       },
-      "changes": {
-        "requestContract": {
-          "before": "TicketOperationRequest",
-          "after": "BulkTicketStateRequest"
-        }
-      },
+      "changes": {},
       "effect": "write",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "newState",
-        "comment",
-        "ids"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_requests.create",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_requests.create",
       "baselineContract": {
         "requestContract": "RequestCreateRequest",
         "method": "POST",
@@ -3831,29 +4537,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "title",
-        "description",
-        "priority",
-        "customerId",
-        "organizationId",
-        "assignedToId",
-        "linkedAssetIds",
-        "attachments",
-        "dueDate",
-        "category",
-        "categoryIds",
-        "serviceId",
-        "requestFormId",
-        "payloadJson",
-        "requesterEmail",
-        "ccRecipients"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_requests.delete",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_requests.delete",
       "baselineContract": {
         "requestContract": "RequestRequest",
         "method": "DELETE",
@@ -3874,14 +4564,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "requestId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_requests.get",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_requests.get",
       "baselineContract": {
         "requestContract": "RequestRequest",
         "method": "GET",
@@ -3902,36 +4591,494 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "requestId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_requests.list",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_requests.list",
       "baselineContract": {
-        "requestContract": "TicketOperationRequest",
-        "method": "GET",
-        "pathTemplate": "/api/v1/requests/",
-        "confirmationRequired": false,
-        "description": "list operation."
-      },
-      "currentContract": {
         "requestContract": "ListRequest",
         "method": "GET",
         "pathTemplate": "/api/v1/requests/",
         "confirmationRequired": false,
         "description": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging."
       },
+      "currentContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/requests/",
+        "confirmationRequired": false,
+        "description": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging. Explicit page must be an integer from 1 to 1000000; pageSize from 1 to 100. Omitted pagination retains API behavior."
+      },
       "changes": {
-        "requestContract": {
-          "before": "TicketOperationRequest",
-          "after": "ListRequest"
-        },
         "description": {
-          "before": "list operation.",
-          "after": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging."
+          "before": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging.",
+          "after": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging. Explicit page must be an integer from 1 to 1000000; pageSize from 1 to 100. Omitted pagination retains API behavior."
+        },
+        "requestSchema": {
+          "before": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "page": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "pageSize": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "query": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 200,
+                "description": "Search sent as API q. query/q aliases accept null or blank as unfiltered; equivalent trimmed values deduplicate; conflicting nonempty values reject. Filtering precedes totals and paging."
+              },
+              "q": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 200,
+                "description": "Search sent as API q. query/q aliases accept null or blank as unfiltered; equivalent trimmed values deduplicate; conflicting nonempty values reject. Filtering precedes totals and paging."
+              },
+              "includeTotal": {
+                "type": "boolean"
+              },
+              "historicOnly": {
+                "type": "boolean"
+              },
+              "activeOnly": {
+                "type": "boolean"
+              },
+              "summaryOnly": {
+                "type": "boolean"
+              },
+              "unassigned": {
+                "type": "boolean"
+              },
+              "descending": {
+                "type": "boolean"
+              },
+              "state": {
+                "enum": [
+                  "New",
+                  "WaitingReply",
+                  "Replied",
+                  "InProgress",
+                  "PendingApproval",
+                  "OnHold",
+                  "Resolved",
+                  0,
+                  1,
+                  2,
+                  3,
+                  4,
+                  5,
+                  6
+                ]
+              },
+              "view": {
+                "type": "string",
+                "enum": [
+                  "all",
+                  "active",
+                  "historic"
+                ]
+              },
+              "customerOrgId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                ]
+              },
+              "forId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                ]
+              },
+              "assigneeId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                ]
+              },
+              "stateValues": {
+                "oneOf": [
+                  {
+                    "enum": [
+                      "New",
+                      "WaitingReply",
+                      "Replied",
+                      "InProgress",
+                      "PendingApproval",
+                      "OnHold",
+                      "Resolved",
+                      0,
+                      1,
+                      2,
+                      3,
+                      4,
+                      5,
+                      6
+                    ]
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "enum": [
+                        "New",
+                        "WaitingReply",
+                        "Replied",
+                        "InProgress",
+                        "PendingApproval",
+                        "OnHold",
+                        "Resolved",
+                        0,
+                        1,
+                        2,
+                        3,
+                        4,
+                        5,
+                        6
+                      ]
+                    }
+                  }
+                ]
+              },
+              "priority": {
+                "oneOf": [
+                  {
+                    "enum": [
+                      "Low",
+                      "Medium",
+                      "High",
+                      "Critical",
+                      0,
+                      1,
+                      2,
+                      3
+                    ]
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "enum": [
+                        "Low",
+                        "Medium",
+                        "High",
+                        "Critical",
+                        0,
+                        1,
+                        2,
+                        3
+                      ]
+                    }
+                  }
+                ]
+              },
+              "timeField": {
+                "type": "string",
+                "enum": [
+                  "updated",
+                  "created"
+                ]
+              },
+              "sort": {
+                "type": "string",
+                "enum": [
+                  "updated",
+                  "created",
+                  "trackingId",
+                  "subject",
+                  "priority",
+                  "state"
+                ]
+              },
+              "from": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "to": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "aiOnly": {
+                "type": "boolean"
+              }
+            },
+            "required": [],
+            "description": "ListRequest for helpdesk_requests operation list. All operation-specific fields belong inside this request object, never at the tool root."
+          },
+          "after": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "page": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000000
+              },
+              "pageSize": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "query": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 200,
+                "description": "Search sent as API q. query/q aliases accept null or blank as unfiltered; equivalent trimmed values deduplicate; conflicting nonempty values reject. Filtering precedes totals and paging."
+              },
+              "q": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 200,
+                "description": "Search sent as API q. query/q aliases accept null or blank as unfiltered; equivalent trimmed values deduplicate; conflicting nonempty values reject. Filtering precedes totals and paging."
+              },
+              "includeTotal": {
+                "type": "boolean"
+              },
+              "historicOnly": {
+                "type": "boolean"
+              },
+              "activeOnly": {
+                "type": "boolean"
+              },
+              "summaryOnly": {
+                "type": "boolean"
+              },
+              "unassigned": {
+                "type": "boolean"
+              },
+              "descending": {
+                "type": "boolean"
+              },
+              "state": {
+                "enum": [
+                  "New",
+                  "WaitingReply",
+                  "Replied",
+                  "InProgress",
+                  "PendingApproval",
+                  "OnHold",
+                  "Resolved",
+                  0,
+                  1,
+                  2,
+                  3,
+                  4,
+                  5,
+                  6
+                ]
+              },
+              "view": {
+                "type": "string",
+                "enum": [
+                  "all",
+                  "active",
+                  "historic"
+                ]
+              },
+              "customerOrgId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                ]
+              },
+              "forId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                ]
+              },
+              "assigneeId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                ]
+              },
+              "stateValues": {
+                "oneOf": [
+                  {
+                    "enum": [
+                      "New",
+                      "WaitingReply",
+                      "Replied",
+                      "InProgress",
+                      "PendingApproval",
+                      "OnHold",
+                      "Resolved",
+                      0,
+                      1,
+                      2,
+                      3,
+                      4,
+                      5,
+                      6
+                    ]
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "enum": [
+                        "New",
+                        "WaitingReply",
+                        "Replied",
+                        "InProgress",
+                        "PendingApproval",
+                        "OnHold",
+                        "Resolved",
+                        0,
+                        1,
+                        2,
+                        3,
+                        4,
+                        5,
+                        6
+                      ]
+                    }
+                  }
+                ]
+              },
+              "priority": {
+                "oneOf": [
+                  {
+                    "enum": [
+                      "Low",
+                      "Medium",
+                      "High",
+                      "Critical",
+                      0,
+                      1,
+                      2,
+                      3
+                    ]
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "enum": [
+                        "Low",
+                        "Medium",
+                        "High",
+                        "Critical",
+                        0,
+                        1,
+                        2,
+                        3
+                      ]
+                    }
+                  }
+                ]
+              },
+              "timeField": {
+                "type": "string",
+                "enum": [
+                  "updated",
+                  "created"
+                ]
+              },
+              "sort": {
+                "type": "string",
+                "enum": [
+                  "updated",
+                  "created",
+                  "trackingId",
+                  "subject",
+                  "priority",
+                  "state"
+                ]
+              },
+              "from": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "to": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "aiOnly": {
+                "type": "boolean"
+              }
+            },
+            "required": [],
+            "description": "ListRequest for helpdesk_requests operation list. All operation-specific fields belong inside this request object, never at the tool root."
+          }
         }
       },
       "effect": "read",
@@ -3939,37 +5086,15 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "page",
-        "pageSize",
-        "query",
-        "q",
-        "includeTotal",
-        "historicOnly",
-        "activeOnly",
-        "summaryOnly",
-        "unassigned",
-        "descending",
-        "state",
-        "view",
-        "customerOrgId",
-        "forId",
-        "assigneeId",
-        "stateValues",
-        "priority",
-        "timeField",
-        "sort",
-        "from",
-        "to",
-        "aiOnly"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_requests.listeners_count",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_requests.listeners_count",
       "baselineContract": {
-        "requestContract": "requestCountRequest",
+        "requestContract": "RequestCountRequest",
         "method": "GET",
         "pathTemplate": "/api/v1/requests/{requestId}/listeners/count",
         "confirmationRequired": false,
@@ -3982,25 +5107,19 @@
         "confirmationRequired": false,
         "description": "Read listeners_count for one request."
       },
-      "changes": {
-        "requestContract": {
-          "before": "requestCountRequest",
-          "after": "RequestCountRequest"
-        }
-      },
+      "changes": {},
       "effect": "read",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "requestId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_requests.state",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_requests.state",
       "baselineContract": {
         "requestContract": "TicketStateRequest",
         "method": "POST",
@@ -4021,16 +5140,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "requestId",
-        "newState",
-        "comment"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_requests.tasks",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_requests.tasks",
       "baselineContract": {
         "requestContract": "RequestRequest",
         "method": "GET",
@@ -4051,14 +5167,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "requestId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_requests.timeline",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_requests.timeline",
       "baselineContract": {
         "requestContract": "RequestRequest",
         "method": "GET",
@@ -4071,24 +5186,28 @@
         "method": "GET",
         "pathTemplate": "/api/v1/requests/{requestId}/timeline",
         "confirmationRequired": false,
-        "description": "timeline requests."
+        "description": "Read the authorized timeline. recordedHours is the nullable authoritative effort snapshot and workLogId the associated worklog; null effort is unavailable or not applicable, distinct from measured zero. Legacy hours remains numeric for compatibility."
       },
-      "changes": {},
+      "changes": {
+        "description": {
+          "before": "timeline requests.",
+          "after": "Read the authorized timeline. recordedHours is the nullable authoritative effort snapshot and workLogId the associated worklog; null effort is unavailable or not applicable, distinct from measured zero. Legacy hours remains numeric for compatibility."
+        }
+      },
       "effect": "read",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "requestId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_requests.timeline_count",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_requests.timeline_count",
       "baselineContract": {
-        "requestContract": "requestCountRequest",
+        "requestContract": "RequestCountRequest",
         "method": "GET",
         "pathTemplate": "/api/v1/requests/{requestId}/timeline/count",
         "confirmationRequired": false,
@@ -4101,25 +5220,19 @@
         "confirmationRequired": false,
         "description": "Read timeline_count for one request."
       },
-      "changes": {
-        "requestContract": {
-          "before": "requestCountRequest",
-          "after": "RequestCountRequest"
-        }
-      },
+      "changes": {},
       "effect": "read",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "requestId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_requests.update",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_requests.update",
       "baselineContract": {
         "requestContract": "RequestUpdateRequest",
         "method": "PUT",
@@ -4140,17 +5253,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "requestId",
-        "state",
-        "priority",
-        "categoryIds"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_roles.get",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_roles.get",
       "baselineContract": {
         "requestContract": "RoleRequest",
         "method": "GET",
@@ -4171,14 +5280,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "roleId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_roles.list",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_roles.list",
       "baselineContract": {
         "requestContract": "ListRequest",
         "method": "GET",
@@ -4205,6 +5313,7 @@
     {
       "operationKey": "helpdesk_schema.list",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_schema.list",
       "baselineContract": {
         "requestContract": "None",
         "method": "LOCAL",
@@ -4231,6 +5340,7 @@
     {
       "operationKey": "helpdesk_search.customers",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_search.customers",
       "baselineContract": {
         "requestContract": "SearchRequest",
         "method": "GET",
@@ -4251,17 +5361,13 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "query",
-        "q",
-        "limit",
-        "pageSize"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_search.organizations",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_search.organizations",
       "baselineContract": {
         "requestContract": "SearchRequest",
         "method": "GET",
@@ -4282,17 +5388,13 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "query",
-        "q",
-        "limit",
-        "pageSize"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_search.users",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_search.users",
       "baselineContract": {
         "requestContract": "SearchRequest",
         "method": "GET",
@@ -4313,17 +5415,13 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "query",
-        "q",
-        "limit",
-        "pageSize"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_self_service.get_request",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_self_service.get_request",
       "baselineContract": {
         "requestContract": "RequestRequest",
         "method": "GET",
@@ -4344,14 +5442,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "requestId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_self_service.request_users",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_self_service.request_users",
       "baselineContract": {
         "requestContract": "ListRequest",
         "method": "GET",
@@ -4372,15 +5469,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "pageSize",
-        "query"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_self_service.requests",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_self_service.requests",
       "baselineContract": {
         "requestContract": "ListRequest",
         "method": "GET",
@@ -4401,16 +5496,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "page",
-        "pageSize",
-        "q"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_services.breadcrumb",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_services.breadcrumb",
       "baselineContract": {
         "requestContract": "ServiceRequest",
         "method": "GET",
@@ -4431,14 +5523,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "serviceId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_services.get",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_services.get",
       "baselineContract": {
         "requestContract": "ServiceRequest",
         "method": "GET",
@@ -4459,14 +5550,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "serviceId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_services.items",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_services.items",
       "baselineContract": {
         "requestContract": "ServiceRequest",
         "method": "GET",
@@ -4487,14 +5577,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "serviceId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_services.list",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_services.list",
       "baselineContract": {
         "requestContract": "ListRequest",
         "method": "GET",
@@ -4521,6 +5610,7 @@
     {
       "operationKey": "helpdesk_services.search_items",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_services.search_items",
       "baselineContract": {
         "requestContract": "SearchRequest",
         "method": "GET",
@@ -4541,17 +5631,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "query",
-        "q",
-        "pageSize",
-        "includeTotal"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_system.version",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_system.version",
       "baselineContract": {
         "requestContract": "None",
         "method": "GET",
@@ -4578,6 +5664,7 @@
     {
       "operationKey": "helpdesk_tickets.attachments_count",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_tickets.attachments_count",
       "baselineContract": {
         "requestContract": "TicketCountRequest",
         "method": "GET",
@@ -4598,15 +5685,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "ticketType",
-        "ticketId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_tickets.listeners_count",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_tickets.listeners_count",
       "baselineContract": {
         "requestContract": "TicketCountRequest",
         "method": "GET",
@@ -4627,17 +5712,15 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "ticketType",
-        "ticketId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_tickets.mark_as_seen",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_tickets.mark_as_seen",
       "baselineContract": {
-        "requestContract": "TicketMutationRequest",
+        "requestContract": "TicketSeenRequest",
         "method": "POST",
         "pathTemplate": "/api/v1/tickets/{ticketId}/mark-as-seen",
         "confirmationRequired": true,
@@ -4650,25 +5733,19 @@
         "confirmationRequired": true,
         "description": "mark_as_seen operation."
       },
-      "changes": {
-        "requestContract": {
-          "before": "TicketMutationRequest",
-          "after": "TicketSeenRequest"
-        }
-      },
+      "changes": {},
       "effect": "write",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "ticketId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_tickets.timeline_count",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_tickets.timeline_count",
       "baselineContract": {
         "requestContract": "TicketCountRequest",
         "method": "GET",
@@ -4689,15 +5766,13 @@
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
-      "newRequestProperties": [
-        "ticketType",
-        "ticketId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_users.by_email",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_users.by_email",
       "baselineContract": {
         "requestContract": "UserEmailRequest",
         "method": "GET",
@@ -4718,14 +5793,13 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "email"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_users.get",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_users.get",
       "baselineContract": {
         "requestContract": "UserRequest",
         "method": "GET",
@@ -4746,14 +5820,13 @@
         "support": "denied_by_policy",
         "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
       },
-      "newRequestProperties": [
-        "userId"
-      ],
+      "newRequestProperties": [],
       "campaignOutcome": "requires_fresh_owner_evidence"
     },
     {
       "operationKey": "helpdesk_users.list",
       "catalogStatus": "retained",
+      "originalBeta3OperationKey": "helpdesk_users.list",
       "baselineContract": {
         "requestContract": "ListRequest",
         "method": "GET",

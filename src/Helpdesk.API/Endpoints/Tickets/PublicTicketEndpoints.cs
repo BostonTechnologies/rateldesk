@@ -133,7 +133,10 @@ public static class PublicTicketEndpoints
             CreatedByUserName = t.EventType == TimelineEventType.CustomerReply ? "Customer" : "Helpdesk",
             EventType = t.EventType,
             MessageHtml = t.MessageHtml,
-            MessageText = t.MessageText
+            MessageText = t.MessageText,
+            Hours = t.Hours ?? 0,
+            RecordedHours = t.Hours,
+            WorkLogId = t.WorkLogId
         });
 
 
@@ -151,6 +154,8 @@ public static class PublicTicketEndpoints
             MessageHtml = x.WorkLog.NotesHtml,
             MessageText = x.WorkLog.NotesText,
             Hours = x.WorkLog.Hours,
+            RecordedHours = x.WorkLog.Hours,
+            WorkLogId = x.WorkLog.Id,
             TechnicianName = x.TechnicianName
         });
 

@@ -276,21 +276,9 @@ public static class WorkLogEndpoints
 
     private static TicketTimelineEventDto ToDto(TicketTimelineEvent evt, IImageLinkSigner signer, string? publicApiBaseUrl)
     {
-        return new TicketTimelineEventDto
-        {
-            Id = evt.Id,
-            TicketId = evt.TicketId,
-            CreatedUtc = evt.CreatedUtc,
-            CreatedByUserId = evt.CreatedByUserId,
-            CreatedByUserName = evt.CreatedByUserName,
-            EventType = evt.EventType,
-            MessageHtml = IncidentInlineImageLinks.Refresh(evt.MessageHtml, evt.TicketId, signer, publicApiBaseUrl),
-            MessageText = evt.MessageText,
-            EmailStatus = evt.EmailStatus,
-            EmailRecipient = evt.EmailRecipient,
-            RetryCount = evt.RetryCount,
-            IsRetryable = evt.IsRetryable
-        };
+        var dto = TicketTimelineProjection.ToDto(evt);
+        dto.MessageHtml = IncidentInlineImageLinks.Refresh(evt.MessageHtml, evt.TicketId, signer, publicApiBaseUrl);
+        return dto;
     }
 
     private static bool CanReadInternalNotes(CurrentUserAccessProfile access, string? organizationId) =>

@@ -66,6 +66,10 @@ internal static partial class HelpdeskCli
         command.AddCommand(BuildTicketWorklogsCommand(runtime, globals, name, basePath));
         command.AddCommand(BodyCommand(runtime, globals, "add-worklog", HttpMethod.Post, basePath + "/{id}/worklogs", ("--hours", "hours"), ("--notes", "notes"), ("--is-internal-note", "isInternalNote")));
         command.AddCommand(BuildTicketTimelineCommand(runtime, globals, name, basePath));
+        if (name == "requests")
+        {
+            command.AddCommand(GetProjectedByIdCommand(runtime, globals, "ticket-timeline", basePath + "/{id}/timeline", "timeline"));
+        }
         return command;
     }
 

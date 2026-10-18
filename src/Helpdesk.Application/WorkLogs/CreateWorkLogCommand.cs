@@ -109,26 +109,14 @@ public class CreateWorkLogCommandHandler(
             CreatedByUserName = ResolveEventCreatedByUserName(request),
             EventType = request.IsInternalNote ? TimelineEventType.InternalNote : request.EventType,
             MessageHtml = htmlWithStoredImages,
-            MessageText = plainText
+            MessageText = plainText,
+            WorkLogId = log.Id,
+            Hours = log.Hours
         };
         await timelineEvents.CreateAsync(timelineEvent);
-        await timelineEventBus.PublishAsync(new TicketTimelineEventDto
-        {
-            Id = timelineEvent.Id,
-            TicketId = timelineEvent.TicketId,
-            CreatedUtc = timelineEvent.CreatedUtc,
-            CreatedByUserId = timelineEvent.CreatedByUserId,
-            CreatedByUserName = timelineEvent.CreatedByUserName,
-            EventType = timelineEvent.EventType,
-            MessageHtml = timelineEvent.MessageHtml,
-            MessageText = timelineEvent.MessageText,
-            Hours = log.Hours,
-            TechnicianName = request.TechnicianName,
-            EmailStatus = timelineEvent.EmailStatus,
-            EmailRecipient = timelineEvent.EmailRecipient,
-            RetryCount = timelineEvent.RetryCount,
-            IsRetryable = timelineEvent.IsRetryable
-        });
+        var timelineDto = TicketTimelineProjection.ToDto(timelineEvent);
+        timelineDto.TechnicianName = request.TechnicianName;
+        await timelineEventBus.PublishAsync(timelineDto);
 
         var ticketDetails = request.AuthorizedTicket ?? await ticketRepo.GetAsync(request.TicketId);
         var incident = request.AuthorizedTicket as Incident;

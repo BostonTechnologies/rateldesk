@@ -162,7 +162,10 @@ public static class RequestTaskEndpoints
             var taskRows = await query
                 .OrderBy(x => x.Task.Status == RequestTaskStatus.InProgress ? 0 : 1)
                 .ThenByDescending(x => x.Task.CreatedAt)
-                .Skip((effectivePage - 1) * effectivePageSize)
+                .ThenBy(x => x.Task.Id)
+                // Preserve the direct API's page normalization without allowing a
+                // large positive page to wrap around into an earlier page.
+                .Skip((int)Math.Min((long)(effectivePage - 1) * effectivePageSize, int.MaxValue))
                 .Take(effectivePageSize)
                 .ToListAsync(token);
 

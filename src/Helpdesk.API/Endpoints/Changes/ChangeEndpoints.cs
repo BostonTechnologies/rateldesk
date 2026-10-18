@@ -1518,21 +1518,7 @@ public static class ChangeEndpoints
         }
     }
 
-    private static TicketTimelineEventDto ToTimelineDto(TicketTimelineEvent evt) => new()
-    {
-        Id = evt.Id,
-        TicketId = evt.TicketId,
-        CreatedUtc = evt.CreatedUtc,
-        CreatedByUserId = evt.CreatedByUserId,
-        CreatedByUserName = evt.CreatedByUserName,
-        EventType = evt.EventType,
-        MessageHtml = evt.MessageHtml,
-        MessageText = evt.MessageText,
-        EmailStatus = evt.EmailStatus,
-        EmailRecipient = evt.EmailRecipient,
-        RetryCount = evt.RetryCount,
-        IsRetryable = evt.IsRetryable
-    };
+    private static TicketTimelineEventDto ToTimelineDto(TicketTimelineEvent evt) => TicketTimelineProjection.ToDto(evt);
 
     private static async Task<ChangeAuthorization> AuthorizeChangeAsync(
         string changeId,

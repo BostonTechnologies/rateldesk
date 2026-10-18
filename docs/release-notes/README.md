@@ -1,5 +1,14 @@
 # Release notes
 
+## 0.1.2-beta.5
+
+[MCP campaign repairs](0.1.2-beta.5.md) correct general notification summaries,
+validate MCP pagination at the adapter boundary and preserve new worklog effort
+through timeline refresh. See the
+[regression and campaign handoff](../implementation/0.1.2-beta.5-mcp-regressions.md).
+Verified public distribution is tracked by #221; deployed acceptance stays in
+#219. See each receipt for its actual version/source and outcome.
+
 ## 0.1.2-beta.4 candidate
 
 [MCP campaign corrections](0.1.2-beta.4.md) address persistence/response safety,

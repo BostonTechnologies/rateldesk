@@ -1,7 +1,7 @@
 {
-  "schemaHash": "6f040767ead3968f8e0178d2fabf9d58ebde6e00ba5a7ee92987f88206c91528",
-  "catalogRevision": "2026-10-17.mcp-executable-contracts-v20",
-  "catalogHash": "dbf97fd8e4fb69bbee2843a5586a8820a6c0f77578ac9b978ac54484614a5f7f",
+  "schemaHash": "2f54b8dbecfdf9d2e64558c1a850f93bc53c7a9163fc18a5042bbab189491e03",
+  "catalogRevision": "2026-10-18.mcp-campaign-repairs-v21",
+  "catalogHash": "6d26bcead8f63a3f596d061b4284a0dbc356782240d9e5209c806dfba1e80ffe",
   "operationCount": 154,
   "operations": [
     {
@@ -531,7 +531,7 @@
       "readOnly": true,
       "confirmationRequired": false,
       "previewSupported": false,
-      "description": "timeline incidents.",
+      "description": "Read the authorized timeline. recordedHours is the nullable authoritative effort snapshot and workLogId the associated worklog; null effort is unavailable or not applicable, distinct from measured zero. Legacy hours remains numeric for compatibility.",
       "transports": [
         "stdio",
         "http"
@@ -1694,7 +1694,7 @@
       "readOnly": true,
       "confirmationRequired": false,
       "previewSupported": false,
-      "description": "timeline requests.",
+      "description": "Read the authorized timeline. recordedHours is the nullable authoritative effort snapshot and workLogId the associated worklog; null effort is unavailable or not applicable, distinct from measured zero. Legacy hours remains numeric for compatibility.",
       "transports": [
         "stdio",
         "http"
@@ -2405,7 +2405,7 @@
       "readOnly": true,
       "confirmationRequired": false,
       "previewSupported": false,
-      "description": "timeline changes.",
+      "description": "Read the authorized timeline. recordedHours is the nullable authoritative effort snapshot and workLogId the associated worklog; null effort is unavailable or not applicable, distinct from measured zero. Legacy hours remains numeric for compatibility.",
       "transports": [
         "stdio",
         "http"
@@ -4288,7 +4288,7 @@
       "readOnly": true,
       "confirmationRequired": false,
       "previewSupported": false,
-      "description": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging.",
+      "description": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging. Explicit page must be an integer from 1 to 1000000; pageSize from 1 to 100. Omitted pagination retains API behavior.",
       "transports": [
         "stdio",
         "http"
@@ -4317,7 +4317,8 @@
         "properties": {
           "page": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "maximum": 1000000
           },
           "pageSize": {
             "type": "integer",
@@ -4561,7 +4562,7 @@
       "readOnly": true,
       "confirmationRequired": false,
       "previewSupported": false,
-      "description": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging.",
+      "description": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging. Explicit page must be an integer from 1 to 1000000; pageSize from 1 to 100. Omitted pagination retains API behavior.",
       "transports": [
         "stdio",
         "http"
@@ -4590,7 +4591,8 @@
         "properties": {
           "page": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "maximum": 1000000
           },
           "pageSize": {
             "type": "integer",
@@ -5182,7 +5184,7 @@
       "readOnly": true,
       "confirmationRequired": false,
       "previewSupported": false,
-      "description": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging.",
+      "description": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging. Explicit page must be an integer from 1 to 1000000; pageSize from 1 to 100. Omitted pagination retains API behavior.",
       "transports": [
         "stdio",
         "http"
@@ -5211,7 +5213,8 @@
         "properties": {
           "page": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "maximum": 1000000
           },
           "pageSize": {
             "type": "integer",
@@ -6102,7 +6105,7 @@
       "readOnly": true,
       "confirmationRequired": false,
       "previewSupported": false,
-      "description": "list operation.",
+      "description": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging. Explicit page must be an integer from 1 to 1000000; pageSize from 1 to 100. Omitted pagination retains API behavior.",
       "transports": [
         "stdio",
         "http"
@@ -6131,7 +6134,8 @@
         "properties": {
           "page": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "maximum": 1000000
           },
           "pageSize": {
             "type": "integer",
@@ -8494,12 +8498,12 @@
       "operation": "summary",
       "requestContract": "None",
       "method": "GET",
-      "pathTemplate": "/api/v1/notifications/error-summary",
+      "pathTemplate": "/api/v1/notifications/summary",
       "effect": "read",
       "readOnly": true,
       "confirmationRequired": false,
       "previewSupported": false,
-      "description": "summary operation.",
+      "description": "Read total, unread and unread Error/Critical counts for the actor\u0027s complete authorized notification population.",
       "transports": [
         "stdio",
         "http"
@@ -18137,7 +18141,7 @@
             "properties": {
               "operation": {
                 "const": "timeline",
-                "description": "timeline changes. Select this operation in the outer operation field."
+                "description": "Read the authorized timeline. recordedHours is the nullable authoritative effort snapshot and workLogId the associated worklog; null effort is unavailable or not applicable, distinct from measured zero. Legacy hours remains numeric for compatibility. Select this operation in the outer operation field."
               },
               "confirm": {
                 "type": "boolean",
@@ -19353,7 +19357,7 @@
             "properties": {
               "operation": {
                 "const": "list",
-                "description": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging. Select this operation in the outer operation field."
+                "description": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging. Explicit page must be an integer from 1 to 1000000; pageSize from 1 to 100. Omitted pagination retains API behavior. Select this operation in the outer operation field."
               },
               "confirm": {
                 "type": "boolean",
@@ -19366,7 +19370,8 @@
                 "properties": {
                   "page": {
                     "type": "integer",
-                    "minimum": 1
+                    "minimum": 1,
+                    "maximum": 1000000
                   },
                   "pageSize": {
                     "type": "integer",
@@ -20794,7 +20799,7 @@
             "properties": {
               "operation": {
                 "const": "timeline",
-                "description": "timeline incidents. Select this operation in the outer operation field."
+                "description": "Read the authorized timeline. recordedHours is the nullable authoritative effort snapshot and workLogId the associated worklog; null effort is unavailable or not applicable, distinct from measured zero. Legacy hours remains numeric for compatibility. Select this operation in the outer operation field."
               },
               "confirm": {
                 "type": "boolean",
@@ -21583,7 +21588,7 @@
             "properties": {
               "operation": {
                 "const": "list",
-                "description": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging. Select this operation in the outer operation field."
+                "description": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging. Explicit page must be an integer from 1 to 1000000; pageSize from 1 to 100. Omitted pagination retains API behavior. Select this operation in the outer operation field."
               },
               "confirm": {
                 "type": "boolean",
@@ -21596,7 +21601,8 @@
                 "properties": {
                   "page": {
                     "type": "integer",
-                    "minimum": 1
+                    "minimum": 1,
+                    "maximum": 1000000
                   },
                   "pageSize": {
                     "type": "integer",
@@ -22046,7 +22052,7 @@
             "properties": {
               "operation": {
                 "const": "summary",
-                "description": "summary operation. Select this operation in the outer operation field."
+                "description": "Read total, unread and unread Error/Critical counts for the actor\u0027s complete authorized notification population. Select this operation in the outer operation field."
               },
               "confirm": {
                 "type": "boolean",
@@ -22484,7 +22490,7 @@
             "properties": {
               "operation": {
                 "const": "list",
-                "description": "list operation. Select this operation in the outer operation field."
+                "description": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging. Explicit page must be an integer from 1 to 1000000; pageSize from 1 to 100. Omitted pagination retains API behavior. Select this operation in the outer operation field."
               },
               "confirm": {
                 "type": "boolean",
@@ -22497,7 +22503,8 @@
                 "properties": {
                   "page": {
                     "type": "integer",
-                    "minimum": 1
+                    "minimum": 1,
+                    "maximum": 1000000
                   },
                   "pageSize": {
                     "type": "integer",
@@ -23226,7 +23233,7 @@
             "properties": {
               "operation": {
                 "const": "timeline",
-                "description": "timeline requests. Select this operation in the outer operation field."
+                "description": "Read the authorized timeline. recordedHours is the nullable authoritative effort snapshot and workLogId the associated worklog; null effort is unavailable or not applicable, distinct from measured zero. Legacy hours remains numeric for compatibility. Select this operation in the outer operation field."
               },
               "confirm": {
                 "type": "boolean",
@@ -23700,7 +23707,7 @@
             "properties": {
               "operation": {
                 "const": "list",
-                "description": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging. Select this operation in the outer operation field."
+                "description": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging. Explicit page must be an integer from 1 to 1000000; pageSize from 1 to 100. Omitted pagination retains API behavior. Select this operation in the outer operation field."
               },
               "confirm": {
                 "type": "boolean",
@@ -23713,7 +23720,8 @@
                 "properties": {
                   "page": {
                     "type": "integer",
-                    "minimum": 1
+                    "minimum": 1,
+                    "maximum": 1000000
                   },
                   "pageSize": {
                     "type": "integer",
