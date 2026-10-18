@@ -123,14 +123,17 @@ public sealed partial class TimelineEffortPersistenceTests
         Assert.Equal(ascendingNoteIds.Reverse().ToArray(), descendingNoteIds);
         foreach (var (id, hours, internalNote, actor) in expected)
         {
+            var noteType = internalNote ? TimelineEventType.InternalNote : TimelineEventType.Worklog;
             var live = Assert.Single(liveNotes, evt => Field(JsonSerializer.SerializeToElement(evt, JsonOptions), "workLogId").GetString() == id);
             Assert.Equal(hours, live.Hours);
             Assert.Equal(hours, Field(JsonSerializer.SerializeToElement(live, JsonOptions), "recordedHours").GetDouble());
             Assert.Equal(actor, live.CreatedByUserId);
-            Assert.Equal(internalNote ? TimelineEventType.InternalNote : TimelineEventType.Worklog, live.EventType);
+            Assert.Equal(noteType, live.EventType);
             foreach (var timeline in new[] { firstGet, reopened })
             {
-                var item = Assert.Single(timeline.EnumerateArray(), evt => Field(evt, "workLogId").ValueKind == JsonValueKind.String && Field(evt, "workLogId").GetString() == id);
+                var item = Assert.Single(timeline.EnumerateArray(), evt =>
+                    evt.GetProperty("eventType").GetInt32() == (int)noteType &&
+                    Field(evt, "workLogId").ValueKind == JsonValueKind.String && Field(evt, "workLogId").GetString() == id);
                 Assert.Equal(live.Id, item.GetProperty("id").GetGuid());
                 Assert.Equal(hours, item.GetProperty("hours").GetDouble());
                 Assert.Equal(hours, Field(item, "recordedHours").GetDouble());
@@ -151,10 +154,25 @@ public sealed partial class TimelineEffortPersistenceTests
         });
         Assert.Equal(2, harness.Email.ReceivedCalls().Count());
         await harness.Notifications.Received(2).NotifyUserAsync("customer-own", "ticket-updated", "ticket-effort");
-        foreach (var delivery in reopened.EnumerateArray().Where(item => item.GetProperty("eventType").GetInt32() == (int)TimelineEventType.EmailDelivery))
+        var firstDeliveries = firstGet.EnumerateArray()
+            .Where(item => item.GetProperty("eventType").GetInt32() == (int)TimelineEventType.EmailDelivery).ToArray();
+        var reopenedDeliveries = reopened.EnumerateArray()
+            .Where(item => item.GetProperty("eventType").GetInt32() == (int)TimelineEventType.EmailDelivery).ToArray();
+        Assert.Equal(2, firstDeliveries.Length);
+        Assert.Equal(2, reopenedDeliveries.Length);
+        Assert.Distinct(firstDeliveries.Select(item => item.GetProperty("id").GetGuid()));
+        var internalWorklogId = Assert.Single(expected, item => item.Internal).Id;
+        Assert.DoesNotContain(firstDeliveries.Concat(reopenedDeliveries), item => Field(item, "workLogId").GetString() == internalWorklogId);
+        foreach (var publicNote in expected.Where(item => !item.Internal))
         {
-            Assert.Equal(JsonValueKind.Null, Field(delivery, "recordedHours").ValueKind);
-            Assert.Equal(JsonValueKind.Null, Field(delivery, "workLogId").ValueKind);
+            var firstDelivery = Assert.Single(firstDeliveries, item => Field(item, "workLogId").GetString() == publicNote.Id);
+            var reopenedDelivery = Assert.Single(reopenedDeliveries, item => Field(item, "workLogId").GetString() == publicNote.Id);
+            Assert.Equal(firstDelivery.GetProperty("id").GetGuid(), reopenedDelivery.GetProperty("id").GetGuid());
+            foreach (var delivery in new[] { firstDelivery, reopenedDelivery })
+            {
+                Assert.Equal(JsonValueKind.Null, Field(delivery, "recordedHours").ValueKind);
+                Assert.Equal(0, delivery.GetProperty("hours").GetDouble());
+            }
         }
     }
 
