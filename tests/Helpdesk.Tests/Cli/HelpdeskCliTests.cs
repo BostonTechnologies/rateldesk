@@ -430,7 +430,7 @@ public sealed class HelpdeskCliTests
         }, output);
 
         Assert.Equal(CliExitCodes.Success, code);
-        Assert.Equal("https://api.example/api/v1/notifications/error-summary", calls.Single().RequestUri!.ToString());
+        Assert.Equal("https://api.example/api/v1/notifications/summary", calls.Single().RequestUri!.ToString());
 
         calls.Clear();
         output.GetStringBuilder().Clear();

@@ -72,6 +72,9 @@ public sealed class Rc3PostgresUpgradeTests
         db.ChangeTracker.Clear();
 
         Assert.Equal(before, await CaptureBusinessRowsAsync(db));
+        var upgradedTimelineEvent = await db.TicketTimelineEvents.AsNoTracking().SingleAsync();
+        Assert.Null(upgradedTimelineEvent.Hours);
+        Assert.Null(upgradedTimelineEvent.WorkLogId);
         var applied = (await db.Database.GetAppliedMigrationsAsync()).ToArray();
         Assert.Equal(historicalMigrations, applied.Take(historicalMigrations.Length));
         Assert.Empty(await db.Database.GetPendingMigrationsAsync());
@@ -107,6 +110,10 @@ public sealed class Rc3PostgresUpgradeTests
             modelBuilder.Entity<RequestTask>().Ignore(x => x.OrchestrationLinkId);
             modelBuilder.Entity<RequestTask>().Ignore(x => x.OrchestrationPeerInstanceId);
             modelBuilder.Entity<RequestTask>().Ignore(x => x.OrchestrationLinkRevision);
+            // RC3 predates timeline effort snapshots; only the current context
+            // used after migration should read/write those added columns.
+            modelBuilder.Entity<TicketTimelineEvent>().Ignore(x => x.Hours);
+            modelBuilder.Entity<TicketTimelineEvent>().Ignore(x => x.WorkLogId);
         }
     }
 
