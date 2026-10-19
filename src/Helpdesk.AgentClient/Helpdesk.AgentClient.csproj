@@ -10,8 +10,8 @@
     <Compile Include="../HelpDesk.NewWeb/Services/WebGatewayOptions.cs" Link="Hosting/WebGatewayOptions.cs" />
     <Compile Include="../HelpDesk.NewWeb/Services/WebGatewayConfiguration.cs" Link="Hosting/WebGatewayConfiguration.cs" />
     <Compile Include="../HelpDesk.NewWeb/Services/WebGatewayPaths.cs" Link="Hosting/WebGatewayPaths.cs" />
-    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.12" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.12" />
-    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.13" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.13" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.13" />
   </ItemGroup>
 </Project>
