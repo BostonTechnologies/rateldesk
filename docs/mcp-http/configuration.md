@@ -36,7 +36,7 @@ target. Its default transport is HTTP serving, not interactive setup.
 
 | Ingress mode | Client credential | Outbound `credentialMode` | Persistent downstream secret | Metadata |
 | --- | --- | --- | --- | --- |
-| `gateway` | Account-owned MCP-purpose `rdk_`, exact resource | `gateway` | None | No fabricated OAuth metadata |
+| `gateway` | Account-owned scoped MCP or explicitly approved owner-administration `rdk_`, exact resource | `gateway` | None | No fabricated OAuth metadata |
 | `authentik` | JWT from explicit external authority/audience, required scopes/groups | Explicit `authentik` or API-purpose `integration` identity | Separate downstream API identity | Exact protected-resource metadata endpoint |
 
 Gateway exchanges the ingress credential at `/api/v1/mcp/execution-token` and
@@ -76,18 +76,62 @@ setup verifier still permits only `helpdesk_auth.status`.
 | Intended operation | Supported existing HTTP identity | Required positive evidence |
 | --- | --- | --- |
 | Tenant operations and owned self-service | Gateway, with current account grants intersected with the approved organization/permissions | `access` shows the actual bounded principal; each operation also satisfies ownership, support membership and form eligibility |
-| Instance administration | An explicitly configured external host whose separate API principal actually has `HelpdeskAdmin` | `access.isHelpdeskAdmin` is true and each administrative operation has its own verified postcondition |
-| AI reporting and diagnostics | An explicitly configured external host whose separate token passes the API's exact `AuthentikAiAgent` scheme | `status` succeeds; a real invocation/report or known bounded diagnostic is verified separately |
+| Instance administration | Explicit owner-administration gateway grant from a current persisted instance administrator; an existing external administrator principal remains supported | `access.grantKind` is `owner-administration` and `access.isHelpdeskAdmin` is true for an owner grant; each administrative operation has its own verified postcondition |
+| AI reporting and diagnostics | Explicit current owner-administration gateway grant, or an external token passing the exact `AuthentikAiAgent` scheme | `access` verifies owner authority or exact external `status` succeeds; a real bound invocation/report or bounded diagnostic is verified separately |
 
-The 24 assignable tenant permissions never grant instance administration, even
-when the credential owner is an instance administrator. Gateway credentials and
-their execution tokens cannot satisfy the exact AI scheme. A denied operation
-remains a prerequisite or implementation obligation for the campaign; it is
-not reclassified as unsupported or counted as a successful positive case.
-The discovery and execution-identity changes are tracked in
-[issue #228](https://github.com/BostonTechnologies/RatelDesk/issues/228); fresh
-owner campaign acceptance remains separate under
-[issue #219](https://github.com/BostonTechnologies/RatelDesk/issues/219).
+The 24 assignable tenant permissions retain their organization boundaries.
+Existing ordinary credentials keep their original grants when the instance is
+upgraded. An owner grant is a separate explicit consent decision. It uses the
+API's owner-operation authorization path for AI diagnostics/reporting; it does
+not impersonate the external `AuthentikAiAgent` identity. Invocation, ticket,
+organization, correlation, event replay and terminal-state checks still apply.
+An advertised operation or an expected denial does not establish a positive
+campaign result.
+
+## Approve an agent to administer the instance
+
+An enabled persisted instance administrator can grant an HTTP MCP client owner
+authority through **Integration Credentials** or the existing browser-approved
+client pairing page. Select the HTTP MCP purpose, the exact canonical resource
+such as `https://rateldesk.example.test/mcp`, and **Owner administration across
+all organizations**. Review the agent, expiry and default organization, and
+explicitly select **I authorize this agent to administer the instance and all
+organizations on my behalf**. Ordinary scoped access remains the default.
+
+The public creation/consent contract uses `purpose:"mcp"`,
+`grantKind:"owner-administration"` and `ownerAdministrationConsent:true`.
+The API persists the distinct `mcp-owner` purpose and revalidates the owning
+account's current enabled instance-administrator authority on every exchange
+and every execution request. An owner grant covers enabled organizations,
+including ones created later. Its default organization is a selection aid;
+the grant can administer the instance with no enabled default organization.
+No request may change the reviewed MCP resource or select another API target.
+
+Connect the approved credential through the agent's protected credential source
+and verify `helpdesk_auth.access`. The response must show
+`grantKind:"owner-administration"`, `isHelpdeskAdmin:true` and the actual
+enabled organization set. Use that caller-bound gateway connection for account,
+tenant, service, form, automation, support, mail, SLA and dataset administration.
+Each API still checks its record-specific rules: support assignment needs an
+eligible member; a designated approval can be decided only by that designated
+user/customer; a report needs a real bound AI invocation.
+
+Expiry, explicit revocation, disabling/deleting the owner account or removing
+its instance-administrator authority invalidates subsequent requests. The agent
+can revoke its own source credential with confirmed `helpdesk_auth.revoke_self`;
+the next call must be unauthorized. New MCP/API credential consent remains an
+interactive account-owner action. An existing agent cannot use its delegated
+execution token to issue or broaden another integration credential. An owner
+agent can list its owner's credential metadata with
+`helpdesk_tenant_admin.my_credentials`, revoke an owned credential with
+`revoke_my_credential`, or revoke and remove an owned record with
+`delete_my_credential_record`. Another account's records remain inaccessible.
+These management operations do not return credential secrets and retain
+no-store response handling.
+
+See the [typed operator contracts](../contracts/mcp-operation-contracts.md#typed-operator-adapters)
+for request bodies, configuration secret writes, one-time activation/pairing
+results and the readbacks required by the beta.8 campaign.
 
 ## Provision an explicit external authority
 
@@ -151,7 +195,10 @@ operation provisions that caller; request fields cannot select another user or
 create an identity link by matching email. An explicitly authorized unlinked
 external administrator receives its access projection without a fabricated
 customer. A gateway credential intentionally does not impersonate an external
-OIDC subject. For customer list/detail positives, independently establish the
+OIDC subject. Local-account creation and reset use the confirmed
+`helpdesk_tenant_admin.create_local_account`, `reset_local_account` and
+`reset_customer_login` operations, which return only a newly issued activation
+token through the authorized private workflow. For customer list/detail positives, independently establish the
 linked customer and owned requests. For incident/request self-assignment,
 establish the caller's eligible support membership through supported account
 and support administration, then verify each actual assignment separately.

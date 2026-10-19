@@ -110,7 +110,9 @@ public static class AttachmentEndpoints
             var uploadedById = user.FindFirstValue(ClaimTypes.NameIdentifier);
             var saved = await attachmentService.SaveAsync(ticketId, uploads, uploadedById, token);
             return Results.Ok(saved);
-        }).DisableAntiforgery();
+        })
+        .Accepts<IFormCollection>("multipart/form-data")
+        .DisableAntiforgery();
     }
 
     private static async Task<Ticket?> GetAccessibleTicketAsync(

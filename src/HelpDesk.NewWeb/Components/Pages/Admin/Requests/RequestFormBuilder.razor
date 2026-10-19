@@ -22,13 +22,15 @@
                     Shape intake fields, workflow tasks, and External orchestration automation bindings in one pass.
                 </MudText>
             </MudStack>
-            <MudChip T="string" Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small">
-                @($"{FormFields.Count} field{(FormFields.Count == 1 ? string.Empty : "s")} · {Tasks.Count} task{(Tasks.Count == 1 ? string.Empty : "s")}")
-            </MudChip>
         </MudStack>
     </TitleContent>
 
     <DialogContent>
+        <div class="mb-3" aria-live="polite" data-testid="request-form-summary">
+            <MudChip T="string" Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small">
+                @($"{FormFields.Count} field{(FormFields.Count == 1 ? string.Empty : "s")} · {Tasks.Count} task{(Tasks.Count == 1 ? string.Empty : "s")}")
+            </MudChip>
+        </div>
         <MudForm @ref="form" Class="request-form-builder-form">
             <MudGrid Spacing="3" Class="request-form-builder-grid">
                 <MudItem xs="12" lg="4">

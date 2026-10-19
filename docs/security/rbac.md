@@ -86,6 +86,72 @@ navigation on the next request. Local-account membership changes instead
 invalidate the account's authorization revision and security stamp, causing the
 next API request to reject the old local session.
 
+## Owner administration through HTTP MCP
+
+An instance administrator can explicitly authorize an account-bound HTTP MCP
+agent to administer the instance on their behalf. In **Integration credentials**,
+create an **HTTP MCP client**, choose **Owner administration across all
+organizations** under **Access scope**, and approve the instance-wide consent on
+the review step. The browser pairing consent page offers the same choice to a
+current instance administrator. Ordinary clients start with selected permissions
+in one organization; upgrading the application does not upgrade their grants.
+
+The owner grant includes ticket, incident, request, change, self-service,
+automation, system-connection, settings, and account administration through the
+same API policies used by a human instance administrator. It applies across all
+organizations, including organizations created later. The chosen organization is
+the default context. If that organization becomes disabled or is removed, status
+returns a null default instead of silently selecting another one. Global
+administration remains available to repair or create organizations, including
+when no organization is currently enabled. Operations that require a target
+organization still require its explicit identifier.
+
+Both Local and linked OIDC application accounts can authorize this access.
+Authentik is not required. Approval and every subsequent HTTP-MCP exchange/API
+execution check that the persisted account remains enabled and is currently an
+instance administrator. Removing that authority, disabling the account, revoking
+or deleting the credential, or reaching its expiry invalidates access on the
+next request, including execution tokens already issued by the gateway.
+
+| Credential kind | Effective access | Who can issue it |
+| --- | --- | --- |
+| Ordinary API or MCP | Selected current permissions in one enabled organization | An enabled account with those permissions |
+| Owner administration | Current instance administrator authority across organizations | An enabled persisted instance administrator with explicit owner consent |
+| Temporary setup verification | Authenticated status only for its reviewed organization; five minutes | An account authorized for that organization |
+
+The public create/pairing contract uses `purpose: "mcp"`,
+`grantKind: "owner-administration"`, `permissions: ["HelpdeskAdmin"]`, and
+`ownerAdministrationConsent: true`. The API stores the distinct `mcp-owner`
+purpose in the existing credential and pairing tables, so no migration or
+retroactive grant conversion is required. The public delivery identifies
+`grantKind: "owner-administration"`; the gateway execution receipt also includes
+`isHelpdeskAdmin: true` and the current enabled organization identifiers.
+
+`mcp-owner` credentials are bound to the exact HTTPS `/mcp` resource. They are
+accepted only at the gateway's API exchange, which issues a short-lived,
+API-only execution token. Presenting the opaque credential at a business API,
+presenting an API-purpose credential to the exchange, or using another resource
+does not confer access. Setup verification cannot be upgraded to owner
+administration. A new owner credential requires its own explicit selection and
+consent; replacement and revocation follow the existing credential lifecycle.
+The confirmed `helpdesk_auth/revoke_self` operation revokes only the presenting
+API or MCP credential. Its next authenticated request is rejected.
+
+Creating, approving and issuing further integration credentials remains an
+interactive account consent operation. An owner agent can administer ordinary
+business connections using its persisted human owner attribution, but this does
+not turn the agent into an interactive login or allow it to mint further
+delegation credentials through the browser consent endpoints.
+
+Confirmed local-account creation and activation-token generation may deliver a
+newly generated activation token to an authorized owner agent, matching the human
+administrator workflow. These responses use `Cache-Control: no-store` and
+`sensitiveFields: ["activationToken"]`. The token is operational secret delivery,
+not a diagnostic or read of an existing password. Default object string output,
+previews, audit summaries and public campaign evidence exclude its value. The
+agent's approved private secret handoff should carry it to the intended account
+activation workflow.
+
 ## Permission and upgrade behavior
 
 Application-managed accounts have explicit assignments. Removing the last

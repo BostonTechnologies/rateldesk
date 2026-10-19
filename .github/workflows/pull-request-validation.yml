@@ -45,6 +45,7 @@ jobs:
 
       - name: Verify release helper integrity without publication
         run: |
+          python3 tools/release/test-create-prerelease-tag.py
           python3 tools/release/test-validate-stable-promotion.py
           tools/release/test-promote-stable-images.sh
           tools/release/test-publish-release-assets.sh
@@ -128,7 +129,7 @@ jobs:
       - name: Verify authenticated HTTP, SQLite, PostgreSQL and golden contract
         run: >-
           dotnet test tests/Helpdesk.Tests/Helpdesk.Tests.csproj --configuration Release --no-build
-          --filter "FullyQualifiedName~IncidentReceiver|FullyQualifiedName~ServiceIdentityHttpTests|FullyQualifiedName~ManagedOrchestrationCallbackHttpTests|FullyQualifiedName~PairingServiceTests|FullyQualifiedName~PairingEndpointTests|FullyQualifiedName~PairingUpgradeTests|FullyQualifiedName~ServiceIdentityMigrationTests|FullyQualifiedName~WorklogMailDeliveryTests|FullyQualifiedName~AiInvestigationMcpHttpTests|FullyQualifiedName~AiInvestigationDispatchRaceTests|FullyQualifiedName~OrchestrationConnectionSelectionHttpTests|FullyQualifiedName~NotificationSummaryPerformanceTests"
+          --filter "FullyQualifiedName~IncidentReceiver|FullyQualifiedName~ServiceIdentityHttpTests|FullyQualifiedName~ManagedOrchestrationCallbackHttpTests|FullyQualifiedName~PairingServiceTests|FullyQualifiedName~PairingEndpointTests|FullyQualifiedName~PairingUpgradeTests|FullyQualifiedName~ServiceIdentityMigrationTests|FullyQualifiedName~WorklogMailDeliveryTests|FullyQualifiedName~AiInvestigationMcpHttpTests|FullyQualifiedName~AiInvestigationDispatchRaceTests|FullyQualifiedName~AiInvestigationDispatchIdempotencyTests|FullyQualifiedName~OrchestrationConnectionSelectionHttpTests|FullyQualifiedName~NotificationSummaryPerformanceTests|FullyQualifiedName~McpGatewayRealAccessPipelineTests|FullyQualifiedName~IntegrationCredentialPairingTests|FullyQualifiedName~IntegrationCredentialPairingProviderTests|FullyQualifiedName~McpHttpHostTests|FullyQualifiedName~RequestTaskApprovalDecisionProviderTests|FullyQualifiedName~AuthenticatedRequestApprovalEndpointTests|FullyQualifiedName~OperatorDatasetConcurrencyTests|FullyQualifiedName~AuthenticatedChangeApprovalTests"
           --logger "trx;LogFileName=incident-receiver.trx"
           --results-directory TestResults/incident-receiver
 

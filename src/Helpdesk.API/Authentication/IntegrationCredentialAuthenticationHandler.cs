@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.API.Services.IntegrationCredentials;
+using Helpdesk.Shared.Auth;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -44,7 +45,7 @@ public sealed class IntegrationCredentialAuthenticationHandler(
         if (credential is null ||
             credential.RevokedAtUtc is not null ||
             credential.ExpiresAtUtc <= DateTimeOffset.UtcNow ||
-            !(string.Equals(credential.Purpose, ExpectedPurpose, StringComparison.Ordinal) || (ExpectedPurpose == McpPurpose && credential.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose)))
+            !(string.Equals(credential.Purpose, ExpectedPurpose, StringComparison.Ordinal) || (ExpectedPurpose == McpPurpose && credential.Purpose is IntegrationCredentialIssuer.SetupVerificationPurpose or IntegrationCredentialGrantKinds.OwnerAdministrationPurpose)))
         {
             return AuthenticateResult.Fail("The integration credential is not valid for this API.");
         }
@@ -64,6 +65,10 @@ public sealed class IntegrationCredentialAuthenticationHandler(
             .ConfigureAwait(false);
         if (owner?.IsEnabled != true)
             return AuthenticateResult.Fail("The integration credential owner is disabled.");
+        if (credential.Purpose == IntegrationCredentialGrantKinds.OwnerAdministrationPurpose &&
+            (!owner.IsInstanceAdministrator || credential.Permissions != HelpdeskPermissions.HelpdeskAdmin ||
+             string.IsNullOrWhiteSpace(credential.OrganizationId)))
+            return AuthenticateResult.Fail("The owner administration grant is no longer authorized.");
 
         // Do not retain a tracked authentication row across physical delete/revoke. The
         // conditional update also closes the read-to-last-used race without recreating access.

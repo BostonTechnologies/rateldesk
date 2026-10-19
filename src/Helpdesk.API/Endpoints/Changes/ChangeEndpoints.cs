@@ -24,22 +24,11 @@ using System.Text.Json;
 
 namespace Helpdesk.API.Endpoints.Changes;
 
-public static class ChangeEndpoints
+public static partial class ChangeEndpoints
 {
     public static void MapChangeEndpoints(this IEndpointRouteBuilder app)
     {
-        var publicGroup = app.MapGroup("/api/v1/changes/public")
-            .WithTags("Changes");
-
-        publicGroup.MapGet("/approval", GetPublicChangeApproval)
-            .AllowAnonymous()
-            .WithName("GetPublicChangeApproval")
-            .WithSummary("Gets a signed public change approval view");
-
-        publicGroup.MapPost("/approval/review", ReviewPublicChangeApproval)
-            .AllowAnonymous()
-            .WithName("ReviewPublicChangeApproval")
-            .WithSummary("Marks a signed public change approval as reviewed.");
+        app.MapChangeApprovalEndpoints();
 
         var group = app.MapGroup("/api/v1/changes")
             .WithTags("Changes")
@@ -399,7 +388,6 @@ public static class ChangeEndpoints
             [FromServices] ILoggerFactory loggerFactory,
             [FromServices] IChangeTemplateService changeTemplateService,
             [FromServices] ITicketNotificationService notificationService,
-            [FromServices] ITimelineEventBus timelineEventBus,
             CancellationToken token) =>
         {
             if (dto.State.HasValue && !Enum.IsDefined(dto.State.Value))
@@ -409,417 +397,429 @@ public static class ChangeEndpoints
             if (dto.LifecycleState.HasValue && !Enum.IsDefined(dto.LifecycleState.Value))
                 return Results.BadRequest("Invalid change lifecycle state.");
 
-            var existing = await repo.GetAsync(id);
-            if (existing is null) return Results.Problem("Change not found", statusCode: 404);
-
-            var access = await accessService.ResolveAsync(user, token);
-            if (!access.CanManageChange(existing.OrganizationId)) return Results.Forbid();
-
-            var previousState = existing.State;
-            var previousTemplateJson = existing.ChangeTemplateJson;
-            var previousChangeType = existing.ChangeType;
-            var previousLifecycleState = EffectiveLifecycleState(existing);
-            if (dto.State.HasValue)
+            var persisted = false;
+            try
             {
-                var stateError = ValidateTicketStateTransition(existing, dto.State.Value);
-                if (stateError is not null) return Results.BadRequest(stateError);
-            }
-            if (dto.LifecycleState == ChangeLifecycleState.ApprovedForImplementation &&
-                previousLifecycleState != ChangeLifecycleState.ApprovedForImplementation &&
-                !access.CanApproveChange(existing.OrganizationId))
-            {
-                return Results.Forbid();
-            }
-            if ((dto.LifecycleState is ChangeLifecycleState.ImplementationInProgress
-                    or ChangeLifecycleState.ImplementedSuccess or ChangeLifecycleState.ImplementedBackedOut) &&
-                dto.LifecycleState != previousLifecycleState &&
-                previousLifecycleState is not (ChangeLifecycleState.ApprovedForImplementation or ChangeLifecycleState.ImplementationInProgress))
-            {
-                return Results.BadRequest("Change must be approved before implementation.");
-            }
+                await using var tx = db.Database.IsRelational() && db.Database.CurrentTransaction is null
+                    ? await db.Database.BeginTransactionAsync(global::System.Data.IsolationLevel.Serializable, token) : null;
+                var existing = await repo.GetAsync(id);
+                if (existing is null) return Results.Problem("Change not found", statusCode: 404);
 
-            if (previousLifecycleState != ChangeLifecycleState.Draft &&
-                await HasLockedChangeFieldUpdatesAsync(db, existing, dto, changeTemplateService, token))
-            {
-                return Results.BadRequest("Change details are locked unless the change is moved back to Draft.");
-            }
+                var access = await accessService.ResolveAsync(user, token);
+                if (!access.CanManageChange(existing.OrganizationId)) return Results.Forbid();
+                if (!await FenceChangeDecisionAsync(db, existing, token)) return ChangeApprovalConflict();
 
-            existing.State = dto.State ?? existing.State;
-            ApplyClosedAtTransition(existing, previousState, existing.State);
-            existing.Priority = dto.Priority ?? existing.Priority;
-
-            if (dto.OrganizationId is not null)
-            {
-                if (string.IsNullOrWhiteSpace(dto.OrganizationId))
+                var previousState = existing.State;
+                var previousTemplateJson = existing.ChangeTemplateJson;
+                var previousChangeType = existing.ChangeType;
+                var previousLifecycleState = EffectiveLifecycleState(existing);
+                if (dto.State.HasValue)
                 {
-                    return Results.BadRequest("OrganizationId cannot be empty.");
+                    var stateError = ValidateTicketStateTransition(existing, dto.State.Value);
+                    if (stateError is not null) return Results.BadRequest(stateError);
                 }
-
-                var organization = await db.Organizations
-                    .AsNoTracking()
-                    .FirstOrDefaultAsync(x => x.Id == dto.OrganizationId, token);
-                if (organization is null)
-                {
-                    return Results.BadRequest("The selected organization could not be found.");
-                }
-                if (!access.CanManageChange(organization.Id))
+                if (dto.LifecycleState == ChangeLifecycleState.ApprovedForImplementation &&
+                    previousLifecycleState != ChangeLifecycleState.ApprovedForImplementation &&
+                    !access.CanApproveChange(existing.OrganizationId))
                 {
                     return Results.Forbid();
                 }
-
-                existing.CustomerId = null;
-                existing.OrganizationId = organization.Id;
-            }
-
-            var currentOrganization = await db.Organizations
-                .AsNoTracking()
-                .FirstOrDefaultAsync(x => x.Id == existing.OrganizationId, token);
-            if (currentOrganization is null)
-            {
-                return Results.BadRequest("The selected organization could not be found.");
-            }
-
-            if (dto.RequestedForUserId is not null)
-            {
-                existing.RequestedForUserId = string.IsNullOrWhiteSpace(dto.RequestedForUserId) ? null : dto.RequestedForUserId;
-            }
-
-            if (dto.ImplementorUserId is not null)
-            {
-                existing.ImplementorUserId = string.IsNullOrWhiteSpace(dto.ImplementorUserId) ? null : dto.ImplementorUserId;
-                existing.AssignedToId = existing.ImplementorUserId;
-            }
-
-            if (dto.ApproverUserIds is not null)
-            {
-                existing.ApproverUserIds = NormalizeUserIds(dto.ApproverUserIds);
-            }
-
-            var participantValidation = await ValidateChangeParticipantsAsync(
-                db,
-                currentOrganization,
-                existing.RequestedForUserId,
-                existing.ImplementorUserId,
-                existing.ApproverUserIds,
-                requireRequestedForAndImplementor: true,
-                token);
-            if (participantValidation is not null)
-            {
-                return participantValidation;
-            }
-
-            if (dto.ApproverUserIds is not null)
-            {
-                var updateParticipantLookup = await BuildParticipantLookupAsync(db, [existing], token);
-                AddChangeListeners(existing, updateParticipantLookup);
-                await ReconcileApprovalRecordsAsync(db, existing, updateParticipantLookup, token);
-            }
-
-            if (!string.IsNullOrWhiteSpace(dto.ChangeType))
-            {
-                var normalizedChangeType = changeTemplateService.NormalizeChangeType(dto.ChangeType);
-                if (string.IsNullOrWhiteSpace(normalizedChangeType))
+                if ((dto.LifecycleState is ChangeLifecycleState.ImplementationInProgress
+                        or ChangeLifecycleState.ImplementedSuccess or ChangeLifecycleState.ImplementedBackedOut) &&
+                    dto.LifecycleState != previousLifecycleState &&
+                    previousLifecycleState is not (ChangeLifecycleState.ApprovedForImplementation or ChangeLifecycleState.ImplementationInProgress))
                 {
-                    return Results.BadRequest("ChangeType must be Standard, Normal, or Emergency.");
+                    return Results.BadRequest("Change must be approved before implementation.");
                 }
 
-                existing.ChangeType = normalizedChangeType;
-            }
-
-            if (dto.ChangeTemplate is not null)
-            {
-                existing.ChangeTemplateJson = changeTemplateService.SerializeTemplate(dto.ChangeTemplate);
-            }
-
-            if (dto.ImplementationStartAt.HasValue)
-            {
-                existing.ImplementationStartAt = dto.ImplementationStartAt.Value;
-            }
-
-            if (dto.ImplementationEndAt.HasValue)
-            {
-                existing.ImplementationEndAt = dto.ImplementationEndAt.Value;
-            }
-
-            var implementationWindowUpdateError = ValidateImplementationWindow(
-                existing.ImplementationStartAt,
-                existing.ImplementationEndAt,
-                requireBoth: false);
-            if (implementationWindowUpdateError is not null)
-            {
-                return implementationWindowUpdateError;
-            }
-
-            var templateChanged = !string.Equals(previousTemplateJson, existing.ChangeTemplateJson, StringComparison.Ordinal)
-                || !string.Equals(previousChangeType, existing.ChangeType, StringComparison.Ordinal);
-
-            if (dto.LifecycleState.HasValue)
-            {
                 if (previousLifecycleState != ChangeLifecycleState.Draft &&
-                    dto.LifecycleState.Value != ChangeLifecycleState.Draft &&
-                    dto.LifecycleState.Value == ChangeLifecycleState.ApprovedForImplementation &&
-                    await db.ChangeApprovals.AnyAsync(
-                        x => x.ChangeId == existing.Id && x.Status == ChangeApprovalStatus.Pending,
-                        token))
+                    await HasLockedChangeFieldUpdatesAsync(db, existing, dto, changeTemplateService, token))
                 {
-                    return Results.BadRequest("Change cannot be approved for implementation while approvals are pending.");
+                    return Results.BadRequest("Change details are locked unless the change is moved back to Draft.");
                 }
 
-                existing.LifecycleState = dto.LifecycleState.Value;
-            }
+                existing.State = dto.State ?? existing.State;
+                ApplyClosedAtTransition(existing, previousState, existing.State);
+                existing.Priority = dto.Priority ?? existing.Priority;
 
-            ApplyTicketStateForLifecycle(existing, previousState);
-
-            var currentTemplate = changeTemplateService.DeserializeTemplate(existing.ChangeTemplateJson);
-            var currentTemplateValidation = changeTemplateService.ValidateTemplate(existing.ChangeType, currentTemplate);
-            var movedBackToDraft = previousLifecycleState != ChangeLifecycleState.Draft &&
-                EffectiveLifecycleState(existing) == ChangeLifecycleState.Draft;
-            var submittedFromDraft = previousLifecycleState == ChangeLifecycleState.Draft &&
-                dto.LifecycleState.HasValue &&
-                dto.LifecycleState.Value != ChangeLifecycleState.Draft;
-
-            if (submittedFromDraft)
-            {
-                existing.LifecycleState = ResolveInitialLifecycleState(
-                    currentTemplateValidation.IsComplete,
-                    existing.ApproverUserIds,
-                    access.CanApproveChange(existing.OrganizationId));
-                var updateParticipantLookup = await BuildParticipantLookupAsync(db, [existing], token);
-                AddChangeListeners(existing, updateParticipantLookup);
-                await ReconcileApprovalRecordsAsync(db, existing, updateParticipantLookup, token);
-                await ResetApprovalReviewStateAsync(db, existing.Id, token);
-            }
-            else if (movedBackToDraft)
-            {
-                await ResetApprovalReviewStateAsync(db, existing.Id, token);
-            }
-
-            if (existing.State == TicketState.Resolved)
-            {
-                if (!currentTemplateValidation.IsComplete)
+                if (dto.OrganizationId is not null)
                 {
-                    return Results.BadRequest(new
+                    if (string.IsNullOrWhiteSpace(dto.OrganizationId))
                     {
-                        message = "Change template must be complete before resolving the change.",
-                        errors = currentTemplateValidation.Errors
-                    });
-                }
+                        return Results.BadRequest("OrganizationId cannot be empty.");
+                    }
 
-            }
-
-            existing.UpdatedAt = DateTime.UtcNow;
-
-            await using var tx = await db.Database.BeginTransactionAsync(token);
-
-            if (dto.CategoryIds is not null)
-            {
-                var categoryIds = NormalizeCategoryIds(dto.CategoryIds);
-                var validation = await ValidateCategorySelectionAsync(
-                    db,
-                    categoryIds,
-                    TicketCategoryType.Change,
-                    token, existing.OrganizationId,
-                    await db.ChangeCategoryLinks.Where(x => x.ChangeId == id).Select(x => x.TicketCategoryId).ToListAsync(token));
-                if (validation is not null)
-                {
-                    return validation;
-                }
-
-                await db.ChangeCategoryLinks
-                    .Where(x => x.ChangeId == id)
-                    .ExecuteDeleteAsync(token);
-
-                if (categoryIds.Count > 0)
-                {
-                    db.ChangeCategoryLinks.AddRange(categoryIds.Select(categoryId => new ChangeCategoryLink
+                    var organization = await db.Organizations
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(x => x.Id == dto.OrganizationId, token);
+                    if (organization is null)
                     {
-                        ChangeId = id,
-                        TicketCategoryId = categoryId
-                    }));
+                        return Results.BadRequest("The selected organization could not be found.");
+                    }
+                    if (!access.CanManageChange(organization.Id))
+                    {
+                        return Results.Forbid();
+                    }
+
+                    existing.CustomerId = null;
+                    existing.OrganizationId = organization.Id;
                 }
 
-                await db.SaveChangesAsync(token);
-            }
-
-            var updated = await repo.UpdateAsync(existing);
-            await tx.CommitAsync(token);
-
-            if (movedBackToDraft)
-            {
-                await AddTimelineEventAsync(db, timelineEventBus, updated!.Id, "Change moved back to draft; approval review state cleared.", token);
-            }
-            else if (submittedFromDraft)
-            {
-                await AddTimelineEventAsync(db, timelineEventBus, updated!.Id, "Change submitted for approval.", token);
-                var notificationParticipantLookup = await BuildParticipantLookupAsync(db, [updated], token);
-                var notificationOrganizationName = await db.Organizations
+                var currentOrganization = await db.Organizations
                     .AsNoTracking()
-                    .Where(x => x.Id == updated.OrganizationId)
-                    .Select(x => x.Name)
-                    .FirstOrDefaultAsync(token);
-                var approvals = await db.ChangeApprovals
-                    .Where(x => x.ChangeId == updated.Id)
-                    .ToListAsync(token);
-                foreach (var approval in approvals.Where(_ => EffectiveLifecycleState(updated) == ChangeLifecycleState.PendingApproval))
+                    .FirstOrDefaultAsync(x => x.Id == existing.OrganizationId, token);
+                if (currentOrganization is null)
                 {
-                    await AddTimelineEventAsync(db, timelineEventBus, updated.Id, $"Approval requested from {approval.ApproverName}.", token);
+                    return Results.BadRequest("The selected organization could not be found.");
                 }
 
-                await SendChangeCreationNotificationsAsync(
-                    notificationService,
-                    updated,
-                    notificationOrganizationName ?? string.Empty,
-                    notificationParticipantLookup,
-                    loggerFactory,
+                if (dto.RequestedForUserId is not null)
+                {
+                    existing.RequestedForUserId = string.IsNullOrWhiteSpace(dto.RequestedForUserId) ? null : dto.RequestedForUserId;
+                }
+
+                if (dto.ImplementorUserId is not null)
+                {
+                    existing.ImplementorUserId = string.IsNullOrWhiteSpace(dto.ImplementorUserId) ? null : dto.ImplementorUserId;
+                    existing.AssignedToId = existing.ImplementorUserId;
+                }
+
+                if (dto.ApproverUserIds is not null)
+                {
+                    existing.ApproverUserIds = NormalizeUserIds(dto.ApproverUserIds);
+                }
+
+                var participantValidation = await ValidateChangeParticipantsAsync(
+                    db,
+                    currentOrganization,
+                    existing.RequestedForUserId,
+                    existing.ImplementorUserId,
+                    existing.ApproverUserIds,
+                    requireRequestedForAndImplementor: true,
                     token);
+                if (participantValidation is not null)
+                {
+                    return participantValidation;
+                }
+
+                if (dto.ApproverUserIds is not null)
+                {
+                    var updateParticipantLookup = await BuildParticipantLookupAsync(db, [existing], token);
+                    AddChangeListeners(existing, updateParticipantLookup);
+                    await ReconcileApprovalRecordsAsync(db, existing, updateParticipantLookup, token);
+                }
+
+                if (!string.IsNullOrWhiteSpace(dto.ChangeType))
+                {
+                    var normalizedChangeType = changeTemplateService.NormalizeChangeType(dto.ChangeType);
+                    if (string.IsNullOrWhiteSpace(normalizedChangeType))
+                    {
+                        return Results.BadRequest("ChangeType must be Standard, Normal, or Emergency.");
+                    }
+
+                    existing.ChangeType = normalizedChangeType;
+                }
+
+                if (dto.ChangeTemplate is not null)
+                {
+                    existing.ChangeTemplateJson = changeTemplateService.SerializeTemplate(dto.ChangeTemplate);
+                }
+
+                if (dto.ImplementationStartAt.HasValue)
+                {
+                    existing.ImplementationStartAt = dto.ImplementationStartAt.Value;
+                }
+
+                if (dto.ImplementationEndAt.HasValue)
+                {
+                    existing.ImplementationEndAt = dto.ImplementationEndAt.Value;
+                }
+
+                var implementationWindowUpdateError = ValidateImplementationWindow(
+                    existing.ImplementationStartAt,
+                    existing.ImplementationEndAt,
+                    requireBoth: false);
+                if (implementationWindowUpdateError is not null)
+                {
+                    return implementationWindowUpdateError;
+                }
+
+                var templateChanged = !string.Equals(previousTemplateJson, existing.ChangeTemplateJson, StringComparison.Ordinal)
+                    || !string.Equals(previousChangeType, existing.ChangeType, StringComparison.Ordinal);
+
+                if (dto.LifecycleState.HasValue)
+                {
+                    if (previousLifecycleState != ChangeLifecycleState.Draft &&
+                        dto.LifecycleState.Value != ChangeLifecycleState.Draft &&
+                        dto.LifecycleState.Value == ChangeLifecycleState.ApprovedForImplementation &&
+                        await db.ChangeApprovals.AnyAsync(
+                            x => x.ChangeId == existing.Id && x.Status == ChangeApprovalStatus.Pending,
+                            token))
+                    {
+                        return Results.BadRequest("Change cannot be approved for implementation while approvals are pending.");
+                    }
+
+                    existing.LifecycleState = dto.LifecycleState.Value;
+                }
+
+                ApplyTicketStateForLifecycle(existing, previousState);
+
+                var currentTemplate = changeTemplateService.DeserializeTemplate(existing.ChangeTemplateJson);
+                var currentTemplateValidation = changeTemplateService.ValidateTemplate(existing.ChangeType, currentTemplate);
+                var movedBackToDraft = previousLifecycleState != ChangeLifecycleState.Draft &&
+                    EffectiveLifecycleState(existing) == ChangeLifecycleState.Draft;
+                var submittedFromDraft = previousLifecycleState == ChangeLifecycleState.Draft &&
+                    dto.LifecycleState.HasValue &&
+                    dto.LifecycleState.Value != ChangeLifecycleState.Draft;
+
+                if (submittedFromDraft)
+                {
+                    existing.LifecycleState = ResolveInitialLifecycleState(
+                        currentTemplateValidation.IsComplete,
+                        existing.ApproverUserIds,
+                        access.CanApproveChange(existing.OrganizationId));
+                    var updateParticipantLookup = await BuildParticipantLookupAsync(db, [existing], token);
+                    AddChangeListeners(existing, updateParticipantLookup);
+                    await ReconcileApprovalRecordsAsync(db, existing, updateParticipantLookup, token);
+                    await ResetApprovalReviewStateAsync(db, existing.Id, token);
+                }
+                else if (movedBackToDraft)
+                {
+                    await ResetApprovalReviewStateAsync(db, existing.Id, token);
+                }
+
+                if (existing.State == TicketState.Resolved)
+                {
+                    if (!currentTemplateValidation.IsComplete)
+                    {
+                        return Results.BadRequest(new
+                        {
+                            message = "Change template must be complete before resolving the change.",
+                            errors = currentTemplateValidation.Errors
+                        });
+                    }
+
+                }
+
+                existing.UpdatedAt = DateTime.UtcNow;
+
+                if (dto.CategoryIds is not null)
+                {
+                    var categoryIds = NormalizeCategoryIds(dto.CategoryIds);
+                    var validation = await ValidateCategorySelectionAsync(
+                        db,
+                        categoryIds,
+                        TicketCategoryType.Change,
+                        token, existing.OrganizationId,
+                        await db.ChangeCategoryLinks.Where(x => x.ChangeId == id).Select(x => x.TicketCategoryId).ToListAsync(token));
+                    if (validation is not null)
+                    {
+                        return validation;
+                    }
+
+                    await db.ChangeCategoryLinks
+                        .Where(x => x.ChangeId == id)
+                        .ExecuteDeleteAsync(token);
+
+                    if (categoryIds.Count > 0)
+                    {
+                        db.ChangeCategoryLinks.AddRange(categoryIds.Select(categoryId => new ChangeCategoryLink
+                        {
+                            ChangeId = id,
+                            TicketCategoryId = categoryId
+                        }));
+                    }
+
+                    await db.SaveChangesAsync(token);
+                }
+
+                var updated = await repo.UpdateAsync(existing);
+
+                if (movedBackToDraft)
+                {
+                    QueueChangeApprovalTimeline(db, updated!.Id, "Change moved back to draft; approval review state cleared.", "System");
+                }
+                else if (submittedFromDraft)
+                {
+                    QueueChangeApprovalTimeline(db, updated!.Id, "Change submitted for approval.", "System");
+                    var notificationParticipantLookup = await BuildParticipantLookupAsync(db, [updated], token);
+                    var notificationOrganizationName = await db.Organizations
+                        .AsNoTracking()
+                        .Where(x => x.Id == updated.OrganizationId)
+                        .Select(x => x.Name)
+                        .FirstOrDefaultAsync(token);
+                    var approvals = await db.ChangeApprovals
+                        .Where(x => x.ChangeId == updated.Id)
+                        .ToListAsync(token);
+                    foreach (var approval in approvals.Where(_ => EffectiveLifecycleState(updated) == ChangeLifecycleState.PendingApproval))
+                    {
+                        QueueChangeApprovalTimeline(db, updated.Id, $"Approval requested from {approval.ApproverName}.", "System");
+                    }
+
+                    if (!await SendChangeCreationNotificationsAsync(
+                        notificationService,
+                        updated,
+                        notificationOrganizationName ?? string.Empty,
+                        notificationParticipantLookup,
+                        loggerFactory,
+                        token))
+                        throw new InvalidOperationException("The change submission notifications could not be queued.");
+                    await db.SaveChangesAsync(token);
+                }
+
+                var updatedLifecycleState = EffectiveLifecycleState(updated!);
+                if (previousLifecycleState != updatedLifecycleState &&
+                    updatedLifecycleState == ChangeLifecycleState.ImplementationInProgress)
+                {
+                    QueueChangeApprovalTimeline(db, updated!.Id, "Change implementation is in progress.", "System");
+                    if (!await SendChangeLifecycleNotificationsAsync(
+                        notificationService,
+                        updated,
+                        "implementation-in-progress",
+                        loggerFactory,
+                        db,
+                        token))
+                        throw new InvalidOperationException("The change lifecycle notifications could not be queued.");
+                }
+                else if (previousLifecycleState != updatedLifecycleState &&
+                    updatedLifecycleState is ChangeLifecycleState.ImplementedSuccess or ChangeLifecycleState.ImplementedBackedOut)
+                {
+                    QueueChangeApprovalTimeline(db, updated!.Id,
+                        $"Change implemented - {FormatChangeCompletionState(updatedLifecycleState)}.", "System");
+                    if (!await SendChangeLifecycleNotificationsAsync(
+                        notificationService,
+                        updated,
+                        "implemented",
+                        loggerFactory,
+                        db,
+                        token))
+                        throw new InvalidOperationException("The change lifecycle notifications could not be queued.");
+                }
+
                 await db.SaveChangesAsync(token);
-            }
+                if (tx is not null) await tx.CommitAsync(token);
+                persisted = true;
 
-            var updatedLifecycleState = EffectiveLifecycleState(updated!);
-            if (previousLifecycleState != updatedLifecycleState &&
-                updatedLifecycleState == ChangeLifecycleState.ImplementationInProgress)
-            {
-                await AddTimelineEventAsync(db, timelineEventBus, updated!.Id, "Change implementation is in progress.", token);
-                await SendChangeLifecycleNotificationsAsync(
-                    notificationService,
-                    updated,
-                    "implementation-in-progress",
-                    loggerFactory,
-                    db,
-                    token);
-            }
-            else if (previousLifecycleState != updatedLifecycleState &&
-                updatedLifecycleState is ChangeLifecycleState.ImplementedSuccess or ChangeLifecycleState.ImplementedBackedOut)
-            {
-                await AddTimelineEventAsync(
-                    db,
-                    timelineEventBus,
-                    updated!.Id,
-                    $"Change implemented - {FormatChangeCompletionState(updatedLifecycleState)}.",
-                    token);
-                await SendChangeLifecycleNotificationsAsync(
-                    notificationService,
-                    updated,
-                    "implemented",
-                    loggerFactory,
-                    db,
-                    token);
-            }
-
-            await domainEvents.PublishAsync(
-                new ChangeUpdatedDomainEvent(
-                    updated!.Id,
-                    updated.TrackingId,
-                    updated.Title,
-                    updated.OrganizationId,
-                    updated.ChangeType,
-                    updated.State,
-                    templateChanged,
-                    DateTimeOffset.UtcNow,
-                    GetCorrelationId(correlationContext)),
-                token);
-
-            if (previousState != updated.State)
-            {
                 await domainEvents.PublishAsync(
-                    new ChangeStateChangedDomainEvent(
-                        updated.Id,
+                    new ChangeUpdatedDomainEvent(
+                        updated!.Id,
                         updated.TrackingId,
+                        updated.Title,
                         updated.OrganizationId,
-                        previousState,
+                        updated.ChangeType,
                         updated.State,
+                        templateChanged,
                         DateTimeOffset.UtcNow,
                         GetCorrelationId(correlationContext)),
                     token);
-            }
 
-            if (previousState != TicketState.Resolved && updated!.State == TicketState.Resolved)
-            {
-                await ticketSlaCompletionService.HandleTicketClosedAsync(updated.Id, "system", DateTimeOffset.UtcNow);
-            }
+                if (previousState != updated.State)
+                {
+                    await domainEvents.PublishAsync(
+                        new ChangeStateChangedDomainEvent(
+                            updated.Id,
+                            updated.TrackingId,
+                            updated.OrganizationId,
+                            previousState,
+                            updated.State,
+                            DateTimeOffset.UtcNow,
+                            GetCorrelationId(correlationContext)),
+                        token);
+                }
 
-            var slaSnapshot = await SyncAndComputeSlaAsync(
-                id,
-                ticketSlaService,
-                ticketSlaRepository,
-                slaClockService,
-                updated!,
-                escalationEvaluator,
-                domainEvents,
-                correlationContext,
-                loggerFactory.CreateLogger("ChangeSla"));
+                if (previousState != TicketState.Resolved && updated!.State == TicketState.Resolved)
+                {
+                    await ticketSlaCompletionService.HandleTicketClosedAsync(updated.Id, "system", DateTimeOffset.UtcNow);
+                }
 
-            var updatedParticipantLookup = await BuildParticipantLookupAsync(db, [updated], token);
-            var updatedApprovals = (await db.ChangeApprovals
-                    .AsNoTracking()
-                    .Where(x => x.ChangeId == updated.Id)
-                    .OrderBy(x => x.ApproverName)
-                    .ToListAsync(token))
-                .Select(ToApprovalDto)
-                .ToList();
+                var slaSnapshot = await SyncAndComputeSlaAsync(
+                    id,
+                    ticketSlaService,
+                    ticketSlaRepository,
+                    slaClockService,
+                    updated!,
+                    escalationEvaluator,
+                    domainEvents,
+                    correlationContext,
+                    loggerFactory.CreateLogger("ChangeSla"));
 
-            var resultDto = new ChangeDto
-            {
-                OrganizationId = updated.OrganizationId,
-                OrganizationName = await db.Organizations
-                    .AsNoTracking()
-                    .Where(x => x.Id == updated.OrganizationId)
-                    .Select(x => x.Name)
-                    .FirstOrDefaultAsync(token),
-                Id = updated.Id,
-                Title = updated.Title,
-                Description = updated.Description,
-                Priority = updated.Priority,
-                State = updated.State,
-                LifecycleState = EffectiveLifecycleState(updated),
-                CreatedAt = updated.CreatedAt,
-                UpdatedAt = updated.UpdatedAt,
-                TrackingId = updated.TrackingId,
-                AssignedToId = updated.AssignedToId,
-                LastReplierName = updated.LastReplierName,
-                CustomerOrgName = await db.Organizations
-                    .AsNoTracking()
-                    .Where(x => x.Id == updated.OrganizationId)
-                    .Select(x => x.Name)
-                    .FirstOrDefaultAsync(token),
-                CustomerId = updated.CustomerId,
-                CustomerName = !string.IsNullOrWhiteSpace(updated.CustomerId)
-                    ? await db.Customers
+                var updatedParticipantLookup = await BuildParticipantLookupAsync(db, [updated], token);
+                var updatedApprovals = (await db.ChangeApprovals
                         .AsNoTracking()
-                        .Where(x => x.Id == updated.CustomerId)
+                        .Where(x => x.ChangeId == updated.Id)
+                        .OrderBy(x => x.ApproverName)
+                        .ToListAsync(token))
+                    .Select(ToApprovalDto)
+                    .ToList();
+
+                var resultDto = new ChangeDto
+                {
+                    OrganizationId = updated.OrganizationId,
+                    OrganizationName = await db.Organizations
+                        .AsNoTracking()
+                        .Where(x => x.Id == updated.OrganizationId)
                         .Select(x => x.Name)
-                        .FirstOrDefaultAsync(token)
-                    : null,
-                CustomerEmail = !string.IsNullOrWhiteSpace(updated.CustomerId)
-                    ? await db.Customers
+                        .FirstOrDefaultAsync(token),
+                    Id = updated.Id,
+                    Title = updated.Title,
+                    Description = updated.Description,
+                    Priority = updated.Priority,
+                    State = updated.State,
+                    LifecycleState = EffectiveLifecycleState(updated),
+                    CreatedAt = updated.CreatedAt,
+                    UpdatedAt = updated.UpdatedAt,
+                    TrackingId = updated.TrackingId,
+                    AssignedToId = updated.AssignedToId,
+                    LastReplierName = updated.LastReplierName,
+                    CustomerOrgName = await db.Organizations
                         .AsNoTracking()
-                        .Where(x => x.Id == updated.CustomerId)
-                        .Select(x => x.Email)
-                        .FirstOrDefaultAsync(token)
-                    : null,
-                ChangeType = updated.ChangeType,
-                RequestedForUserId = updated.RequestedForUserId,
-                RequestedForUserName = GetUserName(updatedParticipantLookup, updated.RequestedForUserId),
-                RequestedForUserEmail = GetUserEmail(updatedParticipantLookup, updated.RequestedForUserId),
-                ImplementorUserId = updated.ImplementorUserId,
-                ImplementorUserName = GetUserName(updatedParticipantLookup, updated.ImplementorUserId),
-                ImplementorUserEmail = GetUserEmail(updatedParticipantLookup, updated.ImplementorUserId),
-                ApproverUserIds = updated.ApproverUserIds,
-                Approvers = GetUsers(updatedParticipantLookup, updated.ApproverUserIds),
-                Approvals = updatedApprovals,
-                CcRecipients = updated.CcRecipients.ToList(),
-                ImplementationStartAt = updated.ImplementationStartAt,
-                ImplementationEndAt = updated.ImplementationEndAt,
-                ChangeTemplate = currentTemplate,
-                IsTemplateComplete = currentTemplateValidation.IsComplete,
-                TemplateValidationErrors = currentTemplateValidation.Errors,
-                CategoryIds = await db.ChangeCategoryLinks
-                    .Where(x => x.ChangeId == updated.Id)
-                    .Select(x => x.TicketCategoryId)
-                    .ToListAsync(token),
-                Sla = ToSlaDto(slaSnapshot)
-            };
-            return Results.Ok(resultDto);
+                        .Where(x => x.Id == updated.OrganizationId)
+                        .Select(x => x.Name)
+                        .FirstOrDefaultAsync(token),
+                    CustomerId = updated.CustomerId,
+                    CustomerName = !string.IsNullOrWhiteSpace(updated.CustomerId)
+                        ? await db.Customers
+                            .AsNoTracking()
+                            .Where(x => x.Id == updated.CustomerId)
+                            .Select(x => x.Name)
+                            .FirstOrDefaultAsync(token)
+                        : null,
+                    CustomerEmail = !string.IsNullOrWhiteSpace(updated.CustomerId)
+                        ? await db.Customers
+                            .AsNoTracking()
+                            .Where(x => x.Id == updated.CustomerId)
+                            .Select(x => x.Email)
+                            .FirstOrDefaultAsync(token)
+                        : null,
+                    ChangeType = updated.ChangeType,
+                    RequestedForUserId = updated.RequestedForUserId,
+                    RequestedForUserName = GetUserName(updatedParticipantLookup, updated.RequestedForUserId),
+                    RequestedForUserEmail = GetUserEmail(updatedParticipantLookup, updated.RequestedForUserId),
+                    ImplementorUserId = updated.ImplementorUserId,
+                    ImplementorUserName = GetUserName(updatedParticipantLookup, updated.ImplementorUserId),
+                    ImplementorUserEmail = GetUserEmail(updatedParticipantLookup, updated.ImplementorUserId),
+                    ApproverUserIds = updated.ApproverUserIds,
+                    Approvers = GetUsers(updatedParticipantLookup, updated.ApproverUserIds),
+                    Approvals = updatedApprovals,
+                    CcRecipients = updated.CcRecipients.ToList(),
+                    ImplementationStartAt = updated.ImplementationStartAt,
+                    ImplementationEndAt = updated.ImplementationEndAt,
+                    ChangeTemplate = currentTemplate,
+                    IsTemplateComplete = currentTemplateValidation.IsComplete,
+                    TemplateValidationErrors = currentTemplateValidation.Errors,
+                    CategoryIds = await db.ChangeCategoryLinks
+                        .Where(x => x.ChangeId == updated.Id)
+                        .Select(x => x.TicketCategoryId)
+                        .ToListAsync(token),
+                    Sla = ToSlaDto(slaSnapshot)
+                };
+                return Results.Ok(resultDto);
+            }
+            catch (Exception exception) when (!persisted && IsChangeApprovalConflict(exception))
+            {
+                db.ChangeTracker.Clear();
+                return ChangeApprovalConflict();
+            }
         })
         .RequireAuthorization("ChangeManager");
 
@@ -964,184 +964,204 @@ public static class ChangeEndpoints
             [FromServices] IChangeTemplateService changeTemplateService,
             [FromServices] ITicketSlaCompletionService ticketSlaCompletionService,
             [FromServices] ITicketNotificationService notificationService,
-            [FromServices] ITimelineEventBus timelineEventBus,
             [FromServices] IDomainEventPublisher domainEvents,
             [FromServices] ICorrelationContext correlationContext,
             [FromServices] ILoggerFactory loggerFactory,
             CancellationToken token) =>
         {
             if (!Enum.IsDefined(req.LifecycleState)) return Results.BadRequest("Invalid change lifecycle state.");
-            var change = await db.Changes.FirstOrDefaultAsync(x => x.Id == id, token);
-            if (change is null)
+            var persisted = false;
+            try
             {
-                return Results.NotFound();
-            }
-
-            var access = await accessService.ResolveAsync(user, token);
-            var isApproval = req.LifecycleState == ChangeLifecycleState.ApprovedForImplementation;
-            if (isApproval
-                ? !access.CanApproveChange(change.OrganizationId)
-                : !access.CanManageChange(change.OrganizationId))
-            {
-                return Results.Forbid();
-            }
-
-            var previousState = change.State;
-            var previousLifecycleState = EffectiveLifecycleState(change);
-            var requestedLifecycleState = req.LifecycleState;
-            var transitionError = ValidateQuickLifecycleTransition(previousLifecycleState, requestedLifecycleState);
-            if (transitionError is not null)
-            {
-                return Results.BadRequest(transitionError);
-            }
-
-            if (previousLifecycleState == requestedLifecycleState)
-            {
-                return Results.Ok(ToQuickLifecycleDto(change, previousLifecycleState, null, null));
-            }
-
-            var currentTemplate = changeTemplateService.DeserializeTemplate(change.ChangeTemplateJson);
-            var currentTemplateValidation = changeTemplateService.ValidateTemplate(change.ChangeType, currentTemplate);
-            var nextLifecycleState = requestedLifecycleState;
-            if (previousLifecycleState == ChangeLifecycleState.Draft &&
-                requestedLifecycleState == ChangeLifecycleState.Submitted)
-            {
-                nextLifecycleState = ResolveInitialLifecycleState(
-                    currentTemplateValidation.IsComplete,
-                    change.ApproverUserIds,
-                    access.CanApproveChange(change.OrganizationId));
-            }
-
-            if (nextLifecycleState == ChangeLifecycleState.ApprovedForImplementation &&
-                await db.ChangeApprovals.AnyAsync(
-                    x => x.ChangeId == change.Id && x.Status == ChangeApprovalStatus.Pending,
-                    token))
-            {
-                return Results.BadRequest("Change cannot be approved for implementation while approvals are pending.");
-            }
-
-            if (IsImplementedLifecycleState(nextLifecycleState) && !currentTemplateValidation.IsComplete)
-            {
-                return Results.BadRequest(new
+                await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
+                    ? await db.Database.BeginTransactionAsync(global::System.Data.IsolationLevel.Serializable, token) : null;
+                var change = await db.Changes.FirstOrDefaultAsync(x => x.Id == id, token);
+                if (change is null)
                 {
-                    message = "Change template must be complete before implementing the change.",
-                    errors = currentTemplateValidation.Errors
-                });
-            }
-
-            change.LifecycleState = nextLifecycleState;
-            ApplyTicketStateForLifecycle(change, previousState);
-            change.UpdatedAt = DateTime.UtcNow;
-
-            var movedBackToDraft = previousLifecycleState != ChangeLifecycleState.Draft &&
-                nextLifecycleState == ChangeLifecycleState.Draft;
-            var submittedFromDraft = previousLifecycleState == ChangeLifecycleState.Draft &&
-                requestedLifecycleState == ChangeLifecycleState.Submitted;
-
-            if (submittedFromDraft)
-            {
-                var participantLookup = await BuildParticipantLookupAsync(db, [change], token);
-                AddChangeListeners(change, participantLookup);
-                await ReconcileApprovalRecordsAsync(db, change, participantLookup, token);
-                await ResetApprovalReviewStateAsync(db, change.Id, token);
-            }
-            else if (movedBackToDraft)
-            {
-                await ResetApprovalReviewStateAsync(db, change.Id, token);
-            }
-
-            await db.SaveChangesAsync(token);
-
-            if (movedBackToDraft)
-            {
-                await AddTimelineEventAsync(db, timelineEventBus, change.Id, "Change moved back to draft; approval review state cleared.", token);
-            }
-            else if (submittedFromDraft)
-            {
-                await AddTimelineEventAsync(db, timelineEventBus, change.Id, "Change submitted for approval.", token);
-                var notificationParticipantLookup = await BuildParticipantLookupAsync(db, [change], token);
-                var notificationOrganizationName = await db.Organizations
-                    .AsNoTracking()
-                    .Where(x => x.Id == change.OrganizationId)
-                    .Select(x => x.Name)
-                    .FirstOrDefaultAsync(token);
-                var approvals = await db.ChangeApprovals
-                    .Where(x => x.ChangeId == change.Id)
-                    .ToListAsync(token);
-                foreach (var approval in approvals.Where(_ => EffectiveLifecycleState(change) == ChangeLifecycleState.PendingApproval))
-                {
-                    await AddTimelineEventAsync(db, timelineEventBus, change.Id, $"Approval requested from {approval.ApproverName}.", token);
+                    return Results.NotFound();
                 }
 
-                await SendChangeCreationNotificationsAsync(
-                    notificationService,
-                    change,
-                    notificationOrganizationName ?? string.Empty,
-                    notificationParticipantLookup,
-                    loggerFactory,
-                    token);
+                var access = await accessService.ResolveAsync(user, token);
+                var isApproval = req.LifecycleState == ChangeLifecycleState.ApprovedForImplementation;
+                if (isApproval
+                    ? !access.CanApproveChange(change.OrganizationId)
+                    : !access.CanManageChange(change.OrganizationId))
+                {
+                    return Results.Forbid();
+                }
+
+                if (!await FenceChangeDecisionAsync(db, change, token)) return ChangeApprovalConflict();
+
+                var previousState = change.State;
+                var previousLifecycleState = EffectiveLifecycleState(change);
+                var requestedLifecycleState = req.LifecycleState;
+                var transitionError = ValidateQuickLifecycleTransition(previousLifecycleState, requestedLifecycleState);
+                if (transitionError is not null)
+                {
+                    return Results.BadRequest(transitionError);
+                }
+
+                if (previousLifecycleState == requestedLifecycleState)
+                {
+                    if (transaction is not null) await transaction.CommitAsync(token);
+                    persisted = true;
+                    if (IsImplementedLifecycleState(previousLifecycleState))
+                        await ticketSlaCompletionService.HandleTicketClosedAsync(change.Id, "quick-lifecycle", DateTimeOffset.UtcNow);
+                    return Results.Ok(ToQuickLifecycleDto(change, previousLifecycleState, null, null));
+                }
+
+                var currentTemplate = changeTemplateService.DeserializeTemplate(change.ChangeTemplateJson);
+                var currentTemplateValidation = changeTemplateService.ValidateTemplate(change.ChangeType, currentTemplate);
+                var nextLifecycleState = requestedLifecycleState;
+                if (previousLifecycleState == ChangeLifecycleState.Draft &&
+                    requestedLifecycleState == ChangeLifecycleState.Submitted)
+                {
+                    nextLifecycleState = ResolveInitialLifecycleState(
+                        currentTemplateValidation.IsComplete,
+                        change.ApproverUserIds,
+                        access.CanApproveChange(change.OrganizationId));
+                }
+
+                if (nextLifecycleState == ChangeLifecycleState.ApprovedForImplementation &&
+                    await db.ChangeApprovals.AnyAsync(
+                        x => x.ChangeId == change.Id && x.Status == ChangeApprovalStatus.Pending,
+                        token))
+                {
+                    return Results.BadRequest("Change cannot be approved for implementation while approvals are pending.");
+                }
+
+                if (IsImplementedLifecycleState(nextLifecycleState) && !currentTemplateValidation.IsComplete)
+                {
+                    return Results.BadRequest(new
+                    {
+                        message = "Change template must be complete before implementing the change.",
+                        errors = currentTemplateValidation.Errors
+                    });
+                }
+
+                change.LifecycleState = nextLifecycleState;
+                ApplyTicketStateForLifecycle(change, previousState);
+                change.UpdatedAt = DateTime.UtcNow;
+
+                var movedBackToDraft = previousLifecycleState != ChangeLifecycleState.Draft &&
+                    nextLifecycleState == ChangeLifecycleState.Draft;
+                var submittedFromDraft = previousLifecycleState == ChangeLifecycleState.Draft &&
+                    requestedLifecycleState == ChangeLifecycleState.Submitted;
+
+                if (submittedFromDraft)
+                {
+                    var participantLookup = await BuildParticipantLookupAsync(db, [change], token);
+                    AddChangeListeners(change, participantLookup);
+                    await ReconcileApprovalRecordsAsync(db, change, participantLookup, token);
+                    await ResetApprovalReviewStateAsync(db, change.Id, token);
+                }
+                else if (movedBackToDraft)
+                {
+                    await ResetApprovalReviewStateAsync(db, change.Id, token);
+                }
+
                 await db.SaveChangesAsync(token);
-            }
 
-            if (previousLifecycleState != nextLifecycleState &&
-                nextLifecycleState == ChangeLifecycleState.ImplementationInProgress)
-            {
-                await AddTimelineEventAsync(db, timelineEventBus, change.Id, "Change implementation is in progress.", token);
-                await SendChangeLifecycleNotificationsAsync(
-                    notificationService,
-                    change,
-                    "implementation-in-progress",
-                    loggerFactory,
-                    db,
-                    token);
-            }
-            else if (previousLifecycleState != nextLifecycleState &&
-                IsImplementedLifecycleState(nextLifecycleState))
-            {
-                await AddTimelineEventAsync(
-                    db,
-                    timelineEventBus,
-                    change.Id,
-                    $"Change implemented - {FormatChangeCompletionState(nextLifecycleState)}.",
-                    token);
-                await SendChangeLifecycleNotificationsAsync(
-                    notificationService,
-                    change,
-                    "implemented",
-                    loggerFactory,
-                    db,
-                    token);
-                await ticketSlaCompletionService.HandleTicketClosedAsync(change.Id, "quick-lifecycle", DateTimeOffset.UtcNow);
-            }
+                if (movedBackToDraft)
+                {
+                    QueueChangeApprovalTimeline(db, change.Id, "Change moved back to draft; approval review state cleared.", "System");
+                }
+                else if (submittedFromDraft)
+                {
+                    QueueChangeApprovalTimeline(db, change.Id, "Change submitted for approval.", "System");
+                    var notificationParticipantLookup = await BuildParticipantLookupAsync(db, [change], token);
+                    var notificationOrganizationName = await db.Organizations
+                        .AsNoTracking()
+                        .Where(x => x.Id == change.OrganizationId)
+                        .Select(x => x.Name)
+                        .FirstOrDefaultAsync(token);
+                    var approvals = await db.ChangeApprovals
+                        .Where(x => x.ChangeId == change.Id)
+                        .ToListAsync(token);
+                    foreach (var approval in approvals.Where(_ => EffectiveLifecycleState(change) == ChangeLifecycleState.PendingApproval))
+                    {
+                        QueueChangeApprovalTimeline(db, change.Id, $"Approval requested from {approval.ApproverName}.", "System");
+                    }
 
-            await domainEvents.PublishAsync(
-                new ChangeUpdatedDomainEvent(
-                    change.Id,
-                    change.TrackingId,
-                    change.Title,
-                    change.OrganizationId,
-                    change.ChangeType,
-                    change.State,
-                    TemplateChanged: false,
-                    DateTimeOffset.UtcNow,
-                    GetCorrelationId(correlationContext)),
-                token);
+                    if (!await SendChangeCreationNotificationsAsync(
+                        notificationService,
+                        change,
+                        notificationOrganizationName ?? string.Empty,
+                        notificationParticipantLookup,
+                        loggerFactory,
+                        token))
+                        throw new InvalidOperationException("The change submission notifications could not be queued.");
+                    await db.SaveChangesAsync(token);
+                }
 
-            if (previousState != change.State)
-            {
+                if (previousLifecycleState != nextLifecycleState &&
+                    nextLifecycleState == ChangeLifecycleState.ImplementationInProgress)
+                {
+                    QueueChangeApprovalTimeline(db, change.Id, "Change implementation is in progress.", "System");
+                    if (!await SendChangeLifecycleNotificationsAsync(
+                        notificationService,
+                        change,
+                        "implementation-in-progress",
+                        loggerFactory,
+                        db,
+                        token))
+                        throw new InvalidOperationException("The change lifecycle notifications could not be queued.");
+                }
+                else if (previousLifecycleState != nextLifecycleState &&
+                    IsImplementedLifecycleState(nextLifecycleState))
+                {
+                    QueueChangeApprovalTimeline(db, change.Id,
+                        $"Change implemented - {FormatChangeCompletionState(nextLifecycleState)}.", "System");
+                    if (!await SendChangeLifecycleNotificationsAsync(
+                        notificationService,
+                        change,
+                        "implemented",
+                        loggerFactory,
+                        db,
+                        token))
+                        throw new InvalidOperationException("The change lifecycle notifications could not be queued.");
+                }
+
+                await db.SaveChangesAsync(token);
+                if (transaction is not null) await transaction.CommitAsync(token);
+                persisted = true;
+                if (IsImplementedLifecycleState(nextLifecycleState))
+                    await ticketSlaCompletionService.HandleTicketClosedAsync(change.Id, "quick-lifecycle", DateTimeOffset.UtcNow);
+
                 await domainEvents.PublishAsync(
-                    new ChangeStateChangedDomainEvent(
+                    new ChangeUpdatedDomainEvent(
                         change.Id,
                         change.TrackingId,
+                        change.Title,
                         change.OrganizationId,
-                        previousState,
+                        change.ChangeType,
                         change.State,
+                        TemplateChanged: false,
                         DateTimeOffset.UtcNow,
                         GetCorrelationId(correlationContext)),
                     token);
-            }
 
-            return Results.Ok(ToQuickLifecycleDto(change, nextLifecycleState, currentTemplate, currentTemplateValidation));
+                if (previousState != change.State)
+                {
+                    await domainEvents.PublishAsync(
+                        new ChangeStateChangedDomainEvent(
+                            change.Id,
+                            change.TrackingId,
+                            change.OrganizationId,
+                            previousState,
+                            change.State,
+                            DateTimeOffset.UtcNow,
+                            GetCorrelationId(correlationContext)),
+                        token);
+                }
+
+                return Results.Ok(ToQuickLifecycleDto(change, nextLifecycleState, currentTemplate, currentTemplateValidation));
+            }
+            catch (Exception exception) when (!persisted && IsChangeApprovalConflict(exception))
+            {
+                db.ChangeTracker.Clear();
+                return ChangeApprovalConflict();
+            }
         })
         .WithName("QuickUpdateChangeLifecycle")
         .WithSummary("Quick update change lifecycle")
@@ -1330,87 +1350,10 @@ public static class ChangeEndpoints
             ValidationSteps = template?.ValidationSteps ?? new(),
             RollbackPlan = template?.RollbackPlan,
             RollbackReference = template?.RollbackReference,
-            CanReview = approval is not null,
+            CanReview = approval?.Status == ChangeApprovalStatus.Pending && EffectiveLifecycleState(change) == ChangeLifecycleState.PendingApproval,
             ApprovalStatus = approval?.Status ?? ChangeApprovalStatus.Pending,
             ReviewedAtUtc = approval?.ReviewedAtUtc,
             ViewedAtUtc = approval?.ViewedAtUtc
-        });
-    }
-
-    private static async Task<IResult> ReviewPublicChangeApproval(
-        [FromBody] ReviewChangeApprovalRequest request,
-        [FromServices] IPublicTicketLinkSigner signer,
-        [FromServices] HelpdeskDbContext db,
-        [FromServices] ITicketNotificationService notificationService,
-        [FromServices] ITimelineEventBus timelineEventBus,
-        [FromServices] ILoggerFactory loggerFactory,
-        CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(request.TrackingId) ||
-            string.IsNullOrWhiteSpace(request.Email) ||
-            string.IsNullOrWhiteSpace(request.Token))
-        {
-            return Results.BadRequest("Tracking ID, email, and token are required.");
-        }
-
-        var change = await db.Changes
-            .Include(x => x.Approvals)
-            .FirstOrDefaultAsync(x => x.TrackingId == request.TrackingId, ct);
-        if (change is null)
-        {
-            return Results.Problem("Change not found", statusCode: 404);
-        }
-
-        if (!signer.ValidateToken(request.Token, change.TrackingId, request.Email))
-        {
-            return Results.Unauthorized();
-        }
-
-        var approval = change.Approvals.FirstOrDefault(x =>
-            string.Equals(x.ApproverEmail, request.Email, StringComparison.OrdinalIgnoreCase));
-        if (approval is null)
-        {
-            return Results.Unauthorized();
-        }
-
-        if (approval.Status == ChangeApprovalStatus.Pending)
-        {
-            approval.Status = ChangeApprovalStatus.Reviewed;
-            approval.ReviewedAtUtc = DateTimeOffset.UtcNow;
-            change.UpdatedAt = DateTime.UtcNow;
-            await AddTimelineEventAsync(db, timelineEventBus, change.Id, $"{approval.ApproverName} reviewed/approved the change.", ct);
-
-            if (change.Approvals.All(x => x.Status == ChangeApprovalStatus.Reviewed))
-            {
-                change.LifecycleState = ChangeLifecycleState.ApprovedForImplementation;
-                await AddTimelineEventAsync(db, timelineEventBus, change.Id, "All approvals received; change approved for implementation.", ct);
-                await db.SaveChangesAsync(ct);
-
-                var participantLookup = await BuildParticipantLookupAsync(db, [change], ct);
-                var organizationName = await db.Organizations
-                    .AsNoTracking()
-                    .Where(x => x.Id == change.OrganizationId)
-                    .Select(x => x.Name)
-                    .FirstOrDefaultAsync(ct);
-                await SendChangeApprovedNotificationsAsync(
-                    notificationService,
-                    change,
-                    organizationName ?? string.Empty,
-                    participantLookup,
-                    loggerFactory,
-                    ct);
-            }
-            else
-            {
-                await db.SaveChangesAsync(ct);
-            }
-        }
-
-        return Results.Ok(new
-        {
-            approval.Status,
-            approval.ReviewedAtUtc,
-            LifecycleState = EffectiveLifecycleState(change)
         });
     }
 
@@ -2156,7 +2099,7 @@ public static class ChangeEndpoints
         });
     }
 
-    private static async Task SendChangeCreationNotificationsAsync(
+    private static async Task<bool> SendChangeCreationNotificationsAsync(
         ITicketNotificationService notificationService,
         Change change,
         string organizationName,
@@ -2171,11 +2114,12 @@ public static class ChangeEndpoints
         var implementorEmail = GetUserEmail(participantLookup, change.ImplementorUserId);
         var approvers = FormatApprovers(change.Approvals);
 
+        var queued = true;
         try
         {
             if (!string.IsNullOrWhiteSpace(requestedForEmail))
             {
-                await notificationService.SendChangeSubmittedAsync(
+                queued &= await notificationService.SendChangeSubmittedAsync(
                     change,
                     requestedForEmail,
                     requestedForName,
@@ -2190,7 +2134,7 @@ public static class ChangeEndpoints
             if (!string.IsNullOrWhiteSpace(implementorEmail) &&
                 !string.Equals(implementorEmail, requestedForEmail, StringComparison.OrdinalIgnoreCase))
             {
-                await notificationService.SendChangeSubmittedAsync(
+                queued &= await notificationService.SendChangeSubmittedAsync(
                     change,
                     implementorEmail,
                     implementorName,
@@ -2206,7 +2150,7 @@ public static class ChangeEndpoints
             {
                 foreach (var approval in change.Approvals)
                 {
-                    await notificationService.SendChangeApprovalRequiredAsync(
+                    var approvalQueued = await notificationService.SendChangeApprovalRequiredAsync(
                         change,
                         approval,
                         organizationName,
@@ -2215,25 +2159,26 @@ public static class ChangeEndpoints
                         approvers,
                         change.CcRecipients.Where(x => !string.Equals(x, approval.ApproverEmail, StringComparison.OrdinalIgnoreCase)),
                         token);
-                    approval.TokenSentAtUtc = DateTimeOffset.UtcNow;
+                    queued &= approvalQueued;
+                    if (approvalQueued) approval.TokenSentAtUtc = DateTimeOffset.UtcNow;
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogError(ex, "Failed to send creation notifications for change {ChangeId}.", change.Id);
+            return false;
         }
+        return queued;
     }
 
-    private static async Task SendChangeApprovedNotificationsAsync(
+    private static async Task QueueChangeApprovedNotificationsAsync(
         ITicketNotificationService notificationService,
         Change change,
         string organizationName,
         IReadOnlyDictionary<string, ChangeParticipantUserDto> participantLookup,
-        ILoggerFactory loggerFactory,
         CancellationToken token)
     {
-        var logger = loggerFactory.CreateLogger("ChangeNotifications");
         var requestedForName = GetUserName(participantLookup, change.RequestedForUserId) ?? string.Empty;
         var requestedForEmail = GetUserEmail(participantLookup, change.RequestedForUserId);
         var implementorName = GetUserName(participantLookup, change.ImplementorUserId) ?? string.Empty;
@@ -2254,29 +2199,19 @@ public static class ChangeEndpoints
             recipients.TryAdd(recipient.Trim(), recipient.Trim());
         }
 
-        try
+        foreach (var (email, name) in recipients)
         {
-            foreach (var (email, name) in recipients)
-            {
-                await notificationService.SendChangeApprovedAsync(
-                    change,
-                    email,
-                    name,
-                    organizationName,
-                    requestedForName,
-                    implementorName,
-                    approvers,
-                    change.CcRecipients.Where(x => !string.Equals(x, email, StringComparison.OrdinalIgnoreCase)),
-                    token);
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Failed to send approved notifications for change {ChangeId}.", change.Id);
+            // The production notification service uses the scoped durable mailbox
+            // outbox. A missing template or a failed enqueue must abort this decision,
+            // so replay cannot report success while permanently losing its mail intent.
+            if (!await notificationService.SendChangeApprovedAsync(
+                change, email, name, organizationName, requestedForName,
+                implementorName, approvers, [], token))
+                throw new InvalidOperationException("The change approval notification could not be queued.");
         }
     }
 
-    private static async Task SendChangeLifecycleNotificationsAsync(
+    private static async Task<bool> SendChangeLifecycleNotificationsAsync(
         ITicketNotificationService notificationService,
         Change change,
         string notificationKind,
@@ -2315,16 +2250,17 @@ public static class ChangeEndpoints
             recipients.TryAdd(recipient.Trim(), recipient.Trim());
         }
 
+        var queued = true;
         try
         {
             foreach (var (email, name) in recipients)
             {
-                var cc = change.CcRecipients
-                    .Where(x => !string.Equals(x, email, StringComparison.OrdinalIgnoreCase));
+                // Every CC recipient is already in this deduplicated recipient set.
+                string[] cc = [];
 
                 if (string.Equals(notificationKind, "implementation-in-progress", StringComparison.OrdinalIgnoreCase))
                 {
-                    await notificationService.SendChangeImplementationInProgressAsync(
+                    queued &= await notificationService.SendChangeImplementationInProgressAsync(
                         change,
                         email,
                         name,
@@ -2337,7 +2273,7 @@ public static class ChangeEndpoints
                 }
                 else
                 {
-                    await notificationService.SendChangeImplementedAsync(
+                    queued &= await notificationService.SendChangeImplementedAsync(
                         change,
                         email,
                         name,
@@ -2351,10 +2287,12 @@ public static class ChangeEndpoints
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogError(ex, "Failed to send {NotificationKind} notifications for change {ChangeId}.", notificationKind, change.Id);
+            return false;
         }
+        return queued;
     }
 
     private static string FormatChangeCompletionState(ChangeLifecycleState state) => state switch

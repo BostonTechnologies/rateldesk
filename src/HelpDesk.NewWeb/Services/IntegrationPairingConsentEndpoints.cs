@@ -41,7 +41,11 @@ public static class IntegrationPairingConsentEndpoints
                             new HostDeploymentApprovalRequest(code, form["proposalHash"].ToString(), form["sourceHash"].ToString(), true), context.RequestAborted)
                         : await clients.CreateClient("SystemPairingApi").PostAsJsonAsync($"api/v1/integration-credentials/{family}/approve",
                             new IntegrationPairingApprovalRequest(code, form["organizationId"].ToString(),
-                                form["permissions"].Where(p => p is not null).Select(p => p!).ToArray(), lifetime, true), context.RequestAborted);
+                                form["permissions"].Where(p => p is not null).Select(p => p!).ToArray(), lifetime, true)
+                            {
+                                GrantKind = string.IsNullOrWhiteSpace(form["grantKind"]) ? "ordinary" : form["grantKind"].ToString(),
+                                OwnerAdministrationConsent = form["ownerAdministrationConsent"] == "on"
+                            }, context.RequestAborted);
                 return Reply(context, response.IsSuccessStatusCode ? deny ? "denied" : "approved" :
                     response.StatusCode == HttpStatusCode.TooManyRequests ? "slow-down" : "retry", host);
             }

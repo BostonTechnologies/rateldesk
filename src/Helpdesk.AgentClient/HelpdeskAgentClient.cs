@@ -29,7 +29,7 @@ public interface IAgentAccessTokenProvider
 /// Calls the Helpdesk API using immutable, deployment-owned configuration.
 /// It never inspects inbound HTTP context or forwards inbound credentials.
 /// </summary>
-public sealed class HelpdeskAgentClient : IHelpdeskAgentClient
+public sealed partial class HelpdeskAgentClient : IHelpdeskAgentClient, IHelpdeskAgentAttachmentClient
 {
     public const string ApiHttpClientName = "Helpdesk.AgentClient.Api";
     public const string AuthHttpClientName = "Helpdesk.AgentClient.Auth";

@@ -18,14 +18,6 @@ public static class HelpdeskToolDefinitions
 {
     private const string EnvelopeGuidance = "Use exactly the outer envelope { operation, request, confirm }. Put every operation-specific field inside request; never place those fields at the tool root.";
 
-    private static readonly IReadOnlySet<string> ReadOnlyTools = new HashSet<string>(StringComparer.Ordinal)
-    {
-        "helpdesk_auth", "helpdesk_health", "helpdesk_capabilities", "helpdesk_system", "helpdesk_logs",
-        "helpdesk_organizations", "helpdesk_customers", "helpdesk_users", "helpdesk_search", "helpdesk_roles",
-        "helpdesk_categories", "helpdesk_services", "helpdesk_request_forms", "helpdesk_self_service",
-        "helpdesk_schema", "helpdesk_enums", "helpdesk_examples", "helpdesk_raw"
-    };
-
     private static readonly IReadOnlySet<string> OpenWorldTools = new HashSet<string>(StringComparer.Ordinal)
     {
         "helpdesk_connectivity"
@@ -41,8 +33,8 @@ public static class HelpdeskToolDefinitions
     private static McpServerTool Create(MethodInfo method)
     {
         var name = method.Name;
-        var readOnly = ReadOnlyTools.Contains(name);
         var definitions = McpOperationCatalog.All.Where(item => item.Tool == name).ToArray();
+        var readOnly = definitions.All(definition => definition.Effect == "read");
         var options = new McpServerToolCreateOptions
         {
             Name = name,
@@ -51,7 +43,7 @@ public static class HelpdeskToolDefinitions
             ReadOnly = readOnly,
             Destructive = !readOnly,
             Idempotent = readOnly,
-            OpenWorld = OpenWorldTools.Contains(name),
+            OpenWorld = OpenWorldTools.Contains(name) || OperatorOperationCatalog.All.Any(item => item.Tool == name && item.ExternalIo),
             UseStructuredContent = true
         };
 

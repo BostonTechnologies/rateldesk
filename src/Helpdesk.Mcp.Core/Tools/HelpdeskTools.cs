@@ -20,7 +20,7 @@ public sealed record HelpdeskToolResponse(bool Success, string Status, string Su
 }
 
 [McpServerToolType]
-public sealed class HelpdeskTools(
+public sealed partial class HelpdeskTools(
     IHelpdeskAgentClient client,
     IHelpdeskMcpConfigurationSurface configurationSurface,
     HelpdeskMcpHostContext hostContext)
@@ -48,7 +48,8 @@ public sealed class HelpdeskTools(
 
     [McpServerTool(UseStructuredContent = true), Description("Read the downstream execution identity. access reads current API permissions, organization scope and linked customer for every credential mode. status preserves integration/gateway application status or exact Authentik AI-agent status. External HTTP hosts use their separately configured downstream principal, not the ingress caller. The MCP server never returns bearer tokens.")]
     public Task<HelpdeskToolResponse> helpdesk_auth(string operation = "status", JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default)
-        => Read("helpdesk_auth", operation, ["status", "access"], operation == "access" ? "/api/v1/auth/me" : AuthStatusPath, null, cancellationToken);
+        => operation == "revoke_self" ? OperatorOperation("helpdesk_auth", operation, request, confirm, cancellationToken)
+            : Read("helpdesk_auth", operation, ["status", "access", "revoke_self"], operation == "access" ? "/api/v1/auth/me" : AuthStatusPath, null, cancellationToken);
 
     [McpServerTool(UseStructuredContent = true), Description("Read live, readiness, and authenticated Helpdesk health.")]
     public async Task<HelpdeskToolResponse> helpdesk_health(string operation = "get", JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default)
@@ -108,17 +109,19 @@ public sealed class HelpdeskTools(
         return await Execute(() => client.GetAsync(Query("/api/v1/ops/ai-agent/logs", payload, "correlationId"), true, cancellationToken), "Operational diagnostics read.").ConfigureAwait(false);
     }
 
-    [McpServerTool(UseStructuredContent = true), Description("Manage incidents. Read operations: list, get, peek, timeline, timeline_count, attachments_count, listeners_count. For list, request.query searches through the API q parameter; request.q is also supported. Blank searches are unfiltered; equivalent trimmed aliases deduplicate and conflicting nonempty aliases fail validation. Confirmed mutations: create, bulk_create, update, delete, state, bulk_state, assign, assign_self, add_worklog, close. In caller-bound mode, assign_self uses the authenticated application identity; external agents use their configured agent identity. close requires request.incidentId and request.closureNote, writes an internal closure note by default, then sets the incident state to Resolved. Every mutation requires confirm:true.")]
+    [McpServerTool(UseStructuredContent = true), Description("Manage incidents, listeners and duplicate/related incident links. Read operations include list, get, peek, timeline, relations and counts. List request.query and request.q map to the API q parameter; blank searches are unfiltered, equivalent trimmed aliases deduplicate, and conflicting nonempty aliases fail validation. Confirmed mutations include create, bulk_create, update, delete, state, bulk_state, assign, assign_self, add_worklog, close, create_relation, delete_relation, bulk_delete and bulk_marketing_spam. The discovery schema specifies each operation's exact request shape. assign_self uses the authenticated caller in caller-bound mode. close requires incidentId and closureNote, writes an internal note by default and resolves the incident. Every mutation requires confirm:true.")]
     public Task<HelpdeskToolResponse> helpdesk_incidents(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default) => TicketOperation("helpdesk_incidents", "/api/v1/incidents", "incidentId", operation, request, confirm, cancellationToken);
     [McpServerTool(UseStructuredContent = true), Description("Manage service requests. List query/q aliases map to API q; blank searches are unfiltered, equivalent trimmed aliases deduplicate, and conflicting nonempty values fail validation. Reads: list, get, tasks, timeline, timeline_count, attachments_count, listeners_count. Confirmed mutations: create, bulk_create, update, delete, state, bulk_state, assign, assign_self, add_worklog. state requires request.requestId and request.newState; bulk_state requires request.ids and request.newState; assign requires request.ids and request.assignedToId. Every mutation requires confirm:true.")]
     public Task<HelpdeskToolResponse> helpdesk_requests(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default) => TicketOperation("helpdesk_requests", "/api/v1/requests", "requestId", operation, request, confirm, cancellationToken);
-    [McpServerTool(UseStructuredContent = true), Description("Manage changes. List query/q aliases map to API q; blank searches are unfiltered, equivalent trimmed aliases deduplicate, and conflicting nonempty values fail validation. Reads: list, get, timeline, worklogs, timeline_count, attachments_count, listeners_count. Confirmed mutations: create, bulk_create, update, delete, state, bulk_state, assign, assign_self, add_worklog, lifecycle. Every mutation requires confirm:true.")]
+    [McpServerTool(UseStructuredContent = true), Description("Manage changes and the authenticated caller's designated approval reviews. List query/q aliases map to API q; blank searches are unfiltered, equivalent trimmed aliases deduplicate, and conflicting nonempty values fail validation. Reads include list, get, timeline, worklogs, counts and my_approval. Confirmed mutations include create, bulk_create, update, delete, state, bulk_state, assign, assign_self, add_worklog, lifecycle and review_approval. The API preserves lifecycle prerequisites and designated-approver identity. Every mutation requires confirm:true.")]
     public Task<HelpdeskToolResponse> helpdesk_changes(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default) => TicketOperation("helpdesk_changes", "/api/v1/changes", "changeId", operation, request, confirm, cancellationToken);
 
-    [McpServerTool(UseStructuredContent = true), Description("Report AiAssistant AI investigation progress to its existing Helpdesk AI worklog. Operations: report. This narrowly scoped autonomous update does not create a normal worklog or change ticket state; it requires invocationId, eventId, ticketId, ticketType, correlationId, status, and message. The existing authenticated MCP/API identity is required. Tenant scope is derived from the matched Helpdesk invocation; the tool cannot select, override, or bypass it.")]
+    [McpServerTool(UseStructuredContent = true), Description("Manage AI webhook configuration, ticket investigation dispatch/worklogs and native chat through the current caller's permissions. Discovery describes the typed configuration, chat interaction and recovery operations. Every business mutation, including first-use chat_open, requires confirm:true. The separate report operation remains a narrowly bound autonomous AI worklog update requiring invocationId, eventId, ticketId, ticketType, correlationId, status and message. Its tenant is derived from the authenticated stored invocation and cannot be overridden.")]
     public async Task<HelpdeskToolResponse> helpdesk_ai_assistant(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default)
     {
-        if (operation != "report") return Invalid("helpdesk_ai_assistant", operation, ["report"]);
+        if (OperatorOperationCatalog.Find("helpdesk_ai_assistant", operation) is not null)
+            return await OperatorOperation("helpdesk_ai_assistant", operation, request, confirm, cancellationToken).ConfigureAwait(false);
+        if (operation != "report") return Invalid("helpdesk_ai_assistant", operation, McpOperationCatalog.OperationsFor("helpdesk_ai_assistant"));
         if (!TryRequest<AiAssistantWorklogRequest>(request, out var update, out var error)) return Validation(error);
         if (update.TicketType is not ("incidents" or "requests" or "changes")) return Validation("request.ticketType must be incidents, requests, or changes.");
         if (!Enum.TryParse<AiInvestigationStatus>(update.Status, true, out var status) || !Enum.IsDefined(status)) return Validation("request.status is not a valid AI investigation status.");
@@ -172,9 +175,11 @@ public sealed class HelpdeskTools(
         return await Execute(() => client.GetAsync(Query($"/api/v1/global-search/{operation}", payload), true, cancellationToken), "Bounded search completed.").ConfigureAwait(false);
     }
 
-    [McpServerTool(UseStructuredContent = true), Description("Inspect shared ticket counts. Operations: timeline_count, attachments_count, listeners_count. Count operations require request.ticketType (incidents, requests, or changes) and request.ticketId. Prefer the matching domain tool when the ticket type is already known.")]
+    [McpServerTool(UseStructuredContent = true), Description("Resolve authorized ticket organization, customer and assignee choices, inspect ticket activity, request worklogs, owned tasks and shared counts, set an eligible requester and mark a ticket as seen. Discovery specifies each operation's typed selectors. Count operations require request.ticketType (incidents, requests, or changes) and request.ticketId. Mutations require confirm:true.")]
     public async Task<HelpdeskToolResponse> helpdesk_tickets(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default)
     {
+        if (OperatorOperationCatalog.Find("helpdesk_tickets", operation) is not null)
+            return await OperatorOperation("helpdesk_tickets", operation, request, confirm, cancellationToken).ConfigureAwait(false);
         if (operation is "timeline_count" or "attachments_count" or "listeners_count")
         {
             if (!TryRequest<TicketCountRequest>(request, out var count, out var error)) return Validation(error);
@@ -190,7 +195,7 @@ public sealed class HelpdeskTools(
                 ? Validation("request.ticketId is required.")
                 : await Mutation(operation, [id], confirm, HttpMethod.Post, $"/api/v1/tickets/{Uri.EscapeDataString(id)}/mark-as-seen", BodyWithout(Object(request), "ticketId"), cancellationToken).ConfigureAwait(false);
         }
-        return Invalid("helpdesk_tickets", operation, ["timeline_count", "attachments_count", "listeners_count", "mark_as_seen"]);
+        return Invalid("helpdesk_tickets", operation, McpOperationCatalog.OperationsFor("helpdesk_tickets"));
     }
 
     [McpServerTool(UseStructuredContent = true), Description("Inspect permission-aware role definitions. Operations: list, get; get requires request.roleId.")]
@@ -242,9 +247,11 @@ public sealed class HelpdeskTools(
         var id = String(request, "requestId"); return operation != "get_request" ? Invalid("helpdesk_self_service", operation, ["requests", "get_request", "request_users"]) : string.IsNullOrWhiteSpace(id) ? Validation("request.requestId is required.") : await Execute(() => client.GetAsync($"/api/v1/self-service/requests/{Uri.EscapeDataString(id)}", true, cancellationToken), "Self-service request completed.").ConfigureAwait(false);
     }
 
-    [McpServerTool(UseStructuredContent = true), Description("Inspect notifications. Operations: list, get, summary, unread_errors. get requires request.notificationId.")]
+    [McpServerTool(UseStructuredContent = true), Description("Inspect authorized notifications, unread pages, summaries, error counters and persisted timelines; mark owned notifications as read with confirmation. get requires request.notificationId. A timeline lookup requires a nonblank reference, correlationId or both.")]
     public async Task<HelpdeskToolResponse> helpdesk_notifications(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default)
     {
+        if (OperatorOperationCatalog.Find("helpdesk_notifications", operation) is not null)
+            return await OperatorOperation("helpdesk_notifications", operation, request, confirm, cancellationToken).ConfigureAwait(false);
         if (operation == "list") return await Execute(() => client.GetAsync(Query("/api/v1/notifications", Object(request)), true, cancellationToken), "Notifications list completed.").ConfigureAwait(false);
         if (operation == "summary") return await Execute(() => client.GetAsync("/api/v1/notifications/summary", true, cancellationToken), "Notification summary completed.").ConfigureAwait(false);
         if (operation == "unread_errors") return await Execute(() => client.GetAsync(Query("/api/v1/notifications/unread-errors", Object(request)), true, cancellationToken), "Unread errors completed.").ConfigureAwait(false);
@@ -334,7 +341,7 @@ public sealed class HelpdeskTools(
     public async Task<HelpdeskToolResponse> helpdesk_admin_mutations(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default)
     {
         var payload = Object(request) ?? new JsonObject();
-        if (payload.ContainsKey("password") || payload.ContainsKey("appPassword") || payload.ContainsKey("clientSecret")) return Validation("Secret-bearing fields are not accepted through MCP.");
+        if (payload.ContainsKey("password") || payload.ContainsKey("appPassword") || payload.ContainsKey("clientSecret")) return Validation("Secret-bearing fields are not accepted by this administrative operation. Use the dedicated write-only settings or one-time account activation operation when appropriate.");
         var map = operation switch
         {
             "create_organization" => (HttpMethod.Post, "/api/v1/organizations", "organizationId"),
@@ -379,6 +386,8 @@ public sealed class HelpdeskTools(
 
     private async Task<HelpdeskToolResponse> TicketOperation(string tool, string basePath, string idName, string operation, JsonElement? request, bool confirm, CancellationToken ct)
     {
+        if (OperatorOperationCatalog.Find(tool, operation) is not null)
+            return await OperatorOperation(tool, operation, request, confirm, ct).ConfigureAwait(false);
         if (operation == "update" && HelpdeskToolDefinitions.ValidateSupportedFields(tool, operation, request) is { } fieldError) return Validation(fieldError);
         if (operation == "update" && PriorityValidation(Object(request)) is { } priorityError) return Validation(priorityError);
         if (operation is "state" or "bulk_state" or "lifecycle")

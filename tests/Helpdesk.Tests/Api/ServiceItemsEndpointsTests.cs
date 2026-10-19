@@ -7,10 +7,14 @@ using Helpdesk.API.Endpoints.Dashboard;
 using Helpdesk.API.Endpoints.Services;
 using Helpdesk.API.Services;
 using Helpdesk.Application.Dashboard;
+using Helpdesk.Application.Events;
 using Helpdesk.Application.Messaging;
+using Helpdesk.Application.RequestTasks;
+using Helpdesk.Application.Resources;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.DTOs;
+using Helpdesk.Shared.DTOs.RequestForm;
 using Helpdesk.Shared.DTOs.Service;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
@@ -23,12 +27,30 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using NSubstitute;
 using Xunit;
 
 namespace Helpdesk.Tests.Api;
 
 public sealed class ServiceItemsEndpointsTests
 {
+    [Fact]
+    public async Task Request_form_edit_preserves_omitted_audience_and_accepts_explicit_clear()
+    {
+        await using var harness = await ServiceItemsTestHarness.CreateAsync(isHelpdeskAdmin: true);
+        using var configured = await harness.Client.PutAsJsonAsync("/api/v1/request-forms/form-root", new { allowedOrganizationIds = new[] { "tenant-1", "tenant-2" } });
+        configured.EnsureSuccessStatusCode();
+        using var renamed = await harness.Client.PutAsJsonAsync("/api/v1/request-forms/form-root", new { title = "Reviewed title" });
+        renamed.EnsureSuccessStatusCode();
+        var retained = await harness.Client.GetFromJsonAsync<RequestFormDto>("/api/v1/request-forms/form-root");
+        Assert.Equal("Reviewed title", retained!.Title);
+        Assert.Equal(["tenant-1", "tenant-2"], retained.AllowedOrganizationIds);
+        using var cleared = await harness.Client.PutAsJsonAsync("/api/v1/request-forms/form-root", new { allowedOrganizationIds = Array.Empty<string>() });
+        cleared.EnsureSuccessStatusCode();
+        var after = await harness.Client.GetFromJsonAsync<RequestFormDto>("/api/v1/request-forms/form-root");
+        Assert.Empty(after!.AllowedOrganizationIds);
+    }
+
     [Fact]
     public async Task MCP_service_search_maps_query_alias_to_real_q_filter_and_authorized_totals()
     {
@@ -319,6 +341,11 @@ public sealed class ServiceItemsEndpointsTests
             builder.Services.AddDbContext<HelpdeskDbContext>(options => options.UseSqlite(connection));
             builder.Services.AddScoped<IRepository<Service>, EfRepository<Service>>();
             builder.Services.AddScoped<IRepository<RequestForm>, EfRepository<RequestForm>>();
+            builder.Services.AddSingleton<IRequestFormSchemaParser, RequestFormSchemaParser>();
+            builder.Services.AddSingleton<IRequestTaskDependencyGraphValidator, RequestTaskDependencyGraphValidator>();
+            builder.Services.AddSingleton(Substitute.For<IRequestFormDatasetBindingValidator>());
+            builder.Services.AddSingleton(Substitute.For<IDomainEventPublisher>());
+            builder.Services.AddSingleton(Substitute.For<ICorrelationContext>());
             builder.Services.AddScoped<ITenantContext>(_ => new TestTenantContext("tenant-1", "user-1", isHelpdeskAdmin));
             builder.Services.AddScoped<ISelfServiceAudienceService, TestSelfServiceAudienceService>();
             var dashboardSender = new TestDashboardSender();
@@ -338,6 +365,7 @@ public sealed class ServiceItemsEndpointsTests
                         HelpdeskPermissions.SelfServiceUser,
                         HelpdeskPermissions.HelpdeskAdmin));
                 options.AddPolicy("TicketReadAccess", policy => policy.RequireRole(HelpdeskPermissions.SelfServiceUser, HelpdeskPermissions.HelpdeskAdmin));
+                options.AddPolicy("HelpdeskAdmin", policy => policy.RequireRole(HelpdeskPermissions.HelpdeskAdmin));
             });
 
             var app = builder.Build();

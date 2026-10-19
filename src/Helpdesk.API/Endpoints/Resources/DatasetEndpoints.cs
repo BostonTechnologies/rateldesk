@@ -164,6 +164,44 @@ public static class DatasetEndpoints
         })
         .WithName("GetDatasetRows");
 
+        admin.MapPost("/{datasetId}/rows", async (
+            string datasetId,
+            [FromBody] UpsertDatasetRowsDto dto,
+            ClaimsPrincipal user,
+            ICurrentUserAccessService accessService,
+            IDataManagementService dataManagementService,
+            [FromServices] IOperatorDatasetWriter writer,
+            CancellationToken token) =>
+        {
+            var access = await accessService.ResolveAsync(user, token);
+            var dataset = await dataManagementService.GetDatasetAsync(datasetId, token);
+            if (dataset is null) return Results.NotFound();
+            if (!CanAccessOrganization(access, dataset.OrganizationId) ||
+                !access.IsHelpdeskAdmin && dataset.SourceType != DatasetSourceType.Custom)
+                return Results.Forbid();
+
+            try
+            {
+                var count = await writer.UpsertRowsAsOperatorAsync(datasetId, dataset.OrganizationId,
+                    access.IsHelpdeskAdmin, dto, token);
+                return Results.Ok(new { rowsUpserted = count });
+            }
+            catch (DatasetWriteConflictException error)
+            {
+                return Results.Conflict(new { code = "dataset_changed", message = error.Message });
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Results.Forbid();
+            }
+            catch (ArgumentException error)
+            {
+                return Results.BadRequest(new { message = error.Message });
+            }
+        })
+        .WithName("UpsertDatasetRowsAsOperator")
+        .WithSummary("Update dataset rows with authenticated data-management authority");
+
         admin.MapGet("/{datasetId}/credentials", async (
             string datasetId,
             ClaimsPrincipal user,
@@ -297,6 +335,10 @@ public static class DatasetEndpoints
             {
                 synced = await dataManagementService.SyncBuiltInDatasetsAsync(organizationId, token);
             }
+            catch (DatasetWriteConflictException error)
+            {
+                return Results.Conflict(new { code = "dataset_changed", message = error.Message });
+            }
             catch (SecretReentryRequiredException ex)
             {
                 return Results.Conflict(new
@@ -330,6 +372,14 @@ public static class DatasetEndpoints
             {
                 var count = await dataManagementService.UpsertRowsAsync(datasetId, apiKeyValues.ToString(), dto, token);
                 return Results.Ok(new { rowsUpserted = count });
+            }
+            catch (DatasetWriteConflictException error)
+            {
+                return Results.Conflict(new { code = "dataset_changed", message = error.Message });
+            }
+            catch (ArgumentException error)
+            {
+                return Results.BadRequest(new { message = error.Message });
             }
             catch (UnauthorizedAccessException)
             {

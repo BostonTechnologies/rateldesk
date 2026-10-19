@@ -15,18 +15,19 @@ public sealed record McpOperationDefinition(
     // to use the API's unique saved-connection resolution.
     public bool RequiresRequest => RequestContract is not "None" and not "OrchestrationSelectionRequest";
 
-    public string Effect => HttpMethod is "GET" || (HttpMethod == "LOCAL" && !RequiresConfirmation) ? "read"
-        : Tool == "helpdesk_connectivity" ? "external_io" : HttpMethod == "LOCAL" ? "local_write" : "write";
+    public string Effect => HttpMethod is "GET" && OperatorOperationCatalog.Find(Tool, Operation)?.MutatingRead != true || (HttpMethod == "LOCAL" && !RequiresConfirmation) ? "read"
+        : Tool == "helpdesk_connectivity" || OperatorOperationCatalog.Find(Tool, Operation)?.ExternalIo == true ? "external_io" : HttpMethod == "LOCAL" ? "local_write" : "write";
 }
 
 /// <summary>
 /// The checked-in contract used by MCP discovery, tests, and operator documentation.
 /// It lists supported MCP adapters; API identity, authority and domain rules remain
-/// authoritative. Secret-returning, unrestricted raw and debug operations stay excluded.
+/// authoritative. Stored-secret reads, unrestricted raw and debug operations stay
+/// excluded; explicitly confirmed creation can return only its new one-time credential.
 /// </summary>
 public static class McpOperationCatalog
 {
-    public const string Revision = "2026-10-18.mcp-campaign-repairs-v22";
+    public const string Revision = "2026-10-19.mcp-owner-operations-v23";
 
     public static IReadOnlyList<McpOperationDefinition> All { get; } =
     [
@@ -89,7 +90,8 @@ public static class McpOperationCatalog
         Read("helpdesk_tickets", "timeline_count", "TicketCountRequest", "/api/v1/{ticketType}/{ticketId}/timeline/count", "Count timeline entries."),
         Read("helpdesk_tickets", "attachments_count", "TicketCountRequest", "/api/v1/{ticketType}/{ticketId}/attachments/count", "Count attachments."),
         Read("helpdesk_tickets", "listeners_count", "TicketCountRequest", "/api/v1/{ticketType}/{ticketId}/listeners/count", "Count listeners."),
-        .. AdditionalOperations()
+        .. AdditionalOperations(),
+        .. OperatorOperationCatalog.All.Select(item => item.Definition)
     ];
 
     public static IReadOnlyList<string> OperationsFor(string tool) => All
@@ -181,7 +183,14 @@ public static class McpOperationCatalog
         yield return Operation("helpdesk_raw", "get_request", "AllowlistedReadRequest", "GET", "/api/v1/requests/{requestId}", false);
         yield return Operation("helpdesk_raw", "get_change", "AllowlistedReadRequest", "GET", "/api/v1/changes/{changeId}", false);
 
-        foreach (var (operation, method, path) in AdminOperations()) yield return Operation("helpdesk_admin_mutations", operation, operation == "provision_user" ? "None" : "AdministrativeMutationRequest", method, path, true);
+        foreach (var (operation, method, path) in AdminOperations())
+        {
+            var definition = Operation("helpdesk_admin_mutations", operation, operation == "provision_user" ? "None" : "AdministrativeMutationRequest", method, path, true);
+            yield return operation.StartsWith("customer_", StringComparison.Ordinal) ? definition with
+            {
+                Description = $"{operation} manages an External identity-provider customer login and requires configured Authentik. Inspect helpdesk_customers.auth_status first. Local activation uses helpdesk_tenant_admin.reset_customer_login; local disable/enable uses the linked local-account userId with disable_local_account/enable_local_account. Identity-mode mismatch is a real 409 prerequisite result."
+            } : definition;
+        }
     }
 
     private static IEnumerable<McpOperationDefinition> TicketRemainder(string tool, string type, string idName, IReadOnlyList<string> operations)

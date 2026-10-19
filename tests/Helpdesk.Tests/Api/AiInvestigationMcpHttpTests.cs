@@ -6,15 +6,22 @@ using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text.Json;
+using Helpdesk.API.Authentication;
+using Helpdesk.API.Endpoints.Authentication;
+using Helpdesk.API.Services.IntegrationCredentials;
 using Helpdesk.API.Endpoints.AiAssistant;
 using Helpdesk.API.Endpoints.Ops;
 using Helpdesk.API.Ops;
 using Helpdesk.AgentClient;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Identity;
+using Helpdesk.Shared.Auth;
+using Helpdesk.Shared.Services;
 using Helpdesk.Mcp.Tools;
 using Helpdesk.Shared.DTOs;
 using Helpdesk.Shared.Models;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -26,12 +33,14 @@ using Xunit;
 namespace Helpdesk.Tests.Api;
 
 [Collection("Incident receiver")]
-public sealed class AiInvestigationMcpHttpTests
+public sealed partial class AiInvestigationMcpHttpTests
 {
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Signed_ai_identity_reports_to_a_real_dispatched_invocation_with_binding_and_duplicate_readbacks(bool postgres)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task Signed_ai_identity_reports_to_a_real_dispatched_invocation_with_binding_and_duplicate_readbacks(bool postgres, bool ownerMcp)
     {
         using var signingKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var key = new ECDsaSecurityKey(signingKey);
@@ -51,6 +60,12 @@ public sealed class AiInvestigationMcpHttpTests
             {
                 services.AddSingleton<IHttpClientFactory>(capture);
                 services.AddSingleton(logs);
+                services.AddAiAgentOrOwnerMcp();
+                services.AddSingleton<McpExecutionTokenService>();
+                services.AddAuthentication()
+                    .AddScheme<IntegrationCredentialAuthenticationOptions, IntegrationCredentialAuthenticationHandler>(
+                        IntegrationCredentialAuthenticationHandler.McpSchemeName, options => options.Purpose = IntegrationCredentialAuthenticationHandler.McpPurpose)
+                    .AddScheme<AuthenticationSchemeOptions, McpExecutionAuthenticationHandler>(McpExecutionAuthenticationHandler.SchemeName, _ => { });
                 services.AddDbContext<HelpdeskDbContext>(options => options.AddInterceptors(callbackReads));
                 services.AddAuthentication().AddJwtBearer("AuthentikAiAgent", options =>
                 {
@@ -64,12 +79,14 @@ public sealed class AiInvestigationMcpHttpTests
                 });
                 services.AddAuthorization(options =>
                 {
+                    options.AddPolicy(McpGatewayDelegationEndpoints.DelegationPolicy, policy =>
+                        policy.AddAuthenticationSchemes(IntegrationCredentialAuthenticationHandler.McpSchemeName).RequireAuthenticatedUser());
                     options.AddPolicy("AuthentikAiAgentApi", policy => policy.AddAuthenticationSchemes("AuthentikAiAgent").RequireAuthenticatedUser());
                     options.AddPolicy("HelpdeskAdmin", policy => policy.RequireAuthenticatedUser().RequireRole("HelpdeskAdmin"));
                     options.AddPolicy("HelpdeskStaff", policy => policy.RequireAuthenticatedUser().RequireRole(
                         "HelpdeskAdmin", "Incident.Manager", "Request.Manager", "Change.Manager", "Incident.Write", "Request.Write", "Change.Write"));
                 });
-            }, configureApp: app => { app.MapAiAssistantAiAssistantEndpoints(); app.MapAiAgentOpsEndpoints(); });
+            }, configureApp: app => { app.MapAiAssistantAiAssistantEndpoints(); app.MapAiAgentOpsEndpoints(); app.MapMcpGatewayDelegationEndpoints(); });
 
         const string ticketId = "synthetic-ai-incident";
         await h.EditAsync(db =>
@@ -106,7 +123,49 @@ public sealed class AiInvestigationMcpHttpTests
             }, new ServerClientFactory(h.App.GetTestServer()), new TestLifetime(), new FixedToken(token));
             return new HelpdeskTools(client, new AgentClientConfigurationStore(Path.Combine("work", "beta4", "unused-ai-profile.json")));
         }
-        var tools = Tools(Token(key));
+        async Task<string> GatewayExecutionAsync(bool ownerAdministration)
+        {
+            const string resource = "https://receiver.example.test/mcp";
+            string bearer;
+            await using (var scope = h.App.Services.CreateAsyncScope())
+            {
+                var identityDb = scope.ServiceProvider.GetRequiredService<RatelDeskIdentityDbContext>();
+                var issuer = new IntegrationCredentialIssuer(
+                    scope.ServiceProvider.GetRequiredService<IIntegrationCredentialOwnerResolver>(),
+                    scope.ServiceProvider.GetRequiredService<ICurrentUserAccessService>(),
+                    scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>(), identityDb);
+                var owner = new ClaimsPrincipal(new ClaimsIdentity([
+                    new Claim(ClaimTypes.NameIdentifier, "owner"), new Claim("auth_mode", "local")], "Synthetic owner session"));
+                var grant = await issuer.ValidateAsync(owner,
+                    new IntegrationCredentialEndpoints.CreateIntegrationCredentialRequest("Synthetic AI delegation", "mcp", h.OrganizationId,
+                        ownerAdministration ? [HelpdeskPermissions.HelpdeskAdmin] : [HelpdeskPermissions.IncidentRead], 1)
+                    {
+                        McpResourceUri = resource,
+                        GrantKind = ownerAdministration ? IntegrationCredentialGrantKinds.OwnerAdministration : IntegrationCredentialGrantKinds.Ordinary,
+                        OwnerAdministrationConsent = ownerAdministration
+                    }, CancellationToken.None);
+                var (record, delivery) = issuer.Create(grant, DateTimeOffset.UtcNow);
+                issuer.Track(record);
+                await identityDb.SaveChangesAsync();
+                bearer = delivery.Secret;
+            }
+            using var exchange = new HttpRequestMessage(HttpMethod.Post, "/api/v1/mcp/execution-token");
+            exchange.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearer);
+            exchange.Headers.Add(McpGatewayDelegationEndpoints.ResourceHeader, resource);
+            using var client = h.App.GetTestClient();
+            using var response = await client.SendAsync(exchange);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            return (await response.Content.ReadFromJsonAsync<McpGatewayDelegationEndpoints.McpExecutionTokenResponse>())!.AccessToken;
+        }
+        var executionToken = ownerMcp ? await GatewayExecutionAsync(true) : Token(key);
+        var tools = Tools(executionToken);
+        if (ownerMcp)
+        {
+            var ordinary = Tools(await GatewayExecutionAsync(false));
+            var rejected = await ordinary.helpdesk_logs("search", JsonSerializer.SerializeToElement(new { since = 0, limit = 10 }));
+            Assert.False(rejected.Success);
+            Assert.Equal(401, rejected.Failure!.UpstreamStatus);
+        }
         var correlatedLogs = await tools.helpdesk_logs("search", JsonSerializer.SerializeToElement(new { correlationId = logTrace, limit = 10 }));
         Assert.True(correlatedLogs.Success, correlatedLogs.Summary);
         Assert.Equal("Selected synthetic diagnostic", Assert.Single(correlatedLogs.Data!["items"]!.AsArray())!["message"]!.GetValue<string>());
@@ -146,7 +205,6 @@ public sealed class AiInvestigationMcpHttpTests
             Assert.Equal(TicketState.New, (await db.Incidents.SingleAsync()).State);
             Assert.Equal(0, await db.WorkLogs.CountAsync());
         });
-
         foreach (var invalidBinding in new[] { Report("wrong-ticket", "Progress", ticket: "foreign-ticket"), Report("wrong-correlation", "Progress", correlation: "foreign-correlation") })
         {
             var rejected = await ReportAsync(invalidBinding);
@@ -236,6 +294,16 @@ public sealed class AiInvestigationMcpHttpTests
             Assert.Equal(TicketState.New, (await db.Incidents.SingleAsync()).State);
             Assert.Equal(0, await db.WorkLogs.CountAsync());
         });
+        if (ownerMcp)
+        {
+            await using var scope = h.App.Services.CreateAsyncScope();
+            var identityDb = scope.ServiceProvider.GetRequiredService<RatelDeskIdentityDbContext>();
+            (await identityDb.Users.SingleAsync(user => user.Id == "owner")).IsInstanceAdministrator = false;
+            await identityDb.SaveChangesAsync();
+            var revokedAuthority = await tools.helpdesk_logs("search", JsonSerializer.SerializeToElement(new { since = 0, limit = 10 }));
+            Assert.False(revokedAuthority.Success);
+            Assert.Equal(401, revokedAuthority.Failure!.UpstreamStatus);
+        }
     }
 
     private sealed class CallbackReadBarrier : DbCommandInterceptor

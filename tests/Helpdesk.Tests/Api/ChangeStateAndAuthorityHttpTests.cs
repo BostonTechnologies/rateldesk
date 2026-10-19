@@ -284,6 +284,8 @@ public sealed class ChangeStateAndAuthorityHttpTests
     private static async Task SeedChangesAsync(IncidentReceiverTests.Harness h) => await h.EditAsync(db =>
     {
         db.Organizations.Add(new Organization { Id = "foreign-org", Name = "Foreign" });
+        foreach (var name in new[] { "ChangeImplementationInProgress", "ChangeImplemented" })
+            db.EmailTemplates.Add(new EmailTemplate { Name = name, Subject = "Synthetic change {{TicketRef}}", HtmlContent = "<p>Synthetic change lifecycle notification.</p>" });
         var template = JsonSerializer.Serialize(new ChangeTemplateDto { IsPreApproved = true, ExistingRunbookReference = "SOP-SYNTHETIC", ScopeOfChange = "Owned test", AffectedSystems = ["Test service"], ImplementationSteps = ["Apply"], ValidationSteps = ["Verify"], RollbackPlan = "Restore" });
         foreach (var (id, lifecycle, state) in new[] { ("draft", ChangeLifecycleState.Draft, TicketState.New), ("approved", ChangeLifecycleState.ApprovedForImplementation, TicketState.New), ("pending", ChangeLifecycleState.PendingApproval, TicketState.New), ("implemented", ChangeLifecycleState.ImplementedSuccess, TicketState.Resolved), ("incomplete", ChangeLifecycleState.ImplementationInProgress, TicketState.InProgress) })
             db.Changes.Add(new Change { Id = id, TrackingId = "CHG-" + id, Title = "Synthetic " + id, OrganizationId = h.OrganizationId, CustomerId = h.CustomerId, RequestedForUserId = h.CustomerId, State = state, Priority = TicketPriority.High, LifecycleState = lifecycle, ChangeType = "Standard", ChangeTemplateJson = id == "incomplete" ? null : template, ImplementorUserId = "support-user", AssignedToId = "support-user", UpdatedAt = DateTime.UtcNow.AddDays(-1) });

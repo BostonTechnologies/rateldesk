@@ -6,7 +6,10 @@ namespace Helpdesk.AgentClient;
 
 public sealed record PairingCapabilities(string Product, int ProtocolVersion, bool PairingSupported,
     string PublicOrigin, string VerificationUri, int DefaultLifetimeDays, int MaximumLifetimeDays)
-{ public bool SetupVerificationSupported { get; init; } }
+{
+    public bool SetupVerificationSupported { get; init; }
+    public bool OwnerAdministrationSupported { get; init; }
+}
 public sealed record PairingRequest(string Name, string Purpose, string? McpResourceUri = null)
 { public string GrantKind { get; init; } = "ordinary"; }
 public sealed record PairingSession(string DeviceCode, string HumanCode, string VerificationUri,
@@ -63,7 +66,8 @@ public sealed class IntegrationCredentialPairingClient : IDisposable
 
     public async Task<PairingSession> StartAsync(PairingRequest request, CancellationToken cancellationToken = default)
     {
-        if (request.GrantKind is not ("ordinary" or "setup-verification") || (request.GrantKind == "setup-verification" && request.Purpose != "mcp")) throw new AgentClientValidationException("Invalid pairing grant kind.");
+        if (request.GrantKind is not ("ordinary" or "setup-verification" or "owner-administration") ||
+            (request.GrantKind != "ordinary" && request.Purpose != "mcp")) throw new AgentClientValidationException("Invalid pairing grant kind.");
         if (request.Purpose is not ("api" or "mcp")) throw new AgentClientValidationException("Pairing purpose must be api or mcp.");
         if (request.Purpose == "mcp" && request.McpResourceUri != new Uri(_origin, "/mcp").AbsoluteUri)
             throw new AgentClientValidationException("An MCP credential must bind to the reviewed instance's canonical HTTPS /mcp resource.");
@@ -88,10 +92,15 @@ public sealed class IntegrationCredentialPairingClient : IDisposable
             result.Credential.Secret?.StartsWith("rdk_", StringComparison.Ordinal) != true || result.Credential.Secret.Length > 8192 ||
             string.IsNullOrWhiteSpace(result.Credential.OrganizationId) || result.Credential.Permissions is null || result.Credential.Permissions.Length > 256))
             throw new AgentClientValidationException("The instance returned an invalid credential delivery.");
-        if (result.Credential is { } credential && (credential.GrantKind is not ("ordinary" or "setup-verification") ||
+        if (result.Credential is { } credential && (credential.GrantKind is not ("ordinary" or "setup-verification" or "owner-administration") ||
             (credential.GrantKind == "setup-verification" && (credential.Purpose != "mcp" || credential.Permissions.Length != 0 ||
                 credential.McpResourceUri != new Uri(_origin, "/mcp").AbsoluteUri || credential.ExpiresAtUtc > DateTimeOffset.UtcNow.AddMinutes(5)))))
             throw new AgentClientValidationException("The instance returned an invalid setup verification grant.");
+        if (result.Credential is { GrantKind: "owner-administration" } ownerCredential &&
+            (ownerCredential.Purpose != "mcp" || ownerCredential.Permissions is not ["HelpdeskAdmin"] ||
+             ownerCredential.McpResourceUri != new Uri(_origin, "/mcp").AbsoluteUri ||
+             ownerCredential.ExpiresAtUtc <= DateTimeOffset.UtcNow || ownerCredential.ExpiresAtUtc > DateTimeOffset.UtcNow.AddDays(90)))
+            throw new AgentClientValidationException("The instance returned an invalid owner administration grant.");
         return result;
     }
 

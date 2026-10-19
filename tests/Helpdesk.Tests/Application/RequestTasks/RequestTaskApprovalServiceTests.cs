@@ -15,7 +15,7 @@ using NSubstitute;
 
 namespace Helpdesk.Tests.Application.RequestTasks;
 
-public sealed class RequestTaskApprovalServiceTests
+public sealed partial class RequestTaskApprovalServiceTests
 {
     [Fact]
     public async Task StartApprovalAsync_CreatesApprovalRows_AndAttemptsEmailSend()

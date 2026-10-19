@@ -170,7 +170,7 @@ else
                                         <MudButton OnClick="HandleFinalSubmitAsync"
                                                    Variant="Variant.Filled"
                                                    Color="Color.Success"
-                                                   Disabled="@(_isSubmitting || !CaptchaMatches())"
+                                                   Disabled="@(_isSubmitting || !HasCaptchaAnswer())"
                                                    Class="ml-4">
 
                                             @if (_isSubmitting)
@@ -222,14 +222,12 @@ else
     private IFormConfiguration<SubmitTicketModel> _ticketDetailsConfig = default!;
     private IFormConfiguration<SubmitTicketModel> _attachmentsConfig = default!;
 
-    private string _captchaChallenge = string.Empty;
     private string _captchaImageBase64 = string.Empty;
     private Guid _captchaId;
     private bool _captchaError;
     private string? _captchaErrorText;
-    private bool CaptchaMatches() =>
-    !string.IsNullOrWhiteSpace(_model.Captcha) &&
-    string.Equals(_model.Captcha.Trim(), _captchaChallenge.Trim(), StringComparison.OrdinalIgnoreCase);
+    private bool HasCaptchaAnswer() =>
+        _captchaId != Guid.Empty && _model.Captcha?.Trim() is { Length: 6 } answer && answer.All(char.IsAsciiDigit);
 
     private HttpClient SystemApi => HttpClientFactory.CreateClient("SystemApi");
 
@@ -242,7 +240,6 @@ else
         var captcha = await SystemApi.GetFromJsonAsync<CaptchaResponse>("api/v1/captcha");
         if (captcha is not null)
         {
-            _captchaChallenge = captcha.challenge;
             _captchaId = captcha.id;
             _captchaImageBase64 = captcha.imageBase64;
         }
@@ -325,10 +322,10 @@ else
     {
         _captchaError = false; _captchaErrorText = null;
 
-        if (!CaptchaMatches())
+        if (!HasCaptchaAnswer())
         {
             _captchaError = true;
-            _captchaErrorText = "CAPTCHA is incorrect.";
+            _captchaErrorText = "Enter the six digits shown in the CAPTCHA.";
             Snackbar.Add(_captchaErrorText, MudBlazor.Severity.Error);
             return;
         }
@@ -343,13 +340,14 @@ else
             Message = _model.Message,
             Priority = _model.Priority,
             CaptchaId = _captchaId,
-            CaptchaAnswer = _model.Captcha
+            CaptchaAnswer = _model.Captcha?.Trim() ?? string.Empty
         };
 
         var response = await SystemApi.PostAsJsonAsync("api/v1/public/tickets/submit", request);
         if (!response.IsSuccessStatusCode)
         {
-            Snackbar.Add("Error: Could not create the ticket.", MudBlazor.Severity.Error);
+            await RefreshCaptcha();
+            Snackbar.Add("Could not create the ticket. Check your details and enter the new CAPTCHA.", MudBlazor.Severity.Error);
             _isSubmitting = false;
             return;
         }
@@ -394,7 +392,6 @@ else
         var captcha = await SystemApi.GetFromJsonAsync<CaptchaResponse>("api/v1/captcha");
         if (captcha is not null)
         {
-            _captchaChallenge = captcha.challenge;
             _captchaId = captcha.id;
             _captchaImageBase64 = captcha.imageBase64;
             _model.Captcha = string.Empty;
@@ -444,5 +441,5 @@ else
     }
 
     private record CreateTicketResponse(string Id, string? TrackingId);
-    private record CaptchaResponse(Guid id, string challenge, string imageBase64);
+    private record CaptchaResponse(Guid id, string imageBase64);
 }

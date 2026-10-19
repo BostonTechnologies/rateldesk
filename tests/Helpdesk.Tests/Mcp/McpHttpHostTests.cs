@@ -40,7 +40,7 @@ namespace Helpdesk.Tests.Mcp;
 public sealed class McpHttpHostCollection;
 
 [Collection(nameof(McpHttpHostCollection))]
-public sealed class McpHttpHostTests
+public sealed partial class McpHttpHostTests
 {
     private const string Authority = "https://auth.example";
     private const string ResourceUri = "https://helpdesk-dev.example/mcp";
@@ -139,6 +139,7 @@ public sealed class McpHttpHostTests
         using var response = await client.PostAsync("/mcp", McpRequest("initialize"));
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore);
         Assert.Contains(response.Headers.WwwAuthenticate, header =>
             string.Equals(header.Scheme, "Bearer", StringComparison.OrdinalIgnoreCase) &&
             header.Parameter?.Contains("resource_metadata=\"https://helpdesk-dev.example/.well-known/oauth-protected-resource/mcp\"", StringComparison.Ordinal) == true);
@@ -476,7 +477,8 @@ public sealed class McpHttpHostTests
         Assert.Equal("gateway", configured.GetProperty("ingressAuthenticationMode").GetString());
         Assert.Equal("request_credential_owner", configured.GetProperty("executionIdentity").GetString());
         Assert.True(configured.GetProperty("ingressCallerUsedForApi").GetBoolean());
-        Assert.Equal("denied_by_bounded_credential_policy", configured.GetProperty("instanceAdministration").GetString());
+        Assert.Equal("requires_explicit_owner_administration_grant", configured.GetProperty("instanceAdministration").GetString());
+        Assert.Equal("requires_explicit_owner_administration_grant", configured.GetProperty("aiOperationAuthority").GetString());
         Assert.Equal("denied_by_bounded_credential_policy", configured.GetProperty("exactAiScheme").GetString());
         using var administration = await HttpCallAsync(client, credential.Bearer, 4, "tools/call", ToolCallParameters("helpdesk_connectivity", "orchestration"));
         Assert.Equal(403, StructuredContent(administration.RootElement).GetProperty("failure").GetProperty("upstreamStatus").GetInt32());
@@ -643,7 +645,7 @@ public sealed class McpHttpHostTests
         }, client), new McpClientOptions { ProtocolVersion = protocolVersion }, cancellationToken: deadline.Token);
         Assert.Equal(protocolVersion, mcp.NegotiatedProtocolVersion);
         var catalog = await mcp.ListToolsAsync(cancellationToken: deadline.Token);
-        Assert.Equal(28, catalog.Count);
+        Assert.Equal(HelpdeskToolDefinitions.Create().Count, catalog.Count);
         var status = await mcp.CallToolAsync("helpdesk_auth", new Dictionary<string, object?> { ["operation"] = "status" }, cancellationToken: deadline.Token);
         Assert.True(status.StructuredContent!.Value.GetProperty("success").GetBoolean());
 
@@ -1515,6 +1517,7 @@ public sealed class McpHttpHostTests
         using var response = await client.SendAsync(request);
         var responseBody = await response.Content.ReadAsStringAsync();
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore);
         return ParseMcpResponse(responseBody);
     }
 

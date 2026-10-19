@@ -10,6 +10,7 @@ using Helpdesk.Shared.DTOs.Auth;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
+using Helpdesk.Tests.Infrastructure.Persistence;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -301,6 +302,7 @@ public sealed partial class IntegrationCredentialPairingTests
         public TestClock Clock { get; } = new();
         private DbContextOptions<RatelDeskIdentityDbContext> identityOptions = null!;
         private DbContextOptions<HelpdeskDbContext> domainOptions = null!;
+        private ServiceIdentityMigrationTests.DatabaseFixture? provider;
         public static async Task<Fixture> CreateAsync()
         {
             var fixture = new Fixture(); Directory.CreateDirectory(fixture.root);
@@ -308,10 +310,24 @@ public sealed partial class IntegrationCredentialPairingTests
             fixture.domainOptions = new DbContextOptionsBuilder<HelpdeskDbContext>().UseSqlite($"Data Source={fixture.root}/domain.db;Default Timeout=30").Options;
             await using var session = fixture.Session();
             await session.Identity.Database.EnsureCreatedAsync(); await session.Domain.Database.EnsureCreatedAsync();
+            await SeedAsync(session);
+            return fixture;
+        }
+        public static async Task<Fixture> CreateProviderAsync(bool postgres)
+        {
+            var fixture = new Fixture(); Directory.CreateDirectory(fixture.root);
+            fixture.provider = await ServiceIdentityMigrationTests.DatabaseFixture.CreateAsync(postgres);
+            await using var session = fixture.Session();
+            await session.Domain.Database.MigrateAsync();
+            await session.Identity.Database.MigrateAsync();
+            await SeedAsync(session);
+            return fixture;
+        }
+        private static async Task SeedAsync(ScopeSession session)
+        {
             session.Identity.Users.Add(new() { Id = "owner", UserName = "owner", IsEnabled = true, IsInstanceAdministrator = true });
             session.Domain.Organizations.Add(new() { Id = "org-a", Name = "Organization A", IsEnabled = true });
             await session.Identity.SaveChangesAsync(); await session.Domain.SaveChangesAsync();
-            return fixture;
         }
         public IDataProtectionProvider Protection() => DataProtectionProvider.Create(new DirectoryInfo(Path.Combine(root, "keys")));
         public ScopeSession Session(IDataProtectionProvider? protection = null) => new(this, protection);
@@ -322,7 +338,12 @@ public sealed partial class IntegrationCredentialPairingTests
             Assert.True(await session.Service.ApproveAsync(new(start.HumanCode, "org-a", ["Incident.Read"], null, true), Owner, "ip", default));
             return start;
         }
-        public ValueTask DisposeAsync() { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); Directory.Delete(root, true); return default; }
+        public async ValueTask DisposeAsync()
+        {
+            if (provider is not null) await provider.DisposeAsync();
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            Directory.Delete(root, true);
+        }
         public sealed class ScopeSession : IAsyncDisposable
         {
             public RatelDeskIdentityDbContext Identity { get; }
@@ -330,9 +351,9 @@ public sealed partial class IntegrationCredentialPairingTests
             public IntegrationCredentialPairingService Service { get; }
             public ScopeSession(Fixture fixture, IDataProtectionProvider? protection = null)
             {
-                Identity = new(fixture.identityOptions);
+                Identity = fixture.provider?.Identity() ?? new(fixture.identityOptions);
                 var tenant = Substitute.For<ITenantContext>(); tenant.IsHelpdeskAdmin.Returns(true);
-                Domain = new(fixture.domainOptions, tenant, new HttpContextAccessor());
+                Domain = fixture.provider?.Open() ?? new(fixture.domainOptions, tenant, new HttpContextAccessor());
                 var owners = new IntegrationCredentialOwnerResolver(Domain, Identity);
                 var access = new CurrentUserAccessService(Domain, Identity);
                 Service = new(Identity, Domain, new(owners, access, Domain, Identity), owners, access,

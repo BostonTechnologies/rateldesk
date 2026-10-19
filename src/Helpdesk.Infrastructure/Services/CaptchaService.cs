@@ -1,6 +1,8 @@
+using System.Buffers.Binary;
+using System.Globalization;
+using System.IO.Compression;
+using System.Security.Cryptography;
 using Microsoft.Extensions.Caching.Memory;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace Helpdesk.Infrastructure.Services;
 
@@ -26,7 +28,11 @@ public interface ICaptchaService
 public class CaptchaService(IMemoryCache cache) : ICaptchaService
 {
     private readonly IMemoryCache _cache = cache;
+    private readonly Lock _validationLock = new();
     private static readonly TimeSpan Ttl = TimeSpan.FromMinutes(5);
+    private const int Width = 200;
+    private const int Height = 60;
+    private const int RowBytes = Width * 3;
     private const int PixelScale = 4;
     private const int GlyphWidth = 5;
     private const int GlyphHeight = 7;
@@ -47,20 +53,21 @@ public class CaptchaService(IMemoryCache cache) : ICaptchaService
     public (Guid Id, string Challenge) GenerateCaptcha()
     {
         var id = Guid.NewGuid();
-        var text = Random.Shared.Next(100000, 999999).ToString();
+        var text = RandomNumberGenerator.GetInt32(100000, 1000000).ToString(CultureInfo.InvariantCulture);
         _cache.Set(id, text, Ttl);
         return (id, text);
     }
 
     public byte[] RenderCaptchaImage(string challenge)
     {
-        const int width = 200;
-        const int height = 60;
+        ArgumentNullException.ThrowIfNull(challenge);
+        if (challenge.Length != 6 || challenge.Any(character => !char.IsAsciiDigit(character)))
+            throw new ArgumentException("A CAPTCHA image requires exactly six decimal digits.", nameof(challenge));
         var random = Random.Shared;
-        var background = new Rgba32(255, 255, 255);
-        var textColor = new Rgba32((byte)random.Next(20, 80), (byte)random.Next(20, 80), (byte)random.Next(20, 80));
+        var textColor = new Pixel((byte)random.Next(20, 80), (byte)random.Next(20, 80), (byte)random.Next(20, 80));
 
-        using var image = new Image<Rgba32>(width, height, background);
+        var image = new byte[RowBytes * Height];
+        Array.Fill(image, (byte)255);
 
         var x = 12;
         foreach (var c in challenge)
@@ -95,41 +102,39 @@ public class CaptchaService(IMemoryCache cache) : ICaptchaService
 
         for (var i = 0; i < 6; i++)
         {
-            var x1 = random.Next(0, width);
-            var y1 = random.Next(0, height);
-            var x2 = random.Next(0, width);
-            var y2 = random.Next(0, height);
-            var lineColor = new Rgba32((byte)random.Next(150, 210), (byte)random.Next(150, 210), (byte)random.Next(150, 210));
+            var x1 = random.Next(0, Width);
+            var y1 = random.Next(0, Height);
+            var x2 = random.Next(0, Width);
+            var y2 = random.Next(0, Height);
+            var lineColor = new Pixel((byte)random.Next(150, 210), (byte)random.Next(150, 210), (byte)random.Next(150, 210));
             DrawLine(image, x1, y1, x2, y2, lineColor);
         }
 
         for (var i = 0; i < 220; i++)
         {
-            var noiseX = random.Next(0, width);
-            var noiseY = random.Next(0, height);
-            image[noiseX, noiseY] = new Rgba32((byte)random.Next(130, 230), (byte)random.Next(130, 230), (byte)random.Next(130, 230));
+            var noiseX = random.Next(0, Width);
+            var noiseY = random.Next(0, Height);
+            SetPixel(image, noiseX, noiseY, new Pixel((byte)random.Next(130, 230), (byte)random.Next(130, 230), (byte)random.Next(130, 230)));
         }
 
-        using var ms = new MemoryStream();
-        image.SaveAsPng(ms);
-        return ms.ToArray();
+        return EncodePng(image);
     }
 
-    private static void FillBlock(Image<Rgba32> image, int x, int y, int size, Rgba32 color)
+    private static void FillBlock(byte[] image, int x, int y, int size, Pixel color)
     {
         for (var yy = y; yy < y + size; yy++)
         {
             for (var xx = x; xx < x + size; xx++)
             {
-                if ((uint)xx < image.Width && (uint)yy < image.Height)
+                if ((uint)xx < Width && (uint)yy < Height)
                 {
-                    image[xx, yy] = color;
+                    SetPixel(image, xx, yy, color);
                 }
             }
         }
     }
 
-    private static void DrawLine(Image<Rgba32> image, int x1, int y1, int x2, int y2, Rgba32 color)
+    private static void DrawLine(byte[] image, int x1, int y1, int x2, int y2, Pixel color)
     {
         var dx = Math.Abs(x2 - x1);
         var sx = x1 < x2 ? 1 : -1;
@@ -139,9 +144,9 @@ public class CaptchaService(IMemoryCache cache) : ICaptchaService
 
         while (true)
         {
-            if ((uint)x1 < image.Width && (uint)y1 < image.Height)
+            if ((uint)x1 < Width && (uint)y1 < Height)
             {
-                image[x1, y1] = color;
+                SetPixel(image, x1, y1, color);
             }
 
             if (x1 == x2 && y1 == y2)
@@ -165,11 +170,76 @@ public class CaptchaService(IMemoryCache cache) : ICaptchaService
 
     public bool ValidateCaptcha(Guid id, string answer)
     {
-        if (_cache.TryGetValue<string>(id, out var expected))
+        lock (_validationLock)
         {
-            _cache.Remove(id);
-            return string.Equals(expected, answer, StringComparison.OrdinalIgnoreCase);
+            if (_cache.TryGetValue<string>(id, out var expected))
+            {
+                _cache.Remove(id);
+                return string.Equals(expected, answer, StringComparison.OrdinalIgnoreCase);
+            }
+            return false;
         }
-        return false;
+    }
+
+    private readonly record struct Pixel(byte Red, byte Green, byte Blue);
+
+    private static void SetPixel(byte[] image, int x, int y, Pixel color)
+    {
+        var offset = y * RowBytes + x * 3;
+        image[offset] = color.Red;
+        image[offset + 1] = color.Green;
+        image[offset + 2] = color.Blue;
+    }
+
+    // This writes only the fixed 200x60, opaque RGB CAPTCHA raster. It never
+    // decodes uploaded images or accepts caller-controlled dimensions/chunks.
+    // PNG structure: https://www.w3.org/TR/png/#5DataRep
+    private static byte[] EncodePng(byte[] pixels)
+    {
+        using var compressed = new MemoryStream();
+        using (var zlib = new ZLibStream(compressed, CompressionLevel.Fastest, leaveOpen: true))
+        {
+            for (var row = 0; row < Height; row++)
+            {
+                zlib.WriteByte(0); // PNG filter type None for this scanline.
+                zlib.Write(pixels.AsSpan(row * RowBytes, RowBytes));
+            }
+        }
+
+        using var png = new MemoryStream();
+        png.Write([137, 80, 78, 71, 13, 10, 26, 10]);
+        Span<byte> header = stackalloc byte[13];
+        header.Clear();
+        BinaryPrimitives.WriteInt32BigEndian(header, Width);
+        BinaryPrimitives.WriteInt32BigEndian(header[4..], Height);
+        header[8] = 8; // Eight bits per color channel.
+        header[9] = 2; // Truecolor RGB, no alpha, palette or interlacing.
+        WriteChunk(png, "IHDR"u8, header);
+        WriteChunk(png, "IDAT"u8, compressed.GetBuffer().AsSpan(0, checked((int)compressed.Length)));
+        WriteChunk(png, "IEND"u8, []);
+        return png.ToArray();
+    }
+
+    private static void WriteChunk(Stream png, ReadOnlySpan<byte> type, ReadOnlySpan<byte> data)
+    {
+        Span<byte> number = stackalloc byte[4];
+        BinaryPrimitives.WriteInt32BigEndian(number, data.Length);
+        png.Write(number);
+        png.Write(type);
+        png.Write(data);
+        var crc = UpdateCrc(UpdateCrc(uint.MaxValue, type), data) ^ uint.MaxValue;
+        BinaryPrimitives.WriteUInt32BigEndian(number, crc);
+        png.Write(number);
+    }
+
+    private static uint UpdateCrc(uint crc, ReadOnlySpan<byte> bytes)
+    {
+        foreach (var value in bytes)
+        {
+            crc ^= value;
+            for (var bit = 0; bit < 8; bit++)
+                crc = (crc >> 1) ^ ((crc & 1) == 0 ? 0u : 0xedb88320u);
+        }
+        return crc;
     }
 }

@@ -395,6 +395,7 @@ public sealed class IntegrationCredentialSqliteTests
             builder.Services.AddSingleton<ICurrentUserAccessService>(new TestAccessService());
             builder.Services.AddScoped<IIntegrationCredentialOwnerResolver, IntegrationCredentialOwnerResolver>();
             builder.Services.AddScoped<IAuthorizationHandler, IntegrationCredentialManagementSessionHandler>();
+            builder.Services.AddScoped<IAuthorizationHandler, IntegrationCredentialOwnerManagementHandler>();
             builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>("Test", _ => { })
                 .AddScheme<IntegrationCredentialAuthenticationOptions, IntegrationCredentialAuthenticationHandler>(
                     IntegrationCredentialAuthenticationHandler.SchemeName, _ => { });
@@ -404,6 +405,11 @@ public sealed class IntegrationCredentialSqliteTests
             {
                 policy.RequireAuthenticatedUser();
                 policy.AddRequirements(new IntegrationCredentialManagementSessionRequirement());
+            }));
+            builder.Services.AddAuthorization(options => options.AddPolicy(IntegrationCredentialEndpoints.OwnerManagementPolicy, policy =>
+            {
+                policy.RequireAuthenticatedUser();
+                policy.AddRequirements(new IntegrationCredentialOwnerManagementRequirement());
             }));
             var application = builder.Build();
             application.UseAuthentication();

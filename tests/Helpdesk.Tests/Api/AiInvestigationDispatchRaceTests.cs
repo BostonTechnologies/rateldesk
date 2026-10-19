@@ -5,6 +5,7 @@ using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text.Json;
+using Helpdesk.API.Authentication;
 using Helpdesk.API.Endpoints.AiAssistant;
 using Helpdesk.Shared.DTOs;
 using Helpdesk.Shared.Models;
@@ -30,6 +31,7 @@ public sealed class AiInvestigationDispatchRaceTests
             configureServices: services =>
             {
                 services.AddSingleton<IHttpClientFactory>(capture);
+                services.AddAiAgentOrOwnerMcp();
                 services.AddAuthentication().AddJwtBearer("AuthentikAiAgent", options =>
                 {
                     options.TokenValidationParameters = new TokenValidationParameters

@@ -3,6 +3,7 @@ using Helpdesk.API.Authentication;
 using Helpdesk.API.Services.IntegrationCredentials;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -12,17 +13,23 @@ namespace Helpdesk.API.Endpoints.Authentication;
 public static class IntegrationCredentialEndpoints
 {
     public const string CredentialManagementPolicy = "IntegrationCredentialManagementSession";
+    public const string OwnerManagementPolicy = "IntegrationCredentialOwnerManagement";
     public const string SelfRevocationPolicy = "IntegrationCredentialSelfRevocation";
 
     public static void MapIntegrationCredentialEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/v1/integration-credentials")
             .WithTags("Integration Credentials")
-            .RequireAuthorization(CredentialManagementPolicy);
+            .RequireAuthorization(OwnerManagementPolicy);
+        group.AddEndpointFilter(async (context, next) =>
+        {
+            context.HttpContext.Response.Headers.CacheControl = "no-store";
+            return await next(context);
+        });
 
         group.MapGet("/", async (ClaimsPrincipal principal, IIntegrationCredentialOwnerResolver ownerResolver, RatelDeskIdentityDbContext identityDb, CancellationToken ct) =>
         {
-            var owner = await ownerResolver.ResolveAsync(principal, ct);
+            var owner = await AdministrationOwnerResolver.ResolveAsync(principal, ownerResolver, identityDb, ct);
             if (owner is null) return Results.Forbid();
             var credentials = await identityDb.IntegrationCredentials.AsNoTracking()
                 .Where(credential => credential.OwnerUserId == owner.UserId)
@@ -33,7 +40,9 @@ public static class IntegrationCredentialEndpoints
                     credential.OrganizationId, credential.Permissions.Split(' ', StringSplitOptions.RemoveEmptyEntries),
                     credential.ExpiresAtUtc, credential.CreatedAtUtc, credential.LastUsedAtUtc, credential.RevokedAtUtc)
                 {
-                    McpResourceUri = credential.McpResourceUri
+                    McpResourceUri = credential.McpResourceUri,
+                    GrantKind = credential.Purpose == IntegrationCredentialGrantKinds.OwnerAdministrationPurpose
+                        ? IntegrationCredentialGrantKinds.OwnerAdministration : credential.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose ? "setup-verification" : "ordinary"
                 })
                 .ToListAsync(ct);
             return Results.Ok(credentials);
@@ -68,11 +77,11 @@ public static class IntegrationCredentialEndpoints
             await db.SaveChangesAsync(ct);
             context.Response.Headers.CacheControl = "no-store";
             return Results.Created($"/api/v1/integration-credentials/{credential.Id:N}", delivery);
-        }).WithSummary("Create an API integration credential");
+        }).RequireAuthorization(CredentialManagementPolicy).WithSummary("Create an API integration credential");
 
         group.MapDelete("/{credentialId:guid}", async (Guid credentialId, ClaimsPrincipal principal, IIntegrationCredentialOwnerResolver ownerResolver, RatelDeskIdentityDbContext identityDb, HelpdeskDbContext db, CancellationToken ct) =>
         {
-            var owner = await ownerResolver.ResolveAsync(principal, ct);
+            var owner = await AdministrationOwnerResolver.ResolveAsync(principal, ownerResolver, identityDb, ct);
             if (owner is null) return Results.Forbid();
             var credential = await identityDb.IntegrationCredentials.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.Id == credentialId && candidate.OwnerUserId == owner.UserId, ct);
             if (credential is null) return Results.NotFound();
@@ -97,7 +106,7 @@ public static class IntegrationCredentialEndpoints
             IIntegrationCredentialOwnerResolver ownerResolver, RatelDeskIdentityDbContext identityDb,
             CancellationToken ct) =>
         {
-            var owner = await ownerResolver.ResolveAsync(principal, ct);
+            var owner = await AdministrationOwnerResolver.ResolveAsync(principal, ownerResolver, identityDb, ct);
             if (owner is null) return Results.Forbid();
             return await new IntegrationCredentialLifecycle(identityDb).DeleteOwnedAsync(owner.UserId, credentialId, ct)
                 ? Results.NoContent() : Results.NotFound();
@@ -135,11 +144,14 @@ public static class IntegrationCredentialEndpoints
     public sealed record CreateIntegrationCredentialRequest(string Name, string Purpose, string OrganizationId, IReadOnlyList<string> Permissions, int? LifetimeDays)
     {
         public string? McpResourceUri { get; init; }
+        public string GrantKind { get; init; } = IntegrationCredentialGrantKinds.Ordinary;
+        public bool OwnerAdministrationConsent { get; init; }
     }
 
     public sealed record IntegrationCredentialMetadata(Guid Id, string Name, string Prefix, string Purpose, string? OrganizationId, IReadOnlyList<string> Permissions, DateTimeOffset ExpiresAtUtc, DateTimeOffset CreatedAtUtc, DateTimeOffset? LastUsedAtUtc, DateTimeOffset? RevokedAtUtc)
     {
         public string? McpResourceUri { get; init; }
+        public string GrantKind { get; init; } = IntegrationCredentialGrantKinds.Ordinary;
     }
 
     public sealed record CreatedIntegrationCredential(Guid Id, string Prefix, string Secret, string Purpose, string? OrganizationId, IReadOnlyList<string> Permissions, DateTimeOffset ExpiresAtUtc)

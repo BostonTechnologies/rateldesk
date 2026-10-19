@@ -21,6 +21,7 @@ public class UpdateRequestFormDto
     public string? ServiceId { get; set; }
 
     public string? OrganizationId { get; set; }
-    public List<string> AllowedOrganizationIds { get; set; } = new();
+    // Omission preserves the saved audience; an explicit empty list clears it.
+    public List<string>? AllowedOrganizationIds { get; set; }
     public RequestFormReleaseStatus? ReleaseStatus { get; set; }
 }

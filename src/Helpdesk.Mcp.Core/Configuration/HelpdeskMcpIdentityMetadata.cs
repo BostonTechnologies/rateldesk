@@ -29,14 +29,16 @@ public static class HelpdeskMcpIdentityMetadata
             ["ingressCallerUsedForApi"] = http ? (bool?)gateway : null,
             ["inboundTokenForwarded"] = false,
             ["ordinaryTenantGrantsConferAdministrator"] = false,
-            ["instanceAdministration"] = bounded ? "denied_by_bounded_credential_policy" : "requires_current_api_helpdesk_admin",
+            ["instanceAdministration"] = gateway ? "requires_explicit_owner_administration_grant" : bounded ? "denied_by_bounded_credential_policy" : "requires_current_api_helpdesk_admin",
             ["exactAiScheme"] = bounded ? "denied_by_bounded_credential_policy" : "requires_exact_authentik_ai_agent",
+            ["aiOperationAuthority"] = gateway ? "requires_explicit_owner_administration_grant" : bounded ? "denied_by_bounded_credential_policy" : "requires_exact_authentik_ai_agent",
+            ["ownerGrantPurpose"] = gateway ? "mcp-owner" : null,
             ["authorityVerified"] = false,
             ["accessVerificationOperation"] = "helpdesk_auth.access",
             ["aiSchemeVerificationOperation"] = bounded ? null : "helpdesk_auth.status",
             ["authorizationEvidence"] = "Read the execution principal's current API access, then verify each operation and its own prerequisites. Configuration and discovery do not establish authorization.",
             ["identityBoundary"] = gateway
-                ? "The API reloads the credential owner's current account and intersects approved permissions and organization on every request. No persistent downstream credential is stored."
+                ? "The API reloads the credential owner's current account on every request. Ordinary credentials retain their permission/organization intersection; separately approved mcp-owner grants require the owner to remain an enabled instance administrator. No persistent downstream credential is stored."
                 : http
                     ? "Every admitted ingress caller uses this host's same separately configured downstream principal. Ingress roles are not downstream roles; separate hosts and explicit ingress restrictions are required for distinct execution authorities."
                     : "The explicitly configured API principal supplies execution authority; no ambient HTTP or other-profile identity is substituted."

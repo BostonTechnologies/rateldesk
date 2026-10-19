@@ -11,14 +11,55 @@ on:
         description: Exact release tag to validate and stage
         required: true
         type: string
+      source_revision:
+        description: Optional full current main SHA; create an unallocated beta or RC tag after exact-source CI passes
+        required: false
+        default: ''
+        type: string
 
 concurrency:
-  group: release-${{ inputs.tag || github.ref }}
+  # Serialize both accepted tag prefixes and different versions through allocation/publication.
+  group: rateldesk-release
   cancel-in-progress: false
 
 jobs:
+  prepare-tag:
+    name: Create verified prerelease tag when requested
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.source_revision != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Require the selected current main revision
+        shell: bash
+        env:
+          RELEASE_SOURCE_REVISION: ${{ inputs.source_revision }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          test "$RELEASE_SOURCE_REVISION" = "$GITHUB_SHA"
+          [[ "$RELEASE_SOURCE_REVISION" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Check out the reviewed main source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up .NET SDK from global.json
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          global-json-file: global.json
+
+      - name: Verify main CI and unused version, then create the immutable tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_SOURCE_REVISION: ${{ inputs.source_revision }}
+        run: python3 tools/release/create-prerelease-tag.py
+
   metadata:
     name: Validate release metadata
+    needs: prepare-tag
+    if: ${{ !cancelled() && (needs.prepare-tag.result == 'success' || needs.prepare-tag.result == 'skipped') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -51,12 +92,7 @@ jobs:
           release_metadata="$(git show origin/main:tools/release/validate-release-version.sh | bash -s -- "$tag")"
           version="$(awk -F= '/^version=/{print $2}' <<<"$release_metadata")"
           prerelease="$(awk -F= '/^prerelease=/{print $2}' <<<"$release_metadata")"
-          msbuild_args=()
-          if [[ "$prerelease" == true ]]; then
-            msbuild_args=("-p:VersionSuffix=${version#*-}")
-          fi
-
-          evaluated_version="$(dotnet msbuild src/Helpdesk.API/Helpdesk.API.csproj -nologo -getProperty:Version "${msbuild_args[@]}" | tr -d '\r\n')"
+          evaluated_version="$(dotnet msbuild src/Helpdesk.API/Helpdesk.API.csproj -nologo -getProperty:Version | tr -d '\r\n')"
           if [[ "$version" != "$evaluated_version" ]]; then
             echo "Tag version '$version' does not match evaluated repository version '$evaluated_version'." >&2
             exit 1
@@ -73,9 +109,15 @@ jobs:
             echo "build_timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Refuse rebuilding an allocated immutable image version
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: python3 tools/release/create-prerelease-tag.py check-images
+
   validation:
     name: Release validation
     needs: metadata
+    if: ${{ !cancelled() && needs.metadata.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -163,6 +205,7 @@ jobs:
   archive-runtime:
     name: Release archive runtime (${{ matrix.rid }})
     needs: validation
+    if: ${{ !cancelled() && needs.validation.result == 'success' }}
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -196,6 +239,7 @@ jobs:
   publish-web:
     name: Publish Web image
     needs: [metadata, validation]
+    if: ${{ !cancelled() && needs.metadata.result == 'success' && needs.validation.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -209,6 +253,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
+
+      - name: Preserve an existing immutable image tag on job recovery
+        env:
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+          RELEASE_IMAGE_NAME: rateldesk-web
+        run: python3 tools/release/create-prerelease-tag.py check-images
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
@@ -259,6 +309,7 @@ jobs:
   publish-api:
     name: Publish API image
     needs: [metadata, validation]
+    if: ${{ !cancelled() && needs.metadata.result == 'success' && needs.validation.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -272,6 +323,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
+
+      - name: Preserve an existing immutable image tag on job recovery
+        env:
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+          RELEASE_IMAGE_NAME: rateldesk-api
+        run: python3 tools/release/create-prerelease-tag.py check-images
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
@@ -322,6 +379,7 @@ jobs:
   publish-mcp-http:
     name: Publish HTTP MCP image
     needs: [metadata, validation]
+    if: ${{ !cancelled() && needs.metadata.result == 'success' && needs.validation.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -335,6 +393,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
+
+      - name: Preserve an existing immutable image tag on job recovery
+        env:
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+          RELEASE_IMAGE_NAME: rateldesk-mcp-http
+        run: python3 tools/release/create-prerelease-tag.py check-images
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
@@ -385,6 +449,7 @@ jobs:
   release:
     name: Create GitHub Release
     needs: [metadata, validation, archive-runtime, publish-web, publish-api, publish-mcp-http]
+    if: ${{ !cancelled() && needs.metadata.result == 'success' && needs.validation.result == 'success' && needs.archive-runtime.result == 'success' && needs.publish-web.result == 'success' && needs.publish-api.result == 'success' && needs.publish-mcp-http.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
