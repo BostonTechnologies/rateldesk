@@ -27,6 +27,7 @@ public sealed class OperatorMailSupportApiContractTests(WebApplicationFactory<Pr
     {
         using var application = factory.WithWebHostBuilder(builder =>
         {
+            builder.UseSetting("Authentication:Mode", "Hybrid");
             builder.UseIsolatedTestStorage();
             builder.UseEnvironment("Production");
             builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
