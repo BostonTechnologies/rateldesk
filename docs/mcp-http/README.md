@@ -8,8 +8,9 @@ share the Web public origin or use an explicitly configured standalone origin.
 - [Configuration and authentication](configuration.md): complete host/outbound
   settings, explicit external Authentik/OAuth, secret sources and precedence.
 - [Execution identity and authority](configuration.md#discover-the-active-execution-identity):
-  live configured identity, current API access, separately provisioned external
-  administrator/AI principals and campaign prerequisites.
+  live configured identity, current API access, explicit caller-bound
+  [owner administration](configuration.md#approve-an-agent-to-administer-the-instance),
+  external administrator/AI principals and campaign prerequisites.
 - [Deployment reference](deployment.md): alternate terminals, source and
   release Compose, persisted configuration, migration and rotation.
 - [Troubleshooting and verification](troubleshooting.md): separate routing,

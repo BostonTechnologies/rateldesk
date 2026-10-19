@@ -65,6 +65,7 @@ public static class CustomerAuthEndpoints
 
         group.MapPost("/local-activation-token", async (
             [FromRoute] string customerId,
+            HttpContext context,
             [FromServices] HelpdeskDbContext db,
             [FromServices] UserManager<ApplicationUser> users,
             CancellationToken ct) =>
@@ -74,6 +75,7 @@ public static class CustomerAuthEndpoints
                 return Results.Conflict(new { message = "A single linked local account is required to generate an activation token." });
             var account = await users.FindByIdAsync(links[0].LocalAccountId);
             if (account is null || !account.IsEnabled) return Results.Conflict(new { message = "The linked local account is unavailable." });
+            context.Response.Headers.CacheControl = "no-store";
             return Results.Ok(new LocalActivationTokenResponse(account.Id, account.Email ?? string.Empty, await users.GeneratePasswordResetTokenAsync(account)));
         });
 
@@ -286,7 +288,11 @@ public static class CustomerAuthEndpoints
         CanInvite = canInvite
     };
 
-    public sealed record LocalActivationTokenResponse(string UserId, string Email, string ActivationToken);
+    public sealed record LocalActivationTokenResponse(string UserId, string Email, string ActivationToken)
+    {
+        public IReadOnlyList<string> SensitiveFields { get; init; } = ["activationToken"];
+        public override string ToString() => $"LocalActivationTokenResponse {{ UserId = {UserId}, ActivationToken = [redacted] }}";
+    }
 
     private static string ResolveUserId(ClaimsPrincipal user)
         => user.FindFirstValue(ClaimTypes.NameIdentifier)

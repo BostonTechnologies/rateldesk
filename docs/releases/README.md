@@ -2,6 +2,16 @@
 
 RatelDesk has one repository-owned release line. The root `Directory.Build.props` is the source of truth for `VersionPrefix` and `VersionSuffix`. Applications and release outputs inherit those values. Prereleases remain immutable.
 
+## 0.1.2-beta.8 — delegated owner operations
+
+[Release notes](../release-notes/0.1.2-beta.8.md) describe explicit owner consent,
+typed administrative MCP operations, approval and mail correctness, and
+dependency hardening. The [beta.8 campaign contract](../implementation/0.1.2-beta.8-campaign.md)
+requires fresh evidence against the exact published build. The preceding beta.7
+campaign established retry and form repairs on its recorded paired releases;
+those remain regressions for beta.8. Live acceptance remains tracked by
+[#219](https://github.com/BostonTechnologies/RatelDesk/issues/219).
+
 ## 0.1.2-beta.6 — durable delivery and MCP acceptance repairs
 
 [Release notes](../release-notes/0.1.2-beta.6.md) cover canonical mail delivery
@@ -325,6 +335,26 @@ already active for it:
 gh workflow run release.yml --ref main -f tag="$release_tag"
 ```
 
+For a new, unallocated beta or RC, the same workflow can create its tag from
+the reviewed current `main` commit. In the Actions **Run workflow** form, select
+`main`, provide the exact tag and put the full merged commit SHA in
+`source_revision`. The preparation job requires the latest normal main CI run
+for that SHA and all five required checks to have succeeded. It checks both tag
+prefixes, draft and public releases, and all three anonymous registry manifests
+before creating a new tag. It rejects an existing version or a changed main
+revision. No existing tag, release asset or image is overwritten.
+
+This optional preparation creates no public release. The same run continues
+through the existing source, provider, container and archive validation before
+staging a complete draft. Leave `source_revision` empty when staging an already
+allocated tag; recover a partial release using the failed-job procedure below.
+Both accepted tag prefixes share one release queue. Metadata refuses a version
+whose image tags are already allocated, and each image job refuses to overwrite
+its own existing tag. A failed push with an uncertain receipt requires inspection
+of the existing manifest before recovery; a full redispatch cannot rebuild it.
+The evaluated version check uses the repository value without a command-line
+suffix override.
+
 For tags containing this workflow revision, an existing GitHub Release receives
 any missing validated assets and updated metadata while retaining its draft or
 published state. A rerun reuses matching assets; it stops if an asset with the
@@ -357,12 +387,16 @@ workflow alone does not prove which checks are enforced there.
 
 Incident/service acceptance requires Docker and actual authenticated HTTP,
 SQLite/PostgreSQL and golden-contract tests. Its TRX validator rejects absent,
-failed or skipped selected results and requires thirteen named test classes, with
+failed or skipped selected results and requires the named classes and cases in
+`tools/ci/check-service-provider-acceptance.py`, with
 actual `postgres: true` and `postgres: false` cases for receiver, service identity,
 managed orchestration callback, pairing service/upgrade and service identity
 migration coverage. Beta.6 also requires both providers for canonical worklog
 mail, invocation-bound AI callbacks and dispatch races, saved orchestration
-connection selection, and notification summary aggregation. Do not
+connection selection, and notification summary aggregation. Beta.8 also requires
+owner delegation and revocation, authenticated approvals, concurrent Change
+writers and activity, atomic requester assignment, tracked persistence,
+dataset batches and AI dispatch ownership on both providers. Do not
 substitute an empty pass or a skipped provider run.
 
 Deep Playwright/mailbox/image/archive/Compose acceptance is an existing explicit

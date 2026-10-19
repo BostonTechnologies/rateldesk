@@ -1,5 +1,13 @@
 # Release notes
 
+## 0.1.2-beta.8
+
+[Delegated owner operations over HTTP MCP](0.1.2-beta.8.md) add explicit
+cross-organization owner consent and typed administrative workflows, repair
+mail outcome reporting and visible counts, and harden CAPTCHA and dependencies.
+The [fresh beta.8 campaign](../implementation/0.1.2-beta.8-campaign.md) accounts
+for the complete current catalog and records deployed acceptance separately.
+
 ## 0.1.2-beta.7 candidate
 
 [Automation retry and form repairs](0.1.2-beta.7.md) persist Auto Start policy,

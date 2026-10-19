@@ -11,11 +11,13 @@ using Helpdesk.Mcp.Tools;
 using Helpdesk.API.Authentication;
 using Helpdesk.API.Endpoints.Authentication;
 using Helpdesk.API.Endpoints.Incidents;
+using Helpdesk.API.Endpoints.Integrations;
 using Helpdesk.API.Endpoints.Requests;
 using Helpdesk.API.Endpoints.Orchestration;
 using Helpdesk.API.Endpoints.Organization;
 using Helpdesk.API.Middleware;
 using Helpdesk.API.Services;
+using Helpdesk.API.Services.IntegrationCredentials;
 using Helpdesk.Application.Events;
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Application.Sla;
@@ -51,7 +53,7 @@ namespace Helpdesk.Tests.Api;
 /// tests for the HTTP MCP host: it proves that the API authority reloads the
 /// owner, scoped assignments, and source credential for every request.
 /// </summary>
-public sealed class McpGatewayRealAccessPipelineTests
+public sealed partial class McpGatewayRealAccessPipelineTests
 {
     [Theory]
     [InlineData(false)]
@@ -157,7 +159,7 @@ public sealed class McpGatewayRealAccessPipelineTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Gateway_execution_tokens_never_gain_instance_admin_authority_for_real_administrative_routes(bool postgreSql)
+    public async Task Ordinary_gateway_execution_tokens_never_gain_instance_admin_authority_for_real_administrative_routes(bool postgreSql)
     {
         await using var harness = postgreSql
             ? await GatewayAccessHarness.CreatePostgreSqlAsync()
@@ -410,6 +412,11 @@ public sealed class McpGatewayRealAccessPipelineTests
             // the persisted account and credential intersection must enforce the boundary.
             builder.Services.AddScoped<ITenantContext>(_ => new TestTenantContext(unscopedData ? null : "org-a", "owner"));
             builder.Services.AddScoped<ICurrentUserAccessService, CurrentUserAccessService>();
+            builder.Services.AddScoped<IIntegrationCredentialOwnerResolver, IntegrationCredentialOwnerResolver>();
+            builder.Services.AddScoped<IAuthorizationHandler, ServiceClientManagementHandler>();
+            builder.Services.AddScoped<IAuthorizationHandler, IntegrationCredentialManagementSessionHandler>();
+            builder.Services.AddScoped<IAuthorizationHandler, IntegrationCredentialOwnerManagementHandler>();
+            builder.Services.AddSingleton(TimeProvider.System);
             builder.Services.AddScoped<ISelfServiceAudienceService, SelfServiceAudienceService>();
             builder.Services.AddScoped<IRepository<Incident>, EfRepository<Incident>>();
             builder.Services.AddSingleton(Substitute.For<IImageLinkSigner>());
@@ -434,6 +441,9 @@ public sealed class McpGatewayRealAccessPipelineTests
                 options.DefaultChallengeScheme = McpExecutionAuthenticationHandler.SchemeName;
             })
             .AddScheme<IntegrationCredentialAuthenticationOptions, IntegrationCredentialAuthenticationHandler>(
+                IntegrationCredentialAuthenticationHandler.SchemeName,
+                options => options.Purpose = IntegrationCredentialAuthenticationHandler.ApiPurpose)
+            .AddScheme<IntegrationCredentialAuthenticationOptions, IntegrationCredentialAuthenticationHandler>(
                 IntegrationCredentialAuthenticationHandler.McpSchemeName,
                 options => options.Purpose = IntegrationCredentialAuthenticationHandler.McpPurpose)
             .AddScheme<AuthenticationSchemeOptions, McpExecutionAuthenticationHandler>(
@@ -442,6 +452,14 @@ public sealed class McpGatewayRealAccessPipelineTests
             builder.Services.AddAuthorization(options =>
             {
                 options.AddPolicy("HelpdeskAdmin", policy => policy.RequireAuthenticatedUser().RequireRole(HelpdeskPermissions.HelpdeskAdmin));
+                options.AddPolicy(ServiceIdentityServiceCollectionExtensions.ManagementPolicy, policy => policy.RequireAuthenticatedUser().AddRequirements(new ServiceClientManagementRequirement()));
+                options.AddPolicy(IntegrationCredentialEndpoints.CredentialManagementPolicy, policy => policy.RequireAuthenticatedUser().AddRequirements(new IntegrationCredentialManagementSessionRequirement()));
+                options.AddPolicy(IntegrationCredentialEndpoints.OwnerManagementPolicy, policy => policy.RequireAuthenticatedUser().AddRequirements(new IntegrationCredentialOwnerManagementRequirement()));
+                options.AddPolicy(IntegrationCredentialEndpoints.SelfRevocationPolicy, policy =>
+                {
+                    policy.AddAuthenticationSchemes(IntegrationCredentialAuthenticationHandler.SchemeName, McpExecutionAuthenticationHandler.SchemeName);
+                    policy.RequireAuthenticatedUser();
+                });
                 options.AddPolicy(McpGatewayDelegationEndpoints.DelegationPolicy, policy =>
                 {
                     policy.AddAuthenticationSchemes(IntegrationCredentialAuthenticationHandler.McpSchemeName);
@@ -478,6 +496,8 @@ public sealed class McpGatewayRealAccessPipelineTests
             app.UseMiddleware<UserAccessClaimsMiddleware>();
             app.UseAuthorization();
             app.MapMcpGatewayDelegationEndpoints();
+            app.MapIntegrationCredentialEndpoints();
+            app.MapIncidentReceiverSourceEndpoints();
             app.MapCurrentUserAccessEndpoint();
             app.MapSelfServiceMyRequestsEndpoints();
             app.MapIncidentEndpoints();
@@ -485,6 +505,12 @@ public sealed class McpGatewayRealAccessPipelineTests
             app.MapExternalOrchestrationEndpoints();
             app.MapTenantBrandingEndpoints();
             app.MapRoleDefinitionEndpoints();
+            app.MapGet("/test/administration-owner", async (System.Security.Claims.ClaimsPrincipal user,
+                IIntegrationCredentialOwnerResolver owners, RatelDeskIdentityDbContext identity, CancellationToken ct) =>
+                await AdministrationOwnerResolver.ResolveAsync(user, owners, identity, ct))
+                .RequireAuthorization(ServiceIdentityServiceCollectionExtensions.ManagementPolicy);
+            app.MapGet("/test/credential-management", () => "interactive credential authority")
+                .RequireAuthorization(IntegrationCredentialEndpoints.CredentialManagementPolicy);
 
             await using (var scope = app.Services.CreateAsyncScope())
             {
@@ -576,16 +602,22 @@ public sealed class McpGatewayRealAccessPipelineTests
             await domain.SaveChangesAsync();
         }
 
-        public async Task<Credential> CreateCredentialAsync(string organizationId, string? purpose = null, string? permissions = null)
+        public async Task<Credential> CreateCredentialAsync(string organizationId, string? purpose = null, string? permissions = null, string ownerUserId = "owner")
         {
             var id = Guid.NewGuid();
             var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
             await using var scope = application.Services.CreateAsyncScope();
             var identity = scope.ServiceProvider.GetRequiredService<RatelDeskIdentityDbContext>();
+            if (ownerUserId != "owner" && !await identity.Users.AnyAsync(account => account.Id == ownerUserId))
+                identity.Users.Add(new ApplicationUser
+                {
+                    Id = ownerUserId, UserName = ownerUserId + "@example.test", Email = ownerUserId + "@example.test",
+                    DisplayName = "Separate credential owner", IsEnabled = true
+                });
             identity.IntegrationCredentials.Add(new IntegrationCredential
             {
                 Id = id,
-                OwnerUserId = "owner",
+                OwnerUserId = ownerUserId,
                 Name = $"MCP {organizationId}",
                 Prefix = $"rdk_{id:N}"[..16],
                 SecretHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(secret))),
@@ -602,6 +634,25 @@ public sealed class McpGatewayRealAccessPipelineTests
         }
 
         public HttpMessageHandler CreateHandler() => application.GetTestServer().CreateHandler();
+
+        public async Task<Credential> IssueCredentialAsync(IntegrationCredentialEndpoints.CreateIntegrationCredentialRequest request)
+        {
+            await using var scope = application.Services.CreateAsyncScope();
+            var identity = scope.ServiceProvider.GetRequiredService<RatelDeskIdentityDbContext>();
+            var domain = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            var principal = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity([
+                new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.NameIdentifier, "owner"),
+                new System.Security.Claims.Claim("auth_mode", "local")], "OwnerSession"));
+            var issuer = new IntegrationCredentialIssuer(new IntegrationCredentialOwnerResolver(domain, identity),
+                new CurrentUserAccessService(domain, identity), domain, identity);
+            var grant = await issuer.ValidateAsync(principal, request, default);
+            var (record, delivery) = issuer.Create(grant, DateTimeOffset.UtcNow);
+            issuer.Track(record);
+            await identity.SaveChangesAsync();
+            Assert.Equal(request.GrantKind, delivery.GrantKind);
+            Assert.Equal("mcp", delivery.Purpose);
+            return new(delivery.Id, delivery.Secret);
+        }
 
         public async Task<string> DelegateAsync(Credential credential)
         {
@@ -643,11 +694,13 @@ public sealed class McpGatewayRealAccessPipelineTests
             return await Client.SendAsync(request);
         }
 
-        public async Task SetOwnerAdministratorAsync()
+        public Task SetOwnerAdministratorAsync() => SetOwnerAdministratorAsync(true);
+
+        public async Task SetOwnerAdministratorAsync(bool enabled)
         {
             await using var scope = application.Services.CreateAsyncScope();
             var identity = scope.ServiceProvider.GetRequiredService<RatelDeskIdentityDbContext>();
-            (await identity.Users.SingleAsync(x => x.Id == "owner")).IsInstanceAdministrator = true;
+            (await identity.Users.SingleAsync(x => x.Id == "owner")).IsInstanceAdministrator = enabled;
             await identity.SaveChangesAsync();
         }
 
@@ -728,6 +781,14 @@ public sealed class McpGatewayRealAccessPipelineTests
             await identity.SaveChangesAsync();
         }
 
+        public async Task SetCredentialExpiredAsync(Guid credentialId)
+        {
+            await using var scope = application.Services.CreateAsyncScope();
+            var identity = scope.ServiceProvider.GetRequiredService<RatelDeskIdentityDbContext>();
+            (await identity.IntegrationCredentials.SingleAsync(candidate => candidate.Id == credentialId)).ExpiresAtUtc = DateTimeOffset.UtcNow.AddMinutes(-1);
+            await identity.SaveChangesAsync();
+        }
+
         public async Task SetOwnerEnabledAsync(bool isEnabled)
         {
             await using var scope = application.Services.CreateAsyncScope();
@@ -735,6 +796,14 @@ public sealed class McpGatewayRealAccessPipelineTests
             var owner = await identity.Users.SingleAsync(candidate => candidate.Id == "owner");
             owner.IsEnabled = isEnabled;
             await identity.SaveChangesAsync();
+        }
+
+        public async Task SetOrganizationEnabledAsync(string organizationId, bool enabled)
+        {
+            await using var scope = application.Services.CreateAsyncScope();
+            var domain = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            (await domain.Organizations.SingleAsync(organization => organization.Id == organizationId)).IsEnabled = enabled;
+            await domain.SaveChangesAsync();
         }
 
         public async ValueTask DisposeAsync()

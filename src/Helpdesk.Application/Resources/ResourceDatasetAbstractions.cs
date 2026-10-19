@@ -22,6 +22,16 @@ public interface IDataManagementService
     Task<IReadOnlyList<DatasetDefinitionDto>> SyncBuiltInDatasetsAsync(string organizationId, CancellationToken cancellationToken = default);
 }
 
+/// <summary>Dataset row writes after the API resolves the caller's current organization authority.</summary>
+public interface IOperatorDatasetWriter
+{
+    Task<int> UpsertRowsAsOperatorAsync(string datasetId, string authorizedOrganizationId,
+        bool allowBuiltInSources, UpsertDatasetRowsDto dto, CancellationToken cancellationToken = default);
+}
+
+/// <summary>The dataset changed during a write; inspect current rows before submitting another update.</summary>
+public sealed class DatasetWriteConflictException(string message) : Exception(message);
+
 public interface IRequestFormDatasetBindingValidator
 {
     Task<string?> ValidateAsync(string organizationId, IReadOnlyCollection<FormField> fields, CancellationToken cancellationToken = default);

@@ -15,6 +15,7 @@ cd "$repo_root"
 python3 tools/ci/validate-docs.py
 python3 tools/ci/validate-mcp-acceptance.py --mode structure
 python3 tools/ci/test-mcp-acceptance.py
+python3 tools/ci/test-beta8-campaign.py
 python3 tools/ci/test-mcp-host-recipes.py
 python3 tools/ci/test-mcp-launcher.py
 python3 tools/ci/test-mcp-compose-toolchain.py

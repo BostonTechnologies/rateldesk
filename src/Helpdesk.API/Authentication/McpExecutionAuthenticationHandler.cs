@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.API.Services.IntegrationCredentials;
 using Helpdesk.Shared.Services;
+using Helpdesk.Shared.Auth;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -40,7 +41,7 @@ public sealed class McpExecutionAuthenticationHandler(
             .SingleOrDefaultAsync(candidate => candidate.Id == payload.CredentialId, Context.RequestAborted)
             .ConfigureAwait(false);
         if (credential is null || credential.RevokedAtUtc is not null || credential.ExpiresAtUtc <= DateTimeOffset.UtcNow ||
-            credential.Purpose is not (IntegrationCredentialAuthenticationHandler.McpPurpose or IntegrationCredentialIssuer.SetupVerificationPurpose) ||
+            credential.Purpose is not (IntegrationCredentialAuthenticationHandler.McpPurpose or IntegrationCredentialIssuer.SetupVerificationPurpose or IntegrationCredentialGrantKinds.OwnerAdministrationPurpose) ||
             !string.Equals(credential.OwnerUserId, payload.OwnerUserId, StringComparison.Ordinal) ||
             !string.Equals(credential.McpResourceUri, payload.ResourceUri, StringComparison.Ordinal))
         {
@@ -66,6 +67,10 @@ public sealed class McpExecutionAuthenticationHandler(
             .ConfigureAwait(false);
         if (owner?.IsEnabled != true)
             return AuthenticateResult.Fail("The delegated MCP execution credential owner is disabled.");
+        if (credential.Purpose == IntegrationCredentialGrantKinds.OwnerAdministrationPurpose &&
+            (!owner.IsInstanceAdministrator || credential.Permissions != HelpdeskPermissions.HelpdeskAdmin ||
+             string.IsNullOrWhiteSpace(credential.OrganizationId)))
+            return AuthenticateResult.Fail("The owner administration grant is no longer authorized.");
 
         var claims = new List<Claim>
         {
@@ -86,7 +91,13 @@ public sealed class McpExecutionAuthenticationHandler(
 
         var identity = new ClaimsIdentity(claims, SchemeName, ClaimTypes.Name, ClaimTypes.Role);
         var principal = new ClaimsPrincipal(identity);
-        if (credential.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose)
+        if (credential.Purpose == IntegrationCredentialGrantKinds.OwnerAdministrationPurpose)
+        {
+            var access = await accessService.ResolveAsync(principal, Context.RequestAborted).ConfigureAwait(false);
+            if (!access.IsHelpdeskAdmin)
+                return AuthenticateResult.Fail("The owner administration context is no longer authorized.");
+        }
+        else if (credential.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose)
         {
             // The organization may have been disabled or its owner's role removed since
             // exchange. Status must not turn that empty access projection into success.

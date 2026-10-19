@@ -45,8 +45,9 @@ public sealed class IntegrationCredentialPairingService(
             throw Invalid("name", "Enter a connection name up to 128 characters without control characters.");
         var purpose = request.Purpose?.Trim().ToLowerInvariant();
         if (purpose is not ("api" or "mcp")) throw Invalid("purpose", "Purpose must be api or mcp.");
-        if (request.GrantKind is not ("ordinary" or "setup-verification") || (request.GrantKind == "setup-verification" && purpose != "mcp"))
-            throw Invalid("grantKind", "Setup verification is only available for this instance's MCP resource.");
+        if (request.GrantKind is not ("ordinary" or "setup-verification" or IntegrationCredentialGrantKinds.OwnerAdministration) ||
+            (request.GrantKind != "ordinary" && purpose != "mcp"))
+            throw Invalid("grantKind", "Setup verification and owner administration require this instance's MCP resource.");
         var resource = IntegrationCredentialIssuer.CanonicalMcpResourceUri(request.McpResourceUri);
         // Single-origin pairing binds to this deployment's trusted resource, never a caller-supplied recipient.
         if (purpose == "mcp" && resource != $"{PublicOrigin}/mcp")
@@ -62,7 +63,9 @@ public sealed class IntegrationCredentialPairingService(
         identity.IntegrationCredentialPairings.Add(new()
         {
             Id = Guid.NewGuid(), DeviceHash = Hash(device), HumanHash = Hash(human), Name = request.Name.Trim(),
-            Purpose = request.GrantKind == "setup-verification" ? IntegrationCredentialIssuer.SetupVerificationPurpose : purpose, McpResourceUri = purpose == "mcp" ? resource : null, ExpiresAtUnixMilliseconds = expiry.ToUnixTimeMilliseconds()
+            Purpose = request.GrantKind == "setup-verification" ? IntegrationCredentialIssuer.SetupVerificationPurpose :
+                request.GrantKind == IntegrationCredentialGrantKinds.OwnerAdministration ? IntegrationCredentialGrantKinds.OwnerAdministrationPurpose : purpose,
+            McpResourceUri = purpose == "mcp" ? resource : null, ExpiresAtUnixMilliseconds = expiry.ToUnixTimeMilliseconds()
         });
         await identity.SaveChangesAsync(ct);
         return new(device, human.Insert(4, "-"), Capabilities().VerificationUri!, expiry, PollIntervalSeconds);
@@ -76,13 +79,21 @@ public sealed class IntegrationCredentialPairingService(
         var pair = await FindHumanAsync(human, ct);
         if (pair is null || pair.State != "pending" || pair.ExpiresAtUnixMilliseconds <= Now.ToUnixTimeMilliseconds()) return null;
         var access = await accessService.ResolveAsync(principal, ct);
+        var ownerAdministrationAvailable = pair.Purpose is "mcp" or IntegrationCredentialGrantKinds.OwnerAdministrationPurpose &&
+            access.IsHelpdeskAdmin && await identity.Users.AsNoTracking().AnyAsync(account => account.Id == owner.UserId && account.IsEnabled && account.IsInstanceAdministrator, ct);
+        if (pair.Purpose == IntegrationCredentialGrantKinds.OwnerAdministrationPurpose && !ownerAdministrationAvailable)
+            throw new CredentialGrantException(null);
         var organizations = await db.Organizations.AsNoTracking().Where(o => o.IsEnabled).OrderBy(o => o.Name).ToListAsync(ct);
         var allowed = organizations.Select(o => new IntegrationPairingOrganization(o.Id, o.Name,
             pair.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose ? [] : HelpdeskPermissions.AssignablePermissions.Where(p => access.IsHelpdeskAdmin || access.HasPermission(p, o.Id)).ToArray()))
             .Where(o => pair.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose ? access.IsHelpdeskAdmin || access.AllowedOrganizationIds.Contains(o.Id) : o.Permissions.Count > 0).ToArray();
-        return new(NormalizeHuman(human).Insert(4, "-"), pair.Name, pair.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose ? "mcp" : pair.Purpose, pair.McpResourceUri,
+        return new(NormalizeHuman(human).Insert(4, "-"), pair.Name, pair.Purpose is IntegrationCredentialIssuer.SetupVerificationPurpose or IntegrationCredentialGrantKinds.OwnerAdministrationPurpose ? "mcp" : pair.Purpose, pair.McpResourceUri,
             DateTimeOffset.FromUnixTimeMilliseconds(pair.ExpiresAtUnixMilliseconds), allowed)
-            { GrantKind = pair.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose ? "setup-verification" : "ordinary" };
+            {
+                GrantKind = pair.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose ? "setup-verification" :
+                    pair.Purpose == IntegrationCredentialGrantKinds.OwnerAdministrationPurpose ? IntegrationCredentialGrantKinds.OwnerAdministration : "ordinary",
+                OwnerAdministrationAvailable = ownerAdministrationAvailable
+            };
     }
 
     public async Task<bool> ApproveAsync(IntegrationPairingApprovalRequest request, ClaimsPrincipal principal, string remote, CancellationToken ct)
@@ -93,9 +104,20 @@ public sealed class IntegrationCredentialPairingService(
         if (!await TakeAttemptAsync($"code:{owner.UserId}", 30, ct)) throw new PairingRateLimitException();
         var pair = await FindHumanAsync(request.HumanCode, ct);
         if (pair is null || pair.State != "pending" || pair.ExpiresAtUnixMilliseconds <= Now.ToUnixTimeMilliseconds()) return false;
-        var grantRequest = new IntegrationCredentialEndpoints.CreateIntegrationCredentialRequest(pair.Name, pair.Purpose,
-            request.OrganizationId, request.Permissions, request.LifetimeDays) { McpResourceUri = pair.McpResourceUri };
+        if (pair.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose &&
+            (request.GrantKind != "ordinary" || request.OwnerAdministrationConsent))
+            throw Invalid("grantKind", "A temporary setup verification cannot grant owner administration.");
+        var grantRequest = new IntegrationCredentialEndpoints.CreateIntegrationCredentialRequest(pair.Name,
+            pair.Purpose == IntegrationCredentialGrantKinds.OwnerAdministrationPurpose ? "mcp" : pair.Purpose,
+            request.OrganizationId, request.Permissions, request.LifetimeDays)
+        {
+            McpResourceUri = pair.McpResourceUri, GrantKind = request.GrantKind,
+            OwnerAdministrationConsent = request.OwnerAdministrationConsent
+        };
         await ValidateGrantAsync(pair, principal, grantRequest, ct);
+        if (pair.Purpose != IntegrationCredentialIssuer.SetupVerificationPurpose)
+            pair.Purpose = request.GrantKind == IntegrationCredentialGrantKinds.OwnerAdministration
+                ? IntegrationCredentialGrantKinds.OwnerAdministrationPurpose : grantRequest.Purpose;
         pair.OwnerUserId = owner.UserId;
         pair.ProtectedApproval = protector.Protect(JsonSerializer.Serialize(new ApprovalSnapshot(grantRequest,
             principal.Claims.Select(c => new StoredClaim(c.Type, c.Value)).ToArray())));

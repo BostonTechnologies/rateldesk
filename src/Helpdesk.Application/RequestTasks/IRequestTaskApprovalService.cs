@@ -17,14 +17,18 @@ public sealed class RequestTaskApprovalReviewResult
 {
     public bool Success { get; init; }
     public string? Error { get; init; }
+    public string? ErrorCode { get; init; }
     public string RequestId { get; init; } = string.Empty;
     public string TaskId { get; init; } = string.Empty;
     public RequestTaskApprovalStatus? ApprovalStatus { get; init; }
 
-    public static RequestTaskApprovalReviewResult Failed(string error) => new()
+    public static RequestTaskApprovalReviewResult Failed(string error) => Failed(error, null);
+
+    public static RequestTaskApprovalReviewResult Failed(string error, string? errorCode) => new()
     {
         Success = false,
-        Error = error
+        Error = error,
+        ErrorCode = errorCode
     };
 
     public static RequestTaskApprovalReviewResult Succeeded(

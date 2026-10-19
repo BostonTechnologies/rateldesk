@@ -197,7 +197,20 @@ public sealed partial class Program
         applicationServices = app.Services;
         app.Use(async (context, next) =>
         {
-            if (context.Request.Path.StartsWithSegments("/mcp") && context.Request.Headers.Origin is { Count: > 0 } origin &&
+            var isMcpRequest = context.Request.Path.StartsWithSegments("/mcp");
+            if (isMcpRequest)
+            {
+                // Confirmed lifecycle operations can return a newly issued one-time secret.
+                // Apply this before authentication so failures and streamed responses are covered too.
+                context.Response.Headers.CacheControl = "no-store";
+                context.Response.OnStarting(() =>
+                {
+                    context.Response.Headers.CacheControl = "no-store";
+                    return Task.CompletedTask;
+                });
+            }
+
+            if (isMcpRequest && context.Request.Headers.Origin is { Count: > 0 } origin &&
                 !httpOptions.AllowedOrigins.Contains(origin.ToString(), StringComparer.Ordinal))
             {
                 context.Response.StatusCode = StatusCodes.Status403Forbidden;

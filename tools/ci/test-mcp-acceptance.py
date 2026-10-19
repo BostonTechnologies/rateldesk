@@ -66,7 +66,7 @@ class AcceptanceGateTests(unittest.TestCase):
                                                   "containers": containers, "assets": assets})
         campaign["deployment"] = self.write({"campaignId": campaign["id"], "observedAt": "2026-10-18T00:10:01Z",
                                                "components": components, "nativeTools": natives})
-        export = gate.read_json(gate.ROOT / "docs/contracts/mcp-operation-catalog.json")
+        export = gate.read_json(gate.ROOT / "docs/contracts/mcp-operation-catalog-beta7.json")
         if export_transform:
             export_transform(export)
         wire = {"result": {"tools": [{"name": row["tool"], "inputSchema": row["inputSchema"]} for row in export["toolSchemas"]]}}
@@ -182,7 +182,7 @@ class AcceptanceGateTests(unittest.TestCase):
         self.validator().structure()
 
     def test_native_hash_matches_generated_catalog_and_captured_system_text_json_encoding(self):
-        export = gate.read_json(gate.ROOT / "docs/contracts/mcp-operation-catalog.json", native_numbers=True)
+        export = gate.read_json(gate.ROOT / "docs/contracts/mcp-operation-catalog-beta7.json", native_numbers=True)
         self.assertEqual(export["catalogHash"], gate.native_json_hash(export["operations"]))
         self.assertEqual(export["schemaHash"], gate.native_json_hash(export["toolSchemas"]))
         # Captured with the pinned SDK's JsonObject.ToJsonString(), the same

@@ -188,13 +188,10 @@
     private void OnTimelineLoaded(long version, List<TicketTimelineEventDto> events)
     {
         if (version != scopeVersion) return;
-        counts["timeline"] = string.Equals(TicketType, "changes", StringComparison.OrdinalIgnoreCase) ? events.Count : events.Count(x => !IsSystemEvent(x));
+        counts["timeline"] = events.Count;
     }
     private void OnAttachmentsLoaded(long version, List<AttachmentDto> attachments) { if (version == scopeVersion) counts["attachments"] = attachments.Count; }
     private void OnListenersLoaded(long version, int count) { if (version == scopeVersion) counts["listeners"] = count; }
     private void OnRelationsLoaded(long version, int count) { if (version == scopeVersion) counts["relations"] = count; }
-    private static bool IsSystemEvent(TicketTimelineEventDto e) =>
-        string.Equals(e.CreatedByUserId, "system", StringComparison.OrdinalIgnoreCase) ||
-        e.EventType is TimelineEventType.EmailDelivery or TimelineEventType.StatusChange or TimelineEventType.AssignmentChange or TimelineEventType.SystemNotification;
     public void Dispose() { cancellation.Cancel(); cancellation.Dispose(); }
 }

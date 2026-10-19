@@ -19,6 +19,8 @@ internal static class McpRequestSchemas
 {
     public static JsonObject Create(McpOperationDefinition definition)
     {
+        if (OperatorOperationCatalog.Find(definition.Tool, definition.Operation) is { } adapter)
+            return OperatorRequestSchemas.Create(adapter);
         var schema = Object();
         schema["description"] = $"{definition.RequestContract} for {definition.Tool} operation {definition.Operation}. All operation-specific fields belong inside this request object, never at the tool root.";
         var fields = (JsonObject)schema["properties"]!;

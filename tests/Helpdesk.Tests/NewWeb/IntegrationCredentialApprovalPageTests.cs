@@ -105,6 +105,29 @@ public sealed class IntegrationCredentialApprovalPageTests
     }
 
     [Fact]
+    public async Task Owner_scope_is_explicit_defaults_to_ordinary_and_requires_new_consent()
+    {
+        using var api = new Api(HttpStatusCode.OK, ownerAvailable: true);
+        await using var services = Services(api);
+        await using var renderer = new Renderer(services, services.GetRequiredService<ILoggerFactory>());
+        var reference = new Reference();
+        var view = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderAsync<Harness>(ParameterView.FromDictionary(new Dictionary<string, object?> { [nameof(Harness.Reference)] = reference })));
+        await InvokeAsync(renderer, reference.Page!, "ReviewAsync");
+        var html = await renderer.Dispatcher.InvokeAsync(view.ToHtmlString);
+        Assert.Contains("Owner administration across all organizations", html);
+        Assert.DoesNotContain("name=\"ownerAdministrationConsent\"", html);
+        Assert.DoesNotContain("value=\"HelpdeskAdmin\"", html);
+        await InvokeAsync(renderer, reference.Page!, "GrantKindChanged", new ChangeEventArgs { Value = "owner-administration" });
+        await InvokeAsync(renderer, reference.Page!, "OrganizationChanged", new ChangeEventArgs { Value = "org-a" });
+        html = await renderer.Dispatcher.InvokeAsync(view.ToHtmlString);
+        Assert.Contains("name=\"ownerAdministrationConsent\" value=\"on\"", html);
+        Assert.Contains("name=\"permissions\" value=\"HelpdeskAdmin\"", html);
+        Assert.Contains("I authorize this agent to administer the instance and all organizations on my behalf.", html);
+        Assert.DoesNotContain("name=\"consent\" checked", html);
+        Assert.DoesNotContain("credential-permission-selector", html);
+    }
+
+    [Fact]
     public async Task Unauthorized_host_review_is_neither_visible_nor_requested_and_code_is_not_switched()
     {
         using var api = new Api(HttpStatusCode.OK);
@@ -209,7 +232,7 @@ public sealed class IntegrationCredentialApprovalPageTests
     { public override AntiforgeryRequestToken GetAntiforgeryToken() => new("test-antiforgery", "__RequestVerificationToken"); }
     private sealed class Navigation : NavigationManager
     { public Navigation() => Initialize("https://desk.example/", "https://desk.example/account/integration-credentials/approve"); }
-    private sealed class Api(HttpStatusCode status, bool invalidJson = false, bool timeout = false, bool verifier = false, bool host = false, string hostOrigin = "https://desk.example") : HttpMessageHandler, IHttpClientFactory
+    private sealed class Api(HttpStatusCode status, bool invalidJson = false, bool timeout = false, bool verifier = false, bool host = false, string hostOrigin = "https://desk.example", bool ownerAvailable = false) : HttpMessageHandler, IHttpClientFactory
     {
         public int Calls { get; private set; }
         public HttpClient CreateClient(string name) => new(this, false) { BaseAddress = new("https://desk.example/") };
@@ -226,7 +249,7 @@ public sealed class IntegrationCredentialApprovalPageTests
             }
             Assert.Equal("/api/v1/integration-credentials/pairing/review", request.RequestUri!.AbsolutePath);
             return Task.FromResult(new HttpResponseMessage(status) { Content = JsonContent.Create(new IntegrationPairingReview(
-                "ABCD-EFGH", "laptop", "api", null, DateTimeOffset.UtcNow.AddMinutes(5), [new("org-a", "Organization A", ["Incident.Read"])]) { GrantKind = verifier ? "setup-verification" : "ordinary" }) });
+                "ABCD-EFGH", "laptop", ownerAvailable ? "mcp" : "api", ownerAvailable ? "https://desk.example/mcp" : null, DateTimeOffset.UtcNow.AddMinutes(5), [new("org-a", "Organization A", ["Incident.Read"])]) { GrantKind = verifier ? "setup-verification" : "ordinary", OwnerAdministrationAvailable = ownerAvailable }) });
         }
     }
     private sealed class Renderer(IServiceProvider services, ILoggerFactory loggers) : StaticHtmlRenderer(services, loggers)

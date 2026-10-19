@@ -13,7 +13,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Helpdesk.Infrastructure.AiAssistant;
 
-public sealed class AiAssistantAiAssistantService(HelpdeskDbContext db, ITenantContext tenantContext, IAiInvestigationEventBus eventBus, IHttpClientFactory httpClientFactory, ISecretProtector secretProtector) : IAiAssistantAiAssistantService
+public sealed partial class AiAssistantAiAssistantService(HelpdeskDbContext db, ITenantContext tenantContext, IAiInvestigationEventBus eventBus, IHttpClientFactory httpClientFactory, ISecretProtector secretProtector) : IAiAssistantAiAssistantService
 {
     public async Task<IReadOnlyList<AiAssistantWebhookConfigurationDto>> ListConfigurationsAsync(string organizationId, CancellationToken ct)
     {
@@ -46,24 +46,6 @@ public sealed class AiAssistantAiAssistantService(HelpdeskDbContext db, ITenantC
     {
         var ticket = await TicketAsync(ticketId, ticketType, ct); var area = Area(ticketType); var org = ticket.OrganizationId;
         return (await db.AiAssistantWebhookConfigurations.Where(x => x.OrganizationId == org && x.IsEnabled && !x.IsArchived).ToListAsync(ct)).Where(x => x.TicketAreas.Contains(area)).Select(ToDto).ToList();
-    }
-    public async Task<AiInvestigationInvocationDto> DispatchAsync(string ticketId, string ticketType, DispatchAiInvestigationDto request, string actor, CancellationToken ct)
-    {
-        var operatorAssistanceRequest = request.OperatorAssistanceRequest?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(operatorAssistanceRequest)) throw new ArgumentException("Operator assistance request is required.");
-        var ticket = await TicketAsync(ticketId, ticketType, ct);
-        var org = ticket.OrganizationId ?? throw new InvalidOperationException("Ticket organization is required.");
-        var area = Area(ticketType);
-        var existing = await db.AiInvestigationInvocations.SingleOrDefaultAsync(x => x.OrganizationId == org && x.IdempotencyKey == request.IdempotencyKey, ct);
-        if (existing is not null) return ToDto(existing);
-        var config = await db.AiAssistantWebhookConfigurations.SingleOrDefaultAsync(x => x.Id == request.ConfigurationId && x.OrganizationId == org && x.IsEnabled && !x.IsArchived, ct) ?? throw new InvalidOperationException("Configuration is not eligible.");
-        if (!config.TicketAreas.Contains(area)) throw new InvalidOperationException("Configuration is not eligible for this ticket area.");
-        var invocation = new AiInvestigationInvocation { OrganizationId = org, TicketId = ticket.Id, TicketArea = area, ConfigurationId = config.Id, RequestedByUserId = actor, OperatorAssistanceRequest = operatorAssistanceRequest, CorrelationId = Guid.NewGuid().ToString("N"), IdempotencyKey = request.IdempotencyKey };
-        db.AiInvestigationInvocations.Add(invocation); var entry = new AiInvestigationWorklogEntry { InvocationId = invocation.Id, OrganizationId = org, TicketId = ticket.Id, TicketArea = area, Source = AiInvestigationSource.Operator, Status = AiInvestigationStatus.Queued, Message = "AI assistance requested by operator.", CorrelationId = invocation.CorrelationId };
-        db.AiInvestigationWorklogEntries.Add(entry); db.AiAssistantWebhookAuditRecords.Add(new() { OrganizationId = org, ConfigurationId = config.Id, InvocationId = invocation.Id, Action = "dispatch-queued", Actor = actor }); await db.SaveChangesAsync(ct);
-        await Publish(ticket.Id, entry);
-        await DispatchAiAssistantAsync(invocation, config, ticket, ct);
-        return ToDto(invocation);
     }
     public async Task<IReadOnlyList<AiInvestigationWorklogEntryDto>> GetWorklogAsync(string ticketId, string ticketType, CancellationToken ct)
     {

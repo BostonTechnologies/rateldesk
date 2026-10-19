@@ -43,6 +43,15 @@ ROOT = Path(__file__).resolve().parents[2]
 LAUNCHER = ROOT / "tools/mcp/setup-http-mcp.sh"
 
 
+def assert_catalog_tools(tools):
+    catalog = json.loads((ROOT / "docs/contracts/mcp-operation-catalog.json").read_text())
+    expected = {operation["tool"] for operation in catalog["operations"]}
+    names = [tool["name"] for tool in tools]
+    assert expected, "The checked-in catalog must contain operations"
+    assert len(names) == len(set(names)), "HTTP discovery returned duplicate tools"
+    assert set(names) == expected, "HTTP discovery must exactly match the current generated operation catalog"
+
+
 class CommandFailure(RuntimeError):
     def __init__(self, arguments, completed):
         super().__init__(f"Disposable {Path(arguments[0]).name} command failed (exit {completed.returncode}).")
@@ -665,7 +674,7 @@ class Fixture:
             "clientInfo": {"name": "beta2-disposable-acceptance", "version": "1"}})
         assert initialized.get("protocolVersion")
         tools = rpc("tools/list", {})["tools"]
-        assert len(tools) == 28, "The actual complete supported catalog must remain 28 tools"
+        assert_catalog_tools(tools)
         assert {tool["name"] for tool in tools} >= {"helpdesk_incidents", "helpdesk_requests", "helpdesk_auth"}
         def call(name, operation, request=None):
             arguments = {"operation": operation}
@@ -1372,7 +1381,7 @@ class PreservedFixture(Fixture):
             self.guard_secret = secret
             assert rpc(secret, "initialize", {"protocolVersion": "2025-03-26", "capabilities": {},
                 "clientInfo": {"name": "disposable-verifier-boundary", "version": "1"}})["protocolVersion"] == "2025-03-26"
-            assert len(rpc(secret, "tools/list", {})["tools"]) == 28
+            assert_catalog_tools(rpc(secret, "tools/list", {})["tools"])
             status = rpc(secret, "tools/call", {"name": "helpdesk_auth", "arguments": {"operation": "status"}})
             assert status.get("isError") is not True and status["structuredContent"]["success"]
             denied = rpc(secret, "tools/call", {"name": "helpdesk_incidents", "arguments": {"operation": "list", "request": {}}})

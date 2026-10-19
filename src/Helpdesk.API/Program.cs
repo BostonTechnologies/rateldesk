@@ -899,9 +899,14 @@ builder.Services.AddAuthorization(opts =>
         policy.RequireAuthenticatedUser();
         policy.AddRequirements(new IntegrationCredentialManagementSessionRequirement());
     });
+    opts.AddPolicy(IntegrationCredentialEndpoints.OwnerManagementPolicy, policy =>
+    {
+        policy.RequireAuthenticatedUser();
+        policy.AddRequirements(new IntegrationCredentialOwnerManagementRequirement());
+    });
     opts.AddPolicy(IntegrationCredentialEndpoints.SelfRevocationPolicy, policy =>
     {
-        policy.AddAuthenticationSchemes(IntegrationCredentialAuthenticationHandler.SchemeName);
+        policy.AddAuthenticationSchemes(IntegrationCredentialAuthenticationHandler.SchemeName, McpExecutionAuthenticationHandler.SchemeName);
         policy.RequireAuthenticatedUser();
     });
 
@@ -983,7 +988,9 @@ builder.Services.AddAuthorization(opts =>
 
 });
 
+builder.Services.AddAiAgentOrOwnerMcp();
 builder.Services.AddScoped<IIntegrationCredentialOwnerResolver, IntegrationCredentialOwnerResolver>();
+builder.Services.AddScoped<IAuthorizationHandler, IntegrationCredentialOwnerManagementHandler>();
 builder.Services.AddScoped<IntegrationCredentialIssuer>();
 builder.Services.AddScoped<IntegrationCredentialPairingService>();
 builder.Services.AddScoped<HostDeploymentApprovalService>();
@@ -1156,7 +1163,7 @@ app.MapGet("/api/v1/auth/ai-agent/status", (ClaimsPrincipal user) => Results.Ok(
     identityProvider = user.FindFirst("identity_provider")?.Value,
     groups = user.FindAll("groups").Select(c => c.Value).Distinct(StringComparer.OrdinalIgnoreCase).Order().ToArray(),
     roles = user.FindAll(ClaimTypes.Role).Concat(user.FindAll("roles")).Select(c => c.Value).Distinct(StringComparer.OrdinalIgnoreCase).Order().ToArray()
-})).RequireAuthorization("AuthentikAiAgentApi")
+})).RequireAuthorization(AiAgentOrOwnerMcpAuthenticationHandler.PolicyName)
     .WithTags("Authentication");
 app.MapAiAgentOpsEndpoints();
 app.MapActivityEndpoints();

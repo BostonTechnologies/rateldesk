@@ -4,6 +4,7 @@ using System.Text;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Helpdesk.Shared.DTOs.Auth;
+using Helpdesk.Shared.Auth;
 using Helpdesk.Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc;
@@ -21,7 +22,14 @@ public static class AuthenticationEndpoints
             CancellationToken ct) =>
         {
             var access = await accessService.ResolveAsync(user, ct);
-            return Results.Ok(ToDto(access, user.FindFirstValue(ClaimTypes.NameIdentifier)));
+            var grantKind = user.HasClaim("auth_mode", "integration") ? user.FindFirstValue("integration_purpose") switch
+            {
+                IntegrationCredentialGrantKinds.OwnerAdministrationPurpose => IntegrationCredentialGrantKinds.OwnerAdministration,
+                "mcp-setup" => "setup-verification",
+                "api" or "mcp" => IntegrationCredentialGrantKinds.Ordinary,
+                _ => null
+            } : null;
+            return Results.Ok(ToDto(access, user.FindFirstValue(ClaimTypes.NameIdentifier)) with { GrantKind = grantKind });
         })
         .RequireAuthorization()
         .WithTags("Authentication")

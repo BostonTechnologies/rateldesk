@@ -2,7 +2,10 @@ namespace Helpdesk.Shared.DTOs.Auth;
 
 public sealed record IntegrationPairingCapabilities(string Product, int ProtocolVersion, bool PairingSupported,
     string? PublicOrigin, string? VerificationUri, int DefaultLifetimeDays = 30, int MaximumLifetimeDays = 90)
-{ public bool SetupVerificationSupported { get; init; } = true; }
+{
+    public bool SetupVerificationSupported { get; init; } = true;
+    public bool OwnerAdministrationSupported { get; init; } = true;
+}
 public sealed record IntegrationPairingStartRequest(string Name, string Purpose, string? McpResourceUri = null)
 { public string GrantKind { get; init; } = "ordinary"; }
 public sealed record IntegrationPairingStarted(string DeviceCode, string HumanCode, string VerificationUri,
@@ -22,6 +25,13 @@ public sealed record IntegrationPairingReviewRequest(string HumanCode);
 public sealed record IntegrationPairingOrganization(string Id, string Name, IReadOnlyList<string> Permissions);
 public sealed record IntegrationPairingReview(string HumanCode, string Name, string Purpose, string? McpResourceUri,
     DateTimeOffset ExpiresAtUtc, IReadOnlyList<IntegrationPairingOrganization> Organizations)
-{ public string GrantKind { get; init; } = "ordinary"; }
+{
+    public string GrantKind { get; init; } = "ordinary";
+    public bool OwnerAdministrationAvailable { get; init; }
+}
 public sealed record IntegrationPairingApprovalRequest(string HumanCode, string OrganizationId,
-    IReadOnlyList<string> Permissions, int? LifetimeDays, bool Consent);
+    IReadOnlyList<string> Permissions, int? LifetimeDays, bool Consent)
+{
+    public string GrantKind { get; init; } = "ordinary";
+    public bool OwnerAdministrationConsent { get; init; }
+}

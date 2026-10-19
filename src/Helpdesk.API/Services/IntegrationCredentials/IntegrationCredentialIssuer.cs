@@ -39,7 +39,13 @@ public sealed class IntegrationCredentialIssuer(
         if (request.Permissions is null || request.Permissions.Count == 0 || request.Permissions.Any(string.IsNullOrWhiteSpace))
             throw Invalid("permissions", "At least one non-empty permission is required.");
         var permissions = request.Permissions.Select(p => p.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        if (permissions.Any(p => !HelpdeskPermissions.AssignablePermissions.Contains(p, StringComparer.OrdinalIgnoreCase)))
+        var ownerAdministration = request.GrantKind == IntegrationCredentialGrantKinds.OwnerAdministration;
+        if (request.GrantKind is not (IntegrationCredentialGrantKinds.Ordinary or IntegrationCredentialGrantKinds.OwnerAdministration))
+            throw Invalid("grantKind", "Choose ordinary or owner-administration access.");
+        if (ownerAdministration && (purpose != "mcp" || !request.OwnerAdministrationConsent ||
+            permissions.Length != 1 || permissions[0] != HelpdeskPermissions.HelpdeskAdmin))
+            throw Invalid("ownerAdministrationConsent", "Owner administration requires an HTTP MCP credential, explicit instance-wide consent and the HelpdeskAdmin grant.");
+        if (!ownerAdministration && permissions.Any(p => !HelpdeskPermissions.AssignablePermissions.Contains(p, StringComparer.OrdinalIgnoreCase)))
             throw Invalid("permissions", "Permissions must be known assignable permissions.");
         var organizationId = request.OrganizationId?.Trim();
         var organization = string.IsNullOrWhiteSpace(organizationId) ? null :
@@ -47,11 +53,14 @@ public sealed class IntegrationCredentialIssuer(
         if (organization?.State != Helpdesk.Shared.Models.EntityState.Enabled)
             throw Invalid("organizationId", "An enabled organization is required.");
         var access = await accessService.ResolveAsync(principal, ct);
+        if (ownerAdministration && (!access.IsHelpdeskAdmin || !await identityDb.Users.AsNoTracking()
+            .AnyAsync(user => user.Id == owner.UserId && user.IsEnabled && user.IsInstanceAdministrator, ct)))
+            throw new CredentialGrantException(null);
         if (!access.IsHelpdeskAdmin && permissions.Any(p => !access.HasPermission(p, organizationId)))
             throw new CredentialGrantException(null);
         if (request.LifetimeDays is < 1 or > MaximumLifetimeDays)
             throw Invalid("lifetimeDays", $"Lifetime must be between 1 and {MaximumLifetimeDays} days.");
-        return new(owner.UserId, request.Name.Trim(), purpose, organizationId!, permissions,
+        return new(owner.UserId, request.Name.Trim(), ownerAdministration ? IntegrationCredentialGrantKinds.OwnerAdministrationPurpose : purpose, organizationId!, permissions,
             request.LifetimeDays ?? DefaultLifetimeDays, resource);
     }
 
@@ -89,8 +98,13 @@ public sealed class IntegrationCredentialIssuer(
             Permissions = string.Join(' ', grant.Permissions.Order(StringComparer.OrdinalIgnoreCase)),
             CreatedAtUtc = now, CreatedAtUnixMilliseconds = now.ToUnixTimeMilliseconds(), ExpiresAtUtc = grant.Purpose == SetupVerificationPurpose ? now.Add(SetupVerificationLifetime) : now.AddDays(grant.LifetimeDays)
         };
-        return (record, new(record.Id, record.Prefix, $"rdk_{id:N}_{secret}", record.Purpose == SetupVerificationPurpose ? "mcp" : record.Purpose,
-            record.OrganizationId, grant.Permissions, record.ExpiresAtUtc) { McpResourceUri = record.McpResourceUri, GrantKind = grant.Purpose == SetupVerificationPurpose ? "setup-verification" : "ordinary" });
+        return (record, new(record.Id, record.Prefix, $"rdk_{id:N}_{secret}", record.Purpose is SetupVerificationPurpose or IntegrationCredentialGrantKinds.OwnerAdministrationPurpose ? "mcp" : record.Purpose,
+            record.OrganizationId, grant.Permissions, record.ExpiresAtUtc)
+        {
+            McpResourceUri = record.McpResourceUri,
+            GrantKind = grant.Purpose == SetupVerificationPurpose ? "setup-verification" :
+                grant.Purpose == IntegrationCredentialGrantKinds.OwnerAdministrationPurpose ? IntegrationCredentialGrantKinds.OwnerAdministration : IntegrationCredentialGrantKinds.Ordinary
+        });
     }
 
     public void Track(IntegrationCredential record) => identityDb.IntegrationCredentials.Add(record);

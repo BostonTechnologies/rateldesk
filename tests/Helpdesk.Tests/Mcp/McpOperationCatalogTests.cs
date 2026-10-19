@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Helpdesk.AgentClient;
 using Helpdesk.Mcp.Tools;
 using ModelContextProtocol.Server;
@@ -11,6 +12,8 @@ namespace Helpdesk.Tests.Mcp;
 
 public sealed class McpOperationCatalogTests
 {
+    private static readonly IReadOnlyDictionary<string, JsonElement> ToolSchemas = HelpdeskToolDefinitions.Create()
+        .ToDictionary(tool => tool.ProtocolTool.Name, tool => tool.ProtocolTool.InputSchema);
     [Fact]
     public void Every_tool_schema_has_unique_required_properties()
     {
@@ -20,22 +23,26 @@ public sealed class McpOperationCatalogTests
 
     private static void AssertUniqueRequired(JsonElement schema, string path)
     {
-        if (schema.ValueKind == JsonValueKind.Object)
+        if (schema.ValueKind != JsonValueKind.Object) return;
+        if (schema.TryGetProperty("required", out var required))
         {
-            foreach (var property in schema.EnumerateObject())
-            {
-                if (property.Name == "required")
-                {
-                    var names = property.Value.EnumerateArray().Select(value => value.GetString()).ToArray();
-                    Assert.True(names.Length == names.Distinct(StringComparer.Ordinal).Count(), $"Duplicate required fields at {path}");
-                }
-                AssertUniqueRequired(property.Value, $"{path}.{property.Name}");
-            }
+            Assert.Equal(JsonValueKind.Array, required.ValueKind);
+            var names = required.EnumerateArray().Select(value => value.GetString()).ToArray();
+            Assert.True(names.Length == names.Distinct(StringComparer.Ordinal).Count(), $"Duplicate required fields at {path}");
         }
-        else if (schema.ValueKind == JsonValueKind.Array)
+        foreach (var property in schema.EnumerateObject())
         {
-            foreach (var item in schema.EnumerateArray())
-                AssertUniqueRequired(item, path);
+            if (property.Name is "properties" or "patternProperties" or "$defs" or "definitions" or "dependentSchemas")
+            {
+                foreach (var child in property.Value.EnumerateObject())
+                    AssertUniqueRequired(child.Value, $"{path}.{property.Name}.{child.Name}");
+            }
+            else if (property.Name is "oneOf" or "allOf" or "anyOf" or "prefixItems")
+            {
+                foreach (var child in property.Value.EnumerateArray()) AssertUniqueRequired(child, $"{path}.{property.Name}");
+            }
+            else if (property.Name is "items" or "contains" or "additionalProperties" or "unevaluatedProperties" or "not" or "if" or "then" or "else")
+                AssertUniqueRequired(property.Value, $"{path}.{property.Name}");
         }
     }
 
@@ -228,11 +235,15 @@ public sealed class McpOperationCatalogTests
     {
         foreach (var operation in McpOperationCatalog.All)
         {
-            var client = Substitute.For<IHelpdeskAgentClient>();
+            var client = Substitute.For<IHelpdeskAgentClient, IHelpdeskAgentAttachmentClient>();
             client.Configuration.Returns(new AgentClientConfiguration(null, null, null, null, null, null, "operator@example.test"));
             client.GetAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(new JsonObject { ["id"] = "record-1" });
             client.SendAsync(Arg.Any<HttpMethod>(), Arg.Any<string>(), Arg.Any<JsonNode?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(new JsonObject { ["id"] = "record-1", ["correlationId"] = "corr-1" });
             client.GetHealthAsync(Arg.Any<CancellationToken>()).Returns(new JsonArray());
+            var attachments = (IHelpdeskAgentAttachmentClient)client;
+            attachments.DownloadAttachmentAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new JsonObject { ["contentBase64"] = "eA==", ["sizeBytes"] = 1 });
+            attachments.UploadAttachmentAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<byte[]>(), Arg.Any<CancellationToken>()).Returns(new JsonObject { ["id"] = "attachment-1" });
+            attachments.UploadTemplateImageAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<byte[]>(), Arg.Any<CancellationToken>()).Returns(new JsonObject { ["url"] = "/email-brand/fixture.png" });
             var store = Store();
             if (operation.Tool == "helpdesk_config")
                 store.Save(AgentClientConfiguration.Empty);
@@ -244,16 +255,23 @@ public sealed class McpOperationCatalogTests
                 var preview = await Invoke(tools, operation, request, confirm: false);
                 Assert.Equal("confirmation_required", preview.Status);
                 Assert.DoesNotContain(client.ReceivedCalls(), call => call.GetMethodInfo().Name == nameof(IHelpdeskAgentClient.SendAsync));
+                Assert.DoesNotContain(client.ReceivedCalls(), call => call.GetMethodInfo().Name.StartsWith("Upload", StringComparison.Ordinal));
             }
 
             var response = await Invoke(tools, operation, request, confirm: operation.RequiresConfirmation);
             Assert.True(response.Success, $"{operation.Tool}.{operation.Operation}: {response.Summary}");
 
             if (operation.HttpMethod == "LOCAL" || operation.Tool == "helpdesk_health" || operation.Tool == "helpdesk_config") continue;
-            var expectedPath = operation.PathTemplate.Split(" then ", StringSplitOptions.None)[0].Replace("{incidentId}", "incident-1", StringComparison.Ordinal).Replace("{requestId}", "request-1", StringComparison.Ordinal).Replace("{changeId}", "change-1", StringComparison.Ordinal).Replace("{taskId}", "task-1", StringComparison.Ordinal).Replace("{organizationId}", "organization-1", StringComparison.Ordinal).Replace("{tenantId}", "1", StringComparison.Ordinal).Replace("{customerId}", "customer-1", StringComparison.Ordinal).Replace("{userId}", "user-1", StringComparison.Ordinal).Replace("{roleId}", "role-1", StringComparison.Ordinal).Replace("{categoryId}", "category-1", StringComparison.Ordinal).Replace("{serviceId}", "service-1", StringComparison.Ordinal).Replace("{requestFormId}", "form-1", StringComparison.Ordinal).Replace("{notificationId}", "notification-1", StringComparison.Ordinal).Replace("{ticketType}", "incidents", StringComparison.Ordinal).Replace("{ticketId}", "incident-1", StringComparison.Ordinal).Replace("{invocationId}", "00000000-0000-0000-0000-000000000001", StringComparison.Ordinal).Replace("{email}", "operator%40example.test", StringComparison.Ordinal);
+            var expectedPath = Regex.Replace(operation.PathTemplate.Split(" then ", StringSplitOptions.None)[0], "\\{([^}]+)\\}", match =>
+                Uri.EscapeDataString(request!.Value.GetProperty(match.Groups[1].Value).ToString()));
             var calls = client.ReceivedCalls().Select(call => call.GetArguments()).ToArray();
             Assert.Contains(calls, arguments => arguments.OfType<string>().Any(path => path.StartsWith(expectedPath, StringComparison.Ordinal)));
-            if (operation.HttpMethod is not ("GET" or "LOCAL"))
+            if (operation.Tool == "helpdesk_attachments" && operation.Operation is "upload" or "download" || operation.Operation is "upload_template_image" or "upload_branding_logo")
+            {
+                var expectedMethod = operation.Operation switch { "download" => "DownloadAttachmentAsync", "upload" => "UploadAttachmentAsync", _ => "UploadTemplateImageAsync" };
+                Assert.Contains(client.ReceivedCalls(), call => call.GetMethodInfo().Name == expectedMethod);
+            }
+            else if (operation.HttpMethod is not ("GET" or "LOCAL"))
                 Assert.Contains(calls, arguments => arguments.OfType<HttpMethod>().Any(method => method.Method == operation.HttpMethod));
         }
     }
@@ -288,6 +306,15 @@ public sealed class McpOperationCatalogTests
         "helpdesk_examples" => await tools.helpdesk_examples(operation.Operation, request, confirm),
         "helpdesk_raw" => await tools.helpdesk_raw(operation.Operation, request, confirm),
         "helpdesk_admin_mutations" => await tools.helpdesk_admin_mutations(operation.Operation, request, confirm),
+        "helpdesk_automation" => await tools.helpdesk_automation(operation.Operation, request, confirm),
+        "helpdesk_attachments" => await tools.helpdesk_attachments(operation.Operation, request, confirm),
+        "helpdesk_mail" => await tools.helpdesk_mail(operation.Operation, request, confirm),
+        "helpdesk_email_settings" => await tools.helpdesk_email_settings(operation.Operation, request, confirm),
+        "helpdesk_support" => await tools.helpdesk_support(operation.Operation, request, confirm),
+        "helpdesk_sla" => await tools.helpdesk_sla(operation.Operation, request, confirm),
+        "helpdesk_datasets" => await tools.helpdesk_datasets(operation.Operation, request, confirm),
+        "helpdesk_connections" => await tools.helpdesk_connections(operation.Operation, request, confirm),
+        "helpdesk_tenant_admin" => await tools.helpdesk_tenant_admin(operation.Operation, request, confirm),
         _ => throw new InvalidOperationException($"No test invoker exists for {operation.Tool}.")
     };
 
@@ -298,6 +325,23 @@ public sealed class McpOperationCatalogTests
     private static JsonElement? ContractRequest(McpOperationDefinition operation)
     {
         if (operation.RequestContract == "None") return null;
+        if (operation.RequestContract == "OperatorRequest")
+        {
+            var arguments = McpExecutableSchemaTests.ArgumentsFromDiscovery(ToolSchemas[operation.Tool], operation.Operation);
+            var request = arguments["request"]!.AsObject();
+            if (operation.Operation == "save_mapping")
+            {
+                request["body"]!["id"] = request["mappingId"]!.DeepClone();
+                request["body"]!["pairId"] = request["pairId"]!.DeepClone();
+            }
+            if (operation.Tool == "helpdesk_attachments" && operation.Operation == "upload" || operation.Operation is "upload_template_image" or "upload_branding_logo")
+            {
+                request["body"]!["fileName"] = operation.Operation is "upload_branding_logo" or "upload_template_image" ? "fixture.png" : "fixture.txt";
+                request["body"]!["contentType"] = operation.Operation is "upload_branding_logo" or "upload_template_image" ? "image/png" : "text/plain";
+                request["body"]!["contentBase64"] = "eA==";
+            }
+            return JsonSerializer.SerializeToElement(request);
+        }
         var json = operation.Tool switch
         {
             "helpdesk_config" => operation.Operation == "set" ? """{"key":"authentikScope","value":"openid"}""" : """{"key":"apiBaseUrl"}""",

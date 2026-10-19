@@ -439,8 +439,10 @@ public static class LocalAuthenticationEndpoints
         group.MapPost("/users", async (
             [FromBody] CreateLocalAccountRequest request,
             [FromServices] UserManager<ApplicationUser> users,
-            [FromServices] HelpdeskDbContext db) =>
+            [FromServices] HelpdeskDbContext db,
+            HttpContext context) =>
         {
+            context.Response.Headers.CacheControl = "no-store";
             if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.DisplayName))
             {
                 return Results.ValidationProblem(new Dictionary<string, string[]>
@@ -558,8 +560,10 @@ public static class LocalAuthenticationEndpoints
 
         group.MapPost("/users/{userId}/activation-token", async (
             string userId,
-            [FromServices] UserManager<ApplicationUser> users) =>
+            [FromServices] UserManager<ApplicationUser> users,
+            HttpContext context) =>
         {
+            context.Response.Headers.CacheControl = "no-store";
             var user = await users.FindByIdAsync(userId);
             if (user is null)
             {
@@ -626,7 +630,11 @@ public static class LocalAuthenticationEndpoints
 
     public sealed record ActivateLocalAccountRequest(string Email, string ActivationToken, string NewPassword);
 
-    public sealed record LocalAccountActivationResponse(string UserId, string Email, string ActivationToken);
+    public sealed record LocalAccountActivationResponse(string UserId, string Email, string ActivationToken)
+    {
+        public IReadOnlyList<string> SensitiveFields { get; init; } = ["activationToken"];
+        public override string ToString() => $"LocalAccountActivationResponse {{ UserId = {UserId}, ActivationToken = [redacted] }}";
+    }
 
     public sealed record LocalAccountStatusResponse(bool IsEnabled);
 

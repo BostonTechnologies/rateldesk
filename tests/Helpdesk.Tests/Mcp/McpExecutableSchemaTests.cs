@@ -1,5 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Globalization;
+using System.Text.RegularExpressions;
 using Helpdesk.Mcp.Tools;
 using Json.Schema;
 using Xunit;
@@ -197,8 +199,11 @@ public sealed class McpExecutableSchemaTests
     public void Effects_authority_raw_access_and_identifier_metadata_are_explicit()
     {
         var rows = McpOperationCatalog.ToJson().Select(row => row!.AsObject()).ToArray();
-        var ai = rows.Single(row => row["tool"]!.ToString() == "helpdesk_ai_assistant");
+        var ai = rows.Single(row => row["tool"]!.ToString() == "helpdesk_ai_assistant" && row["operation"]!.ToString() == "report");
         Assert.Equal("write", ai["effect"]!.ToString()); Assert.False(ai["confirmationRequired"]!.GetValue<bool>());
+        Assert.All(rows.Where(row => row["tool"]!.ToString() == "helpdesk_ai_assistant" &&
+            row["operation"]!.ToString() != "report" && row["effect"]!.ToString() != "read"),
+            row => Assert.True(row["confirmationRequired"]!.GetValue<bool>()));
         var tool = HelpdeskToolDefinitions.Create().Single(tool => tool.ProtocolTool.Name == "helpdesk_ai_assistant");
         Assert.DoesNotContain("Read operations: report", tool.ProtocolTool.Description);
         Assert.Contains("Write operations: report", tool.ProtocolTool.Description);
@@ -244,8 +249,33 @@ public sealed class McpExecutableSchemaTests
             return array;
         }
         if (type == "boolean") return JsonValue.Create(true)!;
-        if (type is "integer" or "number") return JsonValue.Create(schema["minimum"]?.GetValue<int>() ?? 1)!;
-        if (type == "string") return JsonValue.Create(schema["format"]?.ToString() switch { "uuid" => "00000000-0000-0000-0000-000000000001", "date-time" => "2027-01-01T00:00:00Z", "email" => "operator@example.test", _ => "Example" })!;
+        if (type is "integer" or "number")
+        {
+            if (schema["minimum"] is not { } lower || lower.ToString().StartsWith('-')) return JsonValue.Create(1)!;
+            return lower.DeepClone();
+        }
+        if (type == "string")
+        {
+            if (schema["examples"] is JsonArray examples && examples.Count > 0) return examples[0]!.DeepClone();
+            var example = schema["format"]?.ToString() switch
+            {
+                "uuid" => "00000000-0000-0000-0000-000000000001", "date-time" => "2027-01-01T00:00:00Z",
+                "date" => "2027-01-01", "time-span" or "time-local" => "09:00:00", "email" => "operator@example.test", _ => "Example"
+            };
+            var minimumLength = schema["minLength"]?.GetValue<int>() ?? 0;
+            if (example.Length < minimumLength) example = example.PadRight(minimumLength, 'a');
+            if (schema["pattern"] is { } pattern && !Regex.IsMatch(example, pattern.ToString(), RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)))
+            {
+                var alternatives = Regex.Match(pattern.ToString(), @"^\^\(([A-Za-z0-9_]+(?:\|[A-Za-z0-9_]+)+)\)\$$", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+                if (alternatives.Success) example = alternatives.Groups[1].Value.Split('|')[0];
+                else example = new[] { "Example123", "operator@example.test", "2027-01-01", "09:00:00" }
+                    .FirstOrDefault(candidate => candidate.Length >= minimumLength &&
+                        candidate.Length <= (schema["maxLength"]?.GetValue<int>() ?? int.MaxValue) &&
+                        Regex.IsMatch(candidate, pattern.ToString(), RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)))
+                    ?? throw new InvalidOperationException($"Add a schema-derived example for the pattern {pattern}.");
+            }
+            return JsonValue.Create(example)!;
+        }
         var result = new JsonObject();
         Fill(result, schema);
         return result;

@@ -60,6 +60,22 @@ public sealed class IntegrationCredentialOwnerResolver(
 
 public sealed class IntegrationCredentialManagementSessionRequirement : IAuthorizationRequirement;
 
+public sealed class IntegrationCredentialOwnerManagementRequirement : IAuthorizationRequirement;
+
+public sealed class IntegrationCredentialOwnerManagementHandler(
+    IIntegrationCredentialOwnerResolver ownerResolver,
+    RatelDeskIdentityDbContext identityDb)
+    : AuthorizationHandler<IntegrationCredentialOwnerManagementRequirement>
+{
+    protected override async Task HandleRequirementAsync(
+        AuthorizationHandlerContext context,
+        IntegrationCredentialOwnerManagementRequirement requirement)
+    {
+        if (await AdministrationOwnerResolver.ResolveAsync(context.User, ownerResolver, identityDb) is not null)
+            context.Succeed(requirement);
+    }
+}
+
 public sealed class IntegrationCredentialManagementSessionHandler(
     IIntegrationCredentialOwnerResolver ownerResolver)
     : AuthorizationHandler<IntegrationCredentialManagementSessionRequirement>

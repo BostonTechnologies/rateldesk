@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Helpdesk.API.Authentication;
 using Helpdesk.API.Endpoints.Authentication;
 using System.Text.Json;
 using Helpdesk.Application.AiAssistant;
@@ -39,7 +40,7 @@ public static class AiAssistantAiAssistantEndpoints
         }).RequireAuthorization("HelpdeskStaff");
         tickets.MapGet("/worklog/stream", StreamAsync).RequireAuthorization("HelpdeskStaff");
 
-        var mcp = app.MapGroup("/api/v1/ai-assistant/investigations").WithTags("AI Assistant MCP").RequireAuthorization("AuthentikAiAgentApi");
+        var mcp = app.MapGroup("/api/v1/ai-assistant/investigations").WithTags("AI Assistant MCP").RequireAuthorization(AiAgentOrOwnerMcpAuthenticationHandler.PolicyName);
         mcp.MapPost("/{invocationId:guid}/worklog", async (Guid invocationId, AppendAiInvestigationWorklogDto dto, IAiAssistantAiAssistantService service, CancellationToken ct) => await service.AppendMcpWorklogAsync(invocationId, dto, ct) ? Results.NoContent() : Results.BadRequest());
     }
 
@@ -103,6 +104,14 @@ public static class AiAssistantAiAssistantEndpoints
         {
             var invocation = await service.DispatchAsync(ticketId, ticketType, dto, Actor(context), ct);
             return Results.Accepted($"/api/v1/{ticketType}/{ticketId}/ai-assistant/investigations", invocation);
+        }
+        catch (AiInvestigationDispatchConflictException ex)
+        {
+            return Results.Conflict(new { code = "ai_investigation_changed", message = ex.Message });
+        }
+        catch (KeyNotFoundException)
+        {
+            return Results.NotFound();
         }
         catch (ArgumentException ex)
         {

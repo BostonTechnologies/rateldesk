@@ -17,14 +17,20 @@ using Microsoft.Extensions.Logging;
 
 namespace Helpdesk.Infrastructure.RequestTasks;
 
-public sealed class RequestTaskApprovalService(
+public sealed partial class RequestTaskApprovalService(
     HelpdeskDbContext db,
     IRequestFormSchemaParser schemaParser,
     ITicketNotificationService notificationService,
     IPublicTicketLinkSigner signer,
-    ITimelineEventBus timelineEventBus,
-    ILogger<RequestTaskApprovalService> logger) : IRequestTaskApprovalService
+    ILogger<RequestTaskApprovalService> logger) : IRequestTaskApprovalService, IAuthenticatedRequestTaskApprovalService
 {
+    // Preserve the existing construction contract. Publications are now durable
+    // outbox effects, dispatched only after their business transaction commits.
+    public RequestTaskApprovalService(HelpdeskDbContext db, IRequestFormSchemaParser schemaParser,
+        ITicketNotificationService notificationService, IPublicTicketLinkSigner signer,
+        ITimelineEventBus timelineEventBus, ILogger<RequestTaskApprovalService> logger)
+        : this(db, schemaParser, notificationService, signer, logger) { }
+
     private const int DefaultApprovalDays = 7;
     private const int MaxRejectionReasonLength = 1000;
 
@@ -156,20 +162,20 @@ public sealed class RequestTaskApprovalService(
             DueAt = task.DueAt,
             ReviewedAtUtc = approval.ReviewedAtUtc,
             ViewedAtUtc = approval.ViewedAtUtc,
-            CanReview = task.Status == RequestTaskStatus.PendingApproval && approval.Status == RequestTaskApprovalStatus.Pending,
+            CanReview = task.Status == RequestTaskStatus.PendingApproval && approval.Status == RequestTaskApprovalStatus.Pending &&
+                        (task.DueAt is null || task.DueAt > DateTimeOffset.UtcNow),
             PayloadFields = BuildPayloadFields(request.PayloadJson)
         };
     }
 
     public async Task<RequestTaskApprovalReviewResult> ApproveAsync(string trackingId, string taskId, string email, string token, CancellationToken ct)
     {
-        var loaded = await LoadSignedApprovalAsync(trackingId, taskId, email, token, ct);
-        if (loaded is null)
-        {
-            return RequestTaskApprovalReviewResult.Failed("Approval link is invalid or expired.");
-        }
+        return await ReviewDecisionAsync(taskId, () => LoadSignedApprovalAsync(trackingId, taskId, email, token, ct),
+            true, null, null, ct);
+    }
 
-        var (request, task, approval) = loaded.Value;
+    private async Task<RequestTaskApprovalReviewResult> ApproveLoadedAsync(Request request, RequestTask task, RequestTaskApproval approval, CancellationToken ct)
+    {
         if (approval.Status == RequestTaskApprovalStatus.Approved || task.Status == RequestTaskStatus.Completed)
         {
             return RequestTaskApprovalReviewResult.Succeeded(request.Id, task.Id, RequestTaskApprovalStatus.Approved);
@@ -222,13 +228,12 @@ public sealed class RequestTaskApprovalService(
         string? reason,
         CancellationToken ct)
     {
-        var loaded = await LoadSignedApprovalAsync(trackingId, taskId, email, token, ct);
-        if (loaded is null)
-        {
-            return RequestTaskApprovalReviewResult.Failed("Approval link is invalid or expired.");
-        }
+        return await ReviewDecisionAsync(taskId, () => LoadSignedApprovalAsync(trackingId, taskId, email, token, ct),
+            false, reason, null, ct);
+    }
 
-        var (request, task, approval) = loaded.Value;
+    private async Task<RequestTaskApprovalReviewResult> RejectLoadedAsync(Request request, RequestTask task, RequestTaskApproval approval, string? reason, CancellationToken ct)
+    {
         if (approval.Status == RequestTaskApprovalStatus.Rejected || request.WorkflowStatus == "Cancelled")
         {
             return RequestTaskApprovalReviewResult.Succeeded(request.Id, task.Id, RequestTaskApprovalStatus.Rejected);
@@ -323,32 +328,15 @@ public sealed class RequestTaskApprovalService(
         var overdue = db.Database.IsSqlite()
             ? pending.Where(x => EF.Property<long?>(x, "DueAtUtcTicks") <= now.UtcTicks)
             : pending.Where(x => x.DueAt.HasValue && x.DueAt <= now);
-        var tasks = await overdue.ToListAsync(ct);
+        var taskIds = await overdue.Select(task => task.Id).ToListAsync(ct);
         var expired = 0;
-        foreach (var task in tasks)
+        foreach (var taskId in taskIds)
         {
-            var request = await db.Requests.FirstOrDefaultAsync(x => x.Id == task.RequestId, ct);
-            if (request is null)
-            {
-                continue;
-            }
-
-            var approvals = await db.RequestTaskApprovals
-                .Where(x => x.RequestTaskId == task.Id && x.Status == RequestTaskApprovalStatus.Pending)
-                .ToListAsync(ct);
-            foreach (var approval in approvals)
-            {
-                approval.Status = RequestTaskApprovalStatus.Expired;
-                approval.ReviewedAtUtc = now;
-            }
-
-            await CancelRequestAsync(request, task, $"Approval timed out after waiting until {task.DueAt:yyyy-MM-dd HH:mm} UTC.", now, ct);
-            expired++;
+            if (await ExpireTaskAsync(taskId, now, ct)) expired++;
         }
 
         if (expired > 0)
         {
-            await db.SaveChangesAsync(ct);
             logger.LogInformation("Expired {ExpiredCount} request approval task(s).", expired);
         }
 
@@ -480,7 +468,7 @@ public sealed class RequestTaskApprovalService(
             ? x.ApproverEmail
             : $"{x.ApproverName} <{x.ApproverEmail}>"));
 
-    private async Task AddApprovalTimelineEventAsync(
+    private Task AddApprovalTimelineEventAsync(
         Request request,
         RequestTaskApproval approval,
         string message,
@@ -497,7 +485,7 @@ public sealed class RequestTaskApprovalService(
         };
 
         db.TicketTimelineEvents.Add(timelineEvent);
-        await timelineEventBus.PublishAsync(new TicketTimelineEventDto
+        var publication = new TicketTimelineEventDto
         {
             Id = timelineEvent.Id,
             TicketId = timelineEvent.TicketId,
@@ -508,7 +496,16 @@ public sealed class RequestTaskApprovalService(
             MessageText = timelineEvent.MessageText,
             PrimaryRecipient = approval.ApproverEmail,
             Recipients = [approval.ApproverEmail]
+        };
+        db.Set<MailboxOutboxEffect>().Add(new MailboxOutboxEffect
+        {
+            EffectKey = $"request-approval:{timelineEvent.Id:N}",
+            DispatchGroup = $"request-approval:{request.Id}",
+            Kind = MailboxEffectKind.Timeline,
+            AvailableUnixMilliseconds = timelineEvent.CreatedUtc.ToUnixTimeMilliseconds(),
+            Payload = JsonSerializer.Serialize(publication)
         });
+        return Task.CompletedTask;
     }
 
     private async Task<bool> SendApprovalEmailAsync(

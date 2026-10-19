@@ -196,6 +196,8 @@ public static class DependencyInjection
         services.AddScoped<IRequestTaskGenerationService, RequestTaskGenerationService>();
         services.AddScoped<IRequestTaskLifecycleService, RequestTaskLifecycleService>();
         services.AddScoped<IRequestTaskApprovalService, RequestTaskApprovalService>();
+        services.AddScoped<IAuthenticatedRequestTaskApprovalService>(provider =>
+            (RequestTaskApprovalService)provider.GetRequiredService<IRequestTaskApprovalService>());
         services.AddScoped<IRequestTaskApprovalTimeoutProcessor, RequestTaskApprovalTimeoutProcessor>();
         services.AddScoped<ITaskEscalationProcessor, TaskEscalationProcessor>();
         services.AddScoped<IRequestTaskRetryProcessor, RequestTaskRetryProcessor>();
@@ -215,7 +217,9 @@ public static class DependencyInjection
         services.AddScoped<IOrchestrationProtectedDiagnosticsClient, OrchestrationInternalClient>();
         services.AddScoped<IOrchestrationCatalogService, OrchestrationCatalogService>();
         services.AddScoped<IRequestTaskPayloadBuilder, RequestTaskPayloadBuilder>();
-        services.AddScoped<IDataManagementService, DataManagementService>();
+        services.AddScoped<DataManagementService>();
+        services.AddScoped<IDataManagementService>(provider => provider.GetRequiredService<DataManagementService>());
+        services.AddScoped<IOperatorDatasetWriter>(provider => provider.GetRequiredService<DataManagementService>());
         services.AddScoped<IRequestFormDatasetBindingValidator, RequestFormDatasetBindingValidator>();
         services.AddScoped<ISelfServiceDatasetBindingResolver, SelfServiceDatasetBindingResolver>();
         services.AddScoped<ISlaReportingQueryService, SlaReportingQueryService>();
