@@ -387,12 +387,16 @@ workflow alone does not prove which checks are enforced there.
 
 Incident/service acceptance requires Docker and actual authenticated HTTP,
 SQLite/PostgreSQL and golden-contract tests. Its TRX validator rejects absent,
-failed or skipped selected results and requires thirteen named test classes, with
+failed or skipped selected results and requires the named classes and cases in
+`tools/ci/check-service-provider-acceptance.py`, with
 actual `postgres: true` and `postgres: false` cases for receiver, service identity,
 managed orchestration callback, pairing service/upgrade and service identity
 migration coverage. Beta.6 also requires both providers for canonical worklog
 mail, invocation-bound AI callbacks and dispatch races, saved orchestration
-connection selection, and notification summary aggregation. Do not
+connection selection, and notification summary aggregation. Beta.8 also requires
+owner delegation and revocation, authenticated approvals, concurrent Change
+writers and activity, atomic requester assignment, tracked persistence,
+dataset batches and AI dispatch ownership on both providers. Do not
 substitute an empty pass or a skipped provider run.
 
 Deep Playwright/mailbox/image/archive/Compose acceptance is an existing explicit

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Helpdesk.Application.Tickets;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Models;
@@ -142,6 +143,11 @@ public sealed class EfRepositoryProviderTests
         Assert.Equal("reviewed-implementor", saved.ImplementorUserId);
         Assert.Equal(saved.ImplementorUserId, saved.AssignedToId);
         Assert.Equal(new[] { "reviewed-owner" }, saved.ApproverUserIds);
-        Assert.Equal("{\"scopeOfChange\":\"reviewed scope\"}", saved.ChangeTemplateJson);
+        using var template = JsonDocument.Parse(saved.ChangeTemplateJson);
+        Assert.Equal(JsonValueKind.Object, template.RootElement.ValueKind);
+        var property = Assert.Single(template.RootElement.EnumerateObject());
+        Assert.Equal("scopeOfChange", property.Name);
+        Assert.Equal(JsonValueKind.String, property.Value.ValueKind);
+        Assert.Equal("reviewed scope", property.Value.GetString());
     }
 }
