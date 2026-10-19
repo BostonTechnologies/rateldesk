@@ -8,6 +8,7 @@ using Helpdesk.Infrastructure.ServiceIdentity;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
