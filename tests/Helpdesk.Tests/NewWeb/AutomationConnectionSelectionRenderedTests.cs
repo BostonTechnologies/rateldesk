@@ -169,6 +169,22 @@ public sealed class AutomationConnectionSelectionRenderedTests
         Assert.Contains("HTTP 400", error.Message);
     }
 
+    [Fact]
+    public async Task Binding_failure_after_create_retains_the_saved_form_for_the_next_save()
+    {
+        using var api = new FixtureApi { Rows = [Connection(FirstId)], StoredConnectionId = FirstId, FailBindingUpdates = true };
+        await using var context = Context(api);
+        var page = await RenderAsync(context);
+        page.WaitForAssertion(() => Assert.True(Property<bool>(page.Instance, "CanCreateTenantScopedOrchestrationTarget")));
+        typeof(Builder).GetProperty(nameof(Builder.RequestFormId))!.SetValue(page.Instance, null);
+        await InvokeAsync(page, "Save");
+        Assert.Equal("saved-synthetic-form", page.Instance.RequestFormId);
+        Assert.Equal(1, api.FormCreates);
+        await InvokeAsync(page, "Save");
+        Assert.Equal(1, api.FormCreates);
+        Assert.Equal(1, api.FormUpdates);
+    }
+
     private static BunitContext Context(FixtureApi api, IDialogService? dialogs = null)
     {
         var context = new BunitContext();
@@ -209,6 +225,8 @@ public sealed class AutomationConnectionSelectionRenderedTests
         public bool MismatchPeerTenant { get; set; }
         public bool BindingEnabled { get; set; } = true;
         public bool HasBinding { get; set; } = true;
+        public int FormCreates { get; private set; }
+        public int FormUpdates { get; private set; }
         public bool FailBindingUpdates { get; set; }
         public List<string> Paths { get; } = [];
         public List<UpdateAutomationBindingDto> Updates { get; } = [];
@@ -221,6 +239,16 @@ public sealed class AutomationConnectionSelectionRenderedTests
             object body;
             if (path == "/api/v1/organizations") body = new[] { Organization };
             else if (path == "/api/v1/users") body = Array.Empty<UserDto>();
+            else if (path == "/api/v1/request-forms" && request.Method == HttpMethod.Post)
+            {
+                FormCreates++;
+                body = new RequestFormDto { Id = "saved-synthetic-form" };
+            }
+            else if (path == "/api/v1/request-forms/saved-synthetic-form" && request.Method == HttpMethod.Put)
+            {
+                FormUpdates++;
+                body = new RequestFormDto { Id = "saved-synthetic-form" };
+            }
             else if (path == "/api/v1/request-forms/synthetic-form") body = new RequestFormDto { Id = "synthetic-form", Title = "Synthetic form", OrganizationId = OrganizationId,
                 JsonSchema = JsonSerializer.Serialize(new { fields = Array.Empty<object>(), tasks = new[] { new { id = TaskId, name = "Automate", type = "automation", order = 1 } } }) };
             else if (path == "/api/v1/admin/system-connections/") body = Rows;

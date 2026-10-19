@@ -2080,6 +2080,12 @@
                 Id = RequestFormId ?? string.Empty
             };
 
+            if (string.IsNullOrWhiteSpace(savedForm.Id))
+                throw new InvalidOperationException("The saved form identifier was missing. Reload the form before retrying.");
+            // A binding-stage failure must retry this saved form, never create
+            // another form from the still-open editor.
+            RequestFormId = savedForm.Id;
+
             await SyncBindingsAsync(savedForm.Id);
             var syncWarning = await TrySyncBindingSchemasAsync(savedForm.Id);
             if (!string.IsNullOrWhiteSpace(syncWarning))
