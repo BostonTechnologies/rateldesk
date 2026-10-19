@@ -21,11 +21,14 @@ public sealed class AutomationExecutionPolicyMigrationTests
             await seed.Database.MigrateAsync();
             var template = Guid.NewGuid().ToString();
             seed.RequestForms.Add(new RequestForm { Id = "policy-form", JsonSchema = JsonDocument.Parse(
-                JsonSerializer.Serialize(new { tasks = new[] { new { id = template, autoStart = false } } })) });
+                JsonSerializer.Serialize(new { tasks = new object?[] { new { id = template, autoStart = false }, null, "legacy" } })) });
+            seed.RequestForms.Add(new RequestForm { Id = "null-tasks-form", JsonSchema = JsonDocument.Parse("{\"tasks\":null}") });
             seed.Requests.Add(new Request { Id = "policy-parent", RequestFormId = "policy-form", TrackingId = "REQ-POLICY" });
+            seed.Requests.Add(new Request { Id = "null-tasks-parent", RequestFormId = "null-tasks-form", TrackingId = "REQ-LEGACY" });
             seed.RequestTasks.AddRange(
                 new RequestTask { Id = "policy-task", RequestId = "policy-parent", TemplateId = template, TrackingId = "TSK-POLICY" },
-                new RequestTask { Id = "legacy-task", RequestId = "policy-parent", TemplateId = Guid.NewGuid().ToString(), TrackingId = "TSK-LEGACY" });
+                new RequestTask { Id = "legacy-task", RequestId = "policy-parent", TemplateId = Guid.NewGuid().ToString(), TrackingId = "TSK-LEGACY" },
+                new RequestTask { Id = "null-tasks-task", RequestId = "null-tasks-parent", TemplateId = Guid.NewGuid().ToString(), TrackingId = "TSK-NULL" });
             await seed.SaveChangesAsync();
             var migrations = seed.Database.GetMigrations().ToArray();
             var index = Array.FindIndex(migrations, x => x.EndsWith("_PersistAutomationExecutionPolicy", StringComparison.Ordinal));
@@ -37,7 +40,8 @@ public sealed class AutomationExecutionPolicyMigrationTests
         await upgraded.Database.MigrateAsync();
         Assert.False((await upgraded.RequestTasks.SingleAsync(x => x.Id == "policy-task")).AutoStart);
         Assert.True((await upgraded.RequestTasks.SingleAsync(x => x.Id == "legacy-task")).AutoStart);
-        Assert.Equal(2, await upgraded.RequestTasks.CountAsync());
+        Assert.True((await upgraded.RequestTasks.SingleAsync(x => x.Id == "null-tasks-task")).AutoStart);
+        Assert.Equal(3, await upgraded.RequestTasks.CountAsync());
         Assert.Empty(await upgraded.Database.GetPendingMigrationsAsync());
     }
 }

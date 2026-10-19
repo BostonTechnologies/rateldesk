@@ -14,7 +14,13 @@ public sealed class PersistAutomationExecutionPolicy : Migration
         migrationBuilder.AddColumn<string>(name: "AutomationAttemptCorrelationId", table: "Tickets", type: "text", nullable: true);
         migrationBuilder.AddColumn<string>(name: "AutomationAttemptHistoryJson", table: "Tickets", type: "text", nullable: true);
         migrationBuilder.Sql("""
-            UPDATE "Tickets" t SET "AutoStart" = (item.value->>'autoStart')::boolean FROM "Tickets" r JOIN "RequestForms" f ON f."Id" = r."RequestFormId" CROSS JOIN LATERAL jsonb_array_elements(COALESCE(f."JsonSchema"->'tasks', '[]'::jsonb)) item WHERE t."Discriminator" = 'RequestTask' AND t."RequestId" = r."Id" AND t."TemplateId" = item.value->>'id' AND jsonb_typeof(item.value->'autoStart') = 'boolean'
+            UPDATE "Tickets" t SET "AutoStart" = (item.value->>'autoStart')::boolean
+            FROM "Tickets" r JOIN "RequestForms" f ON f."Id" = r."RequestFormId"
+            CROSS JOIN LATERAL jsonb_array_elements(
+                CASE WHEN jsonb_typeof(f."JsonSchema"->'tasks') = 'array'
+                THEN f."JsonSchema"->'tasks' ELSE '[]'::jsonb END) item
+            WHERE t."Discriminator" = 'RequestTask' AND t."RequestId" = r."Id"
+                AND t."TemplateId" = item.value->>'id' AND jsonb_typeof(item.value->'autoStart') = 'boolean'
             """);
     }
     protected override void Down(MigrationBuilder migrationBuilder)
