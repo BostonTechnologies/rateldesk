@@ -332,6 +332,7 @@ public sealed class McpOperationCatalogTests
         var id = idName switch { "incidentId" => "incident-1", "requestId" => "request-1", "changeId" => "change-1", _ => "ticket-1" };
         return operation switch
         {
+            "list" => "{}",
             "create" when incident => """{"title":"matrix","description":"matrix","customerId":"customer-1","organizationId":"organization-1","priority":"Low"}""",
             "create" when change => ChangeCreateRequest(),
             "create" => """{"title":"matrix","description":"matrix","priority":"Low","customerId":"customer-1","organizationId":"organization-1"}""",
@@ -355,6 +356,7 @@ public sealed class McpOperationCatalogTests
 
     private static string TaskRequest(string operation) => operation switch
     {
+        "list" => "{}",
         "bulk_start" or "bulk_complete" or "bulk_retry" => """{"ids":["task-1"]}""",
         "create" => """{"title":"matrix","description":"matrix","requestId":"request-1","organizationId":"organization-1"}""",
         "update" => """{"taskId":"task-1","title":"updated matrix task"}""",
