@@ -237,6 +237,7 @@ public sealed class OrchestrationConnectionSelectionHttpTests
         => IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true, pairingPeer: peer,
             configureServices: services =>
             {
+                services.AddScoped<Helpdesk.Shared.Services.ITenantContext>(_ => new AdministratorHomeTenant());
                 services.AddScoped<IOrchestrationTokenService>(_ => tokens);
                 services.AddAuthorization(options => options.AddPolicy("HelpdeskAdmin", policy => policy.RequireAuthenticatedUser().RequireRole("HelpdeskAdmin")));
             },
@@ -258,6 +259,13 @@ public sealed class OrchestrationConnectionSelectionHttpTests
     }
 
     private static string Query(string organizationId, Guid connectionId) => $"?organizationId={Uri.EscapeDataString(organizationId)}&connectionId={connectionId:D}";
+
+    private sealed class AdministratorHomeTenant : Helpdesk.Shared.Services.ITenantContext
+    {
+        public string? TenantId => "different-administrator-home-org";
+        public string? UserId => "owner";
+        public bool IsHelpdeskAdmin => true;
+    }
 
     private sealed class CapturingTokens : IOrchestrationTokenService
     {
