@@ -6,8 +6,8 @@
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <PackageReference Include="Termina" Version="0.16.4" />
-    <PackageReference Include="System.CommandLine" Version="2.0.12" />
+    <PackageReference Include="Termina" Version="0.17.0" />
+    <PackageReference Include="System.CommandLine" Version="2.0.13" />
     <ProjectReference Include="..\Helpdesk.AgentClient\Helpdesk.AgentClient.csproj" />
     <ProjectReference Include="..\Helpdesk.Mcp.Core\Helpdesk.Mcp.Core.csproj" />
     <ProjectReference Include="..\Helpdesk.Shared\Helpdesk.Shared.csproj" />
