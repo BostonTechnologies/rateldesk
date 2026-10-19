@@ -1,5 +1,11 @@
 # Release notes
 
+## 0.1.2-beta.7 candidate
+
+[Automation retry and form repairs](0.1.2-beta.7.md) persist Auto Start policy,
+retain execution attempt history, repair binding editing and enforce closed
+ticket-list schemas. Deployed campaign acceptance remains pending under #219.
+
 ## 0.1.2-beta.6
 
 [Durable delivery and MCP acceptance repairs](0.1.2-beta.6.md) preserve truthful
