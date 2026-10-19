@@ -25,25 +25,25 @@ jobs:
           dotnet restore Helpdesk.sln
           tar -czf - -C /tmp/rateldesk-rc7 sdk packages | split -b 350M -d - "$RUNNER_TEMP/build-inputs.part"
           git ls-files '*AGENTS.md' '*SKILL.md'
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: rc7-inputs-00
           path: ${{ runner.temp }}/build-inputs.part00
           compression-level: 0
           retention-days: 1
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: rc7-inputs-01
           path: ${{ runner.temp }}/build-inputs.part01
           compression-level: 0
           retention-days: 1
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: rc7-inputs-02
           path: ${{ runner.temp }}/build-inputs.part02
           compression-level: 0
           retention-days: 1
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: rc7-inputs-03
           path: ${{ runner.temp }}/build-inputs.part03
