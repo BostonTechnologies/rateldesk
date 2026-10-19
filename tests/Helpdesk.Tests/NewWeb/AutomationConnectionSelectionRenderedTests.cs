@@ -140,13 +140,16 @@ public sealed class AutomationConnectionSelectionRenderedTests
         Assert.Empty(api.Updates);
     }
 
-    [Fact]
-    public async Task Disabled_binding_can_be_saved_from_the_existing_form_editor()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Disabled_binding_can_be_saved_from_the_form_editor(bool newBinding)
     {
-        using var api = new FixtureApi { Rows = [Connection(FirstId)], StoredConnectionId = FirstId };
+        using var api = new FixtureApi { Rows = [Connection(FirstId)], StoredConnectionId = FirstId, HasBinding = !newBinding };
         await using var context = Context(api);
         var page = await RenderAsync(context);
         page.WaitForAssertion(() => Assert.True(Property<bool>(page.Instance, "CanCreateTenantScopedOrchestrationTarget")));
+        if (newBinding) await InvokeAsync(page, "OnSelectedCatalogRequestDefinitionChanged", "definition-17");
         await InvokeAsync(page, "OnSelectedBindingEnabledChanged", false);
         Assert.True((bool)typeof(Builder).GetMethod("IsTaskConfigurationValid", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page.Instance, null)!);
         await InvokeAsync(page, "SyncBindingsAsync", "synthetic-form");
@@ -205,6 +208,7 @@ public sealed class AutomationConnectionSelectionRenderedTests
         public Guid? StoredConnectionId { get; set; }
         public bool MismatchPeerTenant { get; set; }
         public bool BindingEnabled { get; set; } = true;
+        public bool HasBinding { get; set; } = true;
         public bool FailBindingUpdates { get; set; }
         public List<string> Paths { get; } = [];
         public List<UpdateAutomationBindingDto> Updates { get; } = [];
@@ -234,7 +238,12 @@ public sealed class AutomationConnectionSelectionRenderedTests
                 BindingEnabled = update.Enabled ?? BindingEnabled;
                 body = Binding();
             }
-            else if (path.Contains("/bindings", StringComparison.Ordinal)) body = new[] { Binding() };
+            else if (path == "/api/v1/admin/orchestration/bindings" && request.Method == HttpMethod.Post)
+            {
+                HasBinding = true;
+                body = Binding();
+            }
+            else if (path.Contains("/bindings", StringComparison.Ordinal)) body = HasBinding ? new[] { Binding() } : Array.Empty<AutomationBindingDto>();
             else body = Array.Empty<object>();
             return new(HttpStatusCode.OK) { Content = JsonContent.Create(body) };
         }

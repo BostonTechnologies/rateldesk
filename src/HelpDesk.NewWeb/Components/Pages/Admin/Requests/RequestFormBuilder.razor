@@ -2550,7 +2550,10 @@
                     var created = await createResponse.Content.ReadFromJsonAsync<AutomationBindingDto>();
                     if (created is not null)
                     {
-                        automationBindings[task.Id] = AutomationBindingEditorModel.FromDto(created);
+                        // Retain the editor's requested Enabled/SyncState values so
+                        // the update below also applies them to a newly created binding.
+                        editor.BindingId = created.Id;
+                        automationBindings[task.Id] = editor;
                     }
                 }
                 else
