@@ -1741,14 +1741,13 @@
             {
                 var binding = GetBindingModel(task, createIfMissing: false);
                 var hasBinding = binding is not null
-                    && binding.Enabled
                     && !string.IsNullOrWhiteSpace(binding.OrchestrationRequestDefinitionId);
                 if (!hasBinding)
                 {
-                    Snackbar.Add($"Automation task '{task.Name}' requires an enabled External orchestration binding.", Severity.Error);
+                    Snackbar.Add($"Automation task '{task.Name}' requires an External orchestration binding.", Severity.Error);
                     return false;
                 }
-                if (binding?.SystemConnectionId is null || AutomationConnectionSelection.Resolve(AutomationConnectionChoices, binding.SystemConnectionId) is null)
+                if (binding!.Enabled && (binding.SystemConnectionId is null || AutomationConnectionSelection.Resolve(AutomationConnectionChoices, binding.SystemConnectionId) is null))
                 {
                     Snackbar.Add($"Automation task '{task.Name}' requires a current saved connection for this organization.", Severity.Error);
                     return false;
@@ -2020,6 +2019,7 @@
             return;
         }
 
+        var formSaved = false;
         try
         {
             ApplyRuntimeDefaultsToAutomationTasks();
@@ -2074,6 +2074,7 @@
 
         if (resp.IsSuccessStatusCode)
         {
+            formSaved = true;
             var savedForm = await resp.Content.ReadFromJsonAsync<RequestFormDto>() ?? new RequestFormDto
             {
                 Id = RequestFormId ?? string.Empty
@@ -2095,7 +2096,9 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Save failed: {ex.Message}", Severity.Error);
+            Snackbar.Add(formSaved
+                ? $"The form was saved, but automation bindings were not fully saved. {ex.Message} Review the bindings before submitting requests."
+                : $"Save failed: {ex.Message}", Severity.Error);
         }
         finally
         {
@@ -2541,7 +2544,7 @@
                     using var createResponse = await Api.PostAsJsonAsync("api/v1/admin/orchestration/bindings", createDto);
                     if (!createResponse.IsSuccessStatusCode)
                     {
-                        throw new InvalidOperationException(await createResponse.Content.ReadAsStringAsync());
+                        throw new InvalidOperationException($"Creating the automation binding failed (HTTP {(int)createResponse.StatusCode}). Check the selected connection and automation target.");
                     }
 
                     var created = await createResponse.Content.ReadFromJsonAsync<AutomationBindingDto>();
@@ -2577,7 +2580,7 @@
                     updateDto);
                 if (!updateResponse.IsSuccessStatusCode)
                 {
-                    throw new InvalidOperationException(await updateResponse.Content.ReadAsStringAsync());
+                    throw new InvalidOperationException($"Updating the automation binding failed (HTTP {(int)updateResponse.StatusCode}). Check the selected connection and automation target.");
                 }
 
                 var updated = await updateResponse.Content.ReadFromJsonAsync<AutomationBindingDto>();

@@ -85,6 +85,27 @@ public sealed class OrchestrationConnectionSelectionHttpTests
             var imported = await scope.ServiceProvider.GetRequiredService<IAutomationBindingImportService>().ImportAsync(bindingId);
             Assert.Equal(second.MappingId, imported.SystemConnectionId);
         }
+        // Exercise the actual editor's complete update envelope through HTTP,
+        // including nullable clear flags and persisted enabled state.
+        foreach (var enabled in new[] { false, true })
+        {
+            using var response = await h.AdminAsync(HttpMethod.Put, "/api/v1/admin/orchestration/bindings/" + bindingId,
+                new UpdateAutomationBindingDto
+                {
+                    SystemConnectionId = second.MappingId,
+                    OrchestrationRequestDefinitionId = "definition-42",
+                    OrchestrationRequestDefinitionName = "Reviewed target",
+                    ClearOrchestrationRequestDefinitionName = false,
+                    OrchestrationJobDefinitionId = "job-42",
+                    ClearOrchestrationJobDefinitionId = false,
+                    OrchestrationJobDefinitionName = "Reviewed job",
+                    ClearOrchestrationJobDefinitionName = false,
+                    SyncState = AutomationBindingSyncState.InSync,
+                    Enabled = enabled
+                });
+            Assert.True(response.IsSuccessStatusCode, $"Binding update: {(int)response.StatusCode} {await response.Content.ReadAsStringAsync()}");
+            Assert.Equal(enabled, (await response.Content.ReadFromJsonAsync<AutomationBindingDto>())!.Enabled);
+        }
         await h.RestartAsync();
         await using (var scope = h.App.Services.CreateAsyncScope())
         {

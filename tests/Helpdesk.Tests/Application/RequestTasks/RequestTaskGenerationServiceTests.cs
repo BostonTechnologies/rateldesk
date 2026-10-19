@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Helpdesk.Application.Events;
 using Helpdesk.Application.RequestTasks;
 using Helpdesk.Shared.DTOs.RequestForm;
@@ -10,8 +10,10 @@ namespace Helpdesk.Tests.Application.RequestTasks;
 
 public sealed class RequestTaskGenerationServiceTests
 {
-    [Fact]
-    public async Task GenerateForRequestAsync_AutomationTemplateWithoutRuntimePolicy_UsesOrchestrationDefaults()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task GenerateForRequestAsync_PreservesStartPolicyAndUsesRuntimeDefaults(bool autoStart)
     {
         var requestForms = Substitute.For<IRepository<RequestForm>>();
         var requestTasks = Substitute.For<IRepository<RequestTask>>();
@@ -22,7 +24,7 @@ public sealed class RequestTaskGenerationServiceTests
         requestForms.GetAsync("form-1").Returns(new RequestForm
         {
             Id = "form-1",
-            JsonSchema = JsonDocument.Parse("""
+            JsonSchema = JsonDocument.Parse($$"""
             {
               "fields": [],
               "tasks": [
@@ -31,7 +33,7 @@ public sealed class RequestTaskGenerationServiceTests
                   "name": "step1",
                   "order": 1,
                   "type": "automation",
-                  "autoStart": true
+                  "autoStart": {{autoStart.ToString().ToLowerInvariant()}}
                 }
               ]
             }
@@ -60,6 +62,7 @@ public sealed class RequestTaskGenerationServiceTests
         Assert.Equal(1, count);
         Assert.NotNull(created);
         Assert.Equal(RequestTaskType.Automation, created!.Type);
+        Assert.Equal(autoStart, created.AutoStart);
         Assert.Equal(1800, created.ExpectedRuntimeSeconds);
         Assert.Equal(600, created.GraceSeconds);
         Assert.Equal(2400, created.HardTimeoutSeconds);

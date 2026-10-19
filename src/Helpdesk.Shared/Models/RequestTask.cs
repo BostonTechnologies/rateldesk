@@ -16,6 +16,9 @@ public class RequestTask : Ticket
     public string TemplateId { get; set; } = string.Empty;
     public RequestTaskType Type { get; set; } = RequestTaskType.Manual;
     public RequestTaskStatus Status { get; set; } = RequestTaskStatus.Pending;
+    public bool? AutoStart { get; set; } = true;
+    public string? AutomationAttemptCorrelationId { get; set; }
+    public string? AutomationAttemptHistoryJson { get; set; }
     public DateTimeOffset? StartedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
     public int? TaskSlaMinutes { get; set; }

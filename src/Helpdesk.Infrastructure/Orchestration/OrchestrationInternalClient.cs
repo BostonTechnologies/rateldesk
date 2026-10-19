@@ -328,6 +328,9 @@ public sealed class OrchestrationInternalClient(
         {
             using var json = JsonDocument.Parse(content);
             var root = json.RootElement;
+            var code = TryGetString(root, "code");
+            if (code is { Length: > 0 and <= 80 } && code.All(c => char.IsAsciiLetterOrDigit(c) || c == '_'))
+                return IntegrationErrorSafety.ProviderMessage($"Provider rejected the request ({code}).", 500, settings.ClientSecret, bearerToken);
             var message = TryGetString(root, "message", "detail", "title");
             if (!string.IsNullOrWhiteSpace(message))
             {

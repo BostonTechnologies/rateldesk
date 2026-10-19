@@ -4180,6 +4180,17 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                 {
                     b.HasBaseType("Helpdesk.Shared.Models.Ticket");
 
+                    b.Property<bool?>("AutoStart")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(true);
+
+                    b.Property<string>("AutomationAttemptCorrelationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AutomationAttemptHistoryJson")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("AutomationBindingId")
                         .HasColumnType("TEXT");
 

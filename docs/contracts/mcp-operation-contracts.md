@@ -93,6 +93,14 @@ no-op. Bulk mutations with `updated:0` report `status:"no_op"` and no affected
 IDs, with eligibility/readback guidance. Preserve these distinctions when
 reporting campaign results.
 
+An explicit single or bulk retry dispatches each selected eligible task even
+when its template has `autoStart:false`. That setting suppresses automatic
+workflow dispatch and is persisted on generated tasks; manual start remains
+available. Each retry retains the previous execution identifiers and outcome
+in task attempt history and persists a new provider attempt correlation before
+submission. An uncertain submission must be reconciled before retry. Ordinary
+MCP request correlation remains a diagnostic trace, not a write replay key.
+
 Orchestration settings, jobs, tenants, request-definition reads and the confirmed
 connectivity test accept optional `request.organizationId` and
 `request.connectionId`. These select an existing eligible saved automation

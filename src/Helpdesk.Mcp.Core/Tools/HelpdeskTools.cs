@@ -462,6 +462,7 @@ public sealed class HelpdeskTools(
 
     private async Task<HelpdeskToolResponse> ListTickets(string tool, string basePath, JsonElement? request, CancellationToken ct)
     {
+        if (HelpdeskToolDefinitions.ValidateSupportedFields(tool, "list", request) is { } fieldError) return Validation(fieldError);
         if (TicketListPagination.Validate(request, out var page, out var pageSize) is { } paginationError) return Validation(paginationError);
         if (NormalizeSearchAliases(request, out var payload) is { } error) return Validation(error);
         if (page.HasValue) payload!["page"] = page.Value;
