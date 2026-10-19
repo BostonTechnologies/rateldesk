@@ -85,6 +85,27 @@ public sealed class OrchestrationConnectionSelectionHttpTests
             var imported = await scope.ServiceProvider.GetRequiredService<IAutomationBindingImportService>().ImportAsync(bindingId);
             Assert.Equal(second.MappingId, imported.SystemConnectionId);
         }
+        // Exercise the actual editor's complete update envelope through HTTP,
+        // including nullable clear flags and persisted enabled state.
+        foreach (var enabled in new[] { false, true })
+        {
+            using var response = await h.AdminAsync(HttpMethod.Put, "/api/v1/admin/orchestration/bindings/" + bindingId,
+                new UpdateAutomationBindingDto
+                {
+                    SystemConnectionId = second.MappingId,
+                    OrchestrationRequestDefinitionId = "definition-42",
+                    OrchestrationRequestDefinitionName = "Reviewed target",
+                    ClearOrchestrationRequestDefinitionName = false,
+                    OrchestrationJobDefinitionId = "job-42",
+                    ClearOrchestrationJobDefinitionId = false,
+                    OrchestrationJobDefinitionName = "Reviewed job",
+                    ClearOrchestrationJobDefinitionName = false,
+                    SyncState = AutomationBindingSyncState.InSync,
+                    Enabled = enabled
+                });
+            Assert.True(response.IsSuccessStatusCode, $"Binding update: {(int)response.StatusCode} {await response.Content.ReadAsStringAsync()}");
+            Assert.Equal(enabled, (await response.Content.ReadFromJsonAsync<AutomationBindingDto>())!.Enabled);
+        }
         await h.RestartAsync();
         await using (var scope = h.App.Services.CreateAsyncScope())
         {
@@ -216,6 +237,7 @@ public sealed class OrchestrationConnectionSelectionHttpTests
         => IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true, pairingPeer: peer,
             configureServices: services =>
             {
+                services.AddScoped<Helpdesk.Shared.Services.ITenantContext>(_ => new AdministratorHomeTenant());
                 services.AddScoped<IOrchestrationTokenService>(_ => tokens);
                 services.AddAuthorization(options => options.AddPolicy("HelpdeskAdmin", policy => policy.RequireAuthenticatedUser().RequireRole("HelpdeskAdmin")));
             },
@@ -237,6 +259,13 @@ public sealed class OrchestrationConnectionSelectionHttpTests
     }
 
     private static string Query(string organizationId, Guid connectionId) => $"?organizationId={Uri.EscapeDataString(organizationId)}&connectionId={connectionId:D}";
+
+    private sealed class AdministratorHomeTenant : Helpdesk.Shared.Services.ITenantContext
+    {
+        public string? TenantId => "different-administrator-home-org";
+        public string? UserId => "owner";
+        public bool IsHelpdeskAdmin => true;
+    }
 
     private sealed class CapturingTokens : IOrchestrationTokenService
     {

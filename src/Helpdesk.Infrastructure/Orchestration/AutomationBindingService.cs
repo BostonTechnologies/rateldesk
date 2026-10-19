@@ -26,12 +26,7 @@ public sealed class AutomationBindingService(
 
     public async Task<IReadOnlyList<AutomationBindingDto>> ListAsync(string? requestFormId = null, CancellationToken cancellationToken = default)
     {
-        var query = _db.AutomationBindings.AsNoTracking();
-
-        if (!string.IsNullOrWhiteSpace(_tenantContext.TenantId))
-        {
-            query = query.Where(x => x.OrganizationId == _tenantContext.TenantId);
-        }
+        var query = QueryForTenant().AsNoTracking();
 
         if (!string.IsNullOrWhiteSpace(requestFormId))
         {
@@ -288,7 +283,7 @@ public sealed class AutomationBindingService(
     private IQueryable<AutomationBinding> QueryForTenant()
     {
         var query = _db.AutomationBindings.AsQueryable();
-        if (!string.IsNullOrWhiteSpace(_tenantContext.TenantId))
+        if (!_tenantContext.IsHelpdeskAdmin && !string.IsNullOrWhiteSpace(_tenantContext.TenantId))
         {
             query = query.Where(x => x.OrganizationId == _tenantContext.TenantId);
         }

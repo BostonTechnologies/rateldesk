@@ -273,6 +273,7 @@ public class HelpdeskDbContext(
 
         modelBuilder.Entity<RequestTask>(entity =>
         {
+            entity.Property(x => x.AutoStart).HasDefaultValue(true);
             entity.Property(x => x.Type).HasConversion<int>();
             entity.Property(x => x.Status).HasConversion<int>();
             entity.Property(x => x.IsBlocked).HasDefaultValue(false);

@@ -140,6 +140,51 @@ public sealed class AutomationConnectionSelectionRenderedTests
         Assert.Empty(api.Updates);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Disabled_binding_can_be_saved_from_the_form_editor(bool newBinding)
+    {
+        using var api = new FixtureApi { Rows = [Connection(FirstId)], StoredConnectionId = FirstId, HasBinding = !newBinding };
+        await using var context = Context(api);
+        var page = await RenderAsync(context);
+        page.WaitForAssertion(() => Assert.True(Property<bool>(page.Instance, "CanCreateTenantScopedOrchestrationTarget")));
+        if (newBinding) await InvokeAsync(page, "OnSelectedCatalogRequestDefinitionChanged", "definition-17");
+        await InvokeAsync(page, "OnSelectedBindingEnabledChanged", false);
+        Assert.True((bool)typeof(Builder).GetMethod("IsTaskConfigurationValid", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page.Instance, null)!);
+        await InvokeAsync(page, "SyncBindingsAsync", "synthetic-form");
+        Assert.False(Assert.Single(api.Updates).Enabled);
+        Assert.False(api.BindingEnabled);
+    }
+
+    [Fact]
+    public async Task Empty_binding_error_identifies_the_failed_stage_and_http_status()
+    {
+        using var api = new FixtureApi { Rows = [Connection(FirstId)], StoredConnectionId = FirstId, FailBindingUpdates = true };
+        await using var context = Context(api);
+        var page = await RenderAsync(context);
+        page.WaitForAssertion(() => Assert.True(Property<bool>(page.Instance, "CanCreateTenantScopedOrchestrationTarget")));
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => InvokeAsync(page, "SyncBindingsAsync", "synthetic-form"));
+        Assert.Contains("Updating the automation binding", error.Message);
+        Assert.Contains("HTTP 400", error.Message);
+    }
+
+    [Fact]
+    public async Task Binding_failure_after_create_retains_the_saved_form_for_the_next_save()
+    {
+        using var api = new FixtureApi { Rows = [Connection(FirstId)], StoredConnectionId = FirstId, FailBindingUpdates = true };
+        await using var context = Context(api);
+        var page = await RenderAsync(context);
+        page.WaitForAssertion(() => Assert.True(Property<bool>(page.Instance, "CanCreateTenantScopedOrchestrationTarget")));
+        typeof(Builder).GetProperty(nameof(Builder.RequestFormId))!.SetValue(page.Instance, null);
+        await InvokeAsync(page, "Save");
+        Assert.Equal("saved-synthetic-form", page.Instance.RequestFormId);
+        Assert.Equal(1, api.FormCreates);
+        await InvokeAsync(page, "Save");
+        Assert.Equal(1, api.FormCreates);
+        Assert.Equal(1, api.FormUpdates);
+    }
+
     private static BunitContext Context(FixtureApi api, IDialogService? dialogs = null)
     {
         var context = new BunitContext();
@@ -178,6 +223,11 @@ public sealed class AutomationConnectionSelectionRenderedTests
         public List<PairingConnectionDto> Rows { get; set; } = [];
         public Guid? StoredConnectionId { get; set; }
         public bool MismatchPeerTenant { get; set; }
+        public bool BindingEnabled { get; set; } = true;
+        public bool HasBinding { get; set; } = true;
+        public int FormCreates { get; private set; }
+        public int FormUpdates { get; private set; }
+        public bool FailBindingUpdates { get; set; }
         public List<string> Paths { get; } = [];
         public List<UpdateAutomationBindingDto> Updates { get; } = [];
         public OrganizationDto Organization { get; } = new() { Id = OrganizationId, Name = "Synthetic organization" };
@@ -189,6 +239,16 @@ public sealed class AutomationConnectionSelectionRenderedTests
             object body;
             if (path == "/api/v1/organizations") body = new[] { Organization };
             else if (path == "/api/v1/users") body = Array.Empty<UserDto>();
+            else if (path == "/api/v1/request-forms" && request.Method == HttpMethod.Post)
+            {
+                FormCreates++;
+                body = new RequestFormDto { Id = "saved-synthetic-form" };
+            }
+            else if (path == "/api/v1/request-forms/saved-synthetic-form" && request.Method == HttpMethod.Put)
+            {
+                FormUpdates++;
+                body = new RequestFormDto { Id = "saved-synthetic-form" };
+            }
             else if (path == "/api/v1/request-forms/synthetic-form") body = new RequestFormDto { Id = "synthetic-form", Title = "Synthetic form", OrganizationId = OrganizationId,
                 JsonSchema = JsonSerializer.Serialize(new { fields = Array.Empty<object>(), tasks = new[] { new { id = TaskId, name = "Automate", type = "automation", order = 1 } } }) };
             else if (path == "/api/v1/admin/system-connections/") body = Rows;
@@ -200,15 +260,22 @@ public sealed class AutomationConnectionSelectionRenderedTests
             else if (path.EndsWith("/catalog/request-definitions", StringComparison.Ordinal)) body = new[] { new OrchestrationCatalogRequestDefinitionDto { RequestDefinitionId = "definition-17", TenantId = 17, RequestDefinitionName = "Synthetic target", ClientIdentity = "synthetic-client" } };
             else if (path == "/api/v1/admin/orchestration/bindings/synthetic-binding" && request.Method == HttpMethod.Put)
             {
+                if (FailBindingUpdates) return new(HttpStatusCode.BadRequest) { Content = new StringContent("") };
                 var update = (await request.Content!.ReadFromJsonAsync<UpdateAutomationBindingDto>(cancellationToken))!;
                 Updates.Add(update); StoredConnectionId = update.SystemConnectionId;
+                BindingEnabled = update.Enabled ?? BindingEnabled;
                 body = Binding();
             }
-            else if (path.Contains("/bindings", StringComparison.Ordinal)) body = new[] { Binding() };
+            else if (path == "/api/v1/admin/orchestration/bindings" && request.Method == HttpMethod.Post)
+            {
+                HasBinding = true;
+                body = Binding();
+            }
+            else if (path.Contains("/bindings", StringComparison.Ordinal)) body = HasBinding ? new[] { Binding() } : Array.Empty<AutomationBindingDto>();
             else body = Array.Empty<object>();
             return new(HttpStatusCode.OK) { Content = JsonContent.Create(body) };
         }
         private AutomationBindingDto Binding() => new() { Id = "synthetic-binding", RequestFormId = "synthetic-form", TaskTemplateId = TaskId, OrganizationId = OrganizationId,
-            SystemConnectionId = StoredConnectionId, OrchestrationRequestDefinitionId = "definition-17", OrchestrationRequestDefinitionName = "Synthetic target", Enabled = true };
+            SystemConnectionId = StoredConnectionId, OrchestrationRequestDefinitionId = "definition-17", OrchestrationRequestDefinitionName = "Synthetic target", Enabled = BindingEnabled };
     }
 }

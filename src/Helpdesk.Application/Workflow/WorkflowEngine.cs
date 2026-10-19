@@ -156,6 +156,7 @@ public sealed class WorkflowEngine(
                 {
                     if ((task.Type != RequestTaskType.Automation && task.Type != RequestTaskType.Approval)
                         || task.Status != RequestTaskStatus.Pending
+                        || (task.Type == RequestTaskType.Automation && task.AutoStart == false)
                         || task.IsBlocked)
                     {
                         continue;

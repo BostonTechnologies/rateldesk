@@ -39,6 +39,7 @@ public sealed class RequestTaskLifecycleServiceTests
             RequestId = "req-1",
             TemplateId = "22222222-2222-2222-2222-222222222222",
             Title = "Provision mailbox",
+            AutoStart = false,
             Type = RequestTaskType.Automation,
             Status = RequestTaskStatus.Pending,
             OrganizationId = "tenant-1",
@@ -470,6 +471,48 @@ public sealed class RequestTaskLifecycleServiceTests
         Assert.Contains("acknowledgement", failed.FailureReason, StringComparison.OrdinalIgnoreCase);
         await failurePolicy.DidNotReceive().OnTaskFailedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
         await domainEvents.Received(1).PublishAsync(Arg.Is<RequestTaskAutomationSubmitUncertainEvent>(x => x.TaskId == taskId), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Retry_preserves_attempt_history_and_only_admits_a_known_failed_outcome(bool uncertain)
+    {
+        var task = new RequestTask { Id = "task-1", RequestId = "request-1", Title = "Automation", Type = RequestTaskType.Automation,
+            Status = RequestTaskStatus.Failed, AutoStart = false, OrchestrationExternalRunId = "run-1",
+            OrchestrationExternalRequestId = "provider-request-1", AutomationAttemptCorrelationId = "first-attempt",
+            LastAutomationStatus = uncertain ? AutomationTaskStatuses.SubmitUncertainManualReconcile : "failed" };
+        var parent = new Request { Id = task.RequestId, WorkflowStatus = "Blocked", WorkflowBlockReason = "Task 'Automation' failed." };
+        var tasks = Substitute.For<IRepository<RequestTask>>();
+        tasks.GetAsync(task.Id).Returns(task);
+        tasks.GetAllAsync().Returns([task]);
+        var requests = Substitute.For<IRepository<Request>>();
+        requests.GetAsync(parent.Id).Returns(parent);
+        var service = new RequestTaskLifecycleService(tasks, requests, Substitute.For<IOrchestrationConnectivityService>(),
+            Substitute.For<IAutomationBindingService>(), Substitute.For<IRequestTaskPayloadBuilder>(), Substitute.For<IOrchestrationInternalClient>(),
+            Substitute.For<IFailurePolicyEngine>(), Substitute.For<IDomainEventPublisher>(), Substitute.For<ICorrelationContext>(),
+            NullLogger<RequestTaskLifecycleService>.Instance);
+        if (uncertain)
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() => service.RetryAsync(task.Id, default));
+            Assert.Equal("run-1", task.OrchestrationExternalRunId);
+            Assert.Null(task.AutomationAttemptHistoryJson);
+            await tasks.DidNotReceive().UpdateAsync(Arg.Any<RequestTask>());
+        }
+        else
+        {
+            await service.RetryAsync(task.Id, default);
+            Assert.Equal(RequestTaskStatus.Pending, task.Status);
+            Assert.False(task.AutoStart);
+            Assert.NotEqual("first-attempt", task.AutomationAttemptCorrelationId);
+            Assert.Null(task.OrchestrationExternalRunId);
+            using var history = System.Text.Json.JsonDocument.Parse(task.AutomationAttemptHistoryJson!);
+            var first = Assert.Single(history.RootElement.EnumerateArray());
+            Assert.Equal("run-1", first.GetProperty("OrchestrationExternalRunId").GetString());
+            Assert.Equal("first-attempt", first.GetProperty("AutomationAttemptCorrelationId").GetString());
+            Assert.Equal("InProgress", parent.WorkflowStatus);
+            Assert.Null(parent.WorkflowBlockReason);
+        }
     }
 
     private static OrchestrationResolvedSettings PairedSettings() => new()

@@ -53,7 +53,18 @@ public sealed class TicketAdapterContractTests
         foreach (var family in Families)
         {
             var tools = Tools(out var client);
-            var request = Request("""{"query":"match","id":"route","taskId":"route","organizationId":"org","excludeId":"excluded","customerOrgId":["org","a&b"],"forId":["contact"],"assigneeId":["user"],"requestId":"parent","serviceId":"service","assignedToId":"user","stateValues":["New","Resolved"],"page":2,"pageSize":3,"includeTotal":true}""");
+            var fields = new JsonObject { ["query"] = "match", ["page"] = 2, ["pageSize"] = 3, ["includeTotal"] = true };
+            if (family == "request_tasks")
+            {
+                fields["requestId"] = "parent"; fields["serviceId"] = "service"; fields["assignedToId"] = "user";
+            }
+            else
+            {
+                fields["customerOrgId"] = new JsonArray("org", "a&b"); fields["forId"] = new JsonArray("contact");
+                fields["assigneeId"] = new JsonArray("user"); fields["stateValues"] = new JsonArray("New", "Resolved");
+                if (family == "incidents") { fields["organizationId"] = "org"; fields["excludeId"] = "excluded"; }
+            }
+            var request = JsonSerializer.SerializeToElement(fields);
             Assert.True((await List(tools, family, request)).Success);
             var path = Assert.IsType<string>(Assert.Single(client.ReceivedCalls()).GetArguments()[0]);
             var query = QueryHelpers.ParseQuery(new Uri("https://api.example.test" + path).Query);
@@ -78,6 +89,14 @@ public sealed class TicketAdapterContractTests
             Assert.Equal("2", query["page"].ToString());
             Assert.Equal("3", query["pageSize"].ToString());
             Assert.Equal("true", query["includeTotal"].ToString());
+            // Closed list contracts reject route selectors and filters belonging
+            // to other families; none may be silently ignored or reach the API.
+            foreach (var unsupported in new[] { "id", "taskId", family == "request_tasks" ? "customerOrgId" : "requestId" })
+            {
+                var invalid = (JsonObject)fields.DeepClone(); invalid[unsupported] = "route";
+                Assert.Equal("validation_failed", (await List(tools, family, JsonSerializer.SerializeToElement(invalid))).Status);
+            }
+            Assert.Single(client.ReceivedCalls());
         }
     }
 

@@ -110,6 +110,9 @@ public sealed class Rc3PostgresUpgradeTests
             modelBuilder.Entity<RequestTask>().Ignore(x => x.OrchestrationLinkId);
             modelBuilder.Entity<RequestTask>().Ignore(x => x.OrchestrationPeerInstanceId);
             modelBuilder.Entity<RequestTask>().Ignore(x => x.OrchestrationLinkRevision);
+            modelBuilder.Entity<RequestTask>().Ignore(x => x.AutoStart);
+            modelBuilder.Entity<RequestTask>().Ignore(x => x.AutomationAttemptCorrelationId);
+            modelBuilder.Entity<RequestTask>().Ignore(x => x.AutomationAttemptHistoryJson);
             // RC3 predates timeline effort snapshots; only the current context
             // used after migration should read/write those added columns.
             modelBuilder.Entity<TicketTimelineEvent>().Ignore(x => x.Hours);

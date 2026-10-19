@@ -77,6 +77,7 @@ public sealed class RequestTaskGenerationService(
                 Title = template.Name,
                 Description = template.Description ?? string.Empty,
                 Type = taskType,
+                AutoStart = template.AutoStart,
                 Status = RequestTaskStatus.Pending,
                 State = TicketState.New,
                 TaskSlaMinutes = template.TaskSlaMinutes,

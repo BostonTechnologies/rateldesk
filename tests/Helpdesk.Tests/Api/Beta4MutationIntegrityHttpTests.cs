@@ -242,9 +242,11 @@ public sealed class Beta4MutationIntegrityHttpTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Eligible_automation_retry_uses_saved_peer_tenant_and_binding_once(bool postgres)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task Eligible_automation_retry_uses_saved_peer_tenant_and_binding_once(bool postgres, bool bulk)
     {
         using var peer = new PairingTestPeer(Guid.NewGuid()) { AutomationBusinessEnabled = true };
         await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true, pairingPeer: peer);
@@ -268,7 +270,7 @@ public sealed class Beta4MutationIntegrityHttpTests
                 JsonSchema = JsonDocument.Parse(JsonSerializer.Serialize(new
                 {
                     fields = Array.Empty<object>(),
-                    tasks = new[] { new { id = template, name = "Synthetic automation", type = "automation", order = 1, autoStart = true } }
+                    tasks = new[] { new { id = template, name = "Synthetic automation", type = "automation", order = 1, autoStart = false } }
                 }))
             });
             db.AutomationBindings.Add(new AutomationBinding
@@ -280,18 +282,23 @@ public sealed class Beta4MutationIntegrityHttpTests
             db.Requests.Add(new Request
             {
                 Id = "retry-parent", Title = "Synthetic retry request", RequestFormId = "retry-form", PayloadJson = "{}",
-                OrganizationId = h.OrganizationId, CustomerId = h.CustomerId, State = TicketState.OnHold
+                OrganizationId = h.OrganizationId, CustomerId = h.CustomerId, State = TicketState.OnHold,
+                WorkflowStatus = "Blocked", WorkflowBlockReason = "Task 'Synthetic automation' failed."
             });
             db.RequestTasks.Add(new RequestTask
             {
                 Id = "retry-task", Title = "Synthetic automation", RequestId = "retry-parent", OrganizationId = h.OrganizationId,
                 CustomerId = h.CustomerId, TemplateId = template.ToString("D"), Type = RequestTaskType.Automation,
                 Status = RequestTaskStatus.Failed, State = TicketState.OnHold, FailureReason = "Synthetic previous failure",
-                LastAutomationStatus = AutomationTaskStatuses.SubmitFailedManualRetry
+                LastAutomationStatus = AutomationTaskStatuses.SubmitFailedManualRetry, AutoStart = false,
+                OrchestrationExternalRunId = "previous-run", AutomationAttemptCorrelationId = "previous-attempt"
             });
         });
-        using var retry = await h.AdminAsync(HttpMethod.Post, "/api/v1/request-tasks/retry-task/retry");
-        Assert.Equal(HttpStatusCode.NoContent, retry.StatusCode);
+        var retryPath = bulk ? "/api/v1/request-tasks/bulk/retry" : "/api/v1/request-tasks/retry-task/retry";
+        var retryBody = bulk ? new { ids = new[] { "retry-task" } } : null;
+        using var retry = await h.AdminAsync(HttpMethod.Post, retryPath, retryBody);
+        Assert.Equal(bulk ? HttpStatusCode.OK : HttpStatusCode.NoContent, retry.StatusCode);
+        if (bulk) Assert.Equal(1, (await retry.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("updated").GetInt32());
         Assert.Single(retry.Headers.GetValues(CorrelationConstants.HeaderName));
         Assert.Equal(1, peer.AutomationIngestCalls);
         Assert.Equal(1, peer.AutomationTokenCalls);
@@ -303,6 +310,10 @@ public sealed class Beta4MutationIntegrityHttpTests
             Assert.Equal("synthetic-execution", task.OrchestratorExecutionId);
             Assert.Equal("synthetic-remote-request", task.OrchestrationExternalRequestId);
             Assert.Equal("retry-binding", task.AutomationBindingId);
+            Assert.False(task.AutoStart);
+            Assert.NotEqual("previous-attempt", task.AutomationAttemptCorrelationId);
+            using var history = JsonDocument.Parse(task.AutomationAttemptHistoryJson!);
+            Assert.Equal("previous-run", Assert.Single(history.RootElement.EnumerateArray()).GetProperty("OrchestrationExternalRunId").GetString());
             Assert.Equal(mapping.Id, task.OrchestrationLinkId);
             Assert.Equal(TicketState.InProgress, (await db.Requests.AsNoTracking().SingleAsync(x => x.Id == "retry-parent")).State);
             var notifications = await db.Notifications.AsNoTracking().ToListAsync();
@@ -310,8 +321,9 @@ public sealed class Beta4MutationIntegrityHttpTests
             Assert.Single(notifications, x => x.Title == RequestTaskDomainEventTypes.AutomationSubmitted);
         }
         var committed = await SnapshotAsync(h);
-        using var repeated = await h.AdminAsync(HttpMethod.Post, "/api/v1/request-tasks/retry-task/retry");
-        Assert.Equal(HttpStatusCode.BadRequest, repeated.StatusCode);
+        using var repeated = await h.AdminAsync(HttpMethod.Post, retryPath, retryBody);
+        Assert.Equal(bulk ? HttpStatusCode.OK : HttpStatusCode.BadRequest, repeated.StatusCode);
+        if (bulk) Assert.Equal(0, (await repeated.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("updated").GetInt32());
         Assert.Equal(committed, await SnapshotAsync(h));
         Assert.Equal(1, peer.AutomationIngestCalls);
     }

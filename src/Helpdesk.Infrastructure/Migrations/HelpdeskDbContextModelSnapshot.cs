@@ -4153,6 +4153,17 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                 {
                     b.HasBaseType("Helpdesk.Shared.Models.Ticket");
 
+                    b.Property<bool?>("AutoStart")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<string>("AutomationAttemptCorrelationId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("AutomationAttemptHistoryJson")
+                        .HasColumnType("text");
+
                     b.Property<string>("AutomationBindingId")
                         .HasColumnType("text");
 

@@ -620,6 +620,7 @@ public static class RequestTaskEndpoints
             try
             {
                 task = await lifecycleService.RetryAsync(id, token);
+                task = await lifecycleService.StartAsync(id, token);
             }
             catch (KeyNotFoundException)
             {
@@ -784,6 +785,7 @@ public static class RequestTaskEndpoints
                 try
                 {
                     task = await lifecycleService.RetryAsync(id, token);
+                    task = await lifecycleService.StartAsync(id, token);
                 }
                 catch (Exception ex) when (ex is InvalidOperationException or KeyNotFoundException)
                 {

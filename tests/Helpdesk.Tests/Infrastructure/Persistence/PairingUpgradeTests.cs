@@ -6,7 +6,9 @@ using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.Persistence.Connectivity;
 using Helpdesk.Infrastructure.ServiceIdentity;
 using Helpdesk.Shared.Models;
+using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
@@ -119,7 +121,6 @@ public sealed class PairingUpgradeTests
                 WebBaseUrl = "https://desk.example.test", ApiBaseUrl = "https://api.example.test", Issuer = "https://existing.example/services" });
             db.Incidents.Add(new() { Id = "preserved-incident", TrackingId = "INC-PRESERVED", Title = "Existing incident", OrganizationId = "preserved-org", CustomerId = "preserved-customer" });
             db.Requests.Add(new() { Id = "preserved-request", TrackingId = "REQ-PRESERVED", Title = "Existing request", OrganizationId = "preserved-org", CustomerId = "preserved-customer" });
-            db.RequestTasks.Add(new() { Id = "preserved-task", TrackingId = "TASK-PRESERVED", RequestId = "preserved-request", OrganizationId = "preserved-org", OrchestrationExternalRunId = "original-run" });
             db.Set<NetclawConnectivitySettings>().Add(new() { Enabled = true, ProtectedDeviceToken = netclawToken, ProfileFingerprint = "unchanged-netclaw", Revision = 7 });
             db.Set<ServiceSigningKey>().Add(new() { Kid = "preserved-signing-key", Issuer = "https://existing.example/services", ProtectedPrivateKey = signingKey,
                 PublicModulus = "unchanged-modulus", PublicExponent = "AQAB", ActiveSlot = 1, CreatedAtUtc = now });
@@ -130,6 +131,16 @@ public sealed class PairingUpgradeTests
             db.IncidentCreateReceipts.Add(new() { Id = receiptId, SourceNamespaceId = oldNamespace, Key = "original-key", Fingerprint = new string('a', 64), IncidentId = "preserved-incident",
                 OrganizationId = "preserved-org", CustomerId = "preserved-customer", Location = "api/v1/incidents/preserved-incident", AcceptedJson = accepted, CommittedAtUtc = now });
             await db.SaveChangesAsync();
+
+            // Seed the shipped task shape, without columns introduced after
+            // this historical baseline. The current context verifies them after upgrade.
+            await using (var historical = new HistoricalTaskContext(
+                (DbContextOptions<HelpdeskDbContext>)db.GetService<IDbContextOptions>(),
+                new AdminTenantContext(), new HttpContextAccessor()))
+            {
+                historical.RequestTasks.Add(new() { Id = "preserved-task", TrackingId = "TASK-PRESERVED", RequestId = "preserved-request", OrganizationId = "preserved-org", OrchestrationExternalRunId = "original-run" });
+                await historical.SaveChangesAsync();
+            }
 
             // Seed the actual shipped schema. No discarded runtime or parser is needed to upgrade malformed state.
             foreach (var status in new[] { "active", "pending", "failed", "verified" })
@@ -209,6 +220,25 @@ public sealed class PairingUpgradeTests
             Assert.Equal(Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("synthetic-unrelated-api-secret"))), credential.SecretHash);
             Assert.True((await identity.Users.SingleAsync(x => x.Id == "preserved-owner")).IsEnabled);
         }
+    }
+
+    private sealed class HistoricalTaskContext(DbContextOptions<HelpdeskDbContext> options, ITenantContext tenant,
+        IHttpContextAccessor accessor) : HelpdeskDbContext(options, tenant, accessor)
+    {
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            base.OnModelCreating(modelBuilder);
+            modelBuilder.Entity<RequestTask>().Ignore(x => x.AutoStart);
+            modelBuilder.Entity<RequestTask>().Ignore(x => x.AutomationAttemptCorrelationId);
+            modelBuilder.Entity<RequestTask>().Ignore(x => x.AutomationAttemptHistoryJson);
+        }
+    }
+
+    private sealed class AdminTenantContext : ITenantContext
+    {
+        public string? TenantId => null;
+        public string? UserId => null;
+        public bool IsHelpdeskAdmin => true;
     }
 
     private sealed class FixedOptions(ServiceIdentityOptions value) : IOptionsMonitor<ServiceIdentityOptions>

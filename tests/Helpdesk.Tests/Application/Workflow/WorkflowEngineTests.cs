@@ -10,8 +10,11 @@ namespace Helpdesk.Tests.Application.Workflow;
 
 public sealed class WorkflowEngineTests
 {
-    [Fact]
-    public async Task RunAsync_AutoStartBindingNotReady_FailsTask()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    [InlineData(null)]
+    public async Task RunAsync_AutoStartPolicy_OnlyEnabledTasksAttemptExecution(bool? autoStart)
     {
         const string requestId = "019cd87fde1079559e9e17caaa5356c8";
         const string taskId = "019cd87fde1079559e9e17caaa5356d0";
@@ -39,6 +42,7 @@ public sealed class WorkflowEngineTests
                 Id = taskId,
                 RequestId = requestId,
                 Title = "Provision mailbox",
+                AutoStart = autoStart,
                 Type = RequestTaskType.Automation,
                 Status = RequestTaskStatus.Pending
             }
@@ -61,7 +65,12 @@ public sealed class WorkflowEngineTests
         var result = await engine.RunAsync(requestId, WorkflowRunReason.RequestCreated, CancellationToken.None);
 
         Assert.Equal(0, result.AutoStartedCount);
-        await lifecycle.Received(1).FailAsync(taskId, "binding drifted", Arg.Any<CancellationToken>());
+        if (autoStart == false)
+        {
+            await lifecycle.DidNotReceive().StartAsync(taskId, Arg.Any<CancellationToken>());
+            await lifecycle.DidNotReceive().FailAsync(taskId, Arg.Any<string>(), Arg.Any<CancellationToken>());
+        }
+        else await lifecycle.Received(1).FailAsync(taskId, "binding drifted", Arg.Any<CancellationToken>());
     }
 
     [Fact]
