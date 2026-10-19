@@ -288,7 +288,10 @@ public sealed class InboundTicketProcessor
         {
             tracked.CcRecipients = ticket.CcRecipients;
             tracked.RequesterEmail = ticket.RequesterEmail;
-            tracked.State = TicketState.WaitingReply;
+            // An authenticated thread can resolve to a Change. Its lifecycle
+            // controls state even when new customer correspondence is recorded.
+            if (tracked is not Change)
+                tracked.State = TicketState.WaitingReply;
             tracked.UpdatedAt = DateTime.UtcNow;
             tracked.LastReplierName = customer.Name;
             if (tracked is Incident trackedIncident && ticket is Incident sourceIncident)

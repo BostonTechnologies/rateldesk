@@ -827,32 +827,46 @@ public static partial class ChangeEndpoints
             string id, ChangeStateRequest req, ClaimsPrincipal user,
             HelpdeskDbContext db, ICurrentUserAccessService accessService,
             IDomainEventPublisher domainEvents, ICorrelationContext correlationContext,
-            ITimelineEventBus timelineEventBus, IChangeTemplateService changeTemplateService,
+            IChangeTemplateService changeTemplateService,
             CancellationToken token) =>
         {
             if (!Enum.IsDefined(req.NewState)) return Results.BadRequest("Invalid change ticket state.");
-            var change = await db.Changes.FirstOrDefaultAsync(x => x.Id == id, token);
-            if (change is null) return Results.NotFound();
-            var access = await accessService.ResolveAsync(user, token);
-            if (!access.CanManageChange(change.OrganizationId)) return Results.Forbid();
-            var validation = ValidateTicketStateTransition(change, req.NewState);
-            if (validation is not null) return Results.BadRequest(validation);
-            var template = changeTemplateService.DeserializeTemplate(change.ChangeTemplateJson);
-            var templateValidation = changeTemplateService.ValidateTemplate(change.ChangeType, template);
-            if (change.State == req.NewState)
-                return Results.Ok(ToQuickLifecycleDto(change, EffectiveLifecycleState(change), template, templateValidation));
+            var persisted = false;
+            try
+            {
+                await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
+                    ? await db.Database.BeginTransactionAsync(global::System.Data.IsolationLevel.Serializable, token) : null;
+                var change = await db.Changes.FirstOrDefaultAsync(x => x.Id == id, token);
+                if (change is null) return Results.NotFound();
+                var access = await accessService.ResolveAsync(user, token);
+                if (!access.CanManageChange(change.OrganizationId)) return Results.Forbid();
+                if (!await FenceChangeDecisionAsync(db, change, token)) return ChangeApprovalConflict();
+                var validation = ValidateTicketStateTransition(change, req.NewState);
+                if (validation is not null) return Results.BadRequest(validation);
+                var template = changeTemplateService.DeserializeTemplate(change.ChangeTemplateJson);
+                var templateValidation = changeTemplateService.ValidateTemplate(change.ChangeType, template);
+                if (change.State == req.NewState)
+                    return Results.Ok(ToQuickLifecycleDto(change, EffectiveLifecycleState(change), template, templateValidation));
 
-            var previousState = change.State;
-            change.State = req.NewState;
-            ApplyClosedAtTransition(change, previousState, change.State);
-            change.UpdatedAt = DateTime.UtcNow;
-            await db.SaveChangesAsync(token);
-            await AddTimelineEventAsync(db, timelineEventBus, change.Id,
-                $"Ticket state changed from {previousState} to {change.State}.", token);
-            await domainEvents.PublishAsync(new ChangeStateChangedDomainEvent(
-                change.Id, change.TrackingId, change.OrganizationId, previousState, change.State,
-                DateTimeOffset.UtcNow, GetCorrelationId(correlationContext)), token);
-            return Results.Ok(ToQuickLifecycleDto(change, EffectiveLifecycleState(change), template, templateValidation));
+                var previousState = change.State;
+                change.State = req.NewState;
+                ApplyClosedAtTransition(change, previousState, change.State);
+                change.UpdatedAt = DateTime.UtcNow;
+                QueueChangeApprovalTimeline(db, change.Id,
+                    $"Ticket state changed from {previousState} to {change.State}.", "System");
+                await db.SaveChangesAsync(token);
+                if (transaction is not null) await transaction.CommitAsync(token);
+                persisted = true;
+                await domainEvents.PublishAsync(new ChangeStateChangedDomainEvent(
+                    change.Id, change.TrackingId, change.OrganizationId, previousState, change.State,
+                    DateTimeOffset.UtcNow, GetCorrelationId(correlationContext)), token);
+                return Results.Ok(ToQuickLifecycleDto(change, EffectiveLifecycleState(change), template, templateValidation));
+            }
+            catch (Exception exception) when (!persisted && IsChangeApprovalConflict(exception))
+            {
+                db.ChangeTracker.Clear();
+                return ChangeApprovalConflict();
+            }
         })
         .RequireAuthorization("ChangeManager")
         .WithName("UpdateChangeTicketState")
@@ -860,37 +874,44 @@ public static partial class ChangeEndpoints
 
         group.MapPost("/bulk/state", async (
             [FromBody] BulkStateChangeRequest req,
-            [FromServices] IRepository<Change> repo,
             HelpdeskDbContext db, ClaimsPrincipal user,
             ICurrentUserAccessService accessService, CancellationToken token) =>
         {
             if (req.Ids is null || req.Ids.Count == 0) return Results.BadRequest("No ids");
             if (!Enum.IsDefined(req.NewState)) return Results.BadRequest("Invalid change ticket state.");
-            var changes = (await repo.GetAllAsync()).Where(x => req.Ids.Contains(x.Id)).ToList();
-            if (changes.Count != req.Ids.Distinct().Count()) return Results.NotFound();
-            var access = await accessService.ResolveAsync(user, token);
-            if (changes.Any(x => !access.CanManageChange(x.OrganizationId))) return Results.Forbid();
-            foreach (var change in changes)
+            try
             {
-                var validation = ValidateTicketStateTransition(change, req.NewState);
-                if (validation is not null) return Results.BadRequest(validation);
-            }
-            var changed = changes.Where(x => x.State != req.NewState).ToList();
-            await using var transaction = await db.Database.BeginTransactionAsync(token);
-            foreach (var change in changed)
-            {
-                var previousState = change.State;
-                change.State = req.NewState;
-                ApplyClosedAtTransition(change, previousState, change.State);
-                change.UpdatedAt = DateTime.UtcNow;
-            }
+                await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
+                    ? await db.Database.BeginTransactionAsync(global::System.Data.IsolationLevel.Serializable, token) : null;
+                var ids = req.Ids.Distinct(StringComparer.Ordinal).ToArray();
+                var changes = await db.Changes.Where(change => ids.Contains(change.Id)).ToListAsync(token);
+                if (changes.Count != ids.Length) return Results.NotFound();
+                var access = await accessService.ResolveAsync(user, token);
+                if (changes.Any(x => !access.CanManageChange(x.OrganizationId))) return Results.Forbid();
+                if (!await FenceChangeDecisionsAsync(db, changes, token)) return ChangeApprovalConflict();
+                foreach (var change in changes)
+                {
+                    var validation = ValidateTicketStateTransition(change, req.NewState);
+                    if (validation is not null) return Results.BadRequest(validation);
+                }
+                var changed = changes.Where(x => x.State != req.NewState).ToList();
+                foreach (var change in changed)
+                {
+                    var previousState = change.State;
+                    change.State = req.NewState;
+                    ApplyClosedAtTransition(change, previousState, change.State);
+                    change.UpdatedAt = DateTime.UtcNow;
+                }
 
-            foreach (var change in changed)
-            {
-                await repo.UpdateAsync(change);
+                await db.SaveChangesAsync(token);
+                if (transaction is not null) await transaction.CommitAsync(token);
+                return Results.Ok(new { updated = changed.Count });
             }
-            await transaction.CommitAsync(token);
-            return Results.Ok(new { updated = changed.Count });
+            catch (Exception exception) when (IsChangeApprovalConflict(exception))
+            {
+                db.ChangeTracker.Clear();
+                return ChangeApprovalConflict();
+            }
         })
         .RequireAuthorization("HelpdeskAdmin")
         .WithName("BulkUpdateChangeState")
@@ -901,53 +922,73 @@ public static partial class ChangeEndpoints
         group.MapPost("/{id}/assignee", async (
             string id, ChangeAssigneeRequest req, ClaimsPrincipal user,
             HelpdeskDbContext db, ICurrentUserAccessService accessService,
-            IRepository<Change> repo, CancellationToken token) =>
+            CancellationToken token) =>
         {
-            var change = await repo.GetAsync(id);
-            if (change is null) return Results.NotFound();
-            var access = await accessService.ResolveAsync(user, token);
-            if (!access.CanManageChange(change.OrganizationId)) return Results.Forbid();
-            var validation = await ValidateImplementorAssignmentAsync(db, change, req.ImplementorUserId, token);
-            if (validation is not null) return validation;
-            change.ImplementorUserId = req.ImplementorUserId!.Trim();
-            change.AssignedToId = change.ImplementorUserId;
-            change.UpdatedAt = DateTime.UtcNow;
-            await repo.UpdateAsync(change);
-            var assigned = await db.Users.AsNoTracking().Where(x => x.Id == change.ImplementorUserId)
-                .Select(x => new UserDto(x.Id, x.Name, x.Email, x.Role, x.IsTestUser, x.OrganizationId))
-                .SingleAsync(token);
-            return Results.Ok(assigned);
+            try
+            {
+                await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
+                    ? await db.Database.BeginTransactionAsync(global::System.Data.IsolationLevel.Serializable, token) : null;
+                var change = await db.Changes.FirstOrDefaultAsync(x => x.Id == id, token);
+                if (change is null) return Results.NotFound();
+                var access = await accessService.ResolveAsync(user, token);
+                if (!access.CanManageChange(change.OrganizationId)) return Results.Forbid();
+                if (!await FenceChangeDecisionAsync(db, change, token)) return ChangeApprovalConflict();
+                var validation = await ValidateImplementorAssignmentAsync(db, change, req.ImplementorUserId, token);
+                if (validation is not null) return validation;
+                change.ImplementorUserId = req.ImplementorUserId!.Trim();
+                change.AssignedToId = change.ImplementorUserId;
+                change.UpdatedAt = DateTime.UtcNow;
+                await db.SaveChangesAsync(token);
+                var assigned = await db.Users.AsNoTracking().Where(x => x.Id == change.ImplementorUserId)
+                    .Select(x => new UserDto(x.Id, x.Name, x.Email, x.Role, x.IsTestUser, x.OrganizationId))
+                    .SingleAsync(token);
+                if (transaction is not null) await transaction.CommitAsync(token);
+                return Results.Ok(assigned);
+            }
+            catch (Exception exception) when (IsChangeApprovalConflict(exception))
+            {
+                db.ChangeTracker.Clear();
+                return ChangeApprovalConflict();
+            }
         }).WithName("AssignChangeImplementor");
 
         group.MapPost("/bulk/assign", async (
             [FromBody] BulkAssignRequest req,
-            [FromServices] IRepository<Change> repo,
             HelpdeskDbContext db, ClaimsPrincipal user,
             ICurrentUserAccessService accessService, CancellationToken token) =>
         {
             if (req.Ids is null || req.Ids.Count == 0) return Results.BadRequest("No ids");
-            var changes = (await repo.GetAllAsync()).Where(x => req.Ids.Contains(x.Id)).ToList();
-            if (changes.Count != req.Ids.Distinct().Count()) return Results.NotFound();
-            var access = await accessService.ResolveAsync(user, token);
-            if (changes.Any(x => !access.CanManageChange(x.OrganizationId))) return Results.Forbid();
-            // Validate every target before writing any of them. Keep the admin-only policy.
-            foreach (var change in changes)
+            try
             {
-                var validation = await ValidateImplementorAssignmentAsync(db, change, req.AssignedToId, token);
-                if (validation is not null) return validation;
+                await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
+                    ? await db.Database.BeginTransactionAsync(global::System.Data.IsolationLevel.Serializable, token) : null;
+                var ids = req.Ids.Distinct(StringComparer.Ordinal).ToArray();
+                var changes = await db.Changes.Where(change => ids.Contains(change.Id)).ToListAsync(token);
+                if (changes.Count != ids.Length) return Results.NotFound();
+                var access = await accessService.ResolveAsync(user, token);
+                if (changes.Any(x => !access.CanManageChange(x.OrganizationId))) return Results.Forbid();
+                if (!await FenceChangeDecisionsAsync(db, changes, token)) return ChangeApprovalConflict();
+                // Every target is fenced and validated before changing any of them.
+                foreach (var change in changes)
+                {
+                    var validation = await ValidateImplementorAssignmentAsync(db, change, req.AssignedToId, token);
+                    if (validation is not null) return validation;
+                }
+                foreach (var change in changes)
+                {
+                    change.ImplementorUserId = req.AssignedToId!.Trim();
+                    change.AssignedToId = change.ImplementorUserId;
+                    change.UpdatedAt = DateTime.UtcNow;
+                }
+                await db.SaveChangesAsync(token);
+                if (transaction is not null) await transaction.CommitAsync(token);
+                return Results.Ok(new { updated = changes.Count });
             }
-            await using var transaction = await db.Database.BeginTransactionAsync(token);
-            foreach (var change in changes)
+            catch (Exception exception) when (IsChangeApprovalConflict(exception))
             {
-                change.ImplementorUserId = req.AssignedToId!.Trim();
-                change.AssignedToId = change.ImplementorUserId;
-                change.UpdatedAt = DateTime.UtcNow;
-                await repo.UpdateAsync(change);
+                db.ChangeTracker.Clear();
+                return ChangeApprovalConflict();
             }
-
-            await transaction.CommitAsync(token);
-
-            return Results.Ok(new { updated = changes.Count });
         })
         .RequireAuthorization("HelpdeskAdmin")
         .WithName("BulkAssignChanges")

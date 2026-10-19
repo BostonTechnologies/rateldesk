@@ -110,6 +110,9 @@ public sealed partial class RequestTaskApprovalService
         PostgresException { SqlState: PostgresErrorCodes.SerializationFailure or PostgresErrorCodes.DeadlockDetected } => true,
         SqliteException { SqliteErrorCode: 5 or 6 } => true,
         DbUpdateException { InnerException: { } inner } => IsDecisionConflict(inner),
+        // Unwrap Npgsql's execution-strategy wrapper without treating arbitrary
+        // InvalidOperationException failures as retryable approval conflicts.
+        InvalidOperationException { InnerException: { } inner } => IsDecisionConflict(inner),
         _ => false
     };
 }

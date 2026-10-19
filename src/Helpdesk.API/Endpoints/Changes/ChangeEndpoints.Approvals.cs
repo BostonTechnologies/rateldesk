@@ -127,11 +127,21 @@ public static partial class ChangeEndpoints
 
     private static async Task<bool> FenceChangeDecisionAsync(HelpdeskDbContext db, Change change, CancellationToken ct)
     {
-        // Both approval transports and lifecycle transitions must acquire this row
-        // fence inside a serializable transaction before changing approval state.
+        // Approval, lifecycle and draft-detail writers acquire the same row fence
+        // inside a serializable transaction before validating mutable change state.
         return !db.Database.IsRelational() || await db.Changes.IgnoreQueryFilters()
             .Where(item => item.Id == change.Id && item.LifecycleState == change.LifecycleState)
             .ExecuteUpdateAsync(update => update.SetProperty(item => item.LifecycleState, item => item.LifecycleState), ct) == 1;
+    }
+
+    private static async Task<bool> FenceChangeDecisionsAsync(HelpdeskDbContext db,
+        IEnumerable<Change> changes, CancellationToken ct)
+    {
+        // Use the same ordinal lock order for every bulk writer, regardless of
+        // caller ID order or database collation.
+        foreach (var change in changes.OrderBy(change => change.Id, StringComparer.Ordinal))
+            if (!await FenceChangeDecisionAsync(db, change, ct)) return false;
+        return true;
     }
 
     private static void QueueChangeApprovalTimeline(HelpdeskDbContext db, string changeId, string message,
@@ -151,11 +161,14 @@ public static partial class ChangeEndpoints
     }
 
     private static IResult ChangeApprovalConflict() => Results.Conflict(new { code = "change_approval_changed",
-        message = "The change approval changed concurrently. Read the current decision before another action." });
+        message = "The change or its approval state changed concurrently. Read the current change before another action." });
     private static bool IsChangeApprovalConflict(Exception exception) => exception switch
     {
         DbUpdateConcurrencyException => true,
         DbUpdateException { InnerException: { } inner } => IsChangeApprovalConflict(inner),
+        // Npgsql's non-retrying execution strategy wraps rollback conflicts in
+        // InvalidOperationException. Only a recognized inner provider code qualifies.
+        InvalidOperationException { InnerException: { } inner } => IsChangeApprovalConflict(inner),
         SqliteException { SqliteErrorCode: 5 or 6 } => true,
         PostgresException { SqlState: PostgresErrorCodes.SerializationFailure or PostgresErrorCodes.DeadlockDetected } => true,
         _ => false

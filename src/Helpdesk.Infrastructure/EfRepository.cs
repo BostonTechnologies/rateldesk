@@ -114,13 +114,14 @@ public class EfRepository<T>(HelpdeskDbContext context) : IRepository<T> where T
 
     public async Task<T?> UpdateAsync(T entity)
     {
-        // This is the standard, correct, and type-safe way to update
-        // an entity in EF Core. It attaches the entity to the context
-        // and marks its state as "Modified".
-        _context.Set<T>().Update(entity);
-
-        // SaveChangesAsync will now generate the correct SQL UPDATE statement
-        // for the record matching the entity's primary key.
+        // A tracked entity retains its original values, so SaveChanges can write
+        // only the fields this caller changed. Marking every field modified here
+        // would replay unrelated stale values over another committed operation.
+        // Detached callers still explicitly request the existing full update.
+        if (_context.Entry(entity).State == EntityState.Detached)
+        {
+            _context.Set<T>().Update(entity);
+        }
         await _context.SaveChangesAsync();
 
         return entity;

@@ -109,6 +109,9 @@ public sealed partial class AiAssistantAiAssistantService
             postgres is { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: "IX_AiInvestigationInvocations_OrganizationId_IdempotencyKey" },
         SqliteException sqlite => sqlite.SqliteErrorCode is 5 or 6 || sqlite.SqliteExtendedErrorCode == 2067,
         DbUpdateException { InnerException: { } inner } => IsDispatchQueueConflict(inner),
+        // Npgsql's execution strategy can wrap an actual serialization failure.
+        // The wrapper alone is never retryable; its provider cause must match above.
+        InvalidOperationException { InnerException: { } inner } => IsDispatchQueueConflict(inner),
         _ => false
     };
 

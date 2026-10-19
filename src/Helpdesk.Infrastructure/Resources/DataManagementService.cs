@@ -481,6 +481,9 @@ public sealed class DataManagementService(
     {
         DbUpdateConcurrencyException => true,
         DbUpdateException { InnerException: { } inner } => IsDatasetWriteConflict(inner),
+        // Npgsql's execution strategy wraps serialization failures from direct
+        // commands; retain the provider-code whitelist when unwrapping it.
+        InvalidOperationException { InnerException: { } inner } => IsDatasetWriteConflict(inner),
         SqliteException sqlite => sqlite.SqliteErrorCode is 5 or 6 || sqlite.SqliteExtendedErrorCode is 1555 or 2067,
         PostgresException postgres => postgres.SqlState is PostgresErrorCodes.SerializationFailure or
             PostgresErrorCodes.DeadlockDetected or PostgresErrorCodes.UniqueViolation,

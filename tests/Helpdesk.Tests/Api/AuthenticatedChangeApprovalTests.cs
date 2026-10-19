@@ -42,7 +42,7 @@ using Testcontainers.PostgreSql;
 
 namespace Helpdesk.Tests.Api;
 
-public sealed class AuthenticatedChangeApprovalTests
+public sealed partial class AuthenticatedChangeApprovalTests
 {
     [Theory]
     [InlineData(false)]
@@ -344,6 +344,12 @@ public sealed class AuthenticatedChangeApprovalTests
             var client = app.GetTestClient();
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", actor);
             return client;
+        }
+
+        public async Task WithDbAsync(Func<HelpdeskDbContext, Task> action)
+        {
+            await using var scope = app.Services.CreateAsyncScope();
+            await action(scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>());
         }
 
         public static async Task<Fixture> StartAsync(bool postgres, bool failCommit = false,

@@ -38,6 +38,9 @@ def main(path: str) -> None:
         "AuthenticatedRequestApprovalEndpointTests": False,
         "AuthenticatedChangeApprovalTests": True,
         "OperatorDatasetConcurrencyTests": True,
+        "TicketCustomerAssignmentEndpointsTests": True,
+        "EfRepositoryProviderTests": True,
+        "ChangeActivityPersistenceTests": True,
     }
     for name, requires_providers in classes.items():
         names = [result.get("testName", "") for result in results if f".{name}." in result.get("testName", "")]
@@ -89,9 +92,29 @@ def main(path: str) -> None:
             "Final_approval_commit_failure_does_not_release_recipient_notifications",
             "A_missing_or_failed_notification_template_rolls_back_final_approval_until_repaired",
             "Lifecycle_commit_failure_preserves_approval_decisions_without_publishing_reset",
+            "Draft_side_writers_and_submission_preserve_the_committed_winner_and_notification_intent",
+            "A_failed_draft_side_writer_commit_leaves_no_partial_batch_or_published_effect",
+            "A_locked_bulk_target_rejects_the_whole_draft_side_write_in_either_id_order",
         ),
         "AiInvestigationMcpHttpTests": (
             "Owner_recovers_a_simulated_postcommit_presubmit_queue_without_remote_cancel_or_late_reopening",
+        ),
+        "TicketCustomerAssignmentEndpointsTests": (
+            "Requester_assignment_from_a_stale_change_read_preserves_the_concurrently_committed_lifecycle",
+            "Competing_requester_assignments_commit_one_customer_without_replacing_the_winner",
+            "Requester_assignment_rechecks_the_organization_after_the_authorized_ticket_read",
+            "Requester_assignment_checks_current_customer_state_at_the_conditional_write",
+        ),
+        "EfRepositoryProviderTests": (
+            "A_polymorphic_seen_update_preserves_the_lifecycle_committed_after_its_tracked_read",
+            "An_in_place_listener_edit_and_a_concurrent_lifecycle_both_survive_tracked_repository_save",
+            "An_explicit_detached_polymorphic_repository_update_still_persists_its_supplied_values",
+            "Nested_calendar_edits_use_independent_snapshots_and_preserve_a_concurrent_name_change",
+        ),
+        "ChangeActivityPersistenceTests": (
+            "Notes_and_authenticated_replies_preserve_every_change_lifecycle_and_its_ticket_state",
+            "Incident_and_request_reply_state_behavior_remains_unchanged",
+            "Activity_started_before_a_concurrent_lifecycle_commit_preserves_the_committed_decision",
         ),
         "AiInvestigationDispatchIdempotencyTests": (
             "Concurrent_first_dispatches_accept_one_bound_invocation_and_one_outbound_request",
@@ -135,6 +158,27 @@ def main(path: str) -> None:
         ),
         "AuthenticatedChangeApprovalTests.A_missing_or_failed_notification_template_rolls_back_final_approval_until_repaired": tuple(
             {"postgres": postgres, "throws": throws} for postgres in ("false", "true") for throws in ("false", "true")
+        ),
+        "AuthenticatedChangeApprovalTests.Draft_side_writers_and_submission_preserve_the_committed_winner_and_notification_intent": tuple(
+            {"postgres": postgres, "writer": writer, "submissionWins": submission}
+            for postgres in ("false", "true") for writer in ("Assignee", "BulkAssign", "State", "BulkState")
+            for submission in ("false", "true")
+        ),
+        "AuthenticatedChangeApprovalTests.A_failed_draft_side_writer_commit_leaves_no_partial_batch_or_published_effect": tuple(
+            {"postgres": postgres, "writer": writer}
+            for postgres in ("false", "true") for writer in ("Assignee", "BulkAssign", "State", "BulkState")
+        ),
+        "AuthenticatedChangeApprovalTests.A_locked_bulk_target_rejects_the_whole_draft_side_write_in_either_id_order": tuple(
+            {"postgres": postgres, "writer": writer}
+            for postgres in ("false", "true") for writer in ("BulkAssign", "BulkState")
+        ),
+        "TicketCustomerAssignmentEndpointsTests.Requester_assignment_checks_current_customer_state_at_the_conditional_write": tuple(
+            {"postgres": postgres, "drift": drift}
+            for postgres in ("false", "true") for drift in ("Disabled", "Organization", "Email")
+        ),
+        "ChangeActivityPersistenceTests.Activity_started_before_a_concurrent_lifecycle_commit_preserves_the_committed_decision": tuple(
+            {"postgres": postgres, "inbound": inbound}
+            for postgres in ("false", "true") for inbound in ("false", "true")
         ),
     }
     for method, required_arguments in required_owner_cases.items():
