@@ -2,7 +2,6 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Helpdesk.API.Endpoints.Requests;
-using Helpdesk.API.Endpoints.RequestTasks;
 using Helpdesk.API.Endpoints.Organization;
 using Helpdesk.API.Services;
 using Helpdesk.Infrastructure.Persistence;
@@ -29,7 +28,7 @@ public sealed class Beta9WorkflowAndBrandingHttpTests
                 services.AddScoped<ISelfServiceAudienceService, SelfServiceAudienceService>();
                 services.AddSingleton<TicketServices.ITicketRefGeneratorService, TicketServices.TicketRefGeneratorService>();
                 services.AddAuthorization(options => options.AddPolicy("SelfService.User", p => p.RequireAuthenticatedUser()));
-            }, configureApp: app => { app.MapSelfServiceRequestEndpoints(); app.MapRequestTaskEndpoints(); });
+            }, configureApp: app => app.MapSelfServiceRequestEndpoints());
         var manualTemplate = Guid.NewGuid(); var approvalTemplate = Guid.NewGuid();
         var tasks = new List<object>();
         if (manualPredecessor) tasks.Add(new { id = manualTemplate, name = "Manual predecessor", type = "manual", order = 0 });
