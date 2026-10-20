@@ -310,6 +310,7 @@ public static class ServiceEndpoints
             if (!tenant.IsHelpdeskAdmin)
             {
                 dto.AllowedCustomerIds = [];
+                dto.AllowedOrganizationIds = [];
             }
             return Results.Ok(dto);
         })

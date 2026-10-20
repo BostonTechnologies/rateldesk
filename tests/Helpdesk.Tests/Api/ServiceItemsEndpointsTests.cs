@@ -184,6 +184,7 @@ public sealed class ServiceItemsEndpointsTests
         var customerService = await customerServiceResponse.Content.ReadFromJsonAsync<ServiceDto>();
         Assert.NotNull(customerService);
         Assert.Empty(customerService!.AllowedCustomerIds);
+        Assert.Empty(customerService.AllowedOrganizationIds);
         Assert.Equal(System.Net.HttpStatusCode.Forbidden,
             (await harness.Client.GetAsync("/api/v1/services/customer-two")).StatusCode);
         Assert.Equal(System.Net.HttpStatusCode.Forbidden,
