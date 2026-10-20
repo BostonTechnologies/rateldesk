@@ -55,6 +55,8 @@ The output directory must be new, its parent must exist, and the profile, creden
 and output must be outside the checkout. Each run uses fresh RPC IDs and hashed
 sanitized JSON captures. Tokens stay in memory and known confidential fields, signed
 URL tokens and duplicate MCP JSON text are redacted before capture persistence.
+Regression checks cover Unicode-escaped secrets in duplicate JSON text and signed
+URL tokens inside HTML-escaped links.
 Other business records still make these captures private. Do not commit them.
 
 The runner accepts only catalog-advertised GET/read-only operations. It refuses

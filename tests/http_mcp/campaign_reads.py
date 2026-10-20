@@ -121,7 +121,8 @@ class Captures:
             for secret in self.secrets:
                 if secret:
                     value = value.replace(secret, "[REDACTED]")
-            value = re.sub(r"(?i)([?&](?:token|key|code)=)[^&\s]+", r"\1[REDACTED]", value)
+            value = re.sub(r"(?i)([?&](?:amp;)?(?:token|key|code)=)[^&\s<>\"']+",
+                           r"\1[REDACTED]", value)
         return value
 
     def write(self, kind, value):

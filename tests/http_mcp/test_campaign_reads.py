@@ -107,6 +107,28 @@ class ReadCampaignTests(unittest.TestCase):
             with self.assertRaises(CampaignError):
                 Transport(uri, "synthetic", None)
 
+    def test_duplicate_json_text_decodes_unicode_escaped_secret_before_redaction(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            captures = Captures(Path(temporary), [])
+            duplicate = json.dumps({"activationToken": "synthetic+activation/value="})
+            duplicate = duplicate.replace("+", "\\u002B").replace("/", "\\u002F")
+            ref = captures.write("test", {"id": "synthetic-rpc-id",
+                "content": [{"type": "text", "text": duplicate}]})
+            captured = json.loads((Path(temporary) / ref["path"]).read_text())
+            self.assertEqual(captured["id"], "synthetic-rpc-id")
+            nested = json.loads(captured["content"][0]["text"])
+            self.assertEqual(nested["activationToken"], "[REDACTED]")
+
+    def test_html_escaped_signed_url_is_redacted_without_losing_link_markup(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            captures = Captures(Path(temporary), [])
+            ref = captures.write("test", {"html":
+                '<a href="https://example.invalid/view-ticket/owned?email=reader%40example.invalid'
+                '&amp;token=synthetic-private-link">View</a>'})
+            captured = json.loads((Path(temporary) / ref["path"]).read_text())
+            self.assertNotIn("synthetic-private-link", captured["html"])
+            self.assertIn('&amp;token=[REDACTED]">View</a>', captured["html"])
+
     def test_redirect_cannot_forward_credential_to_other_origin(self):
         with self.assertRaises(CampaignError):
             NoRedirect().redirect_request(None, None, 302, "", {}, "https://other.invalid/mcp")
