@@ -80,8 +80,8 @@ public static class HelpdeskToolDefinitions
                 definition.RequiresRequest && (!hasRequest || payload.ValueKind != JsonValueKind.Object) ||
                 hasRequest && payload.ValueKind is not (JsonValueKind.Object or JsonValueKind.Null))
                 return Reject(request, "Invalid request for the selected tool operation.");
-            if (hasRequest && ValidateSupportedFields(definition.Tool, definition.Operation, payload) is { } error)
-                return Reject(request, error);
+            // The owning operation validates nested fields and numeric bounds.
+            // Preserve its established field-specific structured diagnostics.
             return inner.InvokeAsync(request, cancellationToken);
         }
 
