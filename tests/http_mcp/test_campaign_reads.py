@@ -9,7 +9,7 @@ from unittest.mock import patch
 from types import SimpleNamespace
 from urllib.error import HTTPError
 
-from campaign_reads import CampaignError, Captures, NoRedirect, Transport, compare, read_operation, run
+from campaign_reads import CampaignError, Captures, NoRedirect, Transport, compare, decode_api_read, read_operation, run
 
 
 CATALOG = json.loads((Path(__file__).resolve().parents[2] /
@@ -17,6 +17,23 @@ CATALOG = json.loads((Path(__file__).resolve().parents[2] /
 
 
 class ReadCampaignTests(unittest.TestCase):
+    def test_metrics_text_matches_explicit_mcp_projection(self):
+        text = b"# TYPE helpdesk_tasks_in_progress gauge\nhelpdesk_tasks_in_progress 2\n"
+        api = decode_api_read("/api/v1/metrics/workflows", text, {"Content-Type": "text/plain; version=0.0.4"})
+        compare({"success": True, "data": api}, api, [{"pointer": "/format", "expected": "prometheus"},
+            {"pointer": "/text", "expected": text.decode()}])
+
+    def test_non_metrics_text_and_metrics_html_are_rejected(self):
+        with self.assertRaises(json.JSONDecodeError):
+            decode_api_read("/api/v1/system/version", b"not JSON", {"Content-Type": "text/plain"})
+        with self.assertRaises(CampaignError):
+            decode_api_read("/api/v1/metrics/workflows", b"<html>login</html>", {"Content-Type": "text/html"})
+
+    def test_empty_log_search_cannot_satisfy_known_warning_assertion(self):
+        with self.assertRaises((CampaignError, IndexError)):
+            compare({"success": True, "data": {"items": []}}, {"items": []},
+                [{"pointer": "/items/0/message", "expected": "Synthetic transport failure"}])
+
     def case(self):
         return {"id": "owned-incident", "operation": "helpdesk_incidents.get",
                 "request": {"incidentId": "owned-fixture"},

@@ -1,11 +1,34 @@
 using Helpdesk.API.Ops;
 using Microsoft.Extensions.Logging;
 using Xunit;
+using System.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Configuration;
 
 namespace Helpdesk.Tests.Api;
 
 public sealed class AiAgentOpsLogBufferTests
 {
+    [Fact]
+    public void Service_defaults_forward_real_transport_warning_to_searchable_redacted_ops_buffer()
+    {
+        var builder = Host.CreateApplicationBuilder();
+        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["Observability:ConsoleLogsEnabled"] = "false" });
+        builder.ConfigureOpenTelemetry();
+        builder.Services.AddSingleton<AiAgentOpsLogBuffer>();
+        builder.Services.AddSingleton<ILoggerProvider, AiAgentOpsLoggerProvider>();
+        using var host = builder.Build();
+        using var activity = new Activity("native-transport-regression").Start();
+        host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Helpdesk.NativeTransport")
+            .LogWarning("Transport failed for conversation {ConversationId}; token=synthetic-secret", "conversation-synthetic");
+        var buffer = host.Services.GetRequiredService<AiAgentOpsLogBuffer>();
+        var record = Assert.Single(buffer.Query(null, "Warning", "conversation-synthetic", activity.TraceId.ToString(), 10).Items);
+        Assert.DoesNotContain("synthetic-secret", record.Message);
+        Assert.Equal(activity.TraceId.ToString(), record.TraceId);
+        Assert.Empty(buffer.Query(null, null, "conversation-synthetic", "different-trace", 10).Items);
+    }
+
     [Fact]
     public void Query_Redacts_Common_Secret_Patterns()
     {

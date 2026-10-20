@@ -1,5 +1,11 @@
 # Release notes
 
+## 0.1.2-beta.9 candidate
+
+[Beta.8 campaign finding repairs](0.1.2-beta.9.md) cover signed public views,
+approval startup, API/provider contracts, logging and strict MCP boundaries.
+Deployed beta.9 acceptance requires a separate fresh campaign.
+
 ## 0.1.2-beta.8
 
 [Delegated owner operations over HTTP MCP](0.1.2-beta.8.md) add explicit

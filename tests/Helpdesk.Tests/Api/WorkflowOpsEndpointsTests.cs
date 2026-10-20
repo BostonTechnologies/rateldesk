@@ -26,6 +26,22 @@ namespace Helpdesk.Tests.Api;
 
 public sealed class WorkflowOpsEndpointsTests
 {
+    [Theory]
+    [InlineData("Admin", true)]
+    [InlineData("RequestManager", true)]
+    [InlineData("Customer", false)]
+    public async Task Workflow_metrics_preserve_API_authority_and_prometheus_contract(string role, bool allowed)
+    {
+        await using var harness = await WorkflowOpsHarness.CreateAsync(role, useSqlite: true);
+        var response = await harness.Client.GetAsync("/api/v1/metrics/workflows");
+        Assert.Equal(allowed ? HttpStatusCode.OK : HttpStatusCode.Forbidden, response.StatusCode);
+        if (allowed)
+        {
+            Assert.Equal("text/plain", response.Content.Headers.ContentType!.MediaType);
+            Assert.Contains("# TYPE", await response.Content.ReadAsStringAsync());
+        }
+    }
+
     [Fact]
     public async Task RequestManager_CanReadTenantScopedWorkflowOps_ButNotRetriesPending()
     {
@@ -275,6 +291,7 @@ public sealed class WorkflowOpsEndpointsTests
                     new Claim(ClaimTypes.NameIdentifier, "admin-1"),
                     new Claim(ClaimTypes.Role, HelpdeskPermissions.HelpdeskAdmin)
                 }
+                : actor == "Customer" ? new[] { new Claim(ClaimTypes.NameIdentifier, "customer-only"), new Claim(ClaimTypes.Role, HelpdeskPermissions.SelfServiceUser) }
                 : new[]
                 {
                     new Claim(ClaimTypes.NameIdentifier, "manager-1"),

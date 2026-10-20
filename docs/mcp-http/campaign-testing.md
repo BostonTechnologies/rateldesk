@@ -1,5 +1,12 @@
 # Repeatable HTTP MCP campaign checks
 
+For beta.9, the runner independently adapts the workflow metrics API's explicit
+Prometheus `text/plain` contract to `{format:"prometheus",text:...}`, matching MCP.
+Other API reads still require JSON. Include a fixture-specific `/text` assertion;
+for logs, assert the actual known warning in `/items/0/message` and its trace,
+so an empty search cannot establish a positive result. See the
+[beta.9 finding/retest map](../implementation/0.1.2-beta.9-mcp-regressions.md).
+
 Test a business capability through HTTP MCP, then independently observe its backend
 state, UI or actual provider effect. API-only calls cannot establish an MCP pass.
 Python here is external test tooling; the application and MCP runtime remain C#.

@@ -36,6 +36,12 @@ public sealed partial class RequestTaskApprovalService(
 
     public async Task<RequestTask> StartApprovalAsync(RequestTask task, CancellationToken ct)
     {
+        // Workflow task enumeration returns detached snapshots while this scope
+        // can still track the request/task graph from creation or completion.
+        // Always mutate the context's persisted instance; attaching the snapshot
+        // a second time corrupts/conflicts with that graph in relational saves.
+        task = await db.RequestTasks.FirstOrDefaultAsync(x => x.Id == task.Id && x.RequestId == task.RequestId, ct)
+            ?? throw new KeyNotFoundException("Request task not found.");
         if (task.Type != RequestTaskType.Approval)
         {
             throw new InvalidOperationException("Task is not an approval task.");
@@ -71,9 +77,6 @@ public sealed partial class RequestTaskApprovalService(
         request.WorkflowBlockReason = $"Waiting for approval for task '{task.Name}'.";
         request.WorkflowUpdatedAt = now;
         request.UpdatedAt = DateTime.UtcNow;
-
-        db.RequestTasks.Update(task);
-        db.Requests.Update(request);
 
         var existingEmails = await db.RequestTaskApprovals
             .Where(x => x.RequestTaskId == task.Id)

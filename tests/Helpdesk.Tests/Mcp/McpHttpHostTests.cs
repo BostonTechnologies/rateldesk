@@ -313,7 +313,13 @@ public sealed partial class McpHttpHostTests
                 options.ConfigurationManager = new Microsoft.IdentityModel.Protocols.StaticConfigurationManager<OpenIdConnectConfiguration>(discovery);
             }));
         });
-        api.Services.GetRequiredService<AiAgentOpsLogBuffer>().Add(LogLevel.Information, "Synthetic HTTP identity", new EventId(1), marker, null);
+        string traceId;
+        using (var activity = new Activity("owned-native-transport-regression").Start())
+        {
+            traceId = activity.TraceId.ToString();
+            api.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Helpdesk.NativeTransport")
+                .LogWarning("{Marker} token=synthetic-transport-secret", marker);
+        }
         using var environment = new McpHostEnvironment();
         var ingressToken = CreateToken(environment.SigningKey, ["helpdesk.mcp"], ["ai-assistant"]);
         var validToken = provider.Token(issuer: aiIssuer, audience: aiAudience, roleClaim: "groups", roles: [aiGroup]);
@@ -341,14 +347,22 @@ public sealed partial class McpHttpHostTests
             }
             else
                 Assert.Equal(401, statusResult.GetProperty("failure").GetProperty("upstreamStatus").GetInt32());
-            using var logs = await HttpCallAsync(client, ingressToken, 2, "tools/call", ToolCallParameters("helpdesk_logs", new { operation = "search", request = new { contains = marker, limit = 1 } }));
+            using var logs = await HttpCallAsync(client, ingressToken, 2, "tools/call", ToolCallParameters("helpdesk_logs", new { operation = "search", request = new { contains = marker, correlationId = traceId, limit = 1 } }));
             var logResult = StructuredContent(logs.RootElement);
             Assert.Equal(permitted, logResult.GetProperty("success").GetBoolean());
             if (permitted)
             {
                 var data = logResult.GetProperty("data");
                 Assert.True(data.GetProperty("redacted").GetBoolean());
-                Assert.Equal(marker, Assert.Single(data.GetProperty("items").EnumerateArray()).GetProperty("message").GetString());
+                var item = Assert.Single(data.GetProperty("items").EnumerateArray());
+                Assert.Equal(marker + " token=[REDACTED]", item.GetProperty("message").GetString());
+                Assert.Equal(traceId, item.GetProperty("traceId").GetString());
+                using var direct = api.CreateClient();
+                direct.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", validToken);
+                using var independent = await direct.GetAsync("/api/v1/ops/ai-agent/logs?contains=" + Uri.EscapeDataString(marker) + "&correlationId=" + traceId);
+                independent.EnsureSuccessStatusCode();
+                using var apiLogs = JsonDocument.Parse(await independent.Content.ReadAsStringAsync());
+                Assert.Equal(data.GetProperty("items").GetRawText(), apiLogs.RootElement.GetProperty("items").GetRawText());
             }
             else
                 Assert.Equal(401, logResult.GetProperty("failure").GetProperty("upstreamStatus").GetInt32());
@@ -1783,7 +1797,9 @@ public sealed partial class McpHttpHostTests
                     probe._apiAuthorizations.Enqueue(request.Headers.Authorization.ToString());
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent("{\"correlationId\":\"corr-123\"}", Encoding.UTF8, "application/json")
+                    Content = request.RequestUri!.AbsolutePath == "/api/v1/metrics/workflows"
+                        ? new StringContent("# TYPE helpdesk_tasks_in_progress gauge\nhelpdesk_tasks_in_progress 2\n", Encoding.UTF8, "text/plain")
+                        : new StringContent("{\"correlationId\":\"corr-123\"}", Encoding.UTF8, "application/json")
                 });
             }
         }

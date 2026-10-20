@@ -27,7 +27,7 @@ public sealed record McpOperationDefinition(
 /// </summary>
 public static class McpOperationCatalog
 {
-    public const string Revision = "2026-10-19.mcp-owner-operations-v23";
+    public const string Revision = "2026-10-20.beta9-contracts-v24";
 
     public static IReadOnlyList<McpOperationDefinition> All { get; } =
     [

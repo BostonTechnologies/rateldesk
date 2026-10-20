@@ -738,6 +738,7 @@ public static class ServiceEndpoints
             Description = s.Description,
             ParentServiceId = s.ParentServiceId,
             AllowedCustomerIds = s.AllowedCustomerIds,
+            AllowedOrganizationIds = s.AllowedOrganizationIds,
             Depth = depth
         };
     }

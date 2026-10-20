@@ -95,6 +95,16 @@ def compare(mcp, api, assertions):
             raise CampaignError("Typed fixture assertion failed")
 
 
+def decode_api_read(path, raw, headers):
+    # The workflow metrics API deliberately serves Prometheus; match the MCP
+    # adapter's explicit representation without accepting arbitrary non-JSON.
+    if path == "/api/v1/metrics/workflows":
+        if headers.get("Content-Type", "").split(";", 1)[0].lower() != "text/plain":
+            raise CampaignError("Workflow metrics did not return Prometheus text")
+        return {"format": "prometheus", "text": raw.decode("utf-8")}
+    return json.loads(raw)
+
+
 class Captures:
     def __init__(self, directory, secrets=()):
         self.directory = directory
@@ -207,9 +217,9 @@ class Transport:
         token = exchange["accessToken"]
         self.captures.secrets.append(token)
         self.captures.write("api-execution-exchange", exchange)
-        raw, _, at, _ = self.request(self.origin + path, "GET", None,
+        raw, headers, at, _ = self.request(self.origin + path, "GET", None,
                                     {"Authorization": "Bearer " + token, "Accept": "application/json"})
-        body = json.loads(raw)
+        body = decode_api_read(path, raw, headers)
         return body, self.captures.write("api-independent", {"observedAt": at, "path": path, "body": body})
 
 

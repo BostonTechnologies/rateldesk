@@ -55,7 +55,7 @@ public static class PublicTicketEndpoints
         }
 
         var lastNote = await db.WorkLogs.AsNoTracking()
-            .Where(l => l.TicketId == ticket.Id)
+            .Where(l => l.TicketId == ticket.Id && !l.IsInternalNote)
             .OrderByDescending(l => l.LoggedAt)
             .Select(l => l.NotesText)
             .FirstOrDefaultAsync();

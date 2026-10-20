@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using ModelContextProtocol;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -49,7 +50,50 @@ public static class HelpdeskToolDefinitions
 
         var tool = McpServerTool.Create(method, context => (context.Services ?? throw new InvalidOperationException("MCP request context has no service provider.")).GetRequiredService<HelpdeskTools>(), options);
         tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(InputSchema(definitions));
-        return tool;
+        return new ValidatedTool(tool);
+    }
+
+    // Validate before reflection binding can discard unrecognized arguments, in
+    // both HTTP and stdio transports. Discovery and runtime share the catalog.
+    private sealed class ValidatedTool(McpServerTool inner) : McpServerTool
+    {
+        public override Tool ProtocolTool => inner.ProtocolTool;
+        public override IReadOnlyList<object> Metadata => inner.Metadata;
+
+        public override ValueTask<CallToolResult> InvokeAsync(RequestContext<CallToolRequestParams> request, CancellationToken cancellationToken = default)
+        {
+            if (HasDuplicateFields(JsonSerializer.SerializeToElement(request.JsonRpcRequest.Params)))
+                throw new McpException("Duplicate tool argument fields are not supported.");
+            var args = request.Params.Arguments;
+            if (args is null || args.Keys.Any(key => key is not ("operation" or "request" or "confirm")) ||
+                !args.TryGetValue("operation", out var op) || op.ValueKind != JsonValueKind.String ||
+                args.TryGetValue("confirm", out var confirm) && confirm.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                throw new McpException("Invalid tool argument envelope. Use operation, request and confirm only.");
+            var definition = McpOperationCatalog.All.SingleOrDefault(item => item.Tool == ProtocolTool.Name && item.Operation == op.GetString());
+            if (definition is null) throw new McpException("Unknown tool operation.");
+            var hasRequest = args.TryGetValue("request", out var payload);
+            if (definition.RequestContract == "None" && hasRequest ||
+                definition.RequiresRequest && (!hasRequest || payload.ValueKind != JsonValueKind.Object) ||
+                hasRequest && payload.ValueKind is not (JsonValueKind.Object or JsonValueKind.Null))
+                throw new McpException("Invalid request for the selected tool operation.");
+            if (hasRequest && ValidateSupportedFields(definition.Tool, definition.Operation, payload) is { } error)
+                throw new McpException(error);
+            return inner.InvokeAsync(request, cancellationToken);
+        }
+
+        private static bool HasDuplicateFields(JsonElement value)
+        {
+            if (value.ValueKind == JsonValueKind.Object)
+            {
+                var names = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var property in value.EnumerateObject())
+                    if (!names.Add(property.Name) || HasDuplicateFields(property.Value)) return true;
+            }
+            else if (value.ValueKind == JsonValueKind.Array)
+                foreach (var item in value.EnumerateArray())
+                    if (HasDuplicateFields(item)) return true;
+            return false;
+        }
     }
 
     private static JsonObject InputSchema(IReadOnlyList<McpOperationDefinition> definitions)

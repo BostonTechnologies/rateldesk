@@ -90,7 +90,7 @@ public static class Extensions
             {
                 loggerConfiguration.WriteTo.Console(new CompactJsonFormatter());
             }
-        });
+        }, writeToProviders: true);
 
         if (!verboseDependencyLogs)
         {

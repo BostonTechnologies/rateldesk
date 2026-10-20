@@ -3,6 +3,7 @@ using Helpdesk.Application.Services.AI;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.Resources;
 using Helpdesk.Shared.DTOs.Resources;
+using Helpdesk.Shared.DTOs.RequestForm;
 using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
@@ -17,6 +18,39 @@ namespace Helpdesk.Tests.Infrastructure.Resources;
 
 public sealed class OperatorDatasetWriterTests
 {
+    [Fact]
+    public async Task Bound_selection_resolves_exact_current_key_without_label_search_or_page_limits()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using (var edit = fixture.Readback())
+        {
+            var definition = await edit.DatasetDefinitions.SingleAsync(x => x.Id == "custom");
+            definition.DisplayColumn = "name";
+            definition.SearchColumns = ["name"];
+            await edit.SaveChangesAsync();
+        }
+        await fixture.Service.UpsertRowsAsOperatorAsync("custom", "org-a", false, new UpsertDatasetRowsDto
+        {
+            Rows = Enumerable.Range(0, 60).Select(i => Row($"decoy-{i:D3}", "Common label")).Append(Row("zz-Key-061", "Visible label")).ToList()
+        });
+        Assert.Empty((await fixture.Service.GetOptionsAsync("custom", "org-a", "zz-Key-061", 1, 25)).Items);
+        var resolver = new SelfServiceDatasetBindingResolver(fixture.Service, NullLogger<SelfServiceDatasetBindingResolver>.Instance);
+        FormField[] fields = [new() { Key = "choice", Label = "Choice", DataBinding = new() { DatasetId = "custom" } }];
+        var result = await resolver.NormalizePayloadAsync("org-a", fields, "{\"choice\":\"ZZ-key-061\"}");
+        Assert.True(result.Success);
+        var payload = JsonNode.Parse(result.PayloadJson)!;
+        Assert.Equal("zz-Key-061", payload["choice"]!.GetValue<string>());
+        Assert.Equal("Visible label", payload["_boundLabels"]!["choice"]!.GetValue<string>());
+        Assert.False((await resolver.NormalizePayloadAsync("org-b", fields, "{\"choice\":\"zz-Key-061\"}")).Success);
+        Assert.False((await resolver.NormalizePayloadAsync("org-a", fields, "{\"choice\":\"missing\"}")).Success);
+        await using (var edit = fixture.Readback())
+        {
+            (await edit.DatasetDefinitions.SingleAsync(x => x.Id == "custom")).IsActive = false;
+            await edit.SaveChangesAsync();
+        }
+        Assert.False((await resolver.NormalizePayloadAsync("org-a", fields, "{\"choice\":\"zz-Key-061\"}")).Success);
+    }
+
     [Fact]
     public async Task Scoped_operator_write_persists_rows_and_delete_missing_is_explicit()
     {
