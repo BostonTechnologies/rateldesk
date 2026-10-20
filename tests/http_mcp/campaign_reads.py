@@ -67,6 +67,11 @@ def read_operation(catalog, case):
         if selector in path:
             path = path.replace(selector, quote(str(value), safe=""))
         else:
+            if value is None:
+                continue
+            if isinstance(value, dict) or (isinstance(value, list) and
+                    any(isinstance(item, (dict, list)) for item in value)):
+                raise CampaignError("Nested query arguments require a dedicated read lane")
             if isinstance(value, bool):
                 value = str(value).lower()
             query[name] = value
@@ -97,7 +102,7 @@ class Captures:
         self.sequence = 0
 
     def redact(self, value):
-        protected = {"password", "newpassword", "currentpassword", "smtppassword",
+        protected = {"password", "newpassword", "currentpassword", "smtppassword", "token",
                      "secret", "signingsecret", "clientsecret", "accesstoken",
                      "refreshtoken", "plaintextkey", "apikey", "pairingcode", "pairingsecret",
                      "activationtoken", "integrationcredential", "authorization"}
@@ -152,6 +157,14 @@ class Transport:
                     raise CampaignError("Response exceeded the capture bound")
                 return raw, response.headers, started, (time.monotonic() - tick) * 1000
         except HTTPError as error:
+            raw = error.read(8 * 1024 * 1024 + 1)
+            try:
+                error_body = json.loads(raw[:8 * 1024 * 1024])
+            except (ValueError, UnicodeError):
+                error_body = {"nonJsonOrTruncated": True}
+            self.captures.write("http-error", {"observedAt": utc(), "method": method,
+                "httpStatus": error.code, "body": error_body,
+                "responseExceededBound": len(raw) > 8 * 1024 * 1024})
             raise CampaignError(f"HTTP {error.code}; no automatic retry or target fallback") from None
 
     def rpc(self, method, params, notification=False):
@@ -216,9 +229,13 @@ def run(args):
     profile = json.loads(profile_path.read_text(encoding="utf-8-sig"))
     keypath = Path(profile["credentialFile"])
     keypath = keypath if keypath.is_absolute() else profile_path.parent / keypath
-    if keypath.resolve().is_relative_to(repo) or keypath.stat().st_size > 16384:
-        raise CampaignError("Credential file must be bounded and outside the checkout")
-    credential = keypath.read_text(encoding="utf-8-sig").strip()
+    if keypath.resolve().is_relative_to(repo):
+        raise CampaignError("Credential file must be outside the checkout")
+    with keypath.open("rb") as source:
+        credential_bytes = source.read(16385)
+    if len(credential_bytes) > 16384:
+        raise CampaignError("Credential file exceeds the supported bound")
+    credential = credential_bytes.decode("utf-8-sig").strip()
     if not credential or "\n" in credential or "\r" in credential:
         raise CampaignError("Credential file must contain one nonempty credential")
     # Refuse existing output rather than silently mixing candidate runs.

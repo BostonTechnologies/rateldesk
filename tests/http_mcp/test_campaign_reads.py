@@ -1,11 +1,13 @@
 """Offline harness regression tests; these are not deployed acceptance results."""
 
 import json
+import io
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 from types import SimpleNamespace
+from urllib.error import HTTPError
 
 from campaign_reads import CampaignError, Captures, NoRedirect, Transport, compare, read_operation, run
 
@@ -42,6 +44,13 @@ class ReadCampaignTests(unittest.TestCase):
         case["assertions"] = []
         with self.assertRaises(CampaignError):
             read_operation(CATALOG, case)
+
+    def test_optional_null_query_is_omitted(self):
+        case = {"id": "overdue", "operation": "helpdesk_automation.overdue_tasks",
+                "request": {"page": None, "pageSize": 5},
+                "assertions": [{"pointer": "/total", "expected": 1}]}
+        _, _, path = read_operation(CATALOG, case)
+        self.assertEqual(path, "/api/v1/ops/tasks/overdue?pageSize=5")
 
     def test_dot_selector_cannot_escape_independent_api_route(self):
         case = self.case()
@@ -101,6 +110,21 @@ class ReadCampaignTests(unittest.TestCase):
     def test_redirect_cannot_forward_credential_to_other_origin(self):
         with self.assertRaises(CampaignError):
             NoRedirect().redirect_request(None, None, 302, "", {}, "https://other.invalid/mcp")
+
+    def test_http_denial_is_captured_with_secret_redacted(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            captures = Captures(Path(temporary), ["synthetic-credential"])
+            transport = Transport("https://example.invalid/mcp", "synthetic-credential", captures)
+            error = HTTPError("https://example.invalid/mcp", 403, "denied", {},
+                              io.BytesIO(b'{"accessToken":"synthetic-response-secret"}'))
+            with patch.object(transport.opener, "open", side_effect=error):
+                with self.assertRaises(CampaignError):
+                    transport.request(transport.resource, "POST", b"{}", {})
+            files = list(Path(temporary).glob("*-http-error.json"))
+            self.assertEqual(len(files), 1)
+            captured = files[0].read_text()
+            self.assertNotIn("synthetic-response-secret", captured)
+            self.assertEqual(json.loads(captured)["httpStatus"], 403)
 
 
 if __name__ == "__main__":

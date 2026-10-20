@@ -80,6 +80,10 @@ never resend an external effect solely because the client timed out. Read-only
 parity is insufficient for provider dispatch, approval commits, mail delivery,
 idempotency, revocation, concurrency and cleanup.
 
+Plans use flat route/query selectors and scalar query lists. Null optional query
+values are omitted; nested query objects need a dedicated lane. HTTP denials retain
+a bounded, sanitized structured error capture and stop the run without a retry.
+
 Keep generic code and synthetic plans in the repository. Keep credentials, passwords,
 one-time grants, private hosts, live customer data, raw captures, evidence archives
 and deployment-specific fixture registries in the private campaign directory. Publish
