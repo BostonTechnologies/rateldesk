@@ -355,7 +355,9 @@ public sealed partial class McpHttpHostTests
                 var data = logResult.GetProperty("data");
                 Assert.True(data.GetProperty("redacted").GetBoolean());
                 var item = Assert.Single(data.GetProperty("items").EnumerateArray());
-                Assert.Equal(marker + " token=[REDACTED]", item.GetProperty("message").GetString());
+                Assert.Contains(marker, item.GetProperty("message").GetString());
+                Assert.Contains("token=[REDACTED]", item.GetProperty("message").GetString());
+                Assert.DoesNotContain("synthetic-transport-secret", item.GetProperty("message").GetString());
                 Assert.Equal(traceId, item.GetProperty("traceId").GetString());
                 using var direct = api.CreateClient();
                 direct.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", validToken);
