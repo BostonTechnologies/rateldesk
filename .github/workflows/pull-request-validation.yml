@@ -100,6 +100,8 @@ jobs:
         run: dotnet build Helpdesk.sln --configuration Release --no-restore
 
       - name: Run .NET tests
+        env:
+          RATELDESK_BETA9_EVIDENCE_DIR: ${{ github.workspace }}/TestResults/beta9-source-evidence
         run: >-
           dotnet test Helpdesk.sln --configuration Release --no-build
           --logger "trx;LogFileName=helpdesk-tests.trx"

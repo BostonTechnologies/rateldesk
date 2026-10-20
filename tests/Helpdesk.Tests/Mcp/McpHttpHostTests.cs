@@ -365,6 +365,8 @@ public sealed partial class McpHttpHostTests
                 independent.EnsureSuccessStatusCode();
                 using var apiLogs = JsonDocument.Parse(await independent.Content.ReadAsStringAsync());
                 Assert.Equal(data.GetProperty("items").GetRawText(), apiLogs.RootElement.GetProperty("items").GetRawText());
+                Beta9Evidence.Record("B8-OPS-LOG-OBSERVABILITY-GAP", "http-mcp-and-api",
+                    new { mcpItems = data.GetProperty("items").Clone(), independentApiItems = apiLogs.RootElement.GetProperty("items").Clone() });
             }
             else
                 Assert.Equal(401, logResult.GetProperty("failure").GetProperty("upstreamStatus").GetInt32());

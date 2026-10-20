@@ -56,6 +56,8 @@ public sealed class PublicTicketEndpointsTests
             var alteredSignature = await harness.Client.GetAsync($"/api/v1/tickets/public/{endpoint}" + query + "tampered");
             Assert.Equal(HttpStatusCode.Unauthorized, alteredSignature.StatusCode);
         }
+        Beta9Evidence.Record("B8-PUBLIC-VIEW-INTERNAL-NOTE-DISCLOSURE", $"{kind}-{internalOnly}",
+            new { view.LastPublicNote, publicTimeline = timeline.Select(x => x.MessageText), wrongRecipientStatus = 401, alteredSignatureStatus = 401 });
     }
 
     [Fact]

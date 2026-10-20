@@ -46,6 +46,9 @@ public sealed class TicketCategoryEndpointsTests
         Assert.Equal(HttpStatusCode.Forbidden, await DeniedAsync());
         h.Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "admin");
         (await h.Client.DeleteAsync($"/api/v1/categories/{category.Id}")).EnsureSuccessStatusCode();
+        Beta9Evidence.Record("API-B8-CATEGORY-TENANT-ID-FORMAT", $"http-{postgres}",
+            new { storedOrganizationFormat = "N", typedTenantFormat = "D", createStatus = (int)create.StatusCode,
+                roundTripTenantMatches = category.TenantId == organizationId, checkedOperations = new[] { "create", "update", "list", "delete" }, foreignScopeStatus = 403 });
         async Task<HttpStatusCode> DeniedAsync()
         {
             h.Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "reader");

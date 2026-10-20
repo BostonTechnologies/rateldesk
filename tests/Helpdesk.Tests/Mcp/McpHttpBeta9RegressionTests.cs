@@ -38,6 +38,11 @@ public sealed partial class McpHttpHostTests
         }
         Assert.Equal(0, outbound.ApiRequests);
         Assert.Equal(0, outbound.TokenRequests);
+        Beta9Evidence.Record("MCP-B8-UNKNOWN-OUTER-ARGUMENT", "http-all-operations", new
+        {
+            rejectedCatalogOperations = McpOperationCatalog.All.Count, rejectedAdditionalEnvelopes = 5,
+            upstreamApiRequests = outbound.ApiRequests, upstreamTokenRequests = outbound.TokenRequests
+        });
     }
 
     [Fact]
@@ -68,6 +73,7 @@ public sealed partial class McpHttpHostTests
         Assert.Equal("prometheus", result.GetProperty("data").GetProperty("format").GetString());
         Assert.Contains("helpdesk_tasks_in_progress 2", result.GetProperty("data").GetProperty("text").GetString());
         Assert.Equal(1, outbound.ApiRequests);
+        Beta9Evidence.Record("MCP-B8-WORKFLOW-METRICS", "http-mcp", new { structuredContent = result.Clone(), upstreamRequests = outbound.ApiRequests });
     }
 
     private static void AssertRejected(JsonDocument response)

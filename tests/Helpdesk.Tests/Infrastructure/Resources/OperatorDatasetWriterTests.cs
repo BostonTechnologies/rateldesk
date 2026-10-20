@@ -49,6 +49,11 @@ public sealed class OperatorDatasetWriterTests
             await edit.SaveChangesAsync();
         }
         Assert.False((await resolver.NormalizePayloadAsync("org-a", fields, "{\"choice\":\"zz-Key-061\"}")).Success);
+        Beta9Evidence.Record("B8-SELF-SERVICE-DATASET-KEY-LOOKUP", "scoped-exact-key", new
+        {
+            normalizedPayload = payload, rowCount = 61, keySearchReturnedNoOptions = true,
+            foreignScopeRejected = true, missingKeyRejected = true, inactiveDatasetRejected = true
+        });
     }
 
     [Fact]

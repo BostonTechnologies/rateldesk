@@ -48,6 +48,12 @@ public sealed class ServiceItemsEndpointsTests
         Assert.Equal(["tenant-2"], (await harness.Client.GetFromJsonAsync<ServiceDto>($"/api/v1/services/{service.Id}"))!.AllowedOrganizationIds);
         var list = await harness.Client.GetFromJsonAsync<List<ServiceDto>>("/api/v1/services");
         Assert.Equal(["tenant-2"], list!.Single(x => x.Id == service.Id).AllowedOrganizationIds);
+        Beta9Evidence.Record("API-B8-SERVICE-SCOPE-PROJECTION", "http-crud", new
+        {
+            createdAudience = service.AllowedOrganizationIds,
+            updatedAudience = list.Single(x => x.Id == service.Id).AllowedOrganizationIds,
+            checkedResponses = new[] { "create", "update", "get", "list" }
+        });
     }
 
     [Fact]

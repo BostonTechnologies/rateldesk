@@ -69,6 +69,9 @@ public sealed class Beta9WorkflowAndBrandingHttpTests
             Assert.Single(await db.RequestTaskApprovals.AsNoTracking().Where(x => x.RequestTaskId == approval.Id).ToListAsync());
             Assert.Equal("PendingApproval", (await db.Requests.AsNoTracking().SingleAsync()).WorkflowStatus);
         });
+        Beta9Evidence.Record("API-B8-SELF-SERVICE-POSTCOMMIT-500", $"http-{postgres}-{manualPredecessor}",
+            new { submissionStatus = (int)submitted.StatusCode, manualCompletionStatus = manualPredecessor ? 200 : (int?)null,
+                requestCount = 1, approvalCount = 1, approvalStatus = "PendingApproval" });
     }
 
     [Theory]
@@ -98,5 +101,11 @@ public sealed class Beta9WorkflowAndBrandingHttpTests
         Assert.Equal(bytes, await image.Content.ReadAsByteArrayAsync());
         using var invalidToken = await h.Client.GetAsync(path + "tampered");
         Assert.Equal(HttpStatusCode.Unauthorized, invalidToken.StatusCode);
+        Beta9Evidence.Record("API-B8-NUMERIC-LOGO-ANTIFORGERY", $"http-{postgres}", new
+        {
+            uploadStatus = (int)uploaded.StatusCode, binaryReadStatus = (int)image.StatusCode,
+            contentSha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant(),
+            storedUrlMatchesUpload = true, alteredSignatureStatus = (int)invalidToken.StatusCode
+        });
     }
 }

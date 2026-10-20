@@ -30,6 +30,9 @@ public sealed class OrchestrationInternalClientTests
         tokens.GetAccessTokenAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<CancellationToken>()).Returns("synthetic-token");
         var result = await new OrchestrationInternalClient(factory, tokens, NullLogger<OrchestrationInternalClient>.Instance).IdentityAsync(Settings());
         Assert.Equal(expected, result.Success);
+        Beta9Evidence.Record("B8-ORCHESTRATION-MANAGED-IDENTITY-CONTRACT",
+            Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(body))).ToLowerInvariant(),
+            new { syntheticProviderBody = body, expectedSuccess = expected, actualSuccess = result.Success });
     }
 
     [Fact]
