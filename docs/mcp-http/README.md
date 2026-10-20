@@ -21,5 +21,7 @@ share the Web public origin or use an explicitly configured standalone origin.
   [browser-approved pairing](../integrations/browser-pairing.md).
 - [Operation contracts, previews and transport authority](../contracts/mcp-operation-contracts.md):
   executable schemas, fixed raw reads, identifiers and required prerequisites.
+- [Repeatable campaign checks](campaign-testing.md): private live MCP/backend read
+  captures, generic repository test collateral and future capability coverage.
 
 Keep runnable recipes in the [Docker HTTP MCP example](../../docker/examples/mcp-http/README.md).

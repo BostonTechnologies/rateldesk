@@ -27,6 +27,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  campaign-read-harness:
+    name: Offline HTTP MCP campaign harness
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out triggering commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Verify generic harness failure boundaries without live credentials
+        run: |
+          python3 -m venv .venv-campaign
+          .venv-campaign/bin/python -m pip install -r tests/http_mcp/requirements.txt
+          .venv-campaign/bin/python -m unittest discover -s tests/http_mcp -p 'test_*.py'
+
   public-disclosure:
     name: Public disclosure gate
     runs-on: ubuntu-latest
