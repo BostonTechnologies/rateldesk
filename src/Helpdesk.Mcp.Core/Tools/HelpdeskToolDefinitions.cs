@@ -2,7 +2,7 @@ using System.ComponentModel;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using ModelContextProtocol;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -57,41 +57,57 @@ public static class HelpdeskToolDefinitions
     // both HTTP and stdio transports. Discovery and runtime share the catalog.
     private sealed class ValidatedTool(McpServerTool inner) : McpServerTool
     {
+        private static readonly JsonSerializerOptions ResponseOptions = new(JsonSerializerDefaults.Web)
+        {
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        };
         public override Tool ProtocolTool => inner.ProtocolTool;
         public override IReadOnlyList<object> Metadata => inner.Metadata;
 
         public override ValueTask<CallToolResult> InvokeAsync(RequestContext<CallToolRequestParams> request, CancellationToken cancellationToken = default)
         {
-            if (HasDuplicateFields(JsonSerializer.SerializeToElement(request.JsonRpcRequest.Params)))
-                throw new McpException("Duplicate tool argument fields are not supported.");
+            if (HasDuplicateEnvelopeFields(JsonSerializer.SerializeToElement(request.JsonRpcRequest.Params)))
+                return Reject(request, "Duplicate tool argument envelope fields are not supported.");
             var args = request.Params.Arguments;
             if (args is null || args.Keys.Any(key => key is not ("operation" or "request" or "confirm")) ||
                 !args.TryGetValue("operation", out var op) || op.ValueKind != JsonValueKind.String ||
                 args.TryGetValue("confirm", out var confirm) && confirm.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
-                throw new McpException("Invalid tool argument envelope. Use operation, request and confirm only.");
+                return Reject(request, "Invalid tool argument envelope. Use operation, request and confirm only.");
             var definition = McpOperationCatalog.All.SingleOrDefault(item => item.Tool == ProtocolTool.Name && item.Operation == op.GetString());
-            if (definition is null) throw new McpException("Unknown tool operation.");
+            if (definition is null) return Reject(request, "Unknown tool operation.");
             var hasRequest = args.TryGetValue("request", out var payload);
             if (definition.RequestContract == "None" && hasRequest ||
                 definition.RequiresRequest && (!hasRequest || payload.ValueKind != JsonValueKind.Object) ||
                 hasRequest && payload.ValueKind is not (JsonValueKind.Object or JsonValueKind.Null))
-                throw new McpException("Invalid request for the selected tool operation.");
+                return Reject(request, "Invalid request for the selected tool operation.");
             if (hasRequest && ValidateSupportedFields(definition.Tool, definition.Operation, payload) is { } error)
-                throw new McpException(error);
+                return Reject(request, error);
             return inner.InvokeAsync(request, cancellationToken);
         }
 
-        private static bool HasDuplicateFields(JsonElement value)
+        private static ValueTask<CallToolResult> Reject(RequestContext<CallToolRequestParams> request, string message)
         {
-            if (value.ValueKind == JsonValueKind.Object)
+            var tools = (request.Services ?? throw new InvalidOperationException("MCP request context has no service provider.")).GetRequiredService<HelpdeskTools>();
+            var content = JsonSerializer.SerializeToElement(tools.Validation(message), ResponseOptions);
+            return ValueTask.FromResult(new CallToolResult
             {
-                var names = new HashSet<string>(StringComparer.Ordinal);
-                foreach (var property in value.EnumerateObject())
-                    if (!names.Add(property.Name) || HasDuplicateFields(property.Value)) return true;
-            }
-            else if (value.ValueKind == JsonValueKind.Array)
-                foreach (var item in value.EnumerateArray())
-                    if (HasDuplicateFields(item)) return true;
+                IsError = true,
+                StructuredContent = content,
+                Content = [new TextContentBlock { Text = content.GetRawText() }]
+            });
+        }
+
+        private static bool HasDuplicateEnvelopeFields(JsonElement parameters)
+        {
+            if (parameters.ValueKind != JsonValueKind.Object) return false;
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var property in parameters.EnumerateObject())
+                if (!names.Add(property.Name)) return true;
+            if (!parameters.TryGetProperty("arguments", out var arguments) || arguments.ValueKind != JsonValueKind.Object) return false;
+            names.Clear();
+            foreach (var property in arguments.EnumerateObject())
+                if (!names.Add(property.Name)) return true;
+            // Nested request validation keeps its existing field-specific errors.
             return false;
         }
     }
