@@ -684,7 +684,7 @@ public sealed partial class HelpdeskTools(
     private HelpdeskToolResponse Completed(string summary, JsonNode? data)
         => Response(true, "completed", summary, data, AffectedIds: [], CorrelationId: (data as JsonObject)?["correlationId"]?.GetValue<string>());
     private HelpdeskToolResponse Invalid(string tool, string operation, IReadOnlyList<string> allowed) => Response(false, "validation_failed", $"Unsupported {tool} operation '{operation}'.", Failure: new HelpdeskToolFailure("unsupported_operation", false, AllowedOperations: allowed));
-    private HelpdeskToolResponse Validation(string summary) => Response(false, "validation_failed", summary, Failure: new HelpdeskToolFailure("validation_error", false));
+    internal HelpdeskToolResponse Validation(string summary) => Response(false, "validation_failed", summary, Failure: new HelpdeskToolFailure("validation_error", false));
     private static string? TicketCreateValidation(string tool, JsonObject? request, string subject)
     {
         if (string.IsNullOrWhiteSpace(request?["title"]?.ToString()) || string.IsNullOrWhiteSpace(request?["description"]?.ToString()))

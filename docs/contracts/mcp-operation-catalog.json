@@ -1,7 +1,7 @@
 {
-  "schemaHash": "dd1d6d04490d740851d4d7e20bae92ca15ba259dec95994c8b0cda4d328d3c14",
-  "catalogRevision": "2026-10-19.mcp-owner-operations-v23",
-  "catalogHash": "f8aa2de86bf2cf46d123ba06a8bde1235ca0156758c4d1aead4febe8179ff243",
+  "schemaHash": "fc3603d87ad56fc994cd77385474874a5bc5c9df79a7dc825f5785460463a6f7",
+  "catalogRevision": "2026-10-20.beta9-contracts-v24",
+  "catalogHash": "44d767508d35628a4a9c562e842834ad97053435133890646b417edd5b189f74",
   "operationCount": 389,
   "operations": [
     {
@@ -15761,7 +15761,7 @@
       "readOnly": true,
       "confirmationRequired": false,
       "previewSupported": false,
-      "description": "Read workflow operational counters.",
+      "description": "Read organization-filtered workflow operational counters as Prometheus text.",
       "sensitiveResultFields": [],
       "transports": [
         "stdio",
@@ -15769,16 +15769,17 @@
       ],
       "transportSupport": {
         "stdio": "Available with explicitly configured API identity; authority and prerequisites apply",
-        "http": "requires_explicit_administrator_identity: ordinary bounded integration credential is denied"
+        "http": "available_subject_to_identity_permission_scope_and_prerequisites"
       },
       "credentialModes": [
-        "explicit mcp-owner resource-bound grant from a current instance administrator (HTTP gateway)",
-        "explicit external Authentik identity satisfying HelpdeskAdmin"
+        "api-purpose account-bound credential (stdio)",
+        "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
+        "explicit external Authentik identity"
       ],
-      "authority": "HelpdeskAdmin; existing API identity, tenant and record-specific checks apply",
+      "authority": "Request.Read, Request.Write or Request.Manager in the selected organizations; existing API identity, tenant and record-specific checks apply",
       "boundedIntegrationCredential": {
-        "support": "denied_by_policy",
-        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
       },
       "ownerAdministrationCredential": {
         "purpose": "mcp-owner",
@@ -50236,7 +50237,7 @@
             "properties": {
               "operation": {
                 "const": "workflow_metrics",
-                "description": "Read workflow operational counters. Select this operation in the outer operation field."
+                "description": "Read organization-filtered workflow operational counters as Prometheus text. Select this operation in the outer operation field."
               },
               "confirm": {
                 "type": "boolean",

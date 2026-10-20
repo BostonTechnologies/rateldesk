@@ -35,6 +35,28 @@ namespace Helpdesk.Tests.Api;
 public sealed class ServiceItemsEndpointsTests
 {
     [Fact]
+    public async Task Service_create_update_get_and_list_preserve_organization_audience()
+    {
+        await using var harness = await ServiceItemsTestHarness.CreateAsync(isHelpdeskAdmin: true);
+        var created = await harness.Client.PostAsJsonAsync("/api/v1/services", new CreateServiceDto { Name = "Scoped", AllowedOrganizationIds = ["tenant-1"] });
+        created.EnsureSuccessStatusCode();
+        var service = (await created.Content.ReadFromJsonAsync<ServiceDto>())!;
+        Assert.Equal(["tenant-1"], service.AllowedOrganizationIds);
+        var update = await harness.Client.PutAsJsonAsync($"/api/v1/services/{service.Id}", new { name = "Updated", allowedOrganizationIds = new[] { "tenant-2" } });
+        update.EnsureSuccessStatusCode();
+        Assert.Equal(["tenant-2"], (await update.Content.ReadFromJsonAsync<ServiceDto>())!.AllowedOrganizationIds);
+        Assert.Equal(["tenant-2"], (await harness.Client.GetFromJsonAsync<ServiceDto>($"/api/v1/services/{service.Id}"))!.AllowedOrganizationIds);
+        var list = await harness.Client.GetFromJsonAsync<List<ServiceDto>>("/api/v1/services");
+        Assert.Equal(["tenant-2"], list!.Single(x => x.Id == service.Id).AllowedOrganizationIds);
+        Beta9Evidence.Record("API-B8-SERVICE-SCOPE-PROJECTION", "http-crud", new
+        {
+            createdAudience = service.AllowedOrganizationIds,
+            updatedAudience = list.Single(x => x.Id == service.Id).AllowedOrganizationIds,
+            checkedResponses = new[] { "create", "update", "get", "list" }
+        });
+    }
+
+    [Fact]
     public async Task Request_form_edit_preserves_omitted_audience_and_accepts_explicit_clear()
     {
         await using var harness = await ServiceItemsTestHarness.CreateAsync(isHelpdeskAdmin: true);
@@ -162,6 +184,7 @@ public sealed class ServiceItemsEndpointsTests
         var customerService = await customerServiceResponse.Content.ReadFromJsonAsync<ServiceDto>();
         Assert.NotNull(customerService);
         Assert.Empty(customerService!.AllowedCustomerIds);
+        Assert.Empty(customerService.AllowedOrganizationIds);
         Assert.Equal(System.Net.HttpStatusCode.Forbidden,
             (await harness.Client.GetAsync("/api/v1/services/customer-two")).StatusCode);
         Assert.Equal(System.Net.HttpStatusCode.Forbidden,

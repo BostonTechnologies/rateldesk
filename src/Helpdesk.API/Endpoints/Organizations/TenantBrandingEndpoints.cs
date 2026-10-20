@@ -120,6 +120,8 @@ public static class TenantBrandingEndpoints
 
             return Results.Ok(new { url = logoUrl });
         })
+        // This API authenticates bearer clients, including MCP multipart uploads.
+        .DisableAntiforgery()
         .Accepts<LogoUploadForm>("multipart/form-data");
 
         app.MapGet("/api/tenants/{tenantId:int}/branding/logo/{filename}", (

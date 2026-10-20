@@ -310,6 +310,7 @@ public static class ServiceEndpoints
             if (!tenant.IsHelpdeskAdmin)
             {
                 dto.AllowedCustomerIds = [];
+                dto.AllowedOrganizationIds = [];
             }
             return Results.Ok(dto);
         })
@@ -738,6 +739,7 @@ public static class ServiceEndpoints
             Description = s.Description,
             ParentServiceId = s.ParentServiceId,
             AllowedCustomerIds = s.AllowedCustomerIds,
+            AllowedOrganizationIds = s.AllowedOrganizationIds,
             Depth = depth
         };
     }

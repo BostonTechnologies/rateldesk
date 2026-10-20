@@ -1,0 +1,13 @@
+{
+  "cases": [
+    {
+      "id": "owned-incident-read",
+      "operation": "helpdesk_incidents.get",
+      "request": {"incidentId": "REPLACE_WITH_OWNED_INCIDENT_ID"},
+      "assertions": [
+        {"pointer": "/id", "expected": "REPLACE_WITH_OWNED_INCIDENT_ID"},
+        {"pointer": "/trackingId", "expected": "REPLACE_WITH_OBSERVED_TRACKING_ID"}
+      ]
+    }
+  ]
+}

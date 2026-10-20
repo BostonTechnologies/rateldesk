@@ -279,6 +279,19 @@ public sealed class DataManagementService(
         return result;
     }
 
+    public async Task<DatasetOptionDto?> GetOptionByKeyAsync(string datasetId, string organizationId, string key, CancellationToken cancellationToken = default)
+    {
+        // Resolve current persisted membership, independently of search columns,
+        // page limits and the five-minute option search cache.
+        var definition = await _db.DatasetDefinitions.AsNoTracking().FirstOrDefaultAsync(
+            x => x.Id == datasetId && x.OrganizationId == organizationId && x.IsActive, cancellationToken);
+        if (definition is null) return null;
+        var normalizedKey = key.Trim().ToLowerInvariant();
+        var row = await _db.DatasetRows.AsNoTracking().FirstOrDefaultAsync(
+            x => x.DatasetId == datasetId && x.OrganizationId == organizationId && x.ExternalKey.ToLower() == normalizedKey, cancellationToken);
+        return row is null ? null : MapOptionDto(row, definition);
+    }
+
     public async Task<DatasetIngestCredentialCreatedDto> CreateCredentialAsync(string datasetId, CreateDatasetIngestCredentialDto dto, CancellationToken cancellationToken = default)
     {
         var dataset = await _db.DatasetDefinitions.FirstOrDefaultAsync(x => x.Id == datasetId, cancellationToken)
@@ -1158,8 +1171,7 @@ public sealed class SelfServiceDatasetBindingResolver(
                 continue;
             }
 
-            var options = await _dataManagementService.GetOptionsAsync(binding.DatasetId, organizationId, selectedKey, 1, 25, cancellationToken);
-            var match = options.Items.FirstOrDefault(x => string.Equals(x.Key, selectedKey, StringComparison.OrdinalIgnoreCase));
+            var match = await _dataManagementService.GetOptionByKeyAsync(binding.DatasetId, organizationId, selectedKey, cancellationToken);
             if (match is null)
             {
                 if (binding.AllowFreeText)

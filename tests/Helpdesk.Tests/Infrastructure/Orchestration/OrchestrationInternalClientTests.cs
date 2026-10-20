@@ -12,6 +12,29 @@ namespace Helpdesk.Tests.Infrastructure.Orchestration;
 
 public sealed class OrchestrationInternalClientTests
 {
+    [Theory]
+    [InlineData("{\"issuer\":\"netratel\",\"audience\":\"orchestration\",\"client_id\":\"managed\",\"tenant_id\":\"tenant-a\"}", true)]
+    [InlineData("{\"claims\":{\"sub\":[\"legacy\"]}}", true)]
+    [InlineData("{\"issuer\":\"netratel\",\"audience\":\"orchestration\",\"client_id\":\"managed\",\"tenant_id\":null}", true)]
+    [InlineData("{\"issuer\":\"netratel\",\"audience\":\"orchestration\",\"client_id\":\"managed\"}", false)]
+    [InlineData("{\"issuer\":\"netratel\",\"audience\":\"orchestration\",\"client_id\":\"\",\"tenant_id\":\"tenant-a\"}", false)]
+    [InlineData("{\"claims\":[]}", false)]
+    [InlineData("{}", false)]
+    [InlineData("<html>login</html>", false)]
+    public async Task Identity_accepts_managed_and_legacy_contracts_and_rejects_malformed_success(string body, bool expected)
+    {
+        var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
+        var factory = Substitute.For<IHttpClientFactory>();
+        factory.CreateClient(PairingTransport.ClientName).Returns(new HttpClient(handler));
+        var tokens = Substitute.For<IOrchestrationTokenService>();
+        tokens.GetAccessTokenAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<CancellationToken>()).Returns("synthetic-token");
+        var result = await new OrchestrationInternalClient(factory, tokens, NullLogger<OrchestrationInternalClient>.Instance).IdentityAsync(Settings());
+        Assert.Equal(expected, result.Success);
+        Beta9Evidence.Record("B8-ORCHESTRATION-MANAGED-IDENTITY-CONTRACT",
+            Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(body))).ToLowerInvariant(),
+            new { syntheticProviderBody = body, expectedSuccess = expected, actualSuccess = result.Success });
+    }
+
     [Fact]
     public async Task Successful_empty_response_is_not_invented_as_a_submission()
     {

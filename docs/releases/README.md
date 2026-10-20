@@ -1,5 +1,13 @@
 # Releases
 
+## 0.1.2-beta.9 candidate — campaign finding repairs
+
+[Candidate notes](../release-notes/0.1.2-beta.9.md) and the
+[finding-to-regression map](../implementation/0.1.2-beta.9-mcp-regressions.md)
+separate source verification from fresh deployed acceptance. Beta.8 evidence is
+immutable; sixteen live operations remain unproven. Publication follows the
+normal reviewed merge and protected release workflow.
+
 RatelDesk has one repository-owned release line. The root `Directory.Build.props` is the source of truth for `VersionPrefix` and `VersionSuffix`. Applications and release outputs inherit those values. Prereleases remain immutable.
 
 ## 0.1.2-beta.8 — delegated owner operations

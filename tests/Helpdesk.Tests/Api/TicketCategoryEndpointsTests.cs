@@ -30,6 +30,35 @@ public sealed class TicketCategoryEndpointsTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task Compact_organization_ID_supports_scoped_category_CRUD(bool postgres)
+    {
+        await using var h = await Harness.Create(postgres);
+        var organizationId = Guid.NewGuid();
+        await h.WithDb(async db => { db.Organizations.Add(new Organization { Id = organizationId.ToString("N"), Name = "Compact organization" }); await db.SaveChangesAsync(); });
+        var create = await h.Client.PostAsJsonAsync("/api/v1/categories", new CreateTicketCategoryDto { Name = "Scoped", Type = TicketCategoryType.Request, TenantId = organizationId });
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        var category = (await create.Content.ReadFromJsonAsync<TicketCategoryDto>())!;
+        Assert.Equal(organizationId, category.TenantId);
+        var update = await h.Client.PutAsJsonAsync($"/api/v1/categories/{category.Id}", new UpdateTicketCategoryDto { Name = "Updated", Type = TicketCategoryType.Request, IsActive = true });
+        update.EnsureSuccessStatusCode();
+        var scoped = await h.Client.GetFromJsonAsync<List<TicketCategoryDto>>($"/api/v1/categories?tenantId={organizationId}");
+        Assert.Equal("Updated", Assert.Single(scoped!).Name);
+        Assert.Equal(HttpStatusCode.Forbidden, await DeniedAsync());
+        h.Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "admin");
+        (await h.Client.DeleteAsync($"/api/v1/categories/{category.Id}")).EnsureSuccessStatusCode();
+        Beta9Evidence.Record("API-B8-CATEGORY-TENANT-ID-FORMAT", $"http-{postgres}",
+            new { storedOrganizationFormat = "N", typedTenantFormat = "D", createStatus = (int)create.StatusCode,
+                roundTripTenantMatches = category.TenantId == organizationId, checkedOperations = new[] { "create", "update", "list", "delete" }, foreignScopeStatus = 403 });
+        async Task<HttpStatusCode> DeniedAsync()
+        {
+            h.Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "reader");
+            return (await h.Client.GetAsync($"/api/v1/categories?tenantId={organizationId}")).StatusCode;
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task Search_is_bounded_and_hydration_preserves_inactive_scoped_ids(bool postgres)
     {
         await using var h = await Harness.Create(postgres);

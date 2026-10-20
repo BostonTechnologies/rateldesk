@@ -8,6 +8,21 @@ namespace Helpdesk.Tests.Mcp;
 public sealed class AgentClientHttpTests
 {
     [Fact]
+    public async Task Prometheus_workflow_metrics_have_an_explicit_typed_text_adapter_only_for_that_route()
+    {
+        var client = new HelpdeskAgentClient(new AgentClientConfiguration("https://api.example", "https://auth.example/token", "client", "agent", "secret", "scope", null),
+            () => new TestHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("# TYPE helpdesk_tasks_in_progress gauge\nhelpdesk_tasks_in_progress 2\n", Encoding.UTF8, "text/plain")
+            }));
+        var metrics = await client.GetAsync("/api/v1/metrics/workflows", authenticated: false);
+        Assert.Equal("prometheus", metrics!["format"]!.GetValue<string>());
+        Assert.Contains("helpdesk_tasks_in_progress 2", metrics["text"]!.GetValue<string>());
+        var invalid = await Assert.ThrowsAsync<AgentClientRemoteException>(() => client.GetAsync("/api/v1/system/version", authenticated: false));
+        Assert.Equal("api_response_invalid", invalid.Code);
+    }
+
+    [Fact]
     public async Task Health_uses_one_deadline_and_preserves_completed_checks()
     {
         var client = new HelpdeskAgentClient(

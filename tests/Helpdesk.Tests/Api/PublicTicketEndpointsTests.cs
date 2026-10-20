@@ -3,6 +3,8 @@ using System.Net.Http.Json;
 using Helpdesk.API.Endpoints.Tickets;
 using Helpdesk.Application.Tickets;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Security;
+using Helpdesk.Infrastructure.Storage;
 using Helpdesk.Shared.DTOs;
 using Helpdesk.Shared.DTOs.Worklog;
 using Helpdesk.Shared.Enums;
@@ -14,11 +16,50 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace Helpdesk.Tests.Api;
 
 public sealed class PublicTicketEndpointsTests
 {
+    [Theory]
+    [InlineData("request", false)]
+    [InlineData("request", true)]
+    [InlineData("incident", false)]
+    [InlineData("change", false)]
+    public async Task Signed_View_And_Timeline_Exclude_Internal_Notes(string kind, bool internalOnly)
+    {
+        var signer = new PublicTicketLinkSigner(Options.Create(new StorageOptions
+        {
+            ImageSigningSecret = "synthetic-public-ticket-regression-signing-key"
+        }), NullLogger<PublicTicketLinkSigner>.Instance);
+        await using var harness = await PublicTicketTestHarness.CreateAsync(signer);
+        Ticket ticket = kind switch { "request" => new Request(), "change" => new Change(), _ => new Incident() };
+        ticket.Id = "signed-ticket";
+        ticket.TrackingId = "SIGNED-REGRESSION";
+        await harness.SeedTicketAsync(ticket);
+        await harness.SeedWorkLogsAsync(internalOnly);
+        const string email = "customer@example.com";
+        var token = signer.GenerateToken(ticket.TrackingId, email, DateTimeOffset.UtcNow.AddMinutes(5));
+        var query = $"?trackingId={ticket.TrackingId}&email={Uri.EscapeDataString(email)}&token={token}";
+
+        var view = await harness.Client.GetFromJsonAsync<PublicTicketViewDto>("/api/v1/tickets/public/view" + query);
+        Assert.Equal(internalOnly ? null : "Public update", view!.LastPublicNote);
+        var timeline = await harness.Client.GetFromJsonAsync<List<TicketTimelineEventDto>>("/api/v1/tickets/public/timeline" + query);
+        Assert.DoesNotContain(timeline!, x => x.MessageText == "Private diagnostic");
+        Assert.Equal(internalOnly ? 0 : 1, timeline!.Count);
+        foreach (var endpoint in new[] { "view", "timeline" })
+        {
+            var wrongRecipient = await harness.Client.GetAsync($"/api/v1/tickets/public/{endpoint}" + query.Replace("customer%40", "other%40"));
+            Assert.Equal(HttpStatusCode.Unauthorized, wrongRecipient.StatusCode);
+            var alteredSignature = await harness.Client.GetAsync($"/api/v1/tickets/public/{endpoint}" + query + "tampered");
+            Assert.Equal(HttpStatusCode.Unauthorized, alteredSignature.StatusCode);
+        }
+        Beta9Evidence.Record("B8-PUBLIC-VIEW-INTERNAL-NOTE-DISCLOSURE", $"{kind}-{internalOnly}",
+            new { view.LastPublicNote, publicTimeline = timeline.Select(x => x.MessageText), wrongRecipientStatus = 401, alteredSignatureStatus = 401 });
+    }
+
     [Fact]
     public async Task View_Returns_Incident_For_Valid_Signed_Tracking_Link()
     {
@@ -127,7 +168,7 @@ public sealed class PublicTicketEndpointsTests
 
         public HttpClient Client { get; }
 
-        public static async Task<PublicTicketTestHarness> CreateAsync()
+        public static async Task<PublicTicketTestHarness> CreateAsync(IPublicTicketLinkSigner? signer = null)
         {
             var connection = new SqliteConnection("Data Source=:memory:");
             await connection.OpenAsync();
@@ -140,7 +181,7 @@ public sealed class PublicTicketEndpointsTests
             builder.Services.AddHttpContextAccessor();
             builder.Services.AddDbContext<HelpdeskDbContext>(options => options.UseSqlite(connection, sqlite => sqlite.MigrationsAssembly("Helpdesk.Infrastructure.SqliteMigrations")));
             builder.Services.AddScoped<ITenantContext>(_ => new TestTenantContext("org-1", "admin-1", isHelpdeskAdmin: true));
-            builder.Services.AddSingleton<IPublicTicketLinkSigner, TestPublicTicketLinkSigner>();
+            builder.Services.AddSingleton<IPublicTicketLinkSigner>(signer ?? new TestPublicTicketLinkSigner());
 
             var app = builder.Build();
             app.MapPublicTicketEndpoints();
@@ -168,6 +209,15 @@ public sealed class PublicTicketEndpointsTests
             using var scope = app.Services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
             db.TicketTimelineEvents.AddRange(events);
+            await db.SaveChangesAsync();
+        }
+
+        public async Task SeedWorkLogsAsync(bool internalOnly)
+        {
+            using var scope = app.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            if (!internalOnly) db.WorkLogs.Add(new WorkLog { Id = "public-note", TicketId = "signed-ticket", NotesText = "Public update", LoggedAt = DateTime.UtcNow.AddMinutes(-1) });
+            db.WorkLogs.Add(new WorkLog { Id = "internal-note", TicketId = "signed-ticket", NotesText = "Private diagnostic", IsInternalNote = true, LoggedAt = DateTime.UtcNow });
             await db.SaveChangesAsync();
         }
 

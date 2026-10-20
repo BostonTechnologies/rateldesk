@@ -109,6 +109,9 @@ public sealed partial class HelpdeskAgentClient : IHelpdeskAgentClient, IHelpdes
                 throw new AgentClientRemoteException("api_request_failed", $"Helpdesk API request failed with HTTP {(int)response.StatusCode}.", (int)response.StatusCode, null)
                 { CorrelationId = correlationId };
 
+            if (method == HttpMethod.Get && path == "/api/v1/metrics/workflows" &&
+                response.Content.Headers.ContentType?.MediaType == "text/plain")
+                return new JsonObject { ["format"] = "prometheus", ["text"] = text };
             return string.IsNullOrWhiteSpace(text) ? null : JsonNode.Parse(text);
         }
         catch (AgentClientRemoteException exception) when (exception.CorrelationId is null && correlationId is not null)

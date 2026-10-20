@@ -13,6 +13,7 @@ public interface IDataManagementService
     Task<bool> DeleteDatasetAsync(string datasetId, CancellationToken cancellationToken = default);
     Task<PagedResult<DatasetRowDto>> GetRowsAsync(string datasetId, string? query, int page, int pageSize, CancellationToken cancellationToken = default);
     Task<PagedResult<DatasetOptionDto>> GetOptionsAsync(string datasetId, string organizationId, string? query, int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<DatasetOptionDto?> GetOptionByKeyAsync(string datasetId, string organizationId, string key, CancellationToken cancellationToken = default);
     Task<DatasetIngestCredentialCreatedDto> CreateCredentialAsync(string datasetId, CreateDatasetIngestCredentialDto dto, CancellationToken cancellationToken = default);
     Task<bool> RevokeCredentialAsync(string datasetId, string credentialId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<DatasetIngestCredentialDto>> ListCredentialsAsync(string datasetId, CancellationToken cancellationToken = default);

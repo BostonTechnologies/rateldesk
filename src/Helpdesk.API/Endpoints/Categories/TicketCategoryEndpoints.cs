@@ -48,12 +48,11 @@ public static class TicketCategoryEndpoints
         if (tenantId.HasValue && !tenant.IsHelpdeskAdmin && tenantId != currentTenantId)
         {
             var access = CurrentUserAccessProfile.FromClaims(user);
-            var organization = tenantId.Value.ToString();
             var permitted = access.OrganizationIdsForAny(
                 HelpdeskPermissions.IncidentRead, HelpdeskPermissions.IncidentWrite, HelpdeskPermissions.IncidentManager, HelpdeskPermissions.IncidentUser,
                 HelpdeskPermissions.RequestRead, HelpdeskPermissions.RequestWrite, HelpdeskPermissions.RequestManager, HelpdeskPermissions.RequestUser,
                 HelpdeskPermissions.ChangeRead, HelpdeskPermissions.ChangeWrite, HelpdeskPermissions.ChangeManager, HelpdeskPermissions.ChangeUser);
-            if (!permitted.Contains(organization)) return Results.Forbid();
+            if (!permitted.Any(id => ParseTenantId(id) == tenantId)) return Results.Forbid();
         }
         tenantId ??= currentTenantId;
         var selectedIds = new List<Guid>();
@@ -144,7 +143,9 @@ public static class TicketCategoryEndpoints
         }
         else
         {
-            var exists = await db.Organizations.AnyAsync(x => x.Id == dto.TenantId!.Value.ToString());
+            var dashedId = dto.TenantId!.Value.ToString("D");
+            var compactId = dto.TenantId.Value.ToString("N");
+            var exists = await db.Organizations.AnyAsync(x => x.Id == dashedId || x.Id == compactId, cancellationToken);
             if (!exists)
             {
                 return Results.BadRequest("Tenant does not exist.");

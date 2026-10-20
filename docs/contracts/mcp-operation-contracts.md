@@ -14,6 +14,11 @@ identifies semantic changes separately from runtime acceptance evidence.
 
 ## Requests, previews and effects
 
+Beta.9 enforces the complete operation-specific argument envelope before SDK
+binding in both transports. Unknown outer properties and duplicate JSON fields
+are rejected before backend I/O; a no-request operation does not accept a
+`request` property. The advertised closed schemas remain authoritative.
+
 Keep the `operation`, `request`, `confirm` envelope. Required fields belong inside
 `request`; field names, enum values and nested extension objects come from the
 operation's schema. For a confirmation-controlled operation, omitted or false
@@ -49,6 +54,12 @@ Local non-secret configuration writes also depend on the transport's persisted
 configuration surface.
 
 ## Typed operator adapters
+
+`helpdesk_automation.workflow_metrics` returns structured data with
+`format: "prometheus"` and `text` containing the API's Prometheus metrics. It
+preserves the API's Request.Read/Request.Write/Request.Manager organization scope;
+it does not require instance-administrator authority. Other API reads retain
+their JSON contracts.
 
 Beta.8 adds named adapters to canonical application endpoints. Discovery binds
 each operation to one method, route and typed request; agents cannot provide an
