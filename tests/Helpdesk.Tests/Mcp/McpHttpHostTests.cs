@@ -364,7 +364,7 @@ public sealed partial class McpHttpHostTests
                 using var independent = await direct.GetAsync("/api/v1/ops/ai-agent/logs?contains=" + Uri.EscapeDataString(marker) + "&correlationId=" + traceId);
                 independent.EnsureSuccessStatusCode();
                 using var apiLogs = JsonDocument.Parse(await independent.Content.ReadAsStringAsync());
-                Assert.Equal(data.GetProperty("items").GetRawText(), apiLogs.RootElement.GetProperty("items").GetRawText());
+                Assert.True(JsonElement.DeepEquals(data.GetProperty("items"), apiLogs.RootElement.GetProperty("items")));
                 Beta9Evidence.Record("B8-OPS-LOG-OBSERVABILITY-GAP", "http-mcp-and-api",
                     new { mcpItems = data.GetProperty("items").Clone(), independentApiItems = apiLogs.RootElement.GetProperty("items").Clone() });
             }
