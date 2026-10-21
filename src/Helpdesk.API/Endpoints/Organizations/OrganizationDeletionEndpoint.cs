@@ -26,6 +26,9 @@ public static class OrganizationDeletionEndpoint
                     await db.InboundEmailProcessingLogs.AnyAsync(x => x.MailboxId == mailbox.Id, ct) ||
                     await db.InboundEmailRules.AnyAsync(x => x.MailboxId == mailbox.Id, ct))
                     return Conflict("mailbox_retained_activity", mailbox.Id);
+                if (await db.Set<MailboxOutboxEffect>().AnyAsync(x =>
+                    x.DispatchGroup == $"mailbox:{mailbox.Id:N}", ct))
+                    return Conflict("mailbox_retained_delivery", mailbox.Id);
 
                 var lease = await db.Set<MailboxLease>().SingleOrDefaultAsync(x => x.MailboxId == mailbox.Id, ct);
                 if (lease is not null)
@@ -40,7 +43,7 @@ public static class OrganizationDeletionEndpoint
                 {
                     if (ingestion.Initialized || ingestion.Cursor is not null || ingestion.CurrentStage != "Never" ||
                         ingestion.LastAttemptUnixMilliseconds is not null ||
-                        ingestion.LastTestUnixMilliseconds is not null || ingestion.LastSyncUnixMilliseconds is not null ||
+                        ingestion.LastSyncUnixMilliseconds is not null ||
                         ingestion.BaselineCompletedUnixMilliseconds is not null || ingestion.SyncRequestedVersion != 0 ||
                         ingestion.SyncCompletedVersion != 0 || ingestion.NextRetryUnixMilliseconds is not null ||
                         ingestion.LastSyncCommandUnixMilliseconds is not null || ingestion.ErrorCode is not null ||
@@ -51,7 +54,7 @@ public static class OrganizationDeletionEndpoint
 
                 var outgoing = await db.Set<MailboxOutgoingSettings>().SingleOrDefaultAsync(x => x.MailboxId == mailbox.Id, ct);
                 if (outgoing is not null)
-                    return Conflict("mailbox_retained_outgoing_state", mailbox.Id);
+                    db.Remove(outgoing);
                 db.EmailInboxSettings.Remove(mailbox);
             }
 
