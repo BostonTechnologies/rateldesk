@@ -1923,6 +1923,15 @@ public sealed partial class McpHttpHostTests
             return JsonDocument.Parse(line!);
         }
 
+        public async Task<JsonDocument> CallRawAsync(string raw)
+        {
+            await _process.StandardInput.WriteLineAsync(raw);
+            await _process.StandardInput.FlushAsync();
+            var line = await _process.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.False(string.IsNullOrWhiteSpace(line), "The stdio MCP host did not respond to the raw request.");
+            return JsonDocument.Parse(line!);
+        }
+
         public async Task NotifyAsync(string method, object parameters)
         {
             await _process.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new { jsonrpc = "2.0", method, @params = parameters }));
