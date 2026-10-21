@@ -41,7 +41,7 @@ public static class Program
 
             builder.Services.AddHelpdeskMcpCore(configuration, configurationSurface, target, "stdio");
             builder.Services.AddMcpServer()
-                .WithStdioServerTransport()
+                .WithStreamServerTransport(new McpDuplicateArgumentsStream(Console.OpenStandardInput()), Console.OpenStandardOutput())
                 .WithTools(HelpdeskToolDefinitions.Create())
                 .WithResourcesFromAssembly(typeof(HelpdeskResources).Assembly)
                 .WithPromptsFromAssembly(typeof(HelpdeskPrompts).Assembly);

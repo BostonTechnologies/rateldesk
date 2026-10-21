@@ -222,6 +222,30 @@ public sealed partial class Program
         app.UseRateLimiter();
         app.UseAuthentication();
         app.UseAuthorization();
+        app.Use(async (context, next) =>
+        {
+            // The SDK binds params.arguments before tool validation. Preserve its
+            // structured duplicate-field error for this malformed raw wire shape.
+            // Inspect only bounded, authenticated JSON MCP posts in memory.
+            if (context.Request.Path == "/mcp" &&
+                HttpMethods.IsPost(context.Request.Method) &&
+                context.Request.ContentType?.StartsWith("application/json", StringComparison.OrdinalIgnoreCase) == true &&
+                context.Request.ContentLength is > 0 and <= 1_048_576)
+            {
+                context.Request.EnableBuffering(bufferThreshold: 1_048_576, bufferLimit: 1_048_576);
+                var raw = new byte[(int)context.Request.ContentLength.Value];
+                await context.Request.Body.ReadExactlyAsync(raw, context.RequestAborted);
+                context.Request.Body.Position = 0;
+                if (McpDuplicateArgumentsGuard.TryNormalize(raw, out var normalized))
+                {
+                    var body = new MemoryStream(normalized, writable: false);
+                    context.Response.RegisterForDispose(body);
+                    context.Request.Body = body;
+                    context.Request.ContentLength = normalized.Length;
+                }
+            }
+            await next(context);
+        });
         app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions { Predicate = check => check.Tags.Contains("live") });
         app.MapHealthChecks("/health/ready");
         if (protectedResourceMetadata is not null)
