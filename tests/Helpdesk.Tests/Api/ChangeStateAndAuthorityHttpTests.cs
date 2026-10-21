@@ -155,8 +155,16 @@ public sealed class ChangeStateAndAuthorityHttpTests
                 new NotificationEntity { Id = foreignId, IsGlobal = true, TenantId = "foreign-org", Reference = "foreign-ticket", Title = "Foreign", CreatedUtc = DateTime.UtcNow });
             return Task.CompletedTask;
         });
+        using var beforeSeen = await BoundedAsync(h, HttpMethod.Get, "/api/v1/incidents/seen-ticket");
+        Assert.Equal(HttpStatusCode.OK, beforeSeen.StatusCode);
+        using (var beforeJson = JsonDocument.Parse(await beforeSeen.Content.ReadAsStringAsync()))
+            Assert.Equal(JsonValueKind.Null, beforeJson.RootElement.GetProperty("lastViewedByCustomerAt").ValueKind);
         using var seen = await BoundedAsync(h, HttpMethod.Post, "/api/v1/tickets/seen-ticket/mark-as-seen");
         Assert.Equal(HttpStatusCode.NoContent, seen.StatusCode);
+        using var afterSeen = await BoundedAsync(h, HttpMethod.Get, "/api/v1/incidents/seen-ticket");
+        Assert.Equal(HttpStatusCode.OK, afterSeen.StatusCode);
+        using (var afterJson = JsonDocument.Parse(await afterSeen.Content.ReadAsStringAsync()))
+            Assert.NotEqual(JsonValueKind.Null, afterJson.RootElement.GetProperty("lastViewedByCustomerAt").ValueKind);
         await h.EditAsync(async db =>
         {
             Assert.NotNull((await db.Incidents.AsNoTracking().SingleAsync(x => x.Id == "seen-ticket")).LastViewedByCustomerAt);

@@ -19,6 +19,8 @@ public class IncidentDto
     // Date of the last reply or status change
     public DateTime? UpdatedAt { get; set; }
 
+    public DateTime? LastViewedByCustomerAt { get; set; }
+
     // The name of the customer's organization
     public string? CustomerOrgName { get; set; }
 
