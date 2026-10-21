@@ -105,6 +105,39 @@ public sealed class NotificationSummaryHttpTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task Owner_summary_counts_visible_unread_personal_notice_for_another_user(bool postgres)
+    {
+        await using var fixture = await NotificationSummaryFixture.CreateAsync(postgres);
+        var otherPersonalId = await fixture.AddOtherPersonalNoticeAsync();
+
+        var ownerRows = await fixture.ReadEntirePopulationAsync(admin: true);
+        Assert.Equal(13, ownerRows.Count);
+        Assert.False(Assert.Single(ownerRows, row => row.Id == otherPersonalId).IsRead);
+        using var ownerSummaryResponse = await fixture.AdminGetAsync("/api/v1/notifications/summary");
+        ownerSummaryResponse.EnsureSuccessStatusCode();
+        var ownerSummary = await ownerSummaryResponse.Content.ReadFromJsonAsync<NotificationSummaryDto>();
+        Assert.Equal(13, ownerSummary!.TotalCount);
+        Assert.Equal(11, ownerSummary.UnreadCount);
+        Assert.Equal(9, ownerSummary.UnreadErrorCount);
+        using var ownerErrorsResponse = await fixture.AdminGetAsync("/api/v1/notifications/unread-errors");
+        ownerErrorsResponse.EnsureSuccessStatusCode();
+        var ownerErrors = await ownerErrorsResponse.Content.ReadFromJsonAsync<List<NotificationDto>>();
+        Assert.Contains(ownerErrors!, row => row.Id == otherPersonalId);
+
+        var recipientRows = await fixture.ReadEntirePopulationAsync(fixture.OtherToken);
+        Assert.Equal(6, recipientRows.Count);
+        Assert.False(Assert.Single(recipientRows, row => row.Id == otherPersonalId).IsRead);
+        using var recipientSummaryResponse = await fixture.GetAsync("/api/v1/notifications/summary", fixture.OtherToken);
+        recipientSummaryResponse.EnsureSuccessStatusCode();
+        var recipientSummary = await recipientSummaryResponse.Content.ReadFromJsonAsync<NotificationSummaryDto>();
+        Assert.Equal(6, recipientSummary!.TotalCount);
+        Assert.Equal(5, recipientSummary.UnreadCount);
+        Assert.Equal(3, recipientSummary.UnreadErrorCount);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task Cli_general_summary_executes_authenticated_API_and_preserves_error_query(bool postgres)
     {
         await using var fixture = await NotificationSummaryFixture.CreateAsync(postgres);
@@ -209,6 +242,22 @@ internal sealed class NotificationSummaryFixture : IAsyncDisposable
         return fixture;
     }
 
+    public async Task<Guid> AddOtherPersonalNoticeAsync()
+    {
+        var id = Guid.NewGuid();
+        await harness.EditAsync(db =>
+        {
+            db.Notifications.Add(new NotificationEntity
+            {
+                Id = id, Title = "Other recipient notice", Message = "Synthetic notification",
+                CreatedUtc = DateTime.UtcNow, UserId = "notification-other", IsGlobal = false,
+                TenantId = harness.OrganizationId, Severity = NotificationSeverity.Error
+            });
+            return Task.CompletedTask;
+        });
+        return id;
+    }
+
     public HttpMessageHandler CreateHandler() => new ApiHandler(this);
 
     public async Task<WebApplication> StartApiBridgeAsync()
@@ -250,12 +299,15 @@ internal sealed class NotificationSummaryFixture : IAsyncDisposable
         return await harness.Client.SendAsync(request);
     }
 
-    public async Task<IReadOnlyList<NotificationDto>> ReadEntirePopulationAsync(string? token = null)
+    public Task<HttpResponseMessage> AdminGetAsync(string path) => harness.AdminAsync(HttpMethod.Get, path);
+
+    public async Task<IReadOnlyList<NotificationDto>> ReadEntirePopulationAsync(string? token = null, bool admin = false)
     {
         var rows = new List<NotificationDto>();
         for (var page = 1; ; page++)
         {
-            using var response = await GetAsync($"/api/v1/notifications?page={page}&pageSize=2", token);
+            var path = $"/api/v1/notifications?page={page}&pageSize=2";
+            using var response = admin ? await AdminGetAsync(path) : await GetAsync(path, token);
             response.EnsureSuccessStatusCode();
             var result = (await response.Content.ReadFromJsonAsync<PagedResponse<NotificationDto>>())!;
             rows.AddRange(result.Items);
