@@ -84,6 +84,26 @@ public sealed class OrganizationMailboxDeletionTests
     }
 
     [Fact]
+    public async Task Legacy_delivery_payload_keeps_archived_mailbox_and_organization()
+    {
+        await using var connection = await OpenAsync();
+        await using var db = CreateContext(connection);
+        await db.Database.EnsureCreatedAsync();
+        var (organization, mailbox) = await SeedAsync(db);
+        db.Set<MailboxOutboxEffect>().Add(new MailboxOutboxEffect { EffectKey = "legacy-delivery",
+            DispatchGroup = "legacy:synthetic", Kind = MailboxEffectKind.Email,
+            State = MailboxEffectState.Completed, Payload = $"{{\"MailboxId\":\"{mailbox.Id:D}\"}}" });
+        await db.SaveChangesAsync();
+
+        var result = await OrganizationDeletionEndpoint.DeleteAsync(organization.Id,
+            new EfRepository<Organization>(db), db, default);
+
+        Assert.Equal(StatusCodes.Status409Conflict, ((IStatusCodeHttpResult)result).StatusCode);
+        Assert.True(await db.Organizations.AnyAsync(x => x.Id == organization.Id));
+        Assert.True(await db.EmailInboxSettings.AnyAsync(x => x.Id == mailbox.Id));
+    }
+
+    [Fact]
     public async Task Retained_receipt_returns_conflict_without_partial_delete()
     {
         await using var connection = await OpenAsync();

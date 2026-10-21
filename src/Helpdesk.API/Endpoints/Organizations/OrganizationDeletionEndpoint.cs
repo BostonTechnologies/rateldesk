@@ -26,8 +26,11 @@ public static class OrganizationDeletionEndpoint
                     await db.InboundEmailProcessingLogs.AnyAsync(x => x.MailboxId == mailbox.Id, ct) ||
                     await db.InboundEmailRules.AnyAsync(x => x.MailboxId == mailbox.Id, ct))
                     return Conflict("mailbox_retained_activity", mailbox.Id);
+                var mailboxId = mailbox.Id.ToString("D");
+                var dispatchGroup = $"mailbox:{mailbox.Id:N}";
                 if (await db.Set<MailboxOutboxEffect>().AnyAsync(x =>
-                    x.DispatchGroup == $"mailbox:{mailbox.Id:N}", ct))
+                    x.Kind == MailboxEffectKind.Email &&
+                    (x.DispatchGroup == dispatchGroup || x.Payload.Contains(mailboxId)), ct))
                     return Conflict("mailbox_retained_delivery", mailbox.Id);
 
                 var lease = await db.Set<MailboxLease>().SingleOrDefaultAsync(x => x.MailboxId == mailbox.Id, ct);
