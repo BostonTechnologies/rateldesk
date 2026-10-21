@@ -96,6 +96,33 @@ public sealed partial class McpHttpHostTests
     }
 
     [Fact]
+    public async Task Duplicate_params_arguments_rejects_after_gateway_authentication_without_execution_IO()
+    {
+        using var environment = new McpHostEnvironment(gateway: true);
+        var delegation = new GatewayDelegationProbe();
+        var outbound = new AgentClientBoundaryProbe();
+        using var factory = CreateFactory(environment.SigningKey, boundaryProbe: outbound, delegationProbe: delegation);
+        using var http = CreateClient(factory);
+        const string raw = "{\"jsonrpc\":\"2.0\",\"id\":43,\"method\":\"tools/call\",\"params\":{\"name\":\"helpdesk_notifications\",\"arguments\":{\"operation\":\"summary\"},\"arguments\":{\"operation\":\"mark_read\",\"confirm\":true}}}";
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/mcp")
+        {
+            Content = new StringContent(raw, System.Text.Encoding.UTF8, "application/json")
+        };
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "rdk_local-a");
+        request.Headers.Accept.ParseAdd("application/json, text/event-stream");
+
+        using var response = await http.SendAsync(request);
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        using var result = ParseMcpResponse(await response.Content.ReadAsStringAsync());
+        var content = result.RootElement.GetProperty("result").GetProperty("structuredContent");
+        Assert.Equal(43, result.RootElement.GetProperty("id").GetInt32());
+        Assert.Equal("validation_failed", content.GetProperty("status").GetString());
+        Assert.Equal(1, delegation.Requests);
+        Assert.Equal(0, outbound.ApiRequests);
+        Assert.Equal(0, outbound.TokenRequests);
+    }
+
+    [Fact]
     public async Task Beta9_HTTP_MCP_reads_prometheus_metrics_as_structured_text()
     {
         using var environment = new McpHostEnvironment();
