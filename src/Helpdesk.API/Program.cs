@@ -1461,10 +1461,15 @@ static void MapCrudEndpoints<T>(WebApplication app, string route) where T : clas
             ? Results.Ok(updated)
             : Results.Problem("Resource not found", statusCode: 404);
     });
-    group.MapDelete("/{id}", async ([FromRoute] string id, [FromServices] SharedServices.IRepository<T> repo) =>
-        await repo.DeleteAsync(id)
-            ? Results.NoContent()
-            : Results.Problem("Resource not found", statusCode: 404));
+    if (typeof(T) == typeof(Organization))
+        group.MapDelete("/{id}", async ([FromRoute] string id, [FromServices] SharedServices.IRepository<Organization> repo,
+            [FromServices] HelpdeskDbContext db, CancellationToken ct) =>
+            await OrganizationDeletionEndpoint.DeleteAsync(id, repo, db, ct));
+    else
+        group.MapDelete("/{id}", async ([FromRoute] string id, [FromServices] SharedServices.IRepository<T> repo) =>
+            await repo.DeleteAsync(id)
+                ? Results.NoContent()
+                : Results.Problem("Resource not found", statusCode: 404));
 }
 
 static async Task SeedAdminUserAsync(WebApplication app)

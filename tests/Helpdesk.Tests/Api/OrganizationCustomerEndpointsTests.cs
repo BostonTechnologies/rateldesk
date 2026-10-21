@@ -109,6 +109,21 @@ public class OrganizationCustomerEndpointsTests : IClassFixture<WebApplicationFa
     }
 
     [Fact]
+    public async Task Organization_Delete_uses_the_specialized_route()
+    {
+        var client = await GetAuthenticatedClientAsync();
+        using var createdResponse = await client.PostAsJsonAsync("/api/v1/organizations", new Organization { Name = "Delete fixture" });
+        createdResponse.EnsureSuccessStatusCode();
+        var created = await createdResponse.Content.ReadFromJsonAsync<Organization>();
+        Assert.NotNull(created);
+
+        using var deleted = await client.DeleteAsync($"/api/v1/organizations/{created.Id}");
+        Assert.Equal(System.Net.HttpStatusCode.NoContent, deleted.StatusCode);
+        using var readback = await client.GetAsync($"/api/v1/organizations/{created.Id}");
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, readback.StatusCode);
+    }
+
+    [Fact]
     public async Task Customer_CreateEdit_PersistsIsEnabled()
     {
         var client = await GetAuthenticatedClientAsync();
