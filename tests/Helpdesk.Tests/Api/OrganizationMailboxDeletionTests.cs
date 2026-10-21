@@ -33,6 +33,57 @@ public sealed class OrganizationMailboxDeletionTests
     }
 
     [Fact]
+    public async Task Archived_tested_mailboxes_and_outgoing_configuration_are_disposed_together()
+    {
+        await using var connection = await OpenAsync();
+        await using var db = CreateContext(connection);
+        await db.Database.EnsureCreatedAsync();
+        var (organization, first) = await SeedAsync(db);
+        var second = new EmailInboxSettings { Id = Guid.NewGuid(), Scope = MailboxScope.Organization,
+            OrganizationId = organization.Id, Archived = true, Enabled = false,
+            BackgroundSyncEnabled = false, MailboxAddress = "second@example.invalid" };
+        db.EmailInboxSettings.Add(second);
+        db.Set<MailboxLease>().Add(new MailboxLease { MailboxId = second.Id });
+        db.Set<MailboxIngestionState>().Add(new MailboxIngestionState { MailboxId = second.Id,
+            SourceKey = "test-second", LastTestUnixMilliseconds = 1234, TestedVersion = 1 });
+        db.Set<MailboxOutgoingSettings>().Add(new MailboxOutgoingSettings { MailboxId = first.Id,
+            Enabled = false, SmtpHost = "smtp.example.invalid", SmtpUsername = "synthetic",
+            LastTestUnixMilliseconds = 5678, TestedVersion = 1, LastTestCode = "Authenticated" });
+        await db.SaveChangesAsync();
+
+        var result = await OrganizationDeletionEndpoint.DeleteAsync(organization.Id,
+            new EfRepository<Organization>(db), db, default);
+
+        Assert.Equal(StatusCodes.Status204NoContent, ((IStatusCodeHttpResult)result).StatusCode);
+        Assert.False(await db.Organizations.AnyAsync(x => x.Id == organization.Id));
+        Assert.False(await db.EmailInboxSettings.AnyAsync(x => x.OrganizationId == organization.Id));
+        Assert.False(await db.Set<MailboxOutgoingSettings>().AnyAsync(x => x.MailboxId == first.Id));
+        Assert.False(await db.Set<MailboxIngestionState>().AnyAsync(x =>
+            x.MailboxId == first.Id || x.MailboxId == second.Id));
+    }
+
+    [Fact]
+    public async Task Retained_outbox_delivery_returns_conflict_without_disposing_configuration()
+    {
+        await using var connection = await OpenAsync();
+        await using var db = CreateContext(connection);
+        await db.Database.EnsureCreatedAsync();
+        var (organization, mailbox) = await SeedAsync(db);
+        db.Set<MailboxOutboxEffect>().Add(new MailboxOutboxEffect { EffectKey = "synthetic-delivery",
+            DispatchGroup = $"mailbox:{mailbox.Id:N}", Kind = MailboxEffectKind.Email,
+            State = MailboxEffectState.Completed, Payload = "{}" });
+        await db.SaveChangesAsync();
+
+        var result = await OrganizationDeletionEndpoint.DeleteAsync(organization.Id,
+            new EfRepository<Organization>(db), db, default);
+
+        Assert.Equal(StatusCodes.Status409Conflict, ((IStatusCodeHttpResult)result).StatusCode);
+        Assert.True(await db.Organizations.AnyAsync(x => x.Id == organization.Id));
+        Assert.True(await db.EmailInboxSettings.AnyAsync(x => x.Id == mailbox.Id));
+        Assert.True(await db.Set<MailboxOutboxEffect>().AnyAsync(x => x.DispatchGroup == $"mailbox:{mailbox.Id:N}"));
+    }
+
+    [Fact]
     public async Task Retained_receipt_returns_conflict_without_partial_delete()
     {
         await using var connection = await OpenAsync();
@@ -84,6 +135,12 @@ public sealed class OrganizationMailboxDeletionTests
         await db.Database.EnsureCreatedAsync(timeout.Token);
         var (cleanOrganization, cleanMailbox) = await SeedAsync(db);
         var (retainedOrganization, retainedMailbox) = await SeedAsync(db);
+        var cleanIngestion = await db.Set<MailboxIngestionState>()
+            .SingleAsync(x => x.MailboxId == cleanMailbox.Id, timeout.Token);
+        cleanIngestion.LastTestUnixMilliseconds = 1234;
+        cleanIngestion.TestedVersion = 1;
+        db.Set<MailboxOutgoingSettings>().Add(new MailboxOutgoingSettings { MailboxId = cleanMailbox.Id,
+            Enabled = false, SmtpHost = "smtp.example.invalid", SmtpUsername = "synthetic" });
         db.Set<InboundMessageReceipt>().Add(new InboundMessageReceipt
         {
             MailboxId = retainedMailbox.Id, SourceKey = "test", TransportKey = "retained-message"
@@ -101,6 +158,8 @@ public sealed class OrganizationMailboxDeletionTests
         await using var readback = new HelpdeskDbContext(options, Substitute.For<ITenantContext>(), new HttpContextAccessor());
         Assert.False(await readback.Organizations.AnyAsync(x => x.Id == cleanOrganization.Id, timeout.Token));
         Assert.False(await readback.EmailInboxSettings.AnyAsync(x => x.Id == cleanMailbox.Id, timeout.Token));
+        Assert.False(await readback.Set<MailboxOutgoingSettings>()
+            .AnyAsync(x => x.MailboxId == cleanMailbox.Id, timeout.Token));
         Assert.True(await readback.Organizations.AnyAsync(x => x.Id == retainedOrganization.Id, timeout.Token));
         Assert.True(await readback.EmailInboxSettings.AnyAsync(x => x.Id == retainedMailbox.Id, timeout.Token));
         Assert.True(await readback.Set<InboundMessageReceipt>().AnyAsync(x => x.MailboxId == retainedMailbox.Id, timeout.Token));
