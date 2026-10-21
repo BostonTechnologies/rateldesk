@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
+using Testcontainers.PostgreSql;
 
 namespace Helpdesk.Tests.Api;
 
@@ -69,6 +70,40 @@ public sealed class OrganizationMailboxDeletionTests
         Assert.True(await readback.Organizations.AnyAsync(x => x.Id == organization.Id));
         Assert.True(await readback.EmailInboxSettings.AnyAsync(x => x.Id == mailbox.Id));
         Assert.True(await readback.Set<MailboxLease>().AnyAsync(x => x.MailboxId == mailbox.Id));
+    }
+
+    [Fact]
+    public async Task PostgreSql_archived_mailbox_disposal_and_retained_receipt_conflict()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        await using var postgres = new PostgreSqlBuilder().WithImage("postgres:16").Build();
+        await postgres.StartAsync(timeout.Token);
+        var options = new DbContextOptionsBuilder<HelpdeskDbContext>()
+            .UseNpgsql(postgres.GetConnectionString()).Options;
+        await using var db = new HelpdeskDbContext(options, Substitute.For<ITenantContext>(), new HttpContextAccessor());
+        await db.Database.EnsureCreatedAsync(timeout.Token);
+        var (cleanOrganization, cleanMailbox) = await SeedAsync(db);
+        var (retainedOrganization, retainedMailbox) = await SeedAsync(db);
+        db.Set<InboundMessageReceipt>().Add(new InboundMessageReceipt
+        {
+            MailboxId = retainedMailbox.Id, SourceKey = "test", TransportKey = "retained-message"
+        });
+        await db.SaveChangesAsync(timeout.Token);
+
+        await using var deleting = new HelpdeskDbContext(options, Substitute.For<ITenantContext>(), new HttpContextAccessor());
+        var clean = await OrganizationDeletionEndpoint.DeleteAsync(cleanOrganization.Id,
+            new EfRepository<Organization>(deleting), deleting, timeout.Token);
+        var retained = await OrganizationDeletionEndpoint.DeleteAsync(retainedOrganization.Id,
+            new EfRepository<Organization>(deleting), deleting, timeout.Token);
+
+        Assert.Equal(StatusCodes.Status204NoContent, ((IStatusCodeHttpResult)clean).StatusCode);
+        Assert.Equal(StatusCodes.Status409Conflict, ((IStatusCodeHttpResult)retained).StatusCode);
+        await using var readback = new HelpdeskDbContext(options, Substitute.For<ITenantContext>(), new HttpContextAccessor());
+        Assert.False(await readback.Organizations.AnyAsync(x => x.Id == cleanOrganization.Id, timeout.Token));
+        Assert.False(await readback.EmailInboxSettings.AnyAsync(x => x.Id == cleanMailbox.Id, timeout.Token));
+        Assert.True(await readback.Organizations.AnyAsync(x => x.Id == retainedOrganization.Id, timeout.Token));
+        Assert.True(await readback.EmailInboxSettings.AnyAsync(x => x.Id == retainedMailbox.Id, timeout.Token));
+        Assert.True(await readback.Set<InboundMessageReceipt>().AnyAsync(x => x.MailboxId == retainedMailbox.Id, timeout.Token));
     }
 
     private static async Task<(Organization Organization, EmailInboxSettings Mailbox)> SeedAsync(HelpdeskDbContext db)
