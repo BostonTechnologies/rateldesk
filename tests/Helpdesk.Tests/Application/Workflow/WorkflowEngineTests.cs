@@ -269,4 +269,64 @@ public sealed class WorkflowEngineTests
         Assert.Equal(1, result.AutoStartedCount);
         await lifecycle.Received(1).StartAsync(automationTaskId, Arg.Any<CancellationToken>());
     }
+
+    [Fact]
+    public async Task RunAsync_ReplayedApprovalPublishesNoDuplicateEvaluationAfterContinuationSettles()
+    {
+        const string requestId = "019e8d54a0a8743697e86be26e5d9510";
+        var dependencies = Substitute.For<IWorkflowDependencyEvaluator>();
+        dependencies.EvaluateAsync(requestId, Arg.Any<CancellationToken>())
+            .Returns(new WorkflowDependencyEvaluationResult(0));
+        var conditions = Substitute.For<IWorkflowConditionEvaluator>();
+        var requests = Substitute.For<IRepository<Request>>();
+        requests.GetAsync(requestId).Returns(new Request { Id = requestId, OrganizationId = "tenant-1" });
+        var tasks = Substitute.For<IRepository<RequestTask>>();
+        tasks.GetAllAsync().Returns([]);
+        var approvalService = Substitute.For<IRequestTaskApprovalService>();
+        var lifecycle = Substitute.For<IRequestTaskLifecycleService>();
+        var stateService = Substitute.For<IRequestTaskStateService>();
+        stateService.EvaluateParentRequestState(requestId, Arg.Any<CancellationToken>())
+            .Returns(true, false);
+        var events = Substitute.For<IDomainEventPublisher>();
+        var correlation = Substitute.For<ICorrelationContext>();
+        var logger = Substitute.For<ILogger<WorkflowEngine>>();
+        var engine = new WorkflowEngine(dependencies, conditions, approvalService, requests, tasks,
+            lifecycle, stateService, events, correlation, logger);
+
+        var first = await engine.RunAsync(requestId, WorkflowRunReason.ApprovalReceived, CancellationToken.None);
+        var replay = await engine.RunAsync(requestId, WorkflowRunReason.ApprovalReceived, CancellationToken.None);
+
+        Assert.True(first.ParentStateChanged);
+        Assert.False(replay.ParentStateChanged);
+        await events.Received(1).PublishAsync(Arg.Any<WorkflowEvaluatedEvent>(), Arg.Any<CancellationToken>());
+        await events.Received(1).PublishAsync(Arg.Any<WorkflowProgressedEvent>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RunAsync_NonApprovalNoopStillPublishesEvaluation()
+    {
+        const string requestId = "019e8d54a0a8743697e86be26e5d9511";
+        var dependencies = Substitute.For<IWorkflowDependencyEvaluator>();
+        dependencies.EvaluateAsync(requestId, Arg.Any<CancellationToken>())
+            .Returns(new WorkflowDependencyEvaluationResult(0));
+        var conditions = Substitute.For<IWorkflowConditionEvaluator>();
+        var requests = Substitute.For<IRepository<Request>>();
+        requests.GetAsync(requestId).Returns(new Request { Id = requestId, OrganizationId = "tenant-1" });
+        var tasks = Substitute.For<IRepository<RequestTask>>();
+        tasks.GetAllAsync().Returns([]);
+        var approvalService = Substitute.For<IRequestTaskApprovalService>();
+        var lifecycle = Substitute.For<IRequestTaskLifecycleService>();
+        var stateService = Substitute.For<IRequestTaskStateService>();
+        stateService.EvaluateParentRequestState(requestId, Arg.Any<CancellationToken>()).Returns(false);
+        var events = Substitute.For<IDomainEventPublisher>();
+        var correlation = Substitute.For<ICorrelationContext>();
+        var logger = Substitute.For<ILogger<WorkflowEngine>>();
+        var engine = new WorkflowEngine(dependencies, conditions, approvalService, requests, tasks,
+            lifecycle, stateService, events, correlation, logger);
+
+        await engine.RunAsync(requestId, WorkflowRunReason.RequestCreated, CancellationToken.None);
+
+        await events.Received(1).PublishAsync(Arg.Any<WorkflowEvaluatedEvent>(), Arg.Any<CancellationToken>());
+        await events.DidNotReceive().PublishAsync(Arg.Any<WorkflowProgressedEvent>(), Arg.Any<CancellationToken>());
+    }
 }
