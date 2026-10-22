@@ -33,8 +33,21 @@ public static class EmailEndpoints
                 return Results.BadRequest(new { message = "Supply 1–100 valid recipients, a subject of at most 998 characters and a message of at most 262144 characters." });
             }
 
-            var accepted = await service.SendEmailAsync(recipients, request.Subject, request.HtmlMessage,
-                cc: null, ct: cancellationToken);
+            bool accepted;
+            try
+            {
+                accepted = await service.SendEmailAsync(new AppServices.Email.EmailSendRequest(
+                    recipients, request.Subject, request.HtmlMessage) { RequireReadySender = true }, cancellationToken);
+            }
+            catch (AppServices.Email.EmailSenderUnavailableException error)
+            {
+                return Results.Conflict(new
+                {
+                    status = "Not queued", queued = false, deliveryConfirmed = false,
+                    reason = error.ReasonCode,
+                    nextAction = "Configure an enabled global sender before sending administrator email."
+                });
+            }
             if (!accepted)
             {
                 return Results.Json(new
