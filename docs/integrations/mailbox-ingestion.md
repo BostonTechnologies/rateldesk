@@ -82,6 +82,13 @@ Before enabling a real source, the mailbox administrator must grant the provider
 
 ## Pending delivery queue
 
+The administrator `POST /api/v1/email/send` route sends without ticket or tenant
+context, so it requires an enabled global mailbox with a ready outgoing sender.
+When that route is unavailable, the API returns `409` with `queued: false` and a
+sender reason before creating outbox work. A successful `202` means the message
+was queued, not delivered; confirm provider delivery separately. Ticket mail
+continues to use its ticket's tenant sender or the configured global fallback.
+
 Pending Emails uses application dialogs for cancellation/removal reasons,
 non-delivery evidence and sender-route review. Review the explicitly listed
 delivery IDs, recipients and sender before confirming. Reasons are 1–200

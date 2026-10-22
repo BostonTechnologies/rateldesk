@@ -28,8 +28,7 @@ public sealed class OperatorMailSendTruthTests
     {
         var email = Substitute.For<IEmailService, IDurableEmailService>();
         ((IDurableEmailService)email).QueuesDelivery.Returns(durable);
-        email.SendEmailAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<string>(), Arg.Any<string>(),
-            cc: null, ct: Arg.Any<CancellationToken>()).Returns(accepted);
+        email.SendEmailAsync(Arg.Any<EmailSendRequest>(), Arg.Any<CancellationToken>()).Returns(accepted);
         await using var app = await CreateAsync(email, "Admin");
         using var client = app.GetTestClient();
 
@@ -42,8 +41,32 @@ public sealed class OperatorMailSendTruthTests
         Assert.False(data.RootElement.GetProperty("deliveryConfirmed").GetBoolean());
         if (accepted) Assert.Equal(durable, data.RootElement.GetProperty("queued").GetBoolean());
         else Assert.Contains("before retrying", data.RootElement.GetProperty("nextAction").GetString());
-        await email.Received(1).SendEmailAsync(Arg.Is<IEnumerable<string>>(recipients => recipients.SequenceEqual(new[] { "capture@example.test" })),
-            "Isolated fixture", "<p>Isolated fixture</p>", cc: null, ct: Arg.Any<CancellationToken>());
+        await email.Received(1).SendEmailAsync(Arg.Is<EmailSendRequest>(request =>
+            request.Recipients.SequenceEqual(new[] { "capture@example.test" }) &&
+            request.Subject == "Isolated fixture" && request.HtmlMessage == "<p>Isolated fixture</p>" &&
+            request.RequireReadySender), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Unroutable_direct_send_returns_conflict_before_queueing()
+    {
+        var email = Substitute.For<IEmailService, IDurableEmailService>();
+        email.SendEmailAsync(Arg.Any<EmailSendRequest>(), Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromException<bool>(new EmailSenderUnavailableException("NoEffectiveMailbox")));
+        await using var app = await CreateAsync(email, "Admin");
+        using var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync("/api/v1/email/send",
+            new SendEmailRequest(["capture@example.test"], "Isolated fixture", "<p>Isolated fixture</p>"));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        using var data = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal("Not queued", data.RootElement.GetProperty("status").GetString());
+        Assert.False(data.RootElement.GetProperty("queued").GetBoolean());
+        Assert.False(data.RootElement.GetProperty("deliveryConfirmed").GetBoolean());
+        Assert.Equal("NoEffectiveMailbox", data.RootElement.GetProperty("reason").GetString());
+        await email.Received(1).SendEmailAsync(Arg.Is<EmailSendRequest>(request => request.RequireReadySender),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
