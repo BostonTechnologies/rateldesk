@@ -54,7 +54,12 @@ public sealed class HelpdeskCliTests
         ], new CliRuntime { Out = output, Error = errors });
 
         Assert.Equal(CliExitCodes.Success, code);
-        Assert.Contains("secret", File.ReadAllText(path), StringComparison.Ordinal);
+        using (var saved = JsonDocument.Parse(File.ReadAllText(path)))
+        {
+            Assert.False(saved.RootElement.TryGetProperty("authentikAppPassword", out _));
+            var reference = saved.RootElement.GetProperty("authentikAppPasswordFile").GetString()!;
+            Assert.Equal("secret", Helpdesk.AgentClient.SecureConfigurationFiles.ReadText(reference, requirePrivate: true).Trim());
+        }
 
         output.GetStringBuilder().Clear();
         code = await HelpdeskCli.RunAsync(["--config", path, "config", "show"], new CliRuntime { Out = output, Error = errors });
@@ -117,7 +122,6 @@ public sealed class HelpdeskCliTests
             var temp = Directory.CreateTempSubdirectory("helpdesk-cli-test-");
             var output = new StringWriter();
             var code = await HelpdeskCli.RunAsync([
-                "--config", Path.Combine(temp.FullName, "missing.json"),
                 "config", "show"
             ], new CliRuntime { Out = output, Error = new StringWriter() });
 
@@ -230,6 +234,26 @@ public sealed class HelpdeskCliTests
 
         Assert.Equal(CliExitCodes.ValidationError, code);
         Assert.Contains("Required argument missing", errors.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Ticket_list_CLI_preserves_omitted_and_out_of_MCP_range_pagination_for_API_normalization()
+    {
+        foreach (var family in new[] { "incidents", "requests", "changes", "request-tasks" })
+        foreach (var omitted in new[] { false, true })
+        {
+            var output = new StringWriter();
+            string[] arguments = omitted ? [family, "list", "--json"] : [family, "list", "--page", "0", "--page-size", "10000", "--json"];
+            var code = await RunWithApiAsync(arguments, request =>
+            {
+                Assert.Equal(HttpMethod.Get, request.Method);
+                Assert.Equal($"https://api.example/api/v1/{family}/" + (omitted ? "" : "?page=0&pageSize=10000"), request.RequestUri!.ToString());
+                return Json(HttpStatusCode.OK, """{"page":1,"pageSize":100,"totalCount":0,"items":[]}""");
+            }, output);
+            Assert.Equal(CliExitCodes.Success, code);
+            using var json = JsonDocument.Parse(output.ToString());
+            Assert.Equal(100, json.RootElement.GetProperty("pageSize").GetInt32());
+        }
     }
 
     [Fact]
@@ -406,7 +430,7 @@ public sealed class HelpdeskCliTests
         }, output);
 
         Assert.Equal(CliExitCodes.Success, code);
-        Assert.Equal("https://api.example/api/v1/notifications/error-summary", calls.Single().RequestUri!.ToString());
+        Assert.Equal("https://api.example/api/v1/notifications/summary", calls.Single().RequestUri!.ToString());
 
         calls.Clear();
         output.GetStringBuilder().Clear();
@@ -619,6 +643,32 @@ public sealed class HelpdeskCliTests
 
         Assert.Equal(CliExitCodes.ValidationError, code);
         Assert.Contains("Unknown field", errors.ToString(), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("incidents", "timeline")]
+    [InlineData("requests", "ticket-timeline")]
+    [InlineData("changes", "timeline")]
+    public async Task Ticket_timeline_preserves_fractional_zero_and_unavailable_effort_in_safe_projection(string family, string command)
+    {
+        var output = new StringWriter();
+        var code = await RunWithApiAsync([family, command, "ticket-wire", "--json", "--view", "detail"],
+            request =>
+            {
+                Assert.Equal($"/api/v1/{family}/ticket-wire/timeline", request.RequestUri!.AbsolutePath);
+                return Json(HttpStatusCode.OK, Helpdesk.Tests.Mcp.TimelineTransportPayload.Json);
+            }, output);
+        Assert.Equal(CliExitCodes.Success, code);
+        using var document = JsonDocument.Parse(output.ToString());
+        var actual = document.RootElement.GetProperty("items").EnumerateArray().ToArray();
+        using var expected = JsonDocument.Parse(Helpdesk.Tests.Mcp.TimelineTransportPayload.Json);
+        Assert.Equal(4, actual.Length);
+        foreach (var row in expected.RootElement.EnumerateArray())
+        {
+            var projected = actual.Single(item => item.GetProperty("id").GetString() == row.GetProperty("id").GetString());
+            foreach (var field in new[] { "hours", "recordedHours", "workLogId" })
+                Assert.Equal(row.GetProperty(field).GetRawText(), projected.GetProperty(field).GetRawText());
+        }
     }
 
     [Fact]

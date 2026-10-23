@@ -11,7 +11,7 @@ public interface IResourceDatasetService
     Task<DatasetDefinitionDto?> CreateAsync(CreateDatasetDefinitionDto dto);
     Task<DatasetDefinitionDto?> UpdateAsync(string datasetId, UpdateDatasetDefinitionDto dto);
     Task<bool> DeleteAsync(string datasetId);
-    Task<PagedResult<DatasetRowDto>> GetRowsAsync(string datasetId, string? query, int page, int pageSize);
+    Task<PagedResult<DatasetRowDto>> GetRowsAsync(string datasetId, string? query, int page, int pageSize, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<DatasetIngestCredentialDto>> GetCredentialsAsync(string datasetId);
     Task<DatasetIngestCredentialCreatedDto?> CreateCredentialAsync(string datasetId, CreateDatasetIngestCredentialDto dto);
     Task<bool> RevokeCredentialAsync(string datasetId, string credentialId);
@@ -51,9 +51,9 @@ public class ResourceDatasetService(IHttpClientFactory httpClientFactory) : IRes
     public async Task<bool> DeleteAsync(string datasetId)
         => (await _http.DeleteAsync($"api/v1/resources/datasets/{datasetId}")).IsSuccessStatusCode;
 
-    public async Task<PagedResult<DatasetRowDto>> GetRowsAsync(string datasetId, string? query, int page, int pageSize)
+    public async Task<PagedResult<DatasetRowDto>> GetRowsAsync(string datasetId, string? query, int page, int pageSize, CancellationToken cancellationToken = default)
         => await _http.GetFromJsonAsync<PagedResult<DatasetRowDto>>(
-               $"api/v1/resources/datasets/{datasetId}/rows?query={Uri.EscapeDataString(query ?? string.Empty)}&page={page}&pageSize={pageSize}")
+               $"api/v1/resources/datasets/{datasetId}/rows?query={Uri.EscapeDataString(query ?? string.Empty)}&page={page}&pageSize={pageSize}", cancellationToken)
            ?? new PagedResult<DatasetRowDto>();
 
     public async Task<IReadOnlyList<DatasetIngestCredentialDto>> GetCredentialsAsync(string datasetId)
@@ -90,9 +90,8 @@ public class ResourceDatasetService(IHttpClientFactory httpClientFactory) : IRes
     public async Task<IReadOnlyList<DatasetDefinitionDto>> SyncBuiltInsAsync(string organizationId)
     {
         var response = await _http.PostAsync($"api/v1/resources/datasets/graph-settings/{Uri.EscapeDataString(organizationId)}/sync", null);
-        return response.IsSuccessStatusCode
-            ? (await response.Content.ReadFromJsonAsync<List<DatasetDefinitionDto>>()) ?? []
-            : [];
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<List<DatasetDefinitionDto>>()) ?? [];
     }
 
     public async Task<PagedResult<DatasetOptionDto>> SearchOptionsAsync(string datasetId, string? query, int page, int pageSize)

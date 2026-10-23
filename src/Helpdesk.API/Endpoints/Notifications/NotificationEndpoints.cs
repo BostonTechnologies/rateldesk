@@ -588,20 +588,26 @@ public static class NotificationEndpoints
         string userId,
         CancellationToken ct)
     {
-        var scoped = BuildScopedNotificationsQuery(db, access, userId);
-        var unread = GetScopedUnreadNotificationsQuery(db, access, userId);
-        var totalCount = await scoped.CountAsync(ct);
-        var unreadCount = await unread.CountAsync(ct);
-        var unreadErrorCount = await unread.CountAsync(
-            n => n.Severity == NotificationSeverity.Error || n.Severity == NotificationSeverity.Critical,
-            ct);
-
-        return new NotificationSummaryDto
-        {
-            TotalCount = totalCount,
-            UnreadCount = unreadCount,
-            UnreadErrorCount = unreadErrorCount
-        };
+        var reads = db.NotificationReads.AsNoTracking().Where(read => read.UserId == userId);
+        // Aggregate one authorized population in one database statement so all
+        // counters share a snapshot and repeated scope checks need no extra round trips.
+        return await BuildScopedNotificationsQuery(db, access, userId)
+            .Select(notification => new
+            {
+                notification.Severity,
+                IsUnread = notification.IsGlobal
+                    ? !reads.Any(read => read.NotificationId == notification.Id)
+                    : notification.ReadUtc == null
+            })
+            .GroupBy(_ => 1)
+            .Select(group => new NotificationSummaryDto
+            {
+                TotalCount = group.Count(),
+                UnreadCount = group.Count(notification => notification.IsUnread),
+                UnreadErrorCount = group.Count(notification => notification.IsUnread &&
+                    (notification.Severity == NotificationSeverity.Error || notification.Severity == NotificationSeverity.Critical))
+            })
+            .SingleOrDefaultAsync(ct) ?? new NotificationSummaryDto();
     }
 
     private static IQueryable<NotificationEntity> BuildScopedNotificationsQuery(
@@ -663,7 +669,7 @@ public static class NotificationEndpoints
         return BuildScopedNotificationsQuery(db, access, userId)
             .Where(n =>
                 (n.IsGlobal && !readsForUser.Any(r => r.NotificationId == n.Id)) ||
-                (!n.IsGlobal && n.UserId == userId && n.ReadUtc == null));
+                (!n.IsGlobal && n.ReadUtc == null));
     }
 
     private static async Task<int> MarkScopedNotificationsReadAsync(

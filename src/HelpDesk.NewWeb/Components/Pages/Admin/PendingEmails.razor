@@ -1,172 +1,297 @@
 @page "/admin/pending-emails"
 @attribute [Authorize(Roles = "HelpdeskAdmin")]
-@using Helpdesk.Shared.DTOs.Worklog
+@implements IDisposable
+@using Helpdesk.Shared.DTOs.Email
 @using Helpdesk.Shared.Enums
 @using Helpdesk.Shared.Models
 @using HelpDesk.NewWeb.Services
-@using Microsoft.JSInterop
+@using Microsoft.AspNetCore.WebUtilities
+@using Microsoft.AspNetCore.Components.Routing
+@using System.Globalization
 @inject ITimelineApiClient TimelineClient
 @inject ISnackbar Snackbar
-@inject IJSRuntime JS
+@inject IDialogService Dialogs
+@inject NavigationManager Navigation
 
-<MudPaper Class="pa-4">
-    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3">
-        <MudText Typo="Typo.h5">Pending Email Deliveries</MudText>
-        <MudButton
-            Color="Color.Primary"
-            StartIcon="@Icons.Material.Filled.Refresh"
-            OnClick="RetryAll"
-            Disabled="@loading">
-            Retry All
-        </MudButton>
-    </MudStack>
-
-    <MudText Typo="Typo.body2" Class="mb-2">Failed deliveries: @failed.Count</MudText>
-
-    @if (loading)
+<MudPaper Class="pa-3 pending-mail">
+    <MudText Typo="Typo.h6">Pending emails</MudText>
+    <MudText Typo="Typo.body2">Search queued and failed deliveries. Removing a queue entry preserves ticket history.</MudText>
+    <div class="pending-mail-filters">
+        <MudTextField T="string" Label="Search ticket or recipient" @bind-Value="search" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        <MudSelect T="string" Label="Delivery status" @bind-Value="status" Variant="Variant.Outlined" Margin="Margin.Dense">
+            <MudSelectItem Value='@("active")'>Pending and failed</MudSelectItem>
+            @foreach (var value in Enum.GetValues<EmailDeliveryStatus>().Where(x => x != EmailDeliveryStatus.Removed))
+            {
+                <MudSelectItem Value="@value.ToString()">@value</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="string" Label="Sort" @bind-Value="sort" Variant="Variant.Outlined" Margin="Margin.Dense">
+            <MudSelectItem Value='@("created")'>Created</MudSelectItem><MudSelectItem Value='@("ticket")'>Ticket</MudSelectItem>
+            <MudSelectItem Value='@("recipient")'>Recipient</MudSelectItem><MudSelectItem Value='@("status")'>Status</MudSelectItem>
+        </MudSelect>
+        <MudCheckBox T="bool" @bind-Value="descending" Label="Descending" />
+    </div>
+    <details class="pending-mail-advanced" open="@(appliedFilters.Keys.Any(x => x is "organization" or "sender" or "recipient" or "reason" or "from" or "to"))">
+        <summary>More filters · organization, mailbox, recipient, reason and created time</summary>
+        <div class="pending-mail-filters">
+        <MudAutocomplete T="PendingEmailOrganization" Label="Organization" Value="organizationOption" ValueChanged="OrganizationChanged"
+            SearchFunc="SearchOrganizations" ToStringFunc="@(x => x?.Label ?? string.Empty)" Clearable="true" CoerceText="true"
+            Variant="Variant.Outlined" Margin="Margin.Dense" MaxItems="20" />
+        <MudTextField T="string" Label="Mailbox / sender" @bind-Value="sender" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        <MudTextField T="string" Label="Recipient" @bind-Value="recipient" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        <MudTextField T="string" Label="Reason / error code" @bind-Value="reason" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        <MudTextField T="string" Label="Created from (UTC, inclusive)" InputType="InputType.DateTimeLocal" @bind-Value="from" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        <MudTextField T="string" Label="Created to (UTC, inclusive)" InputType="InputType.DateTimeLocal" @bind-Value="to" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        </div>
+    </details>
+    <div class="pending-mail-actions">
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="ApplyFilters" Disabled="Busy">Apply filters</MudButton>
+        <MudButton OnClick="ClearFilters" Disabled="Busy">Clear filters</MudButton>
+        <MudButton OnClick="LoadAsync" Disabled="Busy" StartIcon="@Icons.Material.Filled.Refresh">Refresh</MudButton>
+    </div>
+    <div class="pending-mail-actions" aria-label="Applied filters">
+        @foreach (var chip in appliedFilters)
+        {
+            <MudButton Size="Size.Small" Variant="Variant.Outlined" EndIcon="@Icons.Material.Filled.Close"
+                aria-label="@($"Remove filter {chip.Value}")" OnClick="() => RemoveFilter(chip.Key)">@chip.Value</MudButton>
+        }
+    </div>
+    @if (error is not null)
     {
-        <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+        <MudAlert Severity="Severity.Error" Class="my-2">@error</MudAlert>
     }
-    else if (failed.Count == 0)
+    <div class="pending-mail-actions my-2">
+        <MudText Typo="Typo.body2">@(error is null ? $"{total} deliveries · {selected.Count} selected records on this page" : "Delivery count unavailable")</MudText>
+        <MudButton OnClick='() => ActAsync("retry", selected.ToArray())' Disabled="@(Busy || selected.Count == 0)">Retry selected</MudButton>
+        <MudButton OnClick='() => ActAsync("cancel", selected.ToArray())' Disabled="@(Busy || selected.Count == 0)">Cancel selected</MudButton>
+        <MudButton OnClick='() => ActAsync("remove", selected.ToArray())' Disabled="@(Busy || selected.Count == 0)">Remove selected</MudButton>
+    </div>
+    <MudText Typo="Typo.caption">Selection applies to explicit records on the current page (maximum 100), and clears when the page or filters change. Retry skips records requiring individual review.</MudText>
+    <MudTable T="PendingEmailRow" Items="rows" Dense="true" Hover="true" Loading="Busy" MultiSelection="true" @bind-SelectedItems="selected" Breakpoint="Breakpoint.Sm">
+        <HeaderContent><MudTh>Created (UTC)</MudTh><MudTh>Ticket</MudTh><MudTh>Recipient / sender</MudTh><MudTh>Status</MudTh><MudTh>Actions</MudTh></HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Created (UTC)">@context.CreatedUtc.UtcDateTime.ToString("yyyy-MM-dd HH:mm")</MudTd>
+            <MudTd DataLabel="Ticket">
+                <MudLink Href="@($"/{context.TicketType}/{Uri.EscapeDataString(context.TicketId)}")">@context.TrackingId</MudLink>
+                <div>@context.Subject</div><small>@context.OrganizationName</small>
+            </MudTd>
+            <MudTd DataLabel="Recipient / sender">@context.EmailRecipient<div><small>From: @(context.Sender ?? "Review sender binding")</small></div></MudTd>
+            <MudTd DataLabel="Status">@context.EmailStatus<div><small>@context.DeliveryErrorCode</small></div></MudTd>
+            <MudTd DataLabel="Actions">
+                <div class="pending-mail-actions">
+                    <MudButton Size="Size.Small" OnClick="() => detail = context">Details</MudButton>
+                    <MudButton Size="Size.Small" Disabled="@(Busy || context.EmailStatus != EmailDeliveryStatus.Failed)" OnClick="() => ReviewAsync(context)">Review / retry</MudButton>
+                    <MudButton Size="Size.Small" Disabled="@(Busy || !context.CanCancel)" OnClick='() => ActAsync("cancel", [context])'>Cancel delivery</MudButton>
+                    <MudButton Size="Size.Small" Disabled="@(Busy || !context.CanRemove)" OnClick='() => ActAsync("remove", [context])'>Remove queue entry</MudButton>
+                </div>
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent><MudText>@(error is null ? "No deliveries match these filters." : "Delivery list unavailable. Refresh to try again.")</MudText></NoRecordsContent>
+    </MudTable>
+    <div class="pending-mail-actions mt-2" aria-label="Delivery pages">
+        <MudButton OnClick="PreviousPage" Disabled="@(Busy || error is not null || page == 0)">Previous</MudButton>
+        <MudText Typo="Typo.body2">@(error is null ? $"Page {page + 1} of {Math.Max(1, (total + pageSize - 1) / pageSize)}" : "Page unavailable")</MudText>
+        <MudButton OnClick="NextPage" Disabled="@(Busy || (page + 1) * pageSize >= total)">Next</MudButton>
+        <MudSelect T="int" Label="Rows per page" Value="pageSize" ValueChanged="PageSizeChanged" Margin="Margin.Dense" Class="pending-mail-page-size" Disabled="Busy">
+            <MudSelectItem Value="25">25</MudSelectItem><MudSelectItem Value="50">50</MudSelectItem><MudSelectItem Value="100">100</MudSelectItem>
+        </MudSelect>
+    </div>
+    @if (detail is not null)
     {
-        <MudAlert Severity="Severity.Success">No failed email deliveries.</MudAlert>
+        <MudPaper Outlined="true" Class="pa-3 mt-3" role="region" aria-label="Delivery details">
+            <div class="pending-mail-actions"><MudText Typo="Typo.subtitle1">Delivery details · @detail.TrackingId</MudText><MudButton OnClick="() => detail = null">Close details</MudButton></div>
+            <MudText Typo="Typo.body2">@detail.MessageText</MudText>
+            <dl><dt>Delivery ID</dt><dd>@detail.Id</dd><dt>Queue state / retries</dt><dd>@detail.QueueState / @detail.RetryCount</dd><dt>Reason</dt><dd>@detail.DeliveryErrorCode @detail.DeliveryReviewReason</dd></dl>
+            @if (detail.AcceptedRecipients?.Length > 0) { <MudText>Accepted: @string.Join(", ", detail.AcceptedRecipients)</MudText> }
+            @if (detail.RejectedRecipients?.Length > 0) { <MudText>Rejected: @string.Join(", ", detail.RejectedRecipients)</MudText> }
+            @if (detail.RecipientOutcomeUnavailable) { <MudAlert Severity="Severity.Warning">Recipient outcomes are unavailable. Verify with the provider before retrying.</MudAlert> }
+            <MudText Typo="Typo.caption">Cancellation prevents future submission. Removing an entry hides it from this queue and blocks future dispatch. Neither action recalls previously submitted mail.</MudText>
+        </MudPaper>
     }
-    else
+    @if (outcomes.Count > 0)
     {
-        <MudTable Items="@failed" Dense="true" Hover="true">
-            <HeaderContent>
-                <MudTh>Created</MudTh>
-                <MudTh>Ticket</MudTh>
-                <MudTh>Recipient</MudTh>
-                <MudTh>Status</MudTh>
-                <MudTh>Retries</MudTh>
-                <MudTh>Message</MudTh>
-                <MudTh>Action</MudTh>
-            </HeaderContent>
-            <RowTemplate>
-                <MudTd DataLabel="Created">@context.CreatedUtc.ToLocalTime().ToString("g")</MudTd>
-                <MudTd DataLabel="Ticket">@context.TicketId</MudTd>
-                <MudTd DataLabel="Recipient">@context.EmailRecipient</MudTd>
-                <MudTd DataLabel="Status">@context.EmailStatus</MudTd>
-                <MudTd DataLabel="Retries">@context.RetryCount</MudTd>
-                <MudTd DataLabel="Message">
-                    <div>@context.MessageText</div>
-                    @if (!string.IsNullOrWhiteSpace(context.DeliveryErrorCode))
-                    {
-                        <div>Reason: @context.DeliveryErrorCode</div>
-                    }
-                    @if (context.AcceptedRecipients?.Length > 0)
-                    {
-                        <div>Accepted: @string.Join(", ", context.AcceptedRecipients)</div>
-                    }
-                    @if (context.RejectedRecipients?.Length > 0)
-                    {
-                        <div>Rejected: @string.Join(", ", context.RejectedRecipients)</div>
-                    }
-                    @if (context.RecipientOutcomeUnavailable)
-                    {
-                        <div>Recipient details unavailable; check the provider before retrying.</div>
-                    }
-                    @if (!string.IsNullOrWhiteSpace(context.DeliveryReviewReason))
-                    {
-                        <div>@context.DeliveryReviewReason</div>
-                    }
-                </MudTd>
-                <MudTd DataLabel="Action">
-                    @if (context.DeliveryErrorCode == "SenderRouteChanged")
-                    {
-                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="@loading"
-                                   OnClick="() => RetryWithCurrentRouteAsync(context.Id)">
-                            Review new sender
-                        </MudButton>
-                    }
-                    else if (context.DeliveryErrorCode is "DispatchOutcomeUnknown" or "SubmissionOutcomeUnknown")
-                    {
-                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="@loading"
-                                   OnClick="() => RetryConfirmedUndeliveredAsync(context.Id)">
-                            Verify non-delivery
-                        </MudButton>
-                    }
-                    else if (context.DeliveryErrorCode == "SmtpPartialRecipientAcceptance" ||
-                             context.AcceptedRecipients?.Length > 0 || context.RecipientOutcomeUnavailable)
-                    {
-                        <MudText Typo="Typo.caption">Recipient review required</MudText>
-                    }
-                    else if (!context.IsRetryable)
-                    {
-                        <MudText Typo="Typo.caption">Manual review required</MudText>
-                    }
-                    else
-                    {
-                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="@loading"
-                                   OnClick="() => RetryWithCurrentOutgoingAsync(context.Id)">
-                            Review sender and retry
-                        </MudButton>
-                    }
-                </MudTd>
-            </RowTemplate>
-        </MudTable>
+        <MudPaper Outlined="true" Class="pa-3 mt-3" role="status" aria-live="polite">
+            <MudText Typo="Typo.subtitle2">Action results (@outcomes.Count selected records)</MudText>
+            @foreach (var result in outcomes) { <div>@result</div> }
+        </MudPaper>
     }
 </MudPaper>
 
 @code {
-    private List<TicketTimelineEventDto> failed = new();
-    private bool loading;
+    private List<PendingEmailRow> rows = [];
+    private HashSet<PendingEmailRow> selected = [];
+    private PendingEmailRow? detail;
+    private PendingEmailOrganization? organizationOption;
+    private string? search, organization, sender, recipient, reason, from, to, error;
+    private string status = "active", sort = "created";
+    private bool descending = true, loading, actionBusy, disposed;
+    private bool Busy => loading || actionBusy;
+    private int page, pageSize = 25, total, generation;
+    private CancellationTokenSource? requestCancellation;
+    private List<string> outcomes = [];
+    private Dictionary<string, string> appliedFilters = [];
 
     protected override async Task OnInitializedAsync()
     {
+        Navigation.LocationChanged += LocationChanged;
+        ReadLocation();
         await LoadAsync();
     }
-
+    private void LocationChanged(object? sender, LocationChangedEventArgs args) => _ = InvokeAsync(async () =>
+    {
+        ReadLocation();
+        await LoadAsync();
+    });
+    private void ReadLocation()
+    {
+        var values = QueryHelpers.ParseQuery(new Uri(Navigation.Uri).Query);
+        string? Read(string key) => values.TryGetValue(key, out var value) ? value.ToString() : null;
+        search = Read("search"); organization = Read("organization"); sender = Read("sender"); recipient = Read("recipient");
+        reason = Read("reason"); from = Read("from"); to = Read("to"); status = Read("status") ?? "active";
+        sort = Read("sort") ?? "created"; descending = Read("descending") != "false";
+        page = int.TryParse(Read("page"), out var p) ? Math.Max(0, p) : 0;
+        pageSize = int.TryParse(Read("size"), out var size) && size is 25 or 50 or 100 ? size : 25;
+        appliedFilters = new Dictionary<string, string>();
+        foreach (var key in new[] { "search", "organization", "sender", "recipient", "reason", "from", "to", "status" })
+            if (Read(key) is { Length: > 0 } value && value != "active") appliedFilters[key] = $"{key}: {value}";
+    }
+    private void Navigate()
+    {
+        var uri = QueryHelpers.AddQueryString("/admin/pending-emails", new Dictionary<string, string?>
+        {
+            ["search"] = search, ["organization"] = organization, ["sender"] = sender, ["recipient"] = recipient,
+            ["reason"] = reason, ["from"] = from, ["to"] = to, ["status"] = status, ["sort"] = sort,
+            ["descending"] = descending ? "true" : "false", ["page"] = page.ToString(), ["size"] = pageSize.ToString()
+        });
+        if (Navigation.ToAbsoluteUri(uri).ToString() == Navigation.Uri) _ = LoadAsync();
+        else Navigation.NavigateTo(uri);
+    }
+    private void OrganizationChanged(PendingEmailOrganization? value) { organizationOption = value; organization = value?.Id; }
+    private async Task<IEnumerable<PendingEmailOrganization>> SearchOrganizations(string text, CancellationToken ct) =>
+        await TimelineClient.SearchPendingOrganizationsAsync(text, ct: ct);
+    private void ApplyFilters() { page = 0; Navigate(); }
+    private void ClearFilters() => Navigation.NavigateTo("/admin/pending-emails");
+    private void RemoveFilter(string key)
+    {
+        switch (key) { case "search": search = null; break; case "organization": organization = null; break; case "sender": sender = null; break;
+            case "recipient": recipient = null; break; case "reason": reason = null; break; case "from": from = null; break; case "to": to = null; break; case "status": status = "active"; break; }
+        ApplyFilters();
+    }
+    private void PreviousPage() { page--; Navigate(); }
+    private void NextPage() { page++; Navigate(); }
+    private void PageSizeChanged(int value) { pageSize = value; ApplyFilters(); }
+    private static DateTimeOffset? Utc(string? value) => string.IsNullOrWhiteSpace(value) ? null :
+        DateTimeOffset.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
     private async Task LoadAsync()
     {
-        loading = true;
+        if (disposed) return;
+        requestCancellation?.Cancel(); requestCancellation?.Dispose(); requestCancellation = new();
+        var token = requestCancellation.Token; var current = ++generation;
+        loading = true; error = null; selected.Clear(); rows = []; detail = null;
         try
         {
-            failed = await TimelineClient.GetFailedAsync();
+            organizationOption = string.IsNullOrWhiteSpace(organization) ? null :
+                (await TimelineClient.SearchPendingOrganizationsAsync(null, organization, token)).FirstOrDefault();
+            if (current != generation || disposed) return;
+            if (organizationOption is not null) appliedFilters["organization"] = $"organization: {organizationOption.Label}";
+            var first = Utc(from); var last = Utc(to);
+            if (first > last) throw new FormatException("Created From must precede To.");
+            var query = new PendingEmailQuery { Search = search, OrganizationId = organization, Sender = sender,
+                Recipient = recipient, Reason = reason, From = first, To = last,
+                Status = status == "active" ? null : Enum.Parse<EmailDeliveryStatus>(status),
+                Sort = sort, Descending = descending, Page = page, PageSize = pageSize };
+            var result = await TimelineClient.SearchPendingAsync(query, token);
+            if (current != generation || disposed) return;
+            rows = result.Items.ToList(); total = result.Total; page = result.Page;
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception)
         {
-            Snackbar.Add($"Could not load pending emails: {ex.Message}", Severity.Error);
+            if (current != generation || disposed) return;
+            rows = []; total = 0; error = "Could not load deliveries. Check the filters and try Refresh.";
         }
-        finally
-        {
-            loading = false;
-        }
+        finally { if (current == generation && !disposed) { loading = false; await InvokeAsync(StateHasChanged); } }
     }
-
-    private async Task RetryAll()
+    private async Task<string?> ConfirmActionAsync(string title, PendingEmailRow[] targets, string[] explanation,
+        string confirmLabel, bool requireReason = false, bool requireEvidence = false)
     {
-        loading = true;
-        try
+        var reviewGeneration = generation;
+        var dialog = await Dialogs.ShowAsync<PendingEmailActionDialog>(title, new DialogParameters
         {
-            await TimelineClient.RetryAllAsync();
-            Snackbar.Add("Bulk retry completed.", Severity.Success);
-        }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Bulk retry failed: {ex.Message}", Severity.Error);
-        }
-        finally
-        {
-            loading = false;
-        }
-
-        await LoadAsync();
+            [nameof(PendingEmailActionDialog.Records)] = targets,
+            [nameof(PendingEmailActionDialog.Explanation)] = explanation,
+            [nameof(PendingEmailActionDialog.ConfirmLabel)] = confirmLabel,
+            [nameof(PendingEmailActionDialog.RequireReason)] = requireReason,
+            [nameof(PendingEmailActionDialog.RequireEvidence)] = requireEvidence
+        }, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true,
+            CloseOnEscapeKey = true, BackdropClick = true });
+        var result = await dialog.Result;
+        return !disposed && reviewGeneration == generation && result is { Canceled: false, Data: string value } ? value : null;
     }
-
-    private async Task RetryWithCurrentOutgoingAsync(Guid timelineId)
+    private async Task ActAsync(string action, PendingEmailRow[] targets)
     {
-        loading = true;
+        if (Busy || targets.Length is < 1 or > 100) return;
+        actionBusy = true;
+        var submitted = false;
         try
         {
-            var route = await TimelineClient.PreviewChangedRouteAsync(timelineId);
+            var title = action == "cancel" ? "Cancel future delivery" : action == "remove" ? "Remove queue entries" : "Retry selected deliveries";
+            var explanation = action == "remove" ? "Ticket history is retained. This does not recall previously submitted mail." :
+                action == "cancel" ? "Only deliveries whose submission has not started can be cancelled. Ticket history is retained." : "Rows requiring individual review will be skipped.";
+            var actionReason = await ConfirmActionAsync(title, targets, [explanation],
+                action == "cancel" ? "Cancel deliveries" : action == "remove" ? "Remove entries" : "Retry deliveries", requireReason: true);
+            if (actionReason is null) return;
+            submitted = true;
+            var response = await TimelineClient.ApplyPendingActionAsync(new(targets.Select(x => x.Id).ToArray(), action, actionReason, true));
+            var labels = targets.ToDictionary(x => x.Id, x => $"{x.TrackingId} · {x.EmailRecipient}");
+            outcomes = response.Results.Select(x => $"{labels.GetValueOrDefault(x.Id, "Delivery")} · {x.Id:D}: {x.Outcome} — {x.Message}").ToList();
+        }
+        catch (Exception) { Snackbar.Add("Queue action failed. Refresh before trying again.", Severity.Error); }
+        finally { actionBusy = false; if (submitted && !disposed) await LoadAsync(); }
+    }
+    private Task ReviewAsync(PendingEmailRow row)
+    {
+        if (Busy) return Task.CompletedTask;
+        if (row.QueueState == "Legacy" && row.IsRetryable) return RetryLegacyAsync(row);
+        if (row.DeliveryErrorCode == "SenderRouteChanged") return RetryWithCurrentRouteAsync(row);
+        if (row.DeliveryErrorCode is "DispatchOutcomeUnknown" or "SubmissionOutcomeUnknown") return RetryConfirmedUndeliveredAsync(row);
+        if (row.AcceptedRecipients?.Length > 0 || row.RecipientOutcomeUnavailable || !row.IsRetryable)
+        {
+            detail = row; Snackbar.Add("Individual sender or recipient review is required.", Severity.Warning); return Task.CompletedTask;
+        }
+        return RetryWithCurrentOutgoingAsync(row);
+    }
+    private async Task RetryLegacyAsync(PendingEmailRow row)
+    {
+        if (Busy) return;
+        actionBusy = true;
+        var submitted = false;
+        try
+        {
+            if (await ConfirmActionAsync("Retry legacy delivery", [row],
+                ["Its original mailbox binding is unavailable. Reconstruct the ticket update using current ticket recipients and sender routing. The worker will check its pinned sender revisions before submission."], "Queue legacy retry") is null) return;
+            submitted = true;
+            await TimelineClient.RetryAsync(row.Id);
+            Snackbar.Add("Legacy delivery queued for sender validation.", Severity.Success);
+        }
+        catch (Exception) { Snackbar.Add("Legacy retry could not be queued. Refresh and review the delivery.", Severity.Error); }
+        finally { actionBusy = false; if (submitted && !disposed) await LoadAsync(); }
+    }
+    public void Dispose() { disposed = true; Navigation.LocationChanged -= LocationChanged; requestCancellation?.Cancel(); requestCancellation?.Dispose(); }
+    private async Task RetryWithCurrentOutgoingAsync(PendingEmailRow row)
+    {
+        if (Busy) return;
+        actionBusy = true;
+        var submitted = false;
+        try
+        {
+            var route = await TimelineClient.PreviewChangedRouteAsync(row.Id);
             if (route?.CanRetry == true)
             {
-                await ConfirmCurrentRouteAsync(timelineId, route);
+                await ConfirmCurrentRouteAsync(row, route, () => submitted = true);
                 return;
             }
-            var preview = await TimelineClient.PreviewOutgoingRetryAsync(timelineId);
+            var preview = await TimelineClient.PreviewOutgoingRetryAsync(row.Id);
             if (preview?.CanRetry != true || preview.CurrentOutgoingVersion is null ||
                 preview.CurrentMailboxVersion is null || preview.Fence is null || preview.MailboxId is null)
             {
@@ -174,16 +299,17 @@
                 return;
             }
 
-            var grantCheck = preview.Status == "GraphGrantNeedsConfirmation"
-                ? " Confirm that Microsoft Mail.Send access is repaired and a sample send from this mailbox succeeded."
-                : string.Empty;
-            var confirmed = await JS.InvokeAsync<bool>("confirm",
-                $"Retry this delivery to {string.Join(", ", preview.Recipients)} using {preview.MailboxAddress} ({preview.Transport})? " +
-                $"Adopt incoming revision {preview.OriginalMailboxVersion} → {preview.CurrentMailboxVersion} and " +
-                $"outgoing revision {preview.OriginalOutgoingVersion} → {preview.CurrentOutgoingVersion}. " +
-                $"The ticket, tenant and mailbox stay bound to the original delivery.{grantCheck}");
-            if (!confirmed) return;
-            await TimelineClient.RetryWithCurrentOutgoingAsync(timelineId,
+            var explanation = new List<string>
+            {
+                $"Recipients: {string.Join(", ", preview.Recipients)}. Sender: {preview.MailboxAddress} ({preview.Transport}).",
+                $"Adopt incoming revision {preview.OriginalMailboxVersion} → {preview.CurrentMailboxVersion} and outgoing revision {preview.OriginalOutgoingVersion} → {preview.CurrentOutgoingVersion}.",
+                "The ticket, tenant and mailbox stay bound to the original delivery."
+            };
+            if (preview.Status == "GraphGrantNeedsConfirmation")
+                explanation.Add("Confirm that Microsoft Mail.Send access is repaired and a sample send from this mailbox succeeded.");
+            if (await ConfirmActionAsync("Review current outgoing settings", [row], explanation.ToArray(), "Queue retry") is null) return;
+            submitted = true;
+            await TimelineClient.RetryWithCurrentOutgoingAsync(row.Id,
                 new ConfirmMailboxOutgoingRetryRequest(preview.CurrentOutgoingVersion.Value, true)
                 {
                     ExpectedMailboxId = preview.MailboxId,
@@ -192,56 +318,45 @@
                 });
             Snackbar.Add("Delivery queued with the confirmed sender revisions.", Severity.Success);
         }
-        catch (HttpRequestException ex)
-        {
-            Snackbar.Add($"Delivery retry could not be queued: {ex.Message}", Severity.Error);
-        }
-        finally
-        {
-            loading = false;
-            await LoadAsync();
-        }
+        catch (Exception) { Snackbar.Add("Delivery retry could not be queued. Refresh and review the delivery.", Severity.Error); }
+        finally { actionBusy = false; if (submitted && !disposed) await LoadAsync(); }
     }
 
-    private async Task RetryConfirmedUndeliveredAsync(Guid timelineId)
+    private async Task RetryConfirmedUndeliveredAsync(PendingEmailRow row)
     {
-        loading = true;
+        if (Busy) return;
+        actionBusy = true;
+        var submitted = false;
         try
         {
-            var preview = await TimelineClient.PreviewUncertainRetryAsync(timelineId);
+            var preview = await TimelineClient.PreviewUncertainRetryAsync(row.Id);
             if (preview?.CanRetry != true || preview.Fence is null || preview.CurrentOutgoingVersion is null)
             {
                 Snackbar.Add($"This delivery cannot be retried: {preview?.Status ?? "Preview unavailable"}.", Severity.Warning);
                 return;
             }
-
-            var evidence = await JS.InvokeAsync<string?>("prompt",
-                $"Confirm with the provider and recipients that no delivery occurred to: {string.Join(", ", preview.Recipients)}. Enter a non-sensitive evidence reference (8–128 characters, letters, digits, . _ : / -).", "");
-            if (string.IsNullOrWhiteSpace(evidence)) return;
-            var confirmed = await JS.InvokeAsync<bool>("confirm",
-                $"I verified non-delivery for every listed recipient. Retry through {preview.MailboxAddress} ({preview.Transport}), outgoing revision {preview.CurrentOutgoingVersion}? Evidence: {evidence}");
-            if (!confirmed) return;
-            await TimelineClient.RetryConfirmedUndeliveredAsync(timelineId,
+            var evidence = await ConfirmActionAsync("Confirm non-delivery before retry", [row],
+                [$"Verify with the provider and recipients that no delivery occurred to: {string.Join(", ", preview.Recipients)}.",
+                 $"Retry through {preview.MailboxAddress} ({preview.Transport}), outgoing revision {preview.CurrentOutgoingVersion}."],
+                "Queue verified retry", requireEvidence: true);
+            if (evidence is null) return;
+            submitted = true;
+            await TimelineClient.RetryConfirmedUndeliveredAsync(row.Id,
                 new(preview.Fence.Value, preview.CurrentOutgoingVersion.Value, evidence, true));
             Snackbar.Add("Delivery queued after confirmed non-delivery.", Severity.Success);
         }
-        catch (HttpRequestException ex)
-        {
-            Snackbar.Add($"Delivery retry could not be queued: {ex.Message}", Severity.Error);
-        }
-        finally
-        {
-            loading = false;
-            await LoadAsync();
-        }
+        catch (Exception) { Snackbar.Add("Delivery retry could not be queued. Refresh and review the delivery.", Severity.Error); }
+        finally { actionBusy = false; if (submitted && !disposed) await LoadAsync(); }
     }
 
-    private async Task RetryWithCurrentRouteAsync(Guid timelineId)
+    private async Task RetryWithCurrentRouteAsync(PendingEmailRow row)
     {
-        loading = true;
+        if (Busy) return;
+        actionBusy = true;
+        var submitted = false;
         try
         {
-            var preview = await TimelineClient.PreviewChangedRouteAsync(timelineId);
+            var preview = await TimelineClient.PreviewChangedRouteAsync(row.Id);
             if (preview?.CanRetry != true || preview.Fence is null || preview.OriginalMailboxId is null ||
                 preview.CurrentMailboxId is null || preview.CurrentMailboxVersion is null ||
                 preview.CurrentOutgoingVersion is null)
@@ -249,29 +364,23 @@
                 Snackbar.Add($"This delivery cannot use the current route: {preview?.Status ?? "Preview unavailable"}.", Severity.Warning);
                 return;
             }
-
-            await ConfirmCurrentRouteAsync(timelineId, preview);
+            await ConfirmCurrentRouteAsync(row, preview, () => submitted = true);
         }
-        catch (HttpRequestException ex)
-        {
-            Snackbar.Add($"Delivery retry could not be queued: {ex.Message}", Severity.Error);
-        }
-        finally
-        {
-            loading = false;
-            await LoadAsync();
-        }
+        catch (Exception) { Snackbar.Add("Delivery retry could not be queued. Refresh and review the delivery.", Severity.Error); }
+        finally { actionBusy = false; if (submitted && !disposed) await LoadAsync(); }
     }
 
-    private async Task ConfirmCurrentRouteAsync(Guid timelineId, MailboxRouteRetryPreview preview)
+    private async Task ConfirmCurrentRouteAsync(PendingEmailRow row, MailboxRouteRetryPreview preview, Action submitting)
     {
         if (preview.Fence is null || preview.OriginalMailboxId is null || preview.CurrentMailboxId is null ||
             preview.CurrentMailboxVersion is null || preview.CurrentOutgoingVersion is null)
             return;
-        var confirmed = await JS.InvokeAsync<bool>("confirm",
-            $"The original sender was {preview.OriginalMailboxAddress}. The current ticket route is {preview.CurrentMailboxAddress} ({preview.CurrentTransport}). Send the original delivery to {string.Join(", ", preview.Recipients)} using the current mailbox? Verify the tenant assignment and recipients before confirming.");
-        if (!confirmed) return;
-        await TimelineClient.RetryWithCurrentRouteAsync(timelineId,
+        if (await ConfirmActionAsync("Review changed sender route", [row],
+            [$"Original sender: {preview.OriginalMailboxAddress}. Current ticket route: {preview.CurrentMailboxAddress} ({preview.CurrentTransport}).",
+             $"Recipients: {string.Join(", ", preview.Recipients)}. Current incoming revision {preview.CurrentMailboxVersion}; outgoing revision {preview.CurrentOutgoingVersion}.",
+             "Send the original delivery using the current mailbox. Verify the tenant assignment and every recipient before confirming."], "Queue with current sender") is null) return;
+        submitting();
+        await TimelineClient.RetryWithCurrentRouteAsync(row.Id,
             new(preview.Fence.Value, preview.OriginalMailboxId.Value, preview.CurrentMailboxId.Value,
                 preview.CurrentMailboxVersion.Value, preview.CurrentOutgoingVersion.Value, true));
         Snackbar.Add("Delivery queued with the confirmed current sender.", Severity.Success);

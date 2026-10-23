@@ -1,4 +1,6 @@
 @page "/admin/support-routing"
+@implements IDisposable
+@using Microsoft.AspNetCore.Components.Routing
 @attribute [Authorize(Roles = "HelpdeskAdmin")]
 @using HelpDesk.NewWeb.Services
 @using Helpdesk.Shared.DTOs.Organization
@@ -12,23 +14,17 @@
 
 <PageTitle>Support Routing</PageTitle>
 
-<div class="helpdesk-page">
-<MudPaper Class="helpdesk-content-surface pa-4" Elevation="0">
+<NavigationLock ConfirmExternalNavigation="editing" OnBeforeInternalNavigation="ConfirmNavigation" />
+<div class="helpdesk-page support-routing-workspace">
+<MudPaper Class="helpdesk-content-surface pa-3" Elevation="0">
     <MudStack Row="true" AlignItems="AlignItems.Center" Class="helpdesk-page-header">
-        <MudText Typo="Typo.h4" HtmlTag="h1" Class="helpdesk-page-title">Support Routing</MudText>
+        <MudText Typo="Typo.h5" HtmlTag="h1" Class="helpdesk-page-title">Support Routing</MudText>
         <MudSpacer />
         <MudButton Variant="Variant.Outlined"
                    StartIcon="@Icons.Material.Filled.Refresh"
-                   Disabled="@loading"
+                   Disabled="@(loading || editing)"
                    OnClick="RefreshAsync">
             Refresh
-        </MudButton>
-        <MudButton Variant="Variant.Filled"
-                   Color="Color.Primary"
-                   StartIcon="@Icons.Material.Filled.AutoFixHigh"
-                   Disabled="@loading"
-                   OnClick="BootstrapDefaultsAsync">
-            Bootstrap Defaults
         </MudButton>
     </MudStack>
 
@@ -39,35 +35,23 @@
         </MudAlert>
     }
 
-    <MudPaper Outlined="true" Class="pa-4 mb-4">
+    <MudPaper Elevation="0" Class="pa-2 mb-2">
         <MudGrid Spacing="3" AlignItems="Center">
-            <MudItem xs="12" md="5">
+            <MudItem xs="12" md="6">
                 <MudSelect T="string"
                            Value="@selectedOrganizationId"
                            ValueChanged="OnOrganizationChangedAsync"
                            Label="Organization"
                            Variant="Variant.Outlined"
                            Margin="Margin.Dense"
-                           Disabled="@loading">
+                           Disabled="@(loading || editing)">
                     @foreach (var organization in organizations.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
                     {
                         <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
                     }
                 </MudSelect>
             </MudItem>
-            <MudItem xs="12" md="3">
-                <MudSelect T="SupportNotificationEventType"
-                           Value="@selectedEventType"
-                           ValueChanged="OnEventChangedAsync"
-                           Label="Preview event"
-                           Variant="Variant.Outlined"
-                           Margin="Margin.Dense"
-                           Disabled="@loading">
-                    <MudSelectItem Value="SupportNotificationEventType.TicketCreatedUnassigned">@SupportNotificationLabels.Event(SupportNotificationEventType.TicketCreatedUnassigned)</MudSelectItem>
-                    <MudSelectItem Value="SupportNotificationEventType.TicketAssigned">@SupportNotificationLabels.Event(SupportNotificationEventType.TicketAssigned)</MudSelectItem>
-                </MudSelect>
-            </MudItem>
-            <MudItem xs="12" md="4">
+            <MudItem xs="12" md="6">
                 <MudText Typo="Typo.overline">Selected organization</MudText>
                 <MudText Typo="Typo.subtitle1">@SelectedOrganizationName</MudText>
                 <MudText Typo="Typo.body2" Class="text-secondary">Provider/MSP: @ProviderOrganizationName</MudText>
@@ -93,34 +77,58 @@
         <MudProgressLinear Indeterminate="true" Class="mb-4" />
     }
 
-    <MudTabs Rounded="false" PanelClass="pt-4">
-        <MudTabPanel Text="Organization Routing" Icon="@Icons.Material.Filled.AccountTree">
+    <MudTabs MinimumTabWidth="128px" Rounded="false" PanelClass="pt-2" KeepPanelsAlive="true">
+        <MudTabPanel Text="Routing">
             <MudStack Spacing="3">
-                <SupportRecipientPreviewPanel Preview="preview"
-                                              Loading="previewLoading"
-                                              OnRefresh="LoadPreviewAsync" />
-                <OrganizationSupportCoveragePanel SelectedOrganizationId="selectedOrganizationId"
+                <MudSelect T="string" @bind-Value="routingConcern" Disabled="editing" Label="Routing concern" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    <MudSelectItem T="string" Value='@("coverage")'>Support coverage</MudSelectItem>
+                    <MudSelectItem T="string" Value='@("notifications")'>Notification rules</MudSelectItem>
+                </MudSelect>
+                @if (routingConcern == "coverage")
+                {
+                <OrganizationSupportCoveragePanel @key="selectedOrganizationId" BusyChanged="OnEditingChanged" SelectedOrganizationId="selectedOrganizationId"
                                                   Rows="coverageRows"
                                                   Organizations="organizations"
                                                   SupportGroups="supportGroups"
                                                   OnChanged="ReloadRoutingDataAsync" />
-                <SupportNotificationSubscriptionsPanel SelectedOrganizationId="selectedOrganizationId"
+                }
+                else
+                {
+                <SupportNotificationSubscriptionsPanel @key="selectedOrganizationId" BusyChanged="OnEditingChanged" SelectedOrganizationId="selectedOrganizationId"
                                                        Rows="subscriptionRows"
                                                        Organizations="organizations"
                                                        SupportGroups="supportGroups"
                                                        Users="users"
                                                        OnChanged="ReloadRoutingDataAsync" />
+                }
             </MudStack>
         </MudTabPanel>
-        <MudTabPanel Text="Support Groups" Icon="@Icons.Material.Filled.SupportAgent">
-            <SupportGroupMembersPanel Groups="supportGroups"
+        <MudTabPanel Text="Support groups">
+            <SupportGroupMembersPanel @key="selectedOrganizationId" BusyChanged="OnEditingChanged" Groups="supportGroups"
                                       Organizations="organizations"
                                       Users="users"
                                       DefaultOwningOrganizationId="DefaultOwningOrganizationId"
                                       OnChanged="ReloadRoutingDataAsync" />
         </MudTabPanel>
-        <MudTabPanel Text="Tools" Icon="@Icons.Material.Filled.Build">
-            <MudPaper Outlined="true" Class="pa-4">
+        <MudTabPanel Text="Diagnostics">
+                <MudGrid>            <MudItem xs="12" md="3">
+                <MudSelect T="SupportNotificationEventType"
+                           Value="@selectedEventType"
+                           ValueChanged="OnEventChangedAsync"
+                           Label="Preview event"
+                           Variant="Variant.Outlined"
+                           Margin="Margin.Dense"
+                           Disabled="@(loading || editing)">
+                    <MudSelectItem Value="SupportNotificationEventType.TicketCreatedUnassigned">@SupportNotificationLabels.Event(SupportNotificationEventType.TicketCreatedUnassigned)</MudSelectItem>
+                    <MudSelectItem Value="SupportNotificationEventType.TicketAssigned">@SupportNotificationLabels.Event(SupportNotificationEventType.TicketAssigned)</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+</MudGrid>
+                <SupportRecipientPreviewPanel Preview="preview"
+                                              Loading="previewLoading"
+                                              OnRefresh="LoadPreviewAsync" />
+
+            <MudPaper Elevation="0" Class="pa-2">
                 <MudStack Spacing="3">
                     <div>
                         <MudText Typo="Typo.h6">Bootstrap Defaults</MudText>
@@ -132,7 +140,7 @@
                         <MudButton Variant="Variant.Filled"
                                    Color="Color.Primary"
                                    StartIcon="@Icons.Material.Filled.AutoFixHigh"
-                                   Disabled="@loading"
+                                   Disabled="@(loading || editing)"
                                    OnClick="BootstrapDefaultsAsync">
                             Bootstrap Defaults
                         </MudButton>
@@ -192,6 +200,19 @@
     private string? appliedQueryOrganizationId;
     private SupportNotificationEventType selectedEventType = SupportNotificationEventType.TicketCreatedUnassigned;
     private bool loading;
+    private int editingActions;
+    private bool editing => editingActions > 0;
+    private bool disposed;
+    private int routingVersion;
+    private int previewVersion;
+    private string routingConcern = "coverage";
+    private void OnEditingChanged(bool value) => editingActions = Math.Max(0, editingActions + (value ? 1 : -1));
+    private void ConfirmNavigation(LocationChangingContext context)
+    {
+        if (editing) context.PreventNavigation();
+    }
+    public void Dispose() { disposed = true; routingVersion++; previewVersion++; }
+
     private bool previewLoading;
     private string? loadError;
 
@@ -310,6 +331,7 @@
 
     private async Task OnOrganizationChangedAsync(string value)
     {
+        if (editing || value == selectedOrganizationId) return;
         selectedOrganizationId = value;
         await ReloadRoutingDataAsync();
     }
@@ -322,63 +344,60 @@
 
     private async Task ReloadRoutingDataAsync()
     {
-        if (string.IsNullOrWhiteSpace(selectedOrganizationId))
-        {
-            coverageRows = new();
-            subscriptionRows = new();
-            preview = null;
-            return;
-        }
-
+        var version = ++routingVersion;
+        var organizationId = selectedOrganizationId;
+        coverageRows = new();
+        subscriptionRows = new();
+        preview = null;
+        if (string.IsNullOrWhiteSpace(organizationId)) return;
         loading = true;
+        loadError = null;
         try
         {
             var groupsTask = SupportClient.GetGroupsAsync();
-            var coverageTask = SupportClient.GetCoverageAsync(selectedOrganizationId);
-            var subscriptionsTask = SupportClient.GetSubscriptionsAsync(selectedOrganizationId);
-
-            supportGroups = (await groupsTask).ToList();
-            coverageRows = (await coverageTask).ToList();
-            subscriptionRows = (await subscriptionsTask).ToList();
+            var coverageTask = SupportClient.GetCoverageAsync(organizationId);
+            var subscriptionsTask = SupportClient.GetSubscriptionsAsync(organizationId);
+            await Task.WhenAll(groupsTask, coverageTask, subscriptionsTask);
+            if (disposed || version != routingVersion || organizationId != selectedOrganizationId) return;
+            supportGroups = groupsTask.Result.ToList();
+            coverageRows = coverageTask.Result.ToList();
+            subscriptionRows = subscriptionsTask.Result.ToList();
+            await LoadPreviewAsync();
         }
         catch (Exception ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            if (!disposed && version == routingVersion) loadError = $"Routing could not be loaded: {ex.Message}";
         }
-        finally
-        {
-            loading = false;
-        }
-
-        await LoadPreviewAsync();
+        finally { if (!disposed && version == routingVersion) loading = false; }
     }
 
     private async Task LoadPreviewAsync()
     {
-        if (string.IsNullOrWhiteSpace(selectedOrganizationId))
-        {
-            preview = null;
-            return;
-        }
-
+        var version = ++previewVersion;
+        var organizationId = selectedOrganizationId;
+        var eventType = selectedEventType;
+        preview = null;
+        if (string.IsNullOrWhiteSpace(organizationId)) return;
         previewLoading = true;
         try
         {
-            preview = await SupportClient.GetRecipientPreviewAsync(selectedOrganizationId, selectedEventType);
+            var result = await SupportClient.GetRecipientPreviewAsync(organizationId, eventType);
+            if (!disposed && version == previewVersion && organizationId == selectedOrganizationId && eventType == selectedEventType)
+                preview = result;
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Recipient preview could not be loaded: {ex.Message}", Severity.Error);
-            preview = null;
+            if (!disposed && version == previewVersion) loadError = $"Recipient preview could not be loaded: {ex.Message}";
         }
-        finally
-        {
-            previewLoading = false;
-        }
+        finally { if (!disposed && version == previewVersion) previewLoading = false; }
     }
 
     private async Task BootstrapDefaultsAsync()
     {
+        if (editing || loading) return;
+        OnEditingChanged(true);
+        try
+        {
         var confirm = await DialogService.ShowMessageBoxAsync(
             "Bootstrap Support Routing",
             "Create missing default support groups, coverage rows, and new-unassigned-ticket subscriptions for enabled organizations?",
@@ -409,5 +428,7 @@
         {
             Snackbar.Add(ex.Message, Severity.Error);
         }
+        }
+        finally { OnEditingChanged(false); }
     }
 }

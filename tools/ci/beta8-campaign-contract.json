@@ -1,0 +1,2014 @@
+{
+  "format": "rateldesk-beta8-campaign-contract/v1",
+  "version": "0.1.2-beta.8",
+  "historicalRegister": {
+    "path": "docs/implementation/0.1.2-beta.6-acceptance/closure-register.json",
+    "sha256": "570baf0f2a39d11d34464f76a0d961142baab8b307c3338ad37cd743847dee65"
+  },
+  "historicalCatalog": {
+    "path": "docs/contracts/mcp-operation-catalog-beta7.json",
+    "sha256": "66061736f4be91f0fecc50f81aaab23945a1dbf55ef230d7c17c69420a9ca7a9",
+    "catalogHash": "3290c0447eb033b327d9b15ea949c608bf0ae0a35c45556fda90b98abf3270bf",
+    "schemaHash": "cb1a42c9d8990caece7c2cff0c1e1d8e89f54d5d7bf639e7f057e7021f6406af",
+    "operationIds": [
+      "helpdesk_admin_mutations.create_category",
+      "helpdesk_admin_mutations.create_customer",
+      "helpdesk_admin_mutations.create_organization",
+      "helpdesk_admin_mutations.create_request_form",
+      "helpdesk_admin_mutations.create_role",
+      "helpdesk_admin_mutations.create_self_service_request",
+      "helpdesk_admin_mutations.create_service",
+      "helpdesk_admin_mutations.create_service_request_form",
+      "helpdesk_admin_mutations.create_user",
+      "helpdesk_admin_mutations.customer_disable_login",
+      "helpdesk_admin_mutations.customer_invite",
+      "helpdesk_admin_mutations.customer_resend_invite",
+      "helpdesk_admin_mutations.customer_sync_authentik",
+      "helpdesk_admin_mutations.delete_category",
+      "helpdesk_admin_mutations.delete_customer",
+      "helpdesk_admin_mutations.delete_organization",
+      "helpdesk_admin_mutations.delete_request_form",
+      "helpdesk_admin_mutations.delete_role",
+      "helpdesk_admin_mutations.delete_service",
+      "helpdesk_admin_mutations.delete_user",
+      "helpdesk_admin_mutations.provision_user",
+      "helpdesk_admin_mutations.update_category",
+      "helpdesk_admin_mutations.update_customer",
+      "helpdesk_admin_mutations.update_organization",
+      "helpdesk_admin_mutations.update_organization_branding",
+      "helpdesk_admin_mutations.update_request_form",
+      "helpdesk_admin_mutations.update_role",
+      "helpdesk_admin_mutations.update_service",
+      "helpdesk_admin_mutations.update_user",
+      "helpdesk_ai_assistant.report",
+      "helpdesk_auth.access",
+      "helpdesk_auth.status",
+      "helpdesk_capabilities.get",
+      "helpdesk_categories.list",
+      "helpdesk_changes.add_worklog",
+      "helpdesk_changes.assign",
+      "helpdesk_changes.assign_self",
+      "helpdesk_changes.attachments_count",
+      "helpdesk_changes.bulk_create",
+      "helpdesk_changes.bulk_state",
+      "helpdesk_changes.create",
+      "helpdesk_changes.delete",
+      "helpdesk_changes.get",
+      "helpdesk_changes.lifecycle",
+      "helpdesk_changes.list",
+      "helpdesk_changes.listeners_count",
+      "helpdesk_changes.state",
+      "helpdesk_changes.timeline",
+      "helpdesk_changes.timeline_count",
+      "helpdesk_changes.update",
+      "helpdesk_changes.worklogs",
+      "helpdesk_config.get",
+      "helpdesk_config.set",
+      "helpdesk_config.show",
+      "helpdesk_config.unset",
+      "helpdesk_connectivity.orchestration",
+      "helpdesk_connectivity.orchestration_bindings",
+      "helpdesk_connectivity.orchestration_jobs",
+      "helpdesk_connectivity.orchestration_request_definitions",
+      "helpdesk_connectivity.orchestration_tenants",
+      "helpdesk_connectivity.orchestration_test",
+      "helpdesk_customers.auth_status",
+      "helpdesk_customers.get",
+      "helpdesk_customers.list",
+      "helpdesk_enums.change_lifecycle_state",
+      "helpdesk_enums.list",
+      "helpdesk_enums.request_task_status",
+      "helpdesk_enums.ticket_priority",
+      "helpdesk_enums.ticket_state",
+      "helpdesk_examples.list",
+      "helpdesk_health.get",
+      "helpdesk_incidents.add_worklog",
+      "helpdesk_incidents.assign",
+      "helpdesk_incidents.assign_self",
+      "helpdesk_incidents.attachments_count",
+      "helpdesk_incidents.bulk_create",
+      "helpdesk_incidents.bulk_state",
+      "helpdesk_incidents.close",
+      "helpdesk_incidents.create",
+      "helpdesk_incidents.delete",
+      "helpdesk_incidents.get",
+      "helpdesk_incidents.list",
+      "helpdesk_incidents.listeners_count",
+      "helpdesk_incidents.peek",
+      "helpdesk_incidents.state",
+      "helpdesk_incidents.timeline",
+      "helpdesk_incidents.timeline_count",
+      "helpdesk_incidents.update",
+      "helpdesk_logs.search",
+      "helpdesk_notifications.get",
+      "helpdesk_notifications.list",
+      "helpdesk_notifications.mark_read",
+      "helpdesk_notifications.summary",
+      "helpdesk_notifications.unread_errors",
+      "helpdesk_organizations.change_participants",
+      "helpdesk_organizations.get",
+      "helpdesk_organizations.list",
+      "helpdesk_organizations.tenant_lookup",
+      "helpdesk_organizations.tenants",
+      "helpdesk_raw.get_change",
+      "helpdesk_raw.get_incident",
+      "helpdesk_raw.get_request",
+      "helpdesk_raw.system_version",
+      "helpdesk_request_forms.by_service",
+      "helpdesk_request_forms.get",
+      "helpdesk_request_tasks.bulk_complete",
+      "helpdesk_request_tasks.bulk_retry",
+      "helpdesk_request_tasks.bulk_start",
+      "helpdesk_request_tasks.complete",
+      "helpdesk_request_tasks.create",
+      "helpdesk_request_tasks.delete",
+      "helpdesk_request_tasks.fail",
+      "helpdesk_request_tasks.get",
+      "helpdesk_request_tasks.list",
+      "helpdesk_request_tasks.retry",
+      "helpdesk_request_tasks.start",
+      "helpdesk_request_tasks.update",
+      "helpdesk_requests.add_worklog",
+      "helpdesk_requests.assign",
+      "helpdesk_requests.assign_self",
+      "helpdesk_requests.attachments_count",
+      "helpdesk_requests.bulk_create",
+      "helpdesk_requests.bulk_state",
+      "helpdesk_requests.create",
+      "helpdesk_requests.delete",
+      "helpdesk_requests.get",
+      "helpdesk_requests.list",
+      "helpdesk_requests.listeners_count",
+      "helpdesk_requests.state",
+      "helpdesk_requests.tasks",
+      "helpdesk_requests.timeline",
+      "helpdesk_requests.timeline_count",
+      "helpdesk_requests.update",
+      "helpdesk_roles.get",
+      "helpdesk_roles.list",
+      "helpdesk_schema.list",
+      "helpdesk_search.customers",
+      "helpdesk_search.organizations",
+      "helpdesk_search.users",
+      "helpdesk_self_service.get_request",
+      "helpdesk_self_service.request_users",
+      "helpdesk_self_service.requests",
+      "helpdesk_services.breadcrumb",
+      "helpdesk_services.get",
+      "helpdesk_services.items",
+      "helpdesk_services.list",
+      "helpdesk_services.search_items",
+      "helpdesk_system.version",
+      "helpdesk_tickets.attachments_count",
+      "helpdesk_tickets.listeners_count",
+      "helpdesk_tickets.mark_as_seen",
+      "helpdesk_tickets.timeline_count",
+      "helpdesk_users.by_email",
+      "helpdesk_users.get",
+      "helpdesk_users.list"
+    ]
+  },
+  "historicalObligations": [
+    {
+      "id": "B6-B01",
+      "kind": "historical_blocker",
+      "title": "helpdesk_ai_assistant.report",
+      "operation": "helpdesk_ai_assistant.report",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-B02",
+      "kind": "historical_blocker",
+      "title": "helpdesk_connectivity.orchestration",
+      "operation": "helpdesk_connectivity.orchestration",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-B03",
+      "kind": "historical_blocker",
+      "title": "helpdesk_connectivity.orchestration_jobs",
+      "operation": "helpdesk_connectivity.orchestration_jobs",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-B04",
+      "kind": "historical_blocker",
+      "title": "helpdesk_connectivity.orchestration_tenants",
+      "operation": "helpdesk_connectivity.orchestration_tenants",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-B05",
+      "kind": "historical_blocker",
+      "title": "helpdesk_connectivity.orchestration_request_definitions",
+      "operation": "helpdesk_connectivity.orchestration_request_definitions",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-B06",
+      "kind": "historical_blocker",
+      "title": "helpdesk_connectivity.orchestration_bindings",
+      "operation": "helpdesk_connectivity.orchestration_bindings",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-B07",
+      "kind": "historical_blocker",
+      "title": "helpdesk_connectivity.orchestration_test",
+      "operation": "helpdesk_connectivity.orchestration_test",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B08",
+      "kind": "historical_blocker",
+      "title": "helpdesk_incidents.peek",
+      "operation": "helpdesk_incidents.peek",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-B09",
+      "kind": "historical_blocker",
+      "title": "helpdesk_incidents.assign_self",
+      "operation": "helpdesk_incidents.assign_self",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B10",
+      "kind": "historical_blocker",
+      "title": "helpdesk_search.users",
+      "operation": "helpdesk_search.users",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-B11",
+      "kind": "historical_blocker",
+      "title": "helpdesk_search.customers",
+      "operation": "helpdesk_search.customers",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-B12",
+      "kind": "historical_blocker",
+      "title": "helpdesk_search.organizations",
+      "operation": "helpdesk_search.organizations",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-B13",
+      "kind": "historical_blocker",
+      "title": "helpdesk_requests.assign_self",
+      "operation": "helpdesk_requests.assign_self",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B14",
+      "kind": "historical_blocker",
+      "title": "helpdesk_customers.list",
+      "operation": "helpdesk_customers.list",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-B15",
+      "kind": "historical_blocker",
+      "title": "helpdesk_customers.get",
+      "operation": "helpdesk_customers.get",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-B16",
+      "kind": "historical_blocker",
+      "title": "helpdesk_customers.auth_status",
+      "operation": "helpdesk_customers.auth_status",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-B17",
+      "kind": "historical_blocker",
+      "title": "helpdesk_admin_mutations.create_organization",
+      "operation": "helpdesk_admin_mutations.create_organization",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B18",
+      "kind": "historical_blocker",
+      "title": "helpdesk_admin_mutations.update_organization",
+      "operation": "helpdesk_admin_mutations.update_organization",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B19",
+      "kind": "historical_blocker",
+      "title": "helpdesk_admin_mutations.delete_organization",
+      "operation": "helpdesk_admin_mutations.delete_organization",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B20",
+      "kind": "historical_blocker",
+      "title": "helpdesk_admin_mutations.create_customer",
+      "operation": "helpdesk_admin_mutations.create_customer",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B21",
+      "kind": "historical_blocker",
+      "title": "helpdesk_admin_mutations.update_customer",
+      "operation": "helpdesk_admin_mutations.update_customer",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B22",
+      "kind": "historical_blocker",
+      "title": "helpdesk_admin_mutations.delete_customer",
+      "operation": "helpdesk_admin_mutations.delete_customer",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B23",
+      "kind": "historical_blocker",
+      "title": "helpdesk_admin_mutations.create_user",
+      "operation": "helpdesk_admin_mutations.create_user",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B24",
+      "kind": "historical_blocker",
+      "title": "helpdesk_admin_mutations.update_user",
+      "operation": "helpdesk_admin_mutations.update_user",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B25",
+      "kind": "historical_blocker",
+      "title": "helpdesk_admin_mutations.delete_user",
+      "operation": "helpdesk_admin_mutations.delete_user",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B26",
+      "kind": "historical_blocker",
+      "title": "helpdesk_admin_mutations.create_category",
+      "operation": "helpdesk_admin_mutations.create_category",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B27",
+      "kind": "historical_blocker",
+      "title": "helpdesk_admin_mutations.update_category",
+      "operation": "helpdesk_admin_mutations.update_category",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B28",
+      "kind": "historical_blocker",
+      "title": "helpdesk_admin_mutations.delete_category",
+      "operation": "helpdesk_admin_mutations.delete_category",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B29",
+      "kind": "historical_blocker",
+      "title": "helpdesk_admin_mutations.create_service",
+      "operation": "helpdesk_admin_mutations.create_service",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B30",
+      "kind": "historical_blocker",
+      "title": "helpdesk_admin_mutations.update_service",
+      "operation": "helpdesk_admin_mutations.update_service",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B31",
+      "kind": "historical_blocker",
+      "title": "helpdesk_admin_mutations.delete_service",
+      "operation": "helpdesk_admin_mutations.delete_service",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B32",
+      "kind": "historical_blocker",
+      "title": "helpdesk_admin_mutations.create_request_form",
+      "operation": "helpdesk_admin_mutations.create_request_form",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B33",
+      "kind": "historical_blocker",
+      "title": "helpdesk_admin_mutations.create_service_request_form",
+      "operation": "helpdesk_admin_mutations.create_service_request_form",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B34",
+      "kind": "historical_blocker",
+      "title": "helpdesk_admin_mutations.provision_user",
+      "operation": "helpdesk_admin_mutations.provision_user",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B35",
+      "kind": "historical_blocker",
+      "title": "helpdesk_admin_mutations.update_organization_branding",
+      "operation": "helpdesk_admin_mutations.update_organization_branding",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B36",
+      "kind": "historical_blocker",
+      "title": "helpdesk_admin_mutations.update_request_form",
+      "operation": "helpdesk_admin_mutations.update_request_form",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B37",
+      "kind": "historical_blocker",
+      "title": "helpdesk_admin_mutations.delete_request_form",
+      "operation": "helpdesk_admin_mutations.delete_request_form",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B38",
+      "kind": "historical_blocker",
+      "title": "helpdesk_admin_mutations.customer_invite",
+      "operation": "helpdesk_admin_mutations.customer_invite",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B39",
+      "kind": "historical_blocker",
+      "title": "helpdesk_admin_mutations.customer_resend_invite",
+      "operation": "helpdesk_admin_mutations.customer_resend_invite",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B40",
+      "kind": "historical_blocker",
+      "title": "helpdesk_admin_mutations.customer_disable_login",
+      "operation": "helpdesk_admin_mutations.customer_disable_login",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B41",
+      "kind": "historical_blocker",
+      "title": "helpdesk_admin_mutations.customer_sync_authentik",
+      "operation": "helpdesk_admin_mutations.customer_sync_authentik",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B42",
+      "kind": "historical_blocker",
+      "title": "helpdesk_request_tasks.retry",
+      "operation": "helpdesk_request_tasks.retry",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B43",
+      "kind": "historical_blocker",
+      "title": "helpdesk_request_tasks.bulk_retry",
+      "operation": "helpdesk_request_tasks.bulk_retry",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B44",
+      "kind": "historical_blocker",
+      "title": "helpdesk_self_service.requests",
+      "operation": "helpdesk_self_service.requests",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-B45",
+      "kind": "historical_blocker",
+      "title": "helpdesk_self_service.get_request",
+      "operation": "helpdesk_self_service.get_request",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-B46",
+      "kind": "historical_blocker",
+      "title": "helpdesk_request_forms.by_service",
+      "operation": "helpdesk_request_forms.by_service",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-B47",
+      "kind": "historical_blocker",
+      "title": "helpdesk_changes.bulk_state",
+      "operation": "helpdesk_changes.bulk_state",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B48",
+      "kind": "historical_blocker",
+      "title": "helpdesk_changes.assign",
+      "operation": "helpdesk_changes.assign",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B49",
+      "kind": "historical_blocker",
+      "title": "helpdesk_changes.assign_self",
+      "operation": "helpdesk_changes.assign_self",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "preview": "preview"
+      }
+    },
+    {
+      "id": "B6-B50",
+      "kind": "historical_blocker",
+      "title": "helpdesk_users.list",
+      "operation": "helpdesk_users.list",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-B51",
+      "kind": "historical_blocker",
+      "title": "helpdesk_users.get",
+      "operation": "helpdesk_users.get",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-B52",
+      "kind": "historical_blocker",
+      "title": "helpdesk_users.by_email",
+      "operation": "helpdesk_users.by_email",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-B53",
+      "kind": "historical_blocker",
+      "title": "helpdesk_logs.search",
+      "operation": "helpdesk_logs.search",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-B54",
+      "kind": "historical_blocker",
+      "title": "helpdesk_organizations.list",
+      "operation": "helpdesk_organizations.list",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-B55",
+      "kind": "historical_blocker",
+      "title": "helpdesk_organizations.get",
+      "operation": "helpdesk_organizations.get",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-B56",
+      "kind": "historical_blocker",
+      "title": "helpdesk_organizations.tenants",
+      "operation": "helpdesk_organizations.tenants",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-B57",
+      "kind": "historical_blocker",
+      "title": "helpdesk_organizations.tenant_lookup",
+      "operation": "helpdesk_organizations.tenant_lookup",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-B58",
+      "kind": "historical_blocker",
+      "title": "helpdesk_organizations.change_participants",
+      "operation": "helpdesk_organizations.change_participants",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-B59",
+      "kind": "historical_blocker",
+      "title": "helpdesk_services.list",
+      "operation": "helpdesk_services.list",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "RD-B5-MCP-001",
+      "kind": "release_defect",
+      "title": "Durable worklog queue acceptance must not claim email delivery",
+      "operation": null,
+      "cases": {
+        "manual_failure_missing_sender": "positive",
+        "manual_failure_disabled_sender": "positive",
+        "paused_worker": "positive",
+        "internal_note_no_mail": "positive",
+        "public_note_closure_workflow": "positive",
+        "captured_success": "positive",
+        "captured_failure": "positive",
+        "captured_partial": "positive",
+        "captured_uncertain": "positive",
+        "duplicate": "positive",
+        "cancellation": "positive",
+        "retry": "positive",
+        "exact_event_effect_binding": "positive",
+        "sqlite_regression": "implementation",
+        "postgresql_regression": "implementation"
+      }
+    },
+    {
+      "id": "S1",
+      "kind": "mandatory_scenario",
+      "title": "Captured mail lifecycle",
+      "operation": null,
+      "cases": {
+        "invitation": "positive",
+        "submission": "positive",
+        "reply": "positive",
+        "forward": "positive",
+        "retry": "positive",
+        "cancellation": "positive",
+        "partial_outcome": "positive",
+        "uncertain_outcome": "positive"
+      }
+    },
+    {
+      "id": "S2",
+      "kind": "mandatory_scenario",
+      "title": "Notification actor isolation and actual change approval",
+      "operation": null,
+      "cases": {
+        "complete_authorized_populations": "positive",
+        "distinct_actors": "positive",
+        "cross_actor_isolation": "expected_negative",
+        "designated_approver_branches": "positive"
+      }
+    },
+    {
+      "id": "S3",
+      "kind": "mandatory_scenario",
+      "title": "Genuine orchestration and AI lifecycle",
+      "operation": null,
+      "cases": {
+        "dispatch_and_callback": "positive",
+        "bound_ai_invocation": "positive",
+        "duplicate": "positive",
+        "out_of_order": "positive",
+        "wrong_binding": "expected_negative",
+        "timeout_recovery": "positive",
+        "parent_workflow_effects": "positive",
+        "cross_invocation_event_collision": "expected_negative",
+        "terminal_state_regression": "expected_negative"
+      }
+    },
+    {
+      "id": "S4",
+      "kind": "mandatory_scenario",
+      "title": "Exact historical timeline recovery",
+      "operation": null,
+      "cases": {
+        "signed_public_history": "positive",
+        "legacy_exact_recovery": "positive",
+        "legacy_unavailable_is_explicit": "positive",
+        "ambiguous_provenance_rejected": "expected_negative"
+      }
+    },
+    {
+      "id": "S5",
+      "kind": "mandatory_scenario",
+      "title": "Credential boundaries, reload, resumability and independent checks",
+      "operation": null,
+      "cases": {
+        "scoped_positive": "positive",
+        "foreign_organization": "expected_negative",
+        "expired": "expected_negative",
+        "separately_disposable_revoked": "expected_negative",
+        "fresh_status_only": "positive",
+        "fresh_process_profile_reload": "positive",
+        "resumability": "positive",
+        "independent_api_cli_ui_storage": "positive"
+      }
+    },
+    {
+      "id": "RD-MCP-001",
+      "kind": "historical_finding",
+      "title": "Reject undefined incident states atomically",
+      "operation": null,
+      "cases": {
+        "fresh_family_regression": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "RD-MCP-002",
+      "kind": "historical_finding",
+      "title": "Preserve flat task lifecycle responses and uncertain-outcome reconciliation",
+      "operation": null,
+      "cases": {
+        "fresh_family_regression": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "RD-MCP-003",
+      "kind": "historical_finding",
+      "title": "Preserve query aliases, filtered counts and paging in all four ticket lists",
+      "operation": null,
+      "cases": {
+        "fresh_family_regression": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "RD-MCP-004",
+      "kind": "historical_finding",
+      "title": "Preserve named task priorities and atomic invalid-edit rejection",
+      "operation": null,
+      "cases": {
+        "fresh_family_regression": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "RD-MCP-005",
+      "kind": "historical_finding",
+      "title": "Preserve governed change state, approval, edit-lock and lifecycle routes",
+      "operation": null,
+      "cases": {
+        "fresh_family_regression": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "RD-MCP-006",
+      "kind": "historical_finding",
+      "title": "Preserve customer authentication routes, provider authority and delivery evidence",
+      "operation": null,
+      "cases": {
+        "fresh_family_regression": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "RD-MCP-007",
+      "kind": "historical_finding",
+      "title": "Preserve executable schemas, previews and autonomous AI report binding",
+      "operation": null,
+      "cases": {
+        "fresh_family_regression": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "RD-MCP-008",
+      "kind": "historical_finding",
+      "title": "Reject unsupported ticket edit fields atomically",
+      "operation": null,
+      "cases": {
+        "fresh_family_regression": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "RD-MCP-009",
+      "kind": "historical_finding",
+      "title": "Preserve four fixed raw reads without arbitrary raw access",
+      "operation": null,
+      "cases": {
+        "fresh_family_regression": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "RD-MCP-010",
+      "kind": "historical_finding",
+      "title": "Preserve mail dialog cancellation, reasons, evidence and queue behavior",
+      "operation": null,
+      "cases": {
+        "fresh_family_regression": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "RD-MCP-011",
+      "kind": "historical_finding",
+      "title": "Preserve authority, transport, identifier and prerequisite contracts",
+      "operation": null,
+      "cases": {
+        "fresh_family_regression": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-R01",
+      "kind": "beta4_failed_operation",
+      "title": "Rerun repaired helpdesk_notifications.summary",
+      "operation": "helpdesk_notifications.summary",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-R02",
+      "kind": "beta4_failed_operation",
+      "title": "Rerun repaired helpdesk_incidents.list",
+      "operation": "helpdesk_incidents.list",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-R03",
+      "kind": "beta4_failed_operation",
+      "title": "Rerun repaired helpdesk_requests.list",
+      "operation": "helpdesk_requests.list",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-R04",
+      "kind": "beta4_failed_operation",
+      "title": "Rerun repaired helpdesk_changes.list",
+      "operation": "helpdesk_changes.list",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-R05",
+      "kind": "beta4_failed_operation",
+      "title": "Rerun repaired helpdesk_request_tasks.list",
+      "operation": "helpdesk_request_tasks.list",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-R06",
+      "kind": "beta4_failed_operation",
+      "title": "Rerun repaired helpdesk_incidents.timeline",
+      "operation": "helpdesk_incidents.timeline",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-R07",
+      "kind": "beta4_failed_operation",
+      "title": "Rerun repaired helpdesk_requests.timeline",
+      "operation": "helpdesk_requests.timeline",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "B6-R08",
+      "kind": "beta4_failed_operation",
+      "title": "Rerun repaired helpdesk_changes.timeline",
+      "operation": "helpdesk_changes.timeline",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative"
+      }
+    },
+    {
+      "id": "RD-B5-OBS-001",
+      "kind": "performance_observation",
+      "title": "Profile summary latency against a prospectively agreed budget while preserving correct counts",
+      "operation": "helpdesk_notifications.summary",
+      "cases": {
+        "profile_and_budget": "positive",
+        "count_correctness": "positive"
+      }
+    },
+    {
+      "id": "B6-N01",
+      "kind": "new_operation",
+      "title": "Verify the actual configured HTTP execution identity and access",
+      "operation": "helpdesk_auth.access",
+      "cases": {
+        "positive": "positive",
+        "isolation": "expected_negative",
+        "setup_verification_denied": "expected_negative",
+        "scoped_admin_owner_stays_scoped": "positive",
+        "foreign_resource": "expected_negative",
+        "expired": "expected_negative",
+        "revoked": "expected_negative",
+        "disabled_account": "expected_negative",
+        "external_shared_principal_binding": "positive",
+        "external_admin_without_ai_scheme": "positive",
+        "discovery_metadata_is_not_verified_authority": "positive"
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "owner",
+      "title": "Explicit owner delegation and live revocation boundaries",
+      "cases": {
+        "current_owner": {
+          "kind": "positive",
+          "surfaces": [
+            "api"
+          ],
+          "assertion": "owner_grant_observed"
+        },
+        "ordinary_stays_scoped": {
+          "kind": "expected_negative",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "ordinary_credential_denied_admin"
+        },
+        "owner_role_removed": {
+          "kind": "expected_negative",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "owner_authority_revalidated"
+        },
+        "wrong_resource": {
+          "kind": "expected_negative",
+          "surfaces": [
+            "api"
+          ],
+          "assertion": "foreign_mcp_resource_denied"
+        },
+        "wrong_purpose": {
+          "kind": "expected_negative",
+          "surfaces": [
+            "api"
+          ],
+          "assertion": "wrong_credential_purpose_denied"
+        },
+        "expired": {
+          "kind": "expected_negative",
+          "surfaces": [
+            "api"
+          ],
+          "assertion": "expired_credential_denied"
+        },
+        "revoked_active_session": {
+          "kind": "expected_negative",
+          "surfaces": [
+            "api"
+          ],
+          "assertion": "revoked_active_session_denied"
+        },
+        "revoked_fresh_session": {
+          "kind": "expected_negative",
+          "surfaces": [
+            "api"
+          ],
+          "assertion": "revoked_fresh_session_denied"
+        },
+        "disabled_account": {
+          "kind": "expected_negative",
+          "surfaces": [
+            "api"
+          ],
+          "assertion": "disabled_account_denied"
+        },
+        "secret_write_readback": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "secret_saved_without_echo"
+        },
+        "new_secret_once": {
+          "kind": "positive",
+          "surfaces": [
+            "api"
+          ],
+          "assertion": "one_time_secret_only_on_creation"
+        }
+      }
+    },
+    {
+      "id": "core",
+      "title": "Owned incident, request, change and task lifecycles",
+      "cases": {
+        "incident_lifecycle": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "incident_lifecycle_persisted"
+        },
+        "request_lifecycle": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "request_lifecycle_persisted"
+        },
+        "change_lifecycle": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "change_lifecycle_persisted"
+        },
+        "request_task_lifecycle": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "task_lifecycle_persisted"
+        },
+        "bulk_atomic_rejection": {
+          "kind": "expected_negative",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "invalid_bulk_changed_nothing"
+        },
+        "attachment_roundtrip": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "attachment_bytes_match"
+        },
+        "foreign_tenant": {
+          "kind": "expected_negative",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "foreign_tenant_hidden"
+        },
+        "same_tenant_other_customer": {
+          "kind": "expected_negative",
+          "surfaces": [
+            "api"
+          ],
+          "assertion": "other_customer_ticket_hidden"
+        },
+        "ticket_lookup_and_assignment": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "ui",
+            "storage"
+          ],
+          "assertion": "scoped_lookup_and_eligible_assignment_match"
+        },
+        "current_assignee_recovery": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "retained_assignee_visible_without_new_assignment_authority"
+      },
+      "incident_relation_lifecycle": {
+        "kind": "positive",
+        "surfaces": [
+          "api",
+          "storage"
+        ],
+        "assertion": "incident_links_listeners_and_source_state_match"
+      },
+      "incident_bulk_silent_actions": {
+        "kind": "positive",
+        "surfaces": [
+          "api",
+          "storage",
+          "transport_capture"
+        ],
+        "assertion": "selected_incident_bulk_effects_without_requester_mail"
+        }
+      }
+    },
+    {
+      "id": "self_service",
+      "title": "Owner creation and tenant/customer self-service automation",
+      "cases": {
+        "form_create_edit_publish": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "ui",
+            "storage"
+          ],
+          "assertion": "form_schema_and_task_count_match"
+        },
+        "dataset_bind_submit": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "dataset_bound_value_persisted"
+        },
+        "customer_owned_visibility": {
+          "kind": "positive",
+          "surfaces": [
+            "api"
+          ],
+          "assertion": "owned_request_visible"
+        },
+        "form_audience_isolation": {
+          "kind": "expected_negative",
+          "surfaces": [
+            "api"
+          ],
+          "assertion": "unpublished_or_foreign_form_hidden"
+        },
+        "manual_and_approval_tasks": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "manual_and_approval_task_effects_persisted"
+        }
+      }
+    },
+    {
+      "id": "automation",
+      "title": "Genuine paired automation with immutable attempt history",
+      "cases": {
+        "pair_and_map": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "provider"
+          ],
+          "assertion": "peer_and_organization_mapping_verified"
+        },
+        "create_target_and_binding": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "provider",
+            "storage"
+          ],
+          "assertion": "target_and_binding_exist"
+        },
+        "auto_start_false": {
+          "kind": "positive",
+          "surfaces": [
+            "provider",
+            "storage"
+          ],
+          "assertion": "pending_without_provider_execution"
+        },
+        "auto_start_true": {
+          "kind": "positive",
+          "surfaces": [
+            "provider",
+            "storage"
+          ],
+          "assertion": "automatic_provider_execution_observed"
+        },
+        "dependencies_and_manual_start": {
+          "kind": "positive",
+          "surfaces": [
+            "provider",
+            "storage"
+          ],
+          "assertion": "dependency_order_observed"
+        },
+        "single_retry": {
+          "kind": "positive",
+          "surfaces": [
+            "provider",
+            "storage"
+          ],
+          "assertion": "new_retry_execution_id"
+        },
+        "bulk_retry": {
+          "kind": "positive",
+          "surfaces": [
+            "provider",
+            "storage"
+          ],
+          "assertion": "distinct_retry_executions"
+        },
+        "callback_success_failure": {
+          "kind": "positive",
+          "surfaces": [
+            "provider",
+            "storage"
+          ],
+          "assertion": "callback_terminal_effects_match"
+        },
+        "duplicate_callback": {
+          "kind": "positive",
+          "surfaces": [
+            "provider",
+            "storage"
+          ],
+          "assertion": "duplicate_has_no_second_effect"
+        },
+        "wrong_binding": {
+          "kind": "expected_negative",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "wrong_binding_changed_nothing"
+        },
+        "out_of_order_terminal": {
+          "kind": "expected_negative",
+          "surfaces": [
+            "storage"
+          ],
+          "assertion": "terminal_state_not_regressed"
+        },
+        "provider_timeout_recovery": {
+          "kind": "positive",
+          "surfaces": [
+            "provider",
+            "storage"
+          ],
+          "assertion": "timeout_reconciled_without_duplicate"
+        },
+        "schema_drift_import": {
+          "kind": "positive",
+          "surfaces": [
+            "provider",
+            "storage"
+          ],
+          "assertion": "reviewed_schema_import_preserves_binding"
+        },
+        "automation_rule_crud": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "ui",
+            "storage"
+          ],
+          "assertion": "automation_rule_crud_persisted"
+        }
+      }
+    },
+    {
+      "id": "ai",
+      "title": "Actual AI provider dispatch, reports, logs and bound event identity",
+      "cases": {
+        "real_invocation_report": {
+          "kind": "positive",
+          "surfaces": [
+            "provider",
+            "storage"
+          ],
+          "assertion": "actual_invocation_report_persisted"
+        },
+        "logs_bound_invocation": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "logs_match_authorized_invocation"
+        },
+        "cross_invocation_collision": {
+          "kind": "expected_negative",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "event_collision_rejected"
+        },
+        "wrong_ticket_or_correlation": {
+          "kind": "expected_negative",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "wrong_report_binding_rejected"
+        },
+        "late_terminal_report": {
+          "kind": "expected_negative",
+          "surfaces": [
+            "storage"
+          ],
+          "assertion": "terminal_report_not_regressed"
+        },
+        "webhook_configuration_and_dispatch": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "provider",
+            "storage"
+          ],
+          "assertion": "eligible_webhook_and_actual_dispatch_match"
+        },
+        "native_chat_lifecycle": {
+          "kind": "positive",
+          "surfaces": [
+            "provider",
+            "storage"
+          ],
+          "assertion": "native_chat_message_and_interaction_effects_match"
+        },
+        "native_chat_uncertainty_recovery": {
+          "kind": "positive",
+          "surfaces": [
+            "provider",
+            "storage"
+          ],
+          "assertion": "native_chat_uncertainty_reconciled_without_resend"
+        }
+      }
+    },
+    {
+      "id": "mail",
+      "title": "Captured delivery lifecycle and safe reviewed retries",
+      "cases": {
+        "mailbox_worker_sender_setup": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "saved_sender_and_worker_match"
+        },
+        "invitation": {
+          "kind": "positive",
+          "surfaces": [
+            "transport_capture",
+            "api"
+          ],
+          "assertion": "invitation_captured"
+        },
+        "submission": {
+          "kind": "positive",
+          "surfaces": [
+            "transport_capture",
+            "storage"
+          ],
+          "assertion": "submission_captured"
+        },
+        "public_reply": {
+          "kind": "positive",
+          "surfaces": [
+            "transport_capture",
+            "storage"
+          ],
+          "assertion": "public_reply_captured"
+        },
+        "forward_ingestion": {
+          "kind": "positive",
+          "surfaces": [
+            "transport_capture",
+            "storage"
+          ],
+          "assertion": "forward_routing_and_sender_verified"
+        },
+        "internal_note": {
+          "kind": "positive",
+          "surfaces": [
+            "transport_capture",
+            "storage"
+          ],
+          "assertion": "internal_note_sent_no_mail"
+        },
+        "paused_worker": {
+          "kind": "positive",
+          "surfaces": [
+            "transport_capture",
+            "storage"
+          ],
+          "assertion": "paused_queue_not_reported_delivered"
+        },
+        "disabled_or_missing_sender": {
+          "kind": "positive",
+          "surfaces": [
+            "storage"
+          ],
+          "assertion": "configuration_failure_not_delivered"
+        },
+        "accepted_success": {
+          "kind": "positive",
+          "surfaces": [
+            "transport_capture",
+            "storage"
+          ],
+          "assertion": "captured_delivery_matches_history"
+        },
+        "definite_failure": {
+          "kind": "positive",
+          "surfaces": [
+            "transport_capture",
+            "storage"
+          ],
+          "assertion": "failed_recipients_match_history"
+        },
+        "partial_acceptance": {
+          "kind": "positive",
+          "surfaces": [
+            "transport_capture",
+            "storage"
+          ],
+          "assertion": "partial_recipients_match_history"
+        },
+        "uncertain_outcome": {
+          "kind": "positive",
+          "surfaces": [
+            "transport_capture",
+            "storage"
+          ],
+          "assertion": "uncertainty_preserved"
+        },
+        "duplicate": {
+          "kind": "positive",
+          "surfaces": [
+            "transport_capture",
+            "storage"
+          ],
+          "assertion": "duplicate_not_resent"
+        },
+        "selected_cancel": {
+          "kind": "positive",
+          "surfaces": [
+            "transport_capture",
+            "storage"
+          ],
+          "assertion": "selected_cancel_only"
+        },
+        "retry_current_revision": {
+          "kind": "positive",
+          "surfaces": [
+            "transport_capture",
+            "storage"
+          ],
+          "assertion": "reviewed_revision_retry_only"
+        },
+        "retry_proven_undelivered": {
+          "kind": "positive",
+          "surfaces": [
+            "transport_capture",
+            "storage"
+          ],
+          "assertion": "independent_nondelivery_evidence_retained"
+        },
+        "retry_changed_route": {
+          "kind": "positive",
+          "surfaces": [
+            "transport_capture",
+            "storage"
+          ],
+          "assertion": "reviewed_route_retry_only"
+        },
+        "historical_import": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "selected_distinct_receipts_imported"
+        },
+        "outdated_retry_fence": {
+          "kind": "expected_negative",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "stale_fence_changed_nothing"
+        }
+      }
+    },
+    {
+      "id": "support",
+      "title": "Support setup, actual recipients and actor-isolated decisions",
+      "cases": {
+        "groups_members_coverage": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "coverage_and_membership_persisted"
+        },
+        "subscriptions_preferences": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "recipient_preview_matches_configuration"
+        },
+        "distinct_notification_actors": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "each_actor_has_own_notifications"
+        },
+        "cross_actor_mark_read": {
+          "kind": "expected_negative",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "other_actor_read_marker_unchanged"
+        },
+        "request_approver_accept_reject": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "designated_request_approver_decisions_persisted"
+        },
+        "owner_not_designated_approver": {
+          "kind": "expected_negative",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "owner_cannot_impersonate_approver"
+        },
+        "concurrent_approval_decisions": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "approval_decision_idempotent_without_duplicate_effects"
+        },
+        "change_review_and_return_to_draft": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "designated_change_reviews_and_draft_return_persisted"
+        }
+      }
+    },
+    {
+      "id": "administration",
+      "title": "Tenant, account, role and branding administration",
+      "cases": {
+        "organizations_customers_roles": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "owned_admin_objects_persisted"
+        },
+        "local_account_activation_reset": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "local_account_lifecycle_verified"
+        },
+        "role_scope_revocation": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "scoped_role_change_effective"
+        },
+        "branding_templates_images": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "ui",
+            "storage"
+          ],
+          "assertion": "branding_template_and_image_rendered"
+        },
+        "sla_policy_calendar_reports": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "sla_settings_and_outcomes_match"
+        },
+        "dataset_rows_credentials": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "dataset_rows_and_credential_lifecycle_verified"
+        },
+        "dataset_delete_missing_explicit": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "only_explicit_missing_rows_deleted"
+        },
+        "graph_dataset_sync": {
+          "kind": "positive",
+          "surfaces": [
+            "provider",
+            "storage"
+          ],
+          "assertion": "actual_graph_data_sync_observed"
+        },
+        "dataset_conflict_reconciliation": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "conflict_readback_preserves_case_insensitive_keys"
+        },
+        "asset_crud": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "ui",
+            "storage"
+          ],
+          "assertion": "asset_crud_and_organization_persisted"
+        },
+        "instance_branding_precedence": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "ui",
+            "storage"
+          ],
+          "assertion": "branding_sources_and_explicit_reset_preserved"
+        },
+        "tenant_branding_logo": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "ui",
+            "storage"
+          ],
+          "assertion": "tenant_logo_roundtrip_and_branding_readback_match"
+        },
+        "background_worker_runtime": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "background_worker_runtime_and_jobs_reconciled"
+        }
+      }
+    },
+    {
+      "id": "history",
+      "title": "Exact effort and readable historical worklogs",
+      "cases": {
+        "fractional_and_zero_effort": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "cli",
+            "storage"
+          ],
+          "assertion": "fractional_and_zero_hours_exact"
+        },
+        "signed_public_history": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "ui",
+            "storage"
+          ],
+          "assertion": "signed_history_exact"
+        },
+        "legacy_exact_recovery": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "ui",
+            "storage"
+          ],
+          "assertion": "legacy_recovery_exact"
+        },
+        "legacy_unavailable_explicit": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "ui"
+          ],
+          "assertion": "unavailable_history_not_invented"
+        },
+        "ambiguous_provenance": {
+          "kind": "expected_negative",
+          "surfaces": [
+            "storage"
+          ],
+          "assertion": "ambiguous_history_not_rewritten"
+        },
+        "ui_counters": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "ui",
+            "storage"
+          ],
+          "assertion": "timeline_and_form_counts_agree"
+        }
+      }
+    },
+    {
+      "id": "schema_recovery",
+      "title": "Closed schemas, bounded behavior and independent transport checks",
+      "cases": {
+        "all_operation_wire_contracts": {
+          "kind": "positive",
+          "surfaces": [
+            "mcp"
+          ],
+          "assertion": "live_discovery_matches_export"
+        },
+        "unknown_duplicate_fields": {
+          "kind": "expected_negative",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "invalid_fields_have_no_effect"
+        },
+        "preview_immutability": {
+          "kind": "preview",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "preview_has_no_effect"
+        },
+        "fresh_process_profile_reload": {
+          "kind": "positive",
+          "surfaces": [
+            "cli",
+            "api"
+          ],
+          "assertion": "fresh_process_same_target_and_identity"
+        },
+        "interrupted_campaign_resume": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "resume_reconciles_prior_effects"
+        },
+        "independent_api_cli_ui_storage": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "cli",
+            "ui",
+            "storage"
+          ],
+          "assertion": "independent_readbacks_agree"
+        },
+        "notification_count_latency": {
+          "kind": "positive",
+          "surfaces": [
+            "api",
+            "storage"
+          ],
+          "assertion": "notification_counts_correct_under_declared_budget"
+        }
+      }
+    }
+  ],
+  "cleanupAssertions": [
+    "unrelated_records_unchanged",
+    "temporary_credentials_revoked",
+    "temporary_jobs_stopped",
+    "mailbox_worker_and_sender_restored",
+    "terminal_history_preserved",
+    "uncertain_effects_reconciled",
+    "fixture_disposition_recorded",
+    "secret_values_excluded_from_receipt",
+    "administration_settings_restored"
+  ],
+  "limitations": [
+    "This contract is an evidence format and test plan, not evidence of a live campaign.",
+    "The validator verifies identity bindings, checksums, complete denominators, recorded observations and assertions; it cannot establish that supplied captures are authentic.",
+    "One authentication-mode lane does not establish all-authentication-modes production acceptance.",
+    "Historic named-owner and human-signature fields remain in the original register; this technical campaign neither invents nor requires those signatures."
+  ]
+}

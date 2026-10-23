@@ -212,7 +212,8 @@ test('desktop navigation reaches the incidents workspace without overflow', asyn
 test('representative incident detail and admin pages do not overflow', async ({ page }) => {
   await page.goto('/incidents');
   await expect(page.getByRole('heading', { name: 'Incidents' })).toBeVisible();
-  await page.locator('tbody tr').first().locator('td').nth(5).click();
+  // The subject opens the email preview; the tracking cell opens the ticket.
+  await page.locator('tbody tr').first().locator('td[data-label="Tracking ID"]').click();
   await expect(page).toHaveURL(/\/incidents\//);
   await assertNoHorizontalOverflow(page);
 

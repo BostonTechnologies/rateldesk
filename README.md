@@ -8,8 +8,9 @@ It is built with ASP.NET Core and Blazor, and starts simply: SQLite and local
 accounts are enough for a new installation.
 
 Use this README to get running and choose a deployment path. The detailed
-operator material lives in [self-hosting](docs/SELF_HOSTING.md),
-[branding](docs/branding.md), and [release engineering](docs/releases.md).
+operator material starts at the [documentation index](docs/README.md), with
+[self-hosting](docs/deployment/self-hosting.md),
+[branding](docs/customization/branding.md), and [release engineering](docs/releases/README.md).
 
 ## Start locally
 
@@ -45,7 +46,7 @@ docker exec rateldesk-api-1 dotnet /app/Helpdesk.API.dll --show-setup-code
 Inside the API container, `dotnet /app/Helpdesk.API.dll --show-setup-code` is
 enough; the image includes `sh`, not Bash. If the code cannot be retrieved,
 run the command with `--setup-status` and follow the
-[setup troubleshooting guide](docs/SELF_HOSTING.md#setup-code-and-container-troubleshooting).
+[setup troubleshooting guide](docs/deployment/self-hosting.md#setup-code-and-container-troubleshooting).
 These read-only commands require rc.5 or later.
 
 The default Compose stack runs Web and API in Production mode over localhost
@@ -74,7 +75,7 @@ At `/setup`, select PostgreSQL and use host `postgres`, port `5432`, database
 `rateldesk`, user `rateldesk`, and that password. For an external PostgreSQL
 server, run the normal stack and enter its reachable, empty target in setup.
 The full requirements for TLS, upgrades, backups, recovery, and unattended
-initialization are in [self-hosting](docs/SELF_HOSTING.md#external-postgresql).
+initialization are in [self-hosting](docs/deployment/self-hosting.md#external-postgresql).
 
 To run published images rather than build from source, choose an exact release
 version:
@@ -103,7 +104,7 @@ include:
 
 `/tmp/rateldesk/keys` is a local fallback, not a production key store. Back up
 the database, bootstrap state, data-protection keys, and attachments together.
-See [self-hosting](docs/SELF_HOSTING.md) for the complete configuration and
+See [self-hosting](docs/deployment/self-hosting.md) for the complete configuration and
 operating guidance.
 
 ## NetClaw AI Assistant and MCP
@@ -123,7 +124,7 @@ The second gives NetClaw carefully scoped RatelDesk tools. They use different
 credentials, have different purposes, and must never be substituted for one
 another.
 
-Read the [NetClaw integration guide](docs/netclaw.md) and the
+Read the [NetClaw integration guide](docs/integrations/netclaw.md) and the
 [NetRatel orchestrator guide](docs/integrations/netratel-orchestrator.md)
 before enabling either
 path. It covers pairing, SignalR recovery, the optional HTTP MCP host,
@@ -148,9 +149,15 @@ stdio MCP archives for Linux x64/arm64 and Windows x64. Linux archives require
 a glibc distribution, not Alpine/musl. Both support offline `--help` and
 `--version` before loading credentials.
 
-HTTP MCP is optional and separate from the base Web/API stack. Its source and
-release overlays are documented in the
-[HTTP MCP example](docker/examples/mcp-http/README.md). Authentik HTTP MCP
+HTTP MCP is optional and separate from the base Web/API stack. For local
+accounts, start with the Web URL in the [short HTTP MCP setup guide](docs/mcp-http/setup.md):
+host review/approval, deployment-owner apply, temporary status verification and
+optional scoped client approval. Source/release overlays, environment-only
+settings and explicit external authentication are documented in the
+[complete reference](docs/mcp-http/README.md) and runnable
+[HTTP MCP example](docker/examples/mcp-http/README.md). The
+[Web gateway](docs/deployment/web-gateway.md) exposes selected MCP through the
+public Web origin. Authentik HTTP MCP
 mode is a separate external-identity integration; it is not a fallback for
 local paired credentials.
 
@@ -158,11 +165,13 @@ local paired credentials.
 
 | Need | Read |
 | --- | --- |
-| Install, configure, secure, or recover an instance | [Self-hosting](docs/SELF_HOSTING.md) |
-| Connect NetClaw AI Assistant and tenant-scoped MCP | [NetClaw integration](docs/netclaw.md) |
+| Install, configure, secure, or recover an instance | [Self-hosting](docs/deployment/self-hosting.md) |
+| Set up CLI/stdio profiles and browser approval | [CLI/stdio](docs/integrations/cli-stdio.md), [browser pairing](docs/integrations/browser-pairing.md) |
+| Route API/MCP through Web or host HTTP MCP | [Web gateway](docs/deployment/web-gateway.md), [HTTP MCP](docs/mcp-http/README.md) |
+| Connect NetClaw AI Assistant and tenant-scoped MCP | [NetClaw integration](docs/integrations/netclaw.md) |
 | Configure the NetRatel orchestrator | [NetRatel orchestrator](docs/integrations/netratel-orchestrator.md) |
-| Brand an instance without forking | [Branding](docs/branding.md) |
-| Build and publish releases | [Release engineering](docs/releases.md) |
+| Brand an instance without forking | [Branding](docs/customization/branding.md) |
+| Build and publish releases | [Release engineering](docs/releases/README.md) |
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change. Report
 vulnerabilities privately under [SECURITY.md](SECURITY.md).

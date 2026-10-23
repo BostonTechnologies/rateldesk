@@ -1,5 +1,8 @@
 using System.Security.Claims;
 using Helpdesk.Infrastructure.Identity;
+using Helpdesk.API.Services.IntegrationCredentials;
+using Helpdesk.Shared.Services;
+using Helpdesk.Shared.Auth;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -16,10 +19,12 @@ public sealed class McpExecutionAuthenticationHandler(
     ILoggerFactory logger,
     System.Text.Encodings.Web.UrlEncoder encoder,
     McpExecutionTokenService executionTokens,
-    RatelDeskIdentityDbContext identityDb)
+    RatelDeskIdentityDbContext identityDb,
+    ICurrentUserAccessService accessService)
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
     public const string SchemeName = "McpExecution";
+    internal const string SetupOperationDeniedItem = "RatelDesk.SetupVerification.OperationDenied";
 
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
@@ -36,11 +41,25 @@ public sealed class McpExecutionAuthenticationHandler(
             .SingleOrDefaultAsync(candidate => candidate.Id == payload.CredentialId, Context.RequestAborted)
             .ConfigureAwait(false);
         if (credential is null || credential.RevokedAtUtc is not null || credential.ExpiresAtUtc <= DateTimeOffset.UtcNow ||
-            !string.Equals(credential.Purpose, IntegrationCredentialAuthenticationHandler.McpPurpose, StringComparison.Ordinal) ||
+            credential.Purpose is not (IntegrationCredentialAuthenticationHandler.McpPurpose or IntegrationCredentialIssuer.SetupVerificationPurpose or IntegrationCredentialGrantKinds.OwnerAdministrationPurpose) ||
             !string.Equals(credential.OwnerUserId, payload.OwnerUserId, StringComparison.Ordinal) ||
             !string.Equals(credential.McpResourceUri, payload.ResourceUri, StringComparison.Ordinal))
         {
             return AuthenticateResult.Fail("The delegated MCP execution credential is no longer valid.");
+        }
+
+        if (credential.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose &&
+            (credential.Permissions.Length != 0 || string.IsNullOrWhiteSpace(credential.OrganizationId) ||
+             credential.ExpiresAtUtc > credential.CreatedAtUtc.Add(IntegrationCredentialIssuer.SetupVerificationLifetime)))
+            return AuthenticateResult.Fail("The setup verification grant is invalid.");
+
+        // The source row, not a client flag or a mapped None permission, determines the boundary.
+        // Even a valid execution token cannot be replayed at another read-only/business endpoint.
+        if (credential.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose &&
+            (!HttpMethods.IsGet(Request.Method) || Request.Path != "/api/v1/auth/me" || Request.QueryString.HasValue))
+        {
+            Context.Items[SetupOperationDeniedItem] = true;
+            return AuthenticateResult.Fail("Setup verification permits only authenticated status.");
         }
 
         var owner = await identityDb.Users.AsNoTracking()
@@ -48,6 +67,10 @@ public sealed class McpExecutionAuthenticationHandler(
             .ConfigureAwait(false);
         if (owner?.IsEnabled != true)
             return AuthenticateResult.Fail("The delegated MCP execution credential owner is disabled.");
+        if (credential.Purpose == IntegrationCredentialGrantKinds.OwnerAdministrationPurpose &&
+            (!owner.IsInstanceAdministrator || credential.Permissions != HelpdeskPermissions.HelpdeskAdmin ||
+             string.IsNullOrWhiteSpace(credential.OrganizationId)))
+            return AuthenticateResult.Fail("The owner administration grant is no longer authorized.");
 
         var claims = new List<Claim>
         {
@@ -60,12 +83,29 @@ public sealed class McpExecutionAuthenticationHandler(
             new("integration_purpose", credential.Purpose),
             new("mcp_resource_uri", credential.McpResourceUri ?? string.Empty)
         };
+        if (credential.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose) claims.Add(new("setup_verification", "true"));
         if (!string.IsNullOrWhiteSpace(credential.OrganizationId))
             claims.Add(new Claim("integration_organization_id", credential.OrganizationId));
         foreach (var permission in credential.Permissions.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             claims.Add(new Claim("integration_permission", permission));
 
         var identity = new ClaimsIdentity(claims, SchemeName, ClaimTypes.Name, ClaimTypes.Role);
-        return AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName));
+        var principal = new ClaimsPrincipal(identity);
+        if (credential.Purpose == IntegrationCredentialGrantKinds.OwnerAdministrationPurpose)
+        {
+            var access = await accessService.ResolveAsync(principal, Context.RequestAborted).ConfigureAwait(false);
+            if (!access.IsHelpdeskAdmin)
+                return AuthenticateResult.Fail("The owner administration context is no longer authorized.");
+        }
+        else if (credential.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose)
+        {
+            // The organization may have been disabled or its owner's role removed since
+            // exchange. Status must not turn that empty access projection into success.
+            var access = await accessService.ResolveAsync(principal, Context.RequestAborted).ConfigureAwait(false);
+            if (!access.IsAuthenticated || access.Permissions.Count != 0 || access.AllowedOrganizationIds.Count != 1 ||
+                !access.AllowedOrganizationIds.Contains(credential.OrganizationId!))
+                return AuthenticateResult.Fail("The setup verification organization is no longer authorized.");
+        }
+        return AuthenticateResult.Success(new AuthenticationTicket(principal, SchemeName));
     }
 }

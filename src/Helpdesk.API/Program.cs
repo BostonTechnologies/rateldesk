@@ -1,6 +1,7 @@
 using Dodo.Primitives;
 using FluentValidation;
 using Helpdesk.API.Authentication;
+using Helpdesk.API.Services.IntegrationCredentials;
 using Helpdesk.API.Documentation;
 using Helpdesk.API.Email;
 using Helpdesk.API.Configuration;
@@ -479,6 +480,10 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0
             });
     });
+    options.AddPolicy("IntegrationPairing", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions { AutoReplenishment = true, PermitLimit = 3000,
+                Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
     options.AddPolicy("LocalLogin", httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(
             httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
@@ -894,9 +899,14 @@ builder.Services.AddAuthorization(opts =>
         policy.RequireAuthenticatedUser();
         policy.AddRequirements(new IntegrationCredentialManagementSessionRequirement());
     });
+    opts.AddPolicy(IntegrationCredentialEndpoints.OwnerManagementPolicy, policy =>
+    {
+        policy.RequireAuthenticatedUser();
+        policy.AddRequirements(new IntegrationCredentialOwnerManagementRequirement());
+    });
     opts.AddPolicy(IntegrationCredentialEndpoints.SelfRevocationPolicy, policy =>
     {
-        policy.AddAuthenticationSchemes(IntegrationCredentialAuthenticationHandler.SchemeName);
+        policy.AddAuthenticationSchemes(IntegrationCredentialAuthenticationHandler.SchemeName, McpExecutionAuthenticationHandler.SchemeName);
         policy.RequireAuthenticatedUser();
     });
 
@@ -978,7 +988,14 @@ builder.Services.AddAuthorization(opts =>
 
 });
 
+builder.Services.AddAiAgentOrOwnerMcp();
 builder.Services.AddScoped<IIntegrationCredentialOwnerResolver, IntegrationCredentialOwnerResolver>();
+builder.Services.AddScoped<IAuthorizationHandler, IntegrationCredentialOwnerManagementHandler>();
+builder.Services.AddScoped<IntegrationCredentialIssuer>();
+builder.Services.AddScoped<IntegrationCredentialPairingService>();
+builder.Services.AddScoped<HostDeploymentApprovalService>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddHostedService<IntegrationCredentialPairingCleanup>();
 builder.Services.AddServiceOrchestrationCallbacks();
 builder.Services.AddScoped<IIncidentReceiverAuthorization, IncidentReceiverAuthorization>();
 builder.Services.AddScoped<IAuthorizationHandler, IncidentCreateBoundaryHandler>();
@@ -1079,8 +1096,26 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseAuthentication();
+app.UseMiddleware<SetupVerificationExecutionBoundaryMiddleware>();
 app.UseMiddleware<Helpdesk.API.Middleware.LocalCookieCsrfMiddleware>();
 app.UseMiddleware<UserAccessClaimsMiddleware>();
+// Set the pairing transport bound before Minimal API body binding, including chunked requests.
+app.Use(async (context, next) =>
+{
+    var hostProposal = context.Request.Path.StartsWithSegments("/api/v1/integration-credentials/host-proposals");
+    if (hostProposal || context.Request.Path.StartsWithSegments("/api/v1/integration-credentials/pairing"))
+    {
+        var maximumBytes = hostProposal ? 65536 : 16384;
+        if (context.Request.ContentLength > maximumBytes)
+        {
+            context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
+            return;
+        }
+        var bodyLimit = context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>();
+        if (bodyLimit is { IsReadOnly: false }) bodyLimit.MaxRequestBodySize = maximumBytes;
+    }
+    await next(context);
+});
 app.UseRateLimiter();
 app.UseAuthorization();
 
@@ -1094,6 +1129,8 @@ if (useHangfireRuntime)
 
 app.MapCurrentUserAccessEndpoint();
 app.MapIntegrationCredentialEndpoints();
+app.MapIntegrationCredentialPairingEndpoints();
+app.MapHostDeploymentApprovalEndpoints();
 app.MapServiceIdentityEndpoints();
 app.MapSystemPairing();
 app.MapMcpGatewayDelegationEndpoints();
@@ -1126,7 +1163,7 @@ app.MapGet("/api/v1/auth/ai-agent/status", (ClaimsPrincipal user) => Results.Ok(
     identityProvider = user.FindFirst("identity_provider")?.Value,
     groups = user.FindAll("groups").Select(c => c.Value).Distinct(StringComparer.OrdinalIgnoreCase).Order().ToArray(),
     roles = user.FindAll(ClaimTypes.Role).Concat(user.FindAll("roles")).Select(c => c.Value).Distinct(StringComparer.OrdinalIgnoreCase).Order().ToArray()
-})).RequireAuthorization("AuthentikAiAgentApi")
+})).RequireAuthorization(AiAgentOrOwnerMcpAuthenticationHandler.PolicyName)
     .WithTags("Authentication");
 app.MapAiAgentOpsEndpoints();
 app.MapActivityEndpoints();
@@ -1424,10 +1461,15 @@ static void MapCrudEndpoints<T>(WebApplication app, string route) where T : clas
             ? Results.Ok(updated)
             : Results.Problem("Resource not found", statusCode: 404);
     });
-    group.MapDelete("/{id}", async ([FromRoute] string id, [FromServices] SharedServices.IRepository<T> repo) =>
-        await repo.DeleteAsync(id)
-            ? Results.NoContent()
-            : Results.Problem("Resource not found", statusCode: 404));
+    if (typeof(T) == typeof(Organization))
+        group.MapDelete("/{id}", async ([FromRoute] string id, [FromServices] SharedServices.IRepository<Organization> repo,
+            [FromServices] HelpdeskDbContext db, CancellationToken ct) =>
+            await OrganizationDeletionEndpoint.DeleteAsync(id, repo, db, ct));
+    else
+        group.MapDelete("/{id}", async ([FromRoute] string id, [FromServices] SharedServices.IRepository<T> repo) =>
+            await repo.DeleteAsync(id)
+                ? Results.NoContent()
+                : Results.Problem("Resource not found", statusCode: 404));
 }
 
 static async Task SeedAdminUserAsync(WebApplication app)

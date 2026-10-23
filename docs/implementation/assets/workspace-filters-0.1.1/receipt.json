@@ -1,0 +1,132 @@
+{
+  "issues": [
+    165,
+    166
+  ],
+  "branch": "codex/workspace-filters",
+  "source_sha": "f58788fd252d0fa4cafeeded814f73a547ce2c20",
+  "web_build_sha": "9b520a3",
+  "web_build": {
+    "command": "dotnet build src/HelpDesk.NewWeb/HelpDesk.NewWeb.csproj --no-restore -m:1 -nr:false -p:UseSharedCompilation=false -v:q",
+    "exit_code": 0,
+    "warnings": 0,
+    "errors": 0,
+    "log": "/workspace/work/filters-web-build.log"
+  },
+  "environment": {
+    "PATH_prefix": "/workspace/work/dotnet",
+    "DOTNET_ROOT": "/workspace/work/dotnet",
+    "DOTNET_CLI_HOME": "/workspace/work/dotnet-home",
+    "NUGET_PACKAGES": "/workspace/work/nuget",
+    "DOTNET_PROCESSOR_COUNT": "2",
+    "PLAYWRIGHT_BROWSERS_PATH": "/workspace/work/playwright"
+  },
+  "browser": {
+    "command": "npx playwright test --config playwright.ticket-filters.config.ts --workers=1",
+    "passed": 30,
+    "failed": 0,
+    "skipped": 0,
+    "log": "/workspace/work/filters-browser-final.log",
+    "app": "real Blazor Debug build with synthetic fixture transport on loopback18330; SQL authorization verified separately by root provider tests",
+    "coverage": [
+      "three modules full-data filtering, URL Back/Forward/refresh, stable named chips and keyboard removal, selection clearing, obsolete AI absence",
+      "pending debounce during Back restores page2 without subsequent URL push",
+      "stale response cancellation, error/retry/no matches",
+      "24 responsive cases:3modules x320/768/1440/1920 xlight/dark",
+      "multi-dimensional query, invalid time range, local-date UTC boundaries, stable sort, page size50"
+    ]
+  },
+  "checks": {
+    "layout": "passed",
+    "documentation": "passed:47Markdown files,169local links,6Compose contracts",
+    "diff_check": "passed"
+  },
+  "provider_and_component_tests": {
+    "owner": "root integration",
+    "status": "running separately; not claimed passed by this receipt",
+    "filter": "FullyQualifiedName~TicketListFiltersTests|FullyQualifiedName~TicketListStateTests|FullyQualifiedName~TicketListRenderedTests|FullyQualifiedName~AssigneeSearchEndpointsTests",
+    "expected_cases": 39,
+    "cases": {
+      "TicketListFiltersTests": 20,
+      "TicketListStateTests": 8,
+      "TicketListRenderedTests": 3,
+      "AssigneeSearchEndpointsTests": 8
+    }
+  },
+  "before": {
+    "baseline": "main4e3023c UI, version-only0.1.1 suffix in preserved /workspace/work/baseline-web publish",
+    "files": [
+      "/workspace/work/filters-baseline-evidence/changes-dark-1440.png",
+      "/workspace/work/filters-baseline-evidence/changes-light-1440.png",
+      "/workspace/work/filters-baseline-evidence/incidents-dark-1440.png",
+      "/workspace/work/filters-baseline-evidence/incidents-light-1440.png",
+      "/workspace/work/filters-baseline-evidence/requests-dark-1440.png",
+      "/workspace/work/filters-baseline-evidence/requests-light-1440.png"
+    ]
+  },
+  "after": {
+    "files": [
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive--087dd-s-filter-panel-1920px-light/filters-1920-light.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive--087dd-s-filter-panel-1920px-light/filters-panel-1920-light.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive--f8216-s-filter-panel-1440px-light/filters-1440-light.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive--f8216-s-filter-panel-1440px-light/filters-panel-1440-light.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-changes-filter-panel-1440px-dark/filters-1440-dark.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-changes-filter-panel-1440px-dark/filters-panel-1440-dark.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-changes-filter-panel-1440px-light/filters-1440-light.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-changes-filter-panel-1440px-light/filters-panel-1440-light.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-changes-filter-panel-1920px-dark/filters-1920-dark.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-changes-filter-panel-1920px-dark/filters-panel-1920-dark.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-changes-filter-panel-1920px-light/filters-1920-light.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-changes-filter-panel-1920px-light/filters-panel-1920-light.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-changes-filter-panel-320px-dark/filters-320-dark.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-changes-filter-panel-320px-dark/filters-panel-320-dark.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-changes-filter-panel-320px-light/filters-320-light.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-changes-filter-panel-320px-light/filters-panel-320-light.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-changes-filter-panel-768px-dark/filters-768-dark.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-changes-filter-panel-768px-dark/filters-panel-768-dark.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-changes-filter-panel-768px-light/filters-768-light.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-changes-filter-panel-768px-light/filters-panel-768-light.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-incidents-filter-panel-1440px-dark/filters-1440-dark.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-incidents-filter-panel-1440px-dark/filters-panel-1440-dark.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-incidents-filter-panel-1920px-dark/filters-1920-dark.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-incidents-filter-panel-1920px-dark/filters-panel-1920-dark.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-incidents-filter-panel-320px-dark/filters-320-dark.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-incidents-filter-panel-320px-dark/filters-panel-320-dark.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-incidents-filter-panel-320px-light/filters-320-light.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-incidents-filter-panel-320px-light/filters-panel-320-light.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-incidents-filter-panel-768px-dark/filters-768-dark.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-incidents-filter-panel-768px-dark/filters-panel-768-dark.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-incidents-filter-panel-768px-light/filters-768-light.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-incidents-filter-panel-768px-light/filters-panel-768-light.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-requests-filter-panel-1440px-dark/filters-1440-dark.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-requests-filter-panel-1440px-dark/filters-panel-1440-dark.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-requests-filter-panel-1440px-light/filters-1440-light.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-requests-filter-panel-1440px-light/filters-panel-1440-light.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-requests-filter-panel-1920px-dark/filters-1920-dark.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-requests-filter-panel-1920px-dark/filters-panel-1920-dark.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-requests-filter-panel-1920px-light/filters-1920-light.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-requests-filter-panel-1920px-light/filters-panel-1920-light.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-requests-filter-panel-320px-dark/filters-320-dark.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-requests-filter-panel-320px-dark/filters-panel-320-dark.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-requests-filter-panel-320px-light/filters-320-light.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-requests-filter-panel-320px-light/filters-panel-320-light.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-requests-filter-panel-768px-dark/filters-768-dark.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-requests-filter-panel-768px-dark/filters-panel-768-dark.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-requests-filter-panel-768px-light/filters-768-light.png",
+      "/workspace/work/filters-after-evidence/ticket-filters-responsive-requests-filter-panel-768px-light/filters-panel-768-light.png"
+    ],
+    "note": "Full-page mobile captures are tall because25rows render as cards. Panel-only mobile screenshots can include sticky-header overlap caused by element screenshot auto-scroll; prefer full-page captures for evidence."
+  },
+  "environment_observations": "Concurrent PostgreSQL Testcontainers network changes caused occasional Chromium WebSocket1006/network-change console messages; final assertions all passed. External font/static resource warnings also logged. No checks or network feature flags weakened.",
+  "commits": [
+    "4901398",
+    "eb7d984",
+    "3e69fe4",
+    "77da182",
+    "9d52669",
+    "9b520a3",
+    "07a0d3e",
+    "f58788f"
+  ],
+  "not_pushed": true
+}

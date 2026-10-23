@@ -6,7 +6,9 @@ using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.Persistence.Connectivity;
 using Helpdesk.Infrastructure.ServiceIdentity;
 using Helpdesk.Shared.Models;
+using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
@@ -97,7 +99,7 @@ public sealed class PairingUpgradeTests
         var netclawToken = protector.Protect("synthetic-unrelated-netclaw-token");
         var signingKey = protector.Protect("synthetic-preserved-signing-material");
         var oldPrincipals = new List<Guid>();
-        string[] previousHistory;
+        IReadOnlyList<HistoryRow> previousHistory;
 
         await using (var identity = fixture.Identity())
         {
@@ -119,7 +121,6 @@ public sealed class PairingUpgradeTests
                 WebBaseUrl = "https://desk.example.test", ApiBaseUrl = "https://api.example.test", Issuer = "https://existing.example/services" });
             db.Incidents.Add(new() { Id = "preserved-incident", TrackingId = "INC-PRESERVED", Title = "Existing incident", OrganizationId = "preserved-org", CustomerId = "preserved-customer" });
             db.Requests.Add(new() { Id = "preserved-request", TrackingId = "REQ-PRESERVED", Title = "Existing request", OrganizationId = "preserved-org", CustomerId = "preserved-customer" });
-            db.RequestTasks.Add(new() { Id = "preserved-task", TrackingId = "TASK-PRESERVED", RequestId = "preserved-request", OrganizationId = "preserved-org", OrchestrationExternalRunId = "original-run" });
             db.Set<NetclawConnectivitySettings>().Add(new() { Enabled = true, ProtectedDeviceToken = netclawToken, ProfileFingerprint = "unchanged-netclaw", Revision = 7 });
             db.Set<ServiceSigningKey>().Add(new() { Kid = "preserved-signing-key", Issuer = "https://existing.example/services", ProtectedPrivateKey = signingKey,
                 PublicModulus = "unchanged-modulus", PublicExponent = "AQAB", ActiveSlot = 1, CreatedAtUtc = now });
@@ -130,6 +131,16 @@ public sealed class PairingUpgradeTests
             db.IncidentCreateReceipts.Add(new() { Id = receiptId, SourceNamespaceId = oldNamespace, Key = "original-key", Fingerprint = new string('a', 64), IncidentId = "preserved-incident",
                 OrganizationId = "preserved-org", CustomerId = "preserved-customer", Location = "api/v1/incidents/preserved-incident", AcceptedJson = accepted, CommittedAtUtc = now });
             await db.SaveChangesAsync();
+
+            // Seed the shipped task shape, without columns introduced after
+            // this historical baseline. The current context verifies them after upgrade.
+            await using (var historical = new HistoricalTaskContext(
+                (DbContextOptions<HelpdeskDbContext>)db.GetService<IDbContextOptions>(),
+                new AdminTenantContext(), new HttpContextAccessor()))
+            {
+                historical.RequestTasks.Add(new() { Id = "preserved-task", TrackingId = "TASK-PRESERVED", RequestId = "preserved-request", OrganizationId = "preserved-org", OrchestrationExternalRunId = "original-run" });
+                await historical.SaveChangesAsync();
+            }
 
             // Seed the actual shipped schema. No discarded runtime or parser is needed to upgrade malformed state.
             foreach (var status in new[] { "active", "pending", "failed", "verified" })
@@ -156,7 +167,7 @@ public sealed class PairingUpgradeTests
             await InsertHistoricalAsync(db, "M2MConnectivitySettings", new() { ["Id"] = Guid.NewGuid(), ["ProviderKey"] = "Orchestrator", ["Enabled"] = true,
                 ["ManagedSenderEnabled"] = true, ["ProtectedClientSecret"] = "opaque-retired-outbound-secret" });
             await InsertHistoricalAsync(db, "AutomationBindings", new() { ["Id"] = "old-binding", ["OrganizationId"] = "preserved-org", ["TaskTemplateId"] = Guid.NewGuid(), ["RequestFormId"] = "existing-form", ["Enabled"] = true });
-            previousHistory = (await db.Database.GetAppliedMigrationsAsync()).ToArray();
+            previousHistory = await db.GetService<IHistoryRepository>().GetAppliedMigrationsAsync();
             db.ChangeTracker.Clear();
             await db.Database.MigrateAsync();
             await db.Database.MigrateAsync();
@@ -164,7 +175,14 @@ public sealed class PairingUpgradeTests
         await using (var db = fixture.Open())
         {
             Assert.Empty(await db.Database.GetPendingMigrationsAsync());
-            Assert.Equal(previousHistory, (await db.Database.GetAppliedMigrationsAsync()).Take(previousHistory.Length));
+            var currentHistory = (await db.GetService<IHistoryRepository>().GetAppliedMigrationsAsync())
+                .ToDictionary(row => row.MigrationId, row => row.ProductVersion, StringComparer.Ordinal);
+            // Identity and domain contexts share the history table. Their migration IDs can
+            // interleave chronologically, so preserve rows by ID rather than sorted position.
+            var expectedHistoryIds = previousHistory.Select(row => row.MigrationId)
+                .Concat(db.Database.GetMigrations()).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+            Assert.Equal(expectedHistoryIds, currentHistory.Keys.Order(StringComparer.Ordinal).ToArray());
+            Assert.All(previousHistory, row => Assert.Equal(row.ProductVersion, currentHistory[row.MigrationId]));
             Assert.Empty(await db.Set<SystemPair>().ToListAsync());
             Assert.Empty(await db.Set<SystemConnection>().ToListAsync());
             Assert.Empty(await db.Set<PairingRedemption>().ToListAsync());
@@ -202,6 +220,25 @@ public sealed class PairingUpgradeTests
             Assert.Equal(Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("synthetic-unrelated-api-secret"))), credential.SecretHash);
             Assert.True((await identity.Users.SingleAsync(x => x.Id == "preserved-owner")).IsEnabled);
         }
+    }
+
+    private sealed class HistoricalTaskContext(DbContextOptions<HelpdeskDbContext> options, ITenantContext tenant,
+        IHttpContextAccessor accessor) : HelpdeskDbContext(options, tenant, accessor)
+    {
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            base.OnModelCreating(modelBuilder);
+            modelBuilder.Entity<RequestTask>().Ignore(x => x.AutoStart);
+            modelBuilder.Entity<RequestTask>().Ignore(x => x.AutomationAttemptCorrelationId);
+            modelBuilder.Entity<RequestTask>().Ignore(x => x.AutomationAttemptHistoryJson);
+        }
+    }
+
+    private sealed class AdminTenantContext : ITenantContext
+    {
+        public string? TenantId => null;
+        public string? UserId => null;
+        public bool IsHelpdeskAdmin => true;
     }
 
     private sealed class FixedOptions(ServiceIdentityOptions value) : IOptionsMonitor<ServiceIdentityOptions>

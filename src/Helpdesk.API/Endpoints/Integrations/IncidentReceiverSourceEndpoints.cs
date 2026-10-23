@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Helpdesk.API.Endpoints.Authentication;
+using Helpdesk.API.Authentication;
 using Helpdesk.API.Services;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
@@ -17,7 +18,7 @@ public static class IncidentReceiverSourceEndpoints
     public static void MapIncidentReceiverSourceEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/v1/integrations/netratel/sources").WithTags("NetRatel Source Administration")
-            .RequireAuthorization(IntegrationCredentialEndpoints.CredentialManagementPolicy);
+            .RequireAuthorization(ServiceIdentityServiceCollectionExtensions.ManagementPolicy);
         group.AddEndpointFilter(async (context, next) =>
         {
             context.HttpContext.Response.Headers.CacheControl = "no-store";
@@ -57,7 +58,7 @@ public static class IncidentReceiverSourceEndpoints
                 Microsoft.Data.Sqlite.SqliteException { SqliteExtendedErrorCode: 2067 })
             { return IncidentReceiverContract.Problem(409, "source-already-registered"); }
             return Results.Created($"/api/v1/integrations/netratel/sources/{source.SourceNamespaceId:D}", source);
-        });
+        }).Accepts<RegisterSource>("application/json");
         group.MapPut("/{namespaceId:guid}/principal-bindings/{credentialId:guid}", async (
             Guid namespaceId, Guid credentialId, HttpContext http, HelpdeskDbContext db,
             RatelDeskIdentityDbContext identity, TimeProvider time, CancellationToken ct) =>
@@ -86,7 +87,7 @@ public static class IncidentReceiverSourceEndpoints
             try { await db.SaveChangesAsync(ct); }
             catch (DbUpdateConcurrencyException) { return IncidentReceiverContract.Problem(409, "source-revision-conflict"); }
             return Results.Ok(source);
-        });
+        }).Accepts<ChangeGrant>("application/json");
         group.MapPatch("/{namespaceId:guid}", async (Guid namespaceId, HttpContext http, HelpdeskDbContext db, TimeProvider time, CancellationToken ct) =>
         {
             var request = await IncidentReceiverEndpoints.ReadBoundedAsync<ChangeGrant>(http.Request, ct);
@@ -104,7 +105,7 @@ public static class IncidentReceiverSourceEndpoints
             try { await db.SaveChangesAsync(ct); }
             catch (DbUpdateConcurrencyException) { return IncidentReceiverContract.Problem(409, "source-revision-conflict"); }
             return Results.Ok(source);
-        });
+        }).Accepts<ChangeGrant>("application/json");
         group.MapGet("/", async (HelpdeskDbContext db, CancellationToken ct) => Results.Ok(
             await db.IncidentReceiverSources.AsNoTracking().OrderBy(x => x.SourceInstanceId).Take(256).ToListAsync(ct)));
     }

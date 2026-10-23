@@ -24,9 +24,11 @@ public class SystemTokenServiceTests
             .Build();
 
         AuthenticationHeaderValue? secretHeader = null;
+        Uri? requestTarget = null;
         var factory = Substitute.For<IHttpClientFactory>();
         factory.CreateClient("SystemApiNoAuth").Returns(new HttpClient(new StubMessageHandler(request =>
         {
+            requestTarget = request.RequestUri;
             request.Headers.TryGetValues("X-System-Secret", out var values);
             secretHeader = values is null
                 ? null
@@ -36,14 +38,16 @@ public class SystemTokenServiceTests
             {
                 Content = new StringContent("""{"token":"system-token"}""", Encoding.UTF8, "application/json")
             };
-        })));
+        })) { BaseAddress = new Uri("https://helpdesk-api.test/") });
 
         var service = new SystemTokenService(factory, configuration);
+        configuration["ApiBaseUrl"] = "https://changed-api.test/";
 
         var token = await service.GetTokenAsync();
 
         Assert.Equal("system-token", token);
         Assert.Equal("system-secret", secretHeader?.Parameter);
+        Assert.Equal("https://helpdesk-api.test/api/v1/system/token", requestTarget!.AbsoluteUri);
     }
 
     [Fact]

@@ -31,7 +31,8 @@ public sealed class SmtpMailboxSender(MailboxDestinationPolicy destinations,
     public async Task<MailboxSubmissionResult> SendAsync(EmailInboxSettings mailbox,
         MailboxOutgoingSettings outgoing, IEnumerable<string> recipients, IEnumerable<string>? cc,
         string subject, string html, IEnumerable<EmailAttachmentData>? attachments,
-        Guid deliveryId, CancellationToken ct, IEnumerable<string>? bcc = null)
+        Guid deliveryId, CancellationToken ct, IEnumerable<string>? bcc = null,
+        Func<CancellationToken, Task<bool>>? beginSubmission = null)
     {
         if (!outgoing.Enabled || mailbox.Archived)
             return new("Needs configuration", "OutgoingDisabled");
@@ -88,6 +89,8 @@ public sealed class SmtpMailboxSender(MailboxDestinationPolicy destinations,
             using var client = await ConnectAsync(outgoing, timeout.Token);
             try
             {
+                if (beginSubmission is not null && !await beginSubmission(timeout.Token))
+                    return new("Needs review", "DeliveryFenceChanged");
                 await client.SendAsync(message, message.From.Mailboxes.Single(), envelope, timeout.Token);
                 await client.DisconnectAsync(true, timeout.Token);
                 return client.RejectedRecipients.Count == 0

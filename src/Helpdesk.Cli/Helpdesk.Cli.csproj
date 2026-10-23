@@ -10,14 +10,16 @@
     <InternalsVisibleTo Include="Helpdesk.Tests" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.12" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.12" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.12" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="10.0.12" />
-    <PackageReference Include="System.CommandLine" Version="2.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.13" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.13" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.13" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="10.0.13" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.13" />
+    <PackageReference Include="System.CommandLine" Version="2.0.13" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Helpdesk.AgentClient\Helpdesk.AgentClient.csproj" />
+    <ProjectReference Include="..\Helpdesk.Setup\Helpdesk.Setup.csproj" />
     <ProjectReference Include="..\Helpdesk.Shared\Helpdesk.Shared.csproj" />
   </ItemGroup>
 </Project>

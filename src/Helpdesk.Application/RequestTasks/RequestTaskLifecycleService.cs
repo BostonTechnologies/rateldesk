@@ -5,6 +5,8 @@ using Helpdesk.Shared.DTOs.Orchestration;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Helpdesk.Application.RequestTasks;
 
@@ -64,7 +66,9 @@ public sealed class RequestTaskLifecycleService(
             automationBindingSyncState = await EnsureAutomationBindingReadyAsync(task, ct);
         }
 
-        var correlationId = GetCorrelationId();
+        var correlationId = task.Type == RequestTaskType.Automation
+            ? task.AutomationAttemptCorrelationId ??= GetCorrelationId()
+            : GetCorrelationId();
 
         task.Status = RequestTaskStatus.InProgress;
         task.State = TicketState.InProgress;
@@ -405,6 +409,38 @@ public sealed class RequestTaskLifecycleService(
             throw new InvalidOperationException("Only failed tasks can be retried.");
         }
 
+        if (AutomationTaskStatuses.RequiresManualReconciliation(task.LastAutomationStatus))
+            throw new InvalidOperationException("The previous submission outcome is uncertain. Reconcile its provider execution before retrying.");
+        var parent = await _requests.GetAsync(task.RequestId);
+        if (string.Equals(parent?.WorkflowStatus, "Cancelled", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("A cancelled request cannot be resumed by retrying a task.");
+
+        JsonArray history;
+        try
+        {
+            history = string.IsNullOrWhiteSpace(task.AutomationAttemptHistoryJson)
+                ? new JsonArray()
+                : JsonNode.Parse(task.AutomationAttemptHistoryJson) as JsonArray
+                    ?? throw new JsonException();
+        }
+        catch (JsonException)
+        {
+            throw new InvalidOperationException("Automation attempt history is invalid. Reconcile it before retrying.");
+        }
+        history.Add(JsonSerializer.SerializeToNode(new
+        {
+            task.AutomationAttemptCorrelationId, task.AutomationBindingId,
+            task.OrchestrationRequestDefinitionId, task.OrchestrationJobDefinitionId,
+            task.OrchestrationExternalRequestId, task.OrchestrationExternalRunId,
+            task.OrchestratorExecutionId, task.LastAutomationStatus,
+            task.StartedAt, task.CompletedAt, task.FailureReason, task.ResultJson,
+            RetriedAtUtc = DateTimeOffset.UtcNow
+        }));
+        task.AutomationAttemptHistoryJson = history.ToJsonString();
+        // A new explicit attempt gets a durable identity before another provider call.
+        // Transport reconciliation must reuse the previous identity, never manufacture a retry.
+        task.AutomationAttemptCorrelationId = $"automation-attempt-{Guid.NewGuid():N}";
+
         task.Status = RequestTaskStatus.Pending;
         task.State = TicketState.New;
         task.StartedAt = null;
@@ -428,6 +464,21 @@ public sealed class RequestTaskLifecycleService(
         task.UpdatedAt = DateTime.UtcNow;
 
         await _requestTasks.UpdateAsync(task);
+
+        if (parent is not null && (parent.WorkflowStatus is "Blocked" or "Failed"))
+        {
+            var siblings = (await _requestTasks.GetAllAsync()).Where(x => x.RequestId == task.RequestId).ToList();
+            var taskFailureBlock = siblings.Any(x => parent.WorkflowBlockReason == $"Task '{x.Name}' failed."
+                || parent.WorkflowBlockReason == $"Critical task '{x.Name}' failed.");
+            if (taskFailureBlock && !siblings.Any(x => x.Status is RequestTaskStatus.Failed or RequestTaskStatus.Cancelled))
+            {
+                parent.WorkflowStatus = "InProgress";
+                parent.WorkflowBlockReason = null;
+                parent.WorkflowUpdatedAt = DateTimeOffset.UtcNow;
+                parent.UpdatedAt = DateTime.UtcNow;
+                await _requests.UpdateAsync(parent);
+            }
+        }
 
         _logger.LogInformation(
             "Manual automation retry requested. RequestId={RequestId} TaskId={TaskId} CorrelationId={CorrelationId}",

@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Globalization;
 using System.Text.Json;
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Infrastructure.Pairing;
@@ -27,23 +28,43 @@ public sealed class OrchestrationCatalogService(
     private readonly IOrchestrationConnectivityService _connectivityService = connectivityService;
 
     public Task<IReadOnlyList<OrchestrationCatalogJobDto>> ListJobsAsync(CancellationToken cancellationToken = default)
-        => GetCatalogAsync<OrchestrationCatalogJobDto>("jobs", cancellationToken);
+        => ListJobsAsync(null, null, cancellationToken);
 
     public Task<IReadOnlyList<OrchestrationCatalogTenantDto>> ListTenantsAsync(CancellationToken cancellationToken = default)
-        => GetCatalogAsync<OrchestrationCatalogTenantDto>("tenants", cancellationToken);
+        => ListTenantsAsync(null, null, cancellationToken);
 
     public Task<IReadOnlyList<OrchestrationCatalogRequestDefinitionDto>> ListRequestDefinitionsAsync(CancellationToken cancellationToken = default)
-        => GetCatalogAsync<OrchestrationCatalogRequestDefinitionDto>("request-definitions", cancellationToken);
+        => ListRequestDefinitionsAsync(null, null, cancellationToken);
+
+    public Task<IReadOnlyList<OrchestrationCatalogJobDto>> ListJobsAsync(string? organizationId, Guid? connectionId, CancellationToken cancellationToken = default)
+        => GetCatalogAsync<OrchestrationCatalogJobDto>("jobs", organizationId, connectionId, cancellationToken);
+
+    public Task<IReadOnlyList<OrchestrationCatalogTenantDto>> ListTenantsAsync(string? organizationId, Guid? connectionId, CancellationToken cancellationToken = default)
+        => GetCatalogAsync<OrchestrationCatalogTenantDto>("tenants", organizationId, connectionId, cancellationToken);
+
+    public Task<IReadOnlyList<OrchestrationCatalogRequestDefinitionDto>> ListRequestDefinitionsAsync(string? organizationId, Guid? connectionId, CancellationToken cancellationToken = default)
+        => GetCatalogAsync<OrchestrationCatalogRequestDefinitionDto>("request-definitions", organizationId, connectionId, cancellationToken);
+
+    public Task<OrchestrationCatalogRequestDefinitionDto> CreateRequestDefinitionAsync(
+        CreateOrchestrationCatalogRequestDefinitionDto requestPayload,
+        CancellationToken cancellationToken = default)
+        => CreateRequestDefinitionAsync(requestPayload, null, null, cancellationToken);
 
     public async Task<OrchestrationCatalogRequestDefinitionDto> CreateRequestDefinitionAsync(
         CreateOrchestrationCatalogRequestDefinitionDto requestPayload,
+        string? organizationId,
+        Guid? connectionId,
         CancellationToken cancellationToken = default)
     {
-        var settings = await _connectivityService.GetResolvedOrchestrationSettingsAsync(cancellationToken);
+        var settings = await ResolveSettingsAsync(organizationId, connectionId, cancellationToken);
         if (!settings.Enabled)
         {
             throw new InvalidOperationException("External orchestration connectivity is disabled.");
         }
+
+        var tenantId = RequirePeerTenantId(settings);
+        if (requestPayload.TenantId != tenantId)
+            throw new InvalidOperationException("The target tenant must match the selected automation system connection.");
 
         var endpoint = await BuildAbsoluteUriAsync(settings, BuildCatalogPath(settings.CatalogPath, "request-definitions"), cancellationToken);
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
@@ -79,15 +100,24 @@ public sealed class OrchestrationCatalogService(
         }
 
         ValidateRequestDefinitionContract(parsed);
+        RequireMatchingTenant(parsed.TenantId, tenantId);
         return MapRequestDefinition(parsed);
     }
+
+    public Task<OrchestrationCatalogRequestDefinitionDto> SyncRequestDefinitionInputsAsync(
+        string requestDefinitionId,
+        IReadOnlyList<OrchestrationCatalogInputDefinitionDto> inputs,
+        CancellationToken cancellationToken = default)
+        => SyncRequestDefinitionInputsAsync(requestDefinitionId, inputs, null, null, cancellationToken);
 
     public async Task<OrchestrationCatalogRequestDefinitionDto> SyncRequestDefinitionInputsAsync(
         string requestDefinitionId,
         IReadOnlyList<OrchestrationCatalogInputDefinitionDto> inputs,
+        string? organizationId,
+        Guid? connectionId,
         CancellationToken cancellationToken = default)
     {
-        var settings = await _connectivityService.GetResolvedOrchestrationSettingsAsync(cancellationToken);
+        var settings = await ResolveSettingsAsync(organizationId, connectionId, cancellationToken);
         if (!settings.Enabled)
         {
             throw new InvalidOperationException("External orchestration connectivity is disabled.");
@@ -97,7 +127,13 @@ public sealed class OrchestrationCatalogService(
             ? throw new InvalidOperationException("Request definition id is required.")
             : requestDefinitionId.Trim();
 
-        var endpoint = await BuildAbsoluteUriAsync(settings, BuildCatalogPath(settings.CatalogPath, $"request-definitions/{normalizedRequestDefinitionId}/inputs/sync"), cancellationToken);
+        var tenantId = RequirePeerTenantId(settings);
+        // Verify the target using the same resolved connection before changing its inputs.
+        var definitions = await GetCatalogAsync<OrchestrationCatalogRequestDefinitionDto>("request-definitions", settings, cancellationToken);
+        if (!definitions.Any(x => string.Equals(x.RequestDefinitionId, normalizedRequestDefinitionId, StringComparison.Ordinal)))
+            throw new InvalidOperationException("The request definition is unavailable in the selected automation connection tenant.");
+
+        var endpoint = await BuildAbsoluteUriAsync(settings, BuildCatalogPath(settings.CatalogPath, $"request-definitions/{Uri.EscapeDataString(normalizedRequestDefinitionId)}/inputs/sync"), cancellationToken);
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
             Content = JsonContent.Create(new
@@ -134,16 +170,22 @@ public sealed class OrchestrationCatalogService(
         }
 
         ValidateRequestDefinitionContract(parsed);
+        RequireMatchingTenant(parsed.TenantId, tenantId);
+        if (!string.Equals(parsed.RequestDefinitionId, normalizedRequestDefinitionId, StringComparison.Ordinal))
+            throw new InvalidOperationException("External orchestration returned a different request definition after input sync.");
         return MapRequestDefinition(parsed);
     }
 
-    private async Task<IReadOnlyList<T>> GetCatalogAsync<T>(string path, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<T>> GetCatalogAsync<T>(string path, string? organizationId, Guid? connectionId, CancellationToken cancellationToken)
+        => await GetCatalogAsync<T>(path, await ResolveSettingsAsync(organizationId, connectionId, cancellationToken), cancellationToken);
+
+    private async Task<IReadOnlyList<T>> GetCatalogAsync<T>(string path, OrchestrationResolvedSettings settings, CancellationToken cancellationToken)
     {
-        var settings = await _connectivityService.GetResolvedOrchestrationSettingsAsync(cancellationToken);
         if (!settings.Enabled)
         {
             return [];
         }
+        var tenantId = RequirePeerTenantId(settings);
 
         var endpoint = await BuildAbsoluteUriAsync(settings, BuildCatalogPath(settings.CatalogPath, path), cancellationToken);
         using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
@@ -171,7 +213,7 @@ public sealed class OrchestrationCatalogService(
                     ?? throw new InvalidOperationException("External orchestration returned a null request-definition catalogue.");
                 foreach (var item in wire)
                     ValidateRequestDefinitionContract(item);
-                return wire.Select(item => (T)(object)MapRequestDefinition(item)).ToArray();
+                return wire.Where(item => item.TenantId == tenantId).Select(item => (T)(object)MapRequestDefinition(item)).ToArray();
             }
             catch (InvalidOperationException)
             {
@@ -200,7 +242,12 @@ public sealed class OrchestrationCatalogService(
                         throw new InvalidOperationException("External orchestration returned an incompatible tenant catalogue.");
             }
 
-            return parsed;
+            return parsed.Where(item => item switch
+            {
+                OrchestrationCatalogJobDto job => job.TenantId == tenantId,
+                OrchestrationCatalogTenantDto tenant => tenant.TenantId == tenantId && tenant.IsActive,
+                _ => false
+            }).ToArray();
         }
         catch (InvalidOperationException)
         {
@@ -210,6 +257,31 @@ public sealed class OrchestrationCatalogService(
         {
             throw new InvalidOperationException("External orchestration returned an incompatible catalogue response.");
         }
+    }
+
+    private async Task<OrchestrationResolvedSettings> ResolveSettingsAsync(string? organizationId, Guid? connectionId, CancellationToken cancellationToken)
+    {
+        var settings = organizationId is null && connectionId is null
+            ? await _connectivityService.GetResolvedOrchestrationSettingsAsync(cancellationToken)
+            : await _connectivityService.GetResolvedOrchestrationSettingsAsync(organizationId, connectionId, cancellationToken);
+        if (settings.Enabled && (settings.Pairing is null
+            || (organizationId is not null && !string.Equals(settings.Pairing.LocalTenantId, organizationId, StringComparison.Ordinal))
+            || (connectionId is not null && (!Guid.TryParse(settings.Pairing.MappingId, out var selectedId) || selectedId != connectionId))))
+            throw new InvalidOperationException("The resolved automation connection does not match the requested organization and connection.");
+        if (!settings.Enabled && (organizationId is not null || connectionId is not null))
+            throw new InvalidOperationException("The selected automation system connection is unavailable for this organization.");
+        return settings;
+    }
+
+    private static int RequirePeerTenantId(OrchestrationResolvedSettings settings)
+        => int.TryParse(settings.Pairing?.PeerTenantId, NumberStyles.None, CultureInfo.InvariantCulture, out var tenantId) && tenantId > 0
+            ? tenantId
+            : throw new InvalidOperationException("The selected automation system connection has an incompatible peer tenant identifier.");
+
+    private static void RequireMatchingTenant(int? actualTenantId, int expectedTenantId)
+    {
+        if (actualTenantId != expectedTenantId)
+            throw new InvalidOperationException("External orchestration returned a target outside the selected connection tenant.");
     }
 
     private async Task AttachAuthHeaderAsync(

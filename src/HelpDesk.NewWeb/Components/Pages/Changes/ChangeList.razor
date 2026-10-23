@@ -1,3 +1,5 @@
+@using HelpDesk.NewWeb.Services
+@implements IDisposable
 @using Helpdesk.Shared.Services
 @using Helpdesk.Shared.Auth
 @inject AuthenticationStateProvider AccessAuthenticationState
@@ -22,8 +24,8 @@
         <MudSpacer />
         <MudTooltip Text="Historic">
             <MudIconButton Icon="@Icons.Material.Filled.History"
-                           Color="@(historicOnly ? Color.Primary : Color.Default)"
-                           Variant="@(historicOnly ? Variant.Filled : Variant.Outlined)"
+                           Color="@(filters.View == "historic" ? Color.Primary : Color.Default)"
+                           Variant="@(filters.View == "historic" ? Variant.Filled : Variant.Outlined)"
                            aria-label="Show historic changes"
                            OnClick="ToggleHistoric" />
         </MudTooltip>
@@ -33,24 +35,12 @@
         }
     </MudStack>
 
-    <div class="helpdesk-list-toolbar">
-        <MudTextField @bind-Value="search"
-                      Placeholder="Search changes"
-                      Adornment="Adornment.Start"
-                      Icon="@Icons.Material.Filled.Search"
-                      Immediate="true"
-                      OnBlur="Reload"
-                      OnKeyUp="@(async _ => await DebouncedReload())"
-                      Class="helpdesk-list-search" />
-
-        <MudCheckBox T="bool"
-                     @bind-Value="aiInvolvedOnly"
-                     Color="Color.Primary">
-            AI involved only
-        </MudCheckBox>
-    </div>
+    <TicketListFilters Module="change" State="filters" Changed="FiltersChanged" />
+    @if (queryError is not null) { <MudAlert Severity="Severity.Error">@queryError <MudButton OnClick="Reload">Retry</MudButton></MudAlert> }
 
     <TicketTable TTicket="ChangeDto"
+                 @key="tableKey"
+                 InitialPage="@(filters.Page - 1)" PageSize="filters.PageSize" QueryError="@queryError"
                  @ref="_table"
                  TicketType="changes"
                  CanEditItem="@(item => accessProfile?.CanManageChange(item.OrganizationId) == true)"
@@ -73,7 +63,7 @@
                                   OrganizationId="@change.OrganizationId" AssignedToId="@change.ImplementorUserId"
                                   SelectedName="@change.ImplementorUserName" SelectedEmail="@change.ImplementorUserEmail"
                                   ReadOnly="@(accessProfile?.CanManageChange(change.OrganizationId) != true || change.LifecycleState != ChangeLifecycleState.Draft)"
-                                  AssignmentChanged="@(user => UpdateImplementor(change, user))" />
+                                  AssignmentChanged="@(async user => { UpdateImplementor(change, user); if (filters.AssigneeIds.Count > 0 || filters.Unassigned || filters.From.HasValue || filters.To.HasValue) await Reload(); })" />
         </AssigneeTemplate>
         <CustomerTemplate Context="change">
             @RenderRequestedFor(change)
@@ -86,95 +76,77 @@
     private CurrentUserAccessProfile? accessProfile;
     private bool CanWriteAny => accessProfile?.HasPermission(HelpdeskPermissions.ChangeWrite) == true || accessProfile?.HasPermission(HelpdeskPermissions.ChangeManager) == true;
     private bool CanCreate => CanWriteAny || accessProfile?.HasPermission(HelpdeskPermissions.ChangeUser) == true;
-    protected override async Task OnInitializedAsync() => accessProfile = CurrentUserAccessProfile.FromClaims((await AccessAuthenticationState.GetAuthenticationStateAsync()).User);
-
-    [SupplyParameterFromQuery(Name = "search")]
-    public string? QuerySearch { get; set; }
-
-    [SupplyParameterFromQuery]
-    public bool ActiveOnly { get; set; }
-
-    [SupplyParameterFromQuery(Name = "lifecycleState")]
-    public string? LifecycleStateQuery { get; set; }
+    private TicketListState filters = new();
+    private string? appliedUrl, queryError;
+    private int tableKey, generation;
+    private bool disposed;
+    private CancellationTokenSource? pending;
+    protected override async Task OnInitializedAsync()
+    {
+        filters = TicketListState.Parse(NavigationManager.Uri, true);
+        appliedUrl = NavigationManager.Uri;
+        NavigationManager.LocationChanged += LocationChanged;
+        accessProfile = CurrentUserAccessProfile.FromClaims((await AccessAuthenticationState.GetAuthenticationStateAsync()).User);
+    }
+    private void LocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs args)
+    {
+        if (disposed || args.Location == appliedUrl || new Uri(args.Location).AbsolutePath.TrimEnd('/') != "/changes") return;
+        _ = InvokeAsync(() => {
+            pending?.Cancel(); generation++; _selected.Clear(); queryError = null;
+            filters = TicketListState.Parse(args.Location, true); appliedUrl = args.Location; tableKey++; StateHasChanged();
+        });
+    }
+    private void SaveUrl(bool replace = false)
+    {
+        var url = "/changes?" + filters.Query();
+        appliedUrl = NavigationManager.ToAbsoluteUri(url).ToString();
+        if (NavigationManager.Uri != appliedUrl) NavigationManager.NavigateTo(url, replace: replace);
+    }
+    private Task FiltersChanged()
+    {
+        pending?.Cancel(); generation++; _selected.Clear(); queryError = null; filters.Page = 1; tableKey++; SaveUrl();
+        return Task.CompletedTask;
+    }
+    public void Dispose() { disposed = true; NavigationManager.LocationChanged -= LocationChanged; pending?.Cancel(); pending?.Dispose(); }
 
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
 
     private TicketTable<ChangeDto>? _table;
-    private string? search;
-    private CancellationTokenSource? _debounceCts;
     private HashSet<ChangeDto> _selected = new();
-    private bool aiInvolvedOnly;
-    private bool historicOnly;
-    private string? appliedQuerySearch;
 
-    protected override void OnParametersSet()
+    private async Task<TableData<ChangeDto>> LoadServerData(TableState state, CancellationToken token)
     {
-        if (!string.Equals(appliedQuerySearch, QuerySearch, StringComparison.Ordinal))
+        pending?.Cancel(); pending?.Dispose(); pending = CancellationTokenSource.CreateLinkedTokenSource(token);
+        var cancellation = pending.Token; var currentGeneration = ++generation;
+        var nextPageSize = state.PageSize <= 0 ? 25 : state.PageSize;
+        var pageChanged = filters.Page != state.Page + 1 || filters.PageSize != nextPageSize;
+        if (pageChanged) _selected.Clear();
+        filters.Page = state.Page + 1; filters.PageSize = nextPageSize;
+        if (pageChanged) SaveUrl();
+        queryError = filters.ValidationError;
+        if (queryError is not null)
         {
-            appliedQuerySearch = QuerySearch;
-            search = QuerySearch;
-            _ = _table?.ReloadServerData();
+            await InvokeAsync(StateHasChanged);
+            return new TableData<ChangeDto> { Items = [], TotalItems = 0 };
         }
-    }
-
-    private async Task<TableData<ChangeDto>> LoadServerData(TableState state, CancellationToken cancellationToken)
-    {
-        var page = state.Page + 1;
-        var pageSize = state.PageSize <= 0 ? 10 : state.PageSize;
-        var url = $"api/v1/changes?page={page}&pageSize={pageSize}";
-
-        if (aiInvolvedOnly)
-        {
-            url += "&aiInvolved=true";
-        }
-
-        if (ActiveOnly)
-        {
-            url += "&activeOnly=true";
-        }
-
-        var lifecycleState = ParseLifecycleStateQuery(LifecycleStateQuery);
-        if (lifecycleState.HasValue)
-        {
-            url += $"&lifecycleState={lifecycleState.Value}";
-        }
-
-        if (historicOnly)
-        {
-            url += "&historicOnly=true";
-        }
-
-        if (!string.IsNullOrWhiteSpace(search))
-        {
-            url += $"&q={Uri.EscapeDataString(search)}";
-        }
-
-
-        PagedResponse<ChangeDto> response;
         try
         {
-            response = await HelpdeskApi.GetFromJsonAsync<PagedResponse<ChangeDto>>(url, cancellationToken) ?? new();
+            var response = await HelpdeskApi.GetFromJsonAsync<PagedResponse<ChangeDto>>("api/v1/changes?" + filters.Query(api: true), cancellation);
+            cancellation.ThrowIfCancellationRequested();
+            if (disposed || currentGeneration != generation) throw new OperationCanceledException(cancellation);
+            return new TableData<ChangeDto> { Items = response?.Items ?? [], TotalItems = response?.TotalCount ?? 0 };
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException)
         {
-            throw;
+            if (!disposed && currentGeneration == generation) { queryError = "Unable to load tickets. Check the filters and try again."; await InvokeAsync(StateHasChanged); }
+            return new TableData<ChangeDto> { Items = [], TotalItems = 0 };
         }
-        catch (Exception)
-        {
-            Snackbar.Add("Unable to load changes right now. Please refresh and try again.", Severity.Error);
-            response = new PagedResponse<ChangeDto>();
-        }
-
-        return new TableData<ChangeDto>
-        {
-            Items = response.Items ?? new List<ChangeDto>(),
-            TotalItems = response.TotalCount
-        };
     }
 
     private void NavigateToDetail(string ticketType, string id)
     {
-        NavigationManager.NavigateTo($"/{ticketType}/{id}");
+        NavigationManager.NavigateTo($"/{ticketType}/{id}?returnUrl={Uri.EscapeDataString(new Uri(NavigationManager.Uri).PathAndQuery)}");
     }
 
     private void NavigateToChange(string id) => NavigateToDetail("changes", id);
@@ -308,25 +280,13 @@
         return _table?.ReloadServerData() ?? Task.CompletedTask;
     }
 
-    private async Task ToggleHistoric()
+    private Task ToggleHistoric()
     {
-        historicOnly = !historicOnly;
-        await Reload();
+        filters.View = filters.View == "historic" ? "active" : "historic"; filters.States.Clear();
+        return FiltersChanged();
     }
 
-    private async Task DebouncedReload()
-    {
-        _debounceCts?.Cancel();
-        _debounceCts = new CancellationTokenSource();
-        try
-        {
-            await Task.Delay(300, _debounceCts.Token);
-            await Reload();
-        }
-        catch (TaskCanceledException)
-        {
-        }
-    }
+
 
     private async Task ApplyBulkState()
     {

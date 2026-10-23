@@ -28,13 +28,15 @@ public sealed class HelpdeskToolsMutationTests
         Assert.True(response.Failure?.Retryable);
     }
 
-    [Fact]
-    public async Task Integration_credential_auth_status_uses_application_identity_endpoint()
+    [Theory]
+    [InlineData("integration")]
+    [InlineData(" Integration ")]
+    public async Task Integration_credential_auth_status_uses_application_identity_endpoint(string credentialMode)
     {
         var client = Substitute.For<IHelpdeskAgentClient>();
         client.Configuration.Returns(new AgentClientConfiguration("https://api.example", null, null, null, null, null, null)
         {
-            CredentialMode = "integration",
+            CredentialMode = credentialMode,
             IntegrationCredential = "rdk_test"
         });
         client.GetAsync("/api/v1/auth/me", true, Arg.Any<CancellationToken>())
@@ -48,13 +50,15 @@ public sealed class HelpdeskToolsMutationTests
         await client.DidNotReceive().GetAsync("/api/v1/auth/ai-agent/status", true, Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task Gateway_credential_auth_status_uses_application_identity_endpoint()
+    [Theory]
+    [InlineData("gateway")]
+    [InlineData(" Gateway ")]
+    public async Task Gateway_credential_auth_status_uses_application_identity_endpoint(string credentialMode)
     {
         var client = Substitute.For<IHelpdeskAgentClient>();
         client.Configuration.Returns(new AgentClientConfiguration("https://api.example", null, null, null, null, null, null)
         {
-            CredentialMode = "gateway"
+            CredentialMode = credentialMode
         });
         client.GetAsync("/api/v1/auth/me", true, Arg.Any<CancellationToken>())
             .Returns(new JsonObject { ["authMode"] = "integration" });
@@ -70,7 +74,7 @@ public sealed class HelpdeskToolsMutationTests
     [Theory]
     [InlineData("helpdesk_incidents", "state", "{\"incidentId\":\"INC-123\",\"newState\":\"Resolved\"}")]
     [InlineData("helpdesk_requests", "assign", "{\"ids\":[\"REQ-123\"],\"assignedToId\":\"user-1\"}")]
-    [InlineData("helpdesk_changes", "lifecycle", "{\"changeId\":\"CHG-123\",\"action\":\"submit\"}")]
+    [InlineData("helpdesk_changes", "lifecycle", "{\"changeId\":\"CHG-123\",\"lifecycleState\":\"Submitted\"}")]
     [InlineData("helpdesk_request_tasks", "complete", "{\"taskId\":\"TASK-123\"}")]
     public async Task Unconfirmed_ticket_mutations_never_call_the_api(string toolName, string operation, string json)
     {
@@ -138,6 +142,8 @@ public sealed class HelpdeskToolsMutationTests
     {
         var path = Path.Combine(Path.GetTempPath(), $"helpdesk-mcp-{Guid.NewGuid():N}.json");
         var store = new AgentClientConfigurationStore(path);
+        store.Save(AgentClientConfiguration.Empty);
+        var originalBytes = await File.ReadAllBytesAsync(path);
         var client = Substitute.For<IHelpdeskAgentClient>();
         var tools = new HelpdeskTools(client, store);
 
@@ -145,6 +151,7 @@ public sealed class HelpdeskToolsMutationTests
 
         Assert.Equal("confirmation_required", response.Status);
         Assert.Null(store.Load().ApiBaseUrl);
+        Assert.Equal(originalBytes, await File.ReadAllBytesAsync(path));
     }
 
     [Fact]
@@ -152,6 +159,8 @@ public sealed class HelpdeskToolsMutationTests
     {
         var path = Path.Combine(Path.GetTempPath(), $"helpdesk-mcp-{Guid.NewGuid():N}.json");
         var store = new AgentClientConfigurationStore(path);
+        store.Save(AgentClientConfiguration.Empty);
+        var originalBytes = await File.ReadAllBytesAsync(path);
         var client = Substitute.For<IHelpdeskAgentClient>();
         var target = new HelpdeskMcpTarget("prod", new Uri("https://prod.example"));
         var tools = new HelpdeskTools(client, store, target);
@@ -161,6 +170,7 @@ public sealed class HelpdeskToolsMutationTests
         Assert.Equal("validation_failed", response.Status);
         Assert.Equal("prod", response.Target?.Instance);
         Assert.Null(store.Load().ApiBaseUrl);
+        Assert.Equal(originalBytes, await File.ReadAllBytesAsync(path));
     }
 
     [Fact]
@@ -591,7 +601,7 @@ public sealed class HelpdeskToolsMutationTests
         => body is JsonObject value && value["notes"]?.ToString() == "BTClaw closed this test incident." && value["isInternalNote"]?.GetValue<bool>() == true;
 
     private static bool HasResolvedState(JsonNode? body)
-        => body is JsonObject value && value["newState"]?.ToString() == "Resolved";
+        => body is JsonObject value && value["newState"]?.GetValue<int>() == (int)TicketState.Resolved;
 
     private static bool IsResolvedState(JsonNode? body)
         => body is JsonObject value && value["newState"]?.GetValue<int>() == (int)TicketState.Resolved;

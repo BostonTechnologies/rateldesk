@@ -294,7 +294,30 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
             .Select(claim => claim.Value)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var requestedOrganizationId = user.FindFirstValue("integration_organization_id");
-        if (requestedPermissions.Count == 0 || string.IsNullOrWhiteSpace(requestedOrganizationId) ||
+        if (user.HasClaim("integration_purpose", IntegrationCredentialGrantKinds.OwnerAdministrationPurpose))
+        {
+            // This distinct kind is emitted only by the authority after explicit owner
+            // consent. The account was reloaded above; role claims never confer this grant.
+            if (!profile.IsHelpdeskAdmin || !requestedPermissions.SetEquals([HelpdeskPermissions.HelpdeskAdmin]) ||
+                string.IsNullOrWhiteSpace(requestedOrganizationId)) return Empty(true);
+            var organizations = await _db.Organizations.AsNoTracking()
+                .Where(organization => organization.IsEnabled).Select(organization => new { organization.Id, organization.Name }).ToListAsync(ct);
+            var primaryOrganization = organizations.SingleOrDefault(organization => organization.Id == requestedOrganizationId);
+            var permissions = new HashSet<string>(HelpdeskPermissions.AssignablePermissions, StringComparer.OrdinalIgnoreCase)
+            { HelpdeskPermissions.HelpdeskAdmin };
+            return profile with
+            {
+                // Losing a default context cannot lock an owner out of repairing or
+                // creating organizations. Never silently choose another default.
+                PrimaryOrganizationId = primaryOrganization?.Id, PrimaryOrganizationName = primaryOrganization?.Name,
+                CustomerId = null, IsHelpdeskAdmin = true,
+                Permissions = permissions, RoleBundles = new HashSet<string> { HelpdeskRoleBundles.HelpdeskAdmin },
+                AllowedOrganizationIds = organizations.Select(organization => organization.Id).ToHashSet(StringComparer.OrdinalIgnoreCase),
+                ManagedOrganizationIds = new HashSet<string>(), UsesScopedPermissions = true,
+                ScopedPermissionGrants = new HashSet<ScopedPermissionGrant>()
+            };
+        }
+        if ((requestedPermissions.Count == 0 && !user.HasClaim("integration_purpose", "mcp-setup")) || string.IsNullOrWhiteSpace(requestedOrganizationId) ||
             requestedPermissions.Any(permission => !HelpdeskPermissions.AssignablePermissions.Contains(permission, StringComparer.OrdinalIgnoreCase)))
             return Empty(true);
 
@@ -303,11 +326,25 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
         if (requestedOrganization?.State != Helpdesk.Shared.Models.EntityState.Enabled)
             return Empty(true);
 
+        // A server-issued setup identity has no business grants. Preserve only its reviewed
+        // organization after checking the owner's current authority, for authenticated status.
+        if (user.HasClaim("integration_purpose", "mcp-setup") && user.HasClaim("setup_verification", "true") && requestedPermissions.Count == 0)
+        {
+            if (!profile.IsHelpdeskAdmin && !profile.AllowedOrganizationIds.Contains(requestedOrganization.Id)) return Empty(true);
+            return profile with
+            {
+                PrimaryOrganizationId = requestedOrganization.Id, PrimaryOrganizationName = requestedOrganization.Name,
+                IsHelpdeskAdmin = false, CustomerId = null, RoleBundles = new HashSet<string>(), Permissions = new HashSet<string>(),
+                AllowedOrganizationIds = new HashSet<string> { requestedOrganization.Id }, ManagedOrganizationIds = new HashSet<string>(),
+                UsesScopedPermissions = true, ScopedPermissionGrants = new HashSet<ScopedPermissionGrant>()
+            };
+        }
+
         HashSet<ScopedPermissionGrant> effectiveGrants;
         if (profile.IsHelpdeskAdmin)
         {
             // Instance administration authorizes issuing a deliberately
-            // bounded credential, never an instance-wide administrator token.
+            // bounded ordinary credential. Owner administration is a distinct opt-in kind.
             effectiveGrants = requestedPermissions
                 .Select(permission => new ScopedPermissionGrant(permission, requestedOrganization.Id))
                 .ToHashSet();

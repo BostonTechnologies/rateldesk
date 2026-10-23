@@ -16,6 +16,14 @@ public interface IHelpdeskMcpConfigurationSurface
     void Save(AgentClientConfiguration configuration);
 }
 
+public static class HelpdeskMcpConfigurationSurface
+{
+    public static IHelpdeskMcpConfigurationSurface Create(ConfigurationResolution resolution)
+        => resolution.CanPersist && resolution.ProfilePath is not null
+            ? new AgentClientConfigurationSurface(new AgentClientConfigurationStore(resolution.ProfilePath))
+            : new ReadOnlyHelpdeskMcpConfigurationSurface(resolution.Configuration);
+}
+
 public sealed class AgentClientConfigurationSurface(AgentClientConfigurationStore store) : IHelpdeskMcpConfigurationSurface
 {
     public bool CanPersist => true;

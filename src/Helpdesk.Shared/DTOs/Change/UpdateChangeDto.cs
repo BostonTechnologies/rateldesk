@@ -4,9 +4,9 @@ using Helpdesk.Shared.Models;
 
 public class UpdateChangeDto
 {
-    public TicketState State { get; set; }
+    public TicketState? State { get; set; }
     public ChangeLifecycleState? LifecycleState { get; set; }
-    public TicketPriority Priority { get; set; }
+    public TicketPriority? Priority { get; set; }
     public string? OrganizationId { get; set; }
     public string? RequestedForUserId { get; set; }
     public string? ImplementorUserId { get; set; }

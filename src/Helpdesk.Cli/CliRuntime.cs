@@ -19,7 +19,7 @@ internal sealed class CliRuntime
 
     public HttpClient CreateHttpClient(Uri baseAddress)
     {
-        var client = _handlerFactory is null ? new HttpClient() : new HttpClient(_handlerFactory(), disposeHandler: true);
+        var client = _handlerFactory is null ? new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) : new HttpClient(_handlerFactory(), disposeHandler: true);
         client.BaseAddress = baseAddress;
         client.Timeout = TimeSpan.FromSeconds(60);
         return client;

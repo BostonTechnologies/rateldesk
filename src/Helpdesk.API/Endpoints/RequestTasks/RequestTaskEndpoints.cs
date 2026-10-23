@@ -162,7 +162,10 @@ public static class RequestTaskEndpoints
             var taskRows = await query
                 .OrderBy(x => x.Task.Status == RequestTaskStatus.InProgress ? 0 : 1)
                 .ThenByDescending(x => x.Task.CreatedAt)
-                .Skip((effectivePage - 1) * effectivePageSize)
+                .ThenBy(x => x.Task.Id)
+                // Preserve the direct API's page normalization without allowing a
+                // large positive page to wrap around into an earlier page.
+                .Skip((int)Math.Min((long)(effectivePage - 1) * effectivePageSize, int.MaxValue))
                 .Take(effectivePageSize)
                 .ToListAsync(token);
 
@@ -272,6 +275,11 @@ public static class RequestTaskEndpoints
                 return Results.Forbid();
             }
 
+            if (dto.Priority is { } priority && !Enum.IsDefined(priority))
+            {
+                return Results.BadRequest("Invalid ticket priority.");
+            }
+
             var parent = await db.Requests.AsNoTracking()
                 .IgnoreQueryFilters()
                 .Where(request => request.Id == dto.RequestId)
@@ -333,6 +341,11 @@ public static class RequestTaskEndpoints
                 return Results.Forbid();
             }
 
+            if (!Enum.IsDefined(task.Priority))
+            {
+                return Results.BadRequest("Invalid ticket priority.");
+            }
+
             if (!string.Equals(task.OrganizationId, existing.OrganizationId, StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(task.RequestId, existing.RequestId, StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(task.CustomerId, existing.CustomerId, StringComparison.OrdinalIgnoreCase))
@@ -391,6 +404,11 @@ public static class RequestTaskEndpoints
             if (!dto.HasUpdate)
             {
                 return Results.BadRequest("Provide at least one supported request-task update field.");
+            }
+
+            if (dto.Priority is { } priority && !Enum.IsDefined(priority))
+            {
+                return Results.BadRequest("Invalid ticket priority.");
             }
 
             if (dto.ClearAssignment && dto.AssignedToId is not null)
@@ -479,6 +497,7 @@ public static class RequestTaskEndpoints
             [FromServices] ICurrentUserAccessService accessService,
             [FromServices] IRequestTaskLifecycleService lifecycleService,
             [FromServices] IWorkflowEngine workflowEngine,
+            [FromServices] ICorrelationContext correlationContext,
             ClaimsPrincipal user,
             CancellationToken token) =>
         {
@@ -507,8 +526,8 @@ public static class RequestTaskEndpoints
                 await workflowEngine.RunAsync(task.RequestId, WorkflowRunReason.ManualTrigger, token);
             }
 
-            return Results.Ok(task);
-        });
+            return Results.Ok(ToTransitionDto(task, GetCorrelationId(correlationContext)));
+        }).Produces<RequestTaskTransitionDto>();
 
         group.MapPost("/{id}/complete", async (
             [FromRoute] string id,
@@ -516,6 +535,7 @@ public static class RequestTaskEndpoints
             [FromServices] ICurrentUserAccessService accessService,
             [FromServices] IRequestTaskLifecycleService lifecycleService,
             [FromServices] IWorkflowEngine workflowEngine,
+            [FromServices] ICorrelationContext correlationContext,
             ClaimsPrincipal user,
             CancellationToken token) =>
         {
@@ -544,8 +564,8 @@ public static class RequestTaskEndpoints
                 await workflowEngine.RunAsync(task.RequestId, WorkflowRunReason.TaskCompleted, token);
             }
 
-            return Results.Ok(task);
-        });
+            return Results.Ok(ToTransitionDto(task, GetCorrelationId(correlationContext)));
+        }).Produces<RequestTaskTransitionDto>();
 
         group.MapPost("/{id}/fail", async (
             [FromRoute] string id,
@@ -553,6 +573,7 @@ public static class RequestTaskEndpoints
             [FromServices] ICurrentUserAccessService accessService,
             [FromServices] IRequestTaskLifecycleService lifecycleService,
             [FromServices] IWorkflowEngine workflowEngine,
+            [FromServices] ICorrelationContext correlationContext,
             ClaimsPrincipal user,
             CancellationToken token) =>
         {
@@ -581,8 +602,8 @@ public static class RequestTaskEndpoints
                 await workflowEngine.RunAsync(task.RequestId, WorkflowRunReason.TaskFailed, token);
             }
 
-            return Results.Ok(task);
-        });
+            return Results.Ok(ToTransitionDto(task, GetCorrelationId(correlationContext)));
+        }).Produces<RequestTaskTransitionDto>();
 
         group.MapPost("/{id}/retry", async (
             [FromRoute] string id,
@@ -599,6 +620,7 @@ public static class RequestTaskEndpoints
             try
             {
                 task = await lifecycleService.RetryAsync(id, token);
+                task = await lifecycleService.StartAsync(id, token);
             }
             catch (KeyNotFoundException)
             {
@@ -763,6 +785,7 @@ public static class RequestTaskEndpoints
                 try
                 {
                     task = await lifecycleService.RetryAsync(id, token);
+                    task = await lifecycleService.StartAsync(id, token);
                 }
                 catch (Exception ex) when (ex is InvalidOperationException or KeyNotFoundException)
                 {
@@ -833,6 +856,78 @@ public static class RequestTaskEndpoints
             _ => null
         };
     }
+
+    private static RequestTaskTransitionDto ToTransitionDto(RequestTask task, string correlationId) => new()
+    {
+        Id = task.Id,
+        Title = task.Title,
+        Description = task.Description,
+        State = task.State,
+        CreatedAt = task.CreatedAt,
+        UpdatedAt = task.UpdatedAt,
+        AssignedToId = task.AssignedToId,
+        CustomerId = task.CustomerId,
+        OrganizationId = task.OrganizationId,
+        ServiceId = task.ServiceId,
+        Priority = task.Priority,
+        LinkedAssetIds = task.LinkedAssetIds,
+        SlaPolicyId = task.SlaPolicyId,
+        DueDate = task.DueDate,
+        ClosedAt = task.ClosedAt,
+        EmailExclusionReason = task.EmailExclusionReason,
+        Attachments = task.Attachments,
+        RequesterEmail = task.RequesterEmail,
+        CcRecipients = task.CcRecipients,
+        LastViewedByCustomerAt = task.LastViewedByCustomerAt,
+        TrackingId = task.TrackingId,
+        Replies = task.Replies,
+        TimeSpentHours = task.TimeSpentHours,
+        LastReplierName = task.LastReplierName,
+        RequestId = task.RequestId,
+        TemplateId = task.TemplateId,
+        Type = task.Type,
+        Status = task.Status,
+        StartedAt = task.StartedAt,
+        CompletedAt = task.CompletedAt,
+        TaskSlaMinutes = task.TaskSlaMinutes,
+        EscalateAfterMinutes = task.EscalateAfterMinutes,
+        EscalationUserId = task.EscalationUserId,
+        EscalationRole = task.EscalationRole,
+        SlaStartedAt = task.SlaStartedAt,
+        DueAt = task.DueAt,
+        Escalated = task.Escalated,
+        EscalatedAt = task.EscalatedAt,
+        SlaBreached = task.SlaBreached,
+        IsBlocked = task.IsBlocked,
+        UnblockedAt = task.UnblockedAt,
+        ConditionExpression = task.ConditionExpression,
+        RetryCount = task.RetryCount,
+        NextRetryAt = task.NextRetryAt,
+        FailureReason = task.FailureReason,
+        IsCritical = task.IsCritical,
+        FailurePolicy = task.FailurePolicy,
+        MaxRetries = task.MaxRetries,
+        RetryDelayMinutes = task.RetryDelayMinutes,
+        AutomationBindingId = task.AutomationBindingId,
+        OrchestrationRequestDefinitionId = task.OrchestrationRequestDefinitionId,
+        OrchestrationJobDefinitionId = task.OrchestrationJobDefinitionId,
+        OrchestrationExternalRequestId = task.OrchestrationExternalRequestId,
+        OrchestrationExternalRunId = task.OrchestrationExternalRunId,
+        LastAutomationStatus = task.LastAutomationStatus,
+        LastAutomationUpdatedAt = task.LastAutomationUpdatedAt,
+        ExpectedRuntimeSeconds = task.ExpectedRuntimeSeconds,
+        GraceSeconds = task.GraceSeconds,
+        HardTimeoutSeconds = task.HardTimeoutSeconds,
+        TimeoutIncidentId = task.TimeoutIncidentId,
+        OrchestratorExecutionId = task.OrchestratorExecutionId,
+        OrchestrationLinkId = task.OrchestrationLinkId,
+        OrchestrationPeerInstanceId = task.OrchestrationPeerInstanceId,
+        OrchestrationLinkRevision = task.OrchestrationLinkRevision,
+        ResultJson = task.ResultJson,
+        Order = task.Order,
+        Name = task.Name,
+        CorrelationId = correlationId
+    };
 
     private static string GetCorrelationId(ICorrelationContext correlationContext)
     {

@@ -220,6 +220,9 @@ public sealed class LocalAuthenticationEndpointsTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Created, create.StatusCode);
         var activation = await create.Content.ReadFromJsonAsync<LocalAuthenticationEndpoints.LocalAccountActivationResponse>();
         Assert.NotNull(activation);
+        Assert.True(create.Headers.CacheControl?.NoStore);
+        Assert.Equal(["activationToken"], activation.SensitiveFields);
+        Assert.DoesNotContain(activation.ActivationToken, activation.ToString(), StringComparison.Ordinal);
 
         using var second = CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
         Assert.Equal(HttpStatusCode.NoContent, (await second.PostAsJsonAsync("/api/v1/local-auth/activate",

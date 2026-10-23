@@ -29,7 +29,7 @@ public interface IAgentAccessTokenProvider
 /// Calls the Helpdesk API using immutable, deployment-owned configuration.
 /// It never inspects inbound HTTP context or forwards inbound credentials.
 /// </summary>
-public sealed class HelpdeskAgentClient : IHelpdeskAgentClient
+public sealed partial class HelpdeskAgentClient : IHelpdeskAgentClient, IHelpdeskAgentAttachmentClient
 {
     public const string ApiHttpClientName = "Helpdesk.AgentClient.Api";
     public const string AuthHttpClientName = "Helpdesk.AgentClient.Auth";
@@ -86,19 +86,54 @@ public sealed class HelpdeskAgentClient : IHelpdeskAgentClient
         if (authenticated)
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", await GetAccessTokenAsync(cancellationToken).ConfigureAwait(false));
 
-        using var requestCancellation = CreateRequestCancellation(cancellationToken, ApiRequestTimeout);
-        using var response = await SendAndReadHeadersAsync(
-            client,
-            request,
-            requestCancellation.Token,
-            cancellationToken,
-            "api_request_timeout",
-            "Helpdesk API request timed out.").ConfigureAwait(false);
-        var text = await ReadResponseAsync(response.Content, requestCancellation.Token, cancellationToken, "api_request_timeout", "Helpdesk API response timed out.").ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
-            throw new AgentClientRemoteException("api_request_failed", $"Helpdesk API request failed with HTTP {(int)response.StatusCode}.", (int)response.StatusCode, null);
+        // Keep a write trace even if its committed response never reaches the caller.
+        // This is a correlation identifier, not an idempotency key or permission to replay.
+        string? correlationId = method != HttpMethod.Get && method != HttpMethod.Head && method != HttpMethod.Options
+            ? $"corr-{Guid.NewGuid():N}" : null;
+        if (correlationId is not null)
+            request.Headers.Add("X-Correlation-Id", correlationId);
 
-        return string.IsNullOrWhiteSpace(text) ? null : JsonNode.Parse(text);
+        using var requestCancellation = CreateRequestCancellation(cancellationToken, ApiRequestTimeout);
+        try
+        {
+            using var response = await SendAndReadHeadersAsync(
+                client,
+                request,
+                requestCancellation.Token,
+                cancellationToken,
+                "api_request_timeout",
+                "Helpdesk API request timed out.").ConfigureAwait(false);
+            correlationId = SafeCorrelation(response) ?? correlationId;
+            var text = await ReadResponseAsync(response.Content, requestCancellation.Token, cancellationToken, "api_request_timeout", "Helpdesk API response timed out.").ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+                throw new AgentClientRemoteException("api_request_failed", $"Helpdesk API request failed with HTTP {(int)response.StatusCode}.", (int)response.StatusCode, null)
+                { CorrelationId = correlationId };
+
+            if (method == HttpMethod.Get && path == "/api/v1/metrics/workflows" &&
+                response.Content.Headers.ContentType?.MediaType == "text/plain")
+                return new JsonObject { ["format"] = "prometheus", ["text"] = text };
+            return string.IsNullOrWhiteSpace(text) ? null : JsonNode.Parse(text);
+        }
+        catch (AgentClientRemoteException exception) when (exception.CorrelationId is null && correlationId is not null)
+        {
+            throw new AgentClientRemoteException(exception.Code, exception.Message, exception.StatusCode, null) { CorrelationId = correlationId };
+        }
+        catch (Exception exception) when (exception is HttpRequestException or IOException)
+        {
+            throw new AgentClientRemoteException("api_connection_lost", "Helpdesk API connection ended before a complete response was received.", 502, null) { CorrelationId = correlationId };
+        }
+        catch (JsonException)
+        {
+            throw new AgentClientRemoteException("api_response_invalid", "Helpdesk API returned an invalid JSON response.", 502, null) { CorrelationId = correlationId };
+        }
+    }
+
+    private static string? SafeCorrelation(HttpResponseMessage response)
+    {
+        if (!response.Headers.TryGetValues("X-Correlation-Id", out var values)) return null;
+        var entries = values.Take(2).ToArray();
+        var value = entries.Length == 1 ? entries[0] : null;
+        return value is { Length: > 0 and <= 128 } && !value.Contains("rdk_", StringComparison.OrdinalIgnoreCase) && !value.Contains("rdx_", StringComparison.OrdinalIgnoreCase) && value.All(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '_' or '.') ? value : null;
     }
 
     public async Task<JsonArray> GetHealthAsync(CancellationToken cancellationToken = default)
@@ -273,7 +308,7 @@ public sealed class HelpdeskAgentClient : IHelpdeskAgentClient
     }
 
     private HttpClient CreateFallbackClient()
-        => _handlerFactory is null ? new HttpClient() : new HttpClient(_handlerFactory(), disposeHandler: true);
+        => _handlerFactory is null ? new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) : new HttpClient(_handlerFactory(), disposeHandler: true);
 
     private CancellationTokenSource CreateRequestCancellation(CancellationToken cancellationToken, TimeSpan timeout)
     {

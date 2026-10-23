@@ -1,3 +1,4 @@
+@inherits HelpDesk.NewWeb.Components.Shared.Admin.AdminActionPanelBase
 @using HelpDesk.NewWeb.Services
 @using Helpdesk.Shared.DTOs.Organization
 @using Helpdesk.Shared.DTOs.SupportNotifications
@@ -7,7 +8,8 @@
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 
-<MudPaper Class="pa-4">
+<MudPaper Class="pa-2" Elevation="0">
+<fieldset disabled="@IsBusy" class="routing-editor-controls">
     <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
         <div>
             <MudText Typo="Typo.h6">Notification Rules</MudText>
@@ -19,7 +21,7 @@
                    Size="Size.Small"
                    StartIcon="@Icons.Material.Filled.Add"
                    Disabled="@string.IsNullOrWhiteSpace(SelectedOrganizationId)"
-                   OnClick="OpenCreateDialogAsync">
+                   OnClick="@(() => RunActionAsync(OpenCreateDialogAsync))">
             Add Rule
         </MudButton>
     </MudStack>
@@ -32,35 +34,24 @@
     }
     else
     {
-        <MudStack Spacing="2">
-            @foreach (var row in Rows.OrderByDescending(x => x.IsEnabled).ThenBy(x => x.EventType).ThenBy(RecipientName))
-            {
-                <MudPaper Outlined="true" Class="pa-3">
-                    <MudGrid Spacing="2" AlignItems="Center">
-                        <MudItem xs="12" md="8">
-                            <MudText Typo="Typo.body1">@RuleSentence(row)</MudText>
-                            <MudText Typo="Typo.caption" Class="text-secondary">@SupportNotificationLabels.RecipientType(row.RecipientType) recipient</MudText>
-                        </MudItem>
-                        <MudItem xs="12" md="1">
-                            <MudChip T="string" Color="@(row.IsEnabled ? Color.Success : Color.Default)" Variant="Variant.Outlined" Dense="true">
-                                @(row.IsEnabled ? "Enabled" : "Disabled")
-                            </MudChip>
-                        </MudItem>
-                        <MudItem xs="12" md="3" Class="d-flex justify-end gap-2">
-                            <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Edit" OnClick="() => OpenEditDialogAsync(row)">Edit</MudButton>
-                            <MudButton Size="Size.Small"
-                                       Variant="Variant.Outlined"
-                                       Color="@(row.IsEnabled ? Color.Warning : Color.Success)"
-                                       OnClick="() => ToggleEnabledAsync(row)">
-                                @(row.IsEnabled ? "Disable" : "Enable")
-                            </MudButton>
-                            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" StartIcon="@Icons.Material.Filled.Delete" OnClick="() => DeleteAsync(row)">Delete</MudButton>
-                        </MudItem>
-                    </MudGrid>
-                </MudPaper>
-            }
-        </MudStack>
+        <MudTable Items="Rows.OrderByDescending(x => x.IsEnabled).ThenBy(x => x.EventType).ThenBy(RecipientName)" Dense="true" Hover="true" RowsPerPage="25" Breakpoint="Breakpoint.Sm">
+            <HeaderContent><MudTh>Notification rule</MudTh><MudTh>Recipient type</MudTh><MudTh>Status</MudTh><MudTh>Actions</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Notification rule">@RuleSentence(context)</MudTd>
+                <MudTd DataLabel="Recipient type">@SupportNotificationLabels.RecipientType(context.RecipientType)</MudTd>
+                <MudTd DataLabel="Status">@(context.IsEnabled ? "Enabled" : "Disabled")</MudTd>
+                <MudTd DataLabel="Actions">
+                    <MudStack Row="true" Spacing="1">
+                        <MudButton Size="Size.Small" OnClick="@(() => RunActionAsync(() => OpenEditDialogAsync(context)))">Edit</MudButton>
+                        <MudButton Size="Size.Small" OnClick="@(() => RunActionAsync(() => ToggleEnabledAsync(context)))">@(context.IsEnabled ? "Disable" : "Enable")</MudButton>
+                        <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => RunActionAsync(() => DeleteAsync(context)))">Delete</MudButton>
+                    </MudStack>
+                </MudTd>
+            </RowTemplate>
+            <PagerContent><MudTablePager PageSizeOptions="@(new[] { 25, 50, 100 })" /></PagerContent>
+        </MudTable>
     }
+</fieldset>
 </MudPaper>
 
 @code {
@@ -74,10 +65,10 @@
     private async Task OpenCreateDialogAsync()
     {
         var parameters = DialogParameters(null);
-        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, BackdropClick = false, CloseOnEscapeKey = false };
         var dialog = await DialogService.ShowAsync<SupportNotificationSubscriptionDialog>("Add Notification Rule", parameters, options);
         var result = await dialog.Result;
-        if (result.Canceled || result.Data is not SupportNotificationSubscriptionDialog.SubscriptionFormModel model)
+        if (IsDisposed || result?.Canceled != false || result.Data is not SupportNotificationSubscriptionDialog.SubscriptionFormModel model)
         {
             return;
         }
@@ -105,10 +96,10 @@
     private async Task OpenEditDialogAsync(SupportNotificationSubscriptionDto row)
     {
         var parameters = DialogParameters(row);
-        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, BackdropClick = false, CloseOnEscapeKey = false };
         var dialog = await DialogService.ShowAsync<SupportNotificationSubscriptionDialog>("Edit Notification Rule", parameters, options);
         var result = await dialog.Result;
-        if (result.Canceled || result.Data is not SupportNotificationSubscriptionDialog.SubscriptionFormModel model)
+        if (IsDisposed || result?.Canceled != false || result.Data is not SupportNotificationSubscriptionDialog.SubscriptionFormModel model)
         {
             return;
         }
@@ -161,7 +152,7 @@
             $"Delete the rule for {RecipientName(row)}?",
             yesText: "Delete",
             cancelText: "Cancel");
-        if (confirm != true)
+        if (IsDisposed || confirm != true)
         {
             return;
         }

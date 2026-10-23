@@ -1,7 +1,9 @@
 using System.Security.Claims;
 using Helpdesk.API.Authentication;
+using Helpdesk.API.Services.IntegrationCredentials;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Shared.Services;
+using Helpdesk.Shared.Auth;
 using Microsoft.EntityFrameworkCore;
 
 namespace Helpdesk.API.Endpoints.Authentication;
@@ -46,10 +48,16 @@ public static class McpGatewayDelegationEndpoints
                 return Results.Unauthorized();
 
             var access = await accessService.ResolveAsync(principal, ct).ConfigureAwait(false);
-            if (!access.IsAuthenticated || access.Permissions.Count == 0 || access.AllowedOrganizationIds.Count == 0)
+            if (!access.IsAuthenticated || (access.Permissions.Count == 0 && credential.Purpose != IntegrationCredentialIssuer.SetupVerificationPurpose) ||
+                (access.AllowedOrganizationIds.Count == 0 && !(access.IsHelpdeskAdmin && credential.Purpose == IntegrationCredentialGrantKinds.OwnerAdministrationPurpose)))
                 return Results.Forbid();
 
+            if (credential.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose &&
+                (access.Permissions.Count != 0 || access.AllowedOrganizationIds.Count != 1 ||
+                 !access.AllowedOrganizationIds.Contains(credential.OrganizationId!))) return Results.Forbid();
+
             var expiresAtUtc = DateTimeOffset.UtcNow.Add(ExecutionLifetime);
+            if (expiresAtUtc > credential.ExpiresAtUtc) expiresAtUtc = credential.ExpiresAtUtc;
             var token = executionTokens.Create(credential, owner, resourceUri, expiresAtUtc);
             context.Response.Headers.CacheControl = "no-store";
             return Results.Ok(new McpExecutionTokenResponse(
@@ -59,7 +67,13 @@ public static class McpGatewayDelegationEndpoints
                 owner.DisplayName ?? owner.UserName ?? owner.Email ?? owner.Id,
                 access.PrimaryOrganizationId,
                 access.Permissions.Order(StringComparer.OrdinalIgnoreCase).ToArray(),
-                access.AllowedOrganizationIds.Order(StringComparer.OrdinalIgnoreCase).ToArray()));
+                access.AllowedOrganizationIds.Order(StringComparer.OrdinalIgnoreCase).ToArray())
+                {
+                    SetupVerification = credential.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose,
+                    IsHelpdeskAdmin = access.IsHelpdeskAdmin,
+                    GrantKind = credential.Purpose == IntegrationCredentialGrantKinds.OwnerAdministrationPurpose
+                        ? IntegrationCredentialGrantKinds.OwnerAdministration : credential.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose ? "setup-verification" : "ordinary"
+                });
         })
         .RequireAuthorization(DelegationPolicy)
         .WithTags("MCP Gateway")
@@ -87,5 +101,10 @@ public static class McpGatewayDelegationEndpoints
         string Name,
         string? PrimaryOrganizationId,
         IReadOnlyList<string> Permissions,
-        IReadOnlyList<string> AllowedOrganizationIds);
+        IReadOnlyList<string> AllowedOrganizationIds)
+    {
+        public bool SetupVerification { get; init; }
+        public bool IsHelpdeskAdmin { get; init; }
+        public string GrantKind { get; init; } = IntegrationCredentialGrantKinds.Ordinary;
+    }
 }

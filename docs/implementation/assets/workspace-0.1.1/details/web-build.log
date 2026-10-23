@@ -1,0 +1,9 @@
+  Helpdesk.ServiceDefaults -> /workspace/work/details/src/Helpdesk.ServiceDefaults/bin/Debug/net10.0/Helpdesk.ServiceDefaults.dll
+  Helpdesk.Shared -> /workspace/work/details/src/Helpdesk.Shared/bin/Debug/net10.0/Helpdesk.Shared.dll
+  HelpDesk.NewWeb -> /workspace/work/details/src/HelpDesk.NewWeb/bin/Debug/net10.0/HelpDesk.NewWeb.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:01:22.00

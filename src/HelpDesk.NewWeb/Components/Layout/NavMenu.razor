@@ -1,179 +1,128 @@
-@implements IDisposable
-@inject NavigationManager NavigationManager
-
+<nav class="helpdesk-nav" aria-label="Primary navigation">
 <MudNavMenu>
-    <MudNavLink Href="home" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Home">Home</MudNavLink>
+    <div class="nav-section-heading"><span>Work</span></div>
+    <HelpdeskNavLink Href="home" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Home" Title="Home">Home</HelpdeskNavLink>
 
     <AuthorizeView Roles="SelfService.User,HelpdeskAdmin">
-        <MudNavGroup Title="Portal" Icon="@Icons.Material.Filled.Apps" Expanded="false">
-            <MudNavLink Href="self-service" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Storefront">Self Service</MudNavLink>
-            <MudNavLink Href="self-service/my-requests" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.ReceiptLong">My Requests</MudNavLink>
-        </MudNavGroup>
+        <HelpdeskNavGroup Title="Portal" RoutePrefixes="@PortalRoutes" Icon="@Icons.Material.Filled.Apps">
+            <HelpdeskNavLink Href="self-service" Match="NavLinkMatch.Prefix" ExcludedRoutes="@MyRequestRoutes" Icon="@Icons.Material.Filled.Storefront" Title="Self Service">Self Service</HelpdeskNavLink>
+            <HelpdeskNavLink Href="self-service/my-requests" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.ReceiptLong" Title="My Requests">My Requests</HelpdeskNavLink>
+        </HelpdeskNavGroup>
     </AuthorizeView>
 
     <AuthorizeView Roles="Incident.User,Incident.Read,Incident.Write,Incident.Manager,Request.User,Request.Read,Request.Write,Request.Execute,Request.Manager,Change.User,Change.Read,Change.Write,Change.Manager,DataManagement.Admin,HelpdeskAdmin">
         @*
-        <MudNavLink Href="/technician/dashboard" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Dashboard">Technician Dashboard</MudNavLink>
+        <HelpdeskNavLink Href="/technician/dashboard" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Dashboard" Title="Technician Dashboard">Technician Dashboard</HelpdeskNavLink>
         *@
         
-        <MudNavGroup Title="Workspace" Icon="@Icons.Material.Filled.Workspaces" Expanded="false">
+        <AuthorizeView Roles="Incident.User,Incident.Read,Incident.Write,Incident.Manager,Request.User,Request.Read,Request.Write,Request.Execute,Request.Manager,Change.User,Change.Read,Change.Write,Change.Manager,HelpdeskAdmin" Context="workspaceAuth">
+        <HelpdeskNavGroup Title="Workspace" RoutePrefixes="@WorkspaceRoutes" Icon="@Icons.Material.Filled.Workspaces">
             <AuthorizeView Roles="Incident.User,Incident.Read,Incident.Write,Incident.Manager,HelpdeskAdmin" Context="incidentAuth">
-                <MudNavLink Href="incidents" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.ListAlt">Incidents</MudNavLink>
+                <HelpdeskNavLink Href="incidents" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.ListAlt" Title="Incidents">Incidents</HelpdeskNavLink>
             </AuthorizeView>
             <AuthorizeView Roles="Request.User,Request.Read,Request.Write,Request.Execute,Request.Manager,HelpdeskAdmin" Context="requestAuth">
-                <MudNavLink Href="requests" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.List">Requests</MudNavLink>
+                <HelpdeskNavLink Href="requests" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.List" Title="Requests">Requests</HelpdeskNavLink>
             </AuthorizeView>
             <AuthorizeView Roles="Request.Read,Request.Write,Request.Execute,Request.Manager,HelpdeskAdmin" Context="tasksAuth">
-                <MudNavLink Href="tasks" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.TaskAlt">Tasks</MudNavLink>
+                <HelpdeskNavLink Href="tasks" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.TaskAlt" Title="Tasks">Tasks</HelpdeskNavLink>
             </AuthorizeView>
             <AuthorizeView Roles="Change.User,Change.Read,Change.Write,Change.Manager,HelpdeskAdmin" Context="changeAuth">
-                <MudNavLink Href="changes" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.ChangeCircle">Changes</MudNavLink>
+                <HelpdeskNavLink Href="changes" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.ChangeCircle" Title="Changes">Changes</HelpdeskNavLink>
             </AuthorizeView>
-        </MudNavGroup>
+        </HelpdeskNavGroup>
 
-        <AuthorizeView Roles="Incident.Write,Incident.Manager,Request.Read,Request.Write,Request.Execute,Request.Manager,Change.Write,Change.Manager,HelpdeskAdmin" Context="opsGate">
-        <MudNavGroup Title="Operations" Icon="@Icons.Material.Filled.SettingsSuggest" Expanded="false">
-            <AuthorizeView Roles="Incident.Write,Incident.Manager,Request.Write,Request.Manager,Change.Write,Change.Manager,HelpdeskAdmin" Context="slaOpsAuth">
-                <MudNavLink Href="/ops/slas" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Schedule">SLA Ops</MudNavLink>
-            </AuthorizeView>
-            <AuthorizeView Roles="Request.Read,Request.Write,Request.Execute,Request.Manager,HelpdeskAdmin" Context="workflowOpsAuth">
-                <MudNavLink Href="/ops/workflows" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.AccountTree">Workflow Ops</MudNavLink>
-            </AuthorizeView>
-            <AuthorizeView Roles="HelpdeskAdmin" Context="operationsAuth">
-                <MudNavLink Href="/ops/hangfire" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Timer">Hangfire Ops</MudNavLink>
-            </AuthorizeView>
-        </MudNavGroup>
         </AuthorizeView>
 
-        <AuthorizeView Roles="Incident.Manager,Request.Manager,Change.Manager,DataManagement.Admin,HelpdeskAdmin" Context="resourcesGate">
-        <MudNavGroup Title="Resources" Icon="@Icons.Material.Filled.Source" Expanded="false">
+        <AuthorizeView Roles="DataManagement.Admin,HelpdeskAdmin" Context="resourcesGate">
+        <HelpdeskNavGroup Title="Resources" RoutePrefixes="@ResourcesRoutes" Icon="@Icons.Material.Filled.Source">
              <AuthorizeView Roles="HelpdeskAdmin" Context="assetAuth">
-                <MudNavLink Href="assets" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Inventory">Assets</MudNavLink>
+                <HelpdeskNavLink Href="assets" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Inventory" Title="Assets">Assets</HelpdeskNavLink>
              </AuthorizeView>
              <AuthorizeView Roles="HelpdeskAdmin,DataManagement.Admin" Context="dataManagementAuth">
-                <MudNavLink Href="/admin/resources/data-management" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.DataObject">Data Management</MudNavLink>
+                <HelpdeskNavLink Href="/admin/resources/data-management" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.DataObject" Title="Data Management">Data Management</HelpdeskNavLink>
              </AuthorizeView>
-        </MudNavGroup>
+        </HelpdeskNavGroup>
         </AuthorizeView>
     </AuthorizeView>
 
-    <MudDivider Class="my-2" />
+    <AuthorizeView>
+        <HelpdeskNavGroup Title="Operations" RoutePrefixes="@OperationsRoutes" Icon="@Icons.Material.Filled.SettingsSuggest">
+            <AuthorizeView Roles="Incident.Write,Incident.Manager,Request.Read,Request.Write,Request.Execute,Request.Manager,Change.Write,Change.Manager,HelpdeskAdmin" Context="opsGate">
+                <HelpdeskNavLink Href="/ops" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.SettingsSuggest" Title="Operations console">Operations console</HelpdeskNavLink>
+            </AuthorizeView>
+            <HelpdeskNavLink Href="notifications" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Notifications" Title="Notifications">Notifications</HelpdeskNavLink>
+        </HelpdeskNavGroup>
+    </AuthorizeView>
 
     <AuthorizeView>
         <Authorized>
-            <MudNavLink Href="auth" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Person">@context.User.Identity?.Name</MudNavLink>
-            <MudNavLink Href="notifications" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Notifications">Notifications</MudNavLink>
             <TenantAdministrationNavigation />
             <AuthorizeView Roles="HelpdeskAdmin" Context="adminAuth">
-                <MudNavGroup Title="Administration" Icon="@Icons.Material.Filled.AdminPanelSettings" Expanded="@administrationExpanded" ExpandedChanged="OnAdministrationExpandedChanged">
-                    <MudNavGroup Title="Accounts & Orgs" Icon="@Icons.Material.Filled.AccountTree" Expanded="false">
-                        <MudNavLink Href="/admin/users" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Group">Team</MudNavLink>
-                        <MudNavLink Href="/admin/customers" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.People">
+                <div class="nav-section-heading"><span>Administration</span></div>
+                <HelpdeskNavGroup Title="Administration" Icon="@Icons.Material.Filled.AdminPanelSettings" RoutePrefixes="@AdministrationRoutes">
+                    <HelpdeskNavGroup Title="Accounts & Orgs" RoutePrefixes="@AccountAdministrationRoutes" Icon="@Icons.Material.Filled.AccountTree">
+                        <HelpdeskNavLink Href="/admin/users" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Group" Title="Team">Team</HelpdeskNavLink>
+                        <HelpdeskNavLink Href="/admin/customers" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.People" Title="Customers">
                             Customers
-                        </MudNavLink>
-                        <MudNavLink Href="/admin/organizations" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Apartment">
+                        </HelpdeskNavLink>
+                        <HelpdeskNavLink Href="/admin/organizations" Match="NavLinkMatch.Prefix" Aliases="@OrganizationAliases" Icon="@Icons.Material.Filled.Apartment" Title="Organizations">
                             Organizations
-                        </MudNavLink>
-                        <MudNavLink Href="/admin/support-routing" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.SupportAgent">
+                        </HelpdeskNavLink>
+                        <HelpdeskNavLink Href="/admin/support-routing" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.SupportAgent" Title="Support Routing">
                             Support Routing
-                        </MudNavLink>
-                        <MudNavLink Href="/admin/tenant-sla-settings" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Tune">Tenant SLA Settings</MudNavLink>
-                    </MudNavGroup>
+                        </HelpdeskNavLink>
+                        <HelpdeskNavLink Href="/admin/tenant-sla-settings" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Tune" Title="Tenant SLA Settings">Tenant SLA Settings</HelpdeskNavLink>
+                    </HelpdeskNavGroup>
 
-                    <MudNavLink Href="/admin/roles" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Security">Roles &amp; Permissions</MudNavLink>
+                    <HelpdeskNavLink Href="/admin/roles" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Security" Title="Roles &amp; Permissions">Roles &amp; Permissions</HelpdeskNavLink>
 
-                    <MudNavGroup Title="Email Settings" Icon="@Icons.Material.Filled.Email" Expanded="@emailSettingsExpanded" ExpandedChanged="OnEmailSettingsExpandedChanged">
-                        <MudNavLink Href="/admin/email-settings" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Mail">Mailbox Configuration</MudNavLink>
-                        <MudNavLink Href="/admin/pending-emails" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.MarkunreadMailbox">Pending Emails</MudNavLink>
-                        <MudNavLink Href="/admin/email-rules" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Rule">Email Rules</MudNavLink>
-                        <MudNavLink Href="/admin/templates" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Email">Email Templates</MudNavLink>
-                        <MudNavLink Href="/admin/layouts" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.ViewQuilt">Email Layouts</MudNavLink>
-                    </MudNavGroup>
+                    <HelpdeskNavGroup Title="Email Settings" Icon="@Icons.Material.Filled.Email" RoutePrefixes="@EmailRoutes">
+                        <HelpdeskNavLink Href="/admin/email-settings" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Mail" Title="Mailbox Configuration">Mailbox Configuration</HelpdeskNavLink>
+                        <HelpdeskNavLink Href="/admin/pending-emails" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.MarkunreadMailbox" Title="Pending Emails">Pending Emails</HelpdeskNavLink>
+                        <HelpdeskNavLink Href="/admin/email-rules" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Rule" Title="Email Rules">Email Rules</HelpdeskNavLink>
+                        <HelpdeskNavLink Href="/admin/templates" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Email" Title="Email Templates">Email Templates</HelpdeskNavLink>
+                        <HelpdeskNavLink Href="/admin/layouts" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.ViewQuilt" Title="Email Layouts">Email Layouts</HelpdeskNavLink>
+                    </HelpdeskNavGroup>
 
-                    <MudNavGroup Title="Automation" Icon="@Icons.Material.Filled.SmartToy" Expanded="@automationExpanded" ExpandedChanged="OnAutomationExpandedChanged">
-                        <MudNavLink Href="/admin/automation/integration" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Hub">Integration hub</MudNavLink>
-                        <MudNavLink Href="/admin/automation" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.SmartToy">Automation Rules</MudNavLink>
-                        <MudNavLink Href="/admin/requests/services" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Apps">Service Explorer</MudNavLink>
-                        <MudNavLink Href="/admin/ai-assistant-webhooks" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Webhook">Webhooks</MudNavLink>
-                    </MudNavGroup>
+                    <HelpdeskNavGroup Title="Automation" Icon="@Icons.Material.Filled.SmartToy" RoutePrefixes="@AutomationRoutes">
+                        <HelpdeskNavLink Href="/admin/automation/integration" Match="NavLinkMatch.Prefix" Aliases="@IntegrationAliases" Icon="@Icons.Material.Filled.Hub" Title="Integration hub">Integration hub</HelpdeskNavLink>
+                        <HelpdeskNavLink Href="/admin/automation" Match="NavLinkMatch.Prefix" ExcludedRoutes="@IntegrationRoutes" Icon="@Icons.Material.Filled.SmartToy" Title="Automation Rules">Automation Rules</HelpdeskNavLink>
+                        <HelpdeskNavLink Href="/admin/requests/services" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Apps" Title="Service Explorer">Service Explorer</HelpdeskNavLink>
+                        <HelpdeskNavLink Href="/admin/ai-assistant-webhooks" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Webhook" Title="Webhooks">Webhooks</HelpdeskNavLink>
+                    </HelpdeskNavGroup>
 
-                    <MudNavLink Href="/admin/categories" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Category">Ticket Categories</MudNavLink>
-                    <MudNavLink Href="/admin/branding" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Palette">Branding &amp; Identity</MudNavLink>
-                </MudNavGroup>
+                    <HelpdeskNavLink Href="/admin/categories" Match="NavLinkMatch.Prefix" Aliases="@CategoryAliases" Icon="@Icons.Material.Filled.Category" Title="Ticket Categories">Ticket Categories</HelpdeskNavLink>
+                    <HelpdeskNavLink Href="/admin/branding" Match="NavLinkMatch.Prefix" Aliases="@BrandingAliases" Icon="@Icons.Material.Filled.Palette" Title="Branding &amp; Identity">Branding &amp; Identity</HelpdeskNavLink>
+                </HelpdeskNavGroup>
             </AuthorizeView>
-            <MudNavLink Href="/logout" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Logout">Logout</MudNavLink>
+            <div class="helpdesk-nav-account">
+                <div class="nav-section-heading"><span>Account</span></div>
+                <HelpdeskNavLink Href="auth" Match="NavLinkMatch.Prefix" Aliases="@AccountAliases" Icon="@Icons.Material.Filled.Person" Title="@context.User.Identity?.Name">@context.User.Identity?.Name</HelpdeskNavLink>
+                <HelpdeskNavLink Href="/account/integration-credentials" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Key" Title="Integration credentials">Integration credentials</HelpdeskNavLink>
+                <HelpdeskNavLink Href="/logout" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Logout" Title="Logout">Logout</HelpdeskNavLink>
+            </div>
         </Authorized>
         <NotAuthorized>
-            <MudNavLink Href="/login" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Login">Login</MudNavLink>
+            <HelpdeskNavLink Href="/login" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Login" Title="Login">Login</HelpdeskNavLink>
         </NotAuthorized>
     </AuthorizeView>
 </MudNavMenu>
-
+</nav>
 
 @code {
-    private bool administrationExpanded;
-    private bool emailSettingsExpanded;
-    private bool automationExpanded;
-
-    protected override void OnInitialized()
-    {
-        UpdateExpandedGroups(NavigationManager.Uri);
-        NavigationManager.LocationChanged += OnLocationChanged;
-    }
-
-    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
-    {
-        UpdateExpandedGroups(e.Location);
-        StateHasChanged();
-    }
-
-    private void OnAdministrationExpandedChanged(bool expanded) => administrationExpanded = expanded;
-
-    private void OnEmailSettingsExpandedChanged(bool expanded) => emailSettingsExpanded = expanded;
-
-    private void OnAutomationExpandedChanged(bool expanded) => automationExpanded = expanded;
-
-    private void UpdateExpandedGroups(string location)
-    {
-        var path = NavigationManager.ToBaseRelativePath(location)
-            .Split(['?', '#'], 2)[0]
-            .TrimStart('/');
-
-        var isEmailSettingsPath = MatchesPath(path, "admin/email-settings")
-            || MatchesPath(path, "admin/pending-emails")
-            || MatchesPath(path, "admin/email-rules")
-            || MatchesPath(path, "admin/templates")
-            || MatchesPath(path, "admin/layouts");
-        var isAutomationPath = MatchesPath(path, "settings/connectivity")
-            || MatchesPath(path, "admin/orchestration/orchestration")
-            || MatchesPath(path, "admin/automation/integration")
-            || MatchesPath(path, "admin/integrations")
-            || MatchesPath(path, "admin/automation")
-            || MatchesPath(path, "admin/requests/services")
-            || MatchesPath(path, "admin/ai-assistant-webhooks");
-
-        if (isEmailSettingsPath || isAutomationPath)
-        {
-            administrationExpanded = true;
-        }
-
-        if (isEmailSettingsPath)
-        {
-            emailSettingsExpanded = true;
-        }
-
-        if (isAutomationPath)
-        {
-            automationExpanded = true;
-        }
-    }
-
-    private static bool MatchesPath(string path, string target) =>
-        string.Equals(path, target, StringComparison.OrdinalIgnoreCase)
-        || path.StartsWith($"{target}/", StringComparison.OrdinalIgnoreCase);
-
-    public void Dispose()
-    {
-        NavigationManager.LocationChanged -= OnLocationChanged;
-    }
+    private static readonly string[] PortalRoutes = ["self-service"];
+    private static readonly string[] MyRequestRoutes = ["self-service/my-requests"];
+    private static readonly string[] WorkspaceRoutes = ["incidents", "requests", "tasks", "changes"];
+    private static readonly string[] OperationsRoutes = ["ops", "notifications"];
+    private static readonly string[] ResourcesRoutes = ["assets", "admin/resources/data-management"];
+    private static readonly string[] OrganizationAliases = ["tenant-administration", "tenant-settings"];
+    private static readonly string[] AccountAdministrationRoutes = ["admin/users", "admin/customers", "admin/organizations", "admin/support-routing", "admin/tenant-sla-settings", .. OrganizationAliases];
+    private static readonly string[] EmailRoutes = ["admin/email-settings", "admin/pending-emails", "admin/email-rules", "admin/templates", "admin/layouts"];
+    private static readonly string[] IntegrationAliases = ["settings/connectivity", "admin/orchestration/orchestration", "admin/integrations"];
+    private static readonly string[] IntegrationRoutes = ["admin/automation/integration", .. IntegrationAliases];
+    private static readonly string[] CategoryAliases = ["admin/categories0"];
+    private static readonly string[] BrandingAliases = ["admin/tenants/*/branding"];
+    private static readonly string[] AccountAliases = ["account/authenticator", "account/change-password"];
+    private static readonly string[] AutomationRoutes = ["admin/automation", "admin/requests/services", "admin/ai-assistant-webhooks", .. IntegrationAliases];
+    private static readonly string[] AdministrationRoutes = [.. AccountAdministrationRoutes, .. EmailRoutes, .. AutomationRoutes, .. CategoryAliases, .. BrandingAliases, "admin/roles", "admin/categories", "admin/branding"];
 }

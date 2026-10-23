@@ -1,0 +1,398 @@
+using Helpdesk.AgentClient;
+using R3;
+using Termina.Extensions;
+using Termina.Clipboard;
+using Termina.Input;
+using Termina.Layout;
+using Termina.Reactive;
+using Termina.Rendering;
+using Termina.Terminal;
+
+namespace Helpdesk.Setup;
+
+/// <summary>A reactive declarative wizard with ordinary Tab focus inside each form.</summary>
+public sealed class SetupPage : ReactivePage<SetupViewModel>
+{
+    private readonly SetupOptions _options;
+    private readonly Dictionary<ReactiveProperty<string>, TextInputNode> _inputs = [];
+    private readonly CompositeDisposable _layoutWiring = new();
+    private readonly List<TextInputNode> _activeFields = [];
+    private ScrollableContainerNode? _scroll;
+    private ModalNode? _modal;
+    private readonly IClipboardService? _clipboard;
+    private ScrollableContainerNode? _detailsScroll;
+    private ScrollableContainerNode? _urlScroll;
+    private CopyableTextNode? _approvalUrl;
+
+    public SetupPage(SetupOptions options, IClipboardService? clipboard = null) { _options = options; _clipboard = clipboard; FocusPolicy = FocusPolicy.FirstFocusable; }
+    private Color Accent => _options.Monochrome ? Color.Default : Color.Cyan;
+
+    protected override void OnBound()
+    {
+        foreach (var field in new[] { ViewModel.Profile, ViewModel.Instance, ViewModel.NativeApiTarget, ViewModel.ManualSecret, ViewModel.TokenUrl, ViewModel.ClientId,
+            ViewModel.Username, ViewModel.Scope, ViewModel.SecretFile, ViewModel.InstanceLabel, ViewModel.HostPublicOrigin, ViewModel.ApiBackend,
+            ViewModel.McpBackend, ViewModel.AllowedOrigins, ViewModel.Listener, ViewModel.Authority, ViewModel.Audience,
+            ViewModel.RequiredScopes, ViewModel.RequiredGroups, ViewModel.OutputDirectory })
+        {
+            var input = new TextInputNode().WithMaxLength(field == ViewModel.ManualSecret ? 8192 : 2048);
+            if (field == ViewModel.ManualSecret) input.AsPassword('*');
+            _inputs[field] = input;
+            input.TextChanged.Subscribe(value =>
+            {
+                var safe = field == ViewModel.ManualSecret ? value : TerminalText.Sanitize(value);
+                if (input.Text != safe) input.Text = safe;
+                field.Value = safe;
+            }).DisposeWith(Subscriptions);
+            field.Subscribe(value => { if (input.Text != value) input.Text = value; }).DisposeWith(Subscriptions);
+        }
+    }
+
+    public override void OnNavigatedTo()
+    {
+        base.OnNavigatedTo();
+        KeyBindings.Register(ConsoleKey.Tab, () => { CycleFocusForward(); RevealFocus(); });
+        KeyBindings.Register(ConsoleKey.Tab, ConsoleModifiers.Shift, () => { CycleFocusBackward(); RevealFocus(); });
+        KeyBindings.Register(ConsoleKey.N, ConsoleModifiers.Control, () => { if (_modal is null) _ = ViewModel.NextAsync(); });
+        KeyBindings.Register(ConsoleKey.B, ConsoleModifiers.Control, ViewModel.Back);
+        KeyBindings.Register(ConsoleKey.O, ConsoleModifiers.Control, () => _ = ViewModel.OpenBrowserAsync());
+        KeyBindings.Register(ConsoleKey.C, ConsoleModifiers.Control, () => _ = ViewModel.CancelAsync());
+        KeyBindings.Register(ConsoleKey.Escape, () =>
+        {
+            if (ViewModel.Step.Value is SetupStep.Approval or SetupStep.Review && ViewModel.DetailsVisible.Value) ViewModel.DetailsVisible.Value = false;
+            else if (ViewModel.ConfirmOverwrite.Value) ViewModel.ConfirmOverwrite.Value = false;
+            else if (ViewModel.Step.Value == SetupStep.Complete) ViewModel.RequestShutdown();
+            else _ = ViewModel.CancelAsync();
+        });
+        KeyBindings.Register(ConsoleKey.F2, ViewModel.ToggleAdvanced);
+        KeyBindings.Register(ConsoleKey.D, ConsoleModifiers.Control, ViewModel.ToggleDetails);
+        KeyBindings.Register(ConsoleKey.Y, ConsoleModifiers.Control, CopyApproval);
+        KeyBindings.Register(ConsoleKey.PageDown, () => ActiveScroll()?.PageDown());
+        KeyBindings.Register(ConsoleKey.PageUp, () => ActiveScroll()?.PageUp());
+        ViewModel.Step.Subscribe(_ => InvalidateLayout()).DisposeWith(Subscriptions);
+        ViewModel.TerminalWidth.DistinctUntilChanged().Subscribe(_ => InvalidateLayout()).DisposeWith(Subscriptions);
+        ViewModel.TerminalHeight.DistinctUntilChanged().Subscribe(_ => InvalidateLayout()).DisposeWith(Subscriptions);
+        ViewModel.DetailsVisible.Subscribe(_ => InvalidateLayout()).DisposeWith(Subscriptions);
+        ViewModel.Advanced.Subscribe(_ => InvalidateLayout()).DisposeWith(Subscriptions);
+        ViewModel.ConfirmOverwrite.Subscribe(_ => InvalidateLayout()).DisposeWith(Subscriptions);
+    }
+
+    public override bool HandlePageInput(ConsoleKeyInfo keyInfo)
+    {
+        if (keyInfo.Key == ConsoleKey.Enter && _modal is null && (Focus.CurrentFocus is TextInputNode ||
+            ViewModel.Step.Value == SetupStep.Complete || ViewModel.Step.Value == SetupStep.Review && !ViewModel.IsHosting))
+        { _ = ViewModel.NextAsync(); return true; }
+        if (_modal is not null && keyInfo.Key == ConsoleKey.Tab) return true;
+        return base.HandlePageInput(keyInfo);
+    }
+
+    private void RevealFocus()
+    {
+        var index = _activeFields.FindIndex(field => ReferenceEquals(field, Focus.CurrentFocus));
+        if (index >= 0) _scroll?.ScrollTo(Math.Max(0, index * 3 - 3));
+    }
+
+    public override ILayoutNode BuildLayout()
+    {
+        _layoutWiring.Clear();
+        _activeFields.Clear();
+        var content = BuildStep();
+        var fixedReview = ViewModel.Step.Value == SetupStep.Approval || ViewModel.IsHosting && ViewModel.Step.Value == SetupStep.Review;
+        _scroll = fixedReview ? null : new ScrollableContainerNode().WithContent(content).WithAutoScroll(AutoScrollPolicy.None).WithScrollbar(true);
+        var form = new PanelNode().WithTitle(Title()).WithBorder(BorderStyle.Single).WithBorderColor(Accent).WithContent(_scroll is null ? content : _scroll);
+        LayoutNode body = ViewModel.TerminalWidth.Value >= 104
+            ? Layouts.Horizontal(new TextNode(Stepper()).WithForeground(Accent).Width(20), form.WidthFill())
+            : form;
+        var header = Layouts.Vertical(
+            new TextNode("RatelDesk setup").WithForeground(Accent).Bold().Height(1),
+            new TextNode(ViewModel.Step.Value == SetupStep.Instance ? ViewModel.IsHosting ? "Verify an existing deployment or prepare explicit changes" : "Connect using your RatelDesk Web URL" : $"{Title()} · {TerminalText.Sanitize(ViewModel.Instance.Value, 100)}").Height(1));
+        var status = ViewModel.Status.Select<string, ILayoutNode>(message => new TextNode(TerminalText.Sanitize(message)).WithForeground(Accent)).AsLayout(RenderFrameProvider);
+        var working = ViewModel.Busy.Select<bool, ILayoutNode>(busy => busy
+            ? new SpinnerNode().WithLabel("Working…").WithSpinnerColor(Accent)
+            : new TextNode(ViewModel.IsHosting ? "Server setup · personal client identities are separate" : $"{ViewModel.Transport} client · private storage chosen automatically")).AsLayout(RenderFrameProvider);
+        var root = Layouts.Vertical(header.Height(2), body.Fill(), status.Height(2), working.Height(1), new TextNode(ViewModel.Footer).Height(2));
+        if (!ViewModel.ConfirmOverwrite.Value)
+        {
+            if (_modal is not null) { Focus.PopFocus(); _modal = null; }
+            return root;
+        }
+        var choice = Layouts.SelectionList("Keep existing configuration", "Save reviewed replacement").WithVisibleRows(2).WithHighlightColors(Color.Default, _options.Monochrome ? Color.Default : Color.Blue);
+        choice.SelectionConfirmed.Subscribe(selected =>
+        {
+            ViewModel.ConfirmOverwrite.Value = false;
+            if (selected.FirstOrDefault() == "Save reviewed replacement") _ = ViewModel.NextAsync(overwriteConfirmed: true);
+        }).DisposeWith(_layoutWiring);
+        if (_modal is not null) Focus.PopFocus();
+        _modal = new ModalNode().WithTitle("Confirm replacement").WithContent(choice)
+            .WithFooter("Existing secrets remain hidden. [Esc] Keep existing configuration")
+            .WithBorder(BorderStyle.Single).WithBorderColor(Accent).WithDismissOnEscape(false);
+        Focus.PushFocus(_modal);
+        return Layouts.Stack(root, _modal);
+    }
+
+    private string Title() => ViewModel.Step.Value switch
+    {
+        SetupStep.Purpose => "Choose a task", SetupStep.Profile => "Client and profile", SetupStep.Instance => "RatelDesk Web URL",
+        SetupStep.Authentication => "Authentication", SetupStep.Approval => ViewModel.ApprovalTitle, SetupStep.Hosting => "HTTP MCP hosting",
+        SetupStep.Verification => "Host verification",
+        SetupStep.Review => ViewModel.IsHosting && ViewModel.HostIntent == HttpMcpHostIntent.VerifyExisting ? "Review existing baseline" : "Review and save", SetupStep.Checks => "Read-only checks", _ => "Result and next steps"
+    };
+    private string Stepper() => string.Join('\n', new[]
+    {
+        (SetupStep.Instance, "Web URL"),
+        (SetupStep.Authentication, "Authentication"), (SetupStep.Approval, "Approval"), (SetupStep.Hosting, "Hosting"),
+        (SetupStep.Review, "Review"), (SetupStep.Checks, "Checks"), (SetupStep.Complete, "Done")
+    }.Where(item => ViewModel.IsHosting ? item.Item1 is SetupStep.Instance or SetupStep.Hosting or SetupStep.Review or SetupStep.Complete : item.Item1 != SetupStep.Hosting)
+        .Select(item => $"{(ViewModel.Step.Value == item.Item1 ? ">" : " ")} {item.Item2}"));
+
+    private ILayoutNode BuildStep()
+    {
+        return ViewModel.Step.Value switch
+        {
+            SetupStep.Purpose => Layouts.Vertical(
+                new TextNode("Select deployment verification, explicit configuration changes, or a personal client. These have separate approvals.").HeightAuto(),
+                HostPurposeSelection()),
+            SetupStep.Profile => Layouts.Vertical(
+                new TextNode("Profiles isolate authorized organizations and credential purposes.").HeightAuto(),
+                Select(["CLI", "stdio MCP", "HTTP MCP client"], (int)ViewModel.Transport, value => ViewModel.SelectTransport(value == "CLI" ? SetupTransport.Cli : value == "stdio MCP" ? SetupTransport.Stdio : SetupTransport.Http)),
+                Input("Profile name", ViewModel.Profile, "lowercase letters, digits and hyphens"),
+                ViewModel.Transport == SetupTransport.Stdio ? Input("Instance label", ViewModel.InstanceLabel, "local") : Layouts.Empty()),
+            SetupStep.Instance => UrlForm(),
+            SetupStep.Authentication => AuthenticationForm(),
+            SetupStep.Hosting => HostingForm(),
+            SetupStep.Approval => ApprovalForm(),
+            SetupStep.Review when ViewModel.IsHosting => HostReviewForm(),
+            SetupStep.Verification => Layouts.Vertical(
+                new TextNode("Verify the saved, reviewed host checkpoint; deployment sources and running services remain unchanged.").HeightAuto(),
+                new TextNode("Next checks observed runtime and requests temporary status-only consent. Back from consent returns here and cleans up only that temporary verifier.").HeightAuto(),
+                Select(["Next: temporary status verification", "Cancel"], 0, value => { if (value == "Cancel") _ = ViewModel.CancelAsync(); else _ = ViewModel.NextAsync(); })),
+            _ => ViewModel.Detail.Select<string, ILayoutNode>(text => new TextNode(text)).AsLayout(RenderFrameProvider)
+        };
+    }
+
+    private ScrollableContainerNode? ActiveScroll() => ViewModel.IsHosting && ViewModel.Step.Value == SetupStep.Review
+        ? _detailsScroll : ViewModel.Step.Value != SetupStep.Approval ? _scroll
+            : ViewModel.DetailsVisible.Value ? _detailsScroll : _urlScroll;
+
+    private void CopyApproval()
+    {
+        if (ViewModel.Step.Value != SetupStep.Approval || ViewModel.BrowserUrl is not { } url) return;
+        try
+        {
+            var copied = _clipboard?.Copy(TerminalText.Sanitize(url) + "\nCode: " + TerminalText.Sanitize(ViewModel.HumanCode)) == true;
+            ViewModel.Status.Value = copied ? "Trusted approval URL and short code copied."
+                : "Clipboard unavailable. The full trusted URL and short code remain readable; open them on another device.";
+        }
+        catch { ViewModel.Status.Value = "Clipboard unavailable. The trusted URL and code remain usable; use Tab and PageDown to read a long URL."; }
+    }
+
+    private ILayoutNode ApprovalForm()
+    {
+        // Primary actions never share a scroll region with the proposal or provider diagnostics.
+        // Long URLs have their own bounded region and copy their complete safe value.
+        var width = Math.Max(20, ViewModel.TerminalWidth.Value - (ViewModel.TerminalWidth.Value >= 104 ? 23 : 3));
+        var url = TerminalText.Sanitize(ViewModel.BrowserUrl);
+        var urlHeight = Math.Clamp((url.Length + width - 1) / width, 1, 3);
+        ILayoutNode urlText;
+        if (_clipboard is not null)
+        {
+            _approvalUrl = new CopyableTextNode(_clipboard, url, null).WithHint("")
+                .WithForeground(Accent).WithFocusedColors(Color.Black, Color.White);
+            urlText = _approvalUrl;
+        }
+        else { _approvalUrl = null; urlText = new TextNode(url).WithForeground(Accent); }
+        _urlScroll = new ScrollableContainerNode().WithContent(urlText).WithAutoScroll(AutoScrollPolicy.None).WithScrollbar(true);
+        var summary = TerminalText.Sanitize(ViewModel.ApprovalSummary, 180);
+        if (summary.Length > width) summary = summary[..Math.Max(1, width - 12)] + "… [Details]";
+        var purpose = TerminalText.Sanitize(ViewModel.ApprovalPurpose, 160);
+        var actions = Layouts.Horizontal(
+            Layouts.Vertical(Select(["Open browser", "Copy URL and code", ViewModel.DetailsVisible.Value ? "Close Details" : "Details"], 0, value =>
+            {
+                if (value == "Open browser") _ = ViewModel.OpenBrowserAsync();
+                else if (value == "Copy URL and code") CopyApproval();
+                else ViewModel.ToggleDetails();
+            })).WidthFill(),
+            Layouts.Vertical(Select(["Back", "Cancel"], 0, value => { if (value == "Back") ViewModel.Back(); else _ = ViewModel.CancelAsync(); })).Width(17));
+        var primary = Layouts.Vertical(
+            new TextNode("Trusted instance: " + ViewModel.ApprovalInstance).Height(1),
+            new TextNode(purpose).Height(1),
+            new TextNode("Approval URL · Tab/Enter copies; PageUp/PageDown reads long URLs").Height(1),
+            _urlScroll.Height(urlHeight),
+            new TextNode("Short code: " + TerminalText.Sanitize(ViewModel.HumanCode) + " · " + ViewModel.ApprovalExpiry).WithForeground(Accent).Bold().Height(1),
+            new TextNode(summary).Height(1),
+            actions.Height(3));
+        _detailsScroll = null;
+        if (ViewModel.DetailsVisible.Value)
+        {
+            var detail = ViewModel.Detail.CombineLatest(ViewModel.Status, (text, status) => string.Join('\n', (text + "\n\nStatus: " + status).Split('\n').Select(line => TerminalText.Sanitize(line, 2048))));
+            _detailsScroll = new ScrollableContainerNode().WithContent(detail.Select<string, ILayoutNode>(text => new TextNode(text)).AsLayout(RenderFrameProvider)).WithAutoScroll(AutoScrollPolicy.None).WithScrollbar(true);
+            // Fill only the remaining body; the fixed primary block keeps code/actions visible.
+            primary.WithChild(new PanelNode().WithTitle("Details · PageUp/PageDown · Esc closes").WithBorder(BorderStyle.Single).WithContent(_detailsScroll).Fill());
+        }
+        return primary;
+    }
+
+    private ILayoutNode UrlForm()
+    {
+        var fields = Layouts.Vertical(
+            Input("RatelDesk Web URL", ViewModel.Instance, "https://desk.example.com", ViewModel.IsHosting ? "PublicOrigin" : ViewModel.NativeApiTarget.Value.Length == 0 ? "apiBaseUrl" : null),
+            Select(["Next", ViewModel.Advanced.Value ? "Hide Advanced" : "Advanced"], 0, value =>
+            { if (value == "Next") _ = ViewModel.NextAsync(); else ViewModel.ToggleAdvanced(); }));
+        if (ViewModel.IsHosting) fields.WithChild(HostPurposeSelection());
+        if (!ViewModel.Advanced.Value) return fields;
+        fields.WithChild(new TextNode("Advanced · existing managed values remain with their owning source.").HeightAuto())
+            .WithChild(ViewModel.IsHosting ? Layouts.Empty() : HostPurposeSelection());
+        if (ViewModel.IsHosting)
+            fields.WithChild(Input("Server setup storage", ViewModel.OutputDirectory, "durable private deployment storage"));
+        else
+            fields.WithChild(Select(["CLI", "stdio MCP", "HTTP MCP client"], (int)ViewModel.Transport,
+                value => { ViewModel.SelectTransport(value == "CLI" ? SetupTransport.Cli : value == "stdio MCP" ? SetupTransport.Stdio : SetupTransport.Http); InvalidateLayout(); }))
+                .WithChild(Input("Profile name", ViewModel.Profile, "default"))
+                .WithChild(ViewModel.Transport == SetupTransport.Stdio ? Input("Instance label", ViewModel.InstanceLabel, "local") : Layouts.Empty());
+        if (!ViewModel.IsHosting && ViewModel.Transport != SetupTransport.Http)
+            fields.WithChild(Input("Explicit API destination (optional)", ViewModel.NativeApiTarget, "Existing private HTTP(S) API target; leave blank for the Web URL", "apiBaseUrl"))
+                .WithChild(Select(["Browser Web approval", "Keep existing API identity", "Import API credential", "External Authentik identity"], ViewModel.Authentication switch { "existing" => 1, "manual" => 2, "authentik" => 3, _ => 0 },
+                    value => ViewModel.SelectAuthentication(value.StartsWith("Keep", StringComparison.Ordinal) ? "existing" : value.StartsWith("Import", StringComparison.Ordinal) ? "manual" : value.StartsWith("External", StringComparison.Ordinal) ? "authentik" : "browser")));
+        return fields;
+    }
+
+    private ILayoutNode AuthenticationForm()
+    {
+        var choices = ViewModel.Transport == SetupTransport.Http
+            ? new[] { "Browser approval", "Import existing MCP credential", "Keep existing / externally managed identity", "External Authentik / OAuth client" }
+            : new[] { "Browser approval", "Import existing API credential", "Keep existing / externally managed identity", "External Authentik identity" };
+        var index = ViewModel.Authentication switch { "manual" => 1, "existing" => 2, "authentik" or "oauth" => 3, _ => 0 };
+        var identity = Select(choices, index, value =>
+        {
+            ViewModel.SelectAuthentication(value.StartsWith("Browser", StringComparison.Ordinal) ? "browser" : value.StartsWith("Import", StringComparison.Ordinal) ? "manual" : value.StartsWith("Keep", StringComparison.Ordinal) ? "existing" : ViewModel.Transport == SetupTransport.Http ? "oauth" : "authentik");
+            InvalidateLayout();
+        });
+        var fields = Layouts.Vertical(new TextNode(ViewModel.Detail.Value).HeightAuto(),
+            ViewModel.Advanced.Value || !ViewModel.PairingSupported && ViewModel.Authentication == "manual" ? identity :
+                new TextNode($"Authentication: {ViewModel.Authentication} · [F2] Advanced to choose another method").HeightAuto());
+        if (ViewModel.Authentication == "manual")
+            fields.WithChild(Input("Credential (masked)", ViewModel.ManualSecret, "rdk_…", "integrationCredential"))
+                .WithChild(Input("Or private credential file", ViewModel.SecretFile, "leave blank when entering a credential", "integrationCredentialFile"));
+        if (ViewModel.Authentication == "authentik")
+            fields.WithChild(new TextNode("External Authentik is a separately configured identity. This does not grant per-user MCP delegation.").HeightAuto())
+                .WithChild(Input("Token URL", ViewModel.TokenUrl, "https://auth.example.com/application/o/token/", "authentikTokenUrl"))
+                .WithChild(Input("Client id", ViewModel.ClientId, "", "authentikClientId"))
+                .WithChild(Input("Service username", ViewModel.Username, "", "authentikUsername"))
+                .WithChild(Input("App password (masked)", ViewModel.ManualSecret, "", "authentikAppPassword"))
+                .WithChild(Input("Or private password file", ViewModel.SecretFile, "", "authentikAppPasswordFile"))
+                .WithChild(ViewModel.Advanced.Value ? Input("Scope", ViewModel.Scope, AgentClientConfiguration.DefaultScope, "authentikScope") : Layouts.Empty());
+        if (ViewModel.Authentication == "existing")
+            fields.WithChild(new TextNode("The existing identity is retained only for its reviewed target. Environment/read-only sources are externally managed.").HeightAuto());
+        if (ViewModel.Authentication == "oauth")
+            fields.WithChild(new TextNode("Your OAuth-capable MCP client owns login and token storage. Setup verifies the canonical protected-resource metadata and saves only the reviewed resource/HTTPS authorities and optional imported public client ID.").HeightAuto())
+                .WithChild(ViewModel.Advanced.Value ? Input("Imported public OAuth client ID (optional)", ViewModel.ClientId, "No client secret is collected") : Layouts.Empty());
+        return fields;
+    }
+
+    private ILayoutNode HostingForm()
+    {
+        if (ViewModel.HostIntent == HttpMcpHostIntent.VerifyExisting)
+            return Layouts.Vertical(
+                new TextNode("Verify existing deployment unchanged").Bold().Height(1),
+                new TextNode($"Trusted Web URL: {TerminalText.Sanitize(ViewModel.HostPublicOrigin.Value)}\nIngress: {TerminalText.Sanitize(ViewModel.HostAuthentication)}").HeightAuto(),
+                new TextNode("No configuration import, new service, mount or restart. Next requests administrator review of the detected baseline; fresh verification follows in a new process.").HeightAuto(),
+                HostPurposeSelection());
+        if (!ViewModel.Advanced.Value)
+            return Layouts.Vertical(
+                new TextNode($"RatelDesk Web URL: {TerminalText.Sanitize(ViewModel.HostPublicOrigin.Value)}\nIngress: {TerminalText.Sanitize(ViewModel.HostAuthentication)}\nPrivate setup storage: {TerminalText.Sanitize(ViewModel.OutputDirectory.Value)}").HeightAuto(),
+                new TextNode((ViewModel.HostIntent == HttpMcpHostIntent.LegacyInitializer ? "Advanced initializer topology selected; review its extra defined service and serving mounts. " : "Prepare explicit changes. ") + "[F2] Advanced shows editable settings. Owner apply follows separate administrator approval.").HeightAuto(),
+                HostPurposeSelection());
+        var fields = Layouts.Vertical(new TextNode("Prepare configuration changes for the existing owner. Preserve its readable source and review recreation separately.").HeightAuto(),
+            HostPurposeSelection(),
+            Select(["Preserve existing source strategy", "Advanced: initializer topology"], ViewModel.HostIntent == HttpMcpHostIntent.LegacyInitializer ? 1 : 0,
+                value => { ViewModel.SelectHostIntent(value.StartsWith("Advanced", StringComparison.Ordinal) ? HttpMcpHostIntent.LegacyInitializer : HttpMcpHostIntent.PrepareChanges); InvalidateLayout(); }),
+            Input("Export directory", ViewModel.OutputDirectory, "persistent writable mount"),
+            Select(["Load existing export", "Edit reviewed settings"], 1, value => { if (value == "Load existing export") { try { ViewModel.LoadHosting(); } catch (AgentClientValidationException exception) { ViewModel.Status.Value = TerminalText.Sanitize(exception.Message); } InvalidateLayout(); } }),
+            Input("Public HTTPS origin", ViewModel.HostPublicOrigin, "https://desk.example.com", "PublicOrigin"),
+            Input("Private API backend", ViewModel.ApiBackend, "http://api:8222/", "ApiBaseUrl"),
+            Input("Private MCP destination", ViewModel.McpBackend, "http://mcp-http:8223/", "McpDestination"),
+            Input("Instance label", ViewModel.InstanceLabel, "local", "Instance"),
+            ViewModel.HostManaged("AuthenticationMode") ? new TextNode($"Ingress mode: {ViewModel.HostAuthentication} · externally managed ({ViewModel.HostManagedSource("AuthenticationMode")})").HeightAuto() :
+                Select(["Gateway (per-request delegation)", "External Authentik ingress"], ViewModel.HostAuthentication == "gateway" ? 0 : 1,
+                    value => { ViewModel.SelectHostAuthentication(value.StartsWith("Gateway", StringComparison.Ordinal) ? "gateway" : "authentik"); InvalidateLayout(); }));
+        if (ViewModel.Advanced.Value)
+            fields.WithChild(Input("Allowed browser origins (comma separated)", ViewModel.AllowedOrigins, "defaults to public origin", "AllowedOrigins"))
+                .WithChild(Input("Listener", ViewModel.Listener, "http://+:8223", "Listener"));
+        if (ViewModel.HostAuthentication == "authentik")
+        {
+            fields.WithChild(new TextNode("[F2] Advanced fields configure Authentik ingress and its separate downstream API identity. Gateway requires neither deployment secret nor shared signing key.").HeightAuto());
+            if (ViewModel.Advanced.Value)
+                fields.WithChild(Input("Authentik authority", ViewModel.Authority, "https://auth.example.com/application/o/mcp/", "AuthentikAuthority"))
+                    .WithChild(Input("MCP audience", ViewModel.Audience, "public origin + /mcp", "AuthentikAudience"))
+                    .WithChild(Input("Required scopes", ViewModel.RequiredScopes, "comma separated", "RequiredScopes"))
+                    .WithChild(Input("Required groups", ViewModel.RequiredGroups, "comma separated", "RequiredGroups"))
+                    .WithChild(ViewModel.HostManaged("Outbound") ? new TextNode($"Downstream identity · externally managed ({ViewModel.HostManagedSource("Outbound")})").HeightAuto() :
+                        Select(["Keep existing downstream identity", "Configure downstream Authentik identity", "Import downstream API credential file"], ViewModel.DownstreamAuthentication switch { "existing" => 0, "integration" => 2, _ => 1 },
+                            value => { ViewModel.SelectDownstreamAuthentication(value.StartsWith("Keep", StringComparison.Ordinal) ? "existing" : value.StartsWith("Import", StringComparison.Ordinal) ? "integration" : "authentik"); InvalidateLayout(); }))
+                    .WithChild(ViewModel.DownstreamAuthentication == "existing" ? new TextNode("Existing private downstream identity stays masked and bound to its reviewed API backend.").HeightAuto() : Layouts.Empty())
+                    .WithChild(Input("Downstream token URL", ViewModel.TokenUrl, "https://auth.example.com/application/o/token/", "Outbound"))
+                    .WithChild(Input("Downstream client id", ViewModel.ClientId, "", "Outbound"))
+                    .WithChild(Input("Downstream service username", ViewModel.Username, "", "Outbound"))
+                    .WithChild(Input("Downstream private secret file", ViewModel.SecretFile, "deployment-owned private secret reference", "Outbound"));
+        }
+        return fields;
+    }
+
+    private ILayoutNode HostPurposeSelection() => Select(
+        ["Verify existing deployment", "Prepare configuration changes", "Connect a client"],
+        !ViewModel.IsHosting ? 2 : ViewModel.HostIntent == HttpMcpHostIntent.VerifyExisting ? 0 : 1,
+        value =>
+        {
+            if (value == "Connect a client") ViewModel.SelectPurpose(false);
+            else ViewModel.SelectHostIntent(value == "Verify existing deployment" ? HttpMcpHostIntent.VerifyExisting : HttpMcpHostIntent.PrepareChanges);
+            InvalidateLayout();
+        });
+
+    private ILayoutNode HostReviewForm()
+    {
+        var adoption = ViewModel.HostIntent == HttpMcpHostIntent.VerifyExisting;
+        var primary = Layouts.Vertical(
+            new TextNode("Trusted instance: " + TerminalText.Sanitize(ViewModel.HostPublicOrigin.Value)).Height(1),
+            new TextNode(ViewModel.HostServiceSummary).WithForeground(Accent).Bold().Height(1),
+            new TextNode(ViewModel.HostChangeSummary).HeightAuto(),
+            new TextNode(adoption ? "Administrator reviewed. Save only the private baseline checkpoint; then verify in a new process."
+                : "Administrator reviewed. Prepare the private candidate; the deployment owner must apply it before fresh verification.").HeightAuto(),
+            Layouts.Vertical(Select([adoption ? "Save baseline; verify next" : "Prepare reviewed changes", ViewModel.DetailsVisible.Value ? "Close Details" : "Details", "Back", "Cancel"], 0, value =>
+            {
+                if (value == "Back") ViewModel.Back();
+                else if (value == "Cancel") _ = ViewModel.CancelAsync();
+                else if (value.Contains("Details", StringComparison.Ordinal)) ViewModel.ToggleDetails();
+                else _ = ViewModel.NextAsync();
+            })).Height(4));
+        _detailsScroll = null;
+        if (ViewModel.DetailsVisible.Value)
+        {
+            _detailsScroll = new ScrollableContainerNode().WithContent(
+                ViewModel.Detail.Select<string, ILayoutNode>(text => new TextNode(string.Join('\n',
+                    text.Split('\n').Select(line => TerminalText.Sanitize(line, 2048))))).AsLayout(RenderFrameProvider))
+                .WithAutoScroll(AutoScrollPolicy.None).WithScrollbar(true);
+            primary.WithChild(new PanelNode().WithTitle("Details · PageUp/PageDown · Esc closes")
+                .WithBorder(BorderStyle.Single).WithContent(_detailsScroll).Fill());
+        }
+        return primary;
+    }
+
+    private ILayoutNode Input(string label, ReactiveProperty<string> field, string placeholder, string? setting = null)
+    {
+        if (setting is not null && (ViewModel.IsHosting ? ViewModel.HostManaged(setting) : ViewModel.Managed(setting)))
+            return Layouts.Vertical(new TextNode($"{label} · externally managed ({(ViewModel.IsHosting ? ViewModel.HostManagedSource(setting) : ViewModel.ManagedSource(setting))})").WithForeground(Accent).Height(1),
+                new TextNode(field == ViewModel.ManualSecret || field == ViewModel.SecretFile || setting.Contains("Credential", StringComparison.OrdinalIgnoreCase) || setting.Contains("Password", StringComparison.OrdinalIgnoreCase)
+                    ? "[private external source]" : TerminalText.Sanitize(field.Value)).Height(1), new TextNode("").Height(1));
+        var input = _inputs[field];
+        input.WithPlaceholder(placeholder).WithForeground(_options.Monochrome ? Color.Default : Color.White);
+        _activeFields.Add(input);
+        return Layouts.Vertical(new TextNode(label).WithForeground(Accent).Height(1), input.Height(1), new TextNode("").Height(1));
+    }
+    private ILayoutNode Select(string[] choices, int selectedIndex, Action<string> changed)
+    {
+        var list = Layouts.SelectionList(choices).WithMode(SelectionMode.Single).WithHighlightedIndex(Math.Clamp(selectedIndex, 0, choices.Length - 1))
+            .WithVisibleRows(choices.Length).WithHighlightColors(Color.Default, _options.Monochrome ? Color.Default : Color.Blue);
+        list.SelectionConfirmed.Subscribe(selected => { if (selected.Count > 0) changed(selected[0]); }).DisposeWith(_layoutWiring);
+        return list;
+    }
+    public override void Dispose() { _layoutWiring.Dispose(); base.Dispose(); }
+}

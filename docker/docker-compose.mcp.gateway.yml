@@ -3,6 +3,14 @@ name: rateldesk
 # Optional local source-build overlay. Unlike docker-compose.mcp.yml, this
 # recipe uses the API's paired-credential gateway and needs no Authentik values.
 services:
+  web:
+    environment:
+      WebGateway__PublicOrigin: ${RATELDESK_PUBLIC_ORIGIN:-}
+      WebGateway__Mcp__PublicResourceUri: ${RATELDESK_MCP_PUBLIC_RESOURCE_URI:?Set the canonical public HTTPS MCP resource.}
+      WebGateway__Mcp__Enabled: "true"
+      WebGateway__Mcp__Destination: ${RATELDESK_MCP_DESTINATION:-http://mcp-http:8223/}
+      WebGateway__Mcp__AuthenticationMode: gateway
+
   mcp-config-init:
     build:
       context: ..

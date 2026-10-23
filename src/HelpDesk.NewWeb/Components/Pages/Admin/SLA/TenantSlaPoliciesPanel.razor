@@ -1,16 +1,20 @@
+@inherits HelpDesk.NewWeb.Components.Shared.Admin.AdminActionPanelBase
 @inject IHttpClientFactory HttpClientFactory
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 @using Helpdesk.Shared.DTOs.Organization
 @using Helpdesk.Shared.DTOs.SlaPolicy
 
-<MudPaper Class="pa-4">
+<MudPaper Class="pa-2" Elevation="0">
+<fieldset disabled="@IsBusy" class="sla-editor-controls">
     <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
         <MudText Typo="Typo.h6">SLA Policies</MudText>
         <MudSpacer />
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" Disabled="@string.IsNullOrWhiteSpace(TenantId)" OnClick="OpenCreateDialog">Create</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" Disabled="@string.IsNullOrWhiteSpace(TenantId)" OnClick="@(() => RunActionAsync(OpenCreateDialog))">Create</MudButton>
     </MudStack>
 
+    @if (error is not null) { <MudAlert Severity="Severity.Error">@error</MudAlert> }
+    @if (loading) { <MudProgressLinear Indeterminate="true" /> }
     @if (string.IsNullOrWhiteSpace(TenantId))
     {
         <MudText Typo="Typo.body2" Color="Color.Secondary">Select a tenant to view SLA policies.</MudText>
@@ -18,7 +22,7 @@
     else
     {
         <div class="sla-table-wrap">
-            <MudTable Items="FilteredPolicies" Hover="true" Dense="true" T="SlaPolicyDto" Breakpoint="Breakpoint.None" Class="sla-compact-table">
+            <MudTable Items="FilteredPolicies" Hover="true" Dense="true" T="SlaPolicyDto" Breakpoint="Breakpoint.Sm" RowsPerPage="25" Class="sla-compact-table">
                 <HeaderContent>
                     <MudTh>Name</MudTh>
                     <MudTh>Ticket Type</MudTh>
@@ -38,36 +42,26 @@
                     <MudTd DataLabel="Resolution">@context.ResolutionTimeHours h</MudTd>
                     <MudTd DataLabel="Escalations">@context.Escalations.Count</MudTd>
                     <MudTd Class="sla-actions">
-                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Primary" Size="Size.Small" OnClick="() => OpenEditDialog(context)" />
-                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small" OnClick="() => ConfirmDelete(context)" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit" aria-label="Edit" Color="Color.Primary" Size="Size.Small" OnClick="@(() => RunActionAsync(() => OpenEditDialog(context)))" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" aria-label="Delete" Color="Color.Error" Size="Size.Small" OnClick="@(() => RunActionAsync(() => ConfirmDelete(context)))" />
                     </MudTd>
                 </RowTemplate>
+                <NoRecordsContent><MudText Class="pa-2">No policies for this tenant.</MudText></NoRecordsContent>
+                <PagerContent><MudTablePager PageSizeOptions="@(new[] { 25, 50, 100 })" /></PagerContent>
             </MudTable>
         </div>
     }
+</fieldset>
 </MudPaper>
 
-<style>
-    .sla-table-wrap {
-        overflow-x: auto;
-    }
 
-    .sla-compact-table th,
-    .sla-compact-table td {
-        white-space: nowrap;
-        padding: 4px 8px;
-    }
-
-    .sla-actions {
-        width: 88px;
-        text-align: right;
-    }
-</style>
 
 @code {
     [Parameter] public string? TenantId { get; set; }
     [Parameter] public List<TenantLookupDto> Tenants { get; set; } = new();
 
+    private string? error;
+    private bool loading;
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
     private List<SlaPolicyDto> policies = new();
     private IEnumerable<SlaPolicyDto> FilteredPolicies => policies
@@ -82,7 +76,14 @@
 
     private async Task LoadPolicies()
     {
-        policies = await HelpdeskApi.GetFromJsonAsync<List<SlaPolicyDto>>("api/v1/slas") ?? new();
+        loading = true;
+        try
+        {
+            var result = await HelpdeskApi.GetFromJsonAsync<List<SlaPolicyDto>>("api/v1/slas") ?? new();
+            if (!IsDisposed) { policies = result; error = null; }
+        }
+        catch { if (!IsDisposed) error = "Could not load policies. Reload to try again."; }
+        finally { loading = false; }
     }
 
     private async Task OpenCreateDialog()
@@ -98,10 +99,10 @@
             ["TenantId"] = TenantId,
             ["Tenants"] = Tenants
         };
-        var options = new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true, BackdropClick = false, CloseOnEscapeKey = false };
         var dialog = await DialogService.ShowAsync<CreateSlaPolicyDialog>("Create SLA Policy", parameters, options);
         var result = await dialog.Result;
-        if (!result.Canceled)
+        if (!IsDisposed && result?.Canceled == false)
         {
             await LoadPolicies();
         }
@@ -115,10 +116,10 @@
             ["TenantId"] = TenantId,
             ["Tenants"] = Tenants
         };
-        var options = new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true, BackdropClick = false, CloseOnEscapeKey = false };
         var dialog = await DialogService.ShowAsync<EditSlaPolicyDialog>("Edit SLA Policy", parameters, options);
         var result = await dialog.Result;
-        if (!result.Canceled)
+        if (!IsDisposed && result?.Canceled == false)
         {
             await LoadPolicies();
         }
@@ -131,7 +132,7 @@
             $"Delete '{policy.Name}'?",
             yesText: "Delete",
             cancelText: "Cancel");
-        if (confirm != true)
+        if (IsDisposed || confirm != true)
         {
             return;
         }

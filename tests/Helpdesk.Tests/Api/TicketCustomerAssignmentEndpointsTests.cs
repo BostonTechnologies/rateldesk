@@ -1,16 +1,21 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Data.Common;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Helpdesk.API.Endpoints.Tickets;
+using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
+using Helpdesk.Tests.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -18,7 +23,7 @@ using TicketRequest = Helpdesk.Shared.Models.Request;
 
 namespace Helpdesk.Tests.Api;
 
-public sealed class TicketCustomerAssignmentEndpointsTests
+public sealed partial class TicketCustomerAssignmentEndpointsTests
 {
     [Theory]
     [InlineData("incidents", "incident-1")]
@@ -124,44 +129,43 @@ public sealed class TicketCustomerAssignmentEndpointsTests
     private sealed class TicketCustomerAssignmentHarness : IAsyncDisposable
     {
         private readonly WebApplication app;
-        private readonly InMemoryRepository<Incident> incidents;
-        private readonly InMemoryRepository<TicketRequest> requests;
-        private readonly InMemoryRepository<Change> changes;
-        private readonly InMemoryRepository<Customer> customers;
+        private readonly ServiceIdentityMigrationTests.DatabaseFixture database;
 
         private TicketCustomerAssignmentHarness(
             WebApplication app,
             HttpClient client,
-            InMemoryRepository<Incident> incidents,
-            InMemoryRepository<TicketRequest> requests,
-            InMemoryRepository<Change> changes,
-            InMemoryRepository<Customer> customers)
+            ServiceIdentityMigrationTests.DatabaseFixture database,
+            RequestReadBarrier barrier)
         {
             this.app = app;
-            this.incidents = incidents;
-            this.requests = requests;
-            this.changes = changes;
-            this.customers = customers;
+            this.database = database;
+            Barrier = barrier;
             Client = client;
         }
 
         public HttpClient Client { get; }
+        public RequestReadBarrier Barrier { get; }
 
-        public static async Task<TicketCustomerAssignmentHarness> CreateAsync(string role = "HelpdeskAdmin")
+        public static async Task<TicketCustomerAssignmentHarness> CreateAsync(string role = "HelpdeskAdmin", bool postgres = false)
         {
-            var incidents = new InMemoryRepository<Incident>();
-            var requests = new InMemoryRepository<TicketRequest>();
-            var changes = new InMemoryRepository<Change>();
-            var customers = new InMemoryRepository<Customer>();
+            var database = await ServiceIdentityMigrationTests.DatabaseFixture.CreateAsync(postgres);
+            await using (var db = database.Open())
+            {
+                await db.Database.EnsureCreatedAsync();
+                db.Organizations.AddRange(new Organization { Id = "org-1", Name = "Primary fixture" },
+                    new Organization { Id = "org-2", Name = "Other fixture" });
+                await db.SaveChangesAsync();
+            }
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions
             {
                 EnvironmentName = "Development"
             });
             builder.WebHost.UseTestServer();
-            builder.Services.AddSingleton<IRepository<Incident>>(incidents);
-            builder.Services.AddSingleton<IRepository<TicketRequest>>(requests);
-            builder.Services.AddSingleton<IRepository<Change>>(changes);
-            builder.Services.AddSingleton<IRepository<Customer>>(customers);
+            builder.Logging.ClearProviders();
+            var barrier = new RequestReadBarrier();
+            builder.Services.AddScoped<HelpdeskDbContext>(_ => database.Open(barrier));
+            builder.Services.AddScoped(typeof(IRepository<>), typeof(EfRepository<>));
+            builder.Services.AddSingleton(barrier);
             builder.Services.AddSingleton<ICurrentUserAccessService, TestUserAccessService>();
             builder.Services.AddAuthentication(options =>
             {
@@ -179,17 +183,18 @@ public sealed class TicketCustomerAssignmentEndpointsTests
             TicketEndpoints.MapTicketCustomerEndpoint(ticketGroup);
 
             await app.StartAsync();
-            var harness = new TicketCustomerAssignmentHarness(app, app.GetTestClient(), incidents, requests, changes, customers);
+            var harness = new TicketCustomerAssignmentHarness(app, app.GetTestClient(), database, barrier);
             harness.Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", role);
             return harness;
         }
 
         public async Task SeedTicketAsync(string ticketType, string ticketId, string organizationId, string? customerId = null)
         {
+            await using var db = database.Open();
             switch (ticketType)
             {
                 case "incidents":
-                    await incidents.CreateAsync(new Incident
+                    db.Incidents.Add(new Incident
                     {
                         Id = ticketId,
                         Title = "Incident",
@@ -199,7 +204,7 @@ public sealed class TicketCustomerAssignmentEndpointsTests
                     });
                     break;
                 case "requests":
-                    await requests.CreateAsync(new TicketRequest
+                    db.Requests.Add(new TicketRequest
                     {
                         Id = ticketId,
                         Title = "Request",
@@ -209,7 +214,7 @@ public sealed class TicketCustomerAssignmentEndpointsTests
                     });
                     break;
                 case "changes":
-                    await changes.CreateAsync(new Change
+                    db.Changes.Add(new Change
                     {
                         Id = ticketId,
                         Title = "Change",
@@ -219,11 +224,13 @@ public sealed class TicketCustomerAssignmentEndpointsTests
                     });
                     break;
             }
+            await db.SaveChangesAsync();
         }
 
         public async Task SeedCustomerAsync(string id, string organizationId, string name, string email, bool enabled = true)
         {
-            await customers.CreateAsync(new Customer
+            await using var db = database.Open();
+            db.Customers.Add(new Customer
             {
                 Id = id,
                 OrganizationId = organizationId,
@@ -231,21 +238,61 @@ public sealed class TicketCustomerAssignmentEndpointsTests
                 Email = email,
                 IsEnabled = enabled
             });
+            await db.SaveChangesAsync();
         }
 
-        public async Task<Ticket?> GetTicketAsync(string ticketType, string ticketId) =>
-            ticketType switch
+        public async Task<Ticket?> GetTicketAsync(string ticketType, string ticketId)
+        {
+            await using var db = database.Open();
+            return ticketType switch
             {
-                "incidents" => await incidents.GetAsync(ticketId),
-                "requests" => await requests.GetAsync(ticketId),
-                "changes" => await changes.GetAsync(ticketId),
+                "incidents" => await db.Incidents.AsNoTracking().SingleOrDefaultAsync(ticket => ticket.Id == ticketId),
+                "requests" => await db.Requests.AsNoTracking().SingleOrDefaultAsync(ticket => ticket.Id == ticketId),
+                "changes" => await db.Changes.AsNoTracking().SingleOrDefaultAsync(ticket => ticket.Id == ticketId),
                 _ => null
             };
+        }
+
+        public async Task WithDbAsync(Func<HelpdeskDbContext, Task> action)
+        {
+            await using var db = database.Open();
+            await action(db);
+        }
 
         public async ValueTask DisposeAsync()
         {
             Client.Dispose();
             await app.DisposeAsync();
+            await database.DisposeAsync();
+        }
+    }
+
+    private sealed class RequestReadBarrier : DbCommandInterceptor
+    {
+        public bool HoldNext { get; set; }
+        public bool HoldWrite { get; set; }
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int held;
+
+        public async Task AfterTicketReadAsync(CancellationToken ct)
+        {
+            if (HoldNext) await HoldAsync(ct);
+        }
+
+        public override async ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command,
+            CommandEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            if (HoldWrite && command.CommandText.Contains("UPDATE \"Tickets\"", StringComparison.Ordinal))
+                await HoldAsync(cancellationToken);
+            return result;
+        }
+
+        private async Task HoldAsync(CancellationToken ct)
+        {
+            if (Interlocked.Exchange(ref held, 1) != 0) return;
+            Entered.TrySetResult();
+            await Release.Task.WaitAsync(TimeSpan.FromSeconds(30), ct);
         }
     }
 
@@ -271,13 +318,16 @@ public sealed class TicketCustomerAssignmentEndpointsTests
         }
     }
 
-    private sealed class TestUserAccessService : ICurrentUserAccessService
+    private sealed class TestUserAccessService(RequestReadBarrier barrier) : ICurrentUserAccessService
     {
-        public Task<CurrentUserAccessProfile> ResolveAsync(ClaimsPrincipal user, CancellationToken ct = default)
+        public async Task<CurrentUserAccessProfile> ResolveAsync(ClaimsPrincipal user, CancellationToken ct = default)
         {
+            // The real endpoint calls this after its real repository read has
+            // completed and closed the reader, before checking/updating the requester.
+            await barrier.AfterTicketReadAsync(ct);
             if (user.IsInRole(HelpdeskPermissions.HelpdeskAdmin))
             {
-                return Task.FromResult(new CurrentUserAccessProfile(
+                return new CurrentUserAccessProfile(
                     true,
                     "Test",
                     null,
@@ -288,13 +338,13 @@ public sealed class TicketCustomerAssignmentEndpointsTests
                     new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                     new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                     new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                    new HashSet<string>(StringComparer.OrdinalIgnoreCase)));
+                    new HashSet<string>(StringComparer.OrdinalIgnoreCase));
             }
 
             var permissions = user.IsInRole("Technician")
                 ? HelpdeskPermissions.TechnicalBundle.ToHashSet(StringComparer.OrdinalIgnoreCase)
                 : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            return Task.FromResult(new CurrentUserAccessProfile(
+            return new CurrentUserAccessProfile(
                 true,
                 "Test",
                 null,
@@ -305,7 +355,7 @@ public sealed class TicketCustomerAssignmentEndpointsTests
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase) { HelpdeskRoleBundles.Technical },
                 permissions,
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "org-1" },
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase)));
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase));
         }
     }
 }

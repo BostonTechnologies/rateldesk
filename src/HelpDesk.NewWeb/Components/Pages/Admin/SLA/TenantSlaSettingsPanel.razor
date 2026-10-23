@@ -1,166 +1,99 @@
+@inherits HelpDesk.NewWeb.Components.Shared.Admin.AdminActionPanelBase
 @inject IHttpClientFactory HttpClientFactory
 @inject ISnackbar Snackbar
 @using Helpdesk.Shared.DTOs.Organization
 @using Helpdesk.Shared.DTOs.Sla
 @using Helpdesk.Shared.Enums
 
-<MudPaper Class="pa-3">
-    <MudGrid Spacing="2" AlignItems="Center">
-        <MudItem xs="12" md="2">
-            <MudText Typo="Typo.subtitle2">Tenant SLA Settings</MudText>
-        </MudItem>
-        <MudItem xs="12" md="3">
-            <MudSelect T="string"
-                       Label="Tenant"
-                       Value="TenantId"
-                       ValueChanged="OnTenantChanged"
-                       Required="true"
-                       Dense="true"
-                       Margin="Margin.Dense">
-                @foreach (var tenant in Tenants)
+<MudPaper Class="pa-2 mb-3" Elevation="0">
+    <MudText Typo="Typo.subtitle2">Calendar association</MudText>
+    @if (error is not null) { <MudAlert Severity="Severity.Error">@error</MudAlert> }
+    @if (model is null)
+    {
+        @if (error is null) { <MudProgressLinear Indeterminate="true" /> }
+    }
+    else
+    {
+        <fieldset disabled="@IsBusy" class="sla-editor-controls">
+            <MudSwitch T="bool" @bind-Value="model.UseBusinessHours" @bind-Value:after="NotifyChanged" Label="Use business hours" />
+            <MudSelect T="string" Label="Explicit calendar (optional)" @bind-Value="model.CalendarId" @bind-Value:after="NotifyChanged" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense">
+                @foreach (var calendar in FilteredCalendars)
                 {
-                    <MudSelectItem T="string" Value="@tenant.Id">@tenant.Name</MudSelectItem>
+                    <MudSelectItem T="string" Value="@calendar.Id">@calendar.Name (@calendar.TimeZoneId)@(calendar.IsActive ? "" : " · inactive")</MudSelectItem>
                 }
             </MudSelect>
-        </MudItem>
-        <MudItem xs="12" md="1" Class="d-flex justify-center">
-            <MudTooltip Text="@BusinessHoursTooltip">
-                <MudIconButton Icon="@(model?.UseBusinessHours == true ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
-                               Color="@(model?.UseBusinessHours == true ? Color.Success : Color.Default)"
-                               Size="Size.Medium"
-                               Disabled="@(model is null || string.IsNullOrWhiteSpace(TenantId) || saving)"
-                               aria-label="@BusinessHoursTooltip"
-                               OnClick="ToggleBusinessHoursAsync" />
-            </MudTooltip>
-        </MudItem>
-        <MudItem xs="12" md="6">
-            @if (model is null)
-            {
-                <MudProgressLinear Indeterminate="true" />
-            }
-            else
-            {
-                <MudSelect T="string"
-                           Label="Calendar (optional)"
-                           Value="model.CalendarId"
-                           ValueChanged="OnCalendarChanged"
-                           Clearable="true"
-                           Dense="true"
-                           Margin="Margin.Dense"
-                           Disabled="@(string.IsNullOrWhiteSpace(TenantId) || saving)">
-                    @foreach (var calendar in FilteredCalendars)
-                    {
-                        <MudSelectItem T="string" Value="@calendar.Id">@calendar.Name (@calendar.TimeZoneId)</MudSelectItem>
-                    }
-                </MudSelect>
-            }
-        </MudItem>
-    </MudGrid>
+            <MudText Typo="Typo.caption">@AssociationSummary</MudText>
+            <MudStack Row="true" Class="mt-2">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!HasUnsavedChanges || IsBusy)" OnClick="@(() => RunActionAsync(SaveAsync))">Save settings</MudButton>
+                <MudButton Disabled="@(!HasUnsavedChanges || IsBusy)" OnClick="Revert">Revert</MudButton>
+            </MudStack>
+        </fieldset>
+    }
 </MudPaper>
 
 @code {
+    [Parameter] public EventCallback DraftChanged { get; set; }
+    private Task NotifyChanged() => DraftChanged.InvokeAsync();
     [Parameter] public string? TenantId { get; set; }
     [Parameter] public EventCallback<string?> TenantIdChanged { get; set; }
     [Parameter] public List<TenantLookupDto> Tenants { get; set; } = new();
     [Parameter] public List<WorkingCalendarDto> Calendars { get; set; } = new();
-
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
     private TenantSlaSettingsDto? model;
     private TenantSlaSettingsDto? lastSaved;
     private string? loadedTenantId;
-    private bool saving;
-    private string BusinessHoursTooltip => model?.UseBusinessHours == true
-        ? "Disable business hours"
-        : "Enable business hours";
+    private string? error;
+    private int loadVersion;
+    public bool HasUnsavedChanges => model is not null && lastSaved is not null &&
+        (model.UseBusinessHours != lastSaved.UseBusinessHours || model.CalendarId != lastSaved.CalendarId);
     private IEnumerable<WorkingCalendarDto> FilteredCalendars => Calendars
         .Where(x => x.ScopeType == CalendarScopeType.SystemDefault || string.Equals(x.TenantId, TenantId, StringComparison.OrdinalIgnoreCase))
-        .OrderBy(x => x.ScopeType)
-        .ThenBy(x => x.Name);
+        .OrderBy(x => x.ScopeType).ThenBy(x => x.Name);
+    private string AssociationSummary => string.IsNullOrWhiteSpace(model?.CalendarId)
+        ? "Inherited: the active tenant calendar, then the active system calendar."
+        : FilteredCalendars.FirstOrDefault(x => x.Id == model.CalendarId)?.IsActive == true
+            ? "Explicit calendar selection overrides the tenant and system defaults."
+            : "The selected calendar is inactive or unavailable; the active tenant or system calendar is used.";
 
     protected override async Task OnParametersSetAsync()
     {
-        if (string.Equals(loadedTenantId, TenantId, StringComparison.Ordinal))
-        {
-            return;
-        }
-
+        if (loadedTenantId == TenantId) return;
         loadedTenantId = TenantId;
-        model = null;
-        lastSaved = null;
-        await LoadAsync();
-    }
-
-    private async Task OnTenantChanged(string? value)
-    {
-        await TenantIdChanged.InvokeAsync(value);
-    }
-
-    private async Task LoadAsync()
-    {
-        if (string.IsNullOrWhiteSpace(TenantId))
+        var tenant = TenantId;
+        var version = ++loadVersion;
+        model = lastSaved = null;
+        error = null;
+        if (string.IsNullOrWhiteSpace(tenant)) return;
+        try
         {
-            return;
+            var result = await HelpdeskApi.GetFromJsonAsync<TenantSlaSettingsDto>($"api/v1/tenant-sla-settings/{Uri.EscapeDataString(tenant)}");
+            if (IsDisposed || version != loadVersion || tenant != TenantId) return;
+            model = result;
+            lastSaved = Clone(model);
         }
-
-        model = await HelpdeskApi.GetFromJsonAsync<TenantSlaSettingsDto>($"api/v1/tenant-sla-settings/{Uri.EscapeDataString(TenantId)}");
-        lastSaved = Clone(model);
+        catch { if (!IsDisposed && version == loadVersion) error = "Calendar settings could not be loaded."; }
     }
 
-    private async Task ToggleBusinessHoursAsync()
-    {
-        if (model is null)
-        {
-            return;
-        }
-
-        model.UseBusinessHours = !model.UseBusinessHours;
-        await SaveAsync();
-    }
-
-    private async Task OnCalendarChanged(string? calendarId)
-    {
-        if (model is null)
-        {
-            return;
-        }
-
-        model.CalendarId = string.IsNullOrWhiteSpace(calendarId) ? null : calendarId;
-        await SaveAsync();
-    }
+    private async Task Revert() { model = Clone(lastSaved); await NotifyChanged(); }
 
     private async Task SaveAsync()
     {
-        if (model is null || string.IsNullOrWhiteSpace(TenantId))
+        var tenant = TenantId;
+        if (model is null || string.IsNullOrWhiteSpace(tenant) || model.TenantId != tenant || IsDisposed) return;
+        var payload = Clone(model)!;
+        try
         {
-            Snackbar.Add("Please select a tenant first.", Severity.Warning);
-            return;
+            using var response = await HelpdeskApi.PutAsJsonAsync($"api/v1/tenant-sla-settings/{Uri.EscapeDataString(tenant)}", payload);
+            if (IsDisposed || tenant != TenantId) return;
+            if (!response.IsSuccessStatusCode) { error = "Calendar settings could not be saved. Your edits are retained."; return; }
+            lastSaved = payload;
+            await NotifyChanged();
+            error = null;
+            Snackbar.Add("Tenant SLA settings saved.", Severity.Success);
         }
-
-        saving = true;
-        model.TenantId = TenantId.Trim();
-        var response = await HelpdeskApi.PutAsJsonAsync($"api/v1/tenant-sla-settings/{Uri.EscapeDataString(TenantId)}", model);
-        saving = false;
-        if (!response.IsSuccessStatusCode)
-        {
-            var error = await response.Content.ReadAsStringAsync();
-            Snackbar.Add($"Failed to save: {error}", Severity.Error);
-            model = Clone(lastSaved);
-            return;
-        }
-
-        lastSaved = Clone(model);
-        Snackbar.Add("Tenant SLA settings saved.", Severity.Success);
+        catch { if (!IsDisposed && tenant == TenantId) error = "Calendar settings could not be saved. Your edits are retained."; }
     }
 
-    private static TenantSlaSettingsDto? Clone(TenantSlaSettingsDto? source)
-    {
-        return source is null
-            ? null
-            : new TenantSlaSettingsDto
-            {
-                TenantId = source.TenantId,
-                UseBusinessHours = source.UseBusinessHours,
-                CalendarId = source.CalendarId
-            };
-    }
+    private static TenantSlaSettingsDto? Clone(TenantSlaSettingsDto? source) => source is null ? null : new()
+    { TenantId = source.TenantId, UseBusinessHours = source.UseBusinessHours, CalendarId = source.CalendarId };
 }

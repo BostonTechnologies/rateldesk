@@ -221,7 +221,15 @@ public sealed class OrchestrationInternalClient(
         {
             using var document = JsonDocument.Parse(content);
             if (document.RootElement.ValueKind != JsonValueKind.Object) return false;
-            return TryGetProperty(document.RootElement, "claims", out var claims) && claims.ValueKind == JsonValueKind.Object;
+            var root = document.RootElement;
+            if (TryGetProperty(root, "claims", out var claims) && claims.ValueKind == JsonValueKind.Object) return true;
+            // Managed NetRatel principals expose a bounded identity projection.
+            // A 200 or an arbitrary JSON object alone does not establish the contract.
+            return new[] { "issuer", "audience", "client_id" }.All(name =>
+                TryGetProperty(root, name, out var value) && value.ValueKind == JsonValueKind.String &&
+                !string.IsNullOrWhiteSpace(value.GetString())) &&
+                TryGetProperty(root, "tenant_id", out var tenant) &&
+                (tenant.ValueKind == JsonValueKind.Null || tenant.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(tenant.GetString()));
         }
         catch (JsonException)
         {
@@ -328,6 +336,9 @@ public sealed class OrchestrationInternalClient(
         {
             using var json = JsonDocument.Parse(content);
             var root = json.RootElement;
+            var code = TryGetString(root, "code");
+            if (code is { Length: > 0 and <= 80 } && code.All(c => char.IsAsciiLetterOrDigit(c) || c == '_'))
+                return IntegrationErrorSafety.ProviderMessage($"Provider rejected the request ({code}).", 500, settings.ClientSecret, bearerToken);
             var message = TryGetString(root, "message", "detail", "title");
             if (!string.IsNullOrWhiteSpace(message))
             {

@@ -75,7 +75,9 @@ while IFS= read -r candidate_file; do
   fi
 done < <(git ls-files -co --exclude-standard)
 
-for forbidden_path in .agents .codex openspec AGENTS.md AGENTS_Old.md; do
+# The canonical AGENTS.md is intentionally public repository guidance. Its
+# contents still pass through the same text/binary disclosure checks above.
+for forbidden_path in .agents .codex openspec AGENTS_Old.md; do
   if rg --files "$forbidden_path" 2>/dev/null | rg -q '.'; then
     printf 'public disclosure gate: private workflow material is tracked at %s\n' "$forbidden_path" >&2
     failed=true

@@ -448,3 +448,6 @@ test-results/
 # Local API uploads and inline-image storage (runtime data).
 /src/Helpdesk.API/wwwroot/attachments/
 /src/Helpdesk.API/storage/
+
+# Task scratch files and local verification logs.
+/work/

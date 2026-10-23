@@ -1,0 +1,106 @@
+{
+  "baseline": {
+    "version": "0.1.2-beta.8",
+    "sourceRevision": "548c94c482d70d5db1620cb1fd77dd65245e8fb7",
+    "readiness": "NOT_READY",
+    "operationCounts": {
+      "FAIL": 16,
+      "PASS": 350,
+      "EXCLUDED": 7,
+      "NOT_RUN": 16
+    },
+    "archiveSha256": "3d5d96c18664c4a91335cc5f1332d180fdf621c5f816076d08a46e8c84873acb",
+    "finalResultsSha256": "5792e3d4d6bf1670255a04918850aa51ddce0832dd76c7328566d55b6ef8500f"
+  },
+  "findings": [
+    {
+      "id": "MCP-B8-WORKFLOW-METRICS",
+      "evidence": {
+        "path": "workflow-metrics-diagnosis/finding.json",
+        "sha256": "277c3e20e3070351e7252179fae8d42d44891a78245532d837dfd6b72c46ca99"
+      }
+    },
+    {
+      "id": "MCP-B8-UNKNOWN-OUTER-ARGUMENT",
+      "evidence": {
+        "path": "schema-boundaries/unknown-envelope-finding.json",
+        "sha256": "6c0271f68ad3af65e14baf505f7a670be73fd650f69b3bb245f776686e6cff0b"
+      }
+    },
+    {
+      "id": "API-B8-SERVICE-SCOPE-PROJECTION",
+      "evidence": {
+        "path": "service-projection/finding.json",
+        "sha256": "746023f0dad04522f6ccd9b10833a3d73c395a44d065a43e38154490bd60e4ad"
+      }
+    },
+    {
+      "id": "API-B8-CATEGORY-TENANT-ID-FORMAT",
+      "evidence": {
+        "path": "category-tenant-diagnosis/finding.json",
+        "sha256": "4ea9662ac5b18a195ab84aeeb6b69bfda03b5cba2b929733364189b659fb968b"
+      }
+    },
+    {
+      "id": "API-B8-SELF-SERVICE-POSTCOMMIT-500",
+      "evidence": {
+        "path": "self-service-postcommit-diagnosis/finding-with-manual-completion-trigger-v3.json",
+        "sha256": "9b7bd1f7c65605e922e8cd14a4a2a650ce4562e8a6f82a7d56c72ced09b5b704"
+      }
+    },
+    {
+      "id": "API-B8-NUMERIC-LOGO-ANTIFORGERY",
+      "evidence": {
+        "path": "numeric-logo-diagnosis/finding.json",
+        "sha256": "1148e670601b7104396c2536adab7583d0997ead7e88d448508ad479cfaeca7f"
+      }
+    },
+    {
+      "id": "B8-ORCHESTRATION-MANAGED-IDENTITY-CONTRACT",
+      "evidence": {
+        "path": "provider-contract-mismatch/finding.json",
+        "sha256": "f344daa34e653313c0b5ccc3b004c4a8fe024a5fa0abb4f7c3a01423e634fa86"
+      }
+    },
+    {
+      "id": "B8-OPS-LOG-OBSERVABILITY-GAP",
+      "evidence": {
+        "path": "native-log-failure-observability/finding.json",
+        "sha256": "7c344872d2b394fccc3ac0d220c6b9c2e607a71fe3af2c62dc7374c977c1daff"
+      }
+    },
+    {
+      "id": "B8-SELF-SERVICE-DATASET-KEY-LOOKUP",
+      "evidence": {
+        "path": "self-service-dataset-binding/valid-key-rejection-finding-with-verified-workaround-v2.json",
+        "sha256": "b71a9a11c7a03bc180d324347d14e40a699c5b6d2f28993d935afdab6768441c"
+      }
+    },
+    {
+      "id": "B8-PUBLIC-VIEW-INTERNAL-NOTE-DISCLOSURE",
+      "evidence": {
+        "path": "signed-public-history/finding.json",
+        "sha256": "9aa95d3e8235566bb700f1177bcf96228aa736ea65d8a3dacdf55701770165f6"
+      }
+    }
+  ],
+  "notRunOperations": [
+    "helpdesk_ai_assistant.chat_reconcile",
+    "helpdesk_ai_assistant.chat_respond",
+    "helpdesk_ai_assistant.chat_send",
+    "helpdesk_ai_assistant.chat_stop_waiting",
+    "helpdesk_automation.callback_rejections",
+    "helpdesk_automation.create_request_definition",
+    "helpdesk_automation.sync_binding_inputs",
+    "helpdesk_connections.confirm_netclaw_session_owner",
+    "helpdesk_connections.delete_pair",
+    "helpdesk_connections.netclaw_unbound_sessions",
+    "helpdesk_connections.pair",
+    "helpdesk_connections.pair_netclaw",
+    "helpdesk_connections.test_netclaw",
+    "helpdesk_connections.test_netclaw_draft",
+    "helpdesk_datasets.sync_graph",
+    "helpdesk_support.bootstrap_defaults"
+  ],
+  "scope": "Evidence references only. The beta.8 archive and verdict are immutable. Source regressions do not establish a beta.9 deployed campaign PASS."
+}

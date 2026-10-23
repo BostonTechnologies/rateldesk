@@ -1,0 +1,4781 @@
+{
+  "baseline": {
+    "sourceCommit": "c43925c557db54fc4c4f5b04f26b4ed278a2ddd5",
+    "catalogRevision": "2026-10-17.mcp-incident-search-v19",
+    "catalogHash": "c25f373a49c321da12f945dd8fde958c1ac5dc252c533066665b72aa982e031a",
+    "operationCount": 154,
+    "fileSha256": "9fb1214150fbc159f48d32a5789dae1adf5072aa16e8919e282dac01bca90c5f"
+  },
+  "current": {
+    "catalogRevision": "2026-10-17.mcp-executable-contracts-v20",
+    "catalogHash": "dbf97fd8e4fb69bbee2843a5586a8820a6c0f77578ac9b978ac54484614a5f7f",
+    "schemaHash": "6f040767ead3968f8e0178d2fabf9d58ebde6e00ba5a7ee92987f88206c91528",
+    "operationCount": 154,
+    "fileSha256": "e4102602e12726f62a611108a61ac218b1cf74bef4a3646476e9a4ae49ef4893"
+  },
+  "addedOperations": [],
+  "removedOperations": [],
+  "campaignEvidence": {
+    "baselineAggregate": {
+      "passed": 82,
+      "failed": 15,
+      "blocked": 55,
+      "unsupportedByDesign": 2
+    },
+    "baselinePerOperationOutcomes": "Not supplied in the public handoff; original private evidence and dispositions must be preserved by the owner.",
+    "currentPerOperationOutcomes": "This is a contract inventory, not execution evidence. Use a fresh owner campaign and preserve positive, denial, unsupported, blocked prerequisite, no-op and unobserved outcomes separately."
+  },
+  "operations": [
+    {
+      "operationKey": "helpdesk_admin_mutations.create_category",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/categories",
+        "confirmationRequired": true,
+        "description": "create_category operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/categories",
+        "confirmationRequired": true,
+        "description": "create_category operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "name",
+        "description",
+        "type",
+        "tenantId",
+        "parentCategoryId",
+        "sortOrder",
+        "isActive"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.create_customer",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/customers",
+        "confirmationRequired": true,
+        "description": "create_customer operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/customers",
+        "confirmationRequired": true,
+        "description": "create_customer operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "id",
+        "name",
+        "email",
+        "organizationId",
+        "state",
+        "isEnabled"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.create_organization",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/organizations",
+        "confirmationRequired": true,
+        "description": "create_organization operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/organizations",
+        "confirmationRequired": true,
+        "description": "create_organization operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "id",
+        "name",
+        "dnsName",
+        "contactInfo",
+        "assignedSlaId",
+        "itSupportOrganizationId",
+        "orchestrationTenantId",
+        "orchestrationTenantName",
+        "state",
+        "isEnabled"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.create_request_form",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/request-forms",
+        "confirmationRequired": true,
+        "description": "create_request_form operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/request-forms",
+        "confirmationRequired": true,
+        "description": "create_request_form operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "serviceId",
+        "title",
+        "description",
+        "jsonSchema",
+        "organizationId",
+        "allowedOrganizationIds",
+        "releaseStatus"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.create_role",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/admin/role-definitions",
+        "confirmationRequired": true,
+        "description": "create_role operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/admin/role-definitions",
+        "confirmationRequired": true,
+        "description": "create_role operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "name",
+        "permissions",
+        "key",
+        "ownerOrganizationId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.create_self_service_request",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/self-service/requests",
+        "confirmationRequired": true,
+        "description": "create_self_service_request operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/self-service/requests",
+        "confirmationRequired": true,
+        "description": "create_self_service_request operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "requestFormId",
+        "title",
+        "description",
+        "payloadJson",
+        "requesterEmail",
+        "requesterName",
+        "requestedForPersonId",
+        "requestedForPersonSource"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.create_service",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/services",
+        "confirmationRequired": true,
+        "description": "create_service operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/services",
+        "confirmationRequired": true,
+        "description": "create_service operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "name",
+        "description",
+        "parentId",
+        "allowedCustomerIds",
+        "allowedOrganizationIds"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.create_service_request_form",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/services/{serviceId}/forms/",
+        "confirmationRequired": true,
+        "description": "create_service_request_form operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/services/{serviceId}/forms/",
+        "confirmationRequired": true,
+        "description": "create_service_request_form operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "serviceId",
+        "title",
+        "description",
+        "jsonSchema",
+        "organizationId",
+        "allowedOrganizationIds",
+        "releaseStatus"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.create_user",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/users",
+        "confirmationRequired": true,
+        "description": "create_user operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/users",
+        "confirmationRequired": true,
+        "description": "create_user operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "name",
+        "email",
+        "role",
+        "isTestUser",
+        "organizationId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.customer_disable_login",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/customers/{customerId}/disable-login",
+        "confirmationRequired": true,
+        "description": "customer_disable_login operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/customers/{customerId}/auth/disable-login",
+        "confirmationRequired": true,
+        "description": "customer_disable_login operation."
+      },
+      "changes": {
+        "pathTemplate": {
+          "before": "/api/v1/customers/{customerId}/disable-login",
+          "after": "/api/v1/customers/{customerId}/auth/disable-login"
+        }
+      },
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "customerId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.customer_invite",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/customers/{customerId}/invite",
+        "confirmationRequired": true,
+        "description": "customer_invite operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/customers/{customerId}/auth/invite",
+        "confirmationRequired": true,
+        "description": "customer_invite operation."
+      },
+      "changes": {
+        "pathTemplate": {
+          "before": "/api/v1/customers/{customerId}/invite",
+          "after": "/api/v1/customers/{customerId}/auth/invite"
+        }
+      },
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "customerId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.customer_resend_invite",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/customers/{customerId}/resend-invite",
+        "confirmationRequired": true,
+        "description": "customer_resend_invite operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/customers/{customerId}/auth/resend-invite",
+        "confirmationRequired": true,
+        "description": "customer_resend_invite operation."
+      },
+      "changes": {
+        "pathTemplate": {
+          "before": "/api/v1/customers/{customerId}/resend-invite",
+          "after": "/api/v1/customers/{customerId}/auth/resend-invite"
+        }
+      },
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "customerId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.customer_sync_authentik",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/customers/{customerId}/sync-authentik",
+        "confirmationRequired": true,
+        "description": "customer_sync_authentik operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/customers/{customerId}/auth/sync-authentik",
+        "confirmationRequired": true,
+        "description": "customer_sync_authentik operation."
+      },
+      "changes": {
+        "pathTemplate": {
+          "before": "/api/v1/customers/{customerId}/sync-authentik",
+          "after": "/api/v1/customers/{customerId}/auth/sync-authentik"
+        }
+      },
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "customerId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.delete_category",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "DELETE",
+        "pathTemplate": "/api/v1/categories/{categoryId}",
+        "confirmationRequired": true,
+        "description": "delete_category operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "DELETE",
+        "pathTemplate": "/api/v1/categories/{categoryId}",
+        "confirmationRequired": true,
+        "description": "delete_category operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "categoryId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.delete_customer",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "DELETE",
+        "pathTemplate": "/api/v1/customers/{customerId}",
+        "confirmationRequired": true,
+        "description": "delete_customer operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "DELETE",
+        "pathTemplate": "/api/v1/customers/{customerId}",
+        "confirmationRequired": true,
+        "description": "delete_customer operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "customerId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.delete_organization",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "DELETE",
+        "pathTemplate": "/api/v1/organizations/{organizationId}",
+        "confirmationRequired": true,
+        "description": "delete_organization operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "DELETE",
+        "pathTemplate": "/api/v1/organizations/{organizationId}",
+        "confirmationRequired": true,
+        "description": "delete_organization operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "organizationId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.delete_request_form",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "DELETE",
+        "pathTemplate": "/api/v1/request-forms/{requestFormId}",
+        "confirmationRequired": true,
+        "description": "delete_request_form operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "DELETE",
+        "pathTemplate": "/api/v1/request-forms/{requestFormId}",
+        "confirmationRequired": true,
+        "description": "delete_request_form operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "requestFormId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.delete_role",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "DELETE",
+        "pathTemplate": "/api/v1/admin/role-definitions/{roleId}",
+        "confirmationRequired": true,
+        "description": "delete_role operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "DELETE",
+        "pathTemplate": "/api/v1/admin/role-definitions/{roleId}",
+        "confirmationRequired": true,
+        "description": "delete_role operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "roleId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.delete_service",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "DELETE",
+        "pathTemplate": "/api/v1/services/{serviceId}",
+        "confirmationRequired": true,
+        "description": "delete_service operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "DELETE",
+        "pathTemplate": "/api/v1/services/{serviceId}",
+        "confirmationRequired": true,
+        "description": "delete_service operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "serviceId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.delete_user",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "DELETE",
+        "pathTemplate": "/api/v1/users/{userId}",
+        "confirmationRequired": true,
+        "description": "delete_user operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "DELETE",
+        "pathTemplate": "/api/v1/users/{userId}",
+        "confirmationRequired": true,
+        "description": "delete_user operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "userId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.provision_user",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/users/provision",
+        "confirmationRequired": true,
+        "description": "provision_user operation."
+      },
+      "currentContract": {
+        "requestContract": "None",
+        "method": "POST",
+        "pathTemplate": "/api/v1/users/provision",
+        "confirmationRequired": true,
+        "description": "provision_user operation."
+      },
+      "changes": {
+        "requestContract": {
+          "before": "AdministrativeMutationRequest",
+          "after": "None"
+        }
+      },
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.update_category",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "PUT",
+        "pathTemplate": "/api/v1/categories/{categoryId}",
+        "confirmationRequired": true,
+        "description": "update_category operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "PUT",
+        "pathTemplate": "/api/v1/categories/{categoryId}",
+        "confirmationRequired": true,
+        "description": "update_category operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "categoryId",
+        "name",
+        "description",
+        "type",
+        "parentCategoryId",
+        "sortOrder",
+        "isActive"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.update_customer",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "PUT",
+        "pathTemplate": "/api/v1/customers/{customerId}",
+        "confirmationRequired": true,
+        "description": "update_customer operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "PUT",
+        "pathTemplate": "/api/v1/customers/{customerId}",
+        "confirmationRequired": true,
+        "description": "update_customer operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "customerId",
+        "name",
+        "email",
+        "organizationId",
+        "state",
+        "isEnabled"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.update_organization",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "PUT",
+        "pathTemplate": "/api/v1/organizations/{organizationId}",
+        "confirmationRequired": true,
+        "description": "update_organization operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "PUT",
+        "pathTemplate": "/api/v1/organizations/{organizationId}",
+        "confirmationRequired": true,
+        "description": "update_organization operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "organizationId",
+        "name",
+        "dnsName",
+        "contactInfo",
+        "assignedSlaId",
+        "itSupportOrganizationId",
+        "orchestrationTenantId",
+        "orchestrationTenantName",
+        "state",
+        "isEnabled"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.update_organization_branding",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "PUT",
+        "pathTemplate": "/api/v1/tenants/{organizationId}/branding",
+        "confirmationRequired": true,
+        "description": "update_organization_branding operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "PUT",
+        "pathTemplate": "/api/v1/tenants/{tenantId}/branding",
+        "confirmationRequired": true,
+        "description": "update_organization_branding operation."
+      },
+      "changes": {
+        "pathTemplate": {
+          "before": "/api/v1/tenants/{organizationId}/branding",
+          "after": "/api/v1/tenants/{tenantId}/branding"
+        }
+      },
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "tenantId",
+        "brandName",
+        "logoUrl",
+        "footerHtml",
+        "primaryColor",
+        "fromName",
+        "replyTo"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.update_request_form",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "PUT",
+        "pathTemplate": "/api/v1/request-forms/{requestFormId}",
+        "confirmationRequired": true,
+        "description": "update_request_form operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "PUT",
+        "pathTemplate": "/api/v1/request-forms/{requestFormId}",
+        "confirmationRequired": true,
+        "description": "update_request_form operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "requestFormId",
+        "title",
+        "description",
+        "jsonSchema",
+        "serviceIdHasValue",
+        "serviceId",
+        "organizationId",
+        "allowedOrganizationIds",
+        "releaseStatus"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.update_role",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "PUT",
+        "pathTemplate": "/api/v1/admin/role-definitions/{roleId}",
+        "confirmationRequired": true,
+        "description": "update_role operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "PUT",
+        "pathTemplate": "/api/v1/admin/role-definitions/{roleId}",
+        "confirmationRequired": true,
+        "description": "update_role operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "roleId",
+        "name",
+        "permissions"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.update_service",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "PUT",
+        "pathTemplate": "/api/v1/services/{serviceId}",
+        "confirmationRequired": true,
+        "description": "update_service operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "PUT",
+        "pathTemplate": "/api/v1/services/{serviceId}",
+        "confirmationRequired": true,
+        "description": "update_service operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "serviceId",
+        "name",
+        "description",
+        "parentId",
+        "allowedCustomerIds",
+        "allowedOrganizationIds"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_admin_mutations.update_user",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "PUT",
+        "pathTemplate": "/api/v1/users/{userId}",
+        "confirmationRequired": true,
+        "description": "update_user operation."
+      },
+      "currentContract": {
+        "requestContract": "AdministrativeMutationRequest",
+        "method": "PUT",
+        "pathTemplate": "/api/v1/users/{userId}",
+        "confirmationRequired": true,
+        "description": "update_user operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "userId",
+        "name",
+        "email",
+        "role",
+        "isTestUser",
+        "organizationId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_ai_assistant.report",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AiAssistantWorklogRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/ai-assistant/investigations/{invocationId}/worklog",
+        "confirmationRequired": false,
+        "description": "report operation."
+      },
+      "currentContract": {
+        "requestContract": "AiAssistantWorklogRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/ai-assistant/investigations/{invocationId}/worklog",
+        "confirmationRequired": false,
+        "description": "report operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "The exact AuthentikAiAgent API authentication scheme is required. Ordinary integration credentials and gateway execution tokens cannot satisfy it, regardless of scoped grants. Explicit external Authentik downstream identity is supported; never switch modes as fallback."
+      },
+      "newRequestProperties": [
+        "invocationId",
+        "eventId",
+        "ticketId",
+        "correlationId",
+        "message",
+        "ticketType",
+        "status",
+        "severity",
+        "metadataJson",
+        "artifactReferencesJson",
+        "runReference"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_auth.status",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "None",
+        "method": "GET",
+        "pathTemplate": "/api/v1/auth/ai-agent/status",
+        "confirmationRequired": false,
+        "description": "Read the authenticated agent status."
+      },
+      "currentContract": {
+        "requestContract": "None",
+        "method": "GET",
+        "pathTemplate": "/api/v1/auth/ai-agent/status",
+        "confirmationRequired": false,
+        "description": "Read the authenticated agent status."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_capabilities.get",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "None",
+        "method": "LOCAL",
+        "pathTemplate": "local",
+        "confirmationRequired": false,
+        "description": "Read the supported catalog revision and safety policy."
+      },
+      "currentContract": {
+        "requestContract": "None",
+        "method": "LOCAL",
+        "pathTemplate": "local",
+        "confirmationRequired": false,
+        "description": "Read the supported catalog revision and safety policy."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_categories.list",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/categories/",
+        "confirmationRequired": false,
+        "description": "list operation."
+      },
+      "currentContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/categories/",
+        "confirmationRequired": false,
+        "description": "list operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "type",
+        "search",
+        "ids",
+        "take",
+        "allScopes",
+        "includeInactive"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_changes.add_worklog",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "TicketWorklogRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/changes/{changeId}/worklogs",
+        "confirmationRequired": true,
+        "description": "add_worklog changes."
+      },
+      "currentContract": {
+        "requestContract": "TicketWorklogRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/changes/{changeId}/worklogs",
+        "confirmationRequired": true,
+        "description": "add_worklog changes."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "changeId",
+        "hours",
+        "notes",
+        "isInternalNote"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_changes.assign",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "TicketOperationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/changes/bulk/assign",
+        "confirmationRequired": true,
+        "description": "assign operation."
+      },
+      "currentContract": {
+        "requestContract": "TicketAssignmentRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/changes/bulk/assign",
+        "confirmationRequired": true,
+        "description": "assign operation."
+      },
+      "changes": {
+        "requestContract": {
+          "before": "TicketOperationRequest",
+          "after": "TicketAssignmentRequest"
+        }
+      },
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "ids",
+        "assignedToId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_changes.assign_self",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "TicketOperationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/changes/bulk/assign",
+        "confirmationRequired": true,
+        "description": "assign_self operation."
+      },
+      "currentContract": {
+        "requestContract": "ConfiguredAgentAssignmentRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/changes/bulk/assign",
+        "confirmationRequired": true,
+        "description": "assign_self operation."
+      },
+      "changes": {
+        "requestContract": {
+          "before": "TicketOperationRequest",
+          "after": "ConfiguredAgentAssignmentRequest"
+        }
+      },
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "ids",
+        "agentUserEmail"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_changes.attachments_count",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "changeCountRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/changes/{changeId}/attachments/count",
+        "confirmationRequired": false,
+        "description": "Read attachments_count for one change."
+      },
+      "currentContract": {
+        "requestContract": "ChangeCountRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/changes/{changeId}/attachments/count",
+        "confirmationRequired": false,
+        "description": "Read attachments_count for one change."
+      },
+      "changes": {
+        "requestContract": {
+          "before": "changeCountRequest",
+          "after": "ChangeCountRequest"
+        }
+      },
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "changeId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_changes.bulk_create",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "changeBulkCreateRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/changes/",
+        "confirmationRequired": true,
+        "description": "bulk_create operation."
+      },
+      "currentContract": {
+        "requestContract": "ChangeBulkCreateRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/changes/",
+        "confirmationRequired": true,
+        "description": "bulk_create operation."
+      },
+      "changes": {
+        "requestContract": {
+          "before": "changeBulkCreateRequest",
+          "after": "ChangeBulkCreateRequest"
+        }
+      },
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "items"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_changes.bulk_state",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "TicketOperationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/changes/bulk/state",
+        "confirmationRequired": true,
+        "description": "bulk_state operation."
+      },
+      "currentContract": {
+        "requestContract": "BulkTicketStateRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/changes/bulk/state",
+        "confirmationRequired": true,
+        "description": "bulk_state operation."
+      },
+      "changes": {
+        "requestContract": {
+          "before": "TicketOperationRequest",
+          "after": "BulkTicketStateRequest"
+        }
+      },
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "newState",
+        "comment",
+        "ids"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_changes.create",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "ChangeCreateRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/changes/",
+        "confirmationRequired": true,
+        "description": "create changes."
+      },
+      "currentContract": {
+        "requestContract": "ChangeCreateRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/changes/",
+        "confirmationRequired": true,
+        "description": "create changes."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "title",
+        "description",
+        "priority",
+        "organizationId",
+        "requestedForUserId",
+        "implementorUserId",
+        "approverUserIds",
+        "linkedAssetIds",
+        "attachments",
+        "dueDate",
+        "implementationStartAt",
+        "implementationEndAt",
+        "changeType",
+        "changeTemplate",
+        "categoryIds"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_changes.delete",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "ChangeRequest",
+        "method": "DELETE",
+        "pathTemplate": "/api/v1/changes/{changeId}",
+        "confirmationRequired": true,
+        "description": "delete changes."
+      },
+      "currentContract": {
+        "requestContract": "ChangeRequest",
+        "method": "DELETE",
+        "pathTemplate": "/api/v1/changes/{changeId}",
+        "confirmationRequired": true,
+        "description": "delete changes."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "changeId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_changes.get",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "ChangeRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/changes/{changeId}",
+        "confirmationRequired": false,
+        "description": "get changes."
+      },
+      "currentContract": {
+        "requestContract": "ChangeRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/changes/{changeId}",
+        "confirmationRequired": false,
+        "description": "get changes."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "changeId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_changes.lifecycle",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "ChangeLifecycleRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/changes/{changeId}/lifecycle",
+        "confirmationRequired": true,
+        "description": "lifecycle changes."
+      },
+      "currentContract": {
+        "requestContract": "ChangeLifecycleRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/changes/{changeId}/lifecycle",
+        "confirmationRequired": true,
+        "description": "lifecycle changes."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "changeId",
+        "lifecycleState",
+        "comment"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_changes.list",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "TicketOperationRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/changes/",
+        "confirmationRequired": false,
+        "description": "list operation."
+      },
+      "currentContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/changes/",
+        "confirmationRequired": false,
+        "description": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging."
+      },
+      "changes": {
+        "requestContract": {
+          "before": "TicketOperationRequest",
+          "after": "ListRequest"
+        },
+        "description": {
+          "before": "list operation.",
+          "after": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging."
+        }
+      },
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "page",
+        "pageSize",
+        "query",
+        "q",
+        "includeTotal",
+        "historicOnly",
+        "activeOnly",
+        "summaryOnly",
+        "unassigned",
+        "descending",
+        "state",
+        "view",
+        "customerOrgId",
+        "forId",
+        "assigneeId",
+        "stateValues",
+        "priority",
+        "timeField",
+        "sort",
+        "from",
+        "to",
+        "lifecycleState"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_changes.listeners_count",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "changeCountRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/changes/{changeId}/listeners/count",
+        "confirmationRequired": false,
+        "description": "Read listeners_count for one change."
+      },
+      "currentContract": {
+        "requestContract": "ChangeCountRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/changes/{changeId}/listeners/count",
+        "confirmationRequired": false,
+        "description": "Read listeners_count for one change."
+      },
+      "changes": {
+        "requestContract": {
+          "before": "changeCountRequest",
+          "after": "ChangeCountRequest"
+        }
+      },
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "changeId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_changes.state",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "TicketStateRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/changes/{changeId}/state",
+        "confirmationRequired": true,
+        "description": "state changes."
+      },
+      "currentContract": {
+        "requestContract": "TicketStateRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/changes/{changeId}/state",
+        "confirmationRequired": true,
+        "description": "state changes."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "changeId",
+        "newState",
+        "comment"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_changes.timeline",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "ChangeRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/changes/{changeId}/timeline",
+        "confirmationRequired": false,
+        "description": "timeline changes."
+      },
+      "currentContract": {
+        "requestContract": "ChangeRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/changes/{changeId}/timeline",
+        "confirmationRequired": false,
+        "description": "timeline changes."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "changeId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_changes.timeline_count",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "changeCountRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/changes/{changeId}/timeline/count",
+        "confirmationRequired": false,
+        "description": "Read timeline_count for one change."
+      },
+      "currentContract": {
+        "requestContract": "ChangeCountRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/changes/{changeId}/timeline/count",
+        "confirmationRequired": false,
+        "description": "Read timeline_count for one change."
+      },
+      "changes": {
+        "requestContract": {
+          "before": "changeCountRequest",
+          "after": "ChangeCountRequest"
+        }
+      },
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "changeId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_changes.update",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "ChangeUpdateRequest",
+        "method": "PUT",
+        "pathTemplate": "/api/v1/changes/{changeId}",
+        "confirmationRequired": true,
+        "description": "update changes."
+      },
+      "currentContract": {
+        "requestContract": "ChangeUpdateRequest",
+        "method": "PUT",
+        "pathTemplate": "/api/v1/changes/{changeId}",
+        "confirmationRequired": true,
+        "description": "update changes."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "changeId",
+        "state",
+        "lifecycleState",
+        "priority",
+        "organizationId",
+        "requestedForUserId",
+        "implementorUserId",
+        "approverUserIds",
+        "implementationStartAt",
+        "implementationEndAt",
+        "categoryIds",
+        "changeType",
+        "changeTemplate"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_changes.worklogs",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "ChangeRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/changes/{changeId}/worklogs",
+        "confirmationRequired": false,
+        "description": "worklogs changes."
+      },
+      "currentContract": {
+        "requestContract": "ChangeRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/changes/{changeId}/worklogs",
+        "confirmationRequired": false,
+        "description": "worklogs changes."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "changeId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_config.get",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "ConfigKeyRequest",
+        "method": "LOCAL",
+        "pathTemplate": "local",
+        "confirmationRequired": false,
+        "description": "Read an allowlisted persisted configuration value."
+      },
+      "currentContract": {
+        "requestContract": "ConfigKeyRequest",
+        "method": "LOCAL",
+        "pathTemplate": "local",
+        "confirmationRequired": false,
+        "description": "Read an allowlisted persisted configuration value."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "key"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_config.set",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "ConfigValueRequest",
+        "method": "LOCAL",
+        "pathTemplate": "local",
+        "confirmationRequired": true,
+        "description": "Set an allowlisted non-secret configuration value."
+      },
+      "currentContract": {
+        "requestContract": "ConfigValueRequest",
+        "method": "LOCAL",
+        "pathTemplate": "local",
+        "confirmationRequired": true,
+        "description": "Set an allowlisted non-secret configuration value."
+      },
+      "changes": {},
+      "effect": "local_write",
+      "boundedIntegrationCredential": {
+        "support": "unavailable_by_policy_on_http",
+        "reason": "HTTP configuration surface is read-only. Local stdio persistence requires configurationWritesEnabled=true."
+      },
+      "newRequestProperties": [
+        "key",
+        "value"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_config.show",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "None",
+        "method": "LOCAL",
+        "pathTemplate": "local",
+        "confirmationRequired": false,
+        "description": "Read redacted configuration."
+      },
+      "currentContract": {
+        "requestContract": "None",
+        "method": "LOCAL",
+        "pathTemplate": "local",
+        "confirmationRequired": false,
+        "description": "Read redacted configuration."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_config.unset",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "ConfigKeyRequest",
+        "method": "LOCAL",
+        "pathTemplate": "local",
+        "confirmationRequired": true,
+        "description": "Unset an allowlisted non-secret configuration value."
+      },
+      "currentContract": {
+        "requestContract": "ConfigKeyRequest",
+        "method": "LOCAL",
+        "pathTemplate": "local",
+        "confirmationRequired": true,
+        "description": "Unset an allowlisted non-secret configuration value."
+      },
+      "changes": {},
+      "effect": "local_write",
+      "boundedIntegrationCredential": {
+        "support": "unavailable_by_policy_on_http",
+        "reason": "HTTP configuration surface is read-only. Local stdio persistence requires configurationWritesEnabled=true."
+      },
+      "newRequestProperties": [
+        "key"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_connectivity.orchestration",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "None",
+        "method": "GET",
+        "pathTemplate": "/api/v1/admin/orchestration",
+        "confirmationRequired": false,
+        "description": "orchestration operation."
+      },
+      "currentContract": {
+        "requestContract": "None",
+        "method": "GET",
+        "pathTemplate": "/api/v1/admin/orchestration",
+        "confirmationRequired": false,
+        "description": "orchestration operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_connectivity.orchestration_bindings",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "None",
+        "method": "GET",
+        "pathTemplate": "/api/v1/admin/orchestration/bindings",
+        "confirmationRequired": false,
+        "description": "orchestration_bindings operation."
+      },
+      "currentContract": {
+        "requestContract": "None",
+        "method": "GET",
+        "pathTemplate": "/api/v1/admin/orchestration/bindings",
+        "confirmationRequired": false,
+        "description": "orchestration_bindings operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_connectivity.orchestration_jobs",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "None",
+        "method": "GET",
+        "pathTemplate": "/api/v1/admin/orchestration/catalog/jobs",
+        "confirmationRequired": false,
+        "description": "orchestration_jobs operation."
+      },
+      "currentContract": {
+        "requestContract": "None",
+        "method": "GET",
+        "pathTemplate": "/api/v1/admin/orchestration/catalog/jobs",
+        "confirmationRequired": false,
+        "description": "orchestration_jobs operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_connectivity.orchestration_request_definitions",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "None",
+        "method": "GET",
+        "pathTemplate": "/api/v1/admin/orchestration/catalog/request-definitions",
+        "confirmationRequired": false,
+        "description": "orchestration_request_definitions operation."
+      },
+      "currentContract": {
+        "requestContract": "None",
+        "method": "GET",
+        "pathTemplate": "/api/v1/admin/orchestration/catalog/request-definitions",
+        "confirmationRequired": false,
+        "description": "orchestration_request_definitions operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_connectivity.orchestration_tenants",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "None",
+        "method": "GET",
+        "pathTemplate": "/api/v1/admin/orchestration/catalog/tenants",
+        "confirmationRequired": false,
+        "description": "orchestration_tenants operation."
+      },
+      "currentContract": {
+        "requestContract": "None",
+        "method": "GET",
+        "pathTemplate": "/api/v1/admin/orchestration/catalog/tenants",
+        "confirmationRequired": false,
+        "description": "orchestration_tenants operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_connectivity.orchestration_test",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "ConnectivityTestRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/admin/orchestration/test",
+        "confirmationRequired": true,
+        "description": "orchestration_test operation."
+      },
+      "currentContract": {
+        "requestContract": "None",
+        "method": "POST",
+        "pathTemplate": "/api/v1/admin/orchestration/test",
+        "confirmationRequired": true,
+        "description": "orchestration_test operation."
+      },
+      "changes": {
+        "requestContract": {
+          "before": "ConnectivityTestRequest",
+          "after": "None"
+        }
+      },
+      "effect": "external_io",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_customers.auth_status",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "CustomerRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/customers/{customerId}/auth-status",
+        "confirmationRequired": false,
+        "description": "auth_status operation."
+      },
+      "currentContract": {
+        "requestContract": "CustomerRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/customers/{customerId}/auth/status",
+        "confirmationRequired": false,
+        "description": "auth_status operation."
+      },
+      "changes": {
+        "pathTemplate": {
+          "before": "/api/v1/customers/{customerId}/auth-status",
+          "after": "/api/v1/customers/{customerId}/auth/status"
+        }
+      },
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "customerId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_customers.get",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "CustomerRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/customers/{customerId}",
+        "confirmationRequired": false,
+        "description": "get operation."
+      },
+      "currentContract": {
+        "requestContract": "CustomerRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/customers/{customerId}",
+        "confirmationRequired": false,
+        "description": "get operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "customerId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_customers.list",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/customers/",
+        "confirmationRequired": false,
+        "description": "list operation."
+      },
+      "currentContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/customers/",
+        "confirmationRequired": false,
+        "description": "list operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_enums.change_lifecycle_state",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "None",
+        "method": "LOCAL",
+        "pathTemplate": "local",
+        "confirmationRequired": false,
+        "description": "Read enum metadata."
+      },
+      "currentContract": {
+        "requestContract": "None",
+        "method": "LOCAL",
+        "pathTemplate": "local",
+        "confirmationRequired": false,
+        "description": "Read enum metadata."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_enums.list",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "None",
+        "method": "LOCAL",
+        "pathTemplate": "local",
+        "confirmationRequired": false,
+        "description": "Read enum metadata."
+      },
+      "currentContract": {
+        "requestContract": "None",
+        "method": "LOCAL",
+        "pathTemplate": "local",
+        "confirmationRequired": false,
+        "description": "Read enum metadata."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_enums.request_task_status",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "None",
+        "method": "LOCAL",
+        "pathTemplate": "local",
+        "confirmationRequired": false,
+        "description": "Read enum metadata."
+      },
+      "currentContract": {
+        "requestContract": "None",
+        "method": "LOCAL",
+        "pathTemplate": "local",
+        "confirmationRequired": false,
+        "description": "Read enum metadata."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_enums.ticket_priority",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "None",
+        "method": "LOCAL",
+        "pathTemplate": "local",
+        "confirmationRequired": false,
+        "description": "Read enum metadata."
+      },
+      "currentContract": {
+        "requestContract": "None",
+        "method": "LOCAL",
+        "pathTemplate": "local",
+        "confirmationRequired": false,
+        "description": "Read enum metadata."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_enums.ticket_state",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "None",
+        "method": "LOCAL",
+        "pathTemplate": "local",
+        "confirmationRequired": false,
+        "description": "Read enum metadata."
+      },
+      "currentContract": {
+        "requestContract": "None",
+        "method": "LOCAL",
+        "pathTemplate": "local",
+        "confirmationRequired": false,
+        "description": "Read enum metadata."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_examples.list",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "None",
+        "method": "LOCAL",
+        "pathTemplate": "local",
+        "confirmationRequired": false,
+        "description": "Read operator examples."
+      },
+      "currentContract": {
+        "requestContract": "None",
+        "method": "LOCAL",
+        "pathTemplate": "local",
+        "confirmationRequired": false,
+        "description": "Read operator examples."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_health.get",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "None",
+        "method": "GET",
+        "pathTemplate": "/health/live, /health/ready, /api/v1/auth/ai-agent/status",
+        "confirmationRequired": false,
+        "description": "Read live, ready, and authenticated health."
+      },
+      "currentContract": {
+        "requestContract": "None",
+        "method": "GET",
+        "pathTemplate": "/health/live, /health/ready, /api/v1/auth/ai-agent/status",
+        "confirmationRequired": false,
+        "description": "Read live, ready, and authenticated health."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_incidents.add_worklog",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "IncidentWorklogRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/incidents/{incidentId}/worklogs",
+        "confirmationRequired": true,
+        "description": "add_worklog incidents."
+      },
+      "currentContract": {
+        "requestContract": "IncidentWorklogRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/incidents/{incidentId}/worklogs",
+        "confirmationRequired": true,
+        "description": "add_worklog incidents."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "incidentId",
+        "hours",
+        "notes",
+        "isInternalNote"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_incidents.assign",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "TicketAssignmentRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/incidents/bulk/assign",
+        "confirmationRequired": true,
+        "description": "assign incidents."
+      },
+      "currentContract": {
+        "requestContract": "TicketAssignmentRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/incidents/bulk/assign",
+        "confirmationRequired": true,
+        "description": "assign incidents."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "ids",
+        "assignedToId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_incidents.assign_self",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "ConfiguredAgentAssignmentRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/incidents/bulk/assign",
+        "confirmationRequired": true,
+        "description": "assign_self incidents."
+      },
+      "currentContract": {
+        "requestContract": "ConfiguredAgentAssignmentRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/incidents/bulk/assign",
+        "confirmationRequired": true,
+        "description": "assign_self incidents."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "ids",
+        "agentUserEmail"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_incidents.attachments_count",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "incidentCountRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/incidents/{incidentId}/attachments/count",
+        "confirmationRequired": false,
+        "description": "Read attachments_count for one incident."
+      },
+      "currentContract": {
+        "requestContract": "IncidentCountRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/incidents/{incidentId}/attachments/count",
+        "confirmationRequired": false,
+        "description": "Read attachments_count for one incident."
+      },
+      "changes": {
+        "requestContract": {
+          "before": "incidentCountRequest",
+          "after": "IncidentCountRequest"
+        }
+      },
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "incidentId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_incidents.bulk_create",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "IncidentBulkCreateRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/incidents/",
+        "confirmationRequired": true,
+        "description": "bulk_create incidents."
+      },
+      "currentContract": {
+        "requestContract": "IncidentBulkCreateRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/incidents/",
+        "confirmationRequired": true,
+        "description": "bulk_create incidents."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "items"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_incidents.bulk_state",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "BulkTicketStateRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/incidents/bulk/state",
+        "confirmationRequired": true,
+        "description": "bulk_state incidents."
+      },
+      "currentContract": {
+        "requestContract": "BulkTicketStateRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/incidents/bulk/state",
+        "confirmationRequired": true,
+        "description": "bulk_state incidents."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "newState",
+        "comment",
+        "ids"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_incidents.close",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "IncidentCloseRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/incidents/{incidentId}/worklogs then /state",
+        "confirmationRequired": true,
+        "description": "close incidents."
+      },
+      "currentContract": {
+        "requestContract": "IncidentCloseRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/incidents/{incidentId}/worklogs then /state",
+        "confirmationRequired": true,
+        "description": "close incidents."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "incidentId",
+        "closureNote",
+        "isInternalNote"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_incidents.create",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "IncidentCreateRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/incidents/",
+        "confirmationRequired": true,
+        "description": "create incidents."
+      },
+      "currentContract": {
+        "requestContract": "IncidentCreateRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/incidents/",
+        "confirmationRequired": true,
+        "description": "create incidents."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "title",
+        "description",
+        "priority",
+        "customerId",
+        "organizationId",
+        "assignedToId",
+        "linkedAssetIds",
+        "attachments",
+        "dueDate",
+        "impact",
+        "ccRecipients",
+        "requesterEmail",
+        "categoryIds"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_incidents.delete",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "IncidentRequest",
+        "method": "DELETE",
+        "pathTemplate": "/api/v1/incidents/{incidentId}",
+        "confirmationRequired": true,
+        "description": "delete incidents."
+      },
+      "currentContract": {
+        "requestContract": "IncidentRequest",
+        "method": "DELETE",
+        "pathTemplate": "/api/v1/incidents/{incidentId}",
+        "confirmationRequired": true,
+        "description": "delete incidents."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "incidentId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_incidents.get",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "IncidentRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/incidents/{incidentId}",
+        "confirmationRequired": false,
+        "description": "get incidents."
+      },
+      "currentContract": {
+        "requestContract": "IncidentRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/incidents/{incidentId}",
+        "confirmationRequired": false,
+        "description": "get incidents."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "incidentId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_incidents.list",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "TicketOperationRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/incidents/",
+        "confirmationRequired": false,
+        "description": "List authorized incidents. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging."
+      },
+      "currentContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/incidents/",
+        "confirmationRequired": false,
+        "description": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging."
+      },
+      "changes": {
+        "requestContract": {
+          "before": "TicketOperationRequest",
+          "after": "ListRequest"
+        },
+        "description": {
+          "before": "List authorized incidents. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging.",
+          "after": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging."
+        }
+      },
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "page",
+        "pageSize",
+        "query",
+        "q",
+        "includeTotal",
+        "historicOnly",
+        "activeOnly",
+        "summaryOnly",
+        "unassigned",
+        "descending",
+        "state",
+        "view",
+        "customerOrgId",
+        "forId",
+        "assigneeId",
+        "stateValues",
+        "priority",
+        "timeField",
+        "sort",
+        "from",
+        "to",
+        "organizationId",
+        "excludeId",
+        "requesterEmail"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_incidents.listeners_count",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "incidentCountRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/incidents/{incidentId}/listeners/count",
+        "confirmationRequired": false,
+        "description": "Read listeners_count for one incident."
+      },
+      "currentContract": {
+        "requestContract": "IncidentCountRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/incidents/{incidentId}/listeners/count",
+        "confirmationRequired": false,
+        "description": "Read listeners_count for one incident."
+      },
+      "changes": {
+        "requestContract": {
+          "before": "incidentCountRequest",
+          "after": "IncidentCountRequest"
+        }
+      },
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "incidentId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_incidents.peek",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "IncidentRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/incidents/{incidentId}/peek",
+        "confirmationRequired": false,
+        "description": "peek incidents."
+      },
+      "currentContract": {
+        "requestContract": "IncidentRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/incidents/{incidentId}/peek",
+        "confirmationRequired": false,
+        "description": "peek incidents."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "incidentId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_incidents.state",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "TicketStateRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/incidents/{incidentId}/state",
+        "confirmationRequired": true,
+        "description": "state incidents."
+      },
+      "currentContract": {
+        "requestContract": "TicketStateRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/incidents/{incidentId}/state",
+        "confirmationRequired": true,
+        "description": "state incidents."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "incidentId",
+        "newState",
+        "comment"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_incidents.timeline",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "IncidentRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/incidents/{incidentId}/timeline",
+        "confirmationRequired": false,
+        "description": "timeline incidents."
+      },
+      "currentContract": {
+        "requestContract": "IncidentRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/incidents/{incidentId}/timeline",
+        "confirmationRequired": false,
+        "description": "timeline incidents."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "incidentId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_incidents.timeline_count",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "incidentCountRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/incidents/{incidentId}/timeline/count",
+        "confirmationRequired": false,
+        "description": "Read timeline_count for one incident."
+      },
+      "currentContract": {
+        "requestContract": "IncidentCountRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/incidents/{incidentId}/timeline/count",
+        "confirmationRequired": false,
+        "description": "Read timeline_count for one incident."
+      },
+      "changes": {
+        "requestContract": {
+          "before": "incidentCountRequest",
+          "after": "IncidentCountRequest"
+        }
+      },
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "incidentId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_incidents.update",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "IncidentUpdateRequest",
+        "method": "PUT",
+        "pathTemplate": "/api/v1/incidents/{incidentId}",
+        "confirmationRequired": true,
+        "description": "update incidents."
+      },
+      "currentContract": {
+        "requestContract": "IncidentUpdateRequest",
+        "method": "PUT",
+        "pathTemplate": "/api/v1/incidents/{incidentId}",
+        "confirmationRequired": true,
+        "description": "update incidents."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "incidentId",
+        "state",
+        "priority",
+        "ccRecipients",
+        "assignedToId",
+        "categoryIds"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_logs.search",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "LogSearchRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/ops/ai-agent/logs",
+        "confirmationRequired": false,
+        "description": "Run a bounded, redacted log search."
+      },
+      "currentContract": {
+        "requestContract": "LogSearchRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/ops/ai-agent/logs",
+        "confirmationRequired": false,
+        "description": "Run a bounded, redacted log search."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "The exact AuthentikAiAgent API authentication scheme is required. Ordinary integration credentials and gateway execution tokens cannot satisfy it, regardless of scoped grants. Explicit external Authentik downstream identity is supported; never switch modes as fallback."
+      },
+      "newRequestProperties": [
+        "since",
+        "correlationId",
+        "contains",
+        "level",
+        "limit"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_notifications.get",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "NotificationRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/notifications/{notificationId}",
+        "confirmationRequired": false,
+        "description": "get operation."
+      },
+      "currentContract": {
+        "requestContract": "NotificationRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/notifications/{notificationId}",
+        "confirmationRequired": false,
+        "description": "get operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "notificationId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_notifications.list",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/notifications",
+        "confirmationRequired": false,
+        "description": "list operation."
+      },
+      "currentContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/notifications",
+        "confirmationRequired": false,
+        "description": "list operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "page",
+        "pageSize",
+        "search",
+        "source",
+        "category",
+        "sortBy",
+        "sortDir",
+        "severity",
+        "from",
+        "to"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_notifications.mark_read",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "NotificationMarkReadRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/notifications/mark-read",
+        "confirmationRequired": true,
+        "description": "mark_read operation."
+      },
+      "currentContract": {
+        "requestContract": "NotificationMarkReadRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/notifications/mark-read",
+        "confirmationRequired": true,
+        "description": "mark_read operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "ids"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_notifications.summary",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/notifications/error-summary",
+        "confirmationRequired": false,
+        "description": "summary operation."
+      },
+      "currentContract": {
+        "requestContract": "None",
+        "method": "GET",
+        "pathTemplate": "/api/v1/notifications/error-summary",
+        "confirmationRequired": false,
+        "description": "summary operation."
+      },
+      "changes": {
+        "requestContract": {
+          "before": "ListRequest",
+          "after": "None"
+        }
+      },
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_notifications.unread_errors",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/notifications/unread-errors",
+        "confirmationRequired": false,
+        "description": "unread_errors operation."
+      },
+      "currentContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/notifications/unread-errors",
+        "confirmationRequired": false,
+        "description": "unread_errors operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "take"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_organizations.change_participants",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "OrganizationRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/organizations/{organizationId}/change-participants",
+        "confirmationRequired": false,
+        "description": "change_participants operation."
+      },
+      "currentContract": {
+        "requestContract": "OrganizationRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/organizations/{organizationId}/change-participants",
+        "confirmationRequired": false,
+        "description": "change_participants operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "organizationId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_organizations.get",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "OrganizationRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/organizations/{organizationId}",
+        "confirmationRequired": false,
+        "description": "get operation."
+      },
+      "currentContract": {
+        "requestContract": "OrganizationRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/organizations/{organizationId}",
+        "confirmationRequired": false,
+        "description": "get operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "organizationId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_organizations.list",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/organizations/",
+        "confirmationRequired": false,
+        "description": "list operation."
+      },
+      "currentContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/organizations/",
+        "confirmationRequired": false,
+        "description": "list operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_organizations.tenant_lookup",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "None",
+        "method": "GET",
+        "pathTemplate": "/api/v1/admin/tenants/lookup",
+        "confirmationRequired": false,
+        "description": "tenant_lookup operation."
+      },
+      "currentContract": {
+        "requestContract": "None",
+        "method": "GET",
+        "pathTemplate": "/api/v1/admin/tenants/lookup",
+        "confirmationRequired": false,
+        "description": "tenant_lookup operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_organizations.tenants",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "None",
+        "method": "GET",
+        "pathTemplate": "/api/v1/admin/tenants",
+        "confirmationRequired": false,
+        "description": "tenants operation."
+      },
+      "currentContract": {
+        "requestContract": "None",
+        "method": "GET",
+        "pathTemplate": "/api/v1/admin/tenants",
+        "confirmationRequired": false,
+        "description": "tenants operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_raw.get_change",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AllowlistedReadRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/changes/{changeId}",
+        "confirmationRequired": false,
+        "description": "get_change operation."
+      },
+      "currentContract": {
+        "requestContract": "AllowlistedReadRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/changes/{changeId}",
+        "confirmationRequired": false,
+        "description": "get_change operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "changeId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_raw.get_incident",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AllowlistedReadRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/incidents/{incidentId}",
+        "confirmationRequired": false,
+        "description": "get_incident operation."
+      },
+      "currentContract": {
+        "requestContract": "AllowlistedReadRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/incidents/{incidentId}",
+        "confirmationRequired": false,
+        "description": "get_incident operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "incidentId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_raw.get_request",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AllowlistedReadRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/requests/{requestId}",
+        "confirmationRequired": false,
+        "description": "get_request operation."
+      },
+      "currentContract": {
+        "requestContract": "AllowlistedReadRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/requests/{requestId}",
+        "confirmationRequired": false,
+        "description": "get_request operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "requestId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_raw.system_version",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "AllowlistedReadRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/system/version",
+        "confirmationRequired": false,
+        "description": "system_version operation."
+      },
+      "currentContract": {
+        "requestContract": "None",
+        "method": "GET",
+        "pathTemplate": "/api/v1/system/version",
+        "confirmationRequired": false,
+        "description": "system_version operation."
+      },
+      "changes": {
+        "requestContract": {
+          "before": "AllowlistedReadRequest",
+          "after": "None"
+        }
+      },
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_request_forms.by_service",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "RequestFormsByServiceRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/services/{serviceId}/forms/",
+        "confirmationRequired": false,
+        "description": "List forms for a service."
+      },
+      "currentContract": {
+        "requestContract": "RequestFormsByServiceRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/services/{serviceId}/forms/",
+        "confirmationRequired": false,
+        "description": "List forms for a service."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "serviceId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_request_forms.get",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "RequestFormRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/request-forms/{requestFormId}",
+        "confirmationRequired": false,
+        "description": "Get one request form."
+      },
+      "currentContract": {
+        "requestContract": "RequestFormRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/request-forms/{requestFormId}",
+        "confirmationRequired": false,
+        "description": "Get one request form."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "requestFormId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_request_tasks.bulk_complete",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "BulkRequestTaskActionRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/request-tasks/bulk/complete",
+        "confirmationRequired": true,
+        "description": "bulk_complete operation."
+      },
+      "currentContract": {
+        "requestContract": "BulkRequestTaskActionRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/request-tasks/bulk/complete",
+        "confirmationRequired": true,
+        "description": "bulk_complete operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "ids"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_request_tasks.bulk_retry",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "BulkRequestTaskActionRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/request-tasks/bulk/retry",
+        "confirmationRequired": true,
+        "description": "bulk_retry operation."
+      },
+      "currentContract": {
+        "requestContract": "BulkRequestTaskActionRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/request-tasks/bulk/retry",
+        "confirmationRequired": true,
+        "description": "bulk_retry operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "ids"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_request_tasks.bulk_start",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "BulkRequestTaskActionRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/request-tasks/bulk/start",
+        "confirmationRequired": true,
+        "description": "bulk_start operation."
+      },
+      "currentContract": {
+        "requestContract": "BulkRequestTaskActionRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/request-tasks/bulk/start",
+        "confirmationRequired": true,
+        "description": "bulk_start operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "ids"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_request_tasks.complete",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "RequestTaskRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/request-tasks/{taskId}/complete",
+        "confirmationRequired": true,
+        "description": "complete operation."
+      },
+      "currentContract": {
+        "requestContract": "RequestTaskRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/request-tasks/{taskId}/complete",
+        "confirmationRequired": true,
+        "description": "complete operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "taskId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_request_tasks.create",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "RequestTaskCreateRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/request-tasks/",
+        "confirmationRequired": true,
+        "description": "create operation."
+      },
+      "currentContract": {
+        "requestContract": "RequestTaskCreateRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/request-tasks/",
+        "confirmationRequired": true,
+        "description": "create operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "title",
+        "description",
+        "requestId",
+        "organizationId",
+        "customerId",
+        "priority",
+        "linkedAssetIds",
+        "attachments",
+        "dueDate"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_request_tasks.delete",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "RequestTaskRequest",
+        "method": "DELETE",
+        "pathTemplate": "/api/v1/request-tasks/{taskId}",
+        "confirmationRequired": true,
+        "description": "delete operation."
+      },
+      "currentContract": {
+        "requestContract": "RequestTaskRequest",
+        "method": "DELETE",
+        "pathTemplate": "/api/v1/request-tasks/{taskId}",
+        "confirmationRequired": true,
+        "description": "delete operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "taskId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_request_tasks.fail",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "RequestTaskRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/request-tasks/{taskId}/fail",
+        "confirmationRequired": true,
+        "description": "fail operation."
+      },
+      "currentContract": {
+        "requestContract": "RequestTaskRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/request-tasks/{taskId}/fail",
+        "confirmationRequired": true,
+        "description": "fail operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "taskId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_request_tasks.get",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "RequestTaskRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/request-tasks/{taskId}",
+        "confirmationRequired": false,
+        "description": "get operation."
+      },
+      "currentContract": {
+        "requestContract": "RequestTaskRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/request-tasks/{taskId}",
+        "confirmationRequired": false,
+        "description": "get operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "taskId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_request_tasks.list",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/request-tasks/",
+        "confirmationRequired": false,
+        "description": "list operation."
+      },
+      "currentContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/request-tasks/",
+        "confirmationRequired": false,
+        "description": "list operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "page",
+        "pageSize",
+        "query",
+        "q",
+        "includeTotal",
+        "historicOnly",
+        "assignedToId",
+        "requestId",
+        "serviceId",
+        "assignedToMe",
+        "status",
+        "type"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_request_tasks.retry",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "RequestTaskRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/request-tasks/{taskId}/retry",
+        "confirmationRequired": true,
+        "description": "retry operation."
+      },
+      "currentContract": {
+        "requestContract": "RequestTaskRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/request-tasks/{taskId}/retry",
+        "confirmationRequired": true,
+        "description": "retry operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "taskId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_request_tasks.start",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "RequestTaskRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/request-tasks/{taskId}/start",
+        "confirmationRequired": true,
+        "description": "start operation."
+      },
+      "currentContract": {
+        "requestContract": "RequestTaskRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/request-tasks/{taskId}/start",
+        "confirmationRequired": true,
+        "description": "start operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "taskId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_request_tasks.update",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "RequestTaskUpdateRequest",
+        "method": "PATCH",
+        "pathTemplate": "/api/v1/request-tasks/{taskId}",
+        "confirmationRequired": true,
+        "description": "update operation."
+      },
+      "currentContract": {
+        "requestContract": "RequestTaskUpdateRequest",
+        "method": "PATCH",
+        "pathTemplate": "/api/v1/request-tasks/{taskId}",
+        "confirmationRequired": true,
+        "description": "update operation."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "taskId",
+        "title",
+        "description",
+        "assignedToId",
+        "priority",
+        "linkedAssetIds",
+        "attachments",
+        "dueDate",
+        "clearAssignment",
+        "clearDueDate"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_requests.add_worklog",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "TicketWorklogRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/requests/{requestId}/worklogs",
+        "confirmationRequired": true,
+        "description": "add_worklog requests."
+      },
+      "currentContract": {
+        "requestContract": "TicketWorklogRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/requests/{requestId}/worklogs",
+        "confirmationRequired": true,
+        "description": "add_worklog requests."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "requestId",
+        "hours",
+        "notes",
+        "isInternalNote"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_requests.assign",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "TicketOperationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/requests/bulk/assign",
+        "confirmationRequired": true,
+        "description": "assign operation."
+      },
+      "currentContract": {
+        "requestContract": "TicketAssignmentRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/requests/bulk/assign",
+        "confirmationRequired": true,
+        "description": "assign operation."
+      },
+      "changes": {
+        "requestContract": {
+          "before": "TicketOperationRequest",
+          "after": "TicketAssignmentRequest"
+        }
+      },
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "ids",
+        "assignedToId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_requests.assign_self",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "TicketOperationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/requests/bulk/assign",
+        "confirmationRequired": true,
+        "description": "assign_self operation."
+      },
+      "currentContract": {
+        "requestContract": "ConfiguredAgentAssignmentRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/requests/bulk/assign",
+        "confirmationRequired": true,
+        "description": "assign_self operation."
+      },
+      "changes": {
+        "requestContract": {
+          "before": "TicketOperationRequest",
+          "after": "ConfiguredAgentAssignmentRequest"
+        }
+      },
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "ids",
+        "agentUserEmail"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_requests.attachments_count",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "requestCountRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/requests/{requestId}/attachments/count",
+        "confirmationRequired": false,
+        "description": "Read attachments_count for one request."
+      },
+      "currentContract": {
+        "requestContract": "RequestCountRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/requests/{requestId}/attachments/count",
+        "confirmationRequired": false,
+        "description": "Read attachments_count for one request."
+      },
+      "changes": {
+        "requestContract": {
+          "before": "requestCountRequest",
+          "after": "RequestCountRequest"
+        }
+      },
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "requestId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_requests.bulk_create",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "requestBulkCreateRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/requests/",
+        "confirmationRequired": true,
+        "description": "bulk_create operation."
+      },
+      "currentContract": {
+        "requestContract": "RequestBulkCreateRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/requests/",
+        "confirmationRequired": true,
+        "description": "bulk_create operation."
+      },
+      "changes": {
+        "requestContract": {
+          "before": "requestBulkCreateRequest",
+          "after": "RequestBulkCreateRequest"
+        }
+      },
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "items"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_requests.bulk_state",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "TicketOperationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/requests/bulk/state",
+        "confirmationRequired": true,
+        "description": "bulk_state operation."
+      },
+      "currentContract": {
+        "requestContract": "BulkTicketStateRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/requests/bulk/state",
+        "confirmationRequired": true,
+        "description": "bulk_state operation."
+      },
+      "changes": {
+        "requestContract": {
+          "before": "TicketOperationRequest",
+          "after": "BulkTicketStateRequest"
+        }
+      },
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "newState",
+        "comment",
+        "ids"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_requests.create",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "RequestCreateRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/requests/",
+        "confirmationRequired": true,
+        "description": "create requests."
+      },
+      "currentContract": {
+        "requestContract": "RequestCreateRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/requests/",
+        "confirmationRequired": true,
+        "description": "create requests."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "title",
+        "description",
+        "priority",
+        "customerId",
+        "organizationId",
+        "assignedToId",
+        "linkedAssetIds",
+        "attachments",
+        "dueDate",
+        "category",
+        "categoryIds",
+        "serviceId",
+        "requestFormId",
+        "payloadJson",
+        "requesterEmail",
+        "ccRecipients"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_requests.delete",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "RequestRequest",
+        "method": "DELETE",
+        "pathTemplate": "/api/v1/requests/{requestId}",
+        "confirmationRequired": true,
+        "description": "delete requests."
+      },
+      "currentContract": {
+        "requestContract": "RequestRequest",
+        "method": "DELETE",
+        "pathTemplate": "/api/v1/requests/{requestId}",
+        "confirmationRequired": true,
+        "description": "delete requests."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "requestId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_requests.get",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "RequestRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/requests/{requestId}",
+        "confirmationRequired": false,
+        "description": "get requests."
+      },
+      "currentContract": {
+        "requestContract": "RequestRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/requests/{requestId}",
+        "confirmationRequired": false,
+        "description": "get requests."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "requestId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_requests.list",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "TicketOperationRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/requests/",
+        "confirmationRequired": false,
+        "description": "list operation."
+      },
+      "currentContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/requests/",
+        "confirmationRequired": false,
+        "description": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging."
+      },
+      "changes": {
+        "requestContract": {
+          "before": "TicketOperationRequest",
+          "after": "ListRequest"
+        },
+        "description": {
+          "before": "list operation.",
+          "after": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging."
+        }
+      },
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "page",
+        "pageSize",
+        "query",
+        "q",
+        "includeTotal",
+        "historicOnly",
+        "activeOnly",
+        "summaryOnly",
+        "unassigned",
+        "descending",
+        "state",
+        "view",
+        "customerOrgId",
+        "forId",
+        "assigneeId",
+        "stateValues",
+        "priority",
+        "timeField",
+        "sort",
+        "from",
+        "to",
+        "aiOnly"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_requests.listeners_count",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "requestCountRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/requests/{requestId}/listeners/count",
+        "confirmationRequired": false,
+        "description": "Read listeners_count for one request."
+      },
+      "currentContract": {
+        "requestContract": "RequestCountRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/requests/{requestId}/listeners/count",
+        "confirmationRequired": false,
+        "description": "Read listeners_count for one request."
+      },
+      "changes": {
+        "requestContract": {
+          "before": "requestCountRequest",
+          "after": "RequestCountRequest"
+        }
+      },
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "requestId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_requests.state",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "TicketStateRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/requests/{requestId}/state",
+        "confirmationRequired": true,
+        "description": "state requests."
+      },
+      "currentContract": {
+        "requestContract": "TicketStateRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/requests/{requestId}/state",
+        "confirmationRequired": true,
+        "description": "state requests."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "requestId",
+        "newState",
+        "comment"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_requests.tasks",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "RequestRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/requests/{requestId}/tasks",
+        "confirmationRequired": false,
+        "description": "tasks requests."
+      },
+      "currentContract": {
+        "requestContract": "RequestRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/requests/{requestId}/tasks",
+        "confirmationRequired": false,
+        "description": "tasks requests."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "requestId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_requests.timeline",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "RequestRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/requests/{requestId}/timeline",
+        "confirmationRequired": false,
+        "description": "timeline requests."
+      },
+      "currentContract": {
+        "requestContract": "RequestRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/requests/{requestId}/timeline",
+        "confirmationRequired": false,
+        "description": "timeline requests."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "requestId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_requests.timeline_count",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "requestCountRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/requests/{requestId}/timeline/count",
+        "confirmationRequired": false,
+        "description": "Read timeline_count for one request."
+      },
+      "currentContract": {
+        "requestContract": "RequestCountRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/requests/{requestId}/timeline/count",
+        "confirmationRequired": false,
+        "description": "Read timeline_count for one request."
+      },
+      "changes": {
+        "requestContract": {
+          "before": "requestCountRequest",
+          "after": "RequestCountRequest"
+        }
+      },
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "requestId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_requests.update",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "RequestUpdateRequest",
+        "method": "PUT",
+        "pathTemplate": "/api/v1/requests/{requestId}",
+        "confirmationRequired": true,
+        "description": "update requests."
+      },
+      "currentContract": {
+        "requestContract": "RequestUpdateRequest",
+        "method": "PUT",
+        "pathTemplate": "/api/v1/requests/{requestId}",
+        "confirmationRequired": true,
+        "description": "update requests."
+      },
+      "changes": {},
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "requestId",
+        "state",
+        "priority",
+        "categoryIds"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_roles.get",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "RoleRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/admin/role-definitions/{roleId}",
+        "confirmationRequired": false,
+        "description": "get operation."
+      },
+      "currentContract": {
+        "requestContract": "RoleRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/admin/role-definitions/{roleId}",
+        "confirmationRequired": false,
+        "description": "get operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "roleId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_roles.list",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/admin/role-definitions/",
+        "confirmationRequired": false,
+        "description": "list operation."
+      },
+      "currentContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/admin/role-definitions/",
+        "confirmationRequired": false,
+        "description": "list operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_schema.list",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "None",
+        "method": "LOCAL",
+        "pathTemplate": "local",
+        "confirmationRequired": false,
+        "description": "Read the executable MCP operation catalog."
+      },
+      "currentContract": {
+        "requestContract": "None",
+        "method": "LOCAL",
+        "pathTemplate": "local",
+        "confirmationRequired": false,
+        "description": "Read the executable MCP operation catalog."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_search.customers",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "SearchRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/global-search/customers",
+        "confirmationRequired": false,
+        "description": "customers operation."
+      },
+      "currentContract": {
+        "requestContract": "SearchRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/global-search/customers",
+        "confirmationRequired": false,
+        "description": "customers operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "query",
+        "q",
+        "limit",
+        "pageSize"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_search.organizations",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "SearchRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/global-search/organizations",
+        "confirmationRequired": false,
+        "description": "organizations operation."
+      },
+      "currentContract": {
+        "requestContract": "SearchRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/global-search/organizations",
+        "confirmationRequired": false,
+        "description": "organizations operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "query",
+        "q",
+        "limit",
+        "pageSize"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_search.users",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "SearchRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/global-search/users",
+        "confirmationRequired": false,
+        "description": "users operation."
+      },
+      "currentContract": {
+        "requestContract": "SearchRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/global-search/users",
+        "confirmationRequired": false,
+        "description": "users operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "query",
+        "q",
+        "limit",
+        "pageSize"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_self_service.get_request",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "RequestRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/self-service/requests/{requestId}",
+        "confirmationRequired": false,
+        "description": "get_request operation."
+      },
+      "currentContract": {
+        "requestContract": "RequestRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/self-service/requests/{requestId}",
+        "confirmationRequired": false,
+        "description": "get_request operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "requestId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_self_service.request_users",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/self-service/request-users",
+        "confirmationRequired": false,
+        "description": "request_users operation."
+      },
+      "currentContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/self-service/request-users",
+        "confirmationRequired": false,
+        "description": "request_users operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "pageSize",
+        "query"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_self_service.requests",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/self-service/requests",
+        "confirmationRequired": false,
+        "description": "requests operation."
+      },
+      "currentContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/self-service/requests",
+        "confirmationRequired": false,
+        "description": "requests operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "page",
+        "pageSize",
+        "q"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_services.breadcrumb",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "ServiceRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/services/{serviceId}/breadcrumb",
+        "confirmationRequired": false,
+        "description": "breadcrumb operation."
+      },
+      "currentContract": {
+        "requestContract": "ServiceRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/services/{serviceId}/breadcrumb",
+        "confirmationRequired": false,
+        "description": "breadcrumb operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "serviceId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_services.get",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "ServiceRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/services/{serviceId}",
+        "confirmationRequired": false,
+        "description": "get operation."
+      },
+      "currentContract": {
+        "requestContract": "ServiceRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/services/{serviceId}",
+        "confirmationRequired": false,
+        "description": "get operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "serviceId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_services.items",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "ServiceRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/service-items/{serviceId}",
+        "confirmationRequired": false,
+        "description": "items operation."
+      },
+      "currentContract": {
+        "requestContract": "ServiceRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/service-items/{serviceId}",
+        "confirmationRequired": false,
+        "description": "items operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "serviceId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_services.list",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/services/",
+        "confirmationRequired": false,
+        "description": "list operation."
+      },
+      "currentContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/services/",
+        "confirmationRequired": false,
+        "description": "list operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_services.search_items",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "SearchRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/service-items/search",
+        "confirmationRequired": false,
+        "description": "search_items operation."
+      },
+      "currentContract": {
+        "requestContract": "SearchRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/service-items/search",
+        "confirmationRequired": false,
+        "description": "search_items operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "query",
+        "q",
+        "pageSize",
+        "includeTotal"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_system.version",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "None",
+        "method": "GET",
+        "pathTemplate": "/api/v1/system/version",
+        "confirmationRequired": false,
+        "description": "Read safe system metadata."
+      },
+      "currentContract": {
+        "requestContract": "None",
+        "method": "GET",
+        "pathTemplate": "/api/v1/system/version",
+        "confirmationRequired": false,
+        "description": "Read safe system metadata."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_tickets.attachments_count",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "TicketCountRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/{ticketType}/{ticketId}/attachments/count",
+        "confirmationRequired": false,
+        "description": "Count attachments."
+      },
+      "currentContract": {
+        "requestContract": "TicketCountRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/{ticketType}/{ticketId}/attachments/count",
+        "confirmationRequired": false,
+        "description": "Count attachments."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "ticketType",
+        "ticketId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_tickets.listeners_count",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "TicketCountRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/{ticketType}/{ticketId}/listeners/count",
+        "confirmationRequired": false,
+        "description": "Count listeners."
+      },
+      "currentContract": {
+        "requestContract": "TicketCountRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/{ticketType}/{ticketId}/listeners/count",
+        "confirmationRequired": false,
+        "description": "Count listeners."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "ticketType",
+        "ticketId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_tickets.mark_as_seen",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "TicketMutationRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/tickets/{ticketId}/mark-as-seen",
+        "confirmationRequired": true,
+        "description": "mark_as_seen operation."
+      },
+      "currentContract": {
+        "requestContract": "TicketSeenRequest",
+        "method": "POST",
+        "pathTemplate": "/api/v1/tickets/{ticketId}/mark-as-seen",
+        "confirmationRequired": true,
+        "description": "mark_as_seen operation."
+      },
+      "changes": {
+        "requestContract": {
+          "before": "TicketMutationRequest",
+          "after": "TicketSeenRequest"
+        }
+      },
+      "effect": "write",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "ticketId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_tickets.timeline_count",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "TicketCountRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/{ticketType}/{ticketId}/timeline/count",
+        "confirmationRequired": false,
+        "description": "Count timeline entries."
+      },
+      "currentContract": {
+        "requestContract": "TicketCountRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/{ticketType}/{ticketId}/timeline/count",
+        "confirmationRequired": false,
+        "description": "Count timeline entries."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "newRequestProperties": [
+        "ticketType",
+        "ticketId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_users.by_email",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "UserEmailRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/users/by-email/{email}",
+        "confirmationRequired": false,
+        "description": "by_email operation."
+      },
+      "currentContract": {
+        "requestContract": "UserEmailRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/users/by-email/{email}",
+        "confirmationRequired": false,
+        "description": "by_email operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "email"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_users.get",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "UserRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/users/{userId}",
+        "confirmationRequired": false,
+        "description": "get operation."
+      },
+      "currentContract": {
+        "requestContract": "UserRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/users/{userId}",
+        "confirmationRequired": false,
+        "description": "get operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [
+        "userId"
+      ],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    },
+    {
+      "operationKey": "helpdesk_users.list",
+      "catalogStatus": "retained",
+      "baselineContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/users/",
+        "confirmationRequired": false,
+        "description": "list operation."
+      },
+      "currentContract": {
+        "requestContract": "ListRequest",
+        "method": "GET",
+        "pathTemplate": "/api/v1/users/",
+        "confirmationRequired": false,
+        "description": "list operation."
+      },
+      "changes": {},
+      "effect": "read",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "newRequestProperties": [],
+      "campaignOutcome": "requires_fresh_owner_evidence"
+    }
+  ]
+}

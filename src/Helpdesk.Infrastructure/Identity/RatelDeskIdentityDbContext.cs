@@ -9,6 +9,9 @@ public sealed class RatelDeskIdentityDbContext(DbContextOptions<RatelDeskIdentit
 {
     public DbSet<IntegrationCredential> IntegrationCredentials => Set<IntegrationCredential>();
 
+    public DbSet<IntegrationCredentialPairing> IntegrationCredentialPairings => Set<IntegrationCredentialPairing>();
+    public DbSet<IntegrationCredentialPairingRateLimit> IntegrationCredentialPairingRateLimits => Set<IntegrationCredentialPairingRateLimit>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -20,6 +23,29 @@ public sealed class RatelDeskIdentityDbContext(DbContextOptions<RatelDeskIdentit
             entity.Property(user => user.IsInstanceAdministrator).HasDefaultValue(false);
             entity.Property(user => user.AuthorizationRevision).HasDefaultValue(0L);
             entity.HasIndex(user => user.IsEnabled);
+        });
+
+        builder.Entity<IntegrationCredentialPairing>(entity =>
+        {
+            entity.HasKey(p => p.Id);
+            entity.Property(p => p.DeviceHash).HasMaxLength(64).IsRequired();
+            entity.Property(p => p.HumanHash).HasMaxLength(64).IsRequired();
+            entity.Property(p => p.Name).HasMaxLength(128).IsRequired();
+            entity.Property(p => p.Purpose).HasMaxLength(16).IsRequired();
+            entity.Property(p => p.McpResourceUri).HasMaxLength(2048);
+            entity.Property(p => p.State).HasMaxLength(32).IsRequired();
+            entity.Property(p => p.OwnerUserId).HasMaxLength(450);
+            entity.Property(p => p.Revision).IsConcurrencyToken();
+            entity.HasIndex(p => p.DeviceHash).IsUnique();
+            entity.HasIndex(p => p.HumanHash).IsUnique();
+            entity.HasIndex(p => p.ExpiresAtUnixMilliseconds);
+        });
+        builder.Entity<IntegrationCredentialPairingRateLimit>(entity =>
+        {
+            entity.HasKey(p => p.Key);
+            entity.Property(p => p.Key).HasMaxLength(64);
+            entity.Property(p => p.Revision).IsConcurrencyToken();
+            entity.HasIndex(p => p.WindowEndsAtUnixMilliseconds);
         });
 
         builder.Entity<IntegrationCredential>(entity =>

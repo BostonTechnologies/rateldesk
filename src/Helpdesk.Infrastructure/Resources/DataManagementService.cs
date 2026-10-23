@@ -1,3 +1,4 @@
+using System.Data;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
@@ -14,8 +15,10 @@ using Helpdesk.Shared.DTOs.Resources;
 using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 
 namespace Helpdesk.Infrastructure.Resources;
 
@@ -24,7 +27,7 @@ public sealed class DataManagementService(
     IMemoryCache cache,
     ISecretProtector protector,
     IHttpClientFactory httpClientFactory,
-    ILogger<DataManagementService> logger) : IDataManagementService
+    ILogger<DataManagementService> logger) : IDataManagementService, IOperatorDatasetWriter
 {
     private const string BoundLabelKey = "_boundLabels";
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -276,6 +279,19 @@ public sealed class DataManagementService(
         return result;
     }
 
+    public async Task<DatasetOptionDto?> GetOptionByKeyAsync(string datasetId, string organizationId, string key, CancellationToken cancellationToken = default)
+    {
+        // Resolve current persisted membership, independently of search columns,
+        // page limits and the five-minute option search cache.
+        var definition = await _db.DatasetDefinitions.AsNoTracking().FirstOrDefaultAsync(
+            x => x.Id == datasetId && x.OrganizationId == organizationId && x.IsActive, cancellationToken);
+        if (definition is null) return null;
+        var normalizedKey = key.Trim().ToLowerInvariant();
+        var row = await _db.DatasetRows.AsNoTracking().FirstOrDefaultAsync(
+            x => x.DatasetId == datasetId && x.OrganizationId == organizationId && x.ExternalKey.ToLower() == normalizedKey, cancellationToken);
+        return row is null ? null : MapOptionDto(row, definition);
+    }
+
     public async Task<DatasetIngestCredentialCreatedDto> CreateCredentialAsync(string datasetId, CreateDatasetIngestCredentialDto dto, CancellationToken cancellationToken = default)
     {
         var dataset = await _db.DatasetDefinitions.FirstOrDefaultAsync(x => x.Id == datasetId, cancellationToken)
@@ -342,16 +358,94 @@ public sealed class DataManagementService(
         return await UpsertRowsInternalAsync(dataset, dto, cancellationToken);
     }
 
+    public async Task<int> UpsertRowsAsOperatorAsync(string datasetId, string authorizedOrganizationId,
+        bool allowBuiltInSources, UpsertDatasetRowsDto dto, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(dto);
+        var dataset = await _db.DatasetDefinitions.FirstOrDefaultAsync(
+            x => x.Id == datasetId && x.OrganizationId == authorizedOrganizationId, cancellationToken);
+        if (dataset is null || !allowBuiltInSources && dataset.SourceType != DatasetSourceType.Custom)
+            throw new UnauthorizedAccessException("Dataset is outside the authorized operator scope.");
+
+        if (dto.Rows is null || dto.Rows.Count > 100)
+            throw new ArgumentException("Supply at most 100 rows in one operator update.", nameof(dto));
+        var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in dto.Rows)
+        {
+            if (row is null || string.IsNullOrWhiteSpace(row.ExternalKey) || row.ExternalKey.Length > 200 ||
+                !keys.Add(row.ExternalKey.Trim()))
+                throw new ArgumentException("Every row must have a distinct key of 1–200 characters.", nameof(dto));
+            if (row.Data is null || row.Data.Count > 100 || row.Data.ToJsonString(JsonOptions).Length > 65536)
+                throw new ArgumentException("Every row must contain a bounded JSON object with at most 100 fields and 65536 encoded characters.", nameof(dto));
+        }
+        if (JsonSerializer.Serialize(dto, JsonOptions).Length > 1048576)
+            throw new ArgumentException("An operator row update may contain at most 1 MiB of JSON.", nameof(dto));
+
+        return await UpsertRowsInternalAsync(dataset, dto, cancellationToken);
+    }
+
     private async Task<int> UpsertRowsInternalAsync(DatasetDefinition dataset, UpsertDatasetRowsDto dto, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(dto);
+        if (dto.Rows is null)
+            throw new ArgumentException("Rows are required.", nameof(dto));
+        var normalizedRows = new Dictionary<string, UpsertDatasetRowDto>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in dto.Rows)
+        {
+            if (row is null || string.IsNullOrWhiteSpace(row.ExternalKey) || row.ExternalKey.Length > 200 ||
+                !normalizedRows.TryAdd(row.ExternalKey.Trim(), row))
+                throw new ArgumentException("Every row must have a distinct key of 1–200 characters, ignoring case.", nameof(dto));
+        }
+
+        try
+        {
+            await using var transaction = _db.Database.IsRelational() && _db.Database.CurrentTransaction is null
+                ? await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken)
+                : null;
+            if (_db.Database.IsRelational())
+            {
+                // Every operator, ingestion-key and Graph writer acquires this database
+                // row before reading the case-insensitive key set. A process-local lock
+                // would not protect another API instance or a background worker.
+                var fenced = await _db.DatasetDefinitions
+                    .Where(item => item.Id == dataset.Id && item.OrganizationId == dataset.OrganizationId &&
+                                   item.SourceType == dataset.SourceType)
+                    .ExecuteUpdateAsync(update => update.SetProperty(item => item.UpdatedAtUtc, item => item.UpdatedAtUtc), cancellationToken);
+                if (fenced != 1)
+                    throw new DatasetWriteConflictException("The dataset or its source changed. Read its current definition before another update.");
+            }
+
+            var count = await ApplyRowsAsync(dataset, dto, normalizedRows, cancellationToken);
+            if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+            InvalidateDatasetCache(dataset.OrganizationId, dataset.Id);
+            return count;
+        }
+        catch (Exception exception)
+        {
+            // Graph sync records a failure using this same scoped context. Do not let
+            // that later SaveChanges replay rows from a rolled-back batch.
+            foreach (var entry in _db.ChangeTracker.Entries<DatasetRow>().Where(entry => entry.Entity.DatasetId == dataset.Id).ToArray())
+                entry.State = Microsoft.EntityFrameworkCore.EntityState.Detached;
+            if (IsDatasetWriteConflict(exception))
+                throw new DatasetWriteConflictException("The dataset changed concurrently. Read its current rows before another update; this batch was not committed.");
+            throw;
+        }
+    }
+
+    private async Task<int> ApplyRowsAsync(DatasetDefinition dataset, UpsertDatasetRowsDto dto,
+        IReadOnlyDictionary<string, UpsertDatasetRowDto> normalizedRows, CancellationToken cancellationToken)
     {
         var existingRows = await _db.DatasetRows
             .Where(x => x.DatasetId == dataset.Id && x.OrganizationId == dataset.OrganizationId)
             .ToListAsync(cancellationToken);
-        var existingByKey = existingRows.ToDictionary(x => x.ExternalKey, StringComparer.OrdinalIgnoreCase);
-
-        var normalizedRows = dto.Rows
-            .Where(x => !string.IsNullOrWhiteSpace(x.ExternalKey))
-            .ToDictionary(x => x.ExternalKey.Trim(), StringComparer.OrdinalIgnoreCase);
+        var groups = existingRows.GroupBy(row => row.ExternalKey, StringComparer.OrdinalIgnoreCase).ToArray();
+        if (!dto.DeleteMissing && groups.Any(group => group.Skip(1).Any()))
+            throw new DatasetWriteConflictException("Stored rows contain case-conflicting keys. Review all rows and submit an explicit complete replacement with deleteMissing=true and distinct keys.");
+        var existingByKey = groups.ToDictionary(group => group.Key,
+            group => group.OrderBy(row => row.ExternalKey, StringComparer.Ordinal).ThenBy(row => row.Id, StringComparer.Ordinal).First(),
+            StringComparer.OrdinalIgnoreCase);
+        if (dto.DeleteMissing)
+            _db.DatasetRows.RemoveRange(groups.SelectMany(group => group.Where(row => row.Id != existingByKey[group.Key].Id)));
 
         foreach (var row in normalizedRows.Values)
         {
@@ -393,9 +487,21 @@ public sealed class DataManagementService(
         }
 
         await _db.SaveChangesAsync(cancellationToken);
-        InvalidateDatasetCache(dataset.OrganizationId, dataset.Id);
         return normalizedRows.Count;
     }
+
+    private static bool IsDatasetWriteConflict(Exception exception) => exception switch
+    {
+        DbUpdateConcurrencyException => true,
+        DbUpdateException { InnerException: { } inner } => IsDatasetWriteConflict(inner),
+        // Npgsql's execution strategy wraps serialization failures from direct
+        // commands; retain the provider-code whitelist when unwrapping it.
+        InvalidOperationException { InnerException: { } inner } => IsDatasetWriteConflict(inner),
+        SqliteException sqlite => sqlite.SqliteErrorCode is 5 or 6 || sqlite.SqliteExtendedErrorCode is 1555 or 2067,
+        PostgresException postgres => postgres.SqlState is PostgresErrorCodes.SerializationFailure or
+            PostgresErrorCodes.DeadlockDetected or PostgresErrorCodes.UniqueViolation,
+        _ => false
+    };
 
     public async Task<TenantGraphDatasetSettingsDto?> GetGraphSettingsAsync(string organizationId, CancellationToken cancellationToken = default)
     {
@@ -1065,8 +1171,7 @@ public sealed class SelfServiceDatasetBindingResolver(
                 continue;
             }
 
-            var options = await _dataManagementService.GetOptionsAsync(binding.DatasetId, organizationId, selectedKey, 1, 25, cancellationToken);
-            var match = options.Items.FirstOrDefault(x => string.Equals(x.Key, selectedKey, StringComparison.OrdinalIgnoreCase));
+            var match = await _dataManagementService.GetOptionByKeyAsync(binding.DatasetId, organizationId, selectedKey, cancellationToken);
             if (match is null)
             {
                 if (binding.AllowFreeText)

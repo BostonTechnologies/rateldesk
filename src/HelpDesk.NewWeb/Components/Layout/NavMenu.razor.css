@@ -1,0 +1,125 @@
+.helpdesk-nav {
+    padding: 0.4rem 0.5rem 0.75rem;
+    min-width: 0;
+}
+
+.helpdesk-nav ::deep .nav-section-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    margin: 0.7rem 0.5rem 0.25rem;
+    color: var(--mud-palette-text-secondary);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.helpdesk-nav ::deep .nav-section-heading::before,
+.helpdesk-nav ::deep .nav-section-heading::after {
+    content: "";
+    flex: 1;
+    min-width: 0;
+    border-top: 1px solid var(--mud-palette-divider);
+}
+
+.helpdesk-nav-account {
+    margin-top: 0.5rem;
+    padding-top: 0.25rem;
+    border-top: 1px solid var(--mud-palette-divider);
+}
+
+.helpdesk-nav ::deep .mud-nav-link,
+.helpdesk-nav ::deep .mud-nav-group > .mud-nav-link {
+    min-height: 36px;
+    margin: 0.08rem 0;
+    padding: 6px 8px;
+    border: 1px solid transparent;
+    border-radius: var(--mud-default-borderradius);
+    color: var(--mud-palette-drawer-text);
+    font-weight: 600;
+}
+
+.helpdesk-nav ::deep .mud-nav-link .mud-nav-link-text {
+    margin-left: 8px;
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.3;
+    letter-spacing: 0;
+}
+
+.helpdesk-nav ::deep .mud-nav-link .mud-icon-root {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    color: var(--mud-palette-drawer-icon);
+}
+
+.helpdesk-nav ::deep .mud-nav-link:hover:not(.mud-nav-link-disabled) {
+    border-color: color-mix(in srgb, var(--mud-palette-primary) 26%, transparent);
+    background: color-mix(in srgb, var(--mud-palette-primary) 7%, var(--mud-palette-drawer-background));
+    color: var(--mud-palette-text-primary);
+}
+
+.helpdesk-nav ::deep .mud-nav-link.active:not(.mud-nav-link-disabled),
+.helpdesk-nav ::deep .mud-nav-link.active:not(.mud-nav-link-disabled) .mud-icon-root {
+    color: var(--mud-palette-text-primary);
+}
+
+.helpdesk-nav ::deep .mud-nav-link.active:not(.mud-nav-link-disabled) {
+    border-color: color-mix(in srgb, var(--mud-palette-primary) 35%, transparent);
+    background: color-mix(in srgb, var(--mud-palette-primary) 12%, var(--mud-palette-drawer-background));
+    box-shadow: inset 3px 0 0 var(--mud-palette-primary);
+}
+
+.helpdesk-nav ::deep .mud-collapse-container {
+    margin-left: 0.125rem;
+    padding-left: 0.125rem;
+    border-left: 1px solid var(--mud-palette-divider);
+}
+
+.helpdesk-nav ::deep .mud-collapse-container .mud-nav-link {
+    min-height: 34px;
+    color: var(--mud-palette-text-secondary);
+    font-size: 0.88rem;
+}
+
+.helpdesk-nav ::deep .mud-collapse-container .mud-nav-link.active:not(.mud-nav-link-disabled) {
+    color: var(--mud-palette-text-primary);
+}
+
+.helpdesk-nav ::deep .mud-nav-link:focus-visible {
+    outline: 2px solid var(--mud-palette-info) !important;
+    outline-offset: -2px;
+}
+
+@media (pointer: coarse) {
+    .helpdesk-nav ::deep .mud-nav-link,
+    .helpdesk-nav ::deep .mud-collapse-container .mud-nav-link {
+        min-height: 44px;
+    }
+}
+
+.helpdesk-nav ::deep .helpdesk-nav-tooltip {
+    display: block;
+    min-width: 0;
+    width: 100%;
+}
+
+.helpdesk-nav ::deep .mud-nav-item,
+.helpdesk-nav ::deep .mud-nav-group,
+.helpdesk-nav ::deep .mud-nav-link {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.helpdesk-nav ::deep .helpdesk-nav-group-label {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

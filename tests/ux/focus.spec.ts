@@ -36,17 +36,11 @@ test('outlined fields keep one visible focus border with pointer and keyboard in
   await page.keyboard.press('Shift+Tab');
   await expectSingleFieldFocus(title);
 
-  // A standard variant uses its focused underline instead of another outline.
+  // Ticket search uses the same single outlined focus border as the form fields.
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
-  const search = page.getByPlaceholder('Search incidents');
+  const search = page.getByTestId('app-main-content').getByRole('textbox', { name: 'Search tickets', exact: true });
   await search.click();
-  await expect(search).toBeFocused();
-  await expect(search).toHaveCSS('outline-style', 'none');
-  const underline = await search.evaluate(input => {
-    const field = input.closest('.mud-input')!;
-    return getComputedStyle(field, '::after').borderBottomWidth;
-  });
-  expect(parseFloat(underline)).toBeGreaterThanOrEqual(2);
+  await expectSingleFieldFocus(search);
 });
 
 async function expectSingleFieldFocus(input: Locator) {

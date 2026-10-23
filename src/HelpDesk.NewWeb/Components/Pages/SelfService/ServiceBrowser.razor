@@ -26,7 +26,10 @@
             </MudChip>
         </div>
         <MudDivider Class="self-service-divider" />
+        <div class="self-service-toolbar" role="search" aria-label="Service catalogue">
         <MudTextField @bind-Value="searchString"
+                      Label="Search services and requests"
+                      Clearable="true"
                       Placeholder="Search services and requests"
                       Adornment="Adornment.Start"
                       AdornmentIcon="@Icons.Material.Filled.Search"
@@ -34,6 +37,7 @@
                       Variant="Variant.Outlined"
                       Margin="Margin.Dense"
                       Class="self-service-search" />
+        </div>
     </section>
 
     @if (loading)

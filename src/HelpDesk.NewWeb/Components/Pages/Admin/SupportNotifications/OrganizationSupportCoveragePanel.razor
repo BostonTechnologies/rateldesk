@@ -1,3 +1,4 @@
+@inherits HelpDesk.NewWeb.Components.Shared.Admin.AdminActionPanelBase
 @using HelpDesk.NewWeb.Services
 @using Helpdesk.Shared.DTOs.Organization
 @using Helpdesk.Shared.DTOs.SupportNotifications
@@ -5,7 +6,8 @@
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 
-<MudPaper Class="pa-4">
+<MudPaper Class="pa-2" Elevation="0">
+<fieldset disabled="@IsBusy" class="routing-editor-controls">
     <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
         <div>
             <MudText Typo="Typo.h6">Support Coverage</MudText>
@@ -17,7 +19,7 @@
                    Size="Size.Small"
                    StartIcon="@Icons.Material.Filled.Add"
                    Disabled="@string.IsNullOrWhiteSpace(SelectedOrganizationId)"
-                   OnClick="OpenCreateDialogAsync">
+                   OnClick="@(() => RunActionAsync(OpenCreateDialogAsync))">
             Add Route
         </MudButton>
     </MudStack>
@@ -30,43 +32,25 @@
     }
     else
     {
-        <MudStack Spacing="2">
-            @foreach (var row in Rows.OrderByDescending(x => x.IsEnabled).ThenBy(x => x.Role).ThenBy(x => ProviderName(x.ProviderOrganizationId)))
-            {
-                <MudPaper Outlined="true" Class="pa-3">
-                    <MudGrid Spacing="2" AlignItems="Center">
-                        <MudItem xs="12" md="2">
-                            <MudText Typo="Typo.overline">Role</MudText>
-                            <MudText Typo="Typo.subtitle2">@SupportNotificationLabels.CoverageRole(row.Role)</MudText>
-                        </MudItem>
-                        <MudItem xs="12" md="3">
-                            <MudText Typo="Typo.overline">Provider organization</MudText>
-                            <MudText Typo="Typo.body2">@ProviderName(row.ProviderOrganizationId)</MudText>
-                        </MudItem>
-                        <MudItem xs="12" md="3">
-                            <MudText Typo="Typo.overline">Support group</MudText>
-                            <MudText Typo="Typo.body2">@SupportGroupName(row.SupportGroupId)</MudText>
-                        </MudItem>
-                        <MudItem xs="12" md="1">
-                            <MudChip T="string" Color="@(row.IsEnabled ? Color.Success : Color.Default)" Variant="Variant.Outlined" Dense="true">
-                                @(row.IsEnabled ? "Enabled" : "Disabled")
-                            </MudChip>
-                        </MudItem>
-                        <MudItem xs="12" md="3" Class="d-flex justify-end gap-2">
-                            <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Edit" OnClick="() => OpenEditDialogAsync(row)">Edit</MudButton>
-                            <MudButton Size="Size.Small"
-                                       Variant="Variant.Outlined"
-                                       Color="@(row.IsEnabled ? Color.Warning : Color.Success)"
-                                       OnClick="() => ToggleEnabledAsync(row)">
-                                @(row.IsEnabled ? "Disable" : "Enable")
-                            </MudButton>
-                            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" StartIcon="@Icons.Material.Filled.Delete" OnClick="() => DeleteAsync(row)">Delete</MudButton>
-                        </MudItem>
-                    </MudGrid>
-                </MudPaper>
-            }
-        </MudStack>
+        <MudTable Items="Rows.OrderByDescending(x => x.IsEnabled).ThenBy(x => x.Role).ThenBy(x => ProviderName(x.ProviderOrganizationId))" Dense="true" Hover="true" RowsPerPage="25" Breakpoint="Breakpoint.Sm">
+            <HeaderContent><MudTh>Coverage role</MudTh><MudTh>Provider</MudTh><MudTh>Support group</MudTh><MudTh>Status</MudTh><MudTh>Actions</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Coverage role">@SupportNotificationLabels.CoverageRole(context.Role)</MudTd>
+                <MudTd DataLabel="Provider">@ProviderName(context.ProviderOrganizationId)</MudTd>
+                <MudTd DataLabel="Support group">@SupportGroupName(context.SupportGroupId)</MudTd>
+                <MudTd DataLabel="Status">@(context.IsEnabled ? "Enabled" : "Disabled")</MudTd>
+                <MudTd DataLabel="Actions">
+                    <MudStack Row="true" Spacing="1">
+                        <MudButton Size="Size.Small" OnClick="@(() => RunActionAsync(() => OpenEditDialogAsync(context)))">Edit</MudButton>
+                        <MudButton Size="Size.Small" OnClick="@(() => RunActionAsync(() => ToggleEnabledAsync(context)))">@(context.IsEnabled ? "Disable" : "Enable")</MudButton>
+                        <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => RunActionAsync(() => DeleteAsync(context)))">Delete</MudButton>
+                    </MudStack>
+                </MudTd>
+            </RowTemplate>
+            <PagerContent><MudTablePager PageSizeOptions="@(new[] { 25, 50, 100 })" /></PagerContent>
+        </MudTable>
     }
+</fieldset>
 </MudPaper>
 
 @code {
@@ -79,10 +63,10 @@
     private async Task OpenCreateDialogAsync()
     {
         var parameters = DialogParameters(null);
-        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, BackdropClick = false, CloseOnEscapeKey = false };
         var dialog = await DialogService.ShowAsync<OrganizationSupportCoverageDialog>("Add Coverage Route", parameters, options);
         var result = await dialog.Result;
-        if (result.Canceled || result.Data is not OrganizationSupportCoverageDialog.CoverageFormModel model)
+        if (IsDisposed || result?.Canceled != false || result.Data is not OrganizationSupportCoverageDialog.CoverageFormModel model)
         {
             return;
         }
@@ -109,10 +93,10 @@
     private async Task OpenEditDialogAsync(OrganizationSupportCoverageDto row)
     {
         var parameters = DialogParameters(row);
-        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, BackdropClick = false, CloseOnEscapeKey = false };
         var dialog = await DialogService.ShowAsync<OrganizationSupportCoverageDialog>("Edit Coverage Route", parameters, options);
         var result = await dialog.Result;
-        if (result.Canceled || result.Data is not OrganizationSupportCoverageDialog.CoverageFormModel model)
+        if (IsDisposed || result?.Canceled != false || result.Data is not OrganizationSupportCoverageDialog.CoverageFormModel model)
         {
             return;
         }
@@ -163,7 +147,7 @@
             $"Delete the route to {SupportGroupName(row.SupportGroupId)}?",
             yesText: "Delete",
             cancelText: "Cancel");
-        if (confirm != true)
+        if (IsDisposed || confirm != true)
         {
             return;
         }

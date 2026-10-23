@@ -14,6 +14,19 @@ public sealed class IngressEmailService(MailboxEmailService inner, MailboxSender
     IIngressEffectContext context) : IEmailService, IDurableEmailService
 {
     public bool QueuesDelivery => true;
+
+    public async Task<bool?> OwnsDeliveryHistoryAsync(Guid deliveryEventId, CancellationToken ct = default)
+    {
+        if (context.IsActive)
+        {
+            context.Validate();
+            if (context.Effects.Any(effect => effect.Kind == MailboxEffectKind.Email &&
+                MailboxOutboxStore.Deserialize<IngressEmailEffect>(effect.Payload).TimelineDeliveryId == deliveryEventId))
+                return true;
+        }
+        return await inner.OwnsDeliveryHistoryAsync(deliveryEventId, ct);
+    }
+
     public Task<bool> TestApiConnectionAsync() => inner.TestApiConnectionAsync();
 
     public Task<bool> SendEmailAsync(string recipient, string subject, string htmlMessage,
@@ -40,11 +53,14 @@ public sealed class IngressEmailService(MailboxEmailService inner, MailboxSender
         if (!context.IsActive)
             return await inner.SendEmailAsync(request, ct);
         var selection = await resolver.ResolveAsync(request.TicketId, context.OrganizationId, ct);
+        if (request.RequireReadySender && selection.Status != "Ready")
+            throw new EmailSenderUnavailableException(selection.ErrorCode ?? "SenderUnavailable");
         context.Capture(MailboxEffectKind.Email, new IngressEmailEffect(request.Recipients, request.Subject,
             request.HtmlMessage, request.Cc, request.TicketId, request.Attachments, request.FromName,
-            request.ReplyTo, request.SuppressTimeline, context.SupportDeliveryId, context.TimelineDeliveryId)
+            request.ReplyTo, request.SuppressTimeline, context.SupportDeliveryId, request.TimelineDeliveryId ?? context.TimelineDeliveryId)
         {
             Bcc = request.Bcc,
+            WorkLogId = request.WorkLogId,
             MailboxId = selection.Mailbox?.Id,
             OrganizationId = selection.OrganizationId,
             SenderBindingError = selection.ErrorCode,

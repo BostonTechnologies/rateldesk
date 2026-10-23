@@ -10,6 +10,10 @@ public sealed class MailboxEmailService(MailboxSenderResolver resolver, SmtpMail
     ILogger<MailboxEmailService> logger) : IEmailService, IDurableEmailService
 {
     public bool QueuesDelivery => true;
+
+    public async Task<bool?> OwnsDeliveryHistoryAsync(Guid deliveryEventId, CancellationToken ct = default) =>
+        await outbox.OwnsDeliveryHistoryAsync(deliveryEventId, ct);
+
     public Task<bool> SendEmailAsync(string recipient, string subject, string htmlMessage,
         IEnumerable<string>? cc = null, CancellationToken ct = default, string? ticketId = null,
         IEnumerable<EmailAttachmentData>? attachments = null, string? fromName = null,
@@ -32,11 +36,14 @@ public sealed class MailboxEmailService(MailboxSenderResolver resolver, SmtpMail
     public async Task<bool> SendEmailAsync(EmailSendRequest request, CancellationToken ct = default)
     {
         var selected = await resolver.ResolveAsync(request.TicketId, null, ct);
+        if (request.RequireReadySender && selected.Status != "Ready")
+            throw new EmailSenderUnavailableException(selected.ErrorCode ?? "SenderUnavailable");
         var email = new IngressEmailEffect(request.Recipients, request.Subject, request.HtmlMessage,
             request.Cc, request.TicketId, request.Attachments, request.FromName, request.ReplyTo,
-            request.SuppressTimeline, context.SupportDeliveryId, context.TimelineDeliveryId)
+            request.SuppressTimeline, context.SupportDeliveryId, request.TimelineDeliveryId ?? context.TimelineDeliveryId)
         {
             Bcc = request.Bcc,
+            WorkLogId = request.WorkLogId,
             MailboxId = selected.Mailbox?.Id,
             OrganizationId = selected.OrganizationId,
             SenderBindingError = selected.ErrorCode,
@@ -56,7 +63,7 @@ public sealed class MailboxEmailService(MailboxSenderResolver resolver, SmtpMail
         string? ticketId, IEnumerable<string> recipients, IEnumerable<string>? cc, string subject,
         string htmlMessage, IEnumerable<EmailAttachmentData>? attachments, string? replyTo,
         Guid deliveryId, CancellationToken ct, long? mailboxVersion = null, long? outgoingVersion = null,
-        IEnumerable<string>? bcc = null)
+        IEnumerable<string>? bcc = null, Func<CancellationToken, Task<bool>>? beginSubmission = null)
     {
         var selected = await resolver.ResolveAsync(ticketId, organizationId, ct);
         if (selected.Mailbox?.Id != mailboxId)
@@ -65,7 +72,7 @@ public sealed class MailboxEmailService(MailboxSenderResolver resolver, SmtpMail
             outgoingVersion is not null && selected.Outgoing?.Version != outgoingVersion)
             return new("Needs review", "SenderConfigurationChanged");
         return await SubmitAsync(selected, recipients, cc, bcc, subject, htmlMessage,
-            attachments, replyTo, deliveryId, ct);
+            attachments, replyTo, deliveryId, ct, beginSubmission);
     }
 
     public async Task<MailboxSubmissionResult> SendTestAsync(Guid mailboxId, string recipient, CancellationToken ct)
@@ -80,7 +87,8 @@ public sealed class MailboxEmailService(MailboxSenderResolver resolver, SmtpMail
     private async Task<MailboxSubmissionResult> SubmitAsync(MailboxSenderSelection selected,
         IEnumerable<string> recipients, IEnumerable<string>? cc, IEnumerable<string>? bcc,
         string subject, string htmlMessage,
-        IEnumerable<EmailAttachmentData>? attachments, string? replyTo, Guid deliveryId, CancellationToken ct)
+        IEnumerable<EmailAttachmentData>? attachments, string? replyTo, Guid deliveryId, CancellationToken ct,
+        Func<CancellationToken, Task<bool>>? beginSubmission = null)
     {
         if (selected.Status != "Ready" || selected.Mailbox is null || selected.Outgoing is null)
         {
@@ -94,9 +102,9 @@ public sealed class MailboxEmailService(MailboxSenderResolver resolver, SmtpMail
         var submission = selected.Outgoing.Transport switch
         {
             Helpdesk.Shared.Models.MailboxOutgoingTransport.Smtp => await smtp.SendAsync(selected.Mailbox,
-                selected.Outgoing, recipients, cc, subject, htmlMessage, attachments, deliveryId, ct, bcc),
+                selected.Outgoing, recipients, cc, subject, htmlMessage, attachments, deliveryId, ct, bcc, beginSubmission),
             Helpdesk.Shared.Models.MailboxOutgoingTransport.Graph => await graph.SendAsync(selected.Mailbox,
-                selected.Outgoing, recipients, cc, subject, htmlMessage, attachments, ct, bcc),
+                selected.Outgoing, recipients, cc, subject, htmlMessage, attachments, ct, bcc, beginSubmission),
             _ => new MailboxSubmissionResult("Needs configuration", "UnsupportedTransport")
         };
         return submission;

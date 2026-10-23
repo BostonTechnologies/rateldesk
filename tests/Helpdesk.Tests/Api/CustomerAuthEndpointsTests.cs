@@ -6,6 +6,9 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json.Nodes;
 using Helpdesk.API;
+using Helpdesk.Application.Services.Email;
+using Helpdesk.Tests.Mcp;
+using NSubstitute;
 using Helpdesk.Infrastructure.Auth.Authentik;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.DTOs.Customer;
@@ -180,12 +183,127 @@ public sealed class CustomerAuthEndpointsTests
         Assert.Equal("internal", payload["type"]?.GetValue<string>());
     }
 
-    private static WebApplicationFactory<Program> CreateFactory(ICustomerInvitationService invitationService, bool authentikConfigured = true)
+    [Fact]
+    public async Task MCP_modern_routes_execute_supported_customer_identity_actions_with_isolated_invitation_capture()
+    {
+        var authentik = Substitute.For<IAuthentikAdminClient>();
+        var external = new AuthentikUser { Id = 42, Name = "Campaign customer", Username = "campaign-customer@example.test", Email = "campaign-customer@example.test", IsActive = true };
+        authentik.FindUserByEmailAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns((AuthentikUser?)null);
+        authentik.CreateUserAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(external);
+        authentik.GetUserAsync("42", Arg.Any<CancellationToken>()).Returns(_ => external);
+        var issued = 0;
+        authentik.CreateRecoveryLinkAsync("42", Arg.Any<CancellationToken>()).Returns(_ => "https://capture.example.test/activate/" + ++issued);
+        var providerGroups = new HashSet<string>(StringComparer.Ordinal);
+        authentik.AssignUserToGroupAsync("42", "campaign-customers", Arg.Any<CancellationToken>()).Returns(_ => { providerGroups.Add("campaign-customers"); return Task.CompletedTask; });
+        authentik.RemoveUserFromGroupAsync("42", "campaign-customers", Arg.Any<CancellationToken>()).Returns(_ => { providerGroups.Remove("campaign-customers"); return Task.CompletedTask; });
+        var capture = new CapturingInvitationEmail();
+        using var factory = CreateFactory(null, authentik: authentik, capture: capture);
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            db.Organizations.Add(new Organization { Id = "campaign-org", Name = "Campaign organization", IsEnabled = true });
+            db.Customers.Add(new Customer { Id = "campaign-customer", OrganizationId = "campaign-org", Name = "Campaign customer", Email = "campaign-customer@example.test", IsEnabled = true });
+            await db.SaveChangesAsync();
+            Assert.Equal(CustomerInviteStatus.NotInvited, (await scope.ServiceProvider.GetRequiredService<ICustomerInvitationService>().GetStatusAsync("campaign-customer")).InviteStatus);
+        }
+        using var http = factory.CreateClient();
+        var tools = TicketAdapterHttpTests.Tools(http, "HelpdeskAdmin");
+        var request = System.Text.Json.JsonSerializer.SerializeToElement(new { customerId = "campaign-customer" });
+        var status = await tools.helpdesk_customers("auth_status", request);
+        Assert.True(status.Success, status.Summary);
+        Assert.Equal((int)CustomerInviteStatus.NotInvited, status.Data!["inviteStatus"]!.GetValue<int>());
+        var preview = await tools.helpdesk_admin_mutations("customer_invite", request);
+        Assert.Equal("confirmation_required", preview.Status);
+        Assert.Empty(capture.Messages);
+        var invite = await tools.helpdesk_admin_mutations("customer_invite", request, true);
+        Assert.True(invite.Success, invite.Summary);
+        Assert.Equal((int)CustomerInviteStatus.Pending, invite.Data!["inviteStatus"]!.GetValue<int>());
+        Assert.Equal("campaign-customers", Assert.Single(providerGroups));
+        Assert.Equal("campaign-customer@example.test", Assert.Single(capture.Messages).Recipient);
+        Assert.Contains("https://capture.example.test/activate/1", capture.Messages[0].Html, StringComparison.Ordinal);
+        await AssertLink(CustomerInviteStatus.Pending, link => { Assert.Equal("42", link.AuthentikUserId); Assert.NotNull(link.InviteSentAtUtc); Assert.NotNull(link.InviteLinkExpiresAtUtc); });
+        // Repeating invite is idempotent while pending. Resend intentionally issues a fresh link.
+        Assert.True((await tools.helpdesk_admin_mutations("customer_invite", request, true)).Success);
+        Assert.Single(capture.Messages);
+        var resend = await tools.helpdesk_admin_mutations("customer_resend_invite", request, true);
+        Assert.True(resend.Success, resend.Summary);
+        Assert.Equal(2, capture.Messages.Count);
+        Assert.Contains("https://capture.example.test/activate/2", capture.Messages[1].Html, StringComparison.Ordinal);
+        external.LastLogin = new DateTimeOffset(2026, 10, 17, 10, 0, 0, TimeSpan.Zero);
+        external.Username = "synced-customer";
+        var sync = await tools.helpdesk_admin_mutations("customer_sync_authentik", request, true);
+        Assert.True(sync.Success, sync.Summary);
+        await AssertLink(CustomerInviteStatus.Active, link => { Assert.Equal("synced-customer", link.AuthentikUsername); Assert.Equal(external.LastLogin, link.LastLoginAtUtc); Assert.NotNull(link.LastAuthSyncAtUtc); Assert.NotNull(link.InviteAcceptedAtUtc); });
+        var disable = await tools.helpdesk_admin_mutations("customer_disable_login", request, true);
+        Assert.True(disable.Success, disable.Summary);
+        await AssertLink(CustomerInviteStatus.Disabled, link => { Assert.NotNull(link.DisabledAtUtc); Assert.Equal("Test", link.DisabledByUserId); });
+        Assert.Empty(providerGroups);
+        await authentik.Received(1).RemoveUserFromGroupAsync("42", "campaign-customers", Arg.Any<CancellationToken>());
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            Assert.Equal(3, await db.ActivityLogs.CountAsync(log => log.RelatedEntityId == "campaign-customer"));
+        }
+        Assert.Equal(2, capture.Messages.Count);
+
+        async Task AssertLink(CustomerInviteStatus expected, Action<CustomerAuthLink> verify)
+        {
+            using var scope = factory.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            var link = await db.CustomerAuthLinks.AsNoTracking().SingleAsync(link => link.CustomerId == "campaign-customer");
+            Assert.Equal(expected, link.InviteStatus);
+            verify(link);
+            var readback = await tools.helpdesk_customers("auth_status", request);
+            Assert.True(readback.Success, readback.Summary);
+            Assert.Equal((int)expected, readback.Data!["inviteStatus"]!.GetValue<int>());
+        }
+    }
+
+    [Fact]
+    public async Task Modern_and_legacy_customer_auth_routes_retain_administrator_authority()
+    {
+        var invitation = new ThrowingInvitationService(new InvalidOperationException("Unauthorized action must not execute."));
+        using var factory = CreateFactory(invitation);
+        using var http = factory.CreateClient();
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "Request.Manager");
+        foreach (var legacy in new[] { false, true })
+        {
+            var prefix = legacy ? "/api/admin/customers/customer-1" : "/api/v1/customers/customer-1/auth";
+            using var status = await http.GetAsync(prefix + (legacy ? "/auth-status" : "/status"));
+            Assert.Equal(HttpStatusCode.Forbidden, status.StatusCode);
+            foreach (var action in new[] { "invite", "resend-invite", "disable-login", "sync-authentik" })
+            {
+                using var denied = await http.PostAsync(prefix + "/" + action, null);
+                Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+            }
+        }
+        Assert.Equal(0, invitation.InvocationCount);
+    }
+
+    private sealed class CapturingInvitationEmail : IEmailService
+    {
+        public List<(string Recipient, string Subject, string Html)> Messages { get; } = [];
+        public Task<bool> SendEmailAsync(string recipient, string subject, string htmlMessage, IEnumerable<string>? cc = null, CancellationToken ct = default, string? ticketId = null, IEnumerable<EmailAttachmentData>? attachments = null, string? fromName = null, string? replyTo = null, bool suppressTimeline = false)
+        {
+            Assert.Equal("campaign-customer@example.test", recipient);
+            Assert.True(suppressTimeline);
+            Assert.Null(ticketId);
+            Assert.True(cc is null || !cc.Any());
+            Messages.Add((recipient, subject, htmlMessage));
+            return Task.FromResult(true);
+        }
+        public Task<bool> SendEmailAsync(IEnumerable<string> recipients, string subject, string htmlMessage, IEnumerable<string>? cc = null, CancellationToken ct = default, string? ticketId = null, IEnumerable<EmailAttachmentData>? attachments = null, string? fromName = null, string? replyTo = null, bool suppressTimeline = false) => throw new InvalidOperationException("Only isolated single-recipient invitations are supported by this capture fixture.");
+        public Task<bool> TestApiConnectionAsync() => Task.FromResult(true);
+    }
+
+    private static WebApplicationFactory<Program> CreateFactory(ICustomerInvitationService? invitationService, bool authentikConfigured = true, IAuthentikAdminClient? authentik = null, IEmailService? capture = null)
         => new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseSetting("Helpdesk:TestDatabaseName", $"customer-auth-{Guid.NewGuid():N}");
             builder.UseSetting("Authentication:AuthentikAdmin:BaseUrl", "https://auth.example.test/");
             builder.UseSetting("Authentication:AuthentikAdmin:ApiToken", authentikConfigured ? "test-token" : string.Empty);
+            builder.UseSetting("Authentication:AuthentikAdmin:CustomerDefaultGroups:0", "campaign-customers");
+            builder.UseSetting("StorageOptions:ImageSigningSecret", "synthetic-customer-auth-signing-key-32-characters");
             builder.UseIsolatedTestStorage();
             builder.UseSetting(WebHostDefaults.EnvironmentKey, "Development");
             builder.UseEnvironment("Development");
@@ -193,7 +311,10 @@ public sealed class CustomerAuthEndpointsTests
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<ICustomerInvitationService>();
-                services.AddSingleton(invitationService);
+                if (invitationService is not null) services.AddSingleton(invitationService);
+                else services.AddScoped<ICustomerInvitationService, CustomerInvitationService>();
+                if (authentik is not null) { services.RemoveAll<IAuthentikAdminClient>(); services.AddSingleton(authentik); }
+                if (capture is not null) { services.RemoveAll<IEmailService>(); services.AddSingleton(capture); }
 
                 services.AddAuthentication(options =>
                 {

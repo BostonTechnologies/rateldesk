@@ -1,0 +1,4 @@
+.workflow-operations { min-width: 0; }
+.workflow-categories { display: flex; flex-wrap: wrap; gap: .5rem; }
+.workflow-count { margin-inline-start: .5rem; font-variant-numeric: tabular-nums; }
+.workflow-operations ::deep .mud-table { max-width: 100%; }

@@ -55,7 +55,7 @@ public static class PublicTicketEndpoints
         }
 
         var lastNote = await db.WorkLogs.AsNoTracking()
-            .Where(l => l.TicketId == ticket.Id)
+            .Where(l => l.TicketId == ticket.Id && !l.IsInternalNote)
             .OrderByDescending(l => l.LoggedAt)
             .Select(l => l.NotesText)
             .FirstOrDefaultAsync();
@@ -133,7 +133,10 @@ public static class PublicTicketEndpoints
             CreatedByUserName = t.EventType == TimelineEventType.CustomerReply ? "Customer" : "Helpdesk",
             EventType = t.EventType,
             MessageHtml = t.MessageHtml,
-            MessageText = t.MessageText
+            MessageText = t.MessageText,
+            Hours = t.Hours ?? 0,
+            RecordedHours = t.Hours,
+            WorkLogId = t.WorkLogId
         });
 
 
@@ -151,6 +154,8 @@ public static class PublicTicketEndpoints
             MessageHtml = x.WorkLog.NotesHtml,
             MessageText = x.WorkLog.NotesText,
             Hours = x.WorkLog.Hours,
+            RecordedHours = x.WorkLog.Hours,
+            WorkLogId = x.WorkLog.Id,
             TechnicianName = x.TechnicianName
         });
 

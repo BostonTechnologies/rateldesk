@@ -27,9 +27,12 @@ async function serve(page: Page, api: (route: Route) => Promise<void>) {
 test('session monitor compares the rendered grants on the first response without bundle-shape reload loops', async ({ page }) => {
   let navigations = 0;
   let calls = 0;
+  let firstPoll: Route | undefined;
+  let grantsChanged = false;
   await serve(page, async route => {
     calls++;
-    return route.fulfill({ json: calls === 1 ? profile : { ...profile, roleBundles: [], permissions: [], scopedPermissionGrants: [] } });
+    if (calls === 1) { firstPoll = route; return; }
+    return route.fulfill({ json: grantsChanged ? { ...profile, roleBundles: [], permissions: [], scopedPermissionGrants: [] } : profile });
   });
   page.on('framenavigated', frame => { if (frame === page.mainFrame()) navigations++; });
   await page.evaluate(async initial => {
@@ -38,7 +41,21 @@ test('session monitor compares the rendered grants on the first response without
   }, rendered);
   await expect.poll(() => calls).toBe(1);
   expect(navigations).toBe(0);
+  // A focus event while the first response is pending is intentionally coalesced.
+  // Seeing the request arrive does not mean its grants have been compared yet.
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  expect(calls).toBe(1);
+  await firstPoll!.fulfill({ json: profile });
+  await expect.poll(async () => {
+    if (calls < 2) await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    return calls;
+  }).toBe(2);
+  expect(navigations).toBe(0);
+  grantsChanged = true;
+  await expect.poll(async () => {
+    if (calls < 3) await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    return calls;
+  }).toBe(3);
   await expect.poll(() => navigations).toBe(1);
 });
 

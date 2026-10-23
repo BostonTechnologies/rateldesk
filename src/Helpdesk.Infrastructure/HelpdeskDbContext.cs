@@ -222,7 +222,10 @@ public class HelpdeskDbContext(
         {
             entity.HasIndex(x => new { x.OrganizationId, x.Name }).IsUnique();
             entity.HasIndex(x => new { x.OrganizationId, x.IsEnabled, x.IsArchived });
-            entity.Property(x => x.TicketAreas).HasConversion(EfJsonConverters.EnumListToJson<AiAssistantTicketArea>()).HasColumnName("TicketAreasJson");
+            entity.Property(x => x.TicketAreas)
+                .HasConversion(EfJsonConverters.EnumListToJson<AiAssistantTicketArea>())
+                .HasColumnName("TicketAreasJson")
+                .Metadata.SetValueComparer(EfJsonConverters.JsonListComparer<AiAssistantTicketArea>());
         });
         modelBuilder.Entity<AiInvestigationInvocation>(entity =>
         {
@@ -247,7 +250,8 @@ public class HelpdeskDbContext(
             .Property(t => t.CcRecipients)
             .HasConversion(EfJsonConverters.StringListToJson)
             .HasColumnName("CcRecipientsJson")
-            .HasDefaultValueSql("'[]'");
+            .HasDefaultValueSql("'[]'")
+            .Metadata.SetValueComparer(EfJsonConverters.JsonListComparer<string>());
         modelBuilder.Entity<Ticket>()
             .Property(t => t.EmailExclusionReason)
             .HasConversion<int>()
@@ -273,6 +277,7 @@ public class HelpdeskDbContext(
 
         modelBuilder.Entity<RequestTask>(entity =>
         {
+            entity.Property(x => x.AutoStart).HasDefaultValue(true);
             entity.Property(x => x.Type).HasConversion<int>();
             entity.Property(x => x.Status).HasConversion<int>();
             entity.Property(x => x.IsBlocked).HasDefaultValue(false);
@@ -334,7 +339,8 @@ public class HelpdeskDbContext(
             entity.Property(x => x.ApproverUserIds)
                 .HasConversion(EfJsonConverters.StringListToJson)
                 .HasColumnName("ApproverUserIdsJson")
-                .HasDefaultValueSql("'[]'");
+                .HasDefaultValueSql("'[]'")
+                .Metadata.SetValueComparer(EfJsonConverters.JsonListComparer<string>());
             entity.HasIndex(x => x.RequestedForUserId);
             entity.HasIndex(x => x.ImplementorUserId);
             entity.HasMany(x => x.Approvals)
@@ -409,7 +415,8 @@ public class HelpdeskDbContext(
             entity.Property(x => x.SearchColumns)
                 .HasConversion(EfJsonConverters.StringListToJson)
                 .HasColumnName("SearchColumnsJson")
-                .HasDefaultValueSql("'[]'");
+                .HasDefaultValueSql("'[]'")
+                .Metadata.SetValueComparer(EfJsonConverters.JsonListComparer<string>());
             entity.HasIndex(x => new { x.OrganizationId, x.Slug }).IsUnique();
             entity.HasIndex(x => new { x.OrganizationId, x.SourceType });
         });
@@ -605,6 +612,18 @@ public class HelpdeskDbContext(
             entity.Property(x => x.SmtpUsername).HasMaxLength(320);
             entity.Property(x => x.DisplayName).HasMaxLength(200);
         });
+        modelBuilder.Entity<TicketTimelineEvent>(entity =>
+        {
+            if (isSqlite)
+            {
+                entity.Property<long>("CreatedUtcSortTicks")
+                    .HasComputedColumnSql("CAST(strftime('%s', substr(\"CreatedUtc\", 1, 19) || substr(\"CreatedUtc\", -6)) AS INTEGER) * 10000000 + CAST(substr((CASE WHEN substr(\"CreatedUtc\", 20, 1) = '.' THEN substr(\"CreatedUtc\", 21, length(\"CreatedUtc\") - 26) ELSE '' END) || '0000000', 1, 7) AS INTEGER) + 621355968000000000");
+                entity.HasIndex("EventType", "EmailStatus", "CreatedUtcSortTicks", "Id");
+            }
+            else
+                entity.HasIndex(x => new { x.EventType, x.EmailStatus, x.CreatedUtc, x.Id });
+        });
+
         modelBuilder.Entity<MailboxOutboxEffect>(entity =>
         {
             entity.HasKey(x => x.Id);
@@ -781,11 +800,13 @@ public class HelpdeskDbContext(
             entity.Property(x => x.Recipients)
                 .HasConversion(EfJsonConverters.StringListToJson)
                 .HasColumnName("RecipientsJson")
-                .HasDefaultValueSql("'[]'");
+                .HasDefaultValueSql("'[]'")
+                .Metadata.SetValueComparer(EfJsonConverters.JsonListComparer<string>());
             entity.Property(x => x.Targets)
                 .HasConversion(EfJsonConverters.JsonList<RecipientTarget>())
                 .HasColumnName("TargetsJson")
-                .HasDefaultValueSql("'[]'");
+                .HasDefaultValueSql("'[]'")
+                .Metadata.SetValueComparer(EfJsonConverters.JsonListComparer<RecipientTarget>());
             entity.HasIndex(x => new { x.PolicyId, x.Metric, x.TriggerPercent }).IsUnique();
         });
 
@@ -830,11 +851,13 @@ public class HelpdeskDbContext(
             entity.Property(x => x.WeeklyRules)
                 .HasConversion(EfJsonConverters.JsonList<WorkingDayRule>())
                 .HasColumnName("WeeklyRulesJson")
-                .HasDefaultValueSql("'[]'");
+                .HasDefaultValueSql("'[]'")
+                .Metadata.SetValueComparer(EfJsonConverters.JsonListComparer<WorkingDayRule>());
             entity.Property(x => x.Exceptions)
                 .HasConversion(EfJsonConverters.JsonList<CalendarException>())
                 .HasColumnName("ExceptionsJson")
-                .HasDefaultValueSql("'[]'");
+                .HasDefaultValueSql("'[]'")
+                .Metadata.SetValueComparer(EfJsonConverters.JsonListComparer<CalendarException>());
             entity.HasIndex(x => new { x.TenantId, x.IsActive });
             entity.HasIndex(x => new { x.ScopeType, x.IsActive });
         });
@@ -854,7 +877,8 @@ public class HelpdeskDbContext(
             entity.Property(x => x.Targets)
                 .HasConversion(EfJsonConverters.JsonList<RecipientTarget>())
                 .HasColumnName("TargetsJson")
-                .HasDefaultValueSql("'[]'");
+                .HasDefaultValueSql("'[]'")
+                .Metadata.SetValueComparer(EfJsonConverters.JsonListComparer<RecipientTarget>());
             entity.HasIndex(x => new { x.TenantId, x.IsActive });
             entity.HasIndex(x => new { x.Frequency, x.IsActive });
         });

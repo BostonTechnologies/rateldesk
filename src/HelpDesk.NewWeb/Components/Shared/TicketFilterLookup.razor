@@ -1,0 +1,47 @@
+@using Helpdesk.Shared.DTOs
+@implements IDisposable
+@inject IHttpClientFactory HttpClientFactory
+<div class="filter-lookup">
+    <MudAutocomplete T="TicketFilterOptionDto" Label="@Label" Variant="Variant.Outlined" Margin="Margin.Dense"
+                     SearchFunc="Search" ToStringFunc="@(option => option?.Label ?? string.Empty)" Value="@choice" ValueChanged="Choose"
+                     MaxItems="20" MaxLength="200" MinCharacters="0" DebounceInterval="250" ResetValueOnEmptyText="true" Clearable="true" CoerceText="false">
+        <NoItemsTemplate><MudText Class="pa-2">No matching options.</MudText></NoItemsTemplate>
+        <MoreItemsTemplate><MudText Class="pa-2">Refine your search for more options.</MudText></MoreItemsTemplate>
+    </MudAutocomplete>
+    @if (hasMore) { <small>More options available. Refine your search.</small> }
+    @if (failed) { <span role="alert">Unable to load options. Try searching again.</span> }
+</div>
+@code {
+    [Parameter] public string Module { get; set; } = "incident";
+    [Parameter] public string Dimension { get; set; } = "customer";
+    [Parameter] public string Label { get; set; } = "Customer";
+    [Parameter] public List<string> OrganizationIds { get; set; } = [];
+    [Parameter] public EventCallback<TicketFilterOptionDto> Selected { get; set; }
+    private TicketFilterOptionDto? choice;
+    private CancellationTokenSource? pending;
+    private bool failed, disposed, hasMore;
+    private async Task<IEnumerable<TicketFilterOptionDto>> Search(string query, CancellationToken token)
+    {
+        pending?.Cancel(); pending?.Dispose(); pending = CancellationTokenSource.CreateLinkedTokenSource(token);
+        var cancellation = pending;
+        failed = hasMore = false;
+        try
+        {
+            var url = $"api/v1/ticketing/filter-options?module={Module}&dimension={Dimension}&q={Uri.EscapeDataString(query ?? "")}&take=20";
+            foreach (var id in OrganizationIds) url += "&customerOrgId=" + Uri.EscapeDataString(id);
+            var result = await HttpClientFactory.CreateClient("HelpdeskApi").GetFromJsonAsync<TicketFilterOptionsDto>(url, cancellation.Token);
+            if (disposed || cancellation.IsCancellationRequested) return [];
+            hasMore = result?.HasMore == true;
+            await InvokeAsync(StateHasChanged);
+            return result?.Items ?? [];
+        }
+        catch (OperationCanceledException) { return []; }
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException)
+        {
+            if (!disposed && !cancellation.IsCancellationRequested) { failed = true; await InvokeAsync(StateHasChanged); }
+            return [];
+        }
+    }
+    private async Task Choose(TicketFilterOptionDto? option) { if (option is null) return; await Selected.InvokeAsync(option); choice = null; }
+    public void Dispose() { disposed = true; pending?.Cancel(); pending?.Dispose(); }
+}

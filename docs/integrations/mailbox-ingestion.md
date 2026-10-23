@@ -1,0 +1,148 @@
+# Mailbox administration
+
+An instance administrator configures ingress at `/admin/email-settings`. Provider selection is independent for every connection. The application organization is separate from the Microsoft directory ID (`tenantId` in the compatibility request contract).
+
+| Provider | Authentication | Source identity | Disposition |
+| --- | --- | --- | --- |
+| Microsoft Graph | Microsoft application directory/client ID and secret | Immutable Graph message ID, folder delta checkpoint | Mark read; optionally move to a configured folder ID |
+| IMAP | Password/app password or Microsoft application OAuth | Configured folder, UIDVALIDITY and UID | Mark seen; optional MOVE when the server supports it |
+| POP3 | Password/app password or Microsoft application OAuth | Stable UIDL | Leave messages on server |
+
+Password authentication only works where the server permits it. Microsoft protocol OAuth requires Exchange protocol application permissions and mailbox authorization; Graph consent does not grant IMAP/POP access. Graph reads MIME directly and does not connect to IMAP. See [Microsoft protocol OAuth](https://learn.microsoft.com/en-us/exchange/client-developer/legacy-protocols/how-to-authenticate-an-imap-pop-smtp-application-by-using-oauth), [Graph delta synchronization](https://learn.microsoft.com/en-us/graph/delta-query-messages), and [immutable Graph IDs](https://learn.microsoft.com/en-us/graph/outlook-immutable-id).
+
+Graph read/move processing requires application `Mail.ReadWrite` access restricted to the intended mailboxes by the Microsoft administrator. Inbound testing does not need `Mail.Send`. A read-only connection test proves authentication and folder access, not permission to move mail. IMAP and POP require verified TLS on connect or mandatory STARTTLS; opportunistic TLS and certificate bypasses are not supported.
+
+## Global inheritance and dedicated overrides
+
+There is one global assignment and at most one dedicated assignment per organization, including disabled assignments. Ten organizations inheriting the global mailbox and three using dedicated Graph/IMAP/POP3 mailboxes use four connections. Each dedicated connection operates independently when global ingress is absent, paused or unavailable.
+
+Pausing a dedicated connection keeps its assignment. Failure never switches it to global automatically. **Revert to global mailbox** explicitly archives the dedicated assignment; receipts and rule history remain. Global mail for an organization with a dedicated assignment is held as `TenantUsesDedicatedMailbox`, without provisioning a customer or creating a ticket. Correct the routing/assignment, then retry through inbound diagnostics.
+
+Configure external delivery and announce dedicated addresses before cutover. This application does not change MX records or forward messages between mail providers. Replies to older tickets may still arrive at the old global address and be held. Review existing organization branding Reply-To before switching ingress; conflicting Reply-To must be reconciled.
+
+Each logical mailbox has separate incoming and outgoing settings. An IMAP or POP3 mailbox sends through its explicitly configured SMTP submission endpoint, TLS mode and credential. A Graph mailbox can send using the selected mailbox's Microsoft application credential and needs `Mail.Send` authorization in addition to its read grant. The configured mailbox address is the From and Reply-To identity. Ticket mail resolves the sender from its recorded organization: a dedicated assignment wins, otherwise the global assignment applies. A disabled or unconfigured dedicated sender blocks that delivery for review; it never falls back to the global sender. Pausing incoming polling does not disable a separately enabled outgoing sender. A message with no ticket or organization context uses the configured global mailbox or reports no effective sender. The legacy `ExchangeEmail` configuration does not authorize a dedicated mailbox's sender.
+
+## Import, retention and source changes
+
+New connections default to new messages only. The first completed source scan records a baseline completion time. New baseline skips carry `InitialBaselineSkipped`. Beta.2 wrote a null reason for Graph, IMAP and POP3 baseline skips. A beta.2 receipt is eligible for reviewed import only when its source still matches an initialized mailbox, it was ignored and acknowledged without a provider acknowledgment, it has zero processing and acknowledgment attempts, no protected envelope, and no recorded message, tenant or ticket identity. An IMAP receipt must also have a valid UIDVALIDITY:UID key; Graph and POP3 require a bounded native key. Processed ignored mail, self mail, DSNs, source-missing tombstones, held mail, successful mail and incomplete or ambiguous records are excluded. An administrator should review old audit and source records separately when a row cannot meet that evidence threshold; the application does not guess its provenance. **Import existing mail…** previews at most 50 eligible receipts at a time with sender, subject, source availability, and a trusted server receive date for Graph/IMAP. POP3 has no trusted server receive date; preview it by count. An administrator selects at most 25 items and confirms that processing may create incidents and notifications. The command queues the selected immutable source identities through the ordinary leased coordinator. Empty-envelope legacy baseline receipts are re-fetched; a source item that has disappeared or whose native identity changed is held for review. Import does not reset the cursor or replay every old message, and migration/startup does not request an import. Existing unread import is available for Graph and IMAP; POP has no unread state. Migrated hybrid settings retain unread-backlog behavior and their original GUID and enabled/background flags. Additional historic settings are archived and cannot poll.
+
+For IMAP NewOnly, the first server UID search establishes a UIDVALIDITY/UID boundary: identities in that search are skipped, while higher UIDs arriving after its snapshot remain eligible on the next poll. POP3 uses the first complete UIDL listing the same way and retains source messages. Graph uses the mailbox configuration time and Graph's server-provided `receivedDateTime` during its initial delta enumeration; mail received after that time remains eligible even before the first scan completes. A Graph item without that server timestamp is held as `GraphReceiveTimeMissingReviewRequired` rather than assumed new. MIME `Date` does not set any of these boundaries.
+
+Changing provider, server, account, folder or organization requires archiving and creating a new source. Credential rotation on an unchanged source preserves progress. IMAP UIDVALIDITY changes create a new epoch: messages already present are captured for review without business processing, while later arrivals continue normally. Review historical tickets before explicitly retrying epoch-reset messages. POP requires UIDL, retains all messages and provides no folder/read-state/delete controls. Operators must manage server retention. The protocol adapter limits POP enumeration to 10,000 entries; mailbox receipt storage is capped at 100,000 deliveries pending operator retention maintenance.
+
+## Credentials and network policy
+
+Responses expose credential-present flags, never stored credentials. Empty credentials retain the saved value on an unchanged source. A changed draft destination cannot borrow a saved secret. Credential clear requests are explicit and cannot leave an enabled connection without credentials.
+
+Mailbox credentials and captured normalized message envelopes use the existing Data Protection key ring, with a separate mailbox-specific versioned purpose. Preserve `DataProtection:ApplicationName` and persist/share `DataProtection:KeyRingPath` across replicas. Back up the key ring with the database. Missing keys fail closed and require recovery or re-entry; ciphertext is never used as plaintext.
+
+Both draft tests and workers apply `EmailIngestion:AllowedPrivateHosts`, an operator-controlled array of exact private mail-server hostnames. Public server addresses are permitted; unapproved private/loopback addresses and metadata/link-local destinations are denied. DNS addresses are validated and the connection is pinned to the validated address. Use network egress controls as an additional deployment boundary. Only instance administrators may configure connections, tests, bindings and retries.
+
+## Processing and diagnostics
+
+The deployment gate, persisted instance worker state, mailbox enablement and incoming switch must all permit polling. `EmailIngestion:Enabled=false` remains an operator hard stop and appears as a deployment block; the UI cannot override it. With no explicit deployment gate, a fresh installation starts with its persisted instance worker paused. An administrator starts it deliberately from Email Settings after reviewing the configured sources. An explicit legacy `EmailIngestion:Enabled=true` retains run intent until an operator saves a paused state. The UI's Sync now command queues one saved source through the same leased coordinator; it cannot bypass a deployment stop or instance pause. Healthy reconciliation runs every five seconds and records a shared heartbeat; after 30 seconds without a heartbeat, status reports `Worker unavailable` while preserving run intent. Inbound diagnostics also show the last mailbox attempt and stage. Up to four independent mailbox operations run concurrently. Database leases, fencing and source-version checks prevent obsolete workers from committing after ownership changes. Replicas need synchronized UTC clocks.
+
+Source capture and checkpoint advancement share a database transaction. A definitive Graph MIME-content 404 or IMAP expunge is captured as a source-missing tombstone so other items in the batch can progress; transient provider or MIME failures do not advance the checkpoint. Already captured receipts continue during a fresh enumeration outage. Source enumeration has a 30-second default `EmailIngestion:FetchPhaseBudget` inside the 80-second default poll timeout (configurable from 1 to 70 seconds). A fetch timeout leaves the source checkpoint unchanged and reports `FetchTimeout`, then allows committed receipt processing and acknowledgment recovery to continue. The two receipt-processing passes share a 20-second default `EmailIngestion:ReceiptPhaseBudget` (configurable from 0.1 to 25 seconds); uncommitted work rolls back on expiry and remains eligible for a later poll. A receipt is attempted at most once per poll. Historical re-fetch and acknowledgment recovery have separate budgets, so slow disposition calls cannot indefinitely postpone new input.
+
+Ticket/rule changes and durable notification work share a separate fenced transaction. Provider acknowledgment happens after business commit. Each acknowledgment uses a short durable claim, performs provider I/O without a database write transaction, then conditionally completes that claim. A target fingerprint prevents a changed disposition from redirecting old work. Unknown failures retry without replaying ticket changes, and a provider-confirmed missing source is recorded explicitly. A Graph move 404 is ambiguous because either the source or destination may be unavailable; RatelDesk probes the immutable source ID and records terminal source-missing only when that probe also returns 404. A receipt distinguishes pending, succeeded, ignored, held and failed outcomes. Inbound diagnostics show state and safe retries without exposing message bodies. `/admin/pending-emails` remains the existing outbound delivery view.
+
+MIME normalization preserves attached `message/rfc822` entities as safe `.eml` downloads. Nested headers, bodies and attachments remain inside that file and count toward the same attachment-count, MIME-depth and byte limits as other inbound content.
+
+Ticket mail from both inbound processing and ordinary application calls enters the bounded durable outbox with the selected mailbox identity and configuration revisions before transport submission. Its email-delivery timeline remains pending until the dispatcher records provider acceptance, a retry, or a review-required result. The dispatcher processes up to four claimed effects concurrently in separate scopes; provider I/O does not hold a database write transaction. Candidate selection reserves non-email work and selects the oldest due email for each mailbox before filling the batch, so a single mailbox backlog cannot fill the entire batch ahead of another mailbox or notifications. Manual incident confirmations use this same queue. Sender assignment or configuration changes hold queued work for explicit review rather than silently redirecting it. An email claim that expires without a recorded result is held as `DispatchOutcomeUnknown`, because the provider may have accepted it; another replica cannot automatically submit it again. Unexpected email dispatch failures receive the same review state. The administrator must check the intended recipients and provider records before taking further action. This does not prove exactly-once external delivery. Local ticket changes are not rerun for that uncertainty. Persisted notifications are shared, while the existing live notification buses remain per replica.
+
+For a failed delivery held after an incoming save or repaired outgoing configuration, open **Pending Emails** and select **Review sender and retry** on that delivery. The preview shows the original recipients, mailbox address, transport, and old/current incoming and outgoing revisions. Confirm to queue the same logical delivery with the reviewed revisions. A display-name or polling edit, incoming pause/resume, or same-source credential rotation can be adopted this way. The server rechecks the failed outcome, same ticket and tenant route, immutable mailbox ID and source key when captured, matching Reply-To, current revisions, and delivery fence in one transaction; it records the actor. Source ownership and account changes require a new mailbox through the configuration API and cannot be silently adopted. It does not move work to a new tenant or global sender. Ordinary retry can resume a known pre-submission failure without changing the pinned revision. An explicit SMTP 4xx rejection with no accepted recipients is retried within the bounded queue; a 5xx sender, recipient or message rejection is held for review. A failed submission recording any accepted recipient is held for recipient review even when the rejection was temporary. A pre-submission authentication or TLS failure can use confirmed repair after the outgoing revision changes. Graph authentication or `Mail.Send` denial is held for review rather than automatically retried; after correcting consent, send a controlled sample from that mailbox, then confirm retry of the one failed delivery. This Graph repair can keep the same outgoing revision because Microsoft consent changes outside RatelDesk. The administrator's failed-deliveries view shows accepted and rejected SMTP recipients when the server returned a definitive result; older deliveries may have no recipient details. Partial SMTP acceptance and deliveries without authoritative binding remain held for manual recipient/source review; **Retry selected** skips those outcomes and reports individual review requirements. The legacy `/api/timeline/retry-all` and `/api/v1/timeline/retry-all` endpoints now return HTTP 409; integrations must submit a confirmed explicit selection of at most 100 IDs to `/pending/actions` and inspect each result.
+
+For `DispatchOutcomeUnknown` or `SubmissionOutcomeUnknown`, select **Verify non-delivery**. The preview identifies the original recipients and the bound mailbox. Check provider records and every intended recipient first; enter a non-sensitive evidence reference, then explicitly confirm that no delivery occurred. The server rechecks the sender route, mailbox configuration, recipient outcome, timeline state, outgoing revision and delivery fence before queuing the same delivery. It records the actor and evidence reference. Any known accepted recipient blocks this operation. Older uncertain deliveries whose stored error code does not identify the uncertain outcome stay held for manual review; their history is not reclassified automatically. External delivery remains at-least-once, so this confirmation is an operator judgment, not a guarantee from the application.
+
+For a delivery held as `SenderRouteChanged` after an archive, revert, or assignment change, select **Review new sender**. **Review sender and retry** also checks for a changed route when the original attempt failed before submission because outgoing was unconfigured, disabled, missing its credential, or SMTP authentication/TLS failed. The preview shows the original and current mailbox identities and the original recipients. Confirm only after checking that the ticket's current tenant assignment should receive mail from the new sender. The server re-resolves the ticket route and checks both mailbox identities, the new revisions, delivery fence, recipient outcome and failed timeline in one transaction. It preserves the original delivery identity, ticket, tenant, content, attachments and recipients, replaces the bound sender and matching Reply-To, and records the administrator. A previously accepted recipient, missing original mailbox, mismatched Reply-To, unavailable current route, or uncertain submission outcome blocks rebinding. This is an explicit operator decision; archiving a mailbox never silently moves queued mail to a global sender.
+
+If the ticket has been transferred to a different tenant since the delivery was queued, the saved tenant binding conflicts with the ticket and both retry paths stay blocked. Review the new tenant and recipients, then compose a new message from the new tenant's authorized sender if appropriate; do not reuse the old tenant's delivery identity.
+
+When a failed email belongs to a support notification, retry moves both its email timeline and support-delivery record back to Pending in the same transaction. A support record already marked Sent or Skipped blocks retry, even if an older failed timeline remains visible. The notification result becomes Sent only after provider acceptance is recorded for that delivery.
+
+## Rule scope and source binding
+
+Tenant rules run before global fallback rules, with priority and stable tie-breaking within each tier. **All eligible mailboxes** preserves reusable rules. A source binding restricts eligibility; it does not change priority or grant tenant authority. Global rules may target a dedicated source; a tenant cannot target another tenant's dedicated source. Reordering operates within one scope/organization/source bucket. Explicit priorities determine how different buckets interleave.
+
+The forwarded-support template remains disabled until explicitly enabled. Parsing a forwarded body records only a candidate requester; it never changes the ordinary fallback requester. An applicable rule must resolve the candidate organization, authorize the outer support sender for that organization, and validate the actual mailbox source for that target before substitution. A specialized authorized rule may resolve an outer-contact ownership conflict or the outer contact's dedicated-mailbox restriction; disabled or inapplicable rules retain the ordinary hold. Cross-tenant references, blocked senders and a candidate using the wrong source remain terminal holds. A denied operation is held and cannot fall through to equivalent ticket creation. Authorized forwarded incidents preserve their original requester and New/Unassigned behavior without the ordinary new-requester confirmation. Ownership conflicts, ambiguous routing and unconfident requester parsing require review. Existing customers are never moved between organizations by ingress.
+
+## Upgrade and recovery
+
+Back up both databases, attachment storage and the shared Data Protection key ring before upgrade. Stop old application replicas before migration so the retired hybrid worker cannot consume alongside the coordinator. Both PostgreSQL and SQLite have additive mailbox/receipt/lease/outbox schema migrations. Application-side credential protection runs before workers and has a durable completion marker; restarts do not recreate removed assignments.
+
+The upgrade preserves historical data for previously retired application features; mailbox migration does not delete those unrelated tables. Review archived mailbox rows and explicit outbound identity, test the saved global connection, then enable any new sources deliberately. The schema down migration is intentionally rejected: restoring the pre-upgrade database and key backup is a recovery operation, not a lossless rollback after processing new mail.
+
+Previously failed beta.2 email effects and timeline entries remain in their failed state after upgrade. Starting the worker or configuring SMTP/Graph does not replay them. Review each original message, ticket, intended recipients, and provider records before deciding whether a new message is needed. The confirmed retry actions require a trustworthy saved tenant, mailbox, sender revision, and payload; an older effect without that binding is reported as `SenderBindingMissing` and cannot be rebound or sent from a guessed global mailbox. If the original content or delivery outcome cannot be established, keep the old failure for audit and compose a new message explicitly where appropriate.
+
+## Validation and live-provider acceptance
+
+The feature suite covers Graph SDK HTTP/MIME fixtures, isolated TLS IMAP/POP3 servers, real adapter-to-ticket persistence, acknowledgment recovery, mixed 10+3 routing, tenant conflicts, leases/restarts, credential boundaries and both database upgrade paths. These fixtures use synthetic accounts; they are not live Exchange or hosted mailbox acceptance. PR validation executes the .NET suite and the mailbox Playwright cases alongside setup, authorization, AI Assistant, image and Compose gates. The PR records the exact results and screenshot artifacts.
+
+Before enabling a real source, the mailbox administrator must grant the provider-specific permissions, verify delivery/forwarding and retention, use the read-only connection test, and send a controlled new message and reply. Confirm the intended organization, one ticket/reply, expected attachments and successful provider disposition in inbound diagnostics. Live provider throttling, tenant-specific consent and external delivery rules still require that operator acceptance.
+
+## Pending delivery queue
+
+The administrator `POST /api/v1/email/send` route sends without ticket or tenant
+context, so it requires an enabled global mailbox with a ready outgoing sender.
+When that route is unavailable, the API returns `409` with `queued: false` and a
+sender reason before creating outbox work. A successful `202` means the message
+was queued, not delivered; confirm provider delivery separately. Ticket mail
+continues to use its ticket's tenant sender or the configured global fallback.
+
+Pending Emails uses application dialogs for cancellation/removal reasons,
+non-delivery evidence and sender-route review. Review the explicitly listed
+delivery IDs, recipients and sender before confirming. Reasons are 1–200
+characters. A non-delivery evidence reference is 8–128 characters, starts with a
+letter/digit and uses letters, digits, `.`, `_`, `:`, `/` or `-`; also confirm
+that every listed recipient was checked. Keep credentials and sensitive content
+out of these fields. Cancel, Escape or dismiss sends no action and preserves the
+selection. A dialog/API failure leaves an operable page; inspect per-ID results
+and refresh before deciding what to do next. Native browser prompts are not
+required. Navigation that changes the page/filter generation invalidates an
+open review before submission; refresh and review the current selection again.
+
+Administrators open `/admin/pending-emails` to search ticket tracking references,
+subjects and recipients. Filtering and totals apply to the complete database
+before sorting and paging. Pages contain 25 rows by default, with 50 and 100
+available; the API rejects larger pages. Status, organization, mailbox sender,
+recipient, error code and created-time filters combine with AND. Organization
+search returns at most 20 names per request and retains the stable organization
+ID in the URL. Additional filters expand below the compact search toolbar. Created-time
+bounds use UTC and include both endpoints. Equal endpoints select that instant.
+The URL retains filters, sorting and page for browser Back/Forward.
+
+Selection covers the explicit records on the current page, at most 100. Changing
+filters/pages or refreshing clears selection. Bulk actions confirm the selected
+count and return an outcome for every record. Retry keeps the existing sender
+binding; sender adoption, mailbox/outgoing revision changes, partial acceptance,
+and unknown submission outcomes still require individual review. Legacy records
+without an outbox owner can be retried individually after confirmation; bulk
+retry leaves them for review.
+
+**Cancel delivery** persists cancellation before submission. The worker rechecks
+its owner, lease and fence immediately before SMTP `SendAsync` or Graph
+`SendMail`. Once submission starts, cancellation returns a conflict; after an
+unknown outcome or partial acceptance, it requires review. Expired submission
+claims remain held for verification after a worker restart. Claims made by older
+workers without this submission gate are also held against cancellation.
+
+**Remove queue entry** persists a queue tombstone and blocks future dispatch.
+It does not recall previously accepted or uncertain mail. Active submission
+cannot be removed until its outcome is recorded or its lease expires. The
+outbox payload, original delivery outcome, recipients, message text, timeline,
+ticket, worklogs and attachments remain intact. Ownerless legacy deliveries use
+a delivery-status tombstone. Actor, UTC action time and operator reason are
+recorded in the activity audit. Repeating cancel/remove is idempotent.
+
+The 0.1.1 migration adds a browse index on PostgreSQL and a computed UTC ordering
+column plus index on SQLite. It does not rewrite historical delivery content or
+retry metadata. Stop old application workers before rolling back from 0.1.1:
+previous versions do not understand the appended cancellation, removal and
+submission states. Keep 0.1.1 workers while these states exist.
+
+Validation uses migrated SQLite/PostgreSQL synthetic queues and fake SMTP/Graph
+transports. The focused rendered browser suite is
+`npx playwright test --config playwright.pending-mail.config.ts`; set
+`HELPDESK_PENDING_MAIL_CONFIGURATION=Release` for a Release Web build. Its
+loopback fixture is presentation evidence, while the .NET suites verify real
+API authorization and database state transitions.

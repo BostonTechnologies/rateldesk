@@ -279,6 +279,12 @@ internal sealed class PairingTestPeer : HttpMessageHandler, IHttpClientFactory
     public HttpStatusCode TestStatus { get; set; } = HttpStatusCode.OK;
     public string InboundSecret { get; } = Microsoft.IdentityModel.Tokens.Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(32));
     public string? OfferedInboundSecret { get; private set; }
+    public bool AutomationBusinessEnabled { get; set; }
+    public int AutomationHealthCalls { get; private set; }
+    public int AutomationIdentityCalls { get; private set; }
+    public int AutomationIngestCalls { get; private set; }
+    public int AutomationTokenCalls { get; private set; }
+    public const string AutomationBearer = "synthetic-paired-automation-token";
     public PairingTestPeer(Guid producer)
     {
         Metadata = new(PairingContract.Version, "netratel", Guid.NewGuid().ToString("D"), "Synthetic peer", "https://peer.example.test", "https://peer-api.example.test", producer.ToString("D"), Convert.ToBase64String(key.ExportSubjectPublicKeyInfo()));
@@ -294,6 +300,34 @@ internal sealed class PairingTestPeer : HttpMessageHandler, IHttpClientFactory
     {
         if (Unavailable && !request.RequestUri!.AbsolutePath.EndsWith("/metadata", StringComparison.Ordinal)) throw new HttpRequestException("Synthetic unavailable peer");
         var path = request.RequestUri!.AbsolutePath;
+        if (AutomationBusinessEnabled && path == "/connect/token")
+        {
+            Xunit.Assert.Equal(HttpMethod.Post, request.Method);
+            AutomationTokenCalls++;
+            var form = await request.Content!.ReadAsStringAsync(ct);
+            Xunit.Assert.Contains("client_id=nrpair_synthetic", form, StringComparison.Ordinal);
+            return Ok(new { access_token = AutomationBearer, expires_in = 300, token_type = "Bearer" });
+        }
+        if (AutomationBusinessEnabled && path is "/internal/health" or "/api/v1/system/m2m/ping" or "/internal/ingest")
+        {
+            Xunit.Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
+            Xunit.Assert.Equal(AutomationBearer, request.Headers.Authorization?.Parameter);
+            if (path == "/internal/health")
+            {
+                Xunit.Assert.Equal(HttpMethod.Get, request.Method);
+                AutomationHealthCalls++;
+                return Ok(new { ok = true });
+            }
+            if (path == "/api/v1/system/m2m/ping")
+            {
+                Xunit.Assert.Equal(HttpMethod.Get, request.Method);
+                AutomationIdentityCalls++;
+                return Ok(new { ok = true, product = "netratel", instanceId = Metadata.InstallationId, claims = new { client_id = "nrpair_synthetic" } });
+            }
+            Xunit.Assert.Equal(HttpMethod.Post, request.Method);
+            AutomationIngestCalls++;
+            return Ok(new { requestId = "synthetic-remote-request", runId = "synthetic-execution", executionId = "synthetic-execution", status = "Accepted" });
+        }
         if (path.EndsWith("/metadata", StringComparison.Ordinal))
         {
             var nonce = request.Headers.GetValues("X-Pairing-Nonce").Single();

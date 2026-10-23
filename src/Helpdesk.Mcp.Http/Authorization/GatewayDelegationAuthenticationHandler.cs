@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Net;
 using System.Text.Json;
 using Helpdesk.AgentClient;
+using Helpdesk.Shared.Auth;
 using Helpdesk.Mcp.Http.Configuration;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.WebUtilities;
@@ -64,6 +65,12 @@ public sealed class GatewayDelegationAuthenticationHandler(
             {
                 return Fail(GatewayDelegationFailure.BadGateway);
             }
+            if (delegated.GrantKind == IntegrationCredentialGrantKinds.OwnerAdministration &&
+                (!delegated.IsHelpdeskAdmin || delegated.SetupVerification ||
+                 delegated.Permissions?.Contains(HelpdeskPermissions.HelpdeskAdmin, StringComparer.Ordinal) != true))
+                return Fail(GatewayDelegationFailure.BadGateway);
+            if (delegated.IsHelpdeskAdmin && delegated.GrantKind != IntegrationCredentialGrantKinds.OwnerAdministration)
+                return Fail(GatewayDelegationFailure.BadGateway);
 
             Context.Items[ExecutionTokenItemKey] = delegated.AccessToken;
             var claims = new List<Claim>
@@ -73,6 +80,9 @@ public sealed class GatewayDelegationAuthenticationHandler(
                 new("auth_mode", "mcp"),
                 new("token_use", "mcp_gateway")
             };
+            if (delegated.SetupVerification) claims.Add(new("setup_verification", "true"));
+            claims.Add(new("integration_grant_kind", delegated.SetupVerification ? "setup-verification" : delegated.GrantKind));
+            if (delegated.IsHelpdeskAdmin) claims.Add(new("delegated_instance_administrator", "true"));
             if (!string.IsNullOrWhiteSpace(delegated.PrimaryOrganizationId))
                 claims.Add(new Claim("organization_id", delegated.PrimaryOrganizationId));
             foreach (var permission in delegated.Permissions ?? [])
@@ -185,7 +195,12 @@ public sealed class GatewayDelegationAuthenticationHandler(
         string? Name,
         string? PrimaryOrganizationId,
         string[]? Permissions,
-        string[]? AllowedOrganizationIds);
+        string[]? AllowedOrganizationIds)
+    {
+        public bool SetupVerification { get; init; }
+        public bool IsHelpdeskAdmin { get; init; }
+        public string GrantKind { get; init; } = IntegrationCredentialGrantKinds.Ordinary;
+    }
 }
 
 /// <summary>Gets only the API-issued execution token for the active request.</summary>

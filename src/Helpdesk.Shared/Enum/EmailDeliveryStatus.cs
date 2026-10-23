@@ -6,5 +6,7 @@ public enum EmailDeliveryStatus
     Sent = 1,
     Delivered = 2,
     Failed = 3,
-    Suppressed = 4
+    Suppressed = 4,
+    Cancelled = 5,
+    Removed = 6
 }

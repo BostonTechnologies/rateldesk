@@ -1,0 +1,17 @@
+name: rateldesk-setup
+
+# Standalone tooling: no API, database, ingress or credential interpolation.
+# Set a writable output directory and optionally select the operator's UID/GID.
+services:
+  mcp-http:
+    image: ghcr.io/bostontechnologies/rateldesk-mcp-http:${RATELDESK_VERSION:?Select an exact published version.}
+    labels:
+      com.rateldesk.deployment.manager: release-compose
+    user: "${RATELDESK_SETUP_UID:-10001}:${RATELDESK_SETUP_GID:-10001}"
+    stdin_open: true
+    tty: true
+    command: ["setup", "--target", "http-host", "--export-directory", "/output"]
+    volumes:
+      - type: bind
+        source: ${RATELDESK_SETUP_OUTPUT:?Set a writable output directory.}
+        target: /output

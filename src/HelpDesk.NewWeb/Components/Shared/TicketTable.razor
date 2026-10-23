@@ -60,6 +60,7 @@
 <MudTable T="TTicket"
           @ref="_table"
           ServerData="ServerData"
+          CurrentPage="InitialPage" RowsPerPage="PageSize"
           Dense="true"
           Hover="true"
           Elevation="0"
@@ -146,12 +147,17 @@
         </MudTd>
     </RowTemplate>
 
+    <NoRecordsContent><MudText Role="status">@(QueryError is null ? "No tickets match these filters." : "Ticket query failed.")</MudText></NoRecordsContent>
+    <LoadingContent><MudText Role="status">Loading tickets…</MudText></LoadingContent>
     <PagerContent>
-        <MudTablePager PageSizeOptions="new int[] { 10, 20, 50 }" />
+        <MudTablePager PageSizeOptions="new int[] { 25, 50, 100 }" />
     </PagerContent>
 </MudTable>
 
 @code {
+    [Parameter] public int InitialPage { get; set; }
+    [Parameter] public int PageSize { get; set; } = 25;
+    [Parameter] public string? QueryError { get; set; }
     [Parameter] public string TicketType { get; set; } = default!;
     [Parameter] public Func<TableState, CancellationToken, Task<TableData<TTicket>>> ServerData { get; set; } = default!;
     [Parameter] public EventCallback<string> OnRowClick { get; set; }

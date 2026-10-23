@@ -37,7 +37,7 @@
             }
             @foreach (var cc in incident.CcRecipients)
             {
-                <MudChip T="string" Closeable="@(!ReadOnly)" OnClose="() => RemoveCc(cc)">@cc</MudChip>
+                <MudChip T="string" OnClose="@(ReadOnly ? default(EventCallback<MudChip<string>>) : EventCallback.Factory.Create<MudChip<string>>(this, () => RemoveCc(cc)))">@cc</MudChip>
             }
         </MudChipSet>
 
@@ -135,7 +135,7 @@
 
     private async Task AddCc(string email)
     {
-        if (incident is null || string.IsNullOrWhiteSpace(email))
+        if (ReadOnly || incident is null || string.IsNullOrWhiteSpace(email))
             return;
 
         var updatedList = new List<string>(incident.CcRecipients) { email };
@@ -162,7 +162,7 @@
 
     private async Task RemoveCc(string email)
     {
-        if (incident is null || string.IsNullOrWhiteSpace(email))
+        if (ReadOnly || incident is null || string.IsNullOrWhiteSpace(email))
             return;
 
         var updatedList = incident.CcRecipients

@@ -2,6 +2,9 @@ using Helpdesk.Shared.DTOs;
 
 namespace Helpdesk.Application.AiAssistant;
 
+/// <summary>A dispatch key is already bound to another operation, or a concurrent decision requires a fresh read.</summary>
+public sealed class AiInvestigationDispatchConflictException(string message) : Exception(message);
+
 public interface IAiAssistantAiAssistantService
 {
     Task<IReadOnlyList<AiAssistantWebhookConfigurationDto>> ListConfigurationsAsync(string organizationId, CancellationToken ct);

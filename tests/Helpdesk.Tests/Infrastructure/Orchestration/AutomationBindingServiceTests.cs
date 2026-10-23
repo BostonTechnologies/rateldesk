@@ -3,6 +3,7 @@ using Helpdesk.Infrastructure.Orchestration;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
+using Helpdesk.Shared.DTOs.Orchestration;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -11,15 +12,19 @@ namespace Helpdesk.Tests.Infrastructure.Orchestration;
 
 public sealed class AutomationBindingServiceTests
 {
-    [Fact]
-    public async Task ListAsync_OrdersBindingsByCreationTime_WithSqlite()
+    [Theory]
+    [InlineData(false, "org-1", 2)]
+    [InlineData(true, "different-home-org", 2)]
+    [InlineData(false, "foreign-org", 0)]
+    public async Task Binding_reads_and_saves_honor_instance_administrators_and_preserve_tenant_isolation(bool admin, string homeOrganization, int count)
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
         var options = new DbContextOptionsBuilder<HelpdeskDbContext>()
             .UseSqlite(connection)
             .Options;
-        await using var db = new HelpdeskDbContext(options, new TestTenantContext(), new HttpContextAccessor());
+        var tenant = new TestTenantContext(admin, homeOrganization);
+        await using var db = new HelpdeskDbContext(options, tenant, new HttpContextAccessor());
         await db.Database.EnsureCreatedAsync();
 
         db.RequestForms.Add(new RequestForm
@@ -39,11 +44,25 @@ public sealed class AutomationBindingServiceTests
                 DateTimeOffset.Parse("2026-01-01T00:00:00+00:00")));
         await db.SaveChangesAsync();
 
-        var service = new AutomationBindingService(db, new TestTenantContext(), new RequestFormSchemaParser());
+        var service = new AutomationBindingService(db, tenant, new RequestFormSchemaParser());
 
         var bindings = await service.ListAsync("form-1");
 
-        Assert.Equal(["binding-old", "binding-new"], bindings.Select(binding => binding.Id));
+        Assert.Equal(count, bindings.Count);
+        var read = await service.GetAsync("binding-old");
+        var updated = await service.UpdateAsync("binding-old", new UpdateAutomationBindingDto { Enabled = false });
+        if (count == 2)
+        {
+            Assert.Equal(["binding-old", "binding-new"], bindings.Select(binding => binding.Id));
+            Assert.NotNull(read);
+            Assert.False(updated!.Enabled);
+        }
+        else
+        {
+            Assert.Null(read);
+            Assert.Null(updated);
+            Assert.True((await db.AutomationBindings.AsNoTracking().SingleAsync(x => x.Id == "binding-old")).Enabled);
+        }
     }
 
     private static AutomationBinding CreateBinding(
@@ -60,10 +79,10 @@ public sealed class AutomationBindingServiceTests
         UpdatedAtUtc = createdAtUtc
     };
 
-    private sealed class TestTenantContext : ITenantContext
+    private sealed class TestTenantContext(bool admin = false, string organizationId = "org-1") : ITenantContext
     {
-        public string? TenantId => "org-1";
+        public string? TenantId => organizationId;
         public string? UserId => "user-1";
-        public bool IsHelpdeskAdmin => false;
+        public bool IsHelpdeskAdmin => admin;
     }
 }

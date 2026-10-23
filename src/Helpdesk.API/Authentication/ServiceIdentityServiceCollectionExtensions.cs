@@ -1,5 +1,6 @@
 using System.Threading.RateLimiting;
 using Helpdesk.Infrastructure.ServiceIdentity;
+using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
@@ -34,13 +35,14 @@ public static class ServiceIdentityServiceCollectionExtensions
 }
 
 public sealed class ServiceClientManagementRequirement : IAuthorizationRequirement;
-public sealed class ServiceClientManagementHandler(IIntegrationCredentialOwnerResolver owners, ICurrentUserAccessService access)
+public sealed class ServiceClientManagementHandler(IIntegrationCredentialOwnerResolver owners, ICurrentUserAccessService access,
+    RatelDeskIdentityDbContext identityDb)
     : AuthorizationHandler<ServiceClientManagementRequirement>
 {
     protected override async Task HandleRequirementAsync(AuthorizationHandlerContext context, ServiceClientManagementRequirement requirement)
     {
-        if (ServicePrincipalRegistry.IsMachinePrincipal(context.User) || context.User.HasClaim("auth_mode", "integration") ||
-            await owners.ResolveAsync(context.User) is null) return;
+        if (ServicePrincipalRegistry.IsMachinePrincipal(context.User) ||
+            await AdministrationOwnerResolver.ResolveAsync(context.User, owners, identityDb) is null) return;
         if ((await access.ResolveAsync(context.User)).IsHelpdeskAdmin) context.Succeed(requirement);
     }
 }

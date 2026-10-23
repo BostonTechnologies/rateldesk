@@ -897,6 +897,69 @@ public sealed class MailboxConfigurationTests
         Assert.Throws<System.Security.Cryptography.CryptographicException>(() => otherKeys.Unprotect(saved, saved.ClientSecret));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Direct_operator_send_requires_global_sender_without_changing_ticket_queueing(bool postgres)
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync(postgres);
+        await using var db = fixture.Open();
+        await db.Database.MigrateAsync();
+        db.Organizations.Add(new Organization { Id = "direct-send-tenant", Name = "Direct send tenant" });
+        var dedicated = new EmailInboxSettings
+        {
+            Scope = MailboxScope.Organization, OrganizationId = "direct-send-tenant",
+            MailboxAddress = "tenant@example.test", SourceKey = "direct-send-dedicated",
+            Enabled = true, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.EmailInboxSettings.Add(dedicated);
+        db.Set<MailboxOutgoingSettings>().Add(new MailboxOutgoingSettings
+        {
+            MailboxId = dedicated.Id, Enabled = true, Transport = MailboxOutgoingTransport.Smtp,
+            SmtpHost = "smtp.example.test", SmtpUsername = dedicated.MailboxAddress,
+            ProtectedSmtpPassword = "synthetic-protected"
+        });
+        db.Incidents.Add(new Incident { Id = "direct-send-ticket", OrganizationId = "direct-send-tenant", TrackingId = "INC-DIRECT" });
+        await db.SaveChangesAsync();
+
+        var effects = new IngressEffectContext();
+        IEmailService sender = new MailboxEmailService(new MailboxSenderResolver(db),
+            new SmtpMailboxSender(new MailboxDestinationPolicy(new ConfigurationBuilder().Build()),
+                new MailboxOutgoingCredentialProtector(new EphemeralDataProtectionProvider()),
+                new HtmlToPlainTextConverter()),
+            new GraphMailboxSender(_ => throw new InvalidOperationException("Graph is not selected.")),
+            new MailboxOutboxStore(db, effects, TimeProvider.System), effects,
+            NullLogger<MailboxEmailService>.Instance);
+        var direct = new EmailSendRequest(["capture@example.test"], "Direct", "<p>Direct</p>")
+            { RequireReadySender = true };
+        var unavailable = await Assert.ThrowsAsync<EmailSenderUnavailableException>(() => sender.SendEmailAsync(direct));
+        Assert.Equal("NoEffectiveMailbox", unavailable.ReasonCode);
+        Assert.Empty(await db.Set<MailboxOutboxEffect>().ToListAsync());
+
+        Assert.True(await sender.SendEmailAsync(new EmailSendRequest(
+            ["capture@example.test"], "Ticket", "<p>Ticket</p>") { TicketId = "direct-send-ticket" }));
+        var ticketEffect = await db.Set<MailboxOutboxEffect>().SingleAsync();
+        Assert.Equal(dedicated.Id, MailboxOutboxStore.Deserialize<IngressEmailEffect>(ticketEffect.Payload).MailboxId);
+
+        var global = new EmailInboxSettings
+        {
+            Scope = MailboxScope.Global, MailboxAddress = "global@example.test", SourceKey = "direct-send-global",
+            Enabled = true, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.EmailInboxSettings.Add(global);
+        db.Set<MailboxOutgoingSettings>().Add(new MailboxOutgoingSettings
+        {
+            MailboxId = global.Id, Enabled = true, Transport = MailboxOutgoingTransport.Smtp,
+            SmtpHost = "smtp.example.test", SmtpUsername = global.MailboxAddress,
+            ProtectedSmtpPassword = "synthetic-protected"
+        });
+        await db.SaveChangesAsync();
+
+        Assert.True(await sender.SendEmailAsync(direct));
+        var directEffect = (await db.Set<MailboxOutboxEffect>().ToListAsync()).Single(x => x.Id != ticketEffect.Id);
+        Assert.Equal(global.Id, MailboxOutboxStore.Deserialize<IngressEmailEffect>(directEffect.Payload).MailboxId);
+    }
+
     private static MailboxSettingsRequest Request(string address) => new()
     {
         DisplayName = address, MailboxAddress = address, MailHost = "mail.example.test",

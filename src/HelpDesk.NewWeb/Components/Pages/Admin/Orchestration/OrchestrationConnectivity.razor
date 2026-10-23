@@ -10,8 +10,16 @@
         <MudText Typo="Typo.h4" HtmlTag="h1">NetRatel orchestrator</MudText>
         <MudText Typo="Typo.body2">Pair NetRatel, then select Run automation for the tenant mapping in System connections.</MudText>
         <MudStack Row="true" Wrap="Wrap.Wrap">
-            <MudButton Href="/account/integration-credentials" Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Link" data-testid="manage-system-connections">Manage system connections</MudButton>
+            <MudButton Href="@ConnectionsUrl" Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Link" data-testid="manage-system-connections">Manage system connections</MudButton>
             <MudButton Href="/admin/automation/integration" Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack">Integration hub</MudButton>
         </MudStack>
     </MudStack>
 </MudPaper>
+
+@code {
+    [SupplyParameterFromQuery(Name = "organizationId")] public string? OrganizationId { get; set; }
+    private string ConnectionsUrl => string.IsNullOrWhiteSpace(OrganizationId)
+        ? "/account/integration-credentials"
+        : "/account/integration-credentials?tab=connections&organizationId=" + Uri.EscapeDataString(OrganizationId) +
+          "&returnUrl=" + Uri.EscapeDataString("/admin/automation/integration/orchestrator?organizationId=" + Uri.EscapeDataString(OrganizationId));
+}

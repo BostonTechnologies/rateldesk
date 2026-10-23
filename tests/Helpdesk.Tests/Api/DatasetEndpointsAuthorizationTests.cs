@@ -110,6 +110,38 @@ public sealed class DatasetEndpointsAuthorizationTests
         Assert.Equal("org-other", dataset!.OrganizationId);
     }
 
+    [Theory]
+    [InlineData("ClientAdmin", "alpha-custom", HttpStatusCode.OK)]
+    [InlineData("ClientAdmin", "other-custom", HttpStatusCode.Forbidden)]
+    [InlineData("ClientAdmin", "alpha-graph-users", HttpStatusCode.Forbidden)]
+    [InlineData("Admin", "other-custom", HttpStatusCode.OK)]
+    [InlineData("Admin", "alpha-graph-users", HttpStatusCode.OK)]
+    [InlineData("SelfService", "alpha-custom", HttpStatusCode.Forbidden)]
+    public async Task OperatorRowUpdates_EnforceStoredDatasetScopeAndSource(string actor, string datasetId, HttpStatusCode expected)
+    {
+        using var harness = await DatasetEndpointsHarness.CreateAsync(actor);
+        var result = await harness.Client.PostAsJsonAsync($"/api/v1/resources/datasets/{datasetId}/rows", new UpsertDatasetRowsDto
+        {
+            Rows = [new UpsertDatasetRowDto { ExternalKey = "synthetic-row" }],
+            DeleteMissing = false
+        });
+
+        Assert.Equal(expected, result.StatusCode);
+        var writer = harness.Services.GetRequiredService<FakeDataManagementService>();
+        Assert.Equal(expected == HttpStatusCode.OK ? 1 : 0, writer.OperatorWrites);
+    }
+
+    [Fact]
+    public async Task Administrator_session_does_not_replace_the_ingestion_api_key_contract()
+    {
+        using var harness = await DatasetEndpointsHarness.CreateAsync("Admin");
+        var result = await harness.Client.PostAsJsonAsync("/api/v1/resources/datasets/alpha-custom/rows:upsert",
+            new UpsertDatasetRowsDto { Rows = [new UpsertDatasetRowDto { ExternalKey = "synthetic-row" }] });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, result.StatusCode);
+        Assert.Equal(0, harness.Services.GetRequiredService<FakeDataManagementService>().OperatorWrites);
+    }
+
     [Fact]
     public async Task ClientAdmin_CannotAccess_SelfService_Dataset_Options()
     {
@@ -163,12 +195,15 @@ public sealed class DatasetEndpointsAuthorizationTests
         }
 
         public HttpClient Client { get; }
+        public IServiceProvider Services => _app.Services;
 
         public static async Task<DatasetEndpointsHarness> CreateAsync(string actor)
         {
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
             builder.WebHost.UseTestServer();
-            builder.Services.AddSingleton<IDataManagementService, FakeDataManagementService>();
+            builder.Services.AddSingleton<FakeDataManagementService>();
+            builder.Services.AddSingleton<IDataManagementService>(provider => provider.GetRequiredService<FakeDataManagementService>());
+            builder.Services.AddSingleton<IOperatorDatasetWriter>(provider => provider.GetRequiredService<FakeDataManagementService>());
             builder.Services.AddSingleton<ICurrentUserAccessService, TestCurrentUserAccessService>();
             builder.Services.AddSingleton<IGraphDatasetSyncScheduleService, NoopGraphDatasetSyncScheduleService>();
             builder.Services.AddSingleton<ITenantContext>(new TestTenantContext("org-alpha", "self-service", false));
@@ -320,8 +355,10 @@ public sealed class DatasetEndpointsAuthorizationTests
         public bool IsHelpdeskAdmin { get; } = isHelpdeskAdmin;
     }
 
-    private sealed class FakeDataManagementService : IDataManagementService
+    private sealed class FakeDataManagementService : IDataManagementService, IOperatorDatasetWriter
     {
+        public int OperatorWrites { get; private set; }
+
         private readonly Dictionary<string, DatasetDefinitionDto> _datasets = new(StringComparer.OrdinalIgnoreCase)
         {
             ["alpha-custom"] = Dataset("alpha-custom", "org-alpha", "Alpha Custom", DatasetSourceType.Custom),
@@ -371,6 +408,8 @@ public sealed class DatasetEndpointsAuthorizationTests
         public Task<PagedResult<DatasetOptionDto>> GetOptionsAsync(string datasetId, string organizationId, string? query, int page, int pageSize, CancellationToken cancellationToken = default) =>
             Task.FromResult(new PagedResult<DatasetOptionDto> { Page = page, PageSize = pageSize, Total = 0 });
 
+        public Task<DatasetOptionDto?> GetOptionByKeyAsync(string datasetId, string organizationId, string key, CancellationToken cancellationToken = default) => Task.FromResult<DatasetOptionDto?>(null);
+
         public Task<DatasetIngestCredentialCreatedDto> CreateCredentialAsync(string datasetId, CreateDatasetIngestCredentialDto dto, CancellationToken cancellationToken = default) =>
             Task.FromResult(new DatasetIngestCredentialCreatedDto
             {
@@ -393,6 +432,16 @@ public sealed class DatasetEndpointsAuthorizationTests
 
         public Task<int> UpsertRowsAsync(string datasetId, string apiKey, UpsertDatasetRowsDto dto, CancellationToken cancellationToken = default) =>
             Task.FromResult(dto.Rows.Count);
+
+        public Task<int> UpsertRowsAsOperatorAsync(string datasetId, string authorizedOrganizationId,
+            bool allowBuiltInSources, UpsertDatasetRowsDto dto, CancellationToken cancellationToken = default)
+        {
+            var dataset = _datasets[datasetId];
+            Assert.Equal(dataset.OrganizationId, authorizedOrganizationId);
+            Assert.True(allowBuiltInSources || dataset.SourceType == DatasetSourceType.Custom);
+            OperatorWrites++;
+            return Task.FromResult(dto.Rows.Count);
+        }
 
         public Task<TenantGraphDatasetSettingsDto?> GetGraphSettingsAsync(string organizationId, CancellationToken cancellationToken = default) =>
             Task.FromResult(_settings.GetValueOrDefault(organizationId));

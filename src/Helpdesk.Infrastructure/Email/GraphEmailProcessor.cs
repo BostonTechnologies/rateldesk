@@ -299,7 +299,7 @@ public class GraphEmailProcessor : IGraphEmailProcessor
         }
     }
 
-    private async Task<bool> SendNotificationAsync(
+    internal async Task<bool> SendNotificationAsync(
         string templateName,
         string to,
         IEnumerable<string>? cc = null,
@@ -342,6 +342,15 @@ public class GraphEmailProcessor : IGraphEmailProcessor
             cc,
             fromName: branding.FromName,
             replyTo: branding.ReplyTo);
+
+        if (sent && _emailService is IDurableEmailService { QueuesDelivery: true })
+        {
+            _logger.LogInformation("Queued '{TemplateName}' notification to {Recipient}", templateName, to);
+            await _domainEvents.PublishAsync(new EmailQueuedEvent(to, templateName, tenantId, ticketRef, GetCorrelationId()),
+                CancellationToken.None);
+            return true;
+        }
+
         if (sent)
         {
             _logger.LogInformation("Sent '{TemplateName}' notification to {Recipient}", templateName, to);

@@ -1,0 +1,16 @@
+name: rateldesk-setup
+
+# Source equivalent of the standalone image tooling recipe.
+services:
+  mcp-http:
+    build:
+      context: ..
+      dockerfile: docker/mcp-http/Dockerfile
+    user: "${RATELDESK_SETUP_UID:-10001}:${RATELDESK_SETUP_GID:-10001}"
+    stdin_open: true
+    tty: true
+    command: ["setup", "--target", "http-host", "--export-directory", "/output"]
+    volumes:
+      - type: bind
+        source: ${RATELDESK_SETUP_OUTPUT:?Set a writable output directory.}
+        target: /output

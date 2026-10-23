@@ -156,6 +156,7 @@ public sealed class WorkflowEngine(
                 {
                     if ((task.Type != RequestTaskType.Automation && task.Type != RequestTaskType.Approval)
                         || task.Status != RequestTaskStatus.Pending
+                        || (task.Type == RequestTaskType.Automation && task.AutoStart == false)
                         || task.IsBlocked)
                     {
                         continue;
@@ -228,17 +229,24 @@ public sealed class WorkflowEngine(
             ParentStateChanged = parentStateChanged
         };
 
-        await _domainEvents.PublishAsync(
-            new WorkflowEvaluatedEvent(
-                requestIdText,
-                reason,
-                result.UnblockedCount,
-                result.AutoStartedCount,
-                result.ParentStateChanged,
-                request.OrganizationId,
-                timestamp,
-                correlationId),
-            ct);
+        // An accepted approval can be replayed to resume a failed continuation.
+        // Re-evaluating an already settled workflow must not create another
+        // user-visible Workflow.Evaluated notification for the same decision.
+        if (reason != WorkflowRunReason.ApprovalReceived ||
+            result.UnblockedCount > 0 || result.AutoStartedCount > 0 || result.ParentStateChanged || skippedCount > 0)
+        {
+            await _domainEvents.PublishAsync(
+                new WorkflowEvaluatedEvent(
+                    requestIdText,
+                    reason,
+                    result.UnblockedCount,
+                    result.AutoStartedCount,
+                    result.ParentStateChanged,
+                    request.OrganizationId,
+                    timestamp,
+                    correlationId),
+                ct);
+        }
 
         if (result.UnblockedCount > 0 || result.AutoStartedCount > 0 || result.ParentStateChanged || skippedCount > 0)
         {

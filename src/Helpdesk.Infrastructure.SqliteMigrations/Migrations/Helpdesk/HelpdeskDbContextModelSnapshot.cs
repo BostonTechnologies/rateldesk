@@ -3885,6 +3885,11 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.Property<DateTimeOffset>("CreatedUtc")
                         .HasColumnType("TEXT");
 
+                    b.Property<long>("CreatedUtcSortTicks")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("INTEGER")
+                        .HasComputedColumnSql("CAST(strftime('%s', substr(\"CreatedUtc\", 1, 19) || substr(\"CreatedUtc\", -6)) AS INTEGER) * 10000000 + CAST(substr((CASE WHEN substr(\"CreatedUtc\", 20, 1) = '.' THEN substr(\"CreatedUtc\", 21, length(\"CreatedUtc\") - 26) ELSE '' END) || '0000000', 1, 7) AS INTEGER) + 621355968000000000");
+
                     b.Property<string>("EmailRecipient")
                         .HasColumnType("TEXT");
 
@@ -3893,6 +3898,9 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
 
                     b.Property<int>("EventType")
                         .HasColumnType("INTEGER");
+
+                    b.Property<double?>("Hours")
+                        .HasColumnType("REAL");
 
                     b.Property<DateTimeOffset?>("LastRetryUtc")
                         .HasColumnType("TEXT");
@@ -3913,7 +3921,12 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("WorkLogId")
+                        .HasColumnType("TEXT");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("EventType", "EmailStatus", "CreatedUtcSortTicks", "Id");
 
                     b.ToTable("TicketTimelineEvents");
                 });
@@ -4166,6 +4179,17 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
             modelBuilder.Entity("Helpdesk.Shared.Models.RequestTask", b =>
                 {
                     b.HasBaseType("Helpdesk.Shared.Models.Ticket");
+
+                    b.Property<bool?>("AutoStart")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(true);
+
+                    b.Property<string>("AutomationAttemptCorrelationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AutomationAttemptHistoryJson")
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("AutomationBindingId")
                         .HasColumnType("TEXT");

@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -21,21 +21,24 @@
 
 
   <ItemGroup>
+    <PackageReference Include="HtmlSanitizer" Version="9.2.1039" />
     <PackageReference Include="BlazorMonaco" Version="3.5.0" />
-    <PackageReference Include="SharpCompress" Version="0.50.4" />
+    <PackageReference Include="SharpCompress" Version="0.50.6" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.23.0" />
-    <PackageReference Include="FluentValidation" Version="12.1.1" />
+    <PackageReference Include="FluentValidation" Version="12.2.0" />
     <PackageReference Include="FormCraft" Version="4.0.0" />
     <PackageReference Include="FormCraft.ForMudBlazor" Version="4.0.0" />
     <PackageReference Include="Gotho.BlazorPdf.MudBlazor" Version="2.2.0" />
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.12" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.13" />
     <PackageReference Include="MudBlazor" Version="9.11.0" />
-    <PackageReference Include="Scalar.AspNetCore" Version="2.17.13" />
+    <PackageReference Include="Scalar.AspNetCore" Version="2.18.0" />
     <PackageReference Include="Extensions.MudBlazor.StaticInput" Version="4.1.0" />
     <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Remove="Services/WebGatewayOptions.cs;Services/WebGatewayConfiguration.cs;Services/WebGatewayPaths.cs" />
+    <ProjectReference Include="..\Helpdesk.AgentClient\Helpdesk.AgentClient.csproj" />
     <ProjectReference Include="..\Helpdesk.ServiceDefaults\Helpdesk.ServiceDefaults.csproj" />
     <ProjectReference Include="..\Helpdesk.Shared\Helpdesk.Shared.csproj" />
   </ItemGroup>

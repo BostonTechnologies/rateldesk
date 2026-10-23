@@ -55,7 +55,7 @@ public static class TicketEndpoints
     }
 
     public static RouteHandlerBuilder MapTicketCustomerEndpoint(RouteGroupBuilder ticketGroup) =>
-        ticketGroup.MapPost("/customer", async ([FromRoute] string ticketType, [FromRoute] string ticketId, [FromBody] UpdateTicketCustomerRequest request, IRepository<Incident> incidents, IRepository<TicketRequest> requests, IRepository<Change> changes, IRepository<Customer> customers, ICurrentUserAccessService access, ClaimsPrincipal user, CancellationToken ct) =>
+        ticketGroup.MapPost("/customer", async ([FromRoute] string ticketType, [FromRoute] string ticketId, [FromBody] UpdateTicketCustomerRequest request, IRepository<Incident> incidents, IRepository<TicketRequest> requests, IRepository<Change> changes, IRepository<Customer> customers, [FromServices] HelpdeskDbContext db, ICurrentUserAccessService access, ClaimsPrincipal user, CancellationToken ct) =>
         {
             var ticket = await GetTicketAsync(ticketType, ticketId, incidents, requests, changes);
             if (ticket is null) return Results.NotFound();
@@ -65,11 +65,23 @@ public static class TicketEndpoints
             var customer = await customers.GetAsync(request.CustomerId ?? string.Empty);
             if (customer is null || !customer.IsEnabled || !string.Equals(customer.OrganizationId, ticket.OrganizationId, StringComparison.OrdinalIgnoreCase))
                 return Results.BadRequest("Customer must be enabled and belong to the selected organization.");
-            ticket.CustomerId = customer.Id;
-            ticket.RequesterEmail = customer.Email;
-            ticket.UpdatedAt = DateTime.UtcNow;
-            var updated = await UpdateTicketAsync(ticketType, ticket, incidents, requests, changes);
-            return updated ? Results.Ok(new { customer.Id, customer.Name, customer.Email }) : Results.NotFound();
+            // The requester and organization checks are part of the write, not
+            // merely a decision made from an earlier ticket snapshot. Update
+            // these three fields only; routine metadata cannot replay a stale
+            // change lifecycle, approval state or worklog metrics.
+            var organizationId = ticket.OrganizationId;
+            var updated = await db.Tickets
+                .Where(current => current.Id == ticket.Id && current.OrganizationId == organizationId &&
+                    (current.CustomerId == null || current.CustomerId.Trim() == string.Empty) &&
+                    db.Customers.Any(selected => selected.Id == customer.Id && selected.IsEnabled &&
+                        selected.OrganizationId == organizationId && selected.Email == customer.Email))
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(current => current.CustomerId, customer.Id)
+                    .SetProperty(current => current.RequesterEmail, customer.Email)
+                    .SetProperty(current => current.UpdatedAt, DateTime.UtcNow), ct);
+            return updated == 1
+                ? Results.Ok(new { customer.Id, customer.Name, customer.Email })
+                : Results.Conflict(new { error = "Ticket or customer changed during requester assignment. Read the current state before retrying." });
         }).WithName("SetTicketCustomer").WithSummary("Set the requester customer for a ticket");
 
     internal static async Task<IResult?> AuthorizeTicketViewAsync(string ticketType, string ticketId, ClaimsPrincipal user, ICurrentUserAccessService accessService, HelpdeskDbContext db, CancellationToken ct)
@@ -112,14 +124,6 @@ public static class TicketEndpoints
         "requests" => await requests.GetAsync(id),
         "changes" => await changes.GetAsync(id),
         _ => null
-    };
-
-    private static async Task<bool> UpdateTicketAsync(string type, Ticket ticket, IRepository<Incident> incidents, IRepository<TicketRequest> requests, IRepository<Change> changes) => type.ToLowerInvariant() switch
-    {
-        "incidents" when ticket is Incident incident => await incidents.UpdateAsync(incident) is not null,
-        "requests" when ticket is TicketRequest request => await requests.UpdateAsync(request) is not null,
-        "changes" when ticket is Change change => await changes.UpdateAsync(change) is not null,
-        _ => false
     };
 
     public sealed record UpdateTicketCustomerRequest(string? CustomerId);

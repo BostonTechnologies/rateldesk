@@ -86,6 +86,9 @@
                                                       Value="@model.AssignedToId" Label="Technician assignment (optional)"
                                                       ReadOnly="@(!canAssign)" Busy="isSubmitting"
                                                       SelectionChanged="@(user => OnAssigneeChanged(user?.Id))" />
+                                    <ServiceCategoryPicker RequestedType="@(Module == "request" ? TicketCategoryType.Request : TicketCategoryType.Incident)"
+                                                           OrganizationId="@model.OrganizationId" @bind-SelectedCategoryIds="model.CategoryIds"
+                                                           ReadOnly="@isSubmitting" Margin="Margin.Dense" />
                                 </MudStack>
                             </MudItem>
                         </MudGrid>
@@ -165,6 +168,7 @@
         canCreateCustomers = canAssign;
         model.AssignedToId = null;
         model.CustomerId = null;
+        model.CategoryIds.Clear();
         return Task.CompletedTask;
     }
 

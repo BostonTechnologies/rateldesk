@@ -1,0 +1,4 @@
+.sla-operations { min-width: 0; }
+.sla-result-selection { display: flex; flex-wrap: wrap; gap: .5rem; }
+.sla-operations ::deep .truncate-title { max-width: min(420px, 65vw); display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.sla-operations ::deep .mud-stack-row { flex-wrap: wrap; }

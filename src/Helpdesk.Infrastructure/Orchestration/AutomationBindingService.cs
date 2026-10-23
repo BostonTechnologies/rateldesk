@@ -13,20 +13,20 @@ namespace Helpdesk.Infrastructure.Orchestration;
 public sealed class AutomationBindingService(
     HelpdeskDbContext db,
     ITenantContext tenantContext,
-    IRequestFormSchemaParser schemaParser, PairingConnectionResolver? connections = null) : IAutomationBindingService
+    IRequestFormSchemaParser schemaParser,
+    PairingConnectionResolver? connections,
+    IOrchestrationCatalogService? catalog) : IAutomationBindingService
 {
+    public AutomationBindingService(HelpdeskDbContext db, ITenantContext tenantContext, IRequestFormSchemaParser schemaParser, PairingConnectionResolver? connections = null)
+        : this(db, tenantContext, schemaParser, connections, null) { }
+
     private readonly HelpdeskDbContext _db = db;
     private readonly ITenantContext _tenantContext = tenantContext;
     private readonly IRequestFormSchemaParser _schemaParser = schemaParser;
 
     public async Task<IReadOnlyList<AutomationBindingDto>> ListAsync(string? requestFormId = null, CancellationToken cancellationToken = default)
     {
-        var query = _db.AutomationBindings.AsNoTracking();
-
-        if (!string.IsNullOrWhiteSpace(_tenantContext.TenantId))
-        {
-            query = query.Where(x => x.OrganizationId == _tenantContext.TenantId);
-        }
+        var query = QueryForTenant().AsNoTracking();
 
         if (!string.IsNullOrWhiteSpace(requestFormId))
         {
@@ -132,9 +132,12 @@ public sealed class AutomationBindingService(
 
         var selectedConnection = connections is null ? null : await connections.ResolveAsync(tenantId, dto.SystemConnectionId, cancellationToken);
         if (connections is not null && selectedConnection?.Enabled != true) throw new InvalidOperationException("Save an authorized automation system connection before binding this task.");
+        var selectedConnectionId = selectedConnection?.Pairing is { } selected ? Guid.Parse(selected.MappingId) : dto.SystemConnectionId;
+        if (connections is not null)
+            await RequireAvailableTargetAsync(tenantId, selectedConnectionId, orchestrationRequestDefinitionId, Normalize(dto.OrchestrationJobDefinitionId), cancellationToken);
         var binding = new AutomationBinding
         {
-            SystemConnectionId = selectedConnection?.Pairing is { } selected ? Guid.Parse(selected.MappingId) : dto.SystemConnectionId,
+            SystemConnectionId = selectedConnectionId,
             OrganizationId = tenantId,
             RequestFormId = requestFormId,
             TaskTemplateId = dto.TaskTemplateId,
@@ -165,11 +168,27 @@ public sealed class AutomationBindingService(
             return null;
         }
 
-        binding.OrchestrationRequestDefinitionId = UpdateRequiredString(
+        var requestDefinitionId = UpdateRequiredString(
             binding.OrchestrationRequestDefinitionId,
             dto.OrchestrationRequestDefinitionId,
             allowClear: false,
             propertyName: nameof(dto.OrchestrationRequestDefinitionId));
+        var connectionId = dto.SystemConnectionId ?? binding.SystemConnectionId;
+        var jobDefinitionId = UpdateOptionalString(binding.OrchestrationJobDefinitionId, dto.OrchestrationJobDefinitionId, dto.ClearOrchestrationJobDefinitionId);
+        if (connections is not null && ((dto.Enabled ?? binding.Enabled)
+            || connectionId != binding.SystemConnectionId
+            || !string.Equals(requestDefinitionId, binding.OrchestrationRequestDefinitionId, StringComparison.Ordinal)
+            || !string.Equals(jobDefinitionId, binding.OrchestrationJobDefinitionId, StringComparison.Ordinal)))
+        {
+            var selected = await connections.ResolveAsync(binding.OrganizationId, connectionId, cancellationToken);
+            if (!selected.Enabled || selected.Pairing is null)
+                throw new InvalidOperationException("The selected system connection is unavailable for this organization.");
+            connectionId = Guid.Parse(selected.Pairing.MappingId);
+            await RequireAvailableTargetAsync(binding.OrganizationId, connectionId, requestDefinitionId, jobDefinitionId, cancellationToken);
+        }
+
+        binding.OrchestrationRequestDefinitionId = requestDefinitionId;
+        binding.SystemConnectionId = connectionId;
         binding.OrchestrationRequestDefinitionName = UpdateOptionalString(
             binding.OrchestrationRequestDefinitionName,
             dto.OrchestrationRequestDefinitionName,
@@ -222,13 +241,6 @@ public sealed class AutomationBindingService(
             binding.LastReviewedDriftAtUtc = null;
         }
 
-        if (dto.SystemConnectionId is { } connectionId)
-        {
-            var selected = connections is null ? null : await connections.ResolveAsync(binding.OrganizationId, connectionId, cancellationToken);
-            if (connections is not null && selected?.Enabled != true) throw new InvalidOperationException("The selected system connection is unavailable for this organization.");
-            binding.SystemConnectionId = connectionId;
-        }
-
         if (dto.Enabled.HasValue)
         {
             binding.Enabled = dto.Enabled.Value;
@@ -242,6 +254,16 @@ public sealed class AutomationBindingService(
             .FirstOrDefaultAsync(x => x.Id == binding.RequestFormId, cancellationToken);
 
         return MapDto(binding, requestForm);
+    }
+
+    private async Task RequireAvailableTargetAsync(string organizationId, Guid? connectionId, string requestDefinitionId, string? jobDefinitionId, CancellationToken cancellationToken)
+    {
+        if (catalog is null)
+            throw new InvalidOperationException("Automation target verification is unavailable.");
+        var definitions = await catalog.ListRequestDefinitionsAsync(organizationId, connectionId, cancellationToken);
+        var target = definitions.SingleOrDefault(x => string.Equals(x.RequestDefinitionId, requestDefinitionId, StringComparison.Ordinal));
+        if (target is null || (jobDefinitionId is not null && !string.Equals(target.OrchestrationJobDefinitionId, jobDefinitionId, StringComparison.Ordinal)))
+            throw new InvalidOperationException("The automation target and job must belong to the selected connection tenant.");
     }
 
     public async Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default)
@@ -261,7 +283,7 @@ public sealed class AutomationBindingService(
     private IQueryable<AutomationBinding> QueryForTenant()
     {
         var query = _db.AutomationBindings.AsQueryable();
-        if (!string.IsNullOrWhiteSpace(_tenantContext.TenantId))
+        if (!_tenantContext.IsHelpdeskAdmin && !string.IsNullOrWhiteSpace(_tenantContext.TenantId))
         {
             query = query.Where(x => x.OrganizationId == _tenantContext.TenantId);
         }

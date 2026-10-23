@@ -21,13 +21,17 @@ COPY src/Helpdesk.Mcp.Core/*.csproj         src/Helpdesk.Mcp.Core/
 COPY src/Helpdesk.Mcp.Http/*.csproj         src/Helpdesk.Mcp.Http/
 COPY src/Helpdesk.ServiceDefaults/*.csproj  src/Helpdesk.ServiceDefaults/
 COPY src/Helpdesk.Shared/*.csproj           src/Helpdesk.Shared/
+COPY src/Helpdesk.Setup/*.csproj            src/Helpdesk.Setup/
 RUN dotnet restore src/Helpdesk.Mcp.Http/Helpdesk.Mcp.Http.csproj
 
 COPY src/Helpdesk.AgentClient/      src/Helpdesk.AgentClient/
+# Share the exact Web serving validator with headless deployment preflight.
+COPY src/HelpDesk.NewWeb/Services/WebGatewayOptions.cs src/HelpDesk.NewWeb/Services/WebGatewayConfiguration.cs src/HelpDesk.NewWeb/Services/WebGatewayPaths.cs src/HelpDesk.NewWeb/Services/
 COPY src/Helpdesk.Mcp.Core/         src/Helpdesk.Mcp.Core/
 COPY src/Helpdesk.Mcp.Http/         src/Helpdesk.Mcp.Http/
 COPY src/Helpdesk.ServiceDefaults/  src/Helpdesk.ServiceDefaults/
 COPY src/Helpdesk.Shared/           src/Helpdesk.Shared/
+COPY src/Helpdesk.Setup/            src/Helpdesk.Setup/
 RUN mkdir /out \
  && dotnet publish src/Helpdesk.Mcp.Http/Helpdesk.Mcp.Http.csproj \
       -c $BUILD_CONFIGURATION -o /out --no-restore -v:n \
@@ -40,5 +44,6 @@ RUN mkdir /out \
 FROM base AS final
 WORKDIR /app
 COPY --from=build --chown=helpdesk:helpdesk /out ./
+COPY --chown=helpdesk:helpdesk licenses/ ./licenses/
 USER helpdesk
 ENTRYPOINT ["dotnet", "Helpdesk.Mcp.Http.dll"]

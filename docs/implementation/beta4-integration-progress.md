@@ -435,7 +435,7 @@ also passed. These runs validate the H1 product head, rather than the earlier
 `6db1058` review checkpoint. This ledger update is evidence-only and follows
 the product commit.
 
-`docs/netclaw.md` now states that `allowPrivateHttp` must be set in the legacy
+`docs/integrations/netclaw.md` now states that `allowPrivateHttp` must be set in the legacy
 confirmation request and is not inherited from deployment settings. PR #94
 remains draft. The unchanged paired Netclaw journey and full pinned NetRatel
 ingest/ticket journey remain separate external interoperability gates.

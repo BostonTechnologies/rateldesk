@@ -84,23 +84,10 @@ internal static partial class HelpdeskCli
         return new ApiStringResponse((int)response.StatusCode, response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
     }
 
-    private static LoadedConfig LoadConfig(InvocationContext ctx, GlobalOptions globals, bool requireAuth = true)
+    private static LoadedConfig LoadConfig(InvocationContext ctx, GlobalOptions globals, bool requireAuth = true, bool allowMissingFile = false)
     {
-        var store = new CliConfigStore(ctx.ParseResult.GetValueForOption(globals.ConfigPath));
-        var file = store.Load();
-        var env = new CliConfig(
-            Environment.GetEnvironmentVariable("RATELDESK_API_BASE_URL"),
-            Environment.GetEnvironmentVariable("RATELDESK_AUTHENTIK_TOKEN_URL"),
-            Environment.GetEnvironmentVariable("RATELDESK_AUTHENTIK_CLIENT_ID"),
-            Environment.GetEnvironmentVariable("RATELDESK_AUTHENTIK_USERNAME"),
-            Environment.GetEnvironmentVariable("RATELDESK_AUTHENTIK_APP_PASSWORD"),
-            Environment.GetEnvironmentVariable("RATELDESK_AUTHENTIK_SCOPE"),
-            Environment.GetEnvironmentVariable("RATELDESK_AGENT_USER_EMAIL"))
-        {
-            CredentialMode = Environment.GetEnvironmentVariable("RATELDESK_CREDENTIAL_MODE"),
-            IntegrationCredential = Environment.GetEnvironmentVariable("RATELDESK_INTEGRATION_CREDENTIAL")
-        };
-        var overrides = new CliConfig(
+        var selectedPath = SelectedConfigurationPath(ctx, globals);
+        var overrides = new Helpdesk.AgentClient.AgentClientConfiguration(
             ctx.ParseResult.GetValueForOption(globals.ApiBaseUrl),
             ctx.ParseResult.GetValueForOption(globals.TokenUrl),
             ctx.ParseResult.GetValueForOption(globals.ClientId),
@@ -108,8 +95,21 @@ internal static partial class HelpdeskCli
             ctx.ParseResult.GetValueForOption(globals.AppPassword),
             ctx.ParseResult.GetValueForOption(globals.Scope),
             ctx.ParseResult.GetValueForOption(globals.AgentUserEmail));
-        var merged = file.Merge(env).Merge(overrides);
-        return new LoadedConfig(file, env.Merge(overrides), requireAuth ? merged.Resolve() : null);
+        try
+        {
+            var effective = Helpdesk.AgentClient.AgentClientConfigurationResolver.ResolveEffective(Helpdesk.AgentClient.ConfigurationSurface.Cli, selectedPath, overrides, validate: requireAuth, allowMissingFile: allowMissingFile, allowLegacySecretCommandOptions: true);
+            var merged = CliConfig.FromAgentConfiguration(effective.Configuration);
+            return new LoadedConfig(CliConfig.Empty, merged, requireAuth ? merged.Resolve() : null);
+        }
+        catch (Helpdesk.AgentClient.AgentClientValidationException exception) { throw new CliValidationException(exception.Message); }
+    }
+
+    private static string? SelectedConfigurationPath(InvocationContext ctx, GlobalOptions globals)
+    {
+        var profile = ctx.ParseResult.GetValueForOption(globals.Profile);
+        var path = ctx.ParseResult.GetValueForOption(globals.ConfigPath);
+        if (!string.IsNullOrWhiteSpace(profile) && !string.IsNullOrWhiteSpace(path)) throw new CliValidationException("Choose either --profile or --config.");
+        return string.IsNullOrWhiteSpace(profile) ? path : new Helpdesk.AgentClient.ConfigurationProfiles().PathFor(profile);
     }
 
     private static async Task WriteResponseBodyAsync(CliRuntime runtime, string body, int statusCode, InvocationContext ctx, GlobalOptions globals)
@@ -765,8 +765,10 @@ internal static partial class HelpdeskCli
 
     private static CliConfig Redact(CliConfig config) => config with
     {
-        AuthentikAppPassword = string.IsNullOrWhiteSpace(config.AuthentikAppPassword) ? null : "***",
-        IntegrationCredential = string.IsNullOrWhiteSpace(config.IntegrationCredential) ? null : "***"
+        AuthentikAppPassword = string.IsNullOrWhiteSpace(config.AuthentikAppPassword) && string.IsNullOrWhiteSpace(config.AuthentikAppPasswordFile) ? null : "***",
+        IntegrationCredential = string.IsNullOrWhiteSpace(config.IntegrationCredential) && string.IsNullOrWhiteSpace(config.IntegrationCredentialFile) ? null : "***",
+        AuthentikAppPasswordFile = string.IsNullOrWhiteSpace(config.AuthentikAppPasswordFile) ? null : "***",
+        IntegrationCredentialFile = string.IsNullOrWhiteSpace(config.IntegrationCredentialFile) ? null : "***"
     };
 
     private static string? GetConfigValue(CliConfig config, string key, bool redact) => NormalizeConfigKey(key) switch
@@ -778,9 +780,11 @@ internal static partial class HelpdeskCli
         "authentikAppPassword" => redact && !string.IsNullOrWhiteSpace(config.AuthentikAppPassword) ? "***" : config.AuthentikAppPassword,
         "credentialMode" => config.CredentialMode,
         "integrationCredential" => redact && !string.IsNullOrWhiteSpace(config.IntegrationCredential) ? "***" : config.IntegrationCredential,
+        "integrationCredentialFile" => redact && !string.IsNullOrWhiteSpace(config.IntegrationCredentialFile) ? "***" : config.IntegrationCredentialFile,
+        "authentikAppPasswordFile" => redact && !string.IsNullOrWhiteSpace(config.AuthentikAppPasswordFile) ? "***" : config.AuthentikAppPasswordFile,
         "authentikScope" => config.AuthentikScope,
         "agentUserEmail" => config.AgentUserEmail,
-        _ => throw new CliValidationException($"Unknown config key '{key}'.")
+        _ => throw new CliValidationException("Unknown configuration key.")
     };
 
     private static CliConfig SetConfigValue(CliConfig config, string key, string? value) => NormalizeConfigKey(key) switch
@@ -792,9 +796,11 @@ internal static partial class HelpdeskCli
         "authentikAppPassword" => config with { AuthentikAppPassword = value },
         "credentialMode" => config with { CredentialMode = value },
         "integrationCredential" => config with { IntegrationCredential = value },
+        "integrationCredentialFile" => config with { IntegrationCredentialFile = value, IntegrationCredential = null },
+        "authentikAppPasswordFile" => config with { AuthentikAppPasswordFile = value, AuthentikAppPassword = null },
         "authentikScope" => config with { AuthentikScope = value },
         "agentUserEmail" => config with { AgentUserEmail = value },
-        _ => throw new CliValidationException($"Unknown config key '{key}'.")
+        _ => throw new CliValidationException("Unknown configuration key.")
     };
 
     private static string NormalizeConfigKey(string key) => key.Replace("_", "", StringComparison.Ordinal).Replace("-", "", StringComparison.Ordinal).ToLowerInvariant() switch
@@ -804,6 +810,8 @@ internal static partial class HelpdeskCli
         "authentikclientid" or "btauthentikclientid" => "authentikClientId",
         "authentikusername" or "btauthentikusername" => "authentikUsername",
         "authentikapppassword" or "btauthentikapppassword" => "authentikAppPassword",
+        "authentikapppasswordfile" => "authentikAppPasswordFile",
+        "integrationcredentialfile" => "integrationCredentialFile",
         "authentikscope" or "btauthentikscope" => "authentikScope",
         "agentuseremail" or "bthelpdeskagentuseremail" => "agentUserEmail",
         _ => key
@@ -872,6 +880,7 @@ internal static partial class HelpdeskCli
         public Option<string?> Scope { get; } = new("--scope") { Description = "Authentik OAuth scope." };
         public Option<string?> AgentUserEmail { get; } = new("--agent-user-email") { Description = "Helpdesk user email for assign-self." };
         public Option<string?> ConfigPath { get; } = new("--config") { Description = "CLI config file path." };
+        public Option<string?> Profile { get; } = new("--profile") { Description = "Explicit CLI profile name; isolated from MCP profiles." };
         public Option<string> Output { get; } = new("--output") { Description = "Output format: text or json.", DefaultValueFactory = _ => "text" };
         public Option<bool> Json { get; } = new("--json") { Description = "Alias for --output json --view raw unless --view is supplied." };
         public Option<string?> View { get; } = new("--view") { Description = "Output view: summary, detail, raw, or aggregate." };
@@ -886,7 +895,7 @@ internal static partial class HelpdeskCli
 
         public void AddTo(Command command)
         {
-            foreach (var option in new Option[] { ApiBaseUrl, TokenUrl, ClientId, Username, AppPassword, Scope, AgentUserEmail, ConfigPath, Output, Json, View, Fields, IncludeBody, IncludeHtml, BodyFormat, BodyLines, Truncate, Pretty, Quiet })
+            foreach (var option in new Option[] { ApiBaseUrl, TokenUrl, ClientId, Username, AppPassword, Scope, AgentUserEmail, ConfigPath, Profile, Output, Json, View, Fields, IncludeBody, IncludeHtml, BodyFormat, BodyLines, Truncate, Pretty, Quiet })
             {
                 command.AddGlobalOption(option);
             }

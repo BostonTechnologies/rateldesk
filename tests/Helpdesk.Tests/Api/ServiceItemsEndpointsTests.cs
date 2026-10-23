@@ -7,10 +7,14 @@ using Helpdesk.API.Endpoints.Dashboard;
 using Helpdesk.API.Endpoints.Services;
 using Helpdesk.API.Services;
 using Helpdesk.Application.Dashboard;
+using Helpdesk.Application.Events;
 using Helpdesk.Application.Messaging;
+using Helpdesk.Application.RequestTasks;
+using Helpdesk.Application.Resources;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.DTOs;
+using Helpdesk.Shared.DTOs.RequestForm;
 using Helpdesk.Shared.DTOs.Service;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
@@ -23,12 +27,75 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using NSubstitute;
 using Xunit;
 
 namespace Helpdesk.Tests.Api;
 
 public sealed class ServiceItemsEndpointsTests
 {
+    [Fact]
+    public async Task Service_create_update_get_and_list_preserve_organization_audience()
+    {
+        await using var harness = await ServiceItemsTestHarness.CreateAsync(isHelpdeskAdmin: true);
+        var created = await harness.Client.PostAsJsonAsync("/api/v1/services", new CreateServiceDto { Name = "Scoped", AllowedOrganizationIds = ["tenant-1"] });
+        created.EnsureSuccessStatusCode();
+        var service = (await created.Content.ReadFromJsonAsync<ServiceDto>())!;
+        Assert.Equal(["tenant-1"], service.AllowedOrganizationIds);
+        var update = await harness.Client.PutAsJsonAsync($"/api/v1/services/{service.Id}", new { name = "Updated", allowedOrganizationIds = new[] { "tenant-2" } });
+        update.EnsureSuccessStatusCode();
+        Assert.Equal(["tenant-2"], (await update.Content.ReadFromJsonAsync<ServiceDto>())!.AllowedOrganizationIds);
+        Assert.Equal(["tenant-2"], (await harness.Client.GetFromJsonAsync<ServiceDto>($"/api/v1/services/{service.Id}"))!.AllowedOrganizationIds);
+        var list = await harness.Client.GetFromJsonAsync<List<ServiceDto>>("/api/v1/services");
+        Assert.Equal(["tenant-2"], list!.Single(x => x.Id == service.Id).AllowedOrganizationIds);
+        Beta9Evidence.Record("API-B8-SERVICE-SCOPE-PROJECTION", "http-crud", new
+        {
+            createdAudience = service.AllowedOrganizationIds,
+            updatedAudience = list.Single(x => x.Id == service.Id).AllowedOrganizationIds,
+            checkedResponses = new[] { "create", "update", "get", "list" }
+        });
+    }
+
+    [Fact]
+    public async Task Request_form_edit_preserves_omitted_audience_and_accepts_explicit_clear()
+    {
+        await using var harness = await ServiceItemsTestHarness.CreateAsync(isHelpdeskAdmin: true);
+        using var configured = await harness.Client.PutAsJsonAsync("/api/v1/request-forms/form-root", new { allowedOrganizationIds = new[] { "tenant-1", "tenant-2" } });
+        configured.EnsureSuccessStatusCode();
+        using var renamed = await harness.Client.PutAsJsonAsync("/api/v1/request-forms/form-root", new { title = "Reviewed title" });
+        renamed.EnsureSuccessStatusCode();
+        var retained = await harness.Client.GetFromJsonAsync<RequestFormDto>("/api/v1/request-forms/form-root");
+        Assert.Equal("Reviewed title", retained!.Title);
+        Assert.Equal(["tenant-1", "tenant-2"], retained.AllowedOrganizationIds);
+        using var cleared = await harness.Client.PutAsJsonAsync("/api/v1/request-forms/form-root", new { allowedOrganizationIds = Array.Empty<string>() });
+        cleared.EnsureSuccessStatusCode();
+        var after = await harness.Client.GetFromJsonAsync<RequestFormDto>("/api/v1/request-forms/form-root");
+        Assert.Empty(after!.AllowedOrganizationIds);
+    }
+
+    [Fact]
+    public async Task MCP_service_search_maps_query_alias_to_real_q_filter_and_authorized_totals()
+    {
+        await using var harness = await ServiceItemsTestHarness.CreateAsync(customerId: "customer-1");
+        var ignored = await harness.Client.GetFromJsonAsync<PagedResponse<ServiceItemDto>>("/api/v1/service-items/search?query=needle&pageSize=25");
+        var expected = await harness.Client.GetFromJsonAsync<PagedResponse<ServiceItemDto>>("/api/v1/service-items/search?q=needle&pageSize=25");
+        Assert.NotEmpty(expected!.Items);
+        Assert.True(ignored!.TotalCount > expected.TotalCount);
+        var tools = Helpdesk.Tests.Mcp.TicketAdapterHttpTests.Tools(harness.Client, "SelfService.User");
+        foreach (var alias in new[] { "query", "q" })
+        {
+            var result = await tools.helpdesk_services("search_items", System.Text.Json.JsonSerializer.SerializeToElement(new Dictionary<string, object> { [alias] = "needle", ["pageSize"] = 25, ["includeTotal"] = true }));
+            Assert.True(result.Success, result.Summary);
+            var actual = System.Text.Json.JsonSerializer.Deserialize<PagedResponse<ServiceItemDto>>(result.Data!.ToJsonString(), new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+            Assert.Equal(expected.TotalCount, actual!.TotalCount);
+            Assert.Equal(expected.Items.Select(item => item.Id).Order(), actual.Items.Select(item => item.Id).Order());
+            Assert.DoesNotContain(actual.Items, item => item.Id is "form-hidden" or "form-customer-two" or "form-customer-parent");
+            var noMatch = await tools.helpdesk_services("search_items", System.Text.Json.JsonSerializer.SerializeToElement(new Dictionary<string, object> { [alias] = "campaign-impossible-search", ["pageSize"] = 25 }));
+            Assert.Equal(0, noMatch.Data!["totalCount"]!.GetValue<int>());
+            Assert.Empty(noMatch.Data!["items"]!.AsArray());
+        }
+    }
+
     [Fact]
     public async Task GetServiceItems_ReturnsRecursiveVisibleRequestCounts_ForServiceFolders()
     {
@@ -117,6 +184,7 @@ public sealed class ServiceItemsEndpointsTests
         var customerService = await customerServiceResponse.Content.ReadFromJsonAsync<ServiceDto>();
         Assert.NotNull(customerService);
         Assert.Empty(customerService!.AllowedCustomerIds);
+        Assert.Empty(customerService.AllowedOrganizationIds);
         Assert.Equal(System.Net.HttpStatusCode.Forbidden,
             (await harness.Client.GetAsync("/api/v1/services/customer-two")).StatusCode);
         Assert.Equal(System.Net.HttpStatusCode.Forbidden,
@@ -296,6 +364,11 @@ public sealed class ServiceItemsEndpointsTests
             builder.Services.AddDbContext<HelpdeskDbContext>(options => options.UseSqlite(connection));
             builder.Services.AddScoped<IRepository<Service>, EfRepository<Service>>();
             builder.Services.AddScoped<IRepository<RequestForm>, EfRepository<RequestForm>>();
+            builder.Services.AddSingleton<IRequestFormSchemaParser, RequestFormSchemaParser>();
+            builder.Services.AddSingleton<IRequestTaskDependencyGraphValidator, RequestTaskDependencyGraphValidator>();
+            builder.Services.AddSingleton(Substitute.For<IRequestFormDatasetBindingValidator>());
+            builder.Services.AddSingleton(Substitute.For<IDomainEventPublisher>());
+            builder.Services.AddSingleton(Substitute.For<ICorrelationContext>());
             builder.Services.AddScoped<ITenantContext>(_ => new TestTenantContext("tenant-1", "user-1", isHelpdeskAdmin));
             builder.Services.AddScoped<ISelfServiceAudienceService, TestSelfServiceAudienceService>();
             var dashboardSender = new TestDashboardSender();
@@ -315,6 +388,7 @@ public sealed class ServiceItemsEndpointsTests
                         HelpdeskPermissions.SelfServiceUser,
                         HelpdeskPermissions.HelpdeskAdmin));
                 options.AddPolicy("TicketReadAccess", policy => policy.RequireRole(HelpdeskPermissions.SelfServiceUser, HelpdeskPermissions.HelpdeskAdmin));
+                options.AddPolicy("HelpdeskAdmin", policy => policy.RequireRole(HelpdeskPermissions.HelpdeskAdmin));
             });
 
             var app = builder.Build();

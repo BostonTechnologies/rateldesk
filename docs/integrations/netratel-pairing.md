@@ -19,14 +19,18 @@ remain in their separate tab.
    Automation is never enabled implicitly.
 5. Select **Save** once. It validates the current permissions and selected
    resources, provisions the connector or automation binding, and activates
-   the connection. **Connected** describes a saved and authorized mapping.
+   the connection. **Configured** describes a saved and authorized mapping;
+   **Not tested** remains until the real read-only connection test succeeds.
 
 Pairing alone permits setup and authorized directory choices. It does not
 permit incident creation or automation. Only existing authorized tenants,
 organizations and customers are selectable; pairing creates none of them.
 There is no consent page, second sign-in, approval checkbox, enable switch or
 mandatory test. If Save fails, correct the actionable inline error and retry
-the same form. Refresh reopens the existing unconfigured pairing.
+the same form. Refresh preserves the existing unconfigured pairing. Its compact
+row shows **Needs attention** and **Continue setup**; resume that record instead
+of generating a replacement code or duplicate connection. Setup opens in a
+focused dialog with bounded scrolling and stable actions.
 
 ## Manage a connection
 
@@ -35,6 +39,13 @@ directions, status and last test result/time. **View** opens its configuration.
 **Test connection** checks authenticated access, the current mapping and
 selected capabilities without creating an incident or task. Testing is
 optional after Save.
+
+Administration/account entry points preserve the selected tab and authorized
+`organizationId` context across navigation and refresh. An organization URL
+value is only a hint checked against the current authorized directory. It may
+seed a new mapping; it never changes a saved mapping or grants access. A
+missing/deleted/unauthorized hint requires an explicit recoverable choice and
+does not silently select another organization.
 
 **Delete connection** removes the selected mapping and revokes its local
 authority immediately, including when the peer is unavailable. Other mappings

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Termina" Version="0.17.0" />
+    <PackageReference Include="System.CommandLine" Version="2.0.13" />
+    <ProjectReference Include="..\Helpdesk.AgentClient\Helpdesk.AgentClient.csproj" />
+    <ProjectReference Include="..\Helpdesk.Mcp.Core\Helpdesk.Mcp.Core.csproj" />
+    <ProjectReference Include="..\Helpdesk.Shared\Helpdesk.Shared.csproj" />
+    <InternalsVisibleTo Include="Helpdesk.Tests" />
+  </ItemGroup>
+</Project>

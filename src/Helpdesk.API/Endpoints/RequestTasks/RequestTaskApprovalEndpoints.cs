@@ -13,6 +13,7 @@ public static class RequestTaskApprovalEndpoints
 {
     public static void MapRequestTaskApprovalEndpoints(this IEndpointRouteBuilder app)
     {
+        app.MapAuthenticatedRequestApprovalEndpoints();
         app.MapGet("/api/v1/request-task-approvers", SearchApprovers)
             .WithTags("Request Tasks")
             .RequireAuthorization("HelpdeskAdmin")
@@ -132,7 +133,8 @@ public static class RequestTaskApprovalEndpoints
         var result = await approvalService.ApproveAsync(trackingId, taskId, request.Email, request.Token, ct);
         if (!result.Success)
         {
-            return Results.BadRequest(result.Error);
+            return result.ErrorCode == "approval_changed"
+                ? Results.Conflict(new { code = result.ErrorCode, message = result.Error }) : Results.BadRequest(result.Error);
         }
 
         await workflowEngine.RunAsync(result.RequestId, WorkflowRunReason.ApprovalReceived, ct);
@@ -147,6 +149,7 @@ public static class RequestTaskApprovalEndpoints
         CancellationToken ct)
     {
         var result = await approvalService.RejectAsync(trackingId, taskId, request.Email, request.Token, request.Reason, ct);
-        return result.Success ? Results.Ok(result) : Results.BadRequest(result.Error);
+        return result.Success ? Results.Ok(result) : result.ErrorCode == "approval_changed"
+            ? Results.Conflict(new { code = result.ErrorCode, message = result.Error }) : Results.BadRequest(result.Error);
     }
 }

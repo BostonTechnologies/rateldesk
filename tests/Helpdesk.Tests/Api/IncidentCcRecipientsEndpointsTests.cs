@@ -49,7 +49,8 @@ public partial class IncidentCcRecipientsEndpointsTests : IClassFixture<WebAppli
                 {
                     ["Jwt:Issuer"] = "test",
                     ["Jwt:Audience"] = "test",
-                    ["Jwt:Key"] = "test-key-123456789012345678901234"
+                    ["Jwt:Key"] = "test-key-123456789012345678901234",
+                    ["StorageOptions:ImageSigningSecret"] = "synthetic-incident-preview-test-signing-secret"
                 });
             });
 

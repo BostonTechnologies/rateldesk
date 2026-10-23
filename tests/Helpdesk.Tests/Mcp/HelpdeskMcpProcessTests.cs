@@ -27,7 +27,9 @@ public sealed class HelpdeskMcpProcessTests
                      "RATELDESK_API_BASE_URL"
                  })
             start.Environment.Remove(name);
-        start.Environment[HelpdeskMcpTarget.ConfigurationEnvironmentVariable] = Path.Combine(Path.GetTempPath(), $"helpdesk-mcp-{Guid.NewGuid():N}.json");
+        var configurationPath = Path.Combine(Path.GetTempPath(), $"helpdesk-mcp-{Guid.NewGuid():N}.json");
+        new AgentClientConfigurationStore(configurationPath).Save(StdioHost.Configuration("https://api.example"));
+        start.Environment[HelpdeskMcpTarget.ConfigurationEnvironmentVariable] = configurationPath;
 
         using var process = Process.Start(start)!;
         var stdout = process.StandardOutput.ReadToEndAsync();
@@ -37,6 +39,28 @@ public sealed class HelpdeskMcpProcessTests
         Assert.Equal(78, process.ExitCode);
         Assert.Equal(string.Empty, await stdout);
         Assert.Contains("RATELDESK_MCP_INSTANCE must be a lowercase instance label containing letters, digits, and hyphens.", await stderr, StringComparison.Ordinal);
+        File.Delete(configurationPath);
+    }
+
+    [Fact]
+    public async Task Environment_only_stdio_starts_with_pure_jsonrpc_and_ignores_ambient_cli_identity()
+    {
+        var placeholder = Path.Combine(Path.GetTempPath(), $"helpdesk-env-only-{Guid.NewGuid():N}.json");
+        var start = StdioHost.StartInfo("north-west", "http://api:8222", placeholder);
+        start.Environment.Remove(HelpdeskMcpTarget.ConfigurationEnvironmentVariable);
+        start.Environment["RATELDESK_MCP_API_BASE_URL"] = "http://api:8222";
+        start.Environment["RATELDESK_MCP_CREDENTIAL_MODE"] = "integration";
+        start.Environment["RATELDESK_MCP_INTEGRATION_CREDENTIAL"] = "rdk_test_only";
+        start.Environment["RATELDESK_MCP_EXPECTED_API_BASE_URL"] = "http://api:8222";
+        start.Environment["RATELDESK_API_BASE_URL"] = "https://wrong.example";
+        start.Environment["RATELDESK_INTEGRATION_CREDENTIAL"] = "rdk_wrong_cli_identity";
+        await using var host = new StdioHost(Process.Start(start)!, placeholder);
+        await host.InitializeAsync();
+        using var response = await host.CallAsync(2, "tools/call", new { name = "helpdesk_capabilities", arguments = new { operation = "get" } });
+        var data = response.RootElement.GetProperty("result").GetProperty("structuredContent").GetProperty("data");
+        Assert.Equal("north-west", data.GetProperty("instance").GetString());
+        Assert.Equal("http://api:8222", data.GetProperty("apiBaseUrl").GetString());
+        Assert.False(File.Exists(placeholder));
     }
 
     [Fact]

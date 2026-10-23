@@ -20,6 +20,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -132,6 +133,9 @@ public sealed class ServiceIdentityMigrationTests
             fixture.options = app.Options; fixture.identityOptions = identity.Options; return fixture;
         }
         public HelpdeskDbContext Open() => new(options, new AdminTenant(), new HttpContextAccessor());
+        public HelpdeskDbContext Open(params IInterceptor[] interceptors) => new(
+            new DbContextOptionsBuilder<HelpdeskDbContext>(options).AddInterceptors(interceptors).Options,
+            new AdminTenant(), new HttpContextAccessor());
         public RatelDeskIdentityDbContext Identity() => new(identityOptions);
         public async ValueTask DisposeAsync()
         {

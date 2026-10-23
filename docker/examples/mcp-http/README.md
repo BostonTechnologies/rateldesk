@@ -1,5 +1,34 @@
 # Optional HTTP MCP transport
 
+Start with the short [server/client setup guide](../../../docs/mcp-http/setup.md)
+for the discoverable deployment-host launcher. The recipes below are advanced
+standalone/manual alternatives; preserve an existing stack's owner and sources.
+In the extracted deployment tools directory on the Docker host, run
+`./setup-http-mcp.sh --native-executable "$NATIVE_SETUP"` with the verified matching
+native apphost. Default **Verify existing deployment** records the current
+baseline without source edits, new services, mounts or restarts. For a necessary
+correction use `--intent prepare-changes`, review the minimal readable source
+diff/counts, then save/deploy through its existing owner. After either adoption
+or approved apply run the exact printed fresh `--verify` command. Optional ordinary client setup is
+`./setup-http-mcp.sh --target http-client -- --profile incident-reader`.
+Preserve the selected Docker configuration/context; the
+[deployment reference](../../../docs/mcp-http/deployment.md#compose-prerequisites-and-docker-selection)
+covers capability checks and a deliberately selected isolated plugin.
+
+The canonical [HTTP MCP guides](../../../docs/mcp-http/README.md) cover complete
+configuration, environment-only setup, browser client approval, host exports,
+migration and verification. The [Web gateway guide](../../../docs/deployment/web-gateway.md)
+explains the optional single-origin route. Keep runnable recipes here and use
+the canonical guides for shared configuration rules.
+
+Normal adoption and minimal changes retain valid existing protected config-file
+mappings and the four-service topology. The initializer remains an explicitly
+reviewed Advanced alternative with its real extra service count. Do not hand-edit
+an approved export to remove a mount collision; changed sources need explicit
+re-read and new review/approval.
+The [verification guide](../../../docs/mcp-http/troubleshooting.md#check-incident-search)
+includes matching/no-match incident-list checks and the `query`/`q` alias rule.
+
 This example is an optional, stateless HTTP MCP transport for an existing
 RatelDesk API. It does not start an API or a database. This example uses the
 local-account paired gateway flow. Configure a local MCP
@@ -7,6 +36,10 @@ credential in RatelDesk for this exact public resource URI, then manually
 configure that credential as a Bearer token in the MCP client. The gateway
 exchanges it for a request-scoped, short-lived execution credential; it never
 forwards the credential to ordinary API operations.
+
+Run this standalone recipe from `docker/examples/mcp-http` in a checkout, or
+`examples/mcp-http` in an extracted deployment archive. Combined-stack commands
+later in this guide run from the repository root.
 
 ```sh
 cp .env.example .env
@@ -16,7 +49,8 @@ docker compose up -d
 ```
 
 Set `RATELDESK_VERSION` to one exact published version (for example
-`0.1.1-beta.2`), never `latest`. Set `RATELDESK_API_BASE_URL` to the exact API target,
+the version selected from the release page), never `latest`. Set
+`RATELDESK_API_BASE_URL` to the exact API target,
 `RATELDESK_MCP_PUBLIC_RESOURCE_URI` to the public HTTPS `/mcp` URL served by
 your TLS proxy. The container's HTTP listener on port 8223 does not itself
 provide TLS, so `https://localhost:8223/mcp` is not a usable default. Configure

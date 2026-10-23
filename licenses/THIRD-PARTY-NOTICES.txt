@@ -1,0 +1,24 @@
+RatelDesk setup dependencies
+
+Termina 0.16.4
+Copyright 2025-2026 Aaron Stannard
+Source: https://github.com/Aaronontheweb/termina
+Source revision: 22a4bb205404660f7be8ab7b2c7936d565f4dc07
+License: Apache-2.0 (Termina-Apache-2.0.txt)
+
+R3 1.3.1
+Copyright Cysharp, Inc.
+Source: https://github.com/Cysharp/R3
+Source revision: f6eed2dd4208dc4ae171c601e799e85f82aca25e
+License: MIT (R3-MIT.txt)
+
+These notices accompany the shared setup library in CLI/stdio archives and
+the HTTP MCP image. Existing release SBOMs record the complete dependency
+inventory; this file records the licenses introduced by the setup feature.
+
+PyYAML 6.0.3 (pure Python source parser, vendored for host source review)
+Copyright 2017-2021 Ingy döt Net; Copyright 2006-2016 Kirill Simonov
+Source: https://pypi.org/project/PyYAML/6.0.3/
+Source archive SHA-256: d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f
+Provenance: tools/mcp/vendor/PyYAML.json
+License: MIT (PyYAML-MIT.txt)

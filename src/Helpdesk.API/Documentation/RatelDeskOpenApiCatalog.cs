@@ -1,4 +1,6 @@
 using System.Text.Json.Nodes;
+using Helpdesk.API.Authentication;
+using Helpdesk.API.Endpoints.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using Microsoft.AspNetCore.Routing;
@@ -13,6 +15,7 @@ public static class RatelDeskOpenApiCatalog
     private const string JwtBearerScheme = "JwtBearer";
     private const string IntegrationCredentialScheme = "IntegrationCredential";
     private const string McpIntegrationCredentialScheme = "McpIntegrationCredential";
+    private const string McpExecutionScheme = "McpExecution";
     private const string LocalSessionScheme = "LocalSession";
     private const string AiAgentScheme = "AiAgentJwt";
     private const string SystemScheme = "SystemToken";
@@ -38,6 +41,8 @@ public static class RatelDeskOpenApiCatalog
         new("Users", "Identity & Access", "Application users and access."),
         new("Role Definitions", "Identity & Access", "Scoped application role definitions."),
         new("Integration Credentials", "Identity & Access", "Revocable API credentials. Secrets are shown once."),
+        new("Integration Credential Pairing", "Identity & Access", "Browser-approved account credential setup, device delivery and acknowledgement."),
+        new("MCP Deployment Approval", "Identity & Access", "Administrator approval of an exact MCP host deployment proposal without issuing a credential."),
         new("Service Identity", "Identity & Access", "Service client-credentials issuer metadata, public keys, and token exchange."),
         new("System Pairing", "Automation & Integrations", "Signed installation discovery, one-time pairing codes, and authenticated setup operations."),
         new("System Connections", "Automation & Integrations", "Administrator-owned named tenant and customer mappings, verification, and local-first deletion."),
@@ -64,6 +69,8 @@ public static class RatelDeskOpenApiCatalog
 
     private static readonly IReadOnlyDictionary<string, string> CanonicalNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
+        ["Integration credential pairing"] = "Integration Credential Pairing",
+        ["MCP deployment approval"] = "MCP Deployment Approval",
         ["System pairing"] = "System Pairing", ["System connections"] = "System Connections", ["Local authentication"] = "Local Authentication", ["Role definitions"] = "Role Definitions", ["Tenant administration"] = "Tenant Administration", ["Tenant settings"] = "Tenant Settings", ["Ticketing"] = "Ticket Lookups", ["Captcha"] = "CAPTCHA", ["SLA"] = "SLA Policies", ["Email"] = "Email Processing", ["Workflow Ops"] = "Workflow Operations", ["AutomationRules"] = "Automation Rules", ["Branding"] = "Instance Branding", ["AI Agent Ops"] = "AI Agent Operations", ["Ops"] = "Background Jobs", ["Admin"] = "Tenant Administration", ["AiAssistant Chat"] = "AI Assistant Chat", ["AiAssistant Webhooks"] = "AI Assistant Webhooks", ["External orchestration"] = "External Orchestration", ["Orchestration provider"] = "Orchestration Provider", ["Self Service"] = "Self-Service"
     };
 
@@ -135,6 +142,15 @@ public static class RatelDeskOpenApiCatalog
             BearerFormat = "paired opaque rdk credential",
             In = ParameterLocation.Header,
             Description = "Paired MCP credential: `Bearer rdk_<credential-id>_<secret>`. It is valid only for the MCP execution-token exchange and cannot call ordinary API operations."
+        };
+        document.Components.SecuritySchemes[McpExecutionScheme] = new OpenApiSecurityScheme
+        {
+            Name = "Authorization",
+            Type = SecuritySchemeType.Http,
+            Scheme = "Bearer",
+            BearerFormat = "opaque rdx execution token",
+            In = ParameterLocation.Header,
+            Description = "Short-lived API execution token: `Bearer rdx_<protected-payload>`. The HTTP MCP gateway obtains it through the MCP execution-token exchange. The source credential, account, purpose, resource, organization scope and permissions are revalidated on every request. Owner administration requires an explicitly approved mcp-owner grant and a currently enabled instance administrator; ordinary API or MCP grants do not acquire owner authority."
         };
         document.Components.SecuritySchemes[LocalSessionScheme] = new OpenApiSecurityScheme
         {
@@ -216,14 +232,16 @@ public static class RatelDeskOpenApiCatalog
         operation.Security = policies switch
         {
             _ when tag == "NetRatel Incident Receiver" => Requirements(document, IntegrationCredentialScheme, ServiceIdentityScheme),
-            _ when policies.Contains("ServiceClientManagement") => Requirements(document, JwtBearerScheme, LocalSessionScheme),
+            _ when policies.Contains(IntegrationCredentialEndpoints.CredentialManagementPolicy) => Requirements(document, JwtBearerScheme, LocalSessionScheme),
+            _ when policies.Contains(ServiceIdentityServiceCollectionExtensions.ManagementPolicy) ||
+                policies.Contains(IntegrationCredentialEndpoints.OwnerManagementPolicy) => Requirements(document, JwtBearerScheme, LocalSessionScheme, McpExecutionScheme),
+            _ when policies.Contains(AiAgentOrOwnerMcpAuthenticationHandler.PolicyName) => Requirements(document, AiAgentScheme, McpExecutionScheme),
             _ when policies.Contains("AuthentikAiAgentApi") => Requirements(document, AiAgentScheme),
             _ when policies.Contains("PairingCallbackOnly") => Requirements(document, ServiceIdentityScheme),
             _ when policies.Contains("SystemBlazorWeb") => Requirements(document, SystemScheme),
-            _ when policies.Contains("IntegrationCredentialManagementSession") => Requirements(document, JwtBearerScheme, LocalSessionScheme),
-            _ when policies.Contains("IntegrationCredentialSelfRevocation") => Requirements(document, IntegrationCredentialScheme),
+            _ when policies.Contains(IntegrationCredentialEndpoints.SelfRevocationPolicy) => Requirements(document, IntegrationCredentialScheme, McpExecutionScheme),
             _ when policies.Contains("McpCredentialDelegation") => Requirements(document, McpIntegrationCredentialScheme),
-            _ => Requirements(document, JwtBearerScheme, IntegrationCredentialScheme, LocalSessionScheme)
+            _ => Requirements(document, JwtBearerScheme, IntegrationCredentialScheme, LocalSessionScheme, McpExecutionScheme)
         };
         return Task.CompletedTask;
     }

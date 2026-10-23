@@ -2,6 +2,14 @@ name: rateldesk
 
 # Optional image-only overlay. It never creates a source build.
 services:
+  web:
+    environment:
+      WebGateway__PublicOrigin: ${RATELDESK_PUBLIC_ORIGIN:-}
+      WebGateway__Mcp__PublicResourceUri: ${RATELDESK_MCP_PUBLIC_RESOURCE_URI:?Set the canonical public HTTPS MCP resource.}
+      WebGateway__Mcp__Enabled: "true"
+      WebGateway__Mcp__Destination: ${RATELDESK_MCP_DESTINATION:-http://mcp-http:8223/}
+      WebGateway__Mcp__AuthenticationMode: authentik
+
   mcp-config-init:
     image: ghcr.io/bostontechnologies/rateldesk-mcp-http:${RATELDESK_VERSION:?Set RATELDESK_VERSION to an exact published RatelDesk version.}
     user: "0:0"
@@ -23,6 +31,8 @@ services:
 
   mcp-http:
     image: ghcr.io/bostontechnologies/rateldesk-mcp-http:${RATELDESK_VERSION:?Set RATELDESK_VERSION to an exact published RatelDesk version.}
+    labels:
+      com.rateldesk.deployment.manager: release-compose
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       RATELDESK_MCP_CONFIG: /run/rateldesk-mcp/config.json

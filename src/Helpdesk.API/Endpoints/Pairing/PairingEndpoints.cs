@@ -3,6 +3,7 @@ using System.Threading.RateLimiting;
 using Helpdesk.API.Authentication;
 using Helpdesk.Application.Notifications;
 using Helpdesk.Infrastructure.Pairing;
+using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence.Connectivity;
 using Helpdesk.Shared.DTOs.Notification;
 using Helpdesk.Shared.Pairing;
@@ -49,8 +50,11 @@ public static class PairingEndpoints
         admin.MapDelete("/{pairId}/mappings/{mappingId:guid}", (string pairId, Guid mappingId, HttpContext http, SystemPairingService service, CancellationToken ct) => RunAsync(http, async () => { await service.DeleteAsync(pairId, mappingId, await OwnerAsync(http, ct), true, ct); return Results.NoContent(); }));
         admin.MapDelete("/{pairId}", (string pairId, HttpContext http, SystemPairingService service, CancellationToken ct) => RunAsync(http, async () => { await service.DeleteAsync(pairId, null, await OwnerAsync(http, ct), true, ct); return Results.NoContent(); }));
     }
-    private static async Task<string> OwnerAsync(HttpContext http, CancellationToken ct) => (await http.RequestServices.GetRequiredService<IIntegrationCredentialOwnerResolver>().ResolveAsync(http.User, ct))?.UserId
-        ?? throw new PairingFailure("human_administrator_required", "A signed-in administrator must perform this operation.", 403);
+    private static async Task<string> OwnerAsync(HttpContext http, CancellationToken ct) =>
+        (await AdministrationOwnerResolver.ResolveAsync(http.User,
+            http.RequestServices.GetRequiredService<IIntegrationCredentialOwnerResolver>(),
+            http.RequestServices.GetRequiredService<RatelDeskIdentityDbContext>(), ct))?.UserId
+        ?? throw new PairingFailure("owner_administration_required", "A signed-in administrator or explicitly authorized owner agent must perform this operation.", 403);
     private static async Task<T> ReadAsync<T>(HttpRequest request, CancellationToken ct)
     {
         if (!request.HasJsonContentType() || request.ContentLength > 16384) throw new PairingFailure("invalid_request", "Send a bounded JSON pairing request.", 400);

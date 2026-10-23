@@ -15,6 +15,7 @@ using Helpdesk.API.Endpoints.Authentication;
 using Helpdesk.API.Endpoints.Incidents;
 using Helpdesk.API.Endpoints.Integrations;
 using Helpdesk.API.Endpoints.Orchestration;
+using Helpdesk.API.Endpoints.RequestTasks;
 using Helpdesk.API.Endpoints.Pairing;
 using Helpdesk.API.Services;
 using Helpdesk.Application.Incidents;
@@ -496,6 +497,8 @@ public sealed class IncidentReceiverTests
         private bool postgres;
         private bool serviceIdentity;
         private IHttpClientFactory? pairingPeer;
+        private Action<IServiceCollection>? configureServices;
+        private Action<WebApplication>? configureApp;
         private readonly ECDsa callbackSigningKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         public WebApplication App => apps[0];
         public HttpClient Client => clients[0];
@@ -511,10 +514,11 @@ public sealed class IncidentReceiverTests
         public string Token { get; private set; } = string.Empty;
         public CommitFault Fault { get; } = new();
 
-        public static async Task<Harness> CreateAsync(bool postgres, bool serviceIdentity = false, IHttpClientFactory? pairingPeer = null, Guid? publishedInstanceId = null)
+        public static async Task<Harness> CreateAsync(bool postgres, bool serviceIdentity = false, IHttpClientFactory? pairingPeer = null, Guid? publishedInstanceId = null,
+            Action<IServiceCollection>? configureServices = null, Action<WebApplication>? configureApp = null)
         {
             Npgsql.NpgsqlConnection.GlobalTypeMapper.EnableDynamicJson();
-            var h = new Harness { postgres = postgres, serviceIdentity = serviceIdentity, pairingPeer = pairingPeer };
+            var h = new Harness { postgres = postgres, serviceIdentity = serviceIdentity, pairingPeer = pairingPeer, configureServices = configureServices, configureApp = configureApp };
             h.PublishedId = publishedInstanceId ?? h.ReceiverId;
             Directory.CreateDirectory(h.root);
             if (postgres)
@@ -617,7 +621,9 @@ public sealed class IncidentReceiverTests
                 { policy.RequireAuthenticatedUser(); policy.AddRequirements(new IntegrationCredentialManagementSessionRequirement()); });
             });
             builder.Services.AddServiceOrchestrationCallbacks();
+            configureServices?.Invoke(builder.Services);
             var app = builder.Build();
+            app.UseMiddleware<Helpdesk.API.Middleware.CorrelationIdMiddleware>();
             app.UseAuthentication();
             if (serviceIdentity) app.UseMiddleware<Helpdesk.API.Middleware.UserAccessClaimsMiddleware>();
             app.UseAuthorization();
@@ -628,11 +634,13 @@ public sealed class IncidentReceiverTests
                 if (http.Request.Headers.ContainsKey("X-Synthetic-Lost-Response")) throw new IOException("Synthetic response loss after commit.");
             });
             app.MapIncidentEndpoints();
+            app.MapRequestTaskEndpoints();
             app.MapIncidentReceiverEndpoints();
             app.MapIncidentReceiverSourceEndpoints();
             app.MapServiceIdentityEndpoints();
             app.MapSystemPairing();
             app.MapExternalOrchestrationCallbackEndpoints();
+            configureApp?.Invoke(app);
             await app.StartAsync();
             apps.Add(app); clients.Add(app.GetTestClient());
         }

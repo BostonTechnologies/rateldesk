@@ -181,6 +181,103 @@ namespace Helpdesk.Infrastructure.Identity.Migrations
                     b.ToTable("IntegrationCredentials", (string)null);
                 });
 
+            modelBuilder.Entity("Helpdesk.Infrastructure.Identity.IntegrationCredentialPairing", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("CredentialId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long?>("DeliveryExpiresAtUnixMilliseconds")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("DeviceHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long>("ExpiresAtUnixMilliseconds")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("HumanHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long?>("LastPollAtUnixMilliseconds")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("McpResourceUri")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("OwnerUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("ProtectedApproval")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProtectedDelivery")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeviceHash")
+                        .IsUnique();
+
+                    b.HasIndex("ExpiresAtUnixMilliseconds");
+
+                    b.HasIndex("HumanHash")
+                        .IsUnique();
+
+                    b.ToTable("IntegrationCredentialPairings");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.Identity.IntegrationCredentialPairingRateLimit", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("WindowEndsAtUnixMilliseconds")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Key");
+
+                    b.HasIndex("WindowEndsAtUnixMilliseconds");
+
+                    b.ToTable("IntegrationCredentialPairingRateLimits");
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
                 {
                     b.Property<string>("Id")

@@ -43,8 +43,18 @@
     font-weight: 600;
 }
 
-.self-service-search {
-    max-width: 560px;
+/* The native wrapper owns width; the Mud input is a child component. */
+.self-service-toolbar {
+    width: min(100%, 30rem);
+    max-width: 32rem;
+    min-width: 0;
+    justify-self: start;
+}
+
+.self-service-toolbar ::deep .self-service-search {
+    width: 100%;
+    min-width: 0;
+    margin: 0;
 }
 
 .self-service-loading {

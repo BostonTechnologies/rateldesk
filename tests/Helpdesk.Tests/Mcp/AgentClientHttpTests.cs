@@ -8,6 +8,21 @@ namespace Helpdesk.Tests.Mcp;
 public sealed class AgentClientHttpTests
 {
     [Fact]
+    public async Task Prometheus_workflow_metrics_have_an_explicit_typed_text_adapter_only_for_that_route()
+    {
+        var client = new HelpdeskAgentClient(new AgentClientConfiguration("https://api.example", "https://auth.example/token", "client", "agent", "secret", "scope", null),
+            () => new TestHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("# TYPE helpdesk_tasks_in_progress gauge\nhelpdesk_tasks_in_progress 2\n", Encoding.UTF8, "text/plain")
+            }));
+        var metrics = await client.GetAsync("/api/v1/metrics/workflows", authenticated: false);
+        Assert.Equal("prometheus", metrics!["format"]!.GetValue<string>());
+        Assert.Contains("helpdesk_tasks_in_progress 2", metrics["text"]!.GetValue<string>());
+        var invalid = await Assert.ThrowsAsync<AgentClientRemoteException>(() => client.GetAsync("/api/v1/system/version", authenticated: false));
+        Assert.Equal("api_response_invalid", invalid.Code);
+    }
+
+    [Fact]
     public async Task Health_uses_one_deadline_and_preserves_completed_checks()
     {
         var client = new HelpdeskAgentClient(
@@ -262,6 +277,24 @@ public sealed class AgentClientHttpTests
 
         Assert.Equal("Bearer outbound-agent-token", outboundAuthorization);
         Assert.DoesNotContain(inboundMcpToken, outboundAuthorization, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("corr-safe-123", "corr-safe-123")]
+    [InlineData("unsafe private reference", null)]
+    [InlineData("rdk_secret_as_reference", null)]
+    public async Task Downstream_denial_preserves_only_bounded_safe_correlation_header(string header, string? expected)
+    {
+        var configuration = AgentClientConfiguration.Empty with { ApiBaseUrl = "https://api.example", CredentialMode = "integration", IntegrationCredential = "rdk_test_secret" };
+        var client = new HelpdeskAgentClient(configuration, () => new TestHandler(_ =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.Forbidden) { Content = new StringContent("raw-private-payload") };
+            response.Headers.TryAddWithoutValidation("X-Correlation-Id", header);
+            return response;
+        }));
+        var denied = await Assert.ThrowsAsync<AgentClientRemoteException>(() => client.GetAsync("/api/v1/auth/me"));
+        Assert.Equal(expected, denied.CorrelationId); Assert.Equal(403, denied.StatusCode); Assert.Null(denied.ResponseBody);
+        Assert.DoesNotContain("raw-private-payload", denied.Message);
     }
 
     private sealed class TestHandler(Func<HttpRequestMessage, HttpResponseMessage> responder) : HttpMessageHandler

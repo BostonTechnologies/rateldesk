@@ -60,6 +60,79 @@ grep -q '^rateldesk ' "$temporary_directory/cli-version.txt"
 grep -q '^rateldesk-mcp ' "$temporary_directory/mcp-version.txt"
 grep -q 'stdout is reserved for MCP protocol traffic' "$temporary_directory/mcp-help.txt"
 
+# Verify setup is packaged and remains explicit/noninteractive before configuration.
+# On Windows, exercise actual archived CLI private storage under a broad parent ACL.
+"$python_bin" - "$cli" "$mcp" "$temporary_directory" "$rid" "$(dirname "${BASH_SOURCE[0]}")/check-windows-profile-privacy.ps1" "$asset_directory" <<'PY'
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+cli, mcp, temporary, rid, privacy_script, assets = sys.argv[1:]
+manifest = json.loads((Path(assets) / 'release-manifest.json').read_text(encoding='utf-8'))
+if not re.fullmatch(r'[0-9a-f]{40}', manifest['sourceRevision']):
+    raise SystemExit('The archive manifest must identify its exact source commit.')
+expected_information = f"({manifest['version']}+{manifest['sourceRevision']})"
+for name in ['cli', 'mcp']:
+    actual = (Path(temporary) / f'{name}-version.txt').read_text(encoding='utf-8').strip()
+    if expected_information not in actual:
+        raise SystemExit('The extracted apphost version/source does not match the package manifest.')
+print('Archive exact version/source identities passed for ' + rid)
+environment = {key: value for key, value in os.environ.items() if not key.startswith('RATELDESK_')}
+for tool in [cli, mcp]:
+    result = subprocess.run([tool, 'setup'], env=environment, capture_output=True, text=True, timeout=15)
+    if result.returncode != 78 or result.stdout or 'requires a TTY' not in result.stderr:
+        raise SystemExit('The archive setup entrypoint did not exit predictably without a TTY.')
+if rid == 'win-x64':
+    directory = str(Path(temporary) / 'windows-private-profile')
+    command = ['powershell.exe', '-NoProfile', '-NonInteractive', '-File', privacy_script, '-DirectoryPath', directory]
+    subprocess.run(command + ['-Prepare'], check=True, timeout=15)
+    environment.update({
+        'RATELDESK_API_BASE_URL': 'https://api.example.test/',
+        'RATELDESK_CREDENTIAL_MODE': 'authentik',
+        'RATELDESK_AUTHENTIK_TOKEN_URL': 'https://auth.example.test/token',
+        'RATELDESK_AUTHENTIK_CLIENT_ID': 'archive-probe',
+        'RATELDESK_AUTHENTIK_USERNAME': 'archive-probe',
+        'RATELDESK_AUTHENTIK_APP_PASSWORD': 'synthetic-archive-private-fixture',
+    })
+    for _ in range(2):
+        result = subprocess.run([cli, '--config', str(Path(directory) / 'cli.json'), 'auth', 'configure'],
+                                env=environment, capture_output=True, text=True, timeout=15)
+        if result.returncode or 'synthetic-archive-private-fixture' in result.stdout + result.stderr:
+            raise SystemExit('The archive CLI private configuration probe failed or disclosed its fixture.')
+        subprocess.run(command, check=True, timeout=15)
+print('Archive explicit setup entrypoints passed for ' + rid)
+
+# The beta.17 diagnostic regression must fail safely in a real extracted
+# process. A crash or timeout is a failure, never configuration evidence.
+malformed = Path(temporary) / 'malformed-mcp.json'
+canary = 'synthetic-archive-secret-not-for-diagnostics'
+malformed.write_text('{"integrationCredential":"' + canary + '","apiBaseUrl":', encoding='utf-8')
+if os.name != 'nt':
+    malformed.chmod(0o600)
+negative_environment = environment.copy()
+negative_environment.update({
+    'RATELDESK_MCP_CONFIG': str(malformed),
+    'RATELDESK_MCP_INSTANCE': 'archivetest',
+    'RATELDESK_MCP_EXPECTED_API_BASE_URL': 'https://api.example.test/',
+})
+result = subprocess.run([mcp], env=negative_environment, capture_output=True, text=True, timeout=15)
+if result.returncode != 78 or result.stdout or 'startup validation failed' not in result.stderr or 'invalid JSON' not in result.stderr:
+    raise SystemExit('Malformed archived stdio configuration did not produce the documented safe exit 78 on stderr.')
+if canary in result.stderr:
+    raise SystemExit('Malformed archived stdio configuration disclosed its synthetic secret.')
+print('Archive malformed stdio configuration passed for ' + rid)
+PY
+
+# The deliberate deep lane exercises actual extracted apphosts through a PTY.
+# Keep this Unix-specific interaction outside ordinary PR/main validation.
+if [[ "${RATELDESK_ARCHIVE_PTY_ACCEPTANCE:-false}" == true && "$rid" == linux-* ]]; then
+  python3 "$(dirname "${BASH_SOURCE[0]}")/../ci/test-setup-terminal.py" --approval -- "$cli"
+  python3 "$(dirname "${BASH_SOURCE[0]}")/../ci/test-setup-terminal.py" --approval -- "$mcp"
+fi
+
 configuration="$temporary_directory/mcp-config.json"
 cat > "$configuration" <<'EOF'
 {

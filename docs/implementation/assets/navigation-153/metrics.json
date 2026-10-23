@@ -1,0 +1,488 @@
+[
+  {
+    "phase": "before",
+    "variant": "desktop-light",
+    "viewport": [
+      1366,
+      768
+    ],
+    "deviceScaleFactor": 1,
+    "inventory": [
+      "/admin/ai-assistant-webhooks",
+      "/admin/automation",
+      "/admin/automation/integration",
+      "/admin/branding",
+      "/admin/categories",
+      "/admin/customers",
+      "/admin/email-rules",
+      "/admin/email-settings",
+      "/admin/layouts",
+      "/admin/organizations",
+      "/admin/pending-emails",
+      "/admin/requests/services",
+      "/admin/resources/data-management",
+      "/admin/roles",
+      "/admin/support-routing",
+      "/admin/templates",
+      "/admin/tenant-sla-settings",
+      "/admin/users",
+      "/logout",
+      "/ops/hangfire",
+      "/ops/slas",
+      "/ops/workflows",
+      "assets",
+      "auth",
+      "changes",
+      "home",
+      "incidents",
+      "notifications",
+      "requests",
+      "self-service",
+      "self-service/my-requests",
+      "tasks"
+    ],
+    "metrics": {
+      "width": 272,
+      "homeHeight": 42,
+      "active": [
+        "/admin/automation/integration",
+        "/admin/automation"
+      ],
+      "current": [
+        "/admin/automation/integration",
+        "/admin/automation"
+      ],
+      "textOverflow": [
+        "AlexandraCustomerSupportAdministratorWithAVeryLongAccountIdentifierForAccessibilityChecks"
+      ],
+      "horizontalOverflow": 0,
+      "navHeight": 1029,
+      "theme": "light"
+    }
+  },
+  {
+    "phase": "before",
+    "variant": "desktop-dark",
+    "viewport": [
+      1366,
+      768
+    ],
+    "deviceScaleFactor": 1,
+    "inventory": [
+      "/admin/ai-assistant-webhooks",
+      "/admin/automation",
+      "/admin/automation/integration",
+      "/admin/branding",
+      "/admin/categories",
+      "/admin/customers",
+      "/admin/email-rules",
+      "/admin/email-settings",
+      "/admin/layouts",
+      "/admin/organizations",
+      "/admin/pending-emails",
+      "/admin/requests/services",
+      "/admin/resources/data-management",
+      "/admin/roles",
+      "/admin/support-routing",
+      "/admin/templates",
+      "/admin/tenant-sla-settings",
+      "/admin/users",
+      "/logout",
+      "/ops/hangfire",
+      "/ops/slas",
+      "/ops/workflows",
+      "assets",
+      "auth",
+      "changes",
+      "home",
+      "incidents",
+      "notifications",
+      "requests",
+      "self-service",
+      "self-service/my-requests",
+      "tasks"
+    ],
+    "metrics": {
+      "width": 272,
+      "homeHeight": 42,
+      "active": [
+        "/admin/automation/integration",
+        "/admin/automation"
+      ],
+      "current": [
+        "/admin/automation/integration",
+        "/admin/automation"
+      ],
+      "textOverflow": [
+        "AlexandraCustomerSupportAdministratorWithAVeryLongAccountIdentifierForAccessibilityChecks"
+      ],
+      "horizontalOverflow": 0,
+      "navHeight": 1029,
+      "theme": "dark"
+    }
+  },
+  {
+    "phase": "before",
+    "variant": "narrow-dark",
+    "viewport": [
+      390,
+      844
+    ],
+    "deviceScaleFactor": 1,
+    "inventory": [
+      "/admin/ai-assistant-webhooks",
+      "/admin/automation",
+      "/admin/automation/integration",
+      "/admin/branding",
+      "/admin/categories",
+      "/admin/customers",
+      "/admin/email-rules",
+      "/admin/email-settings",
+      "/admin/layouts",
+      "/admin/organizations",
+      "/admin/pending-emails",
+      "/admin/requests/services",
+      "/admin/resources/data-management",
+      "/admin/roles",
+      "/admin/support-routing",
+      "/admin/templates",
+      "/admin/tenant-sla-settings",
+      "/admin/users",
+      "/logout",
+      "/ops/hangfire",
+      "/ops/slas",
+      "/ops/workflows",
+      "assets",
+      "auth",
+      "changes",
+      "home",
+      "incidents",
+      "notifications",
+      "requests",
+      "self-service",
+      "self-service/my-requests",
+      "tasks"
+    ],
+    "metrics": {
+      "width": 272,
+      "homeHeight": 42,
+      "active": [
+        "/admin/automation/integration",
+        "/admin/automation"
+      ],
+      "current": [
+        "/admin/automation/integration",
+        "/admin/automation"
+      ],
+      "textOverflow": [
+        "AlexandraCustomerSupportAdministratorWithAVeryLongAccountIdentifierForAccessibilityChecks"
+      ],
+      "horizontalOverflow": 0,
+      "navHeight": 1029,
+      "theme": "dark"
+    }
+  },
+  {
+    "phase": "before",
+    "variant": "zoom-200-light",
+    "viewport": [
+      683,
+      384
+    ],
+    "deviceScaleFactor": 2,
+    "inventory": [
+      "/admin/ai-assistant-webhooks",
+      "/admin/automation",
+      "/admin/automation/integration",
+      "/admin/branding",
+      "/admin/categories",
+      "/admin/customers",
+      "/admin/email-rules",
+      "/admin/email-settings",
+      "/admin/layouts",
+      "/admin/organizations",
+      "/admin/pending-emails",
+      "/admin/requests/services",
+      "/admin/resources/data-management",
+      "/admin/roles",
+      "/admin/support-routing",
+      "/admin/templates",
+      "/admin/tenant-sla-settings",
+      "/admin/users",
+      "/logout",
+      "/ops/hangfire",
+      "/ops/slas",
+      "/ops/workflows",
+      "assets",
+      "auth",
+      "changes",
+      "home",
+      "incidents",
+      "notifications",
+      "requests",
+      "self-service",
+      "self-service/my-requests",
+      "tasks"
+    ],
+    "metrics": {
+      "width": 272,
+      "homeHeight": 42,
+      "active": [
+        "/admin/automation/integration",
+        "/admin/automation"
+      ],
+      "current": [
+        "/admin/automation/integration",
+        "/admin/automation"
+      ],
+      "textOverflow": [
+        "AlexandraCustomerSupportAdministratorWithAVeryLongAccountIdentifierForAccessibilityChecks"
+      ],
+      "horizontalOverflow": 0,
+      "navHeight": 1029,
+      "theme": "light"
+    }
+  },
+  {
+    "phase": "after",
+    "variant": "desktop-light",
+    "viewport": [
+      1366,
+      768
+    ],
+    "deviceScaleFactor": 1,
+    "inventory": [
+      "/account/integration-credentials",
+      "/admin/ai-assistant-webhooks",
+      "/admin/automation",
+      "/admin/automation/integration",
+      "/admin/branding",
+      "/admin/categories",
+      "/admin/customers",
+      "/admin/email-rules",
+      "/admin/email-settings",
+      "/admin/layouts",
+      "/admin/organizations",
+      "/admin/pending-emails",
+      "/admin/requests/services",
+      "/admin/resources/data-management",
+      "/admin/roles",
+      "/admin/support-routing",
+      "/admin/templates",
+      "/admin/tenant-sla-settings",
+      "/admin/users",
+      "/logout",
+      "/ops/hangfire",
+      "/ops/slas",
+      "/ops/workflows",
+      "assets",
+      "auth",
+      "changes",
+      "home",
+      "incidents",
+      "notifications",
+      "requests",
+      "self-service",
+      "self-service/my-requests",
+      "tasks"
+    ],
+    "metrics": {
+      "width": 240,
+      "homeHeight": 36,
+      "active": [
+        "/admin/automation/integration"
+      ],
+      "current": [
+        "/admin/automation/integration"
+      ],
+      "textOverflow": [],
+      "horizontalOverflow": 0,
+      "navHeight": 1138,
+      "theme": "light",
+      "keyboardFocus": {
+        "width": "2px",
+        "style": "solid"
+      },
+      "customAccent": "rgb(49, 94, 155) 3px 0px 0px 0px inset"
+    }
+  },
+  {
+    "phase": "after",
+    "variant": "desktop-dark",
+    "viewport": [
+      1366,
+      768
+    ],
+    "deviceScaleFactor": 1,
+    "inventory": [
+      "/account/integration-credentials",
+      "/admin/ai-assistant-webhooks",
+      "/admin/automation",
+      "/admin/automation/integration",
+      "/admin/branding",
+      "/admin/categories",
+      "/admin/customers",
+      "/admin/email-rules",
+      "/admin/email-settings",
+      "/admin/layouts",
+      "/admin/organizations",
+      "/admin/pending-emails",
+      "/admin/requests/services",
+      "/admin/resources/data-management",
+      "/admin/roles",
+      "/admin/support-routing",
+      "/admin/templates",
+      "/admin/tenant-sla-settings",
+      "/admin/users",
+      "/logout",
+      "/ops/hangfire",
+      "/ops/slas",
+      "/ops/workflows",
+      "assets",
+      "auth",
+      "changes",
+      "home",
+      "incidents",
+      "notifications",
+      "requests",
+      "self-service",
+      "self-service/my-requests",
+      "tasks"
+    ],
+    "metrics": {
+      "width": 240,
+      "homeHeight": 36,
+      "active": [
+        "/admin/automation/integration"
+      ],
+      "current": [
+        "/admin/automation/integration"
+      ],
+      "textOverflow": [],
+      "horizontalOverflow": 0,
+      "navHeight": 1138,
+      "theme": "dark"
+    }
+  },
+  {
+    "phase": "after",
+    "variant": "narrow-dark",
+    "viewport": [
+      390,
+      844
+    ],
+    "deviceScaleFactor": 1,
+    "inventory": [
+      "/account/integration-credentials",
+      "/admin/ai-assistant-webhooks",
+      "/admin/automation",
+      "/admin/automation/integration",
+      "/admin/branding",
+      "/admin/categories",
+      "/admin/customers",
+      "/admin/email-rules",
+      "/admin/email-settings",
+      "/admin/layouts",
+      "/admin/organizations",
+      "/admin/pending-emails",
+      "/admin/requests/services",
+      "/admin/resources/data-management",
+      "/admin/roles",
+      "/admin/support-routing",
+      "/admin/templates",
+      "/admin/tenant-sla-settings",
+      "/admin/users",
+      "/logout",
+      "/ops/hangfire",
+      "/ops/slas",
+      "/ops/workflows",
+      "assets",
+      "auth",
+      "changes",
+      "home",
+      "incidents",
+      "notifications",
+      "requests",
+      "self-service",
+      "self-service/my-requests",
+      "tasks"
+    ],
+    "metrics": {
+      "width": 240,
+      "homeHeight": 44,
+      "active": [
+        "/admin/automation/integration"
+      ],
+      "current": [
+        "/admin/automation/integration"
+      ],
+      "textOverflow": [],
+      "horizontalOverflow": 0,
+      "navHeight": 1290,
+      "theme": "dark"
+    }
+  },
+  {
+    "phase": "after",
+    "variant": "zoom-200-light",
+    "viewport": [
+      683,
+      384
+    ],
+    "deviceScaleFactor": 2,
+    "inventory": [
+      "/account/integration-credentials",
+      "/admin/ai-assistant-webhooks",
+      "/admin/automation",
+      "/admin/automation/integration",
+      "/admin/branding",
+      "/admin/categories",
+      "/admin/customers",
+      "/admin/email-rules",
+      "/admin/email-settings",
+      "/admin/layouts",
+      "/admin/organizations",
+      "/admin/pending-emails",
+      "/admin/requests/services",
+      "/admin/resources/data-management",
+      "/admin/roles",
+      "/admin/support-routing",
+      "/admin/templates",
+      "/admin/tenant-sla-settings",
+      "/admin/users",
+      "/logout",
+      "/ops/hangfire",
+      "/ops/slas",
+      "/ops/workflows",
+      "assets",
+      "auth",
+      "changes",
+      "home",
+      "incidents",
+      "notifications",
+      "requests",
+      "self-service",
+      "self-service/my-requests",
+      "tasks"
+    ],
+    "metrics": {
+      "width": 240,
+      "homeHeight": 36,
+      "active": [
+        "/admin/automation/integration"
+      ],
+      "current": [
+        "/admin/automation/integration"
+      ],
+      "textOverflow": [],
+      "horizontalOverflow": 0,
+      "navHeight": 1138,
+      "theme": "light"
+    }
+  },
+  {
+    "mobileEscapeFocus": true,
+    "mobileOverlayFocus": true,
+    "mobileNavigationDismissal": true
+  }
+]

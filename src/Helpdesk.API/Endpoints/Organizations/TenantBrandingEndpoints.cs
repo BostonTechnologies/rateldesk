@@ -23,7 +23,7 @@ public static class TenantBrandingEndpoints
             [FromServices] IRepository<TenantBranding> repo,
             [FromServices] IConfiguration config) =>
         {
-            var existing = await repo.GetAsync(tenantId.ToString());
+            var existing = await repo.Query().SingleOrDefaultAsync(x => x.TenantId == tenantId);
             if (existing is not null)
                 return Results.Ok(existing);
 
@@ -47,7 +47,7 @@ public static class TenantBrandingEndpoints
             [FromServices] IHtmlSanitizerService sanitizer) =>
         {
             var sanitizedFooter = sanitizer.Sanitize(dto.FooterHtml ?? string.Empty);
-            var existing = await repo.GetAsync(tenantId.ToString());
+            var existing = await repo.Query().SingleOrDefaultAsync(x => x.TenantId == tenantId);
             if (existing is null)
             {
                 var created = new TenantBranding
@@ -95,7 +95,7 @@ public static class TenantBrandingEndpoints
             await stream.CopyToAsync(memory);
             var logoUrl = await storage.SaveLogoAsync(tenantId, file.FileName, memory.ToArray());
 
-            var existing = await repo.GetAsync(tenantId.ToString());
+            var existing = await repo.Query().SingleOrDefaultAsync(x => x.TenantId == tenantId);
             if (existing is null)
             {
                 existing = new TenantBranding
@@ -120,6 +120,8 @@ public static class TenantBrandingEndpoints
 
             return Results.Ok(new { url = logoUrl });
         })
+        // This API authenticates bearer clients, including MCP multipart uploads.
+        .DisableAntiforgery()
         .Accepts<LogoUploadForm>("multipart/form-data");
 
         app.MapGet("/api/tenants/{tenantId:int}/branding/logo/{filename}", (

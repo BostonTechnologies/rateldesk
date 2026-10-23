@@ -8,13 +8,18 @@ using Helpdesk.API.Endpoints.Changes;
 using Helpdesk.API.Endpoints.Incidents;
 using Helpdesk.API.Endpoints.Requests;
 using Helpdesk.API.Endpoints.Ticketing;
+using Helpdesk.API.Endpoints.System;
+using Helpdesk.API.Endpoints.Search;
 using Helpdesk.Application.Services.SupportNotifications;
+using Helpdesk.Application.Services.Changes;
+using Helpdesk.Application.Timeline;
 using Helpdesk.Application.WorkLogs;
 using Helpdesk.Application.Sla;
 using Helpdesk.Application.Events;
 using Helpdesk.Application.Services.Notifications;
 using Helpdesk.Shared.DTOs.Incident;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Changes;
 using Helpdesk.Shared.DTOs.User;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
@@ -61,6 +66,22 @@ public sealed class AssigneeSearchEndpointsTests
         // The existing task-label consumer retains the complete legacy list.
         var legacy = await h.Client.GetFromJsonAsync<List<UserDto>>("/api/v1/ticketing/assignees?module=request&organizationId=org");
         Assert.True(legacy!.Count > 50);
+    }
+
+    [Fact]
+    public async Task Normal_request_list_includes_human_and_AI_provenance_and_legacy_filter_remains_explicit()
+    {
+        await using var h = await Harness.Create();
+        await h.WithDb(async db => {
+            db.Requests.AddRange(
+                new TicketRequest { Id = "human-origin", Title = "Same synthetic request", OrganizationId = "org", TrackingId = "REQ-HUMAN" },
+                new TicketRequest { Id = "ai-origin", Title = "Same synthetic request", OrganizationId = "org", TrackingId = "REQ-AI", SourceAutomationBindingId = "synthetic-binding" });
+            await db.SaveChangesAsync();
+        });
+        var normal = await h.Client.GetFromJsonAsync<Helpdesk.Shared.DTOs.PagedResponse<Helpdesk.Shared.DTOs.Request.RequestDto>>("/api/v1/requests?q=Same%20synthetic&summaryOnly=true");
+        Assert.Equal(new[] { "ai-origin", "human-origin" }, normal!.Items.Select(x => x.Id).Order());
+        var legacy = await h.Client.GetFromJsonAsync<Helpdesk.Shared.DTOs.PagedResponse<Helpdesk.Shared.DTOs.Request.RequestDto>>("/api/v1/requests?q=Same%20synthetic&summaryOnly=true&aiOnly=true");
+        Assert.Equal("ai-origin", Assert.Single(legacy!.Items).Id);
     }
 
     [Fact]
@@ -145,7 +166,40 @@ public sealed class AssigneeSearchEndpointsTests
         Assert.Equal(HttpStatusCode.Forbidden, (await h.Client.GetAsync("/api/v1/ticketing/assignees/current?module=incident&organizationId=other&ticketId=incident")).StatusCode);
     }
 
-    private sealed class Harness(WebApplication app, HttpClient client, SqliteConnection? sqlite, PostgreSqlContainer? postgres) : IAsyncDisposable
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Category_assignments_preserve_existing_inactive_ids_and_reject_new_foreign_ids(bool postgres)
+    {
+        await using var h = await Harness.Create(postgres);
+        var retained = Guid.NewGuid(); var added = Guid.NewGuid(); var foreign = Guid.NewGuid();
+        await h.WithDb(async db =>
+        {
+            db.TicketCategories.AddRange(
+                new TicketCategory { Id = retained, Name = "Historical selection", Type = Helpdesk.Shared.Enums.TicketCategoryType.Service, IsActive = false },
+                new TicketCategory { Id = added, Name = "Shared selection", Type = Helpdesk.Shared.Enums.TicketCategoryType.Service },
+                new TicketCategory { Id = foreign, Name = "Foreign selection", Type = Helpdesk.Shared.Enums.TicketCategoryType.Service, TenantId = Guid.NewGuid() });
+            db.IncidentCategoryLinks.Add(new IncidentCategoryLink { IncidentId = "incident", TicketCategoryId = retained });
+            db.RequestCategoryLinks.Add(new RequestCategoryLink { RequestId = "request", TicketCategoryId = retained });
+            db.ChangeCategoryLinks.Add(new ChangeCategoryLink { ChangeId = "change", TicketCategoryId = retained });
+            await db.SaveChangesAsync();
+        });
+        foreach (var module in new[] { "incident", "request", "change" })
+        {
+            var path = $"/api/v1/{module}s/{module}";
+            using var updated = await h.Client.PutAsJsonAsync(path, new { CategoryIds = new[] { retained, added } });
+            Assert.True(updated.IsSuccessStatusCode, $"{module} update: {(int)updated.StatusCode} {await updated.Content.ReadAsStringAsync()}");
+            Assert.Equal(HttpStatusCode.BadRequest, (await h.Client.PutAsJsonAsync(path, new { CategoryIds = new[] { retained, added, foreign } })).StatusCode);
+            using var reloaded = System.Text.Json.JsonDocument.Parse(await h.Client.GetStringAsync(path));
+            Assert.Equal(new[] { retained, added }.Order(), reloaded.RootElement.GetProperty("categoryIds").EnumerateArray().Select(x => x.GetGuid()).Order());
+            using var removed = await h.Client.PutAsJsonAsync(path, new { CategoryIds = new[] { added } });
+            Assert.True(removed.IsSuccessStatusCode, $"{module} remove: {(int)removed.StatusCode} {await removed.Content.ReadAsStringAsync()}");
+            Assert.Equal(HttpStatusCode.BadRequest, (await h.Client.PutAsJsonAsync(path, new { CategoryIds = new[] { retained, added } })).StatusCode);
+        }
+        await h.WithDb(async db => Assert.Equal(3, await db.TicketCategories.CountAsync()));
+    }
+
+    internal sealed class Harness(WebApplication app, HttpClient client, SqliteConnection? sqlite, PostgreSqlContainer? postgres) : IAsyncDisposable
     {
         public HttpClient Client { get; } = client;
         public static async Task<Harness> Create(bool usePostgres = false)
@@ -165,6 +219,8 @@ public sealed class AssigneeSearchEndpointsTests
             builder.Services.AddScoped(typeof(IRepository<>), typeof(EfRepository<>));
             builder.Services.AddScoped<ICurrentUserAccessService, ClaimsAccess>();
             builder.Services.AddScoped<ISupportAccessService, SupportAccessService>();
+            builder.Services.AddSingleton<IChangeTemplateService, ChangeTemplateService>();
+            builder.Services.AddSingleton(Substitute.For<ITimelineEventBus>());
             builder.Services.AddSingleton(Substitute.For<ISupportNotificationService>());
             builder.Services.AddSingleton(Substitute.For<IImageLinkSigner>());
             builder.Services.AddSingleton(Substitute.For<IBackgroundJobQueue>());
@@ -186,7 +242,7 @@ public sealed class AssigneeSearchEndpointsTests
             });
             var app = builder.Build();
             app.UseAuthentication(); app.UseAuthorization();
-            app.MapTicketingLookupEndpoints(); app.MapIncidentEndpoints(); app.MapRequestEndpoints(); app.MapChangeEndpoints();
+            app.MapTicketingLookupEndpoints(); app.MapIncidentEndpoints(); app.MapRequestEndpoints(); app.MapChangeEndpoints(); app.MapSystemTokenEndpoints(); app.MapGlobalSearchLookupEndpoints();
             await app.StartAsync();
             var client = app.GetTestClient();
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "admin");
@@ -227,7 +283,9 @@ public sealed class AssigneeSearchEndpointsTests
         {
             var kind = Request.Headers.Authorization.ToString().Split(' ').Last();
             var claims = new List<Claim> { new(ClaimTypes.Name, "Operator"), new("allowed_organization_id", "org") };
-            foreach (var module in new[] { "Incident", "Request", "Change" }) claims.Add(new Claim(ClaimTypes.Role, module + (kind == "reader" ? ".Read" : ".Write")));
+            foreach (var module in kind == "request-only" ? new[] { "Request" } : new[] { "Incident", "Request", "Change" })
+                claims.Add(new Claim(ClaimTypes.Role, module + (kind is "reader" or "request-only" ? ".Read" : kind == "own" ? ".User" : ".Write")));
+            if (kind == "own") claims.Add(new Claim("customer_id", "contact"));
             if (kind == "admin") claims.Add(new Claim(ClaimTypes.Role, "HelpdeskAdmin"));
             return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(new ClaimsIdentity(claims, Scheme.Name)), Scheme.Name)));
         }

@@ -5,6 +5,7 @@ using Helpdesk.Application.Services.Email;
 using Helpdesk.Infrastructure.Email;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.DTOs.Worklog;
+using Helpdesk.Shared.DTOs.Email;
 using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
@@ -101,22 +102,16 @@ public static class TimelineEndpoints
                 : Results.Conflict(result);
         }).WithName($"RetryTimelineWithCurrentRoute{nameSuffix}");
 
-        group.MapPost("/retry-all",
-            async (
-                HttpContext context,
-                ITimelineService service,
-                CancellationToken ct) =>
-            {
-                var userId = ResolveUserId(context);
-                if (string.IsNullOrWhiteSpace(userId))
-                    return Results.Unauthorized();
-
-                var count = await service.RetryAllFailedEmailsAsync(userId, ct);
-                return Results.Ok(count);
-            })
+        group.MapPost("/retry-all", (HttpContext context) =>
+            string.IsNullOrWhiteSpace(ResolveUserId(context))
+                ? Results.Unauthorized()
+                : Results.Conflict(new
+                {
+                    message = "Select and confirm up to 100 deliveries through /pending/actions. Deliveries requiring sender or outcome review must be reviewed individually."
+                }))
             .WithName($"RetryAllTimelineEmails{nameSuffix}")
-            .WithSummary("Retry all failed timeline email deliveries")
-            .WithDescription("Retries all currently failed email delivery timeline events.");
+            .WithSummary("Unscoped bulk retry is no longer supported")
+            .WithDescription("Returns a conflict directing callers to confirmed, explicitly selected pending delivery actions.");
 
         group.MapGet("/pending-count",
             async (
@@ -135,6 +130,62 @@ public static class TimelineEndpoints
             .WithSummary("Get failed email delivery count")
             .WithDescription("Gets the count of failed email delivery timeline events pending retry.");
 
+        group.MapGet("/pending", async ([AsParameters] PendingEmailQuery query,
+            [FromServices] HelpdeskDbContext db, CancellationToken ct) =>
+        {
+            try { return Results.Ok(await new PendingEmailQueryService(db).SearchAsync(query, ct)); }
+            catch (ArgumentException error) { return Results.BadRequest(new { message = error.Message }); }
+        }).WithName($"SearchPendingEmails{nameSuffix}");
+
+        group.MapGet("/pending/organizations", async (string? q, string? id, int? take,
+            [FromServices] HelpdeskDbContext db, CancellationToken ct) =>
+        {
+            if (q?.Length > 100 || id?.Length > 200) return Results.BadRequest();
+            var organizations = db.Organizations.AsNoTracking();
+            if (!string.IsNullOrWhiteSpace(id)) organizations = organizations.Where(x => x.Id == id);
+            if (q?.Trim().ToLowerInvariant() is { Length: > 0 } text)
+                organizations = organizations.Where(x => x.Name.ToLower().Contains(text));
+            return Results.Ok(await organizations.OrderBy(x => x.Name).ThenBy(x => x.Id)
+                .Take(Math.Clamp(take ?? 20, 1, 50)).Select(x => new PendingEmailOrganization(x.Id, x.Name)).ToListAsync(ct));
+        }).WithName($"LookupPendingEmailOrganizations{nameSuffix}");
+
+        group.MapPost("/pending/actions", async (PendingEmailActionRequest request, HttpContext context,
+            [FromServices] HelpdeskDbContext db, [FromServices] PendingEmailActions actions, CancellationToken ct) =>
+        {
+            var actor = ResolveUserId(context);
+            if (string.IsNullOrWhiteSpace(actor)) return Results.Unauthorized();
+            if (!request.Confirmed || request.Ids is null || request.Ids.Length is < 1 or > 100 ||
+                request.Action is not ("retry" or "cancel" or "remove") ||
+                string.IsNullOrWhiteSpace(request.Reason) || request.Reason.Length > 200 || request.Reason.Any(char.IsControl))
+                return Results.BadRequest(new { message = "Confirm 1–100 selected records, a supported action, and a reason of 1–200 characters." });
+            var profile = CurrentUserAccessProfile.FromClaims(context.User);
+            var results = new List<PendingEmailActionResult>();
+            foreach (var id in request.Ids.Distinct())
+            {
+                // Re-authorize each target; never infer scope from the submitted selection/filter.
+                var ticket = await (from delivery in db.TicketTimelineEvents.AsNoTracking()
+                    join target in db.Tickets.AsNoTracking() on delivery.TicketId equals target.Id
+                    where delivery.Id == id && delivery.EventType == TimelineEventType.EmailDelivery
+                    select target).SingleOrDefaultAsync(ct);
+                var allowed = ticket switch
+                {
+                    Incident => profile.CanManageIncident(ticket.OrganizationId),
+                    Helpdesk.Shared.Models.Request => profile.CanManageRequest(ticket.OrganizationId),
+                    Change => profile.CanManageChange(ticket.OrganizationId),
+                    _ => false
+                };
+                if (!allowed) { results.Add(new(id, "Unavailable", "Delivery is unavailable in your authorized scope.")); continue; }
+                try { results.Add(await actions.ApplyAsync(id, request.Action, actor, request.Reason.Trim(), ct)); }
+                catch (Exception error) when (error is DbUpdateException or InvalidOperationException ||
+                    error is global::System.Data.Common.DbException)
+                {
+                    db.ChangeTracker.Clear();
+                    results.Add(new(id, "Conflict", "The action could not be committed. Refresh before trying again."));
+                }
+            }
+            return Results.Ok(new PendingEmailActionResponse(results));
+        }).WithName($"ApplyPendingEmailActions{nameSuffix}");
+
         group.MapGet("/failed",
             async (
                 [FromServices] HelpdeskDbContext db,
@@ -143,7 +194,9 @@ public static class TimelineEndpoints
                 var failed = await db.TicketTimelineEvents.AsNoTracking()
                     .Where(x =>
                         x.EventType == TimelineEventType.EmailDelivery &&
-                        x.EmailStatus == EmailDeliveryStatus.Failed)
+                        x.EmailStatus == EmailDeliveryStatus.Failed &&
+                        !db.Set<MailboxOutboxEffect>().Any(o => o.DeliveryEventId == x.Id && o.State == MailboxEffectState.Removed))
+                    .OrderBy(x => x.Id).Take(100)
                     .Select(x => new TicketTimelineEventDto
                     {
                         Id = x.Id,

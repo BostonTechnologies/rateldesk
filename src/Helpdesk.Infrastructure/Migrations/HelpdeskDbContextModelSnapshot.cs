@@ -3872,6 +3872,9 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Property<int>("EventType")
                         .HasColumnType("integer");
 
+                    b.Property<double?>("Hours")
+                        .HasColumnType("double precision");
+
                     b.Property<DateTimeOffset?>("LastRetryUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -3891,7 +3894,12 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("WorkLogId")
+                        .HasColumnType("text");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("EventType", "EmailStatus", "CreatedUtc", "Id");
 
                     b.ToTable("TicketTimelineEvents");
                 });
@@ -4144,6 +4152,17 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("Helpdesk.Shared.Models.RequestTask", b =>
                 {
                     b.HasBaseType("Helpdesk.Shared.Models.Ticket");
+
+                    b.Property<bool?>("AutoStart")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<string>("AutomationAttemptCorrelationId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("AutomationAttemptHistoryJson")
+                        .HasColumnType("text");
 
                     b.Property<string>("AutomationBindingId")
                         .HasColumnType("text");

@@ -431,6 +431,8 @@
                         </MudText>
                     }
 
+                    @RenderEffortFooter(ev)
+
                 </MudPaper>
             </div>
 
@@ -469,7 +471,7 @@
                         </MudStack>
 
                         <div class="timeline-human-message ticket-message-body">
-                            @((MarkupString)(ev.MessageHtml ?? ev.MessageText ?? string.Empty))
+                            <EmailContent Html="@ev.MessageHtml" Text="@ev.MessageText" />
                         </div>
 
                         @if (!string.IsNullOrWhiteSpace(ev.MessageHtml))
@@ -484,7 +486,7 @@
                             </MudButton>
                         }
 
-                        @RenderHumanFooter(ev)
+                        @RenderEffortFooter(ev)
 
                     </MudStack>
 
@@ -581,12 +583,16 @@
         return string.IsNullOrWhiteSpace(ev.CreatedByUserName) ? "User" : ev.CreatedByUserName;
     }
 
-    private RenderFragment RenderHumanFooter(TicketTimelineEventDto ev) => @<MudStack Row="true" Spacing="1">
-        @if (ev.Hours > 0)
+    private RenderFragment RenderEffortFooter(TicketTimelineEventDto ev) => @<MudStack Row="true" Spacing="1">
+        @if (ev.RecordedHours is double recordedHours)
         {
             <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Text" Icon="@Icons.Material.Filled.Timer">
-                @ev.Hours.ToString("F1")h
+                @recordedHours.ToString("0.################")h
             </MudChip>
+        }
+        else if (ev.EventType is TimelineEventType.Worklog or TimelineEventType.InternalNote)
+        {
+            <MudText Typo="Typo.caption" Color="Color.Secondary">Effort unavailable</MudText>
         }
     </MudStack>;
 

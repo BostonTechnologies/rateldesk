@@ -39,6 +39,21 @@ printf '\0%s\0%s\0' 'bostec.service-link.incident-only.v1' 'bostec-service-link.
 git -C "$accepted" add README.md public.bin
 (cd "$accepted" && bash tools/ci/check-public-disclosure.sh) >/dev/null
 
+public_agents="$(new_fixture public-agents)"
+printf '# Repository instructions\nKeep documentation in categorized guides.\n' > "$public_agents/AGENTS.md"
+git -C "$public_agents" add AGENTS.md
+(cd "$public_agents" && bash tools/ci/check-public-disclosure.sh) >/dev/null
+
+private_agents="$(new_fixture private-agents)"
+printf '# Repository instructions\n%s%s\n' 'bos' 'tec-private-infrastructure' > "$private_agents/AGENTS.md"
+git -C "$private_agents" add AGENTS.md
+expect_rejected "$private_agents"
+
+private_workflow="$(new_fixture private-workflow)"
+printf '# Retired private workflow\n' > "$private_workflow/AGENTS_Old.md"
+git -C "$private_workflow" add AGENTS_Old.md
+expect_rejected "$private_workflow"
+
 near_pairing="$(new_fixture near-pairing)"
 printf '%s%s\n' 'bos' 'tec.pairing.v10' >> "$near_pairing/README.md"
 git -C "$near_pairing" add README.md

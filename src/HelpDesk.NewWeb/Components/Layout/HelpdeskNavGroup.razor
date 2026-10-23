@@ -1,0 +1,52 @@
+@implements IDisposable
+@inject NavigationManager Navigation
+
+<MudNavGroup Title="@Title" Icon="@Icon" Expanded="@expanded" ExpandedChanged="OnExpandedChanged">
+    <TitleContent><span class="helpdesk-nav-group-label" title="@Title">@Title</span></TitleContent>
+    <ChildContent>@ChildContent</ChildContent>
+</MudNavGroup>
+
+@code {
+    [Parameter] public string Title { get; set; } = string.Empty;
+    [Parameter] public string? Icon { get; set; }
+    [Parameter] public string[] RoutePrefixes { get; set; } = [];
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    private bool expanded;
+    private string? previousPath;
+    private bool disposed;
+
+    protected override void OnInitialized()
+    {
+        Navigation.LocationChanged += OnLocationChanged;
+    }
+
+    protected override void OnParametersSet() => UpdateExpandedGroups(Navigation.Uri);
+
+    private void UpdateExpandedGroups(string location)
+    {
+        var path = NavigationRoute.Normalize(Navigation.ToBaseRelativePath(location));
+        // Query changes and ordinary rerenders preserve deliberate collapse. A new
+        // destination opens only its containing groups, leaving unrelated state alone.
+        if (string.Equals(path, previousPath, StringComparison.OrdinalIgnoreCase)) return;
+        previousPath = path;
+        if (RoutePrefixes.Any(route => NavigationRoute.IsBranch(path, route))) expanded = true;
+    }
+
+    private void OnExpandedChanged(bool value) => expanded = value;
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        _ = InvokeAsync(() =>
+        {
+            if (disposed) return;
+            UpdateExpandedGroups(e.Location);
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        disposed = true;
+        Navigation.LocationChanged -= OnLocationChanged;
+    }
+}
