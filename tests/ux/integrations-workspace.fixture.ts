@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { assertNoHorizontalOverflow } from './auth';
+import { expectConsentAcknowledged } from '../../tools/ci/mcp-host-browser-acknowledgement.mjs';
 const fixture = 'http://127.0.0.1:18505/fixture';
 async function open(page: Page, path = '/account/integration-credentials?tab=credentials') {
  await page.goto(path, { waitUntil: 'domcontentloaded' });
@@ -98,7 +99,7 @@ test('exact filtered ordinary grants, organization changes and transient consent
  await expect(dialog.locator('input[name="permissions"]')).toHaveValue('Incident.Read');
  await expect(consent).toBeChecked();
  await dialog.getByRole('button', { name: 'Approve connection', exact: true }).click();
- await expect(page.getByRole('status')).toContainText('Connection approved');
+ await expectConsentAcknowledged(page);
  const calls = (await (await request.get(`${fixture}/state`)).json()).calls;
  const approvals = calls.filter((c: any) => c.path.endsWith('/pairing/approve'));
  expect(approvals).toHaveLength(2);
@@ -115,7 +116,7 @@ test('temporary verifier has only explicit organization and short status consent
  await dialog.getByLabel('Organization', { exact: true }).selectOption('org-a');
  await dialog.getByRole('checkbox', { name: 'I approve only this temporary status verification.', exact: true }).check();
  await dialog.getByRole('button', { name: 'Approve connection', exact: true }).click();
- await expect(page.getByRole('status')).toContainText('Connection approved');
+ await expectConsentAcknowledged(page);
  const calls = (await (await request.get(`${fixture}/state`)).json()).calls;
  expect(calls.find((c: any) => c.path.endsWith('/pairing/approve')).payload).toMatchObject({ permissions: [], lifetimeDays: null, organizationId: 'org-a', consent: true });
 });
@@ -134,10 +135,22 @@ test('host and client codes never switch approval kind and host consent binds ex
  await expect(dialog.getByTestId('credential-permission-selector')).toHaveCount(0);
  await dialog.getByRole('checkbox', { name: 'I approve this exact baseline or configuration proposal and its source generation.', exact: true }).check();
  await dialog.getByRole('button', { name: 'Approve host', exact: true }).click();
- await expect(page.getByRole('status')).toContainText('Connection approved');
+ await expectConsentAcknowledged(page);
+ await expect(page.locator('.notification-badge').getByRole('status')).toHaveText('1');
+ await expect(page.getByRole('status')).toHaveCount(2);
  const calls = (await (await request.get(`${fixture}/state`)).json()).calls;
  expect(calls.find((c: any) => c.path.endsWith('/host-proposals/approve')).payload).toMatchObject({ proposalHash: 'a'.repeat(64), sourceHash: 'b'.repeat(64), consent: true });
 });
+
+for (const state of ['missing', 'denied']) {
+ test(`unrelated page status cannot acknowledge ${state} consent`, async ({ page }) => {
+  await page.setContent(`<aside role="status">Connection approved</aside>
+   <section data-testid="integration-pairing-approval">
+    ${state === 'denied' ? '<p role="status">Connection denied. No access was granted.</p>' : '<p>No approval result.</p>'}
+   </section>`);
+  await expect(expectConsentAcknowledged(page)).rejects.toThrow(/toContainText/);
+ });
+}
 
 test('manual credential organization selection ignores the native status filter and reviews only exact grants', async ({ page }) => {
  await open(page);

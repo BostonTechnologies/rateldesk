@@ -102,6 +102,8 @@ http.createServer(async (req, res) => {
   }
   return reply({});
  }
+ // Keep the real notification badge present alongside consent acknowledgement.
+ if (path === '/api/v1/notifications/error-summary') return reply({ unreadErrorCount: 1, unreadCount: 1, totalCount: 1 });
  if (path.endsWith('/count')) return reply(0);
  if (path.includes('/stream')) { res.writeHead(200, { 'Content-Type': 'text/event-stream' }); return res.end(); }
  if (path.includes('summary') || path.includes('status')) return reply({});

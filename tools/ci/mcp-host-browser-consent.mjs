@@ -1,6 +1,7 @@
 // Real disposable host/client consent. Secret input is stdin only; do not trace,
 // screenshot, log requests, or include browser exception/DOM text in failures.
 import { chromium, expect } from '@playwright/test';
+import { expectConsentAcknowledged } from './mcp-host-browser-acknowledgement.mjs';
 
 let browser;
 let stage = 'bounded input';
@@ -87,7 +88,7 @@ try {
   stage = 'consent submission';
   await dialog.getByRole('button', { name: host ? 'Approve host' : 'Approve connection', exact: true }).click();
   stage = 'consent acknowledgement';
-  await expect(page.getByRole('status')).toContainText('Connection approved');
+  await expectConsentAcknowledged(page);
   // No secrets, codes, names, URLs, source references or DOM fragments in output.
   process.stdout.write(JSON.stringify({ approved: true, kind: request.kind, browser: 'chromium', interactiveConsent: true }) + '\n');
 } catch (error) {
