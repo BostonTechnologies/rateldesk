@@ -32,6 +32,14 @@ public gateway routing. HTTP MCP stores its isolated outbound configuration,
 validates ingress according to an explicit mode and calls the exact reviewed API
 target. Its default transport is HTTP serving, not interactive setup.
 
+Authenticated JSON posts are checked for duplicate tool argument envelopes before
+SDK binding, including streamed bodies without `Content-Length` and the trailing
+slash route. The check accepts bodies above 1 MiB: that value is only its memory
+buffering threshold, after which request-scoped temporary buffering is used.
+The server's finite request-body limit applies; where the hosting server supplies
+no finite limit, HTTP MCP uses 30,000,000 bytes. Larger bodies return HTTP `413`
+before tool execution, whether or not the client supplies `Content-Length`.
+
 ## Mode matrix
 
 | Ingress mode | Client credential | Outbound `credentialMode` | Persistent downstream secret | Metadata |

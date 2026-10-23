@@ -17,52 +17,64 @@ public static class McpDuplicateArgumentsGuard
         try { document = JsonDocument.Parse(raw); }
         catch (JsonException) { return false; }
         using (document)
-        {
-            var root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object ||
-                !root.TryGetProperty("method", out var method) || method.ValueKind != JsonValueKind.String ||
-                method.GetString() != "tools/call" ||
-                !root.TryGetProperty("params", out var parameters) || parameters.ValueKind != JsonValueKind.Object ||
-                parameters.EnumerateObject().Count(property => property.NameEquals("arguments")) < 2)
-                return false;
+            return TryNormalize(document.RootElement, out normalized);
+    }
 
-            using var buffer = new MemoryStream(raw.Length);
-            using (var writer = new Utf8JsonWriter(buffer))
+    public static async Task<byte[]?> NormalizeAsync(Stream stream, CancellationToken cancellationToken = default)
+    {
+        JsonDocument document;
+        try { document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false); }
+        catch (JsonException) { return null; }
+        using (document)
+            return TryNormalize(document.RootElement, out var normalized) ? normalized : null;
+    }
+
+    private static bool TryNormalize(JsonElement root, out byte[] normalized)
+    {
+        normalized = [];
+        if (root.ValueKind != JsonValueKind.Object ||
+            !root.TryGetProperty("method", out var method) || method.ValueKind != JsonValueKind.String ||
+            method.GetString() != "tools/call" ||
+            !root.TryGetProperty("params", out var parameters) || parameters.ValueKind != JsonValueKind.Object ||
+            parameters.EnumerateObject().Count(property => property.NameEquals("arguments")) < 2)
+            return false;
+
+        using var buffer = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            foreach (var property in root.EnumerateObject())
             {
-                writer.WriteStartObject();
-                foreach (var property in root.EnumerateObject())
+                if (!property.NameEquals("params") || property.Value.ValueKind != JsonValueKind.Object)
                 {
-                    if (!property.NameEquals("params"))
+                    property.WriteTo(writer);
+                    continue;
+                }
+
+                writer.WritePropertyName("params");
+                writer.WriteStartObject();
+                var wroteArguments = false;
+                foreach (var parameter in property.Value.EnumerateObject())
+                {
+                    if (!parameter.NameEquals("arguments"))
                     {
-                        property.WriteTo(writer);
+                        parameter.WriteTo(writer);
                         continue;
                     }
 
-                    writer.WritePropertyName("params");
+                    if (wroteArguments) continue;
+                    wroteArguments = true;
+                    writer.WritePropertyName("arguments");
                     writer.WriteStartObject();
-                    var wroteArguments = false;
-                    foreach (var parameter in property.Value.EnumerateObject())
-                    {
-                        if (!parameter.NameEquals("arguments"))
-                        {
-                            parameter.WriteTo(writer);
-                            continue;
-                        }
-
-                        if (wroteArguments) continue;
-                        wroteArguments = true;
-                        writer.WritePropertyName("arguments");
-                        writer.WriteStartObject();
-                        writer.WriteString("operation", "__duplicate_envelope__");
-                        writer.WriteString("operation", "__duplicate_envelope__");
-                        writer.WriteEndObject();
-                    }
+                    writer.WriteString("operation", "__duplicate_envelope__");
+                    writer.WriteString("operation", "__duplicate_envelope__");
                     writer.WriteEndObject();
                 }
                 writer.WriteEndObject();
             }
-            normalized = buffer.ToArray();
-            return true;
+            writer.WriteEndObject();
         }
+        normalized = buffer.ToArray();
+        return true;
     }
 }
