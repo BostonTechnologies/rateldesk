@@ -51,6 +51,13 @@ public sealed record EmailSendRequest(string[] Recipients, string Subject, strin
     /// <summary>The existing delivery history owned by this request; queue acceptance must not complete it.</summary>
     public Guid? TimelineDeliveryId { get; init; }
     public string? WorkLogId { get; init; }
+    /// <summary>Reject a direct operator send before queueing when no sender is ready.</summary>
+    public bool RequireReadySender { get; init; }
+}
+
+public sealed class EmailSenderUnavailableException(string reasonCode) : Exception("No ready sender is available for this direct email.")
+{
+    public string ReasonCode { get; } = reasonCode;
 }
 
 /// <summary>Indicates that a successful send call means durable queue acceptance.</summary>

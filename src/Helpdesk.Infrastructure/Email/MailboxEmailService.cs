@@ -36,6 +36,8 @@ public sealed class MailboxEmailService(MailboxSenderResolver resolver, SmtpMail
     public async Task<bool> SendEmailAsync(EmailSendRequest request, CancellationToken ct = default)
     {
         var selected = await resolver.ResolveAsync(request.TicketId, null, ct);
+        if (request.RequireReadySender && selected.Status != "Ready")
+            throw new EmailSenderUnavailableException(selected.ErrorCode ?? "SenderUnavailable");
         var email = new IngressEmailEffect(request.Recipients, request.Subject, request.HtmlMessage,
             request.Cc, request.TicketId, request.Attachments, request.FromName, request.ReplyTo,
             request.SuppressTimeline, context.SupportDeliveryId, request.TimelineDeliveryId ?? context.TimelineDeliveryId)

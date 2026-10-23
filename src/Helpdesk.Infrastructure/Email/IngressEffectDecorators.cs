@@ -53,6 +53,8 @@ public sealed class IngressEmailService(MailboxEmailService inner, MailboxSender
         if (!context.IsActive)
             return await inner.SendEmailAsync(request, ct);
         var selection = await resolver.ResolveAsync(request.TicketId, context.OrganizationId, ct);
+        if (request.RequireReadySender && selection.Status != "Ready")
+            throw new EmailSenderUnavailableException(selection.ErrorCode ?? "SenderUnavailable");
         context.Capture(MailboxEffectKind.Email, new IngressEmailEffect(request.Recipients, request.Subject,
             request.HtmlMessage, request.Cc, request.TicketId, request.Attachments, request.FromName,
             request.ReplyTo, request.SuppressTimeline, context.SupportDeliveryId, request.TimelineDeliveryId ?? context.TimelineDeliveryId)
