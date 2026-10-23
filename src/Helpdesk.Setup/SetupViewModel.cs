@@ -87,6 +87,7 @@ public sealed class SetupViewModel : ReactiveViewModel
     public ReactiveProperty<bool> DetailsVisible { get; } = new(false);
     public SetupApprovalContext ApprovalContext { get; private set; }
     public int ExitCode { get; private set; }
+    public string? ExitMessage { get; private set; }
     public HostVerificationResult? VerificationResult { get; private set; }
     public string ApprovalTitle => ApprovalContext switch { SetupApprovalContext.Host => HostIntent == HttpMcpHostIntent.VerifyExisting ? "Existing baseline approval" : "Host deployment approval", SetupApprovalContext.Verification => "Temporary status verification", _ => "Client access approval" };
     public string ApprovalPurpose => ApprovalContext switch
@@ -913,7 +914,7 @@ public sealed class SetupViewModel : ReactiveViewModel
             }
             catch (AgentClientValidationException exception)
             {
-                Status.Value = TerminalText.Sanitize(exception.Message) + " The later writer was preserved; pairing delivery will expire if unacknowledged.";
+                ExitMessage = Status.Value = TerminalText.Sanitize(exception.Message) + " The later writer was preserved; pairing delivery will expire if unacknowledged.";
                 _closing = true; Shutdown(); return;
             }
         }
@@ -924,8 +925,10 @@ public sealed class SetupViewModel : ReactiveViewModel
         await Task.WhenAll(_cleanup);
         await InvokeAsync(() =>
         {
-            Status.Value = _options.VerificationDirectory is null ? "Cancelled. Existing profiles are unchanged."
-                : "Verification cancelled. Applied host settings remain verify pending; rerun the exact --verify command printed by the host launcher.";
+            ExitMessage = Status.Value = _options.VerificationDirectory is not null
+                ? "Verification cancelled. Applied host settings remain verify pending; rerun the exact --verify command printed by the host launcher."
+                : _saved ? "Setup cancelled. The saved client profile is retained; read-only checks may be incomplete."
+                : "Cancelled. Existing profiles are unchanged.";
             Shutdown();
         });
     }

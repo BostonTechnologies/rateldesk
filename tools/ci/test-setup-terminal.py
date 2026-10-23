@@ -31,12 +31,62 @@ def main():
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     if not command:
         parser.error("pass an executable, or dotnet and its assembly, after --")
+    navigation_acceptance(command, args.transcript)
+    navigation_acceptance(command, args.transcript, hosting=True)
+    if args.approval:
+        approval_acceptance(command, args.transcript)
+
+
+def finish_cancelled(child, terminal, traffic):
+    """Require the cancellation result after terminal teardown, not a transient frame."""
+    deadline = time.monotonic() + 10
+    completed = False
+    while time.monotonic() < deadline:
+        completed, status = os.waitpid(child, os.WNOHANG)
+        if completed:
+            if os.waitstatus_to_exitcode(status) != 0:
+                raise RuntimeError("PTY acceptance failed: cancellation exit")
+            break
+        readable, _, _ = select.select([terminal], [], [], 0.1)
+        if readable:
+            try:
+                traffic.extend(os.read(terminal, 65536))
+                if len(traffic) > 4 * 1024 * 1024:
+                    raise RuntimeError("PTY cancellation output exceeded its bound")
+            except OSError as error:
+                if error.errno != errno.EIO:
+                    raise
+    if not completed:
+        raise RuntimeError("PTY acceptance failed: cancellation timed out")
+    # The footer can reach the PTY immediately before process exit.
+    while select.select([terminal], [], [], 0)[0]:
+        try:
+            data = os.read(terminal, 65536)
+        except OSError as error:
+            if error.errno != errno.EIO:
+                raise
+            break
+        if not data:
+            break
+        traffic.extend(data)
+        if len(traffic) > 4 * 1024 * 1024:
+            raise RuntimeError("PTY cancellation output exceeded its bound")
+    _, restored, footer = traffic.rpartition(b"\x1b[?1049l")
+    if not restored or b"Cancelled. Existing profiles are unchanged." not in footer:
+        raise RuntimeError("PTY acceptance failed: cancellation result must remain visible after terminal teardown")
+
+
+def navigation_acceptance(command, transcript, hosting=False):
     with tempfile.TemporaryDirectory(prefix="rateldesk-setup-pty-") as temporary:
         profile = Path(temporary) / "private" / "client.json"
+        host_output = Path(temporary) / "host"
         child, terminal = pty.fork()
         if child == 0:
             os.environ["TERM"] = "xterm-256color"
-            os.execvp(command[0], command + ["setup", "--config", str(profile), "--url", "https://seed.example.test/mcp", "--monochrome"])
+            arguments = command + ["setup", "--config", str(profile), "--url", "https://seed.example.test/mcp", "--monochrome"]
+            if hosting:
+                arguments += ["--target", "http-host", "--export-directory", str(host_output)]
+            os.execvp(command[0], arguments)
         traffic = bytearray()
 
         def resize(columns, rows):
@@ -72,33 +122,20 @@ def main():
                      b"\x1b[200~https://desk.example.test/prefix/mcp\x1b[201~\r")
             until(lambda text: "Application path prefixes are not supported" in text, "focused URL paste/Enter field error")
             os.write(terminal, b"\x1bOQ")  # F2: discoverable Advanced also has a visible first-page action.
-            until(lambda text: "Profile name" in text, "F2 Advanced")
+            advanced_field = "Server setup storage" if hosting else "Profile name"
+            until(lambda text: advanced_field in text, "F2 Advanced")
             resize(120, 32)
             until(lambda text: b"\x1b[3;120H" in traffic and "https://desk.example.test/prefix/mcp" in text, "resize retains input")
             os.write(terminal, b"\x02")  # Ctrl+B keeps the URL and returns from the first page safely.
             os.write(terminal, b"\x03")
-            deadline = time.monotonic() + 10
-            while time.monotonic() < deadline:
-                completed, status = os.waitpid(child, os.WNOHANG)
-                if completed:
-                    if os.waitstatus_to_exitcode(status) != 0:
-                        raise RuntimeError("PTY acceptance failed: cancellation exit")
-                    break
-                readable, _, _ = select.select([terminal], [], [], 0.1)
-                if readable:
-                    try:
-                        traffic.extend(os.read(terminal, 65536))
-                    except OSError as error:
-                        if error.errno != errno.EIO:
-                            raise
-            else:
-                raise RuntimeError("PTY acceptance failed: cancellation timed out")
-            if profile.exists():
-                raise RuntimeError("PTY acceptance failed: cancellation saved a profile")
-            print("PASS: real PTY URL focus/paste/Enter, Advanced, resize, Back and cancellation (80x24 and 120x32)")
+            finish_cancelled(child, terminal, traffic)
+            if profile.exists() or host_output.exists():
+                raise RuntimeError("PTY acceptance failed: cancellation saved a profile or host checkpoint")
+            print("PASS: real PTY " + ("host" if hosting else "client") + " URL focus/paste/Enter, Advanced, resize, Back and persistent cancellation result (80x24 and 120x32)")
         finally:
-            if args.transcript:
-                args.transcript.write_bytes(traffic)
+            if transcript:
+                selected = transcript.with_name(transcript.stem + "-host" + transcript.suffix) if hosting else transcript
+                selected.write_bytes(traffic)
             try:
                 os.kill(child, signal.SIGKILL)
                 os.waitpid(child, 0)
@@ -107,8 +144,6 @@ def main():
             except ChildProcessError:
                 pass
             os.close(terminal)
-    if args.approval:
-        approval_acceptance(command, args.transcript)
 
 
 def approval_acceptance(command, transcript):
@@ -264,22 +299,7 @@ def approval_acceptance(command, transcript):
             until(primary, "wide resize preserves approval")
             state["captures"].append("120x32 approval after resize:\n" + rendered())
             os.write(terminal, b"\x03")
-            deadline = time.monotonic() + 10
-            while time.monotonic() < deadline:
-                completed, status = os.waitpid(child, os.WNOHANG)
-                if completed:
-                    if os.waitstatus_to_exitcode(status) != 0:
-                        raise RuntimeError("PTY approval cancellation failed")
-                    break
-                readable, _, _ = select.select([terminal], [], [], 0.05)
-                if readable:
-                    try:
-                        traffic.extend(os.read(terminal, 65536))
-                    except OSError as error:
-                        if error.errno != errno.EIO:
-                            raise
-            else:
-                raise RuntimeError("PTY approval cancellation exceeded its bound")
+            finish_cancelled(child, terminal, traffic)
             if profile.exists() or state["starts"] != 3 or state["cancels"] != 3:
                 raise RuntimeError("PTY approval failed profile isolation or bounded cancellation")
             if "a" * 64 in traffic.decode(errors="replace"):

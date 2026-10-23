@@ -20,6 +20,7 @@ python3 tools/ci/test-mcp-host-recipes.py
 python3 tools/ci/test-mcp-launcher.py
 python3 tools/ci/test-mcp-compose-toolchain.py
 python3 tools/ci/test-mcp-native-launcher.py
+python3 tools/ci/test-mcp-host-browser-consent.py
 python3 tools/ci/test-mcp-source-review.py
 python3 tools/ci/test-mcp-legacy-recipe.py
 python3 tools/ci/test-mcp-external-manager.py

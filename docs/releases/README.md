@@ -1,5 +1,13 @@
 # Releases
 
+## 0.1.2-beta.10 candidate — retained campaign repairs
+
+[Candidate notes](../release-notes/0.1.2-beta.10.md) and the
+[repair regression map](../implementation/0.1.2-beta.10-mcp-regressions.md)
+cover six beta.9 repairs, strict HTTP/stdio argument validation and dependency
+updates. The retained beta.9 campaign remains NOT_READY at its recorded source;
+beta.10 publication and deployed acceptance receive separate receipts.
+
 ## 0.1.2-beta.9 candidate — campaign finding repairs
 
 [Candidate notes](../release-notes/0.1.2-beta.9.md) and the

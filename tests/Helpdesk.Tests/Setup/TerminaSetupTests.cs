@@ -179,6 +179,41 @@ public sealed class TerminaSetupTests
         Assert.Equal(new[] { "stage", "ack", "activate", "check" }, workflow.Events);
         Assert.Equal("org-enabled-one", workflow.LastSaved!.CredentialOrganizationId);
         Assert.Equal(new[] { "ticket.view" }, workflow.LastSaved.CredentialPermissions);
+        terminal.Input.EnqueueKey(ConsoleKey.C, control: true);
+        await terminal.Run.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Null(terminal.Model.ExitMessage);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Cancel_during_checks_reports_the_saved_profile_is_retained(bool browser)
+    {
+        var checks = new TaskCompletionSource<IReadOnlyList<SetupCheck>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var workflow = new FakeWorkflow { PairingAvailable = browser, PollStatus = "issued", CheckTask = checks.Task };
+        await using var terminal = await Wizard.StartAsync(workflow);
+        await terminal.AdvanceToAuthenticationAsync();
+        if (!browser)
+            await terminal.Application.InvokeAsync(() => terminal.Model.ManualSecret.Value = "rdk_private_manual_credential");
+        terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
+        await terminal.WaitStepAsync(SetupStep.Review);
+        terminal.Input.EnqueueKey(ConsoleKey.N, control: true);
+        await terminal.WaitAsync(() => terminal.Model.Step.Value == SetupStep.Checks && workflow.Events.Contains("check"));
+        var saved = workflow.Stored;
+        Assert.Equal(1, workflow.SaveCount);
+
+        terminal.Input.EnqueueKey(ConsoleKey.C, control: true);
+        await terminal.Run.WaitAsync(TimeSpan.FromSeconds(3));
+
+        Assert.Equal(terminal.Model.Status.Value, terminal.Model.ExitMessage);
+        Assert.Equal(0, terminal.Model.ExitCode);
+        Assert.Contains("saved client profile is retained", terminal.Model.Status.Value, StringComparison.Ordinal);
+        Assert.Contains("read-only checks may be incomplete", terminal.Model.Status.Value, StringComparison.Ordinal);
+        Assert.DoesNotContain("Existing profiles are unchanged", terminal.Model.Status.Value, StringComparison.Ordinal);
+        Assert.DoesNotContain("rdk_", terminal.Model.Status.Value, StringComparison.Ordinal);
+        Assert.Equal(saved, workflow.Stored);
+        Assert.Equal(0, workflow.RollbackCount);
+        Assert.Equal(0, workflow.CancelCount);
     }
 
     [Fact]
@@ -631,6 +666,7 @@ public sealed class TerminaSetupTests
                 Assert.Equal(HttpMcpHostIntent.VerifyExisting, terminal.Model.HostIntent);
                 Assert.Equal(HttpMcpEffectiveDeploymentTests.Settings.PublicOrigin, terminal.Model.HostPublicOrigin.Value);
             }
+            Assert.Equal(cancel ? "Cancelled. Existing profiles are unchanged." : null, terminal.Model.ExitMessage);
             Assert.Equal(0, host.SaveCount);
             Assert.Equal(0, client.SaveCount);
             Assert.Equal(0, client.StartCount);
@@ -906,6 +942,7 @@ public sealed class TerminaSetupTests
         public string PollStatus { get; init; } = "pending";
         public string? VerificationUrl { get; init; }
         public Task<PairingPollResult>? PollTask { get; set; }
+        public Task<IReadOnlyList<SetupCheck>>? CheckTask { get; init; }
         public int PollCount { get; private set; }
         public string DeliveredGrantKind { get; init; } = "ordinary";
         public PendingPairingProfile? Pending { get; init; }
@@ -960,7 +997,7 @@ public sealed class TerminaSetupTests
         { Events.Add("activate"); SaveCount++; Stored = _candidate!; Existing = true; return new(pending.TargetPath, "saved-revision", Stored); }
         public void Discard(PendingPairingProfile pending) { DiscardCount++; _candidate = null; }
         public Task<IReadOnlyList<SetupCheck>> CheckAsync(ConfigurationResolution resolution, SetupTransport transport, CancellationToken ct, string? instance = null)
-        { Events.Add("check"); return Task.FromResult<IReadOnlyList<SetupCheck>>([new("authentication", "passed", "Read-only access accepted.")]); }
+        { Events.Add("check"); return CheckTask?.WaitAsync(ct) ?? Task.FromResult<IReadOnlyList<SetupCheck>>([new("authentication", "passed", "Read-only access accepted.")]); }
         public Task OpenBrowserAsync(string url, CancellationToken ct) { OpenBrowserCount++; return Task.CompletedTask; }
         public void Dispose() { }
     }

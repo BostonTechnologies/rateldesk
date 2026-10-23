@@ -16,3 +16,5 @@ guidance is linked from the [documentation index](../README.md).
 - [0.1.2-beta.6 individual acceptance register and executable closure gate](0.1.2-beta.6-acceptance/README.md)
 - [0.1.2-beta.8 owner HTTP-MCP campaign contract and receipt guide](0.1.2-beta.8-campaign.md)
 - [0.1.2-beta.9 finding repairs and live retest handoff](0.1.2-beta.9-mcp-regressions.md)
+
+- [0.1.2-beta.10 repair regression map and live retest handoff](0.1.2-beta.10-mcp-regressions.md)

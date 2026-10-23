@@ -65,6 +65,46 @@ def checked(arguments, *, cwd=None, input_data=None, timeout=240):
     return completed.stdout
 
 
+BROWSER_CONSENT_STAGES = frozenset({
+    "bounded input", "local sign-in page navigation", "interactive local sign-in renderer",
+    "local account form input", "local account form submission", "local account signed-in navigation",
+    "approval page navigation", "interactive approval renderer", "approval code input",
+    "connection review request", "explicit scoped consent", "organization selection",
+    "temporary verifier identity", "temporary verifier permission controls", "temporary verifier lifetime controls",
+    "temporary verifier expiry disclosure", "temporary verifier consent", "consent submission", "consent acknowledgement",
+})
+
+
+def browser_consent_diagnostic(detail):
+    """Publish a fixed schema only; raw subprocess output remains private."""
+    prefix = "Disposable browser consent did not complete: "
+    suffix = "; no credential or page content was recorded."
+    for line in reversed(detail[-16384:].decode("utf-8", errors="replace").splitlines()):
+        if not line.startswith(prefix) or not line.endswith(suffix):
+            continue
+        try:
+            value = json.loads(line[len(prefix):-len(suffix)])
+        except (ValueError, RecursionError):
+            continue
+        if not isinstance(value, dict):
+            continue
+        stage, error = value.get("stage"), value.get("error")
+        safe = {
+            "stage": stage if isinstance(stage, str) and stage in BROWSER_CONSENT_STAGES else "unknown",
+            "error": error if isinstance(error, str) and error in {"Error", "TimeoutError", "AssertionError", "TypeError", "SyntaxError"} else "Other",
+        }
+        for name in ("codeRetained", "reviewEnabled", "atLogin", "atHome", "loginErrorVisible"):
+            if type(value.get(name)) is bool:
+                safe[name] = value[name]
+        for name in ("dialogCount", "alertCount"):
+            if type(value.get(name)) is int and 0 <= value[name] <= 256:
+                safe[name] = value[name]
+        if value.get("loginInteractive") in ("true", "false"):
+            safe["loginInteractive"] = value["loginInteractive"] == "true"
+        return safe
+    return {"stage": "unavailable", "error": "unavailable"}
+
+
 def port():
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
@@ -1110,8 +1150,12 @@ class PreservedFixture(Fixture):
             if self.changed:
                 request["summaries"] += ["Source diff:", "WebGateway__Mcp__Enabled", "false", "true"]
                 request["sourceDiff"] = True
-        response = json.loads(checked(["node", str(ROOT / "tools/ci/mcp-host-browser-consent.mjs")],
-            input_data=json.dumps(request).encode(), timeout=120))
+        try:
+            response = json.loads(checked(["node", str(ROOT / "tools/ci/mcp-host-browser-consent.mjs")],
+                input_data=json.dumps(request).encode(), timeout=120))
+        except CommandFailure as failure:
+            print("FAIL: browser consent diagnostic " + json.dumps(browser_consent_diagnostic(failure.detail), sort_keys=True), flush=True)
+            raise
         assert response == {"approved": True, "kind": kind, "browser": "chromium", "interactiveConsent": True}
 
     def inventory(self):

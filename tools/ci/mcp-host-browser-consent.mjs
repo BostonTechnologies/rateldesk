@@ -1,6 +1,7 @@
 // Real disposable host/client consent. Secret input is stdin only; do not trace,
 // screenshot, log requests, or include browser exception/DOM text in failures.
 import { chromium, expect } from '@playwright/test';
+import { expectConsentAcknowledged } from './mcp-host-browser-acknowledgement.mjs';
 
 let browser;
 let stage = 'bounded input';
@@ -64,12 +65,18 @@ try {
     // labels require the same explicit exact-generation host consent.
     await dialog.getByRole('checkbox', { name: /^(?:I approve this exact baseline or configuration proposal and its source generation\.|I authorize these exact deployment settings and source generation\.)$/ }).check();
   } else {
+    stage = 'organization selection';
     await dialog.getByLabel('Organization', { exact: true }).selectOption(request.organizationId);
     if (request.kind === 'verifier') {
+      stage = 'temporary verifier identity';
       await expect(dialog).toContainText('Temporary verification client');
+      stage = 'temporary verifier permission controls';
       await expect(dialog.getByTestId('credential-permission-selector')).toHaveCount(0);
+      stage = 'temporary verifier lifetime controls';
       await expect(dialog.locator('[name="lifetimeDays"]')).toHaveCount(0);
+      stage = 'temporary verifier expiry disclosure';
       await expect(dialog).toContainText('five minutes');
+      stage = 'temporary verifier consent';
       await dialog.getByRole('checkbox', { name: 'I approve only this temporary status verification.', exact: true }).check();
     } else {
       for (const permission of request.permissions) await dialog.getByRole('checkbox', { name: permission, exact: true }).check();
@@ -80,7 +87,8 @@ try {
   }
   stage = 'consent submission';
   await dialog.getByRole('button', { name: host ? 'Approve host' : 'Approve connection', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('Connection approved');
+  stage = 'consent acknowledgement';
+  await expectConsentAcknowledged(page);
   // No secrets, codes, names, URLs, source references or DOM fragments in output.
   process.stdout.write(JSON.stringify({ approved: true, kind: request.kind, browser: 'chromium', interactiveConsent: true }) + '\n');
 } catch (error) {
