@@ -33,8 +33,11 @@ public static class SetupRunner
                 if (runtime.ViewModel.VerificationResult is { } result)
                     await Console.Out.WriteLineAsync(System.Text.Json.JsonSerializer.Serialize(new { checks = result.Checks, cleanupPending = result.CleanupPending },
                         new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
-                await error.WriteLineAsync(runtime.ViewModel.Status.Value);
             }
+            // Shutdown can discard a queued final redraw. Keep the outcome visible
+            // after Termina restores the primary terminal screen.
+            if (options.VerificationDirectory is not null || runtime.ViewModel.ExitMessage is not null)
+                await error.WriteLineAsync(runtime.ViewModel.ExitMessage ?? runtime.ViewModel.Status.Value);
             return runtime.ViewModel.ExitCode;
         }
         catch (AgentClientValidationException exception)
