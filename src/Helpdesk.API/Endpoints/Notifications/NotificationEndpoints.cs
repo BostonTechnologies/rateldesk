@@ -597,7 +597,7 @@ public static class NotificationEndpoints
                 notification.Severity,
                 IsUnread = notification.IsGlobal
                     ? !reads.Any(read => read.NotificationId == notification.Id)
-                    : notification.UserId == userId && notification.ReadUtc == null
+                    : notification.ReadUtc == null
             })
             .GroupBy(_ => 1)
             .Select(group => new NotificationSummaryDto
@@ -669,7 +669,7 @@ public static class NotificationEndpoints
         return BuildScopedNotificationsQuery(db, access, userId)
             .Where(n =>
                 (n.IsGlobal && !readsForUser.Any(r => r.NotificationId == n.Id)) ||
-                (!n.IsGlobal && n.UserId == userId && n.ReadUtc == null));
+                (!n.IsGlobal && n.ReadUtc == null));
     }
 
     private static async Task<int> MarkScopedNotificationsReadAsync(
