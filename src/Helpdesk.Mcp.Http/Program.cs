@@ -222,6 +222,7 @@ public sealed partial class Program
         app.UseRateLimiter();
         app.UseAuthentication();
         app.UseAuthorization();
+        app.UseMiddleware<McpDuplicateArgumentsMiddleware>();
         app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions { Predicate = check => check.Tags.Contains("live") });
         app.MapHealthChecks("/health/ready");
         if (protectedResourceMetadata is not null)
