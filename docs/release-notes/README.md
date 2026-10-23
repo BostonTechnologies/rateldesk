@@ -1,5 +1,13 @@
 # Release notes
 
+## 0.1.2-beta.10 candidate
+
+[Beta.9 campaign repair follow-up](0.1.2-beta.10.md) covers incident seen
+readback, owner notification counts, duplicate MCP arguments, archived mailbox
+cleanup, approval replay and direct administrator mail, plus dependency updates.
+The [regression map](../implementation/0.1.2-beta.10-mcp-regressions.md) preserves
+the retained beta.9 tally and defines the fresh deployed retests.
+
 ## 0.1.2-beta.9 candidate
 
 [Beta.8 campaign finding repairs](0.1.2-beta.9.md) cover signed public views,
