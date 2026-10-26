@@ -66,11 +66,12 @@ their verified state.
 | --- | --- |
 | Release and authority | Exact source/version/digests/catalog, explicit current owner grant, ordinary actor remains scoped, independent API/storage read access. |
 | Baseline | Current settings, selected unrelated-record baseline, fixture registry, mail queue and provider job baseline. |
-| Mail | Ready effective **global** sender for direct administrator mail, an owned captured recipient distinct from the sender, outbox inspection, and isolation of unrelated queued effects. A mailbox `send_test` receipt alone does not establish direct-send readiness. |
+| Mail | Owner-reviewed isolation/disposition of unrelated due work before global-sender activation; a ready effective **global** sender, owned captured recipient distinct from the sender, and approved independent storage/provider readback. Pausing incoming mail does not pause outbound dispatch. A mailbox `send_test` receipt alone does not establish direct-send readiness. |
 | NetRatel | Exact paired tenant and online target, independently read current target profile/revision, durable tenant visibility and admitted bounded policy, healthy protected M2M identity. Authentication alone is insufficient. Use current credentials and expiry observations. |
 | NetClaw | Actual running daemon identity, saved pairing authenticates, real configured provider can produce a durable reply. Retain a corrected working endpoint instead of restoring an obsolete address. |
 | Graph dataset | Approved configured Graph fixture with the permissions required for the actual dataset sync case. |
 | Customer authentication | Local account/reset fixtures in Local mode; authorized external-provider fixtures in Authentik mode. Use the fixed Local guard/equivalent rules below. |
+| Callback transport fixture | Owner-supplied receiver/ingress controls limited to the owned correlation and phase, preserving the approved paired origin, callback path and authentication. Current job authority does not supply a callback fault fixture. |
 
 ```powershell
 & $Python tools/ci/validate-beta11-campaign.py check-prerequisites --catalog $Catalog --prerequisites (Join-Path $Campaign "prerequisites.json") --evidence-root $Campaign
@@ -98,6 +99,28 @@ The exact qualified IDs and historical mapping rules remain in the validator.
 HTTP `helpdesk_config.set` and `.unset` are separately expected restrictions. The
 other operations retain their positive requirements, including Graph and native
 AI/provider effects. Preserve earlier blockers as historical observations.
+
+### Prepare direct-mail delivery on the intended target
+
+The outbound dispatcher runs independently of the incoming mailbox worker and
+processes the shared due queue automatically. Incoming pause is not an outbound
+hold, and there is no supported public "dispatch only this outbox ID" command.
+Before enabling or changing the global sender, have the owner establish an
+approved quiet window or isolation and disposition of unrelated due/in-flight
+work. Preserve the intended target and sender baseline; do not create isolation
+by cancelling unrelated deliveries or redirecting their sender. If these
+conditions are unavailable, keep the delivery lane blocked and continue ready
+independent work.
+
+Send the one owned direct-mail fixture through the normal confirmed operation,
+then observe ordinary dispatch. Its queued response does not contain the outbox
+ID. Require approved read-only storage and provider capture access to find the
+exact effect using its unique subject, recipient and sender, then prove its
+delivery. [Pending Emails](../integrations/mailbox-ingestion.md#pending-delivery-queue)
+actions address ticket/timeline deliveries; do not pass a ticketless direct
+outbox ID to those actions. Preserve a historical `NeedsReview` direct effect
+with its recorded uncertainty and operator disposition; do not invent a retry,
+edit its database state or infer nondelivery from its continued presence.
 
 ### Resolve exact NetRatel reviewed admission
 
@@ -310,6 +333,30 @@ callback's transient HTTP 5xx retry and terminal rejection separately. Capture
 exact request/task/binding/correlation, provider run and delivery-attempt state,
 RatelDesk attempt state and cardinality. A failed job followed by successful retry
 does not substitute for HTTP callback retry evidence.
+
+The HTTP-failure cases require an owner-supplied controlled receiver/ingress
+fixture, with documented activation, restoration and sanitized request capture.
+It must select the exact owned correlation and callback phase at the approved
+paired origin and `/api/v1/orchestration/provider/callback`, preserve normal
+authentication/token exchange, and leave other traffic unchanged. The product
+does not expose a production fault toggle or arbitrary callback-URL override.
+Do not assume the laptop agent can create production ingress controls. Without
+this fixture, record the precise prerequisite and keep these cases unpassed.
+
+Use separate owned cases for a planned HTTP 503 followed by normal callback
+acceptance and for a terminal HTTP 403. Capture the actual receiver HTTP attempts;
+durable delivery-attempt counts are not counts of internal HTTP retries. For a
+later-tick recovery assertion, the owner must hold the scoped transient response
+through the initial retry window, then restore normal handling. After terminal
+rejection, verify the retained rejected state and no further automatic delivery
+across ordinary reconciliation. Repair the fixture before explicit replay. An
+already admitted Events ControlPlane actor can locate the exact event using
+`eventType` and `correlationId`, check `retryTarget: external-service-callback`,
+and use `netratel_events/preview_retry` followed by `retry` with the unchanged
+`eventId`, `planToken`, `idempotencyKey` and outer `confirm: true`. Job-execution
+authority alone does not authorize these event controls. A published notification
+is not a delivered callback; require the receiver effect and durable delivery
+readback, including no duplicate effect after replay.
 
 After deleting an owned completed provider definition, verify that terminal run
 history remains readable through supported provider APIs/UI. Distinguish row
