@@ -117,6 +117,18 @@ public static class InboundEmailRuleEndpoints
         group.MapPost("/{id}/disable", async ([FromServices] HelpdeskDbContext db, [FromRoute] string id, ClaimsPrincipal user, CancellationToken ct) =>
             await SetEnabledAsync(db, id, false, Actor(user), ct));
 
+        group.MapDelete("/{id}", async ([FromServices] HelpdeskDbContext db, [FromRoute] string id, CancellationToken ct) =>
+        {
+            var rule = await db.InboundEmailRules.FirstOrDefaultAsync(x => x.Id == id, ct);
+            if (rule is null) return Results.NotFound();
+
+            // Processing logs retain their scalar RuleId after configuration is removed.
+            // Do not remove historical outcomes or replay any associated message work.
+            db.InboundEmailRules.Remove(rule);
+            await db.SaveChangesAsync(ct);
+            return Results.NoContent();
+        });
+
         group.MapPost("/reorder", async (
             [FromServices] HelpdeskDbContext db,
             [FromBody] ReorderInboundEmailRulesRequest request,

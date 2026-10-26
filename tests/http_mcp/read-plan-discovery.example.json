@@ -1,0 +1,26 @@
+{
+  "fixtures": [
+    {
+      "id": "ownedIncident",
+      "operation": "helpdesk_incidents.list",
+      "request": {"q": "REPLACE_WITH_CURRENT_CAMPAIGN_UNIQUE_SUBJECT", "page": 1, "pageSize": 10, "includeTotal": true},
+      "assertions": [
+        {"pointer": "/total", "expected": 1},
+        {"pointer": "/items/0/subject", "expected": "REPLACE_WITH_CURRENT_CAMPAIGN_UNIQUE_SUBJECT"}
+      ],
+      "selectors": {"id": "/items/0/id", "trackingId": "/items/0/trackingId"}
+    }
+  ],
+  "cases": [
+    {
+      "id": "fresh-owned-incident-read",
+      "operation": "helpdesk_incidents.get",
+      "request": {"incidentId": "${ownedIncident.id}"},
+      "assertions": [
+        {"pointer": "/id", "expected": "${ownedIncident.id}"},
+        {"pointer": "/trackingId", "expected": "${ownedIncident.trackingId}"},
+        {"pointer": "/subject", "expected": "REPLACE_WITH_CURRENT_CAMPAIGN_UNIQUE_SUBJECT"}
+      ]
+    }
+  ]
+}

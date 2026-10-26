@@ -62,6 +62,14 @@ When a failed email belongs to a support notification, retry moves both its emai
 
 ## Rule scope and source binding
 
+Instance administrators can delete an explicitly selected rule through
+`DELETE /api/v1/inbound-email-rules/{id}` or the confirmed MCP
+`helpdesk_email_settings.delete_rule` operation. A successful deletion returns
+204; subsequent detail reads return 404 and the rule is absent from rule lists.
+Message processing audit rows retain the original rule ID and outcome. Deletion
+does not cancel or replay already started message work, alter the shared worker,
+or remove other rules. Ordinary organization credentials cannot administer rules.
+
 Tenant rules run before global fallback rules, with priority and stable tie-breaking within each tier. **All eligible mailboxes** preserves reusable rules. A source binding restricts eligibility; it does not change priority or grant tenant authority. Global rules may target a dedicated source; a tenant cannot target another tenant's dedicated source. Reordering operates within one scope/organization/source bucket. Explicit priorities determine how different buckets interleave.
 
 The forwarded-support template remains disabled until explicitly enabled. Parsing a forwarded body records only a candidate requester; it never changes the ordinary fallback requester. An applicable rule must resolve the candidate organization, authorize the outer support sender for that organization, and validate the actual mailbox source for that target before substitution. A specialized authorized rule may resolve an outer-contact ownership conflict or the outer contact's dedicated-mailbox restriction; disabled or inapplicable rules retain the ordinary hold. Cross-tenant references, blocked senders and a candidate using the wrong source remain terminal holds. A denied operation is held and cannot fall through to equivalent ticket creation. Authorized forwarded incidents preserve their original requester and New/Unassigned behavior without the ordinary new-requester confirmation. Ownership conflicts, ambiguous routing and unconfident requester parsing require review. Existing customers are never moved between organizations by ingress.

@@ -106,6 +106,7 @@ internal static class OperatorMailSupportOperations
         yield return new("helpdesk_email_settings", "update_rule", "PUT", rules + "/{ruleId}", BodyType: typeof(UpdateInboundEmailRuleRequest), RequiredBodyFields: ["scopeType", "name", "enabled", "priority", "conditions", "actions", "stopProcessing"], Description: "Replace the typed settings of one inbound email rule.");
         yield return new("helpdesk_email_settings", "enable_rule", "POST", rules + "/{ruleId}/enable", Description: "Enable one inbound rule after canonical binding validation.");
         yield return new("helpdesk_email_settings", "disable_rule", "POST", rules + "/{ruleId}/disable", Description: "Disable one inbound rule while retaining its audit history.");
+        yield return new("helpdesk_email_settings", "delete_rule", "DELETE", rules + "/{ruleId}", Description: "Delete one explicitly selected inbound rule while preserving its message processing audit history. Already started message work is not cancelled or replayed.");
         yield return new("helpdesk_email_settings", "reorder_rules", "POST", rules + "/reorder", BodyType: typeof(ReorderInboundEmailRulesRequest), RequiredBodyFields: ["rules"], Description: "Reorder an explicitly selected distinct set of rules in one tenant/mailbox scope.");
         yield return new("helpdesk_email_settings", "rule_audit", "GET", rules + "/audit", QueryType: typeof(OperatorMailRuleAuditQuery), Description: "Read up to 200 inbound rule processing outcomes filtered by ticket, message, tenant or mailbox.");
 

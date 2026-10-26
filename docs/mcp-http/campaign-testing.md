@@ -1,6 +1,12 @@
 # Repeatable HTTP MCP campaign checks
 
-For beta.9, the runner independently adapts the workflow metrics API's explicit
+For the current release, use the [beta.11 laptop campaign](beta11-laptop-campaign.md)
+and its [executable workspace and receipt gate](../../tools/ci/validate-beta11-campaign.py).
+It preserves all 389 prior operations, adds inbound rule deletion (390 total),
+and retains the 103 domain cases, 86 historical obligations and nine cleanup
+assertions. Its workspace starts entirely `NOT_RUN`; previous receipts stay unchanged.
+
+The read runner independently adapts the workflow metrics API's explicit
 Prometheus `text/plain` contract to `{format:"prometheus",text:...}`, matching MCP.
 Other API reads still require JSON. Include a fixture-specific `/text` assertion;
 for logs, assert the actual known warning in `/items/0/message` and its trace,
@@ -11,10 +17,12 @@ Test a business capability through HTTP MCP, then independently observe its back
 state, UI or actual provider effect. API-only calls cannot establish an MCP pass.
 Python here is external test tooling; the application and MCP runtime remain C#.
 
-The complete beta.8 requirements and acceptance gate remain in the
-[canonical campaign guide](../implementation/0.1.2-beta.8-campaign.md),
+The substantive historical requirements remain in the
+[beta.8 acceptance contract guide](../implementation/0.1.2-beta.8-campaign.md),
 [operation catalog](../contracts/mcp-operation-catalog.json) and
-[offline validator](../../tools/ci/validate-beta8-campaign.py). Retain their fixed
+[immutable beta.8 validator](../../tools/ci/validate-beta8-campaign.py). The beta.11
+adapter binds the current manifest/catalog and reuses those evidence checks.
+Retain their fixed
 denominators, mode exclusions, independent evidence, provider receipts, soak and
 cleanup requirements. Source CI and a subset of live reads cannot satisfy that gate.
 
@@ -69,9 +77,50 @@ Other business records still make these captures private. Do not commit them.
 The runner accepts only catalog-advertised GET/read-only operations. It refuses
 schema drift, redirects, plaintext HTTP, missing assertions, mismatched responses
 and automatic retries. Its summary describes selected supporting reads, not a full
-campaign receipt. Volatile responses may legitimately differ between reads; keep
-the failed captures and use a dedicated case with precise durable assertions rather
-than broadly ignoring changed fields.
+campaign receipt. Raw observations are retained unchanged. A case may explicitly
+set `slaCountdownToleranceSeconds` to an integer from 1 to 5 when sequential reads
+differ only at `/sla/responseRemainingSeconds` and
+`/sla/resolutionRemainingSeconds`. Both fields must be integer counters within that
+tolerance; all other fields remain exact and the assertions must identify stable
+fixture values. The default remains exact comparison. This does not relax SLA state,
+deadline, identity, count, notification or business-effect comparisons.
+
+### Discover current selectors before reading dependent records
+
+The [discovery plan](../../tests/http_mcp/read-plan-discovery.example.json) first
+selects the current campaign's uniquely named owned incident. The discovery read
+must pass independent MCP/API parity and typed marker/count assertions. Only then
+does `${ownedIncident.id}` resolve for later requests. References must occupy the
+whole string and resolve from this run; unknown references, empty results and
+non-scalar selector values fail before dependent reads. A discovery plan does not
+create fixtures: first create the owned record through its confirmed MCP lane and
+record it in the campaign fixture registry. Never substitute IDs copied from an
+older campaign whose fixtures were deleted.
+
+### Probe actual HTTP framing and size boundaries
+
+The [transport runner](../../tests/http_mcp/campaign_transport.py) sends valid
+read-only `initialize` requests on `/mcp` and `/mcp/`, using both Content-Length
+and chunked framing at the decoded body limit minus one, exactly the limit, and
+the limit plus one. It also rechecks the previously reported 29,990,208-byte
+chunked case at the default limit. It checks the pinned API identity before and
+after, captures structured 413 responses, and records transport resets as failures.
+The JSON/whitespace body hash and byte count are retained without storing thirteen
+large duplicate payloads. It never invokes `tools/call` or retries a failed probe.
+
+```sh
+python tests/http_mcp/campaign_transport.py \
+  --profile /private/campaign/profile.json \
+  --manifest /private/campaign/release/release-manifest.json \
+  --evidence-root /private/campaign \
+  --output /private/campaign/transport-boundary
+```
+
+The default limit is 30,000,000 decoded bytes. If an independently observed
+deployment configuration intentionally lowers it, pass that exact `--limit` and
+record the configuration evidence. The final validator requires the complete live
+matrix and configuration evidence for a smaller limit. Source socket tests do
+not establish that the deployment's external ingress has the same configuration.
 
 ## Expand coverage with application capabilities
 
@@ -106,4 +155,4 @@ python -m unittest discover -s tests/http_mcp -p 'test_*.py'
 ```
 
 These synthetic offline tests verify the harness's failure boundaries. They do not
-claim deployed MCP operation coverage or change the immutable beta.8 gate.
+claim deployed MCP operation coverage or change historical receipts.

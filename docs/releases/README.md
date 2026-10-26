@@ -1,5 +1,14 @@
 # Releases
 
+## 0.1.2-beta.11 — beta.10 follow-up
+
+[Release notes](../release-notes/0.1.2-beta.11.md) cover HTTP body-boundary repair,
+complete inbound-rule deletion and the current-release campaign tooling.
+[Delivery #268](https://github.com/BostonTechnologies/rateldesk/issues/268) requires
+the existing reviewed CI and immutable hosted publication workflow.
+The [laptop guide](../mcp-http/beta11-laptop-campaign.md) verifies published identity
+before fresh acceptance; historical beta.10 evidence remains unchanged.
+
 ## 0.1.2-beta.10 candidate — retained campaign repairs
 
 [Candidate notes](../release-notes/0.1.2-beta.10.md) and the
