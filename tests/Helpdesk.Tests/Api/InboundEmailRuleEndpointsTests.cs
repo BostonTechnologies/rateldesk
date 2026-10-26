@@ -70,6 +70,14 @@ public class InboundEmailRuleEndpointsTests
         disableResponse.EnsureSuccessStatusCode();
         var disabled = await disableResponse.Content.ReadFromJsonAsync<InboundEmailRuleDto>();
         Assert.False(disabled!.Enabled);
+
+        var deleteResponse = await harness.Client.DeleteAsync($"/api/v1/inbound-email-rules/{rulePathId}");
+        Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+        Assert.DoesNotContain(created.Id, await harness.RuleIdsAsync());
+        Assert.Equal(HttpStatusCode.NotFound, (await harness.Client.GetAsync($"/api/v1/inbound-email-rules/{rulePathId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await harness.Client.DeleteAsync($"/api/v1/inbound-email-rules/{rulePathId}")).StatusCode);
+        var retainedAudit = await harness.Client.GetFromJsonAsync<List<InboundEmailRuleAuditDto>>("/api/v1/inbound-email-rules/audit?messageId=message-1");
+        Assert.Equal(created.Id, Assert.Single(retainedAudit!).RuleId);
     }
 
     [Fact]

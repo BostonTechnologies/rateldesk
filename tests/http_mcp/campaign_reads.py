@@ -6,6 +6,7 @@ No mutation, credential issuance, target fallback or ambient profile discovery.
 """
 
 import argparse
+import copy
 import hashlib
 import json
 from pathlib import Path
@@ -45,7 +46,7 @@ def pointer(value, path):
     return value
 
 
-def read_operation(catalog, case):
+def read_operation(catalog, case, validate_arguments=True):
     rows = {x["tool"] + "." + x["operation"]: x for x in catalog["operations"]}
     op = rows[case["operation"]]
     if op["method"] != "GET" or op["readOnly"] is not True:
@@ -56,7 +57,7 @@ def read_operation(catalog, case):
     args = {"operation": op["operation"]}
     if "request" in case:
         args["request"] = case["request"]
-    if not Draft202012Validator(schema, format_checker=FormatChecker()).is_valid(args):
+    if validate_arguments and not Draft202012Validator(schema, format_checker=FormatChecker()).is_valid(args):
         raise CampaignError("Plan arguments do not satisfy the selected catalog schema")
     if not case.get("assertions"):
         raise CampaignError("Every read needs fixture-specific typed assertions")
@@ -82,17 +83,62 @@ def read_operation(catalog, case):
     return op, args, path + (("?" + urlencode(query, doseq=True)) if query else "")
 
 
-def compare(mcp, api, assertions):
+def compare(mcp, api, assertions, sla_countdown_tolerance=0):
     if mcp.get("success") is not True or "data" not in mcp:
         raise CampaignError("MCP read did not succeed with structured data")
     if mcp["data"] in (None, [], {}):
         raise CampaignError("Empty observations do not establish positive fixture coverage")
-    if mcp["data"] != api:
+    if type(sla_countdown_tolerance) is not int or not 0 <= sla_countdown_tolerance <= 5:
+        raise CampaignError("SLA countdown tolerance must be an integer from zero to five seconds")
+    left, right = copy.deepcopy(mcp["data"]), copy.deepcopy(api)
+    if sla_countdown_tolerance:
+        # Only these documented live countdowns may differ between sequential
+        # reads. Every other field, including SLA state and deadlines, stays exact.
+        for name in ("responseRemainingSeconds", "resolutionRemainingSeconds"):
+            path = "/sla/" + name
+            if any(check["pointer"] in ("", "/sla", path) for check in assertions):
+                raise CampaignError("Use stable fixture assertions alongside an SLA countdown tolerance")
+            before, after = pointer(left, path), pointer(right, path)
+            if type(before) is not int or type(after) is not int or abs(before - after) > sla_countdown_tolerance:
+                raise CampaignError("SLA countdown exceeded the explicitly bounded tolerance")
+            left["sla"][name] = right["sla"][name]
+    if left != right:
         raise CampaignError("MCP data differs from the independent API observation")
     for check in assertions:
         observed = pointer(api, check["pointer"])
         if type(observed) is not type(check["expected"]) or observed != check["expected"]:
             raise CampaignError("Typed fixture assertion failed")
+
+
+def resolve_bindings(value, bindings):
+    """Resolve exact references only from same-run independently verified reads."""
+    if isinstance(value, dict):
+        return {name: resolve_bindings(item, bindings) for name, item in value.items()}
+    if isinstance(value, list):
+        return [resolve_bindings(item, bindings) for item in value]
+    if isinstance(value, str) and "${" in value:
+        match = re.fullmatch(r"\$\{([A-Za-z][A-Za-z0-9_-]*\.[A-Za-z][A-Za-z0-9_-]*)\}", value)
+        if not match or match[1] not in bindings:
+            raise CampaignError("Fixture reference was not discovered and independently verified in this run")
+        return bindings[match[1]]
+    return value
+
+
+def discovered_values(fixture, api):
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", fixture.get("id", "")):
+        raise CampaignError("Fixture needs a unique simple name")
+    selectors = fixture.get("selectors")
+    if not isinstance(selectors, dict) or not 1 <= len(selectors) <= 20:
+        raise CampaignError("Fixture needs bounded explicit selector pointers")
+    result = {}
+    for name, path in selectors.items():
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", name):
+            raise CampaignError("Fixture selector needs a simple name")
+        value = pointer(api, path)
+        if type(value) not in (str, int) or value == "":
+            raise CampaignError("Discovered fixture selector must be a nonempty string or integer")
+        result[fixture["id"] + "." + name] = value
+    return result
 
 
 def decode_api_read(path, raw, headers):
@@ -223,20 +269,11 @@ class Transport:
         return body, self.captures.write("api-independent", {"observedAt": at, "path": path, "body": body})
 
 
-def run(args):
+def load_profile(profile_path):
     repo = Path(__file__).resolve().parents[2]
-    output = args.output.resolve()
-    profile_path = args.profile.resolve()
-    if output.is_relative_to(repo) or profile_path.is_relative_to(repo):
+    profile_path = profile_path.resolve()
+    if profile_path.is_relative_to(repo):
         raise CampaignError("Profile and evidence must remain outside the source checkout")
-    catalog_bytes = args.catalog.read_bytes()
-    catalog = json.loads(catalog_bytes)
-    plan = json.loads(args.plan.read_text(encoding="utf-8"))
-    # Validate the whole plan before issuing even an initialize call.
-    prepared = [read_operation(catalog, case) for case in plan["cases"]]
-    ids = [case["id"] for case in plan["cases"]]
-    if not ids or len(ids) != len(set(ids)):
-        raise CampaignError("Use at least one case with unique case IDs")
     profile = json.loads(profile_path.read_text(encoding="utf-8-sig"))
     keypath = Path(profile["credentialFile"])
     keypath = keypath if keypath.is_absolute() else profile_path.parent / keypath
@@ -249,6 +286,32 @@ def run(args):
     credential = credential_bytes.decode("utf-8-sig").strip()
     if not credential or "\n" in credential or "\r" in credential:
         raise CampaignError("Credential file must contain one nonempty credential")
+    return profile, credential
+
+
+def run(args):
+    repo = Path(__file__).resolve().parents[2]
+    output = args.output.resolve()
+    profile_path = args.profile.resolve()
+    if output.is_relative_to(repo) or profile_path.is_relative_to(repo):
+        raise CampaignError("Profile and evidence must remain outside the source checkout")
+    catalog_bytes = args.catalog.read_bytes()
+    catalog = json.loads(catalog_bytes)
+    plan = json.loads(args.plan.read_text(encoding="utf-8"))
+    # Validate the whole plan before issuing even an initialize call.
+    fixtures = plan.get("fixtures", [])
+    if not isinstance(fixtures, list) or len(fixtures) > 100:
+        raise CampaignError("Fixture discovery must be a bounded list")
+    prepared_fixtures = [read_operation(catalog, fixture) for fixture in fixtures]
+    # Check operation safety before any network request. Arguments that reference
+    # fixtures are schema-validated after their same-run discovery, before use.
+    for case in plan["cases"]:
+        read_operation(catalog, case, validate_arguments=not fixtures)
+    ids = [case["id"] for case in plan["cases"]]
+    fixture_ids = [fixture["id"] for fixture in fixtures]
+    if not ids or len(ids) != len(set(ids)) or len(fixture_ids) != len(set(fixture_ids)):
+        raise CampaignError("Use at least one case with unique case IDs")
+    profile, credential = load_profile(profile_path)
     # Refuse existing output rather than silently mixing candidate runs.
     output.mkdir(mode=0o700, parents=False, exist_ok=False)
     captures = Captures(output, [credential])
@@ -256,7 +319,7 @@ def run(args):
     summary = {"startedAt": utc(), "catalogSha256": hashlib.sha256(catalog_bytes).hexdigest(),
                "planSha256": hashlib.sha256(args.plan.read_bytes()).hexdigest(),
                "scope": "Selected read-only supporting evidence; not full campaign acceptance",
-               "cases": [], "completed": False}
+               "fixtures": [], "cases": [], "completed": False}
     try:
         initialized, _ = transport.rpc("initialize", {"protocolVersion": "2025-03-26", "capabilities": {},
             "clientInfo": {"name": "rateldesk-campaign-reads", "version": "1"}})
@@ -268,14 +331,28 @@ def run(args):
         actual = {x["name"]: x["inputSchema"] for x in live.get("result", {}).get("tools", [])}
         if live.get("result", {}).get("nextCursor") or actual != expected:
             raise CampaignError("Live tools/schema differ from the supplied released catalog")
-        for case, (op, arguments, path) in zip(plan["cases"], prepared):
+        bindings = {}
+        for fixture, (op, arguments, path) in zip(fixtures, prepared_fixtures):
+            wire, mcp_ref = transport.rpc("tools/call", {"name": op["tool"], "arguments": arguments})
+            api, api_ref = transport.independent_api(path)
+            compare(wire.get("result", {}).get("structuredContent", {}), api, fixture["assertions"],
+                    fixture.get("slaCountdownToleranceSeconds", 0))
+            selected = discovered_values(fixture, api)
+            bindings.update(selected)
+            summary["fixtures"].append({"id": fixture["id"], "operation": fixture["operation"],
+                "selectors": selected, "mcp": mcp_ref, "independentApi": api_ref,
+                "assertions": fixture["assertions"]})
+        for unresolved in plan["cases"]:
+            case = resolve_bindings(unresolved, bindings)
+            op, arguments, path = read_operation(catalog, case)
             wire, mcp_ref = transport.rpc("tools/call", {"name": op["tool"], "arguments": arguments})
             result = wire.get("result", {}).get("structuredContent", {})
             api, api_ref = transport.independent_api(path)
-            compare(result, api, case["assertions"])
+            compare(result, api, case["assertions"], case.get("slaCountdownToleranceSeconds", 0))
             summary["cases"].append({"id": case["id"], "operation": case["operation"],
                                      "outcome": "PASS", "mcp": mcp_ref, "independentApi": api_ref,
-                                     "assertions": case["assertions"]})
+                                     "assertions": case["assertions"],
+                                     "slaCountdownToleranceSeconds": case.get("slaCountdownToleranceSeconds", 0)})
         summary["completed"] = True
     finally:
         summary["completedAt"] = utc()

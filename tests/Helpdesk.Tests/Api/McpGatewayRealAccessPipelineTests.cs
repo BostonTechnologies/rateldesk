@@ -10,6 +10,7 @@ using Helpdesk.AgentClient;
 using Helpdesk.Mcp.Tools;
 using Helpdesk.API.Authentication;
 using Helpdesk.API.Endpoints.Authentication;
+using Helpdesk.API.Endpoints.Email;
 using Helpdesk.API.Endpoints.Incidents;
 using Helpdesk.API.Endpoints.Integrations;
 using Helpdesk.API.Endpoints.Requests;
@@ -370,7 +371,7 @@ public sealed partial class McpGatewayRealAccessPipelineTests
         await harness.AssertDelegationStatusAsync(apiPurposeCredential, GatewayAccessHarness.ResourceUri, HttpStatusCode.Unauthorized);
     }
 
-    internal sealed class GatewayAccessHarness(WebApplication application, IAsyncDisposable database, ConcurrentQueue<string> incidentListQueries) : IAsyncDisposable
+    internal sealed partial class GatewayAccessHarness(WebApplication application, IAsyncDisposable database, ConcurrentQueue<string> incidentListQueries) : IAsyncDisposable
     {
         public const string ResourceUri = "https://helpdesk.example/mcp";
         public const string LiteralIncidentSearch = @"Café & A+B 50%_\?";
@@ -505,6 +506,7 @@ public sealed partial class McpGatewayRealAccessPipelineTests
             app.MapExternalOrchestrationEndpoints();
             app.MapTenantBrandingEndpoints();
             app.MapRoleDefinitionEndpoints();
+            app.MapInboundEmailRuleEndpoints();
             app.MapGet("/test/administration-owner", async (System.Security.Claims.ClaimsPrincipal user,
                 IIntegrationCredentialOwnerResolver owners, RatelDeskIdentityDbContext identity, CancellationToken ct) =>
                 await AdministrationOwnerResolver.ResolveAsync(user, owners, identity, ct))

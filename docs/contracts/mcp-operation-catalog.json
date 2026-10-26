@@ -1,8 +1,8 @@
 {
-  "schemaHash": "fc3603d87ad56fc994cd77385474874a5bc5c9df79a7dc825f5785460463a6f7",
-  "catalogRevision": "2026-10-20.beta9-contracts-v24",
-  "catalogHash": "44d767508d35628a4a9c562e842834ad97053435133890646b417edd5b189f74",
-  "operationCount": 389,
+  "schemaHash": "b66e9eca38b35b255b4f98e92db50a2f08eda7675ca72a88c2aec5e64c51e16c",
+  "catalogRevision": "2026-10-25.beta11-contracts-v25",
+  "catalogHash": "8a73e9abd9a2804afe8bb12de063617e94cd25dae7ce16acf15d31082e234972",
+  "operationCount": 390,
   "operations": [
     {
       "tool": "helpdesk_auth",
@@ -21843,6 +21843,68 @@
     },
     {
       "tool": "helpdesk_email_settings",
+      "operation": "delete_rule",
+      "requestContract": "OperatorRequest",
+      "method": "DELETE",
+      "pathTemplate": "/api/v1/inbound-email-rules/{ruleId}",
+      "effect": "write",
+      "readOnly": false,
+      "confirmationRequired": true,
+      "previewSupported": true,
+      "description": "Delete one explicitly selected inbound rule while preserving its message processing audit history. Already started message work is not cancelled or replayed.",
+      "sensitiveResultFields": [],
+      "transports": [
+        "stdio",
+        "http"
+      ],
+      "transportSupport": {
+        "stdio": "Available with explicitly configured API identity; authority and prerequisites apply",
+        "http": "requires_explicit_administrator_identity: ordinary bounded integration credential is denied"
+      },
+      "credentialModes": [
+        "explicit mcp-owner resource-bound grant from a current instance administrator (HTTP gateway)",
+        "explicit external Authentik identity satisfying HelpdeskAdmin"
+      ],
+      "authority": "HelpdeskAdmin; existing API identity, tenant and record-specific checks apply",
+      "boundedIntegrationCredential": {
+        "support": "denied_by_policy",
+        "reason": "HelpdeskAdmin is instance-wide authority. Assignable scoped grants do not confer it; use an explicitly supported administrator identity."
+      },
+      "ownerAdministrationCredential": {
+        "purpose": "mcp-owner",
+        "grantKind": "owner-administration",
+        "support": "subject_to_current_owner_authority_and_domain_prerequisites",
+        "reason": "Separate explicit administrator consent creates a resource-bound owner grant. The API revalidates the owning account\u0027s current administrator authority, credential expiry/revocation and MCP resource on each call; ordinary tenant grants never gain this authority."
+      },
+      "identifiers": [
+        {
+          "field": "ruleId",
+          "type": "string",
+          "source": "Existing authorized record; synthetic arbitrary identifiers do not establish a positive operation"
+        }
+      ],
+      "prerequisites": [
+        "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability.",
+        "Use the typed request.body and confirmed operation, then independently read the changed record and its durable effect. Preview performs no upstream request. Any prerequisite external integration must already be configured through a supported secure pairing flow."
+      ],
+      "requestSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ruleId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "ruleId"
+        ],
+        "description": "All operation-specific fields belong inside this request object. Put API mutation fields inside request.body; route and query selectors stay alongside body."
+      }
+    },
+    {
+      "tool": "helpdesk_email_settings",
       "operation": "reorder_rules",
       "requestContract": "OperatorRequest",
       "method": "POST",
@@ -40762,6 +40824,34 @@
     },
     {
       "tool": "helpdesk_email_settings",
+      "operation": "delete_rule",
+      "examples": {
+        "schemaValidConfirmed": {
+          "operation": "delete_rule",
+          "request": {
+            "ruleId": "Example"
+          },
+          "confirm": true
+        },
+        "schemaValidPreview": {
+          "operation": "delete_rule",
+          "request": {
+            "ruleId": "Example"
+          },
+          "confirm": false
+        },
+        "schemaInvalid": {
+          "operation": "not_a_supported_operation",
+          "request": {
+            "ruleId": "Example"
+          },
+          "confirm": true
+        },
+        "scope": "Synthetic schema construction only. Record existence, authority, effects and live prerequisites require independent fixtures and readback."
+      }
+    },
+    {
+      "tool": "helpdesk_email_settings",
       "operation": "reorder_rules",
       "examples": {
         "schemaValidConfirmed": {
@@ -57529,6 +57619,40 @@
               "operation": {
                 "const": "disable_rule",
                 "description": "Disable one inbound rule while retaining its audit history. Select this operation in the outer operation field."
+              },
+              "confirm": {
+                "type": "boolean",
+                "default": false,
+                "description": "Required as true to perform this mutation. Calling with false performs no upstream change."
+              },
+              "request": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "ruleId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "ruleId"
+                ],
+                "description": "All operation-specific fields belong inside this request object. Put API mutation fields inside request.body; route and query selectors stay alongside body."
+              }
+            },
+            "required": [
+              "operation",
+              "request"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "delete_rule",
+                "description": "Delete one explicitly selected inbound rule while preserving its message processing audit history. Already started message work is not cancelled or replayed. Select this operation in the outer operation field."
               },
               "confirm": {
                 "type": "boolean",

@@ -1,5 +1,12 @@
 # Release notes
 
+## 0.1.2-beta.11
+
+[Transport, inbound-rule lifecycle and executable laptop acceptance](0.1.2-beta.11.md)
+adds consistent decoded-body limits, selected-rule deletion and a current-release
+evidence gate. The [regression map](../implementation/0.1.2-beta.11-mcp-regressions.md)
+links source verification to the separate deployed campaign.
+
 ## 0.1.2-beta.10 candidate
 
 [Beta.9 campaign repair follow-up](0.1.2-beta.10.md) covers incident seen

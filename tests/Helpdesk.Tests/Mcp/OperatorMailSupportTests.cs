@@ -9,6 +9,40 @@ namespace Helpdesk.Tests.Mcp;
 
 public sealed class OperatorMailSupportTests
 {
+    [Fact]
+    public async Task Inbound_rule_delete_preview_has_no_effect_and_confirmation_targets_only_the_selected_rule()
+    {
+        var (client, tools) = Create();
+        using var request = JsonDocument.Parse("""{"ruleId":"rule/a?b"}""");
+
+        var preview = await tools.helpdesk_email_settings("delete_rule", request.RootElement);
+
+        Assert.Equal("confirmation_required", preview.Status);
+        await client.DidNotReceive().SendAsync(Arg.Any<HttpMethod>(), Arg.Any<string>(), Arg.Any<JsonNode?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+
+        var confirmed = await tools.helpdesk_email_settings("delete_rule", request.RootElement, confirm: true);
+
+        Assert.True(confirmed.Success, confirmed.Summary);
+        await client.Received(1).SendAsync(HttpMethod.Delete, "/api/v1/inbound-email-rules/rule%2Fa%3Fb",
+            null, true, Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"ruleId":""}""")]
+    [InlineData("""{"ruleId":"owned-rule","tenantId":"foreign-tenant"}""")]
+    [InlineData("""{"ruleId":"owned-rule","ruleId":"other-rule"}""")]
+    public async Task Inbound_rule_delete_rejects_missing_ambiguous_or_unadvertised_selectors(string json)
+    {
+        var (client, tools) = Create();
+        using var request = JsonDocument.Parse(json);
+
+        var result = await tools.helpdesk_email_settings("delete_rule", request.RootElement, confirm: true);
+
+        Assert.Equal("validation_failed", result.Status);
+        await client.DidNotReceive().SendAsync(Arg.Any<HttpMethod>(), Arg.Any<string>(), Arg.Any<JsonNode?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+    }
+
     [Theory]
     [InlineData("""{"pageSize":1}""")]
     [InlineData("""{"pageSize":101}""")]

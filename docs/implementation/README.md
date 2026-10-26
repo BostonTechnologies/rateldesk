@@ -18,3 +18,4 @@ guidance is linked from the [documentation index](../README.md).
 - [0.1.2-beta.9 finding repairs and live retest handoff](0.1.2-beta.9-mcp-regressions.md)
 
 - [0.1.2-beta.10 repair regression map and live retest handoff](0.1.2-beta.10-mcp-regressions.md)
+- [0.1.2-beta.11 transport/lifecycle regression map and executable laptop gate](0.1.2-beta.11-mcp-regressions.md)

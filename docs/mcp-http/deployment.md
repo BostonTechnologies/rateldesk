@@ -362,6 +362,58 @@ In an extracted deployment archive, Compose files are at archive root: omit
 the `docker/` prefix and use release overlays; source builds require a checkout.
 Canonical guides and third-party licenses are bundled with the flat recipe.
 
+## JSON request body limits
+
+`POST /mcp` and `POST /mcp/` accept up to **30,000,000 decoded body bytes** by
+default, including JSON whitespace. The Web gateway and standalone HTTP MCP
+host apply the same guard. A finite server `MaxRequestBodySize` configured at
+either hop becomes that hop's decoded-body cap; a server with no body cap still
+uses the 30,000,000-byte MCP default. The effective end-to-end limit is the
+smallest limit on the deployed path.
+
+Content-Length and HTTP/1.1 chunked requests use the same decoded budget. This
+is separate from Kestrel's transport accounting, which includes chunk prefixes,
+suffixes and extensions. For these guarded posts only, the transport ceiling is
+`13 × decoded limit + 65,536` bytes (390,065,536 at the default). This finite
+ceiling accommodates even one-byte chunks with eight-digit size prefixes while
+still bounding excessive chunk extensions. The application buffers at most one
+byte beyond the decoded limit, using temporary files beyond 1 MiB. The Web
+gateway forwards accepted, fully read bodies with their exact Content-Length;
+MCP responses retain normal streaming behavior. Other paths keep their existing
+server limits. Web admits at most 32 simultaneous guarded MCP posts, with no
+waiting queue; additional posts receive HTTP 429. The lease covers the body and
+its forwarded response, then releases when the request ends.
+
+An oversized body receives HTTP **413**, `Content-Type: application/problem+json`,
+and a body such as:
+
+```json
+{
+  "type": "about:blank",
+  "title": "MCP request is too large",
+  "status": 413,
+  "code": "request_too_large",
+  "limit": "body",
+  "maximumBodyBytes": 30000000,
+  "maximumWireBytes": 390065536
+}
+```
+
+Exceeding the finite transport ceiling uses `"limit": "transport"`. Declared
+oversize is rejected from its headers; clients using `Expect: 100-continue` can
+receive the 413 before sending the body. The response is completed before the
+server handles the unread upload. No MCP tool executes for a size rejection.
+
+When deploying behind another ingress, inspect its actual request limits and
+error handling as well. Validate both public route forms with declared and
+chunked valid JSON at the observed limit minus one byte, exactly the limit and
+one byte over. Record the response and decoded byte count for every case.
+The expected boundary is success, success, then structured 413. Repeat the
+1.1 MiB duplicate-member controls to verify `validation_failed`, original RPC
+IDs and no business writes. Source tests exercise real Kestrel and Web/YARP
+sockets; the [campaign guide](campaign-testing.md) covers the released public
+path and its independent ingress settings.
+
 ## Migration, persistence and rotation
 
 An existing protected JSON + env_file installation remains supported. Review

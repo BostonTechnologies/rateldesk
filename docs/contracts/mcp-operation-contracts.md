@@ -7,10 +7,15 @@ credential requirements, authority, identifiers and prerequisites. The API
 resolves live access; discovery does not grant permission. These MCP contracts
 apply to stdio and HTTP transports against the same product version; the
 [CLI guide](../integrations/cli-stdio.md) describes command-line syntax.
-The [inventory delta](mcp-operation-inventory-delta.json) compares the complete
-[beta.7 source catalog](mcp-operation-catalog-beta7.json) with beta.8. It retains
-all 155 historical operations, records every new named operator adapter and
-identifies semantic changes separately from runtime acceptance evidence.
+The current catalog revision `2026-10-25.beta11-contracts-v25` contains 390
+operations on 37 tools. The [inventory delta](mcp-operation-inventory-delta.json)
+compares the complete [beta.10 source catalog](mcp-operation-catalog-beta10.json)
+with beta.11: all 389 prior operation contracts remain unchanged, and
+`helpdesk_email_settings.delete_rule` adds confirmed administrator deletion
+while preserving delivery and rule audit history. The
+[retained beta.8 mapping](mcp-operation-inventory-delta-beta8.json) records the
+earlier operator expansion. These source mappings remain distinct from fresh
+runtime acceptance evidence.
 
 ## Requests, previews and effects
 
@@ -383,8 +388,8 @@ additive read of the current API execution principal at `/api/v1/auth/me` in eve
 mode. In external HTTP mode it reports the separately configured downstream
 principal, not the ingress OAuth caller. Existing `helpdesk_auth.status` keeps
 its original mode-specific behavior and remains the only operation authorized
-for a temporary setup verifier. The complete beta.7 catalog is retained as an
-immutable baseline. Use the current generated catalog for beta.8 counts and
+for a temporary setup verifier. Historical catalogs, including the complete
+beta.10 catalog, are retained as immutable baselines. Use the current generated catalog for beta.11 counts and
 schemas. Follow the [owner-administration approval procedure](../mcp-http/configuration.md#approve-an-agent-to-administer-the-instance)
 for caller-bound full HTTP authority; the [external provisioning procedure](../mcp-http/configuration.md#provision-an-explicit-external-authority)
 remains available for independently configured external principals. Both require

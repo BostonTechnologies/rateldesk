@@ -9,7 +9,8 @@ from unittest.mock import patch
 from types import SimpleNamespace
 from urllib.error import HTTPError
 
-from campaign_reads import CampaignError, Captures, NoRedirect, Transport, compare, decode_api_read, read_operation, run
+from campaign_reads import (CampaignError, Captures, NoRedirect, Transport, compare,
+                            decode_api_read, discovered_values, read_operation, resolve_bindings, run)
 
 
 CATALOG = json.loads((Path(__file__).resolve().parents[2] /
@@ -17,6 +18,46 @@ CATALOG = json.loads((Path(__file__).resolve().parents[2] /
 
 
 class ReadCampaignTests(unittest.TestCase):
+    def test_same_run_discovery_resolves_exact_selector_references(self):
+        fixture = {"id": "incident", "selectors": {"id": "/items/0/id"}}
+        values = discovered_values(fixture, {"items": [{"id": "current-owned-id"}]})
+        resolved = resolve_bindings({"request": {"incidentId": "${incident.id}"}}, values)
+        self.assertEqual(resolved["request"]["incidentId"], "current-owned-id")
+
+    def test_unknown_or_interpolated_selector_cannot_fall_back_to_stale_id(self):
+        for value in ("${deleted.id}", "prefix-${incident.id}", "${incident.id}/other"):
+            with self.assertRaises(CampaignError):
+                resolve_bindings(value, {"incident.id": "owned"})
+
+    def test_fixture_discovery_rejects_empty_and_nonscalar_selectors(self):
+        for value in ("", [], {}, None, True):
+            with self.assertRaises(CampaignError):
+                discovered_values({"id": "incident", "selectors": {"id": "/id"}}, {"id": value})
+
+    def test_sla_tolerance_preserves_raw_captures_and_compares_stable_fields(self):
+        mcp = {"success": True, "data": {"id": "owned", "state": 1,
+            "sla": {"responseRemainingSeconds": 100, "resolutionRemainingSeconds": 200}}}
+        api = {"id": "owned", "state": 1,
+            "sla": {"responseRemainingSeconds": 99, "resolutionRemainingSeconds": 199}}
+        checks = [{"pointer": "/id", "expected": "owned"}]
+        with self.assertRaises(CampaignError):
+            compare(mcp, api, checks)
+        compare(mcp, api, checks, 2)
+        self.assertEqual(mcp["data"]["sla"]["responseRemainingSeconds"], 100)
+        api["state"] = 2
+        with self.assertRaises(CampaignError):
+            compare(mcp, api, checks, 2)
+
+    def test_sla_tolerance_cannot_hide_large_drift_or_change_asserted_values(self):
+        mcp = {"success": True, "data": {"id": "owned",
+            "sla": {"responseRemainingSeconds": 100, "resolutionRemainingSeconds": 200}}}
+        api = {"id": "owned", "sla": {"responseRemainingSeconds": 90, "resolutionRemainingSeconds": 190}}
+        for tolerance in (2, 6, True):
+            with self.assertRaises(CampaignError):
+                compare(mcp, api, [{"pointer": "/id", "expected": "owned"}], tolerance)
+        with self.assertRaises(CampaignError):
+            compare(mcp, mcp["data"], [{"pointer": "/sla", "expected": mcp["data"]["sla"]}], 2)
+
     def test_metrics_text_matches_explicit_mcp_projection(self):
         text = b"# TYPE helpdesk_tasks_in_progress gauge\nhelpdesk_tasks_in_progress 2\n"
         api = decode_api_read("/api/v1/metrics/workflows", text, {"Content-Type": "text/plain; version=0.0.4"})
