@@ -107,10 +107,10 @@ an approved current auxiliary credential through the protected client flow. Keep
 its selected grants, canonical resource, instance/environment, exact expiry and
 consumer profile explicit. A replacement does not change the primary consumer.
 
-Use the existing reviewed-access workflow documented in the companion's
-[setup guide](https://github.com/BostonTechnologies/netratel/blob/v0.1.1-beta.48/docs/mcp-http/setup.md#reviewed-client-access-and-exact-expiry),
-[admission guide](https://github.com/BostonTechnologies/netratel/blob/v0.1.1-beta.48/docs/mcp-http/local-credential-mode.md#reviewed-admission)
-and [authentication guide](https://github.com/BostonTechnologies/netratel/blob/v0.1.1-beta.48/docs/mcp-http/authentication.md).
+Use the existing reviewed-access workflow in the pinned NetRatel
+`v0.1.1-beta.48` source: `docs/mcp-http/setup.md` ("Reviewed client access and
+exact expiry"), `docs/mcp-http/local-credential-mode.md` ("Reviewed admission")
+and `docs/mcp-http/authentication.md`.
 Beta.48 supplies the definition-retirement/history repair; it does not introduce
 a bypass for these existing authority requirements.
 
