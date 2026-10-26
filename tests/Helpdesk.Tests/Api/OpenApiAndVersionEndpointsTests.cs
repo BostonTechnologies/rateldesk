@@ -129,13 +129,14 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // plus single-change ticket state and external orchestration connectivity testing.
         // Beta.8 adds exactly six methods: authenticated task approval read/approve/reject,
         // authenticated Change approval read/review, and authenticated dataset row upsert.
+        // Beta.11 adds the administrator-authorized inbound email rule deletion operation.
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(423, operationCount);
+        Assert.Equal(424, operationCount);
 #else
-        Assert.Equal(422, operationCount);
+        Assert.Equal(423, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         foreach (var (path, operationId, tag) in new[]
@@ -150,6 +151,17 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
             Assert.Equal([tag], operation.GetProperty("tags").EnumerateArray().Select(value => value.GetString()).OfType<string>().ToArray());
             Assert.Equal(["IntegrationCredential", "JwtBearer", "LocalSession", "McpExecution"], SecuritySchemes(document, path, "post"));
         }
+        const string inboundRulePath = "/api/v1/inbound-email-rules/{id}";
+        Assert.True(paths.TryGetProperty(inboundRulePath, out var inboundRuleRoute));
+        Assert.True(inboundRuleRoute.TryGetProperty("delete", out var inboundRuleDeletion));
+        Assert.Equal(["Inbound Email Rules"], inboundRuleDeletion.GetProperty("tags").EnumerateArray().Select(value => value.GetString()).OfType<string>().ToArray());
+        Assert.Equal(["IntegrationCredential", "JwtBearer", "LocalSession", "McpExecution"], SecuritySchemes(document, inboundRulePath, "delete"));
+        var inboundRuleEndpoint = Assert.Single(_factory.Services.GetServices<EndpointDataSource>()
+            .SelectMany(source => source.Endpoints).OfType<RouteEndpoint>(),
+            endpoint => endpoint.RoutePattern.RawText?.TrimEnd('/') == inboundRulePath &&
+                endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods.Contains("DELETE") == true);
+        Assert.Null(inboundRuleEndpoint.Metadata.GetMetadata<IAllowAnonymous>());
+        Assert.Contains(inboundRuleEndpoint.Metadata.OfType<IAuthorizeData>(), metadata => metadata.Policy == "HelpdeskAdmin");
         var identityGroup = Assert.Single(document.RootElement.GetProperty("x-tagGroups").EnumerateArray(),
             group => group.GetProperty("name").GetString() == "Identity & Access");
         Assert.Contains(identityGroup.GetProperty("tags").EnumerateArray(),
