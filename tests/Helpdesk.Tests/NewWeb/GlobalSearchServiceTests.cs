@@ -36,6 +36,22 @@ public sealed class GlobalSearchServiceTests
     }
 
     [Fact]
+    public async Task Investigation_search_preserves_query_and_only_exposes_the_writer_section()
+    {
+        var id = Guid.NewGuid();
+        var factory = new FakeHttpClientFactory(new Dictionary<string, object?>
+        {
+            ["/api/v1/ai/ops/investigations?q=router"] = Enumerable.Range(0, 6)
+                .Select(i => new Helpdesk.Shared.DTOs.AiOps.AiInvestigationDto(i == 0 ? id : Guid.NewGuid(), "a", $"Router {i}", "ticket", "incidents", "", DateTime.UtcNow)).ToList()
+        });
+        var group = (await CreateService(factory, "Incident.Write").SearchAsync("router")).Single(x => x.Key == "investigations");
+        Assert.Equal(5, group.Results.Count);
+        Assert.Equal($"/ai/ops?id={id}", group.Results[0].Href);
+        Assert.Equal("/ai/ops?q=router", group.ContinueHref);
+        Assert.DoesNotContain(await CreateService(factory, "Incident.Read").SearchAsync(""), x => x.Key == "investigations");
+    }
+
+    [Fact]
     public async Task Empty_query_shows_role_appropriate_sections()
     {
         var service = CreateService(new FakeHttpClientFactory(new Dictionary<string, object?>()), "Technician");

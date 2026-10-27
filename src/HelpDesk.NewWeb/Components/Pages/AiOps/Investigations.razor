@@ -57,6 +57,7 @@
 
 @code {
     [SupplyParameterFromQuery(Name = "id")] public Guid? Id { get; set; }
+    [SupplyParameterFromQuery(Name = "q")] public string? Query { get; set; }
     private List<OrganizationDto> organizations = [];
     private List<AiInvestigationDto> investigations = [];
     private List<AiContextTicketDto> tickets = [];
@@ -70,7 +71,7 @@
     private IReadOnlyCollection<Guid> promptIds = [];
     protected override async Task OnParametersSetAsync()
     {
-        selected = null; error = null;
+        selected = null; error = null; search = Query ?? "";
         try
         {
             if (Id.HasValue) selected = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<AiInvestigationDto>($"api/v1/ai/ops/investigations/{Id}");

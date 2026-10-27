@@ -270,7 +270,7 @@ public sealed class GlobalSearchService : IGlobalSearchService
         var rows = await api.GetFromJsonAsync<List<AiInvestigationDto>>($"api/v1/ai/ops/investigations?q={Escape(term)}", ct) ?? [];
         return new(section.Key, section.Title, section.Icon, section.Href,
             rows.Take(ResultLimit).Select(x => new GlobalSearchResult(section.Title, x.Title, "Saved investigation", null, $"/ai/ops?id={x.Id}", section.Icon)).ToList(),
-            rows.Count > ResultLimit ? "/ai/ops" : null, rows.Count);
+            rows.Count > ResultLimit ? $"/ai/ops?q={Escape(term)}" : null, rows.Count);
     }
 
     private static async Task<GlobalSearchGroup> SearchPagedAsync<T>(
