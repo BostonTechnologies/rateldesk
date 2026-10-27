@@ -390,6 +390,9 @@ test('AI prompts and multi-ticket investigation save preserve selected context w
  const save = state.calls.find((call: any) => call.path === '/api/v1/ai/ops/investigations');
  expect(save.payload.ticketIds.sort()).toEqual(['ticket-incident', 'ticket-task']);
  expect(state.calls.filter((call: any) => call.path.endsWith('/messages'))).toEqual([]);
+ await page.locator('a').filter({ hasText: /^All investigations$/ }).click();
+ await expect(page.getByLabel('Investigation title', { exact: true })).toHaveValue('');
+ await expect(page.getByRole('button', { name: 'Save investigation context', exact: true })).toBeDisabled();
  await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
 });
 
@@ -413,5 +416,9 @@ test('MCP policy preview keeps the reviewed fields locked until explicit confirm
  state = await (await request.get(`${fixture}/state`)).json();
  expect(state.calls.find((call: any) => call.path.endsWith('/preview')).payload.permissions).toEqual(['Incident.Read']);
  expect(state.calls.find((call: any) => call.path.endsWith('/confirm')).payload.confirmation).toBe('synthetic-confirmation');
+ await page.getByRole('button', { name: 'Preview exact policy', exact: true }).click();
+ await expect(page.getByRole('button', { name: 'Confirm this policy', exact: true })).toBeVisible();
+ const nextPreview = (await (await request.get(`${fixture}/state`)).json()).calls.filter((call: any) => call.path.endsWith('/preview')).at(-1);
+ expect(nextPreview.payload.expectedRevision).toBe(1);
  await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
 });

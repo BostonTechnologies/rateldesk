@@ -118,7 +118,9 @@
         {
             using var response = await Clients.CreateClient("SystemPairingApi").PostAsJsonAsync("api/v1/ai/ops/investigations", new CreateAiInvestigationDto(creationId, organization, title, ticketIds.ToArray(), promptIds.ToArray()));
             if (!response.IsSuccessStatusCode) { error = "Unable to save context. Check ticket access, prompt revisions, PostgreSQL availability and context size. Your selections are preserved."; return; }
-            Navigation.NavigateTo($"/ai/ops?id={creationId}");
+            var savedId = creationId;
+            creationId = Guid.NewGuid(); title = ""; ticketIds = []; promptIds = [];
+            Navigation.NavigateTo($"/ai/ops?id={savedId}");
         }
         catch (HttpRequestException) { error = "Save could not be confirmed. Retry unchanged to reconcile the same investigation ID."; }
         finally { busy = false; }

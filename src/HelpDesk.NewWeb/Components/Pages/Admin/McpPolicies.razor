@@ -16,7 +16,7 @@
         <MudPaper Class="pa-3" Outlined="true">
             <MudText>@CredentialName(policy.CredentialId) · @policy.State · revision @policy.Revision · expires @policy.ExpiresUtc.ToString("u")</MudText>
             <MudText>@policy.OrganizationId · @string.Join(", ", policy.Permissions)</MudText>
-            <MudButton OnClick="@(() => Edit(policy))" Disabled="@(policy.State == "Revoked")">Replace / disable / revoke</MudButton>
+            <MudButton OnClick="@(() => Edit(policy))" Disabled="@(busy || policy.State == "Revoked")">Replace / disable / revoke</MudButton>
             <MudButton OnClick="@(() => Audit(policy.CredentialId))">Audit history</MudButton>
         </MudPaper>
     }
@@ -26,7 +26,7 @@
             @foreach (var audit in audits) { <MudText>Revision @audit.Revision · @audit.OccurredUtc.ToString("u") · actor @audit.Actor · receipt @audit.Id</MudText><pre style="white-space:pre-wrap">@audit.DefinitionJson</pre> }
         </MudExpansionPanel></MudExpansionPanels>
     }
-    <MudButton OnClick="New">New policy</MudButton>
+    <MudButton OnClick="New" Disabled="busy">New policy</MudButton>
     <MudSelect T="Guid" Label="Separate operator credential" @bind-Value="credentialId" Disabled="@(preview is not null || revision > 0)">
         @foreach (var credential in credentials) { <MudSelectItem Value="@credential.Id">@credential.Name · owner @credential.Owner</MudSelectItem> }
     </MudSelect>
@@ -103,6 +103,8 @@
         {
             using var response = await Clients.CreateClient("SystemPairingApi").PostAsJsonAsync("api/v1/admin/mcp-policies/confirm", new ConfirmMcpPolicy(preview!.Confirmation));
             if (!response.IsSuccessStatusCode) { error = "Confirmation rejected or stale. Reload current policy and preview again."; return; }
+            var saved = await response.Content.ReadFromJsonAsync<McpPolicyDto>();
+            if (saved is not null) Edit(saved);
             preview = null; await Load(); await Audit(credentialId);
         }
         catch (HttpRequestException) { error = "Confirmation could not be verified. Read the policy and audit before retrying."; await Load(); }
