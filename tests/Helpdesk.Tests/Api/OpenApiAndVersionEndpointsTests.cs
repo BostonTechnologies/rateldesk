@@ -130,13 +130,14 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // Beta.8 adds exactly six methods: authenticated task approval read/approve/reject,
         // authenticated Change approval read/review, and authenticated dataset row upsert.
         // Beta.11 adds the administrator-authorized inbound email rule deletion operation.
+        // Beta.13 adds five MCP policy and seven AI investigation/guidance operations.
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(424, operationCount);
+        Assert.Equal(436, operationCount);
 #else
-        Assert.Equal(423, operationCount);
+        Assert.Equal(435, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         foreach (var (path, operationId, tag) in new[]
