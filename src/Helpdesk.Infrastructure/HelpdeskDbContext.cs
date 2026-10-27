@@ -186,12 +186,34 @@ public class HelpdeskDbContext(
             entity.Property(initialization => initialization.TimeZoneId).HasMaxLength(128).HasDefaultValue("UTC");
             entity.HasIndex(initialization => initialization.InstanceId).IsUnique();
         });
+        modelBuilder.Entity<Helpdesk.Infrastructure.McpPolicies.McpAccessPolicy>(entity =>
+        {
+            entity.HasKey(x => x.CredentialId);
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+        });
+        modelBuilder.Entity<Helpdesk.Infrastructure.McpPolicies.McpAccessPolicyAudit>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.CredentialId, x.Revision }).IsUnique();
+        });
+        modelBuilder.Entity<Helpdesk.Infrastructure.AiOps.AiGuidancePrompt>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.HasIndex(x => x.OrganizationId).IsUnique().HasFilter("\"IsDefault\" = TRUE AND \"Archived\" = FALSE");
+        });
+        modelBuilder.Entity<Helpdesk.Infrastructure.AiOps.AiOpsInvestigation>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.OrganizationId, x.CreatedUtc });
+            entity.HasOne<Helpdesk.Shared.AiAssistant.Chat.AiAssistantChatConversation>().WithMany().HasForeignKey(x => x.Id).OnDelete(DeleteBehavior.Restrict);
+        });
         modelBuilder.Entity<Helpdesk.Shared.AiAssistant.Chat.AiAssistantChatConversation>(entity =>
         {
             entity.ToTable("AiAssistantChatConversations");
             entity.HasKey(x => x.Id);
             entity.Property(x => x.ProviderProfileFingerprint).HasMaxLength(64);
-            entity.HasIndex(x => new { x.OrganizationId, x.TicketType, x.TicketId }).IsUnique().HasFilter("\"State\" <> 4");
+            entity.HasIndex(x => new { x.OrganizationId, x.TicketType, x.TicketId }).IsUnique().HasFilter("\"State\" <> 4 AND \"IsInvestigation\" = FALSE");
             entity.HasIndex(x => new { x.State, x.LastTransportActivityAtUtc });
         });
         modelBuilder.Entity<Helpdesk.Shared.AiAssistant.Chat.AiAssistantChatEvent>(entity =>

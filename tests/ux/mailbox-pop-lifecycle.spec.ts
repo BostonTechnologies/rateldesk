@@ -64,7 +64,7 @@ test('mailbox POP3 lifecycle: dedicated IMAP and POP3 work without any global ma
   await expect(page.getByTestId('local-login-form')).toHaveAttribute('data-interactive', 'true');
   await page.getByRole('textbox', { name: 'Email' }).fill(process.env.HELPDESK_E2E_LOCAL_EMAIL!);
   await page.getByLabel('Password').fill(process.env.HELPDESK_E2E_LOCAL_PASSWORD!);
-  await page.getByRole('button', { name: /^Sign in to/ }).click();
+  await page.getByRole('button', { name: /^Sign in$/ }).click();
   await expect(page.getByRole('heading', { name: 'Operations Dashboard' })).toBeVisible();
 
   const organizationResponse = await page.request.post('/api/v1/organizations/', {

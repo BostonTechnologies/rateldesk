@@ -147,7 +147,7 @@ public sealed class OrganizationMailboxDeletionTests
     public async Task PostgreSql_archived_mailbox_disposal_and_retained_receipt_conflict()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
-        await using var postgres = new PostgreSqlBuilder().WithImage("postgres:16").Build();
+        await using var postgres = new PostgreSqlBuilder("postgres:16").Build();
         await postgres.StartAsync(timeout.Token);
         var options = new DbContextOptionsBuilder<HelpdeskDbContext>()
             .UseNpgsql(postgres.GetConnectionString()).Options;

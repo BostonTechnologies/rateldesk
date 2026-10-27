@@ -15,7 +15,7 @@ else
 {
 <MudStack Spacing="2">
     <MudText Typo="Typo.h6">AI Assistant · @state · @connectionStatus</MudText>
-    @if (history.Count > 0)
+    @if (InvestigationId is null && history.Count > 0)
     {
         <MudSelect T="Guid" Label="Conversation history" Value="conversation" ValueChanged="SelectConversationAsync" Disabled="busy">
             @foreach (var entry in history)
@@ -28,14 +28,16 @@ else
     @if (state == ChatState.Archived)
     {
         <MudAlert Severity="Severity.Info">Archived transcript — read-only. Its remote session is not resumed.</MudAlert>
-        <MudButton Disabled="busy" OnClick="@(() => SelectConversationAsync(Guid.Empty))">Return to current conversation</MudButton>
+        @if (InvestigationId is null) { <MudButton Disabled="busy" OnClick="@(() => SelectConversationAsync(Guid.Empty))">Return to current conversation</MudButton> }
     }
     @if (state == ChatState.DeliveryUnknown)
     {
         <MudAlert Severity="Severity.Warning">Delivery or completion could not be confirmed. AiAssistant may already have accepted this turn. Checking the session never resends it.</MudAlert>
         <MudButton Disabled="busy" OnClick="ReconcileAsync">Check saved session</MudButton>
+        @if (InvestigationId is null) {
         <MudCheckBox T="bool" @bind-Value="acknowledgeAbandon" Disabled="busy" Label="I understand the old turn may still execute. Archive this transcript and start blank, without retrying it." />
         <MudButton Color="Color.Warning" Disabled="@(busy || !acknowledgeAbandon || UnresolvedMessageId is null)" OnClick="AbandonAsync">Abandon unresolved turn and start blank</MudButton>
+        }
     }
     @if (state == ChatState.Processing)
     {
@@ -63,12 +65,13 @@ else
     }
     @if (draft.Length > 0) { <MudText Style="white-space: pre-wrap">@draft</MudText> }
     <AiAssistantComposer @bind-Value="message" Send="SendAsync" Disabled="@(busy || state != ChatState.Idle || conversation == Guid.Empty)" />
-    <MudButton OnClick="NewAsync" Size="Size.Small" Style="align-self: flex-start" Disabled="@(busy || state != ChatState.Idle || conversation == Guid.Empty)">Archive and start new conversation</MudButton>
+    @if (InvestigationId is null) { <MudButton OnClick="NewAsync" Size="Size.Small" Style="align-self: flex-start" Disabled="@(busy || state != ChatState.Idle || conversation == Guid.Empty)">Archive and start new conversation</MudButton> }
 </MudStack>
 
 }
 
 @code {
+    [Parameter] public Guid? InvestigationId { get; set; }
     [Parameter] public string TicketId { get; set; } = string.Empty;
     [Parameter] public string TicketType { get; set; } = "incidents";
     private readonly List<AiAssistantChatEvent> events = [];
@@ -121,7 +124,7 @@ else
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
         if (disposed) return;
-        await SelectConversationAsync(Guid.Empty);
+        await SelectConversationAsync(InvestigationId ?? Guid.Empty);
         if (!disposed) await InvokeAsync(StateHasChanged);
     }
 

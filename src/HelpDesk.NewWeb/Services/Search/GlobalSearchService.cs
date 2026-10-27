@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Helpdesk.Shared.DTOs.AiOps;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -31,6 +32,7 @@ public sealed class GlobalSearchService : IGlobalSearchService
         new("requests", "Requests", Icons.Material.Filled.List, "/requests", SearchAudience.Workspace),
         new("changes", "Changes", Icons.Material.Filled.ChangeCircle, "/changes", SearchAudience.Workspace),
         new("tasks", "Tasks", Icons.Material.Filled.TaskAlt, "/tasks", SearchAudience.Workspace),
+        new("investigations", "AI investigations", Icons.Material.Filled.Psychology, "/ai/ops", SearchAudience.Workspace),
         new("team", "Team", Icons.Material.Filled.Group, "/admin/users", SearchAudience.Admin),
         new("customers", "Customers", Icons.Material.Filled.People, "/admin/customers", SearchAudience.Admin),
         new("organizations", "Organizations", Icons.Material.Filled.Apartment, "/admin/organizations", SearchAudience.Admin)
@@ -189,6 +191,7 @@ public sealed class GlobalSearchService : IGlobalSearchService
         {
             var group = section.Key switch
             {
+                "investigations" => await SearchInvestigationsAsync(api, section, term, token),
                 "self-service" => await SearchPagedAsync<ServiceItemDto>(
                     api,
                     section,
@@ -260,6 +263,14 @@ public sealed class GlobalSearchService : IGlobalSearchService
             _logger.LogWarning(ex, "Global search source {Section} failed.", section.Key);
             return EmptyGroup(section);
         }
+    }
+
+    private static async Task<GlobalSearchGroup> SearchInvestigationsAsync(HttpClient api, SectionDefinition section, string term, CancellationToken ct)
+    {
+        var rows = await api.GetFromJsonAsync<List<AiInvestigationDto>>($"api/v1/ai/ops/investigations?q={Escape(term)}", ct) ?? [];
+        return new(section.Key, section.Title, section.Icon, section.Href,
+            rows.Take(ResultLimit).Select(x => new GlobalSearchResult(section.Title, x.Title, "Saved investigation", null, $"/ai/ops?id={x.Id}", section.Icon)).ToList(),
+            rows.Count > ResultLimit ? "/ai/ops" : null, rows.Count);
     }
 
     private static async Task<GlobalSearchGroup> SearchPagedAsync<T>(
@@ -375,6 +386,7 @@ public sealed class GlobalSearchService : IGlobalSearchService
             "incidents" => HasAnyRole(user, "Incident.User", "Incident.Read", "Incident.Write", "Incident.Manager", "Technician"),
             "requests" => HasAnyRole(user, "Request.User", "Request.Read", "Request.Write", "Request.Manager", "Technician"),
             "changes" => HasAnyRole(user, "Change.User", "Change.Read", "Change.Write", "Change.Manager", "Technician"),
+            "investigations" => HasAnyRole(user, "Incident.Write", "Incident.Manager", "Request.Write", "Request.Manager", "Change.Write", "Change.Manager", "Technician"),
             "tasks" => HasAnyRole(user, "Request.Read", "Request.Write", "Request.Manager", "Technician"),
             _ => false
         };

@@ -17,7 +17,7 @@ namespace Helpdesk.Tests.Infrastructure.AiAssistant;
 
 public sealed class ChatMigrationTests : IAsyncLifetime
 {
-    private readonly PostgreSqlContainer postgres = new PostgreSqlBuilder().WithImage("postgres:16").Build();
+    private readonly PostgreSqlContainer postgres = new PostgreSqlBuilder("postgres:16").Build();
     public Task InitializeAsync() => postgres.StartAsync();
     public Task DisposeAsync() => postgres.DisposeAsync().AsTask();
 

@@ -19,7 +19,7 @@ namespace Helpdesk.Tests.Infrastructure.AiAssistant;
 
 public sealed class ChatPostgresFixture : IAsyncLifetime
 {
-    private readonly PostgreSqlContainer container = new PostgreSqlBuilder().WithImage("postgres:16").Build();
+    private readonly PostgreSqlContainer container = new PostgreSqlBuilder("postgres:16").Build();
     public async Task InitializeAsync()
     {
         await container.StartAsync();
@@ -306,6 +306,42 @@ public sealed class ChatPostgresTests(ChatPostgresFixture fixture) : IClassFixtu
                 Assert.Fail("The chat feed closed before turn completion.");
             }
             finally { feed.Unsubscribe(conversation, reader); }
+        }
+        finally { await manager.StopAsync(default); }
+    }
+
+    [Fact]
+    public async Task Investigation_transport_sends_saved_guidance_and_context_with_actual_operator_turn()
+    {
+        await using var services = new ServiceCollection().AddScoped(_ => fixture.Context()).BuildServiceProvider();
+        var client = new FailingChatClient { FailSend = false };
+        var factory = Substitute.For<IAiAssistantChatClientFactory>(); factory.Create().Returns(client);
+        using var manager = new AiAssistantChatSessionManager(services.GetRequiredService<IServiceScopeFactory>(),
+            Options.Create(EnabledTestOptions()), new ChatLiveFeed(), NullLogger<AiAssistantChatSessionManager>.Instance, factory);
+        await manager.StartAsync(default);
+        try
+        {
+            var (ticket, conversation) = await fixture.CreateAsync();
+            var request = new ChatMessageRequest(conversation, Guid.NewGuid(), "Inspect the selected context");
+            await using (var db = fixture.Context())
+            {
+                var saved = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == conversation);
+                saved.IsInvestigation = true;
+                db.Add(new Helpdesk.Infrastructure.AiOps.AiOpsInvestigation
+                {
+                    Id = conversation, OrganizationId = "org", TicketId = ticket, TicketType = "incidents",
+                    Title = "Synthetic investigation", ContextSnapshot = "Pinned guidance revision 1; selected incident and task context"
+                });
+                await db.SaveChangesAsync();
+                Assert.True(await fixture.Store(db).AcceptMessageAsync("incidents", ticket, request, "operator", default));
+            }
+            await manager.SendAsync(conversation, request.ClientMessageId, request.Text, default);
+            Assert.Equal(1, client.SendCount);
+            Assert.Contains("Pinned guidance revision 1", client.SentText);
+            Assert.Contains("selected incident and task context", client.SentText);
+            Assert.Contains("Inspect the selected context", client.SentText);
+            Assert.Contains("Platform controls", client.SentText);
+            Assert.Contains($"[helpdesk-chat:{conversation:D}:{request.ClientMessageId:D}]", client.SentText);
         }
         finally { await manager.StopAsync(default); }
     }

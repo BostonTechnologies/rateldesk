@@ -1,5 +1,13 @@
 # Releases
 
+## 0.1.2-beta.13 candidate
+
+[Candidate notes](../release-notes/0.1.2-beta.13.md) cover consolidated Integration,
+MCP policy ceilings, AI investigations and ticket context. Use the
+[laptop continuation guide](../mcp-http/beta13-laptop-campaign.md) after verified
+publication and owner deployment. Delivery is tracked in
+[#272](https://github.com/BostonTechnologies/RatelDesk/issues/272).
+
 ## 0.1.2-beta.12 — beta.11 follow-up
 
 [Release notes](../release-notes/0.1.2-beta.12.md) describe the oversized eager-upload

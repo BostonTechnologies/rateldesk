@@ -1,0 +1,111 @@
+@page "/admin/operator-policies"
+@attribute [Authorize(Roles = "HelpdeskAdmin")]
+@using Helpdesk.Shared.DTOs.McpPolicies
+@using Helpdesk.Shared.DTOs.Organization
+@using Helpdesk.Shared.Auth
+@inject IHttpClientFactory Clients
+
+<PageTitle>MCP Policies</PageTitle>
+<MudStack Spacing="3">
+    <MudText Typo="Typo.h4">MCP Policies</MudText>
+    <MudText>Bound RatelDesk HTTP MCP credentials to an organization, permissions and expiry. Policies only narrow current account and credential authority. NetRatel agent execution policies are managed in NetRatel.</MudText>
+    <MudAlert Severity="Severity.Info">Manage a separate operator's credential. An expired, disabled or revoked policy denies that credential; it never restores broader access. Revocation is permanent.</MudAlert>
+    @if (error is not null) { <MudAlert Severity="Severity.Warning">@error</MudAlert> }
+    @foreach (var policy in policies)
+    {
+        <MudPaper Class="pa-3" Outlined="true">
+            <MudText>@CredentialName(policy.CredentialId) · @policy.State · revision @policy.Revision · expires @policy.ExpiresUtc.ToString("u")</MudText>
+            <MudText>@policy.OrganizationId · @string.Join(", ", policy.Permissions)</MudText>
+            <MudButton OnClick="@(() => Edit(policy))" Disabled="@(policy.State == "Revoked")">Replace / disable / revoke</MudButton>
+            <MudButton OnClick="@(() => Audit(policy.CredentialId))">Audit history</MudButton>
+        </MudPaper>
+    }
+    @if (audits.Count > 0)
+    {
+        <MudExpansionPanels><MudExpansionPanel Text="Immutable policy audit" Expanded="true">
+            @foreach (var audit in audits) { <MudText>Revision @audit.Revision · @audit.OccurredUtc.ToString("u") · actor @audit.Actor · receipt @audit.Id</MudText><pre style="white-space:pre-wrap">@audit.DefinitionJson</pre> }
+        </MudExpansionPanel></MudExpansionPanels>
+    }
+    <MudButton OnClick="New">New policy</MudButton>
+    <MudSelect T="Guid" Label="Separate operator credential" @bind-Value="credentialId" Disabled="@(preview is not null || revision > 0)">
+        @foreach (var credential in credentials) { <MudSelectItem Value="@credential.Id">@credential.Name · owner @credential.Owner</MudSelectItem> }
+    </MudSelect>
+    <MudSelect T="string" Label="Organization" @bind-Value="organization" Disabled="@(preview is not null)">
+        @foreach (var org in organizations) { <MudSelectItem Value="@org.Id">@org.Name</MudSelectItem> }
+    </MudSelect>
+    <MudSelect T="string" Label="Permission ceiling" MultiSelection="true" @bind-SelectedValues="permissions" Disabled="@(preview is not null)">
+        @foreach (var permission in HelpdeskPermissions.AssignablePermissions) { <MudSelectItem Value="@permission">@permission</MudSelectItem> }
+    </MudSelect>
+    <MudDatePicker Label="Expiry date (UTC, start of day)" @bind-Date="expiry" Disabled="@(preview is not null)" />
+    <MudSelect T="string" Label="State" @bind-Value="state" Disabled="@(preview is not null)">
+        <MudSelectItem Value='@("Active")'>Active</MudSelectItem><MudSelectItem Value='@("Disabled")'>Disabled</MudSelectItem><MudSelectItem Value='@("Revoked")'>Revoked</MudSelectItem>
+    </MudSelect>
+    <MudButton OnClick="Preview" Disabled="@(busy || preview is not null || credentialId == Guid.Empty || expiry is null)">Preview exact policy</MudButton>
+    @if (preview is not null)
+    {
+        <MudAlert Severity="Severity.Warning">@preview.Effect</MudAlert>
+        <MudText>Credential @preview.Policy.CredentialId · organization @preview.Policy.OrganizationId · state @preview.Policy.State · expected revision @preview.Policy.ExpectedRevision</MudText>
+        <MudText>Permissions: @string.Join(", ", preview.Policy.Permissions) · expiry @preview.Policy.ExpiresUtc.ToString("u")</MudText>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Confirm" Disabled="busy">Confirm this policy</MudButton>
+        <MudButton OnClick="@(() => preview = null)" Disabled="busy">Back to edit</MudButton>
+    }
+</MudStack>
+@code {
+    private List<McpPolicyDto> policies = [];
+    private List<McpPolicyCredential> credentials = [];
+    private List<OrganizationDto> organizations = [];
+    private List<McpPolicyAuditDto> audits = [];
+    private McpPolicyPreview? preview;
+    private Guid credentialId;
+    private string organization = "", state = "Active";
+    private IEnumerable<string> permissions = [];
+    private DateTime? expiry = DateTime.UtcNow.Date.AddDays(1);
+    private int revision;
+    private bool busy;
+    private string? error;
+    protected override async Task OnInitializedAsync() => await Load();
+    private string CredentialName(Guid id) => credentials.FirstOrDefault(x => x.Id == id)?.Name ?? id.ToString();
+    private async Task Load()
+    {
+        try
+        {
+            var api = Clients.CreateClient("HelpdeskApi");
+            policies = await api.GetFromJsonAsync<List<McpPolicyDto>>("api/v1/admin/mcp-policies") ?? [];
+            credentials = await api.GetFromJsonAsync<List<McpPolicyCredential>>("api/v1/admin/mcp-policies/credentials") ?? [];
+            organizations = await api.GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations") ?? [];
+        }
+        catch (HttpRequestException) { error = "Unable to read policy state. Use an interactive instance administrator account."; }
+    }
+    private void New() { credentialId = Guid.Empty; organization = ""; permissions = []; state = "Active"; revision = 0; preview = null; }
+    private void Edit(McpPolicyDto p) { credentialId = p.CredentialId; organization = p.OrganizationId; permissions = p.Permissions; state = p.State; revision = p.Revision; expiry = p.ExpiresUtc; preview = null; }
+    private async Task Audit(Guid id)
+    {
+        try { audits = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<McpPolicyAuditDto>>($"api/v1/admin/mcp-policies/{id}/audit") ?? []; }
+        catch (HttpRequestException) { error = "Unable to load audit history."; }
+    }
+    private async Task Preview()
+    {
+        busy = true; error = null;
+        try
+        {
+            var draft = new McpPolicyDraft(credentialId, organization, permissions.Order(StringComparer.Ordinal).ToArray(), DateTime.SpecifyKind(expiry!.Value, DateTimeKind.Utc), revision, state);
+            using var response = await Clients.CreateClient("SystemPairingApi").PostAsJsonAsync("api/v1/admin/mcp-policies/preview", draft);
+            if (!response.IsSuccessStatusCode) { error = "Preview rejected. Check separate credential ownership, organization, revision and expiry within the credential lifetime."; return; }
+            preview = await response.Content.ReadFromJsonAsync<McpPolicyPreview>();
+        }
+        catch (HttpRequestException) { error = "Unable to preview policy. No policy was changed."; }
+        finally { busy = false; }
+    }
+    private async Task Confirm()
+    {
+        busy = true; error = null;
+        try
+        {
+            using var response = await Clients.CreateClient("SystemPairingApi").PostAsJsonAsync("api/v1/admin/mcp-policies/confirm", new ConfirmMcpPolicy(preview!.Confirmation));
+            if (!response.IsSuccessStatusCode) { error = "Confirmation rejected or stale. Reload current policy and preview again."; return; }
+            preview = null; await Load(); await Audit(credentialId);
+        }
+        catch (HttpRequestException) { error = "Confirmation could not be verified. Read the policy and audit before retrying."; await Load(); }
+        finally { busy = false; }
+    }
+}

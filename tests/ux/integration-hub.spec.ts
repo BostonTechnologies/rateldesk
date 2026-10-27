@@ -38,22 +38,18 @@ async function setStoredTheme(page: Page, mode: 'light' | 'dark'): Promise<void>
 test('integration hub routes to Netclaw and renders desktop light and dark states', async ({ page }, testInfo) => {
   await page.goto('/admin/automation/integration');
   await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
-  await expect(page.getByRole('heading', { name: 'Integration hub' })).toBeVisible();
-  await expect(page.getByText('NetRatel orchestrator', { exact: true })).toBeVisible();
-  await expect(page.getByText('Netclaw AI harness', { exact: true })).toBeVisible();
-  await expect(page.getByText('My integration credentials', { exact: true })).toBeVisible();
-  await expect(page.getByText('Pair your daemon once to verify the authenticated chat connection used by the ticket AI Assistant.')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Integration', exact: true })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'System connections' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'API & MCP credentials' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Netclaw', exact: true })).toBeVisible();
   await selectTheme(page, 'Light');
   await expect(page.locator('html')).toHaveAttribute('data-helpdesk-theme', 'light');
   await assertNoHorizontalOverflow(page);
   await page.mouse.move(0, 0);
   await page.screenshot({ path: testInfo.outputPath('integration-hub-desktop-light.png'), fullPage: true });
 
-  await page.getByRole('link', { name: 'Open destination' }).first().click();
-  await expect(page.getByRole('heading', { name: 'NetRatel orchestrator' })).toBeVisible();
-  await assertNoHorizontalOverflow(page);
-
-  await page.goto('/admin/automation/integration/netclaw');
+  await page.getByRole('tab', { name: 'Netclaw', exact: true }).click();
+  await expect(page).toHaveURL(/tab=netclaw/);
   await expectNetclawRoute(page);
   await selectTheme(page, 'Light');
   await expect(page.locator('html')).toHaveAttribute('data-helpdesk-theme', 'light');
@@ -86,10 +82,10 @@ test('Netclaw route fits a 390px viewport in light and dark themes', async ({ br
   await authenticate(page);
   await page.goto('/admin/automation/integration');
   await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
-  await expect(page.getByRole('heading', { name: 'Integration hub' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Integration', exact: true })).toBeVisible();
   await assertNoHorizontalOverflow(page);
   await setStoredTheme(page, 'dark');
-  await expect(page.getByRole('heading', { name: 'Integration hub' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Integration', exact: true })).toBeVisible();
   await assertNoHorizontalOverflow(page);
   await page.mouse.move(0, 0);
   await page.screenshot({ path: testInfo.outputPath('integration-hub-mobile-dark.png'), fullPage: true });
@@ -97,7 +93,7 @@ test('Netclaw route fits a 390px viewport in light and dark themes', async ({ br
   await page.goto('/admin/automation/integration/netclaw');
   await expectNetclawRoute(page);
 
-  const netclawHubLink = page.getByTestId('netclaw-settings-page').getByRole('link', { name: 'Integration hub' });
+  const netclawHubLink = page.getByTestId('netclaw-settings-page').getByRole('link', { name: 'Integration', exact: true });
   await expect(netclawHubLink).toBeVisible();
   await expect(netclawHubLink).toHaveCSS('white-space', 'nowrap');
   await expect.poll(() => netclawHubLink.evaluate(link => link.scrollWidth - link.clientWidth)).toBeLessThanOrEqual(1);

@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Helpdesk.Infrastructure.AiOps;
 using Helpdesk.API.Endpoints.Authentication;
 using System.Text.Json;
 using Helpdesk.Application.AiAssistant.Chat;
@@ -43,6 +44,31 @@ public static class AiAssistantChatEndpoints
                 context.HttpContext.RequestAborted);
             if (failure is not null)
                 return failure;
+            var conversationId = context.Arguments.Select(argument => argument switch
+            {
+                ChatMessageRequest r => r.ConversationId,
+                ChatNewRequest r => r.ConversationId,
+                ChatApprovalRequest r => r.ConversationId,
+                ChatStopWaitingRequest r => r.ConversationId,
+                ChatAbandonRequest r => r.ConversationId,
+                _ => Guid.Empty
+            }).FirstOrDefault(id => id != Guid.Empty);
+            if (conversationId == Guid.Empty) Guid.TryParse(context.HttpContext.Request.Query["conversationId"], out conversationId);
+            if (conversationId != Guid.Empty)
+            {
+                var db = context.HttpContext.RequestServices.GetRequiredService<HelpdeskDbContext>();
+                var investigation = await db.Set<AiOpsInvestigation>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == conversationId, context.HttpContext.RequestAborted);
+                if (investigation is not null)
+                {
+                    var access = await context.HttpContext.RequestServices.GetRequiredService<ICurrentUserAccessService>().ResolveAsync(context.HttpContext.User, context.HttpContext.RequestAborted);
+                    if (!await AiOpsContext.CanAccessAsync(db, access, investigation, context.HttpContext.RequestAborted)) return Results.NotFound();
+                    if (context.Arguments.OfType<ChatMessageRequest>().FirstOrDefault() is { } message)
+                    {
+                        try { AiOpsContext.ValidatePayload(AiOpsContext.Outbound(message.ConversationId, message.ClientMessageId, investigation.ContextSnapshot, message.Text)); }
+                        catch (ArgumentException ex) { return Results.Problem(ex.Message, statusCode: 400); }
+                    }
+                }
+            }
             try { return await next(context); }
             catch (ChatConflictException ex) { return Results.Conflict(new { message = ex.Message }); }
             catch (ArgumentException ex) { return Results.Problem(ex.Message, statusCode: 400); }
@@ -104,7 +130,7 @@ public static class AiAssistantChatEndpoints
         var canManage = ticket switch
         {
             Incident => access.CanManageIncident(ticket.OrganizationId),
-            Request => access.CanManageRequest(ticket.OrganizationId),
+            Request or RequestTask => access.CanManageRequest(ticket.OrganizationId),
             Change => access.CanManageChange(ticket.OrganizationId),
             _ => false
         };
@@ -117,6 +143,7 @@ public static class AiAssistantChatEndpoints
             "incidents" => ticket is Incident,
             "requests" => ticket is Request,
             "changes" => ticket is Change,
+            "tasks" => ticket is RequestTask,
             _ => false
         };
 
@@ -148,6 +175,8 @@ public static class AiAssistantChatEndpoints
                         return;
                     }
 
+                    var investigation = await services.GetRequiredService<HelpdeskDbContext>().Set<AiOpsInvestigation>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == conversationId, ct);
+                    if (investigation is not null && !await AiOpsContext.CanAccessAsync(services.GetRequiredService<HelpdeskDbContext>(), await services.GetRequiredService<ICurrentUserAccessService>().ResolveAsync(context.User, ct), investigation, ct)) return;
                     snapshot = await services.GetRequiredService<IAiAssistantChatStore>()
                         .LoadAsync(ticketType, ticketId, conversationId, position, Actor(context), ct);
                 }

@@ -1202,6 +1202,8 @@ app.MapNetclawConnectivityEndpoints();
 app.MapExternalOrchestrationCallbackEndpoints();
 app.MapAiAssistantAiAssistantEndpoints();
 Helpdesk.API.Endpoints.AiAssistant.Chat.AiAssistantChatEndpoints.MapAiAssistantChatEndpoints(app);
+Helpdesk.API.Endpoints.AiOps.AiOpsEndpoints.MapAiOpsEndpoints(app);
+Helpdesk.API.Endpoints.McpPolicies.McpPolicyEndpoints.MapMcpPolicyEndpoints(app);
 app.MapNotificationEndpoints();
 app.MapSupportGroupEndpoints();
 app.MapSupportGroupMemberEndpoints();

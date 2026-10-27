@@ -150,7 +150,7 @@ public sealed class BootstrapStartupTests : IDisposable
     [Fact]
     public async Task Fresh_environment_postgresql_requires_setup_and_restarts_with_exact_committed_identity()
     {
-        await using var postgres = new PostgreSqlBuilder().WithImage("postgres:16").Build();
+        await using var postgres = new PostgreSqlBuilder("postgres:16").Build();
         await postgres.StartAsync();
         var (service, store, options) = Create();
         var config = Config(("ConnectionStrings:HelpdeskDb", postgres.GetConnectionString()));

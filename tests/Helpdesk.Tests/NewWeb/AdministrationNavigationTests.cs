@@ -26,7 +26,7 @@ public class AdministrationNavigationTests
     public void Administration_HasOneAutomationGroupAndPreservesRoutesAndAliases()
     {
         Assert.Equal(1, Count("Title=\"Automation\""));
-        Assert.Equal(1, Count("Href=\"/admin/automation/integration\""));
+        Assert.Equal(1, Count("Href=\"/admin/integration\""));
         Assert.DoesNotContain("Href=\"/settings/connectivity\"", Source, StringComparison.Ordinal);
         Assert.Equal(1, Count("Href=\"/admin/automation\""));
         Assert.Equal(1, Count("Href=\"/admin/requests/services\""));
@@ -44,7 +44,7 @@ public class AdministrationNavigationTests
         Assert.Contains("UpdateExpandedGroups(e.Location);", groupSource, StringComparison.Ordinal);
         Assert.Contains("Navigation.LocationChanged -= OnLocationChanged;", groupSource, StringComparison.Ordinal);
         Assert.Equal(1, Count("Href=\"/admin/pending-emails\""));
-        Assert.Equal(1, Count("Href=\"/admin/automation/integration\""));
+        Assert.Equal(1, Count("Href=\"/admin/integration\""));
     }
 
     private static int Count(string value) => Source.Split(value, StringSplitOptions.None).Length - 1;
