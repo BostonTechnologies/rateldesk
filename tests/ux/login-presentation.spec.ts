@@ -20,7 +20,7 @@ for (const width of [1440, 360]) {
       await expect(provider).toHaveCount(info.project.name === 'Local' ? 0 : 1);
       if (info.project.name !== 'Oidc') {
         await expect(local).toHaveAttribute('data-interactive', 'true');
-        await expect(local.getByRole('button', { name: 'Sign in to RatelDesk' })).toHaveCount(1);
+        await expect(local.getByRole('button', { name: 'Sign in' })).toHaveCount(1);
       }
       const logo = page.locator('.helpdesk-login-logo');
       await expect(logo).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
@@ -85,3 +85,22 @@ test('custom opaque and transparent logos keep their intrinsic proportions', asy
     }
   }
 });
+
+for (const width of [1440, 320, 390]) {
+  test(`long branding keeps the local action compact at ${width}px`, async ({ page, request }, info) => {
+    await request.get('http://127.0.0.1:18499/fixture/branding?name=Example%20Organization%20Service%20Desk%20Command%20Center');
+    await page.setViewportSize({ width, height: 960 });
+    await page.goto('/login');
+    if (info.project.name === 'Oidc') { await expect(page.getByTestId('local-login-form')).toHaveCount(0); return; }
+    await expect(page.getByTestId('local-login-form')).toHaveAttribute('data-interactive', 'true');
+    const action = page.getByRole('button', { name: 'Sign in', exact: true });
+    await expect(action).toBeVisible();
+    expect((await action.boundingBox())!.height).toBeLessThan(70);
+    await action.focus();
+    await expect(action).toBeFocused();
+    await assertNoHorizontalOverflow(page);
+    await page.locator('html').evaluate(element => { element.style.fontSize = '200%'; });
+    await expect(action).toBeVisible();
+    await assertNoHorizontalOverflow(page);
+  });
+}

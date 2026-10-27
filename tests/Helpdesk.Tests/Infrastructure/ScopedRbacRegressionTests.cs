@@ -13,6 +13,48 @@ namespace Helpdesk.Tests.Infrastructure;
 public sealed class ScopedRbacRegressionTests
 {
     [Fact]
+    public async Task Support_assignment_delegates_ticket_access_only_and_revokes_with_link()
+    {
+        await using var db = CreateDb();
+        db.Organizations.AddRange(new Organization { Id = "a", Name = "Support" },
+            new Organization { Id = "b", Name = "Customer", ItSupportOrganizationId = "a" },
+            new Organization { Id = "c", Name = "Other" },
+            new Organization { Id = "d", Name = "Second hop", ItSupportOrganizationId = "b" });
+        db.Users.Add(new User { Id = "local", Name = "Local", OrganizationId = "a" });
+        db.ScopedRoleAssignments.Add(new ScopedRoleAssignment { UserId = "local", OrganizationId = "a", RoleKey = ScopedRoleCatalog.Technician });
+        await db.SaveChangesAsync();
+        var service = new CurrentUserAccessService(db);
+        var access = await service.ResolveAsync(LocalPrincipal());
+        Assert.True(access.CanManageIncident("b"));
+        Assert.True(access.CanManageRequest("b"));
+        Assert.True(access.CanManageChange("b"));
+        Assert.False(access.HasPermission(HelpdeskPermissions.TenantRolesAssign, "b"));
+        Assert.False(access.CanManageIncident("c"));
+        Assert.False(access.CanManageIncident("d"));
+        (await db.Organizations.FindAsync("b"))!.ItSupportOrganizationId = null;
+        await db.SaveChangesAsync();
+        Assert.False((await service.ResolveAsync(LocalPrincipal())).CanManageIncident("b"));
+    }
+
+    [Fact]
+    public async Task Persisted_support_ticket_grant_does_not_expand_unrelated_provider_permissions()
+    {
+        await using var db = CreateDb();
+        db.Organizations.AddRange(new Organization { Id = "a", Name = "Primary" }, new Organization { Id = "b", Name = "Support" }, new Organization { Id = "c", Name = "Supported", ItSupportOrganizationId = "b" });
+        db.Users.Add(new User { Id = "external", Name = "External", OrganizationId = "a" });
+        db.Customers.Add(new Customer { Id = "contact", Name = "External", OrganizationId = "a" });
+        db.CustomerAuthLinks.Add(new CustomerAuthLink { CustomerId = "contact", DomainUserId = "external", OidcIssuer = "https://issuer", OidcSubject = "subject" });
+        db.ScopedRoleAssignments.Add(new ScopedRoleAssignment { UserId = "external", OrganizationId = "b", RoleKey = ScopedRoleCatalog.IncidentWriter });
+        await db.SaveChangesAsync();
+        var principal = ExternalPrincipal();
+        ((ClaimsIdentity)principal.Identity!).AddClaim(new Claim(ClaimTypes.Role, HelpdeskPermissions.RequestRead));
+        var access = await new CurrentUserAccessService(db).ResolveAsync(principal);
+        Assert.True(access.CanManageIncident("c"));
+        Assert.True(access.HasPermission(HelpdeskPermissions.RequestRead, "a"));
+        Assert.False(access.HasPermission(HelpdeskPermissions.RequestRead, "c"));
+    }
+
+    [Fact]
     public async Task Removing_last_assignment_revokes_local_access_even_after_role_claim_replay()
     {
         await using var db = CreateDb();

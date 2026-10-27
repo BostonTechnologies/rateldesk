@@ -325,6 +325,22 @@ public sealed partial class McpGatewayRealAccessPipelineTests
         Assert.Equal("request-a", Assert.Single(allowedList.Body.Items).Id);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Policy_ceiling_preserves_own_request_identity_and_revokes_an_existing_execution_token(bool postgres)
+    {
+        await using var harness = postgres ? await GatewayAccessHarness.CreatePostgreSqlAsync() : await GatewayAccessHarness.CreateAsync();
+        var credential = await harness.CreateCredentialAsync("org-a");
+        var execution = await harness.DelegateAsync(credential);
+        await harness.SetMcpPolicyAsync(credential.Id, "Active");
+        var allowed = await harness.GetAsync<PagedResponse<MyRequestListItemDto>>(execution, "/api/v1/self-service/requests");
+        Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
+        Assert.Equal("request-a", Assert.Single(allowed.Body!.Items).Id);
+        await harness.SetMcpPolicyAsync(credential.Id, "Disabled");
+        Assert.Equal(HttpStatusCode.Forbidden, (await harness.GetAsync(execution, "/api/v1/self-service/requests")).StatusCode);
+    }
+
     [Fact]
     public async Task Execution_token_rechecks_resource_role_revocation_and_account_state()
     {
@@ -772,6 +788,18 @@ public sealed partial class McpGatewayRealAccessPipelineTests
                 RoleKey = ScopedRoleCatalog.SelfServiceUser
             });
             await domain.SaveChangesAsync();
+        }
+
+        public async Task SetMcpPolicyAsync(Guid credentialId, string state)
+        {
+            await using var scope = application.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            var row = await db.Set<Helpdesk.Infrastructure.McpPolicies.McpAccessPolicy>().FindAsync(credentialId);
+            if (row is null) { row = new() { CredentialId = credentialId }; db.Add(row); }
+            row.OrganizationId = "org-a";
+            row.PermissionsJson = JsonSerializer.Serialize(new[] { HelpdeskPermissions.SelfServiceUser });
+            row.ExpiresUtc = DateTime.UtcNow.AddHours(1); row.State = state; row.Revision++;
+            await db.SaveChangesAsync();
         }
 
         public async Task SetCredentialRevokedAsync(Guid credentialId)

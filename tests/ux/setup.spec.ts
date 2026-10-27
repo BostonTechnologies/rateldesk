@@ -133,7 +133,7 @@ test('first-run setup initializes, survives restart, and supports isolated scope
   await expect(page.locator('a[href="/activate"]')).toHaveCount(0);
   await page.getByLabel('Email', { exact: false }).fill('browser.wizard.admin@example.test');
   await page.getByLabel('Password', { exact: false }).fill('incorrect-browser-test-passphrase');
-  await page.getByRole('button', { name: 'Sign in to Browser Wizard RatelDesk', exact: true }).click();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByTestId('local-login-error')).toHaveText('Sign-in failed. Check your email and password.');
   await signIn(page, 'browser.wizard.admin@example.test');
   const admin = await (await page.request.get('/api/v1/auth/me')).json();
@@ -168,7 +168,7 @@ test('first-run setup initializes, survives restart, and supports isolated scope
   // through a local-account-only administration page.
   await page.goto('/account/integration-credentials');
   await expect(page.getByTestId('integration-credentials-page')).toHaveAttribute('data-interactive', 'true');
-  await expect(page.getByRole('heading', { name: 'Integration credentials', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Integration', exact: true })).toBeVisible();
   await page.getByRole('tab', { name: 'API & MCP credentials', exact: true }).click();
   await expect(page.getByRole('tab', { name: 'API & MCP credentials', exact: true })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByTestId('integration-credential-create')).toBeEnabled();
@@ -283,7 +283,7 @@ test('first-run setup initializes, survives restart, and supports isolated scope
       await expect(loginPage.getByLabel('Verification code')).toHaveCount(0);
       await loginPage.getByLabel('Email', { exact: false }).fill('browser.wizard.admin@example.test');
       await loginPage.getByLabel('Password', { exact: false }).fill(passphrase);
-      await loginPage.getByRole('button', { name: 'Sign in to Browser Wizard RatelDesk', exact: true }).click();
+      await loginPage.getByRole('button', { name: 'Sign in', exact: true }).click();
       await expect(loginPage).toHaveURL(/\/login\/two-factor$/);
       expect((await loginPage.request.get('/api/v1/auth/me')).status()).toBe(401);
       await expect(loginPage.getByTestId('local-two-factor-form')).toHaveAttribute('data-interactive', 'true');
@@ -304,7 +304,7 @@ async function signIn(page: Page, email: string) {
   await expect(page.getByTestId('local-login-form')).toHaveAttribute('data-interactive', 'true');
   await page.getByLabel('Email', { exact: false }).fill(email);
   await page.getByLabel('Password', { exact: false }).fill(passphrase);
-  await page.getByRole('button', { name: 'Sign in to Browser Wizard RatelDesk', exact: true }).click();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page).toHaveURL(/\/home(?:[?#].*)?$/);
 }
 function totp(key: string): string {

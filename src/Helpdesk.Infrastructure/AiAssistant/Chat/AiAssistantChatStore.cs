@@ -18,7 +18,7 @@ public sealed class AiAssistantChatStore(HelpdeskDbContext db, IDomainEventPubli
         if (skip < 0) throw new ArgumentException("Invalid history offset.");
         var ticket = await AuthorizeAsync(type, ticketId, ct);
         return await db.Set<AiAssistantChatConversation>().AsNoTracking()
-            .Where(x => x.OrganizationId == ticket.OrganizationId && x.TicketId == ticket.Id && x.TicketType == type)
+            .Where(x => x.OrganizationId == ticket.OrganizationId && x.TicketId == ticket.Id && x.TicketType == type && !x.IsInvestigation)
             .OrderByDescending(x => x.State != ChatState.Archived).ThenByDescending(x => x.LastActivityUtc).ThenBy(x => x.Id)
             .Skip(skip).Take(50).Select(x => new ChatConversationSummary(x.Id, x.State, x.LastActivityUtc, x.CreatedByUserId)).ToListAsync(ct);
     }
@@ -87,7 +87,7 @@ public sealed class AiAssistantChatStore(HelpdeskDbContext db, IDomainEventPubli
     private async Task<Ticket> AuthorizeAsync(string type, string id, CancellationToken ct)
     {
         var ticket = await db.Tickets.IgnoreQueryFilters().SingleOrDefaultAsync(x => x.Id == id, ct);
-        if (ticket is null || !(type switch { "incidents" => ticket is Incident, "requests" => ticket is Request, "changes" => ticket is Change, _ => false }))
+        if (ticket is null || !(type switch { "incidents" => ticket is Incident, "requests" => ticket is Request, "changes" => ticket is Change, "tasks" => ticket is RequestTask, _ => false }))
             throw new KeyNotFoundException("Ticket not found.");
         return ticket;
     }
@@ -135,14 +135,14 @@ public sealed class AiAssistantChatStore(HelpdeskDbContext db, IDomainEventPubli
         var query = db.Set<AiAssistantChatConversation>().Where(x => x.OrganizationId == ticket.OrganizationId && x.TicketId == ticket.Id && x.TicketType == type);
         var conversation = conversationId.HasValue
             ? await query.SingleOrDefaultAsync(x => x.Id == conversationId, ct)
-            : await query.SingleOrDefaultAsync(x => x.State != ChatState.Archived, ct);
+            : await query.SingleOrDefaultAsync(x => x.State != ChatState.Archived && !x.IsInvestigation, ct);
         if (conversation is null)
         {
             if (conversationId.HasValue) throw new KeyNotFoundException("Conversation not found.");
             await using var tx = await db.Database.BeginTransactionAsync(ct);
             // A transaction-scoped advisory lock serializes first conversation creation per ticket.
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({ticket.Id}, 0))", ct);
-            conversation = await query.SingleOrDefaultAsync(x => x.State != ChatState.Archived, ct);
+            conversation = await query.SingleOrDefaultAsync(x => x.State != ChatState.Archived && !x.IsInvestigation, ct);
             if (conversation is null)
             {
                 conversation = new() { OrganizationId = ticket.OrganizationId!, TicketId = ticket.Id, TicketType = type, CreatedByUserId = actor };

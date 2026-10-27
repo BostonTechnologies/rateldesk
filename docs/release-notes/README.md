@@ -1,5 +1,10 @@
 # Release notes
 
+## 0.1.2-beta.13 candidate
+
+[Integration, policies and AI investigations](0.1.2-beta.13.md), with a fresh
+[laptop campaign handoff](../mcp-http/beta13-laptop-campaign.md).
+
 ## 0.1.2-beta.12
 
 [Oversized upload response and residual acceptance prerequisites](0.1.2-beta.12.md)

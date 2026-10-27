@@ -15,7 +15,156 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "10.0.12");
+            modelBuilder.HasAnnotation("ProductVersion", "10.0.13");
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiOps.AiGuidancePrompt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Archived")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OrganizationId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId")
+                        .IsUnique()
+                        .HasFilter("\"IsDefault\" = TRUE AND \"Archived\" = FALSE");
+
+                    b.ToTable("AiGuidancePrompt");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiOps.AiOpsInvestigation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ContextSnapshot")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OrganizationId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RequestFingerprint")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TicketId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TicketIdsJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TicketType")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "CreatedUtc");
+
+                    b.ToTable("AiOpsInvestigation");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.McpPolicies.McpAccessPolicy", b =>
+                {
+                    b.Property<Guid>("CredentialId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("ExpiresUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OrganizationId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PermissionsJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("CredentialId");
+
+                    b.ToTable("McpAccessPolicy");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.McpPolicies.McpAccessPolicyAudit", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Actor")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("CredentialId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DefinitionJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("OccurredUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CredentialId", "Revision")
+                        .IsUnique();
+
+                    b.ToTable("McpAccessPolicyAudit");
+                });
 
             modelBuilder.Entity("Helpdesk.Infrastructure.Pairing.InstallationPairingCode", b =>
                 {
@@ -681,6 +830,9 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("IsInvestigation")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTimeOffset>("LastActivityUtc")
                         .HasColumnType("TEXT");
 
@@ -718,7 +870,7 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
 
                     b.HasIndex("OrganizationId", "TicketType", "TicketId")
                         .IsUnique()
-                        .HasFilter("\"State\" <> 4");
+                        .HasFilter("\"State\" <> 4 AND \"IsInvestigation\" = FALSE");
 
                     b.ToTable("AiAssistantChatConversations", (string)null);
                 });
@@ -4354,6 +4506,15 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.HasIndex("Status", "NextRetryAtUtcTicks");
 
                     b.HasDiscriminator().HasValue("RequestTask");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiOps.AiOpsInvestigation", b =>
+                {
+                    b.HasOne("Helpdesk.Shared.AiAssistant.Chat.AiAssistantChatConversation", null)
+                        .WithMany()
+                        .HasForeignKey("Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Helpdesk.Infrastructure.Persistence.Entities.NotificationReadEntity", b =>

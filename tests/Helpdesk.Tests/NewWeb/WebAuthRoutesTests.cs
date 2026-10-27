@@ -308,7 +308,7 @@ public class WebAuthRoutesTests
         Assert.DoesNotContain("href=\"/activate\"", content, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("email", inputNames);
         Assert.Contains("password", inputNames);
-        Assert.Contains("Sign in to RatelDesk", content, StringComparison.Ordinal);
+        Assert.Contains("Sign in", content, StringComparison.Ordinal);
         Assert.DoesNotContain("href=\"/login-authentik\"", content, StringComparison.Ordinal);
     }
 

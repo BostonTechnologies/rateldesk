@@ -18,10 +18,159 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.12")
+                .HasAnnotation("ProductVersion", "10.0.13")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiOps.AiGuidancePrompt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Archived")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("OrganizationId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId")
+                        .IsUnique()
+                        .HasFilter("\"IsDefault\" = TRUE AND \"Archived\" = FALSE");
+
+                    b.ToTable("AiGuidancePrompt");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiOps.AiOpsInvestigation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ContextSnapshot")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("OrganizationId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("RequestFingerprint")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("TicketId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("TicketIdsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("TicketType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "CreatedUtc");
+
+                    b.ToTable("AiOpsInvestigation");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.McpPolicies.McpAccessPolicy", b =>
+                {
+                    b.Property<Guid>("CredentialId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("ExpiresUtc")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("OrganizationId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PermissionsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("CredentialId");
+
+                    b.ToTable("McpAccessPolicy");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.McpPolicies.McpAccessPolicyAudit", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Actor")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("CredentialId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DefinitionJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("OccurredUtc")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CredentialId", "Revision")
+                        .IsUnique();
+
+                    b.ToTable("McpAccessPolicyAudit");
+                });
 
             modelBuilder.Entity("Helpdesk.Infrastructure.Pairing.InstallationPairingCode", b =>
                 {
@@ -687,6 +836,9 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<bool>("IsInvestigation")
+                        .HasColumnType("boolean");
+
                     b.Property<DateTimeOffset>("LastActivityUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -724,7 +876,7 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("OrganizationId", "TicketType", "TicketId")
                         .IsUnique()
-                        .HasFilter("\"State\" <> 4");
+                        .HasFilter("\"State\" <> 4 AND \"IsInvestigation\" = FALSE");
 
                     b.ToTable("AiAssistantChatConversations", (string)null);
                 });
@@ -4313,6 +4465,15 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.HasIndex("Status", "NextRetryAt");
 
                     b.HasDiscriminator().HasValue("RequestTask");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiOps.AiOpsInvestigation", b =>
+                {
+                    b.HasOne("Helpdesk.Shared.AiAssistant.Chat.AiAssistantChatConversation", null)
+                        .WithMany()
+                        .HasForeignKey("Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Helpdesk.Infrastructure.Persistence.Entities.NotificationReadEntity", b =>

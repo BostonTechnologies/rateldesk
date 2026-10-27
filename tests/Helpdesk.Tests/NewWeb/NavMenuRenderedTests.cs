@@ -21,7 +21,7 @@ public sealed class NavMenuRenderedTests
     [
         "/admin/users", "/admin/customers", "/admin/organizations", "/admin/support-routing", "/admin/tenant-sla-settings",
         "/admin/roles", "/admin/email-settings", "/admin/pending-emails", "/admin/email-rules", "/admin/templates", "/admin/layouts",
-        "/admin/automation/integration", "/admin/automation", "/admin/requests/services", "/admin/ai-assistant-webhooks", "/admin/categories", "/admin/branding"
+        "/admin/integration", "/admin/operator-policies", "/admin/automation", "/admin/requests/services", "/admin/ai-assistant-webhooks", "/admin/categories", "/admin/branding"
     ];
 
     [Fact]
@@ -29,9 +29,9 @@ public sealed class NavMenuRenderedTests
     {
         await using var context = Context("HelpdeskAdmin");
         var menu = context.Render<NavMenu>();
-        var expected = Account.Concat(GlobalAdministration).Concat([
+        var expected = Account.Where(x => x != "/account/integration-credentials").Concat(GlobalAdministration).Concat([
             "self-service", "self-service/my-requests", "incidents", "requests", "tasks", "changes",
-            "/ops", "assets", "/admin/resources/data-management"
+            "/ops", "/ai/ops", "/ai/prompts", "assets", "/admin/resources/data-management"
         ]).OrderBy(route => route).ToArray();
 
         Assert.Equal(expected, Hrefs(menu));
@@ -53,12 +53,12 @@ public sealed class NavMenuRenderedTests
     [Theory]
     [InlineData("SelfService.User", "self-service,self-service/my-requests", "Portal")]
     [InlineData("Incident.Read", "incidents", "Workspace")]
-    [InlineData("Incident.Manager", "incidents,/ops", "Workspace,Operations")]
+    [InlineData("Incident.Manager", "incidents,/ops,/ai/ops", "Workspace,Operations")]
     [InlineData("Request.User", "requests", "Workspace")]
     [InlineData("Request.Read", "requests,tasks,/ops", "Workspace,Operations")]
-    [InlineData("Request.Manager", "requests,tasks,/ops", "Workspace,Operations")]
+    [InlineData("Request.Manager", "requests,tasks,/ops,/ai/ops", "Workspace,Operations")]
     [InlineData("Change.Read", "changes", "Workspace")]
-    [InlineData("Change.Manager", "changes,/ops", "Workspace,Operations")]
+    [InlineData("Change.Manager", "changes,/ops,/ai/ops", "Workspace,Operations")]
     [InlineData("DataManagement.Admin", "/admin/resources/data-management", "Resources")]
     [InlineData("Tenant.Roles.Assign", "/admin/users,/admin/organizations,/admin/roles", "Administration,Accounts & Orgs")]
     [InlineData("Tenant.Settings.Manage", "/admin/organizations", "Administration,Accounts & Orgs")]
@@ -79,11 +79,11 @@ public sealed class NavMenuRenderedTests
     [InlineData("/self-service/my-requests/detail/example?mode=view#comments", "self-service/my-requests")]
     [InlineData("/admin/automation", "/admin/automation")]
     [InlineData("/admin/automation/edit/example", "/admin/automation")]
-    [InlineData("/admin/automation/integration", "/admin/automation/integration")]
-    [InlineData("/admin/automation/integration/orchestrator/", "/admin/automation/integration")]
-    [InlineData("/admin/integrations?section=all", "/admin/automation/integration")]
-    [InlineData("/settings/connectivity", "/admin/automation/integration")]
-    [InlineData("/admin/orchestration/orchestration", "/admin/automation/integration")]
+    [InlineData("/admin/automation/integration", "/admin/integration")]
+    [InlineData("/admin/automation/integration/orchestrator/", "/admin/integration")]
+    [InlineData("/admin/integrations?section=all", "/admin/integration")]
+    [InlineData("/settings/connectivity", "/admin/integration")]
+    [InlineData("/admin/orchestration/orchestration", "/admin/integration")]
     [InlineData("/tenant-settings?organizationId=example", "/admin/organizations")]
     [InlineData("/incidents/detail/example", "incidents")]
     [InlineData("/requests/create", "requests")]
@@ -91,7 +91,7 @@ public sealed class NavMenuRenderedTests
     [InlineData("/changes/example", "changes")]
     [InlineData("/ops/slas/details/example", "/ops")]
     [InlineData("/admin/email-rules/edit/example", "/admin/email-rules")]
-    [InlineData("/account/integration-credentials/approve?code=SAFE-CODE", "/account/integration-credentials")]
+    [InlineData("/account/integration-credentials/approve?code=SAFE-CODE", "/admin/integration")]
     [InlineData("/account/authenticator", "auth")]
     [InlineData("/account/change-password", "auth")]
     [InlineData("/admin/categories0", "/admin/categories")]
@@ -125,7 +125,11 @@ public sealed class NavMenuRenderedTests
     [InlineData("/admin/resources/data-management", "Resources")]
     [InlineData("/admin/users", "Administration,Accounts & Orgs")]
     [InlineData("/admin/email-rules", "Administration,Email Settings")]
-    [InlineData("/settings/connectivity", "Administration,Automation")]
+    [InlineData("/settings/connectivity", "Administration")]
+    [InlineData("/admin/integration", "Administration")]
+    [InlineData("/admin/operator-policies", "Administration")]
+    [InlineData("/ai/ops", "Operations")]
+    [InlineData("/ai/prompts", "Operations")]
     public async Task Deep_links_expand_required_parent_groups(string route, string expandedTitles)
     {
         await using var context = Context("HelpdeskAdmin");

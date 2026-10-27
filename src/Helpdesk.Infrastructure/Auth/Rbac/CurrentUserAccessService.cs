@@ -180,13 +180,28 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
 
         }
 
+        // An explicit IT support organization delegates ticket work, not tenant
+        // administration. Derive only one-hop ticket grants from current persisted
+        // assignments; removing the assignment or support link revokes them.
+        var supportGrants = scopedPermissionGrants.Where(grant =>
+            grant.Permission is HelpdeskPermissions.IncidentRead or HelpdeskPermissions.IncidentWrite or HelpdeskPermissions.IncidentManager or HelpdeskPermissions.IncidentDelete
+                or HelpdeskPermissions.RequestRead or HelpdeskPermissions.RequestWrite or HelpdeskPermissions.RequestManager or HelpdeskPermissions.RequestDelete or HelpdeskPermissions.RequestExecute
+                or HelpdeskPermissions.ChangeRead or HelpdeskPermissions.ChangeWrite or HelpdeskPermissions.ChangeManager or HelpdeskPermissions.ChangeDelete or HelpdeskPermissions.ChangeApprove).ToArray();
+        var supportIds = supportGrants.Select(x => x.OrganizationId).Distinct().ToArray();
+        var supportedOrganizations = await _db.Organizations.AsNoTracking()
+            .Where(x => x.IsEnabled && x.ItSupportOrganizationId != null && supportIds.Contains(x.ItSupportOrganizationId))
+            .Select(x => new { x.Id, x.ItSupportOrganizationId }).ToListAsync(ct);
+        foreach (var supported in supportedOrganizations)
+        foreach (var grant in supportGrants.Where(x => x.OrganizationId == supported.ItSupportOrganizationId))
+            scopedPermissionGrants.Add(new ScopedPermissionGrant(grant.Permission, supported.Id));
+
         var primaryOrganizationId = hasActiveCustomer
             ? customer!.OrganizationId
             : domainUserOrganization?.IsEnabled == true
                 ? domainUser!.OrganizationId
                 : null;
         var allowedOrganizations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var managedOrganizations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var managedOrganizations = supportedOrganizations.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         if (!string.IsNullOrWhiteSpace(primaryOrganizationId))
         {
@@ -197,6 +212,7 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
             allowedOrganizations.Add(grant.OrganizationId);
         }
 
+        var providerManagedOrganizations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var isTechnical = bundles.Contains(HelpdeskRoleBundles.Technical);
         if (isTechnical && !string.IsNullOrWhiteSpace(primaryOrganizationId))
         {
@@ -209,6 +225,7 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
             {
                 allowedOrganizations.Add(organizationId);
                 managedOrganizations.Add(organizationId);
+                providerManagedOrganizations.Add(organizationId);
             }
         }
 
@@ -222,7 +239,7 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
         {
             var providerOrganizations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (!string.IsNullOrWhiteSpace(primaryOrganizationId)) providerOrganizations.Add(primaryOrganizationId);
-            providerOrganizations.UnionWith(managedOrganizations);
+            providerOrganizations.UnionWith(providerManagedOrganizations);
             foreach (var organizationId in providerOrganizations)
             foreach (var permission in providerPermissions)
                 scopedPermissionGrants.Add(new ScopedPermissionGrant(permission, organizationId));
@@ -245,7 +262,7 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
             ScopedPermissionGrants = scopedPermissionGrants
         };
 
-        return await ConstrainIntegrationCredentialAsync(profile, user, ct);
+        return await Helpdesk.Infrastructure.McpPolicies.McpAccessPolicyEnforcement.ApplyAsync(_db, await ConstrainIntegrationCredentialAsync(profile, user, ct), user, ct);
     }
 
     private async Task<CustomerAuthLink?> FindCustomerAuthLinkAsync(

@@ -7,14 +7,16 @@
 @inject IJSRuntime JS
 @inject ISnackbar Snackbar
 
-<PageTitle>Netclaw AI harness</PageTitle>
+@if (!Embedded) { <PageTitle>Netclaw AI harness</PageTitle> }
 <NavigationLock ConfirmExternalNavigation="@isDirty" OnBeforeInternalNavigation="ConfirmInternalNavigationAsync" />
 
 <div class="netclaw-page" data-testid="netclaw-settings-page">
 <MudPaper Class="helpdesk-content-surface pa-4 netclaw-card" Outlined="true">
+    @if (!Embedded) {
     <div class="netclaw-page-navigation">
-        <MudButton Href="/admin/automation/integration" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack">Integration hub</MudButton>
+        <MudButton Href="/admin/integration?tab=netclaw" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack">Integration</MudButton>
     </div>
+    }
 
     @if (loading)
     {
@@ -321,6 +323,7 @@
 </div>
 
 @code {
+    [Parameter] public bool Embedded { get; set; }
     private const string UnboundLegacySessionsPath = "/api/v1/admin/netclaw/legacy-sessions/unbound";
     private const string ConfirmLegacySessionOwnerPath = "/api/v1/admin/netclaw/legacy-sessions/confirm-owner";
     private const string PairAndSavePath = "/api/v1/admin/netclaw/pair-and-save";

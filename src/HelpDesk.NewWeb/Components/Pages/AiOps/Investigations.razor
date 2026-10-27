@@ -1,0 +1,128 @@
+@page "/ai/ops"
+@attribute [Authorize]
+@using Helpdesk.Shared.DTOs.AiOps
+@using Helpdesk.Shared.DTOs.Organization
+@inject IHttpClientFactory Clients
+@inject NavigationManager Navigation
+
+<PageTitle>AI investigations</PageTitle>
+<MudStack Spacing="3">
+    <MudText Typo="Typo.h4">AI investigations</MudText>
+    <MudText>Investigate authorized tickets with Netclaw. Saving context does not send a message.</MudText>
+    @if (error is not null) { <MudAlert Severity="Severity.Warning">@error</MudAlert> }
+    @if (selected is not null)
+    {
+        <MudButton Href="/ai/ops">All investigations</MudButton>
+        <MudText Typo="Typo.h5">@selected.Title · @selected.State</MudText>
+        <MudButton OnClick="Archive" Disabled="@(busy || selected.State != Helpdesk.Shared.AiAssistant.Chat.ChatState.Idle)">Archive investigation</MudButton>
+        <MudExpansionPanels><MudExpansionPanel Text="Saved guidance and ticket context"><pre style="white-space:pre-wrap;overflow-wrap:anywhere">@selected.ContextSnapshot</pre></MudExpansionPanel></MudExpansionPanels>
+        <AiAssistantChat @key="selected.Id" TicketId="@selected.TicketId" TicketType="@selected.TicketType" InvestigationId="selected.Id" />
+    }
+    else
+    {
+        <MudTextField @bind-Value="search" Label="Find investigations" />
+        <MudButton OnClick="LoadList">Search</MudButton>
+        @foreach (var row in investigations)
+        {
+            <MudPaper Class="pa-3" Outlined="true"><MudLink Href="@($"/ai/ops?id={row.Id}")">@row.Title</MudLink><MudText Typo="Typo.caption">@row.CreatedUtc.ToLocalTime().ToString("g") · @row.State</MudText></MudPaper>
+        }
+        <MudDivider />
+        <MudText Typo="Typo.h5">Start with the right tickets</MudText>
+        <MudSelect T="string" Label="Organization" Value="@organization" ValueChanged="ChangeOrganization">
+            @foreach (var org in organizations) { <MudSelectItem Value="@org.Id">@org.Name</MudSelectItem> }
+        </MudSelect>
+        <MudTextField @bind-Value="title" Label="Investigation title" MaxLength="200" />
+        @if (!string.IsNullOrEmpty(organization))
+        {
+            <MudTextField @bind-Value="ticketSearch" Label="Find incidents, requests, changes and tasks" />
+            <MudButton OnClick="FindTickets">Find tickets</MudButton>
+            <MudSelect T="string" Label="Ticket context (up to 12)" MultiSelection="true" @bind-SelectedValues="ticketIds">
+                @foreach (var ticket in tickets) { <MudSelectItem Value="@ticket.Id">@ticket.TrackingId · @ticket.Type · @ticket.Title</MudSelectItem> }
+            </MudSelect>
+            @foreach (var prompt in prompts.Where(x => x.IsDefault))
+            {
+                <MudText>Always included: @prompt.Name · revision @prompt.Revision</MudText>
+            }
+            <MudSelect T="Guid" Label="Add prompts to LLM context" MultiSelection="true" @bind-SelectedValues="promptIds">
+                @foreach (var prompt in prompts.Where(x => !x.IsDefault)) { <MudSelectItem Value="@prompt.Id">@prompt.Name · @prompt.Description</MudSelectItem> }
+            </MudSelect>
+            <MudExpansionPanels><MudExpansionPanel Text="Preview selected guidance">
+                @foreach (var prompt in prompts.Where(x => x.IsDefault || promptIds.Contains(x.Id)))
+                { <MudText Typo="Typo.subtitle2">@prompt.Name · revision @prompt.Revision</MudText><MudText Style="white-space:pre-wrap">@prompt.Content</MudText> }
+            </MudExpansionPanel></MudExpansionPanels>
+        }
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Create" Disabled="@(busy || string.IsNullOrWhiteSpace(title) || !ticketIds.Any())">Save investigation context</MudButton>
+    }
+</MudStack>
+
+@code {
+    [SupplyParameterFromQuery(Name = "id")] public Guid? Id { get; set; }
+    [SupplyParameterFromQuery(Name = "q")] public string? Query { get; set; }
+    private List<OrganizationDto> organizations = [];
+    private List<AiInvestigationDto> investigations = [];
+    private List<AiContextTicketDto> tickets = [];
+    private List<AiPromptDto> prompts = [];
+    private AiInvestigationDto? selected;
+    private string organization = "", title = "", search = "", ticketSearch = "";
+    private string? error;
+    private bool busy;
+    private Guid creationId = Guid.NewGuid();
+    private IReadOnlyCollection<string> ticketIds = [];
+    private IReadOnlyCollection<Guid> promptIds = [];
+    protected override async Task OnParametersSetAsync()
+    {
+        selected = null; error = null; search = Query ?? "";
+        try
+        {
+            if (Id.HasValue) selected = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<AiInvestigationDto>($"api/v1/ai/ops/investigations/{Id}");
+            else { selected = null; organizations = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations") ?? []; await LoadList(); }
+        }
+        catch (HttpRequestException) { error = "The investigation is unavailable or you no longer have access to its selected tickets."; }
+    }
+    private async Task LoadList()
+    {
+        try { investigations = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<AiInvestigationDto>>($"api/v1/ai/ops/investigations?q={Uri.EscapeDataString(search)}") ?? []; }
+        catch (HttpRequestException) { error = "Unable to load investigations."; }
+    }
+    private async Task ChangeOrganization(string value)
+    {
+        organization = value; ticketIds = []; promptIds = []; tickets = []; prompts = []; creationId = Guid.NewGuid();
+        try { prompts = (await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<AiPromptDto>>($"api/v1/ai/ops/prompts?organizationId={Uri.EscapeDataString(value)}") ?? []).Where(x => !x.Archived).ToList(); await FindTickets(); }
+        catch (HttpRequestException) { error = "Unable to load guidance for this organization."; }
+    }
+    private async Task FindTickets()
+    {
+        try
+        {
+            var found = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<AiContextTicketDto>>($"api/v1/ai/ops/tickets?organizationId={Uri.EscapeDataString(organization)}&q={Uri.EscapeDataString(ticketSearch)}") ?? [];
+            tickets = tickets.Where(x => ticketIds.Contains(x.Id)).Concat(found).DistinctBy(x => x.Id).ToList();
+        }
+        catch (HttpRequestException) { error = "Unable to find tickets."; }
+    }
+    private async Task Archive()
+    {
+        busy = true;
+        try
+        {
+            using var response = await Clients.CreateClient("SystemPairingApi").PostAsync($"api/v1/ai/ops/investigations/{selected!.Id}/archive", null);
+            if (!response.IsSuccessStatusCode) { error = "Reconcile the active or uncertain turn before archiving."; return; }
+            Navigation.NavigateTo("/ai/ops");
+        }
+        catch (HttpRequestException) { error = "Archive could not be confirmed. Refresh to read its state before retrying."; }
+        finally { busy = false; }
+    }
+    private async Task Create()
+    {
+        busy = true; error = null;
+        try
+        {
+            using var response = await Clients.CreateClient("SystemPairingApi").PostAsJsonAsync("api/v1/ai/ops/investigations", new CreateAiInvestigationDto(creationId, organization, title, ticketIds.ToArray(), promptIds.ToArray()));
+            if (!response.IsSuccessStatusCode) { error = "Unable to save context. Check ticket access, prompt revisions, PostgreSQL availability and context size. Your selections are preserved."; return; }
+            var savedId = creationId;
+            creationId = Guid.NewGuid(); title = ""; ticketIds = []; promptIds = [];
+            Navigation.NavigateTo($"/ai/ops?id={savedId}");
+        }
+        catch (HttpRequestException) { error = "Save could not be confirmed. Retry unchanged to reconcile the same investigation ID."; }
+        finally { busy = false; }
+    }
+}

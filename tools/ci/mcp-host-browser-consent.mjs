@@ -34,7 +34,7 @@ try {
   await page.getByLabel('Email', { exact: false }).fill(request.email);
   await page.getByLabel('Password', { exact: false }).fill(request.password);
   stage = 'local account form submission';
-  await page.getByRole('button', { name: /^Sign in to / }).click();
+  await page.getByRole('button', { name: /^Sign in$/ }).click();
   stage = 'local account signed-in navigation';
   await expect(page).toHaveURL(/\/home(?:[?#].*)?$/);
   stage = 'approval page navigation';

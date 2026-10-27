@@ -200,8 +200,7 @@ public sealed class BootstrapStateStoreTests
     [Fact]
     public async Task Local_admin_recovery_reenables_an_instance_administrator_in_postgresql()
     {
-        await using var postgres = new PostgreSqlBuilder()
-            .WithImage("postgres:16")
+        await using var postgres = new PostgreSqlBuilder("postgres:16")
             .Build();
         await postgres.StartAsync();
 
@@ -552,8 +551,7 @@ public sealed class BootstrapStateStoreTests
     [Fact]
     public async Task Unattended_initialization_uses_the_same_postgresql_bootstrap_pipeline()
     {
-        await using var postgres = new PostgreSqlBuilder()
-            .WithImage("postgres:16")
+        await using var postgres = new PostgreSqlBuilder("postgres:16")
             .Build();
         await postgres.StartAsync();
 
@@ -623,8 +621,7 @@ public sealed class BootstrapStateStoreTests
     [Fact]
     public async Task Concurrent_postgresql_initialization_creates_one_instance_and_one_administrator()
     {
-        await using var postgres = new PostgreSqlBuilder()
-            .WithImage("postgres:16")
+        await using var postgres = new PostgreSqlBuilder("postgres:16")
             .Build();
         await postgres.StartAsync();
 
@@ -758,8 +755,7 @@ public sealed class BootstrapStateStoreTests
     [Fact]
     public async Task PostgreSql_migrations_adopt_established_legacy_data_but_leave_a_fresh_database_uninitialized()
     {
-        await using var postgres = new PostgreSqlBuilder()
-            .WithImage("postgres:16")
+        await using var postgres = new PostgreSqlBuilder("postgres:16")
             .Build();
         await postgres.StartAsync();
 

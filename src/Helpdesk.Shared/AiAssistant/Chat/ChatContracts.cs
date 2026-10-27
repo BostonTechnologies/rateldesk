@@ -5,6 +5,7 @@ public enum ChatState { Idle, Processing, AwaitingApproval, DeliveryUnknown, Arc
 public sealed class AiAssistantChatConversation
 {
     public Guid Id { get; set; } = Guid.NewGuid();
+    public bool IsInvestigation { get; set; }
     public string OrganizationId { get; set; } = string.Empty;
     public string TicketId { get; set; } = string.Empty;
     public string TicketType { get; set; } = string.Empty;

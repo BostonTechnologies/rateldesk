@@ -49,7 +49,11 @@
         <HelpdeskNavGroup Title="Operations" RoutePrefixes="@OperationsRoutes" Icon="@Icons.Material.Filled.SettingsSuggest">
             <AuthorizeView Roles="Incident.Write,Incident.Manager,Request.Read,Request.Write,Request.Execute,Request.Manager,Change.Write,Change.Manager,HelpdeskAdmin" Context="opsGate">
                 <HelpdeskNavLink Href="/ops" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.SettingsSuggest" Title="Operations console">Operations console</HelpdeskNavLink>
+                <AuthorizeView Roles="Incident.Write,Incident.Manager,Request.Write,Request.Manager,Change.Write,Change.Manager,HelpdeskAdmin" Context="investigationGate">
+                <HelpdeskNavLink Href="/ai/ops" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Psychology" Title="AI investigations">AI investigations</HelpdeskNavLink>
+                </AuthorizeView>
             </AuthorizeView>
+            <AuthorizeView Roles="HelpdeskAdmin" Context="promptGate"><HelpdeskNavLink Href="/ai/prompts" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.EditNote" Title="Prompts">Prompts</HelpdeskNavLink></AuthorizeView>
             <HelpdeskNavLink Href="notifications" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Notifications" Title="Notifications">Notifications</HelpdeskNavLink>
         </HelpdeskNavGroup>
     </AuthorizeView>
@@ -84,8 +88,11 @@
                         <HelpdeskNavLink Href="/admin/layouts" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.ViewQuilt" Title="Email Layouts">Email Layouts</HelpdeskNavLink>
                     </HelpdeskNavGroup>
 
+                    <HelpdeskNavLink Href="/admin/integration" Match="NavLinkMatch.Prefix" Aliases="@IntegrationAliases" Icon="@Icons.Material.Filled.Key" Title="Integration">Integration</HelpdeskNavLink>
+
+                    <HelpdeskNavLink Href="/admin/operator-policies" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Policy" Title="MCP Policies">MCP Policies</HelpdeskNavLink>
+
                     <HelpdeskNavGroup Title="Automation" Icon="@Icons.Material.Filled.SmartToy" RoutePrefixes="@AutomationRoutes">
-                        <HelpdeskNavLink Href="/admin/automation/integration" Match="NavLinkMatch.Prefix" Aliases="@IntegrationAliases" Icon="@Icons.Material.Filled.Hub" Title="Integration hub">Integration hub</HelpdeskNavLink>
                         <HelpdeskNavLink Href="/admin/automation" Match="NavLinkMatch.Prefix" ExcludedRoutes="@IntegrationRoutes" Icon="@Icons.Material.Filled.SmartToy" Title="Automation Rules">Automation Rules</HelpdeskNavLink>
                         <HelpdeskNavLink Href="/admin/requests/services" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Apps" Title="Service Explorer">Service Explorer</HelpdeskNavLink>
                         <HelpdeskNavLink Href="/admin/ai-assistant-webhooks" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Webhook" Title="Webhooks">Webhooks</HelpdeskNavLink>
@@ -98,7 +105,12 @@
             <div class="helpdesk-nav-account">
                 <div class="nav-section-heading"><span>Account</span></div>
                 <HelpdeskNavLink Href="auth" Match="NavLinkMatch.Prefix" Aliases="@AccountAliases" Icon="@Icons.Material.Filled.Person" Title="@context.User.Identity?.Name">@context.User.Identity?.Name</HelpdeskNavLink>
-                <HelpdeskNavLink Href="/account/integration-credentials" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Key" Title="Integration credentials">Integration credentials</HelpdeskNavLink>
+                <AuthorizeView Context="credentialAuth"><Authorized>
+                    @if (!credentialAuth.User.IsInRole("HelpdeskAdmin"))
+                    {
+                        <HelpdeskNavLink Href="/account/integration-credentials" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Key" Title="Integration credentials">Integration credentials</HelpdeskNavLink>
+                    }
+                </Authorized></AuthorizeView>
                 <HelpdeskNavLink Href="/logout" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Logout" Title="Logout">Logout</HelpdeskNavLink>
             </div>
         </Authorized>
@@ -113,16 +125,16 @@
     private static readonly string[] PortalRoutes = ["self-service"];
     private static readonly string[] MyRequestRoutes = ["self-service/my-requests"];
     private static readonly string[] WorkspaceRoutes = ["incidents", "requests", "tasks", "changes"];
-    private static readonly string[] OperationsRoutes = ["ops", "notifications"];
+    private static readonly string[] OperationsRoutes = ["ops", "notifications", "ai/ops", "ai/prompts"];
     private static readonly string[] ResourcesRoutes = ["assets", "admin/resources/data-management"];
     private static readonly string[] OrganizationAliases = ["tenant-administration", "tenant-settings"];
     private static readonly string[] AccountAdministrationRoutes = ["admin/users", "admin/customers", "admin/organizations", "admin/support-routing", "admin/tenant-sla-settings", .. OrganizationAliases];
     private static readonly string[] EmailRoutes = ["admin/email-settings", "admin/pending-emails", "admin/email-rules", "admin/templates", "admin/layouts"];
-    private static readonly string[] IntegrationAliases = ["settings/connectivity", "admin/orchestration/orchestration", "admin/integrations"];
+    private static readonly string[] IntegrationAliases = ["settings/connectivity", "admin/orchestration/orchestration", "admin/integrations", "admin/automation/integration", "account/integration-credentials"];
     private static readonly string[] IntegrationRoutes = ["admin/automation/integration", .. IntegrationAliases];
     private static readonly string[] CategoryAliases = ["admin/categories0"];
     private static readonly string[] BrandingAliases = ["admin/tenants/*/branding"];
     private static readonly string[] AccountAliases = ["account/authenticator", "account/change-password"];
-    private static readonly string[] AutomationRoutes = ["admin/automation", "admin/requests/services", "admin/ai-assistant-webhooks", .. IntegrationAliases];
-    private static readonly string[] AdministrationRoutes = [.. AccountAdministrationRoutes, .. EmailRoutes, .. AutomationRoutes, .. CategoryAliases, .. BrandingAliases, "admin/roles", "admin/categories", "admin/branding"];
+    private static readonly string[] AutomationRoutes = ["admin/automation", "admin/requests/services", "admin/ai-assistant-webhooks"];
+    private static readonly string[] AdministrationRoutes = ["admin/integration", "admin/operator-policies", .. IntegrationAliases, .. AccountAdministrationRoutes, .. EmailRoutes, .. AutomationRoutes, .. CategoryAliases, .. BrandingAliases, "admin/roles", "admin/categories", "admin/branding"];
 }

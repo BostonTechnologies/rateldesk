@@ -18,7 +18,7 @@ public sealed class Rc3PostgresUpgradeTests
     [Fact]
     public async Task Populated_rc3_database_upgrades_repeatably_without_changing_tickets_or_oidc_identity()
     {
-        await using var postgres = new PostgreSqlBuilder().WithImage("postgres:16").Build();
+        await using var postgres = new PostgreSqlBuilder("postgres:16").Build();
         await postgres.StartAsync();
         var options = new DbContextOptionsBuilder<HelpdeskDbContext>()
             .UseNpgsql(postgres.GetConnectionString())
