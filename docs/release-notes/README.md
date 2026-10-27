@@ -1,5 +1,11 @@
 # Release notes
 
+## 0.1.2-beta.12
+
+[Oversized upload response and residual acceptance prerequisites](0.1.2-beta.12.md)
+repairs eager-upload rejection and supplies a fresh laptop campaign with explicit
+fixture tracks and evidence mapping assistance. The MCP operation contract is unchanged.
+
 ## 0.1.2-beta.11
 
 [Transport, inbound-rule lifecycle and executable laptop acceptance](0.1.2-beta.11.md)

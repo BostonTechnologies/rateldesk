@@ -1,5 +1,13 @@
 # Releases
 
+## 0.1.2-beta.12 — beta.11 follow-up
+
+[Release notes](../release-notes/0.1.2-beta.12.md) describe the oversized eager-upload
+repair and granular acceptance prerequisites. [Delivery #270](https://github.com/BostonTechnologies/RatelDesk/issues/270)
+uses the existing reviewed PR/main and hosted publication workflow. The
+[laptop guide](../mcp-http/beta12-laptop-campaign.md) requires fresh evidence against
+the published beta.12 source while preserving the historical beta.11 verdict.
+
 ## 0.1.2-beta.11 — beta.10 follow-up
 
 [Release notes](../release-notes/0.1.2-beta.11.md) cover HTTP body-boundary repair,

@@ -1,10 +1,11 @@
 # Repeatable HTTP MCP campaign checks
 
-For the current release, use the [beta.11 laptop campaign](beta11-laptop-campaign.md)
-and its [executable workspace and receipt gate](../../tools/ci/validate-beta11-campaign.py).
-It preserves all 389 prior operations, adds inbound rule deletion (390 total),
-and retains the 103 domain cases, 86 historical obligations and nine cleanup
-assertions. Its workspace starts entirely `NOT_RUN`; previous receipts stay unchanged.
+For the current release, use the [beta.12 laptop campaign](beta12-laptop-campaign.md)
+and its [executable workspace and receipt gate](../../tools/ci/validate-beta12-campaign.py).
+It preserves all 390 operations, 103 domain cases, 86 historical obligations and
+nine cleanup assertions. Its granular fixture checklist and read-only mapping
+plan help prepare fresh evidence. Its workspace starts entirely `NOT_RUN`;
+previous receipts stay unchanged.
 
 The read runner independently adapts the workflow metrics API's explicit
 Prometheus `text/plain` contract to `{format:"prometheus",text:...}`, matching MCP.
@@ -20,8 +21,8 @@ Python here is external test tooling; the application and MCP runtime remain C#.
 The substantive historical requirements remain in the
 [beta.8 acceptance contract guide](../implementation/0.1.2-beta.8-campaign.md),
 [operation catalog](../contracts/mcp-operation-catalog.json) and
-[immutable beta.8 validator](../../tools/ci/validate-beta8-campaign.py). The beta.11
-adapter binds the current manifest/catalog and reuses those evidence checks.
+[immutable beta.8 validator](../../tools/ci/validate-beta8-campaign.py). The beta.12
+adapter binds the current manifest/catalog and retains the beta.11 evidence checks.
 Retain their fixed
 denominators, mode exclusions, independent evidence, provider receipts, soak and
 cleanup requirements. Source CI and a subset of live reads cannot satisfy that gate.
@@ -116,11 +117,13 @@ python tests/http_mcp/campaign_transport.py \
   --output /private/campaign/transport-boundary
 ```
 
-The default limit is 30,000,000 decoded bytes. If an independently observed
-deployment configuration intentionally lowers it, pass that exact `--limit` and
-record the configuration evidence. The final validator requires the complete live
-matrix and configuration evidence for a smaller limit. Source socket tests do
-not establish that the deployment's external ingress has the same configuration.
+The default limit is 30,000,000 decoded bytes. Independently capture the effective
+deployment configuration even when using that default. If configuration lowers
+the limit, pass that exact `--limit`. The runner selects the beta.11 or beta.12
+summary format from the exact pinned manifest. The beta.12 final validator requires
+current Web and MCP host configuration evidence captured before the complete live
+matrix. Source socket tests do not establish that the deployment's external ingress
+has the same configuration.
 
 ## Expand coverage with application capabilities
 

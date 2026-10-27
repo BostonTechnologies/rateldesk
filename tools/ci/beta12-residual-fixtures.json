@@ -1,0 +1,193 @@
+{
+  "format": "rateldesk-beta12-residual-fixtures/v1",
+  "priorVersion": "0.1.2-beta.11",
+  "residualOperationCount": 59,
+  "scope": "Prior unpassed operations mapped to fresh fixture preparation; no inherited acceptance.",
+  "lanes": [
+    {
+      "id": "binding_drift",
+      "operationIds": [
+        "helpdesk_automation.binding_by_task",
+        "helpdesk_automation.import_binding_inputs",
+        "helpdesk_automation.mark_binding_import_pending",
+        "helpdesk_automation.refresh_binding_drift",
+        "helpdesk_automation.sync_binding_inputs"
+      ],
+      "assertions": [
+        "current_exact_target_profile_revision_observed",
+        "exact_operations_admitted",
+        "owned_binding_and_schema_drift_observed",
+        "input_import_and_sync_eligible"
+      ]
+    },
+    {
+      "id": "change_review",
+      "operationIds": [
+        "helpdesk_changes.my_approval",
+        "helpdesk_changes.review_approval"
+      ],
+      "assertions": [
+        "owned_change_eligible_for_review",
+        "designated_distinct_reviewers_observed",
+        "required_lifecycle_and_readback_available"
+      ]
+    },
+    {
+      "id": "events_investigation",
+      "operationIds": [
+        "helpdesk_ai_assistant.dispatch_investigation",
+        "helpdesk_ai_assistant.investigation_worklog",
+        "helpdesk_ai_assistant.report",
+        "helpdesk_logs.search"
+      ],
+      "assertions": [
+        "intended_events_actor_authority_observed",
+        "owned_invocation_and_report_fixture_available",
+        "invocation_bound_callback_identity_available",
+        "known_log_and_trace_fixture_available"
+      ]
+    },
+    {
+      "id": "graph_dataset",
+      "operationIds": [
+        "helpdesk_datasets.graph_settings",
+        "helpdesk_datasets.save_graph_settings",
+        "helpdesk_datasets.sync_graph"
+      ],
+      "assertions": [
+        "approved_graph_connection_observed",
+        "required_provider_permissions_observed",
+        "owned_nonempty_dataset_and_provider_readback_available"
+      ]
+    },
+    {
+      "id": "mail_recovery",
+      "operationIds": [
+        "helpdesk_email_settings.historical_import",
+        "helpdesk_email_settings.historical_preview",
+        "helpdesk_email_settings.retry_receipt",
+        "helpdesk_email_settings.send_test",
+        "helpdesk_email_settings.set_worker",
+        "helpdesk_email_settings.sync",
+        "helpdesk_mail.changed_route_preview",
+        "helpdesk_mail.outgoing_retry_preview",
+        "helpdesk_mail.pending_actions",
+        "helpdesk_mail.retry",
+        "helpdesk_mail.retry_confirmed_undelivered",
+        "helpdesk_mail.retry_current_outgoing",
+        "helpdesk_mail.retry_current_route",
+        "helpdesk_mail.test_provider",
+        "helpdesk_mail.uncertain_retry_preview"
+      ],
+      "assertions": [
+        "selected_mailbox_and_provider_observed",
+        "owned_receipt_and_fence_eligible",
+        "historical_import_source_available",
+        "controlled_failure_and_uncertainty_fixtures_ready",
+        "unrelated_outbound_work_isolated"
+      ]
+    },
+    {
+      "id": "native_ai_recovery",
+      "operationIds": [
+        "helpdesk_ai_assistant.chat_abandon",
+        "helpdesk_ai_assistant.chat_reconcile",
+        "helpdesk_ai_assistant.chat_respond",
+        "helpdesk_ai_assistant.chat_stop_waiting",
+        "helpdesk_connections.confirm_netclaw_session_owner",
+        "helpdesk_connections.netclaw_unbound_sessions"
+      ],
+      "assertions": [
+        "actual_pending_and_uncertain_sessions_observed",
+        "actual_offered_interaction_observed",
+        "actual_unbound_session_observed",
+        "working_pair_preservation_recorded"
+      ]
+    },
+    {
+      "id": "online_presence",
+      "operationIds": [
+        "helpdesk_tenant_admin.online_users"
+      ],
+      "assertions": [
+        "two_actual_scoped_online_actors_observed",
+        "independent_presence_readback_available"
+      ]
+    },
+    {
+      "id": "pairing_lifecycle",
+      "operationIds": [
+        "helpdesk_connections.delete_mapping",
+        "helpdesk_connections.delete_pair",
+        "helpdesk_connections.generate_pairing_code",
+        "helpdesk_connections.pair",
+        "helpdesk_connections.pair_netclaw",
+        "helpdesk_connections.register_incident_source",
+        "helpdesk_connections.save_mapping",
+        "helpdesk_connections.set_incident_source_credential",
+        "helpdesk_connections.set_incident_source_state",
+        "helpdesk_connections.test_mapping",
+        "helpdesk_connections.update_netclaw_settings"
+      ],
+      "assertions": [
+        "disposable_peer_and_source_owned",
+        "approved_pairing_identity_available",
+        "working_pair_preservation_recorded",
+        "mapping_and_source_cleanup_supported"
+      ]
+    },
+    {
+      "id": "scheduler_sla",
+      "operationIds": [
+        "helpdesk_automation.critical_failures",
+        "helpdesk_automation.escalated_tasks",
+        "helpdesk_automation.overdue_tasks",
+        "helpdesk_automation.pending_retries",
+        "helpdesk_sla.breached",
+        "helpdesk_tenant_admin.update_background_worker_settings"
+      ],
+      "assertions": [
+        "owned_due_overdue_escalated_and_breached_fixtures_observed",
+        "owned_failure_and_retry_fixtures_eligible",
+        "isolated_background_runtime_authorized",
+        "shared_scheduler_baseline_preserved"
+      ]
+    },
+    {
+      "id": "support_bootstrap",
+      "operationIds": [
+        "helpdesk_support.bootstrap_defaults"
+      ],
+      "assertions": [
+        "isolated_owned_bootstrap_target_observed",
+        "exact_defaults_baseline_and_disposition_available"
+      ]
+    },
+    {
+      "id": "tenant_images",
+      "operationIds": [
+        "helpdesk_admin_mutations.update_organization_branding",
+        "helpdesk_email_settings.upload_template_image",
+        "helpdesk_tenant_admin.tenant_branding",
+        "helpdesk_tenant_admin.upload_branding_logo"
+      ],
+      "assertions": [
+        "integer_tenant_identity_observed",
+        "owned_image_fixture_available",
+        "render_and_readback_available",
+        "exact_asset_removal_and_restore_supported"
+      ]
+    },
+    {
+      "id": "ticket_customer",
+      "operationIds": [
+        "helpdesk_tickets.set_customer"
+      ],
+      "assertions": [
+        "owned_ticket_and_customer_scope_observed",
+        "different_current_customer_observed",
+        "assignment_and_history_readback_available"
+      ]
+    }
+  ]
+}

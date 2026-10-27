@@ -21,6 +21,8 @@ share the Web public origin or use an explicitly configured standalone origin.
   [browser-approved pairing](../integrations/browser-pairing.md).
 - [Operation contracts, previews and transport authority](../contracts/mcp-operation-contracts.md):
   executable schemas, fixed raw reads, identifiers and required prerequisites.
+- [Beta.12 laptop acceptance campaign](beta12-laptop-campaign.md): fresh release identity,
+  granular fixture prerequisites, evidence mapping and the complete receipt gate.
 - [Repeatable campaign checks](campaign-testing.md): private live MCP/backend read
   captures, generic repository test collateral and future capability coverage.
 
