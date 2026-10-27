@@ -1,7 +1,7 @@
 # Repeatable HTTP MCP campaign checks
 
-For the current release, use the [beta.12 laptop campaign](beta12-laptop-campaign.md)
-and its [executable workspace and receipt gate](../../tools/ci/validate-beta12-campaign.py).
+For the current release, use the [beta.13 laptop campaign](beta13-laptop-campaign.md)
+and its [current workspace and receipt gate](../../tools/ci/validate-current-campaign.py).
 It preserves all 390 operations, 103 domain cases, 86 historical obligations and
 nine cleanup assertions. Its granular fixture checklist and read-only mapping
 plan help prepare fresh evidence. Its workspace starts entirely `NOT_RUN`;
@@ -21,8 +21,8 @@ Python here is external test tooling; the application and MCP runtime remain C#.
 The substantive historical requirements remain in the
 [beta.8 acceptance contract guide](../implementation/0.1.2-beta.8-campaign.md),
 [operation catalog](../contracts/mcp-operation-catalog.json) and
-[immutable beta.8 validator](../../tools/ci/validate-beta8-campaign.py). The beta.12
-adapter binds the current manifest/catalog and retains the beta.11 evidence checks.
+[immutable beta.8 validator](../../tools/ci/validate-beta8-campaign.py). The current
+adapter binds the published manifest/catalog and retains the beta.11 evidence checks.
 Retain their fixed
 denominators, mode exclusions, independent evidence, provider receipts, soak and
 cleanup requirements. Source CI and a subset of live reads cannot satisfy that gate.

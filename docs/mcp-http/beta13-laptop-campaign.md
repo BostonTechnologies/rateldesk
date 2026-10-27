@@ -3,9 +3,9 @@
 Use this guide after verified beta.13 publication and owner deployment. A source
 branch, draft release or passing build does not establish a released candidate.
 The public release manifest owns the exact source revision, seven downloadable
-archives and three multi-architecture image digests. Use the existing
-[artifact and profile procedure](campaign-testing.md) to download and verify
-them. Do not rebuild release executables on the laptop.
+archives and three multi-architecture image digests. Download and verify them below, then use the existing
+[profile procedure](campaign-testing.md#run-selected-live-read-checks).
+Do not rebuild release executables on the laptop.
 
 ## Preserve beta.12 and prepare beta.13
 
@@ -23,7 +23,35 @@ positive statuses into a new campaign. Previously disabled accounts, archived
 mailboxes and revoked credentials are not reusable prerequisites without fresh
 supported preparation and readback. Preserve the working Netclaw pair.
 
-From PowerShell in the exact published-source checkout, with Python 3 installed:
+Install Git, GitHub CLI and Python 3. From PowerShell, download the public release
+into a new staging folder and verify its manifest and every archive:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$Tag = 'v0.1.2-beta.13'
+$ReleaseDirectory = Join-Path $env:USERPROFILE ('Documents\RatelDesk-beta13-artifacts-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+$ReleaseInfo = gh release view $Tag --repo BostonTechnologies/RatelDesk --json isDraft,isPrerelease | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0 -or $ReleaseInfo.isDraft -or -not $ReleaseInfo.isPrerelease) { throw 'Published beta.13 prerelease required' }
+gh release download $Tag --repo BostonTechnologies/RatelDesk --dir $ReleaseDirectory
+if ($LASTEXITCODE -ne 0) { throw 'Release download failed' }
+$ManifestPath = Join-Path $ReleaseDirectory 'release-manifest.json'
+$ExpectedManifestHash = ((Get-Content "$ManifestPath.sha256" -Raw).Trim() -split '\s+')[0]
+if ((Get-FileHash $ManifestPath -Algorithm SHA256).Hash -ine $ExpectedManifestHash) { throw 'Manifest checksum mismatch' }
+$Published = Get-Content $ManifestPath -Raw | ConvertFrom-Json
+if ($Published.version -ne '0.1.2-beta.13' -or $Published.tag -ne $Tag -or $Published.sourceRevision -notmatch '^[0-9a-f]{40}$') { throw 'Unexpected release identity' }
+foreach ($Asset in $Published.assets.PSObject.Properties) {
+    if ((Get-FileHash (Join-Path $ReleaseDirectory $Asset.Name) -Algorithm SHA256).Hash -ine $Asset.Value) { throw "Checksum mismatch: $($Asset.Name)" }
+}
+$Source = Join-Path $env:USERPROFILE ('Documents\RatelDesk-beta13-source-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+git clone --filter=blob:none --branch $Tag https://github.com/BostonTechnologies/RatelDesk.git $Source
+if ($LASTEXITCODE -ne 0) { throw 'Source checkout failed' }
+Set-Location $Source
+if ((git rev-parse HEAD) -ne $Published.sourceRevision) { throw 'Tag and manifest source differ' }
+```
+
+Keep the checksummed originals. Extract the Windows CLI and stdio ZIPs into
+separate new folders and use those executables, not an older executable on PATH.
+Now initialize the private campaign from this exact checkout:
 
 ```powershell
 $Repo = (Resolve-Path .).Path
@@ -35,14 +63,14 @@ py -3 tools/ci/validate-current-campaign.py init --catalog $Catalog --output $Ca
 py -3 -m venv (Join-Path $Campaign 'python')
 $Python = Join-Path $Campaign 'python\Scripts\python.exe'
 & $Python -m pip install -r tests/http_mcp/requirements.txt
-New-Item -ItemType Directory (Join-Path $Campaign 'release') | Out-Null
+Copy-Item $ReleaseDirectory (Join-Path $Campaign 'release') -Recurse
 $Manifest = Join-Path $Campaign 'release\release-manifest.json'
 $Receipt = Join-Path $Campaign 'receipt.json'
 $Prerequisites = Join-Path $Campaign 'prerequisites.json'
 ```
 
-Apply a user-only ACL to the private workspace. Put the verified release manifest
-at `$Manifest`. The current adapter derives the product version from the root
+Apply a user-only ACL to the private workspace. The verified release files are now copied under `$Campaign\release`, with
+the manifest at `$Manifest`. The current adapter derives the product version from the root
 `Directory.Build.props`; it retains the established 390-operation contract and
 all domain, history, transport, cleanup and soak requirements. Historical
 validators and receipts remain unchanged. The new receipt format is
