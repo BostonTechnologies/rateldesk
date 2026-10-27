@@ -11,8 +11,11 @@ namespace Helpdesk.Infrastructure.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            // The original hand-authored migration used this long identifier.
+            // PostgreSQL truncates it at 63 bytes; its name differs from EF's
+            // later tilde-suffixed snapshot convention.
             migrationBuilder.DropIndex(
-                name: "IX_AiAssistantChatConversations_OrganizationId_TicketType_Tick~",
+                name: "IX_AiAssistantChatConversations_OrganizationId_TicketType_TicketId",
                 table: "AiAssistantChatConversations");
 
             migrationBuilder.AddColumn<bool>(
@@ -148,7 +151,7 @@ namespace Helpdesk.Infrastructure.Migrations
                 table: "AiAssistantChatConversations");
 
             migrationBuilder.CreateIndex(
-                name: "IX_AiAssistantChatConversations_OrganizationId_TicketType_Tick~",
+                name: "IX_AiAssistantChatConversations_OrganizationId_TicketType_TicketId",
                 table: "AiAssistantChatConversations",
                 columns: new[] { "OrganizationId", "TicketType", "TicketId" },
                 unique: true,

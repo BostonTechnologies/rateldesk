@@ -38,7 +38,9 @@ public static class McpAccessPolicyEnforcement
         return profile with
         {
             IsHelpdeskAdmin = false, PrimaryOrganizationId = permissions.Count > 0 ? policy.OrganizationId : null,
-            PrimaryOrganizationName = null, CustomerId = null, UsesScopedPermissions = true,
+            PrimaryOrganizationName = permissions.Count > 0 && string.Equals(profile.PrimaryOrganizationId, policy.OrganizationId, StringComparison.OrdinalIgnoreCase) ? profile.PrimaryOrganizationName : null,
+            CustomerId = permissions.Count > 0 && string.Equals(profile.PrimaryOrganizationId, policy.OrganizationId, StringComparison.OrdinalIgnoreCase) ? profile.CustomerId : null,
+            UsesScopedPermissions = true,
             Permissions = permissions, RoleBundles = permissions,
             AllowedOrganizationIds = permissions.Count > 0 ? new HashSet<string> { policy.OrganizationId } : new HashSet<string>(),
             ManagedOrganizationIds = new HashSet<string>(),

@@ -357,3 +357,61 @@ test('system connection context, interrupted save, durable resume and row-local 
  state = await (await request.get(`${fixture}/state`)).json();
  expect(state.systemConnections.some((connection: any) => connection.id === mappingId && connection.pairId === 'pair-awaiting')).toBe(true);
 });
+
+
+test('AI prompts and multi-ticket investigation save preserve selected context without sending', async ({ page, request }) => {
+ await page.goto('/ai/prompts');
+ await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+ await expect(page.getByRole('heading', { name: 'AI prompts', exact: true })).toBeVisible();
+ await page.getByLabel('Organization', { exact: true }).click();
+ await page.getByRole('option', { name: 'Synthetic Alpha', exact: true }).click();
+ await page.getByLabel('Name', { exact: true }).fill('Synthetic triage guidance');
+ await page.getByLabel('Description', { exact: true }).fill('Inspect the selected records');
+ await page.getByLabel('Guidance', { exact: true }).fill('Read evidence before proposing action');
+ await page.getByLabel('Always include in new investigations for this organization').check();
+ await page.getByRole('button', { name: 'Save revision', exact: true }).click();
+ await expect(page.getByRole('button', { name: /Synthetic triage guidance.*revision 1/ })).toBeVisible();
+ await page.goto('/ai/ops');
+ await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+ await page.getByLabel('Organization', { exact: true }).click();
+ await page.getByRole('option', { name: 'Synthetic Alpha', exact: true }).click();
+ await expect(page.getByText('Always included: Synthetic triage guidance')).toBeVisible();
+ await page.getByLabel('Investigation title', { exact: true }).fill('Synthetic incident and task investigation');
+ await page.getByLabel('Ticket context (up to 12)', { exact: true }).click();
+ await page.getByRole('option', { name: /INC-1.*Synthetic incident/ }).click();
+ await page.getByRole('option', { name: /TASK-1.*Synthetic task/ }).click();
+ await page.keyboard.press('Escape');
+ await page.getByRole('button', { name: 'Save investigation context', exact: true }).click();
+ await expect(page).toHaveURL(/ai\/ops\?id=/);
+ await page.getByText('Saved guidance and ticket context', { exact: true }).click();
+ await expect(page.locator('pre')).toContainText('Read evidence before proposing action');
+ await expect(page.locator('pre')).toContainText('ticket-task');
+ const state = await (await request.get(`${fixture}/state`)).json();
+ const save = state.calls.find((call: any) => call.path === '/api/v1/ai/ops/investigations');
+ expect(save.payload.ticketIds.sort()).toEqual(['ticket-incident', 'ticket-task']);
+ expect(state.calls.filter((call: any) => call.path.endsWith('/messages'))).toEqual([]);
+ await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
+});
+
+test('MCP policy preview keeps the reviewed fields locked until explicit confirmation', async ({ page, request }) => {
+ await page.goto('/admin/operator-policies');
+ await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+ await page.getByLabel('Separate operator credential', { exact: true }).click();
+ await page.getByRole('option', { name: /Separate synthetic operator/ }).click();
+ await page.getByLabel('Organization', { exact: true }).click();
+ await page.getByRole('option', { name: 'Synthetic Alpha', exact: true }).click();
+ await page.getByLabel('Permission ceiling', { exact: true }).click();
+ await page.getByRole('option', { name: 'Incident.Read', exact: true }).click();
+ await page.keyboard.press('Escape');
+ await page.getByRole('button', { name: 'Preview exact policy', exact: true }).click();
+ await expect(page.getByText('Narrow the separate operator credential')).toBeVisible();
+ await expect(page.getByRole('combobox', { name: 'Organization', exact: true })).toBeDisabled();
+ let state = await (await request.get(`${fixture}/state`)).json();
+ expect(state.calls.filter((call: any) => call.path.endsWith('/confirm'))).toHaveLength(0);
+ await page.getByRole('button', { name: 'Confirm this policy', exact: true }).click();
+ await expect(page.getByText(/Separate synthetic operator.*revision 1/)).toBeVisible();
+ state = await (await request.get(`${fixture}/state`)).json();
+ expect(state.calls.find((call: any) => call.path.endsWith('/preview')).payload.permissions).toEqual(['Incident.Read']);
+ expect(state.calls.find((call: any) => call.path.endsWith('/confirm')).payload.confirmation).toBe('synthetic-confirmation');
+ await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
+});

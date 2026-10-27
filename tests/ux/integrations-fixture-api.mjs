@@ -6,7 +6,7 @@ const constants = Object.fromEntries([...source.matchAll(/public const string (\
 const permissions = source.match(/AssignablePermissions =\s*\[([\s\S]*?)\]/)[1].split(',').map(value => value.trim()).filter(Boolean).map(name => constants[name]);
 if (permissions.some(value => !value)) throw new Error('Fixture must use the complete actual assignable permission catalog');
 const organizations = [{ id: 'org-a', name: 'Synthetic Alpha', isEnabled: true }, { id: 'org-b', name: 'Synthetic Beta', isEnabled: true }];
-let credentials, calls, fault, systemConnections;
+let credentials, calls, fault, systemConnections, aiPrompts, aiInvestigations, policies, policyPreview;
 const identifier = i => `00000000-0000-0000-0000-${String(i + 1).padStart(12, '0')}`;
 const systemRoot = '/api/v1/admin/system-connections';
 const systemPeer = name => ({ contract: 'bostec.pairing.v1', product: 'netratel', installationId: 'synthetic-netratel', name,
@@ -20,7 +20,7 @@ function reset() {
   mapping: { id: `mapping-${i + 1}`, pairId: `pair-${i + 1}`, name: `Synthetic system connection ${i + 1}`,
    netRatelTenantId: 'tenant-a', ratelDeskOrganizationId: i % 2 ? 'org-b' : 'org-a', ratelDeskCustomerId: i % 2 ? null : 'customer-org-a', createIncidents: i % 2 === 0, runAutomation: true } }));
  systemConnections.push({ id: 'pair-awaiting', pairId: 'pair-awaiting', mapping: null, peer: systemPeer('Synthetic unfinished NetRatel'), status: 'paired', lastTest: null });
- calls = []; fault = '';
+ calls = []; fault = ''; aiPrompts = []; aiInvestigations = []; policies = []; policyPreview = null;
 }
 reset();
 http.createServer(async (req, res) => {
@@ -43,6 +43,33 @@ http.createServer(async (req, res) => {
  if (path === '/api/v1/branding') return reply({ applicationName: 'RatelDesk', faviconUrl: '/favicon.ico' });
  if (path === '/api/v1/organizations') return reply(admin ? organizations : organizations.slice(0, 1));
  if (path === '/api/v1/integration-credentials' && req.method === 'GET') return reply(credentials);
+ if (path.startsWith('/api/v1/ai/ops')) {
+  if (!admin) return reply({}, 403);
+  if (path.endsWith('/tickets')) return reply([{ id: 'ticket-incident', type: 'incidents', trackingId: 'INC-1', title: 'Synthetic incident' }, { id: 'ticket-task', type: 'tasks', trackingId: 'TASK-1', title: 'Synthetic task' }]);
+  if (path.endsWith('/prompts') && req.method === 'GET') return reply(aiPrompts);
+  if (req.method === 'PUT' && path.includes('/prompts/')) {
+   const payload = await body(); calls.push({ path, method: req.method, payload });
+   const prompt = { ...payload, id: path.split('/').at(-1), revision: payload.expectedRevision + 1 };
+   aiPrompts = aiPrompts.filter(p => p.id !== prompt.id).concat(prompt); return reply(prompt);
+  }
+  if (path.endsWith('/investigations') && req.method === 'GET') return reply(aiInvestigations);
+  if (path.endsWith('/investigations') && req.method === 'POST') {
+   const payload = await body(); calls.push({ path, method: req.method, payload });
+   const investigation = { ...payload, ticketId: payload.ticketIds[0], ticketType: 'incidents', state: 0, createdUtc: new Date().toISOString(), contextSnapshot: JSON.stringify({ guidance: aiPrompts, tickets: payload.ticketIds }) };
+   aiInvestigations.push(investigation); return reply(investigation);
+  }
+  if (req.method === 'GET') return reply(aiInvestigations.find(i => path.endsWith(i.id)) ?? {}, aiInvestigations.some(i => path.endsWith(i.id)) ? 200 : 404);
+ }
+ if (path.endsWith('/ai-assistant/chat-capabilities')) return reply({ enabled: false, reason: 'Synthetic UI fixture: no external transport' });
+ if (path.startsWith('/api/v1/admin/mcp-policies')) {
+  if (!admin) return reply({}, 403);
+  if (path.endsWith('/credentials')) return reply([{ id: identifier(1), name: 'Separate synthetic operator', owner: 'other-owner', organizationId: 'org-a', expiresAtUtc: '2030-01-01T00:00:00Z' }]);
+  if (req.method === 'GET') return reply(path.endsWith('/audit') ? [] : policies);
+  const payload = await body(); calls.push({ path, method: req.method, payload });
+  if (path.endsWith('/preview')) { policyPreview = payload; return reply({ confirmation: 'synthetic-confirmation', policy: payload, effect: 'Narrow the separate operator credential' }); }
+  if (path.endsWith('/confirm')) { const policy = { ...policyPreview, revision: policyPreview.expectedRevision + 1 }; policies = [policy]; return reply(policy); }
+ }
+
  if (path.startsWith(systemRoot)) {
   if (!admin) return reply({}, 403);
   if (req.method === 'GET' && path === systemRoot) return reply(systemConnections);
