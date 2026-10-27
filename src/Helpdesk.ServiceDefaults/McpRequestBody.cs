@@ -34,11 +34,21 @@ public static class McpRequestBody
             : long.MaxValue;
         if (feature is { IsReadOnly: false }) feature.MaxRequestBodySize = maximumWireBytes;
 
-        if (request.ContentLength > maximumBytes)
+        var declaredOversize = request.ContentLength > maximumBytes;
+        if (declaredOversize && (request.ContentLength > maximumWireBytes ||
+            request.Headers.Expect.Any(static value => value is not null && value.Split(',').Any(static expectation =>
+                string.Equals(expectation.Trim(), "100-continue", StringComparison.OrdinalIgnoreCase)))))
             return await RejectAsync(context, maximumBytes, maximumWireBytes, "body");
 
         var bufferingLimit = maximumBytes < long.MaxValue ? maximumBytes + 1 : maximumBytes;
-        request.EnableBuffering(bufferThreshold: MemoryThreshold, bufferLimit: bufferingLimit);
+        // An eager client may finish sending before it reads a response. Returning
+        // early for its declared length starts Kestrel/proxy draining while the
+        // upload is still in flight and can replace our 413 with a reset or 502.
+        // Inspect at most the same limit+1 bytes as a chunked request. Known rejects
+        // are discarded rather than buffered to disk, and Expect/Continue or an
+        // excessive wire declaration still receives a header-only rejection.
+        if (!declaredOversize)
+            request.EnableBuffering(bufferThreshold: MemoryThreshold, bufferLimit: bufferingLimit);
         var buffer = ArrayPool<byte>.Shared.Rent(ReadBufferBytes);
         long inspectedBytes = 0;
         try
@@ -56,12 +66,15 @@ public static class McpRequestBody
         }
         catch (BadHttpRequestException error) when (error.StatusCode == StatusCodes.Status413PayloadTooLarge)
         {
-            return await RejectAsync(context, maximumBytes, maximumWireBytes, "transport");
+            return await RejectAsync(context, maximumBytes, maximumWireBytes, declaredOversize ? "body" : "transport");
         }
         finally
         {
             ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
         }
+
+        if (declaredOversize)
+            return await RejectAsync(context, maximumBytes, maximumWireBytes, "body");
 
         request.Body.Position = 0;
         return true;
@@ -84,9 +97,8 @@ public static class McpRequestBody
         context.Response.ContentLength = body.Length;
         await context.Response.Body.WriteAsync(body, context.RequestAborted);
 
-        // Commit the deliberate response before Kestrel drains an unread declared
-        // body. The finite wire allowance also prevents an ordinary just-over-limit
-        // upload from tripping the old limit during that drain and resetting TCP.
+        // Commit the deliberate response. Ordinary limit+1 uploads have now been
+        // consumed; larger/Expect uploads retain the server's finite drain policy.
         await context.Response.CompleteAsync();
         return false;
     }

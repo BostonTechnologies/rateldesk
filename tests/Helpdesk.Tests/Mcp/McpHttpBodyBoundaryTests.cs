@@ -17,11 +17,61 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NewWeb::HelpDesk.NewWeb.Services;
 using Xunit;
+using Yarp.ReverseProxy.Configuration;
 
 namespace Helpdesk.Tests.Mcp;
 
 public sealed partial class McpHttpHostTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Kestrel_MCP_returns_413_when_a_proxy_client_uploads_before_reading(bool throughGateway)
+    {
+        await using var host = await McpSocketHost.CreateAsync(throughGateway, throughIngress: true);
+        var message = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
+        {
+            jsonrpc = "2.0", id = 75, method = "initialize", @params = InitializeParameters()
+        }));
+        foreach (var path in new[] { "/mcp", "/mcp/" })
+        {
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            using var socket = new TcpClient();
+            await socket.ConnectAsync(host.Client.BaseAddress!.Host, host.Client.BaseAddress.Port, deadline.Token);
+            await using var stream = socket.GetStream();
+            var headers = $"POST {path} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer rdk_local-a\r\n" +
+                "Content-Type: application/json\r\nAccept: application/json, text/event-stream\r\n" +
+                "Content-Length: 30000001\r\nConnection: close\r\n\r\n";
+            await stream.WriteAsync(Encoding.ASCII.GetBytes(headers), deadline.Token);
+            await stream.WriteAsync(message, deadline.Token);
+            var padding = new byte[8192];
+            Array.Fill(padding, (byte)' ');
+            await stream.WriteAsync(padding, deadline.Token);
+            // Model a sender pausing mid-upload beyond Kestrel's fixed five-second
+            // post-response drain. The prefix keeps its request data rate above
+            // Kestrel's normal minimum. Rejection must not start that drain early.
+            using (var uploadPacing = new PeriodicTimer(TimeSpan.FromSeconds(7)))
+                Assert.True(await uploadPacing.WaitForNextTickAsync(deadline.Token));
+            for (var remaining = 30_000_001 - message.Length - padding.Length; remaining > 0;)
+            {
+                var count = Math.Min(remaining, padding.Length);
+                await stream.WriteAsync(padding.AsMemory(0, count), deadline.Token);
+                remaining -= count;
+            }
+            // Python http.client and other eager clients finish the upload before
+            // reading. HttpClient's concurrent response reader masks early resets.
+            using var reader = new StreamReader(stream);
+            var response = await reader.ReadToEndAsync(deadline.Token);
+            Assert.StartsWith("HTTP/1.1 413", response, StringComparison.Ordinal);
+            using var problem = JsonDocument.Parse(response[(response.IndexOf("\r\n\r\n", StringComparison.Ordinal) + 4)..]);
+            Assert.Equal("request_too_large", problem.RootElement.GetProperty("code").GetString());
+            Assert.Equal("body", problem.RootElement.GetProperty("limit").GetString());
+            Assert.Equal(30_000_000, problem.RootElement.GetProperty("maximumBodyBytes").GetInt64());
+        }
+        Assert.Equal(0, host.Outbound.ApiRequests);
+        Assert.Equal(0, host.Outbound.TokenRequests);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -259,11 +309,13 @@ public sealed partial class McpHttpHostTests
         private readonly McpHostEnvironment _environment = new(gateway: true);
         private WebApplicationFactory<Helpdesk.Mcp.Http.Program>? _factory;
         private WebApplication? _gateway;
+        private WebApplication? _ingress;
         private WebGatewayConfiguration? _gatewayConfiguration;
         public AgentClientBoundaryProbe Outbound { get; } = new();
         public HttpClient Client { get; private set; } = null!;
 
-        public static async Task<McpSocketHost> CreateAsync(bool throughGateway, long maximumBytes = McpRequestBody.DefaultMaximumBytes)
+        public static async Task<McpSocketHost> CreateAsync(bool throughGateway, long maximumBytes = McpRequestBody.DefaultMaximumBytes,
+            bool throughIngress = false)
         {
             var host = new McpSocketHost();
             try
@@ -302,6 +354,26 @@ public sealed partial class McpHttpHostTests
                     await host._gateway.StartAsync();
                     address = host._gateway.Urls.Single();
                 }
+                if (throughIngress)
+                {
+                    var builder = WebApplication.CreateBuilder();
+                    builder.Logging.ClearProviders();
+                    builder.WebHost.ConfigureKestrel(options =>
+                    {
+                        options.Listen(IPAddress.Loopback, 0);
+                        options.Limits.MaxRequestBodySize = 40_000_000;
+                    });
+                    builder.Services.AddReverseProxy().LoadFromMemory(
+                        [new RouteConfig { RouteId = "mcp", ClusterId = "mcp", Match = new RouteMatch { Path = "/{**path}" } }],
+                        [new ClusterConfig { ClusterId = "mcp", Destinations = new Dictionary<string, DestinationConfig>
+                        {
+                            ["host"] = new() { Address = address }
+                        } }]);
+                    host._ingress = builder.Build();
+                    host._ingress.MapReverseProxy();
+                    await host._ingress.StartAsync();
+                    address = host._ingress.Urls.Single();
+                }
                 host.Client = new HttpClient(new SocketsHttpHandler { UseProxy = false, Expect100ContinueTimeout = TimeSpan.FromSeconds(30) })
                 {
                     BaseAddress = new Uri(address),
@@ -319,6 +391,7 @@ public sealed partial class McpHttpHostTests
         public async ValueTask DisposeAsync()
         {
             Client?.Dispose();
+            if (_ingress is not null) await _ingress.DisposeAsync();
             if (_gateway is not null) await _gateway.DisposeAsync();
             _gatewayConfiguration?.Dispose();
             if (_factory is not null) await _factory.DisposeAsync();
