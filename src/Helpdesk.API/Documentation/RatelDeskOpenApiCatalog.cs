@@ -40,6 +40,7 @@ public static class RatelDeskOpenApiCatalog
         new("Customer Authentication", "Identity & Access", "Customer identity linking."),
         new("Users", "Identity & Access", "Application users and access."),
         new("Role Definitions", "Identity & Access", "Scoped application role definitions."),
+        new("MCP Policies", "Identity & Access", "Reviewed organization and permission ceilings for separate MCP credentials, with revisioned audit."),
         new("Integration Credentials", "Identity & Access", "Revocable API credentials. Secrets are shown once."),
         new("Integration Credential Pairing", "Identity & Access", "Browser-approved account credential setup, device delivery and acknowledgement."),
         new("MCP Deployment Approval", "Identity & Access", "Administrator approval of an exact MCP host deployment proposal without issuing a credential."),

@@ -143,9 +143,9 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                 name: "IX_AiAssistantChatConversations_OrganizationId_TicketType_TicketId",
                 table: "AiAssistantChatConversations");
 
-            migrationBuilder.DropColumn(
-                name: "IsInvestigation",
-                table: "AiAssistantChatConversations");
+            // Older SQLite migrations have no rebuild model for this table.
+            // Use the native DROP COLUMN supported by the bundled SQLite engine.
+            migrationBuilder.Sql("ALTER TABLE \"AiAssistantChatConversations\" DROP COLUMN \"IsInvestigation\"");
 
             migrationBuilder.CreateIndex(
                 name: "IX_AiAssistantChatConversations_OrganizationId_TicketType_TicketId",

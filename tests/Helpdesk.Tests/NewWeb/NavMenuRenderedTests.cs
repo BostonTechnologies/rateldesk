@@ -125,7 +125,11 @@ public sealed class NavMenuRenderedTests
     [InlineData("/admin/resources/data-management", "Resources")]
     [InlineData("/admin/users", "Administration,Accounts & Orgs")]
     [InlineData("/admin/email-rules", "Administration,Email Settings")]
-    [InlineData("/settings/connectivity", "Administration,Automation")]
+    [InlineData("/settings/connectivity", "Administration")]
+    [InlineData("/admin/integration", "Administration")]
+    [InlineData("/admin/operator-policies", "Administration")]
+    [InlineData("/ai/ops", "Operations")]
+    [InlineData("/ai/prompts", "Operations")]
     public async Task Deep_links_expand_required_parent_groups(string route, string expandedTitles)
     {
         await using var context = Context("HelpdeskAdmin");
