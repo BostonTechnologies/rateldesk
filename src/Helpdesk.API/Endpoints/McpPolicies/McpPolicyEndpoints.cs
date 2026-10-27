@@ -42,6 +42,9 @@ public static class McpPolicyEndpoints
         {
             var error = await Validate(draft, Actor(ctx), db, identity, ct);
             if (error is not null) return error;
+            // PostgreSQL stores microseconds; pin the reviewed value at that precision
+            // so an accepted confirmation replays identically on both providers.
+            draft = draft with { ExpiresUtc = new DateTime(draft.ExpiresUtc.Ticks / 10 * 10, DateTimeKind.Utc) };
             var receipt = new PreviewReceipt(Actor(ctx), DateTime.UtcNow.AddMinutes(5), draft);
             var token = protection.CreateProtector("RatelDesk.McpPolicyPreview.v1").Protect(JsonSerializer.Serialize(receipt));
             return Results.Ok(new McpPolicyPreview(token, draft, draft.State == "Active" ? "Constrain this credential to the listed organization and permissions until expiry. Existing account authority remains the upper bound." : "Deny all access through this credential. Disabling, expiry and revocation do not restore its earlier permissions."));
