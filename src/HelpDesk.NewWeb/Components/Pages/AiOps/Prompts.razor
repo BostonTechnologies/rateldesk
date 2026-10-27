@@ -9,19 +9,19 @@
     <MudText Typo="Typo.h4">AI prompts</MudText>
     <MudText>Organization guidance is saved by revision. Existing investigations retain their original guidance.</MudText>
     @if (error is not null) { <MudAlert Severity="Severity.Warning">@error</MudAlert> }
-    <MudSelect T="string" Label="Organization" Value="@organization" ValueChanged="ChangeOrganization">
+    <MudSelect T="string" Label="Organization" Value="@organization" ValueChanged="ChangeOrganization" Disabled="busy">
         @foreach (var org in organizations) { <MudSelectItem Value="@org.Id">@org.Name</MudSelectItem> }
     </MudSelect>
     @foreach (var prompt in prompts)
     {
-        <MudButton OnClick="@(() => Edit(prompt))">@prompt.Name · revision @prompt.Revision @(prompt.IsDefault ? "· Default" : "") @(prompt.Archived ? "· Archived" : "")</MudButton>
+        <MudButton OnClick="@(() => Edit(prompt))" Disabled="busy">@prompt.Name · revision @prompt.Revision @(prompt.IsDefault ? "· Default" : "") @(prompt.Archived ? "· Archived" : "")</MudButton>
     }
-    <MudButton OnClick="New">New prompt</MudButton>
-    <MudTextField @bind-Value="name" Label="Name" MaxLength="120" />
-    <MudTextField @bind-Value="description" Label="Description" MaxLength="500" />
-    <MudTextField @bind-Value="content" Label="Guidance" Lines="8" MaxLength="12000" />
-    <MudCheckBox T="bool" @bind-Value="isDefault" Label="Always include in new investigations for this organization" />
-    <MudCheckBox T="bool" @bind-Value="archived" Label="Archived (unavailable for new investigations)" />
+    <MudButton OnClick="New" Disabled="@(busy || organization.Length == 0)">New prompt</MudButton>
+    <MudTextField @bind-Value="name" Label="Name" Disabled="@(busy || organization.Length == 0)" MaxLength="120" />
+    <MudTextField @bind-Value="description" Label="Description" Disabled="@(busy || organization.Length == 0)" MaxLength="500" />
+    <MudTextField @bind-Value="content" Label="Guidance" Disabled="@(busy || organization.Length == 0)" Lines="8" MaxLength="12000" />
+    <MudCheckBox T="bool" Disabled="@(busy || organization.Length == 0)" @bind-Value="isDefault" Label="Always include in new investigations for this organization" />
+    <MudCheckBox T="bool" Disabled="@(busy || organization.Length == 0)" @bind-Value="archived" Label="Archived (unavailable for new investigations)" />
     <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save" Disabled="@(busy || organization.Length == 0 || name.Length == 0)">Save revision</MudButton>
 </MudStack>
 @code {
@@ -37,7 +37,12 @@
         try { organizations = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations") ?? []; }
         catch (HttpRequestException) { error = "Unable to load organizations."; }
     }
-    private async Task ChangeOrganization(string value) { organization = value; New(); await Load(); }
+    private async Task ChangeOrganization(string value)
+    {
+        busy = true; organization = value; New();
+        try { await Load(); }
+        finally { busy = false; }
+    }
     private async Task Load()
     {
         try { prompts = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<AiPromptDto>>($"api/v1/ai/ops/prompts?organizationId={Uri.EscapeDataString(organization)}") ?? []; }

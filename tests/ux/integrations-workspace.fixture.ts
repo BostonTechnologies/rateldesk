@@ -369,6 +369,8 @@ test('AI prompts and multi-ticket investigation save preserve selected context w
  await page.getByLabel('Description', { exact: true }).fill('Inspect the selected records');
  await page.getByLabel('Guidance', { exact: true }).fill('Read evidence before proposing action');
  await page.getByLabel('Always include in new investigations for this organization').check();
+ await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Synthetic triage guidance');
+ await expect(page.getByLabel('Description', { exact: true })).toHaveValue('Inspect the selected records');
  await page.getByRole('button', { name: 'Save revision', exact: true }).click();
  await expect(page.getByRole('button', { name: /Synthetic triage guidance.*revision 1/ })).toBeVisible();
  await page.goto('/ai/ops');
