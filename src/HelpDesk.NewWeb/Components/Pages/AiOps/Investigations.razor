@@ -66,8 +66,8 @@
     private string? error;
     private bool busy;
     private Guid creationId = Guid.NewGuid();
-    private IEnumerable<string> ticketIds = [];
-    private IEnumerable<Guid> promptIds = [];
+    private IReadOnlyCollection<string> ticketIds = [];
+    private IReadOnlyCollection<Guid> promptIds = [];
     protected override async Task OnParametersSetAsync()
     {
         try

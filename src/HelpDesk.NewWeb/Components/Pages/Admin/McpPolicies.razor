@@ -58,7 +58,7 @@
     private McpPolicyPreview? preview;
     private Guid credentialId;
     private string organization = "", state = "Active";
-    private IEnumerable<string> permissions = [];
+    private IReadOnlyCollection<string> permissions = [];
     private DateTime? expiry = DateTime.UtcNow.Date.AddDays(1);
     private int revision;
     private bool busy;
