@@ -9,7 +9,7 @@
     <MudText Typo="Typo.h4">AI prompts</MudText>
     <MudText>Organization guidance is saved by revision. Existing investigations retain their original guidance.</MudText>
     @if (error is not null) { <MudAlert Severity="Severity.Warning">@error</MudAlert> }
-    <MudSelect T="string" Label="Organization" Value="organization" ValueChanged="ChangeOrganization">
+    <MudSelect T="string" Label="Organization" Value="@organization" ValueChanged="ChangeOrganization">
         @foreach (var org in organizations) { <MudSelectItem Value="@org.Id">@org.Name</MudSelectItem> }
     </MudSelect>
     @foreach (var prompt in prompts)

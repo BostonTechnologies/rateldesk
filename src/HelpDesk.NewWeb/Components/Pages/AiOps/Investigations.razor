@@ -28,7 +28,7 @@
         }
         <MudDivider />
         <MudText Typo="Typo.h5">Start with the right tickets</MudText>
-        <MudSelect T="string" Label="Organization" Value="organization" ValueChanged="ChangeOrganization">
+        <MudSelect T="string" Label="Organization" Value="@organization" ValueChanged="ChangeOrganization">
             @foreach (var org in organizations) { <MudSelectItem Value="@org.Id">@org.Name</MudSelectItem> }
         </MudSelect>
         <MudTextField @bind-Value="title" Label="Investigation title" MaxLength="200" />
@@ -70,6 +70,7 @@
     private IReadOnlyCollection<Guid> promptIds = [];
     protected override async Task OnParametersSetAsync()
     {
+        selected = null; error = null;
         try
         {
             if (Id.HasValue) selected = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<AiInvestigationDto>($"api/v1/ai/ops/investigations/{Id}");
