@@ -341,6 +341,7 @@ public sealed class ChatPostgresTests(ChatPostgresFixture fixture) : IClassFixtu
             Assert.Contains("selected incident and task context", client.SentText);
             Assert.Contains("Inspect the selected context", client.SentText);
             Assert.Contains("Platform controls", client.SentText);
+            Assert.Contains("\"helpdeskOperator\":\"operator\"", client.SentText);
             Assert.Contains($"[helpdesk-chat:{conversation:D}:{request.ClientMessageId:D}]", client.SentText);
         }
         finally { await manager.StopAsync(default); }

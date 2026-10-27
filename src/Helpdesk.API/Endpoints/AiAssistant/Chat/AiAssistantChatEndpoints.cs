@@ -64,7 +64,7 @@ public static class AiAssistantChatEndpoints
                     if (!await AiOpsContext.CanAccessAsync(db, access, investigation, context.HttpContext.RequestAborted)) return Results.NotFound();
                     if (context.Arguments.OfType<ChatMessageRequest>().FirstOrDefault() is { } message)
                     {
-                        try { AiOpsContext.ValidatePayload(AiOpsContext.Outbound(message.ConversationId, message.ClientMessageId, investigation.ContextSnapshot, message.Text)); }
+                        try { AiOpsContext.ValidatePayload(AiOpsContext.Outbound(message.ConversationId, message.ClientMessageId, investigation.ContextSnapshot, message.Text, Actor(context.HttpContext))); }
                         catch (ArgumentException ex) { return Results.Problem(ex.Message, statusCode: 400); }
                     }
                 }

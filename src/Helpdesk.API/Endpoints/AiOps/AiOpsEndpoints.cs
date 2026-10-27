@@ -130,7 +130,7 @@ public static class AiOpsEndpoints
             guidance = prompts.Select(x => new { x.Id, x.Name, x.Revision, x.IsDefault, x.Content }),
             tickets = tickets.Select(x => new { x.Id, type = AiOpsContext.TicketType(x), x.TrackingId, x.Title, x.Description, x.OrganizationId, state = x.State.ToString() })
         });
-        AiOpsContext.ValidatePayload(AiOpsContext.Outbound(request.Id, Guid.Empty, snapshot, ""));
+        AiOpsContext.ValidatePayload(AiOpsContext.Outbound(request.Id, Guid.Empty, snapshot, "", actor));
         var anchor = tickets[0];
         var row = new AiOpsInvestigation { Id = request.Id, OrganizationId = request.OrganizationId, Title = request.Title.Trim(), TicketId = anchor.Id, TicketType = AiOpsContext.TicketType(anchor), TicketIdsJson = JsonSerializer.Serialize(ids), ContextSnapshot = snapshot, RequestFingerprint = fingerprint, CreatedBy = actor };
         await using var transaction = await db.Database.BeginTransactionAsync(ct);

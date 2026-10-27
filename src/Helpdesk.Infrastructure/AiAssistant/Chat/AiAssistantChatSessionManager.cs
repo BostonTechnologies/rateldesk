@@ -97,7 +97,7 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
             var investigation = await db.Set<AiOpsInvestigation>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == conversation, ct);
             if (investigation is not null)
             {
-                outbound = AiOpsContext.Outbound(conversation, messageId, investigation.ContextSnapshot, text);
+                outbound = AiOpsContext.Outbound(conversation, messageId, investigation.ContextSnapshot, text, message.CreatedByUserId);
                 AiOpsContext.ValidatePayload(outbound);
             }
             owner = await GetAsync(conversation, ct);
