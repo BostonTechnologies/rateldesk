@@ -131,13 +131,15 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // authenticated Change approval read/review, and authenticated dataset row upsert.
         // Beta.11 adds the administrator-authorized inbound email rule deletion operation.
         // Beta.13 adds five MCP policy and seven AI investigation/guidance operations.
+        // Reviewed credential access adds three interactive-session operations: inspect,
+        // review an exact permission change, and apply the confirmed change.
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(436, operationCount);
+        Assert.Equal(439, operationCount);
 #else
-        Assert.Equal(435, operationCount);
+        Assert.Equal(438, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         foreach (var (path, operationId, tag) in new[]
@@ -196,7 +198,10 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
             ("/api/v1/integration-credentials/host-proposals/review", "post", "MCP Deployment Approval", true),
             ("/api/v1/integration-credentials/host-proposals/approve", "post", "MCP Deployment Approval", true),
             ("/api/v1/integration-credentials/host-proposals/deny", "post", "MCP Deployment Approval", true),
-            ("/api/v1/integration-credentials/{credentialId}/record", "delete", "Integration Credentials", true)
+            ("/api/v1/integration-credentials/{credentialId}/record", "delete", "Integration Credentials", true),
+            ("/api/v1/integration-credentials/{credentialId}/access", "get", "Integration Credentials", true),
+            ("/api/v1/integration-credentials/{credentialId}/access/review", "post", "Integration Credentials", true),
+            ("/api/v1/integration-credentials/{credentialId}/access/apply", "post", "Integration Credentials", true)
         };
         foreach (var (path, method, expectedTag, requiresSession) in selfServiceOperations)
         {
