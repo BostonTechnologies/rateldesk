@@ -6,7 +6,7 @@ const constants = Object.fromEntries([...source.matchAll(/public const string (\
 const permissions = source.match(/AssignablePermissions =\s*\[([\s\S]*?)\]/)[1].split(',').map(value => value.trim()).filter(Boolean).map(name => constants[name]);
 if (permissions.some(value => !value)) throw new Error('Fixture must use the complete actual assignable permission catalog');
 const organizations = [{ id: 'org-a', name: 'Synthetic Alpha', isEnabled: true }, { id: 'org-b', name: 'Synthetic Beta', isEnabled: true }];
-let credentials, calls, fault, systemConnections, aiPrompts, aiInvestigations, policies, policyPreview;
+let credentials, calls, fault, systemConnections, aiPrompts, aiInvestigations, aiEvents, accessReviews, policies, policyPreview;
 const identifier = i => `00000000-0000-0000-0000-${String(i + 1).padStart(12, '0')}`;
 const systemRoot = '/api/v1/admin/system-connections';
 const systemPeer = name => ({ contract: 'bostec.pairing.v1', product: 'netratel', installationId: 'synthetic-netratel', name,
@@ -20,7 +20,34 @@ function reset() {
   mapping: { id: `mapping-${i + 1}`, pairId: `pair-${i + 1}`, name: `Synthetic system connection ${i + 1}`,
    netRatelTenantId: 'tenant-a', ratelDeskOrganizationId: i % 2 ? 'org-b' : 'org-a', ratelDeskCustomerId: i % 2 ? null : 'customer-org-a', createIncidents: i % 2 === 0, runAutomation: true } }));
  systemConnections.push({ id: 'pair-awaiting', pairId: 'pair-awaiting', mapping: null, peer: systemPeer('Synthetic unfinished NetRatel'), status: 'paired', lastTest: null });
- calls = []; fault = ''; aiPrompts = []; aiInvestigations = []; policies = []; policyPreview = null;
+ calls = []; fault = ''; aiPrompts = []; aiInvestigations = []; aiEvents = new Map(); accessReviews = new Map(); policies = []; policyPreview = null;
+}
+function seedAiWorkspace() {
+ aiPrompts = [
+  { id: identifier(100), organizationId: 'org-a', name: 'Baseline investigation guidance', description: 'Read the selected evidence before proposing a change.', content: '# Investigation guidance\n\nRead the selected ticket evidence. Summarize findings and ask before applying changes.', revision: 3, isDefault: true, archived: false },
+  { id: identifier(101), organizationId: 'org-a', name: 'Mail delivery diagnostics', description: 'Review delivery evidence and related support tasks.', content: 'Review the delivery status and related task history.', revision: 2, isDefault: false, archived: false },
+  { id: identifier(102), organizationId: 'org-a', name: 'Historical guidance', description: 'Retained for earlier investigations.', content: 'Synthetic historical guidance.', revision: 1, isDefault: false, archived: true }
+ ];
+ aiInvestigations = [
+  { id: identifier(200), organizationId: 'org-a', title: 'Recurring mail delivery delays', ticketId: 'ticket-incident', ticketType: 'incidents', state: 0 },
+  { id: identifier(201), organizationId: 'org-a', title: 'Review proposed remediation', ticketId: 'ticket-task', ticketType: 'tasks', state: 2 },
+  { id: identifier(202), organizationId: 'org-a', title: 'Check an unconfirmed outcome', ticketId: 'ticket-incident', ticketType: 'incidents', state: 3 },
+  { id: identifier(203), organizationId: 'org-b', title: 'Completed customer handover', ticketId: 'ticket-task', ticketType: 'tasks', state: 4 }
+ ].map((item, index) => ({ ...item, createdUtc: `2026-10-28T0${9 - index}:30:00Z`, contextSnapshot: JSON.stringify({ guidance: [{ name: aiPrompts[0].name, revision: 3, content: aiPrompts[0].content }], tickets: [{ id: item.ticketId, trackingId: index % 2 ? 'TASK-1' : 'INC-1', title: item.title }] }) }));
+ for (const item of aiInvestigations) aiEvents.set(item.id, [
+  { sequence: 1, type: 'operator', text: 'Review the selected tickets and explain the likely cause of the delivery delays.', createdUtc: item.createdUtc, createdByUserId: 'synthetic-admin', conversationId: item.id },
+  { sequence: 2, type: 'assistant', text: 'The selected incident records repeated delivery delays. The related task records a pending configuration review. I can compare those records and identify the next useful check.', createdUtc: item.createdUtc, conversationId: item.id },
+  { sequence: 3, type: 'turn_completed', text: 'Investigation response completed.', createdUtc: item.createdUtc, conversationId: item.id }
+ ]);
+}
+const accessVersion = row => `synthetic-${row.id}-${row.permissions.join(',')}`;
+function accessDetails(row) {
+ const canEdit = row.revokedAtUtc === null && new Date(row.expiresAtUtc) > new Date();
+ return { credentialId: row.id, organizationId: row.organizationId, organizationName: organizations.find(o => o.id === row.organizationId)?.name,
+  permissions: row.permissions, availablePermissions: permissions, effectivePermissions: canEdit ? row.permissions : [], deniedPermissions: canEdit ? [] : row.permissions,
+  version: accessVersion(row), canEdit, editUnavailableReason: canEdit ? null : 'Inactive credentials cannot be edited.',
+  policyState: row.purpose === 'mcp' ? 'separate-policy-check' : 'not-applicable',
+  policySummary: row.purpose === 'mcp' ? 'MCP operation policies are checked separately for each operation. Changing credential grants does not create policy approval.' : 'API credentials do not use HTTP MCP operation policies.' };
 }
 reset();
 http.createServer(async (req, res) => {
@@ -29,7 +56,8 @@ http.createServer(async (req, res) => {
  const body = async () => { let text = ''; for await (const chunk of req) { text += chunk; if (text.length > 16384) throw new Error('bounded fixture request'); } return text ? JSON.parse(text) : {}; };
  if (path === '/fixture/health') return reply({ ok: true });
  if (path === '/fixture/reset') { reset(); return reply({ ok: true }); }
- if (path === '/fixture/state') return reply({ calls, credentials, permissions, systemConnections });
+ if (path === '/fixture/state') return reply({ calls, credentials, permissions, systemConnections, aiPrompts, aiInvestigations });
+ if (path === '/fixture/seed-ai') { seedAiWorkspace(); return reply({ ok: true }); }
  if (path === '/fixture/fault') { fault = url.searchParams.get('mode') ?? ''; return reply({ ok: true }); }
  if (path.endsWith('/system/token')) {
   const reader = req.headers['x-system-secret'] === 'integrations-fixture-reader';
@@ -43,24 +71,79 @@ http.createServer(async (req, res) => {
  if (path === '/api/v1/branding') return reply({ applicationName: 'RatelDesk', faviconUrl: '/favicon.ico' });
  if (path === '/api/v1/organizations') return reply(admin ? organizations : organizations.slice(0, 1));
  if (path === '/api/v1/integration-credentials' && req.method === 'GET') return reply(credentials);
+ const accessRoute = path.match(/^\/api\/v1\/integration-credentials\/([a-f0-9-]+)\/access(?:\/(review|apply))?$/i);
+ if (accessRoute) {
+  if (!admin) return reply({}, 403);
+  const row = credentials.find(c => c.id.replaceAll('-', '') === accessRoute[1].replaceAll('-', ''));
+  if (!row) return reply({}, 404);
+  if (req.method === 'GET' && !accessRoute[2]) return reply(accessDetails(row));
+  const payload = await body(); calls.push({ path, method: req.method, payload });
+  if (!accessDetails(row).canEdit) return reply({ detail: 'Inactive credentials cannot be edited.' }, 409);
+  if (accessRoute[2] === 'review') {
+   if (fault === 'credential-review') { fault = ''; return reply({}, 503); }
+   if (payload.expectedVersion !== accessVersion(row)) return reply({ detail: 'Current permissions changed. Refresh and review again.' }, 409);
+   if (!payload.permissions?.length || payload.permissions.some(p => !permissions.includes(p))) return reply({}, 400);
+   const next = [...new Set(payload.permissions)].sort();
+   const review = { confirmation: `synthetic-access-review-${accessReviews.size + 1}`, permissions: next,
+    addedPermissions: next.filter(p => !row.permissions.includes(p)), removedPermissions: row.permissions.filter(p => !next.includes(p)),
+    expiresAtUtc: new Date(Date.now() + 300_000).toISOString() };
+   accessReviews.set(review.confirmation, { ...review, credentialId: row.id, expectedVersion: payload.expectedVersion });
+   return reply(review);
+  }
+  if (accessRoute[2] === 'apply') {
+   if (fault === 'credential-apply') { fault = ''; return reply({}, 503); }
+   const review = accessReviews.get(payload.confirmation);
+   if (!payload.consent || !review || review.credentialId !== row.id || review.expectedVersion !== accessVersion(row)) return reply({}, 409);
+   row.permissions = review.permissions;
+   return reply(accessDetails(row));
+  }
+  return reply({}, 404);
+ }
  if (path.startsWith('/api/v1/ai/ops')) {
   if (!admin) return reply({}, 403);
-  if (path.endsWith('/tickets')) return reply([{ id: 'ticket-incident', type: 'incidents', trackingId: 'INC-1', title: 'Synthetic incident' }, { id: 'ticket-task', type: 'tasks', trackingId: 'TASK-1', title: 'Synthetic task' }]);
-  if (path.endsWith('/prompts') && req.method === 'GET') return reply(aiPrompts);
+  if (path.endsWith('/tickets')) return reply(url.searchParams.get('organizationId') === 'org-b' ? [] : [{ id: 'ticket-incident', type: 'incidents', trackingId: 'INC-1', title: 'Synthetic incident' }, { id: 'ticket-task', type: 'tasks', trackingId: 'TASK-1', title: 'Synthetic task' }].filter(t => `${t.trackingId} ${t.title}`.toLowerCase().includes((url.searchParams.get('q') ?? '').toLowerCase())));
+  if (path.endsWith('/prompts') && req.method === 'GET') return reply(aiPrompts.filter(p => p.organizationId === url.searchParams.get('organizationId')));
   if (req.method === 'PUT' && path.includes('/prompts/')) {
    const payload = await body(); calls.push({ path, method: req.method, payload });
-   const prompt = { ...payload, id: path.split('/').at(-1), revision: payload.expectedRevision + 1 };
+   if (fault === 'prompt-save') { fault = ''; return reply({ detail: 'Synthetic field validation rejected this revision.' }, 422); }
+   const id = path.split('/').at(-1), current = aiPrompts.find(p => p.id === id);
+   if ((current?.revision ?? 0) !== payload.expectedRevision || payload.isDefault && !payload.archived && aiPrompts.some(p => p.id !== id && p.organizationId === payload.organizationId && p.isDefault && !p.archived)) return reply({}, 409);
+   const prompt = { ...payload, id, revision: payload.expectedRevision + 1 };
    aiPrompts = aiPrompts.filter(p => p.id !== prompt.id).concat(prompt); return reply(prompt);
   }
-  if (path.endsWith('/investigations') && req.method === 'GET') return reply(aiInvestigations);
+  if (path.endsWith('/investigations') && req.method === 'GET') return reply(aiInvestigations.filter(i => (!url.searchParams.has('organizationId') || i.organizationId === url.searchParams.get('organizationId')) && i.title.toLowerCase().includes((url.searchParams.get('q') ?? '').toLowerCase())).map(i => ({ ...i, contextSnapshot: '' })));
   if (path.endsWith('/investigations') && req.method === 'POST') {
    const payload = await body(); calls.push({ path, method: req.method, payload });
-   const investigation = { ...payload, ticketId: payload.ticketIds[0], ticketType: 'incidents', state: 0, createdUtc: new Date().toISOString(), contextSnapshot: JSON.stringify({ guidance: aiPrompts, tickets: payload.ticketIds }) };
-   aiInvestigations.push(investigation); return reply(investigation);
+   if (fault === 'investigation-save') { fault = ''; return reply({}, 409); }
+   const prior = aiInvestigations.find(i => i.id === payload.id);
+   if (prior) return reply(prior);
+   const investigation = { ...payload, ticketId: payload.ticketIds[0], ticketType: payload.ticketIds[0] === 'ticket-task' ? 'tasks' : 'incidents', state: 0, createdUtc: new Date().toISOString(), contextSnapshot: JSON.stringify({ guidance: aiPrompts.filter(p => p.organizationId === payload.organizationId && !p.archived && (p.isDefault || payload.promptIds.includes(p.id))), tickets: payload.ticketIds }) };
+   aiInvestigations.push(investigation); aiEvents.set(investigation.id, []); return reply(investigation);
+  }
+  if (path.endsWith('/archive') && req.method === 'POST') {
+   calls.push({ path, method: req.method, payload: await body() });
+   const row = aiInvestigations.find(i => path.split('/').at(-2) === i.id);
+   if (!row) return reply({}, 404);
+   if (row.state !== 0 && row.state !== 4) return reply({}, 409);
+   row.state = 4; return reply({}, 204);
   }
   if (req.method === 'GET') return reply(aiInvestigations.find(i => path.endsWith(i.id)) ?? {}, aiInvestigations.some(i => path.endsWith(i.id)) ? 200 : 404);
  }
- if (path.endsWith('/ai-assistant/chat-capabilities')) return reply({ enabled: false, reason: 'Synthetic UI fixture: no external transport' });
+ if (path.endsWith('/ai-assistant/chat-capabilities')) return reply({ enabled: true, reason: null });
+ if (path.includes('/ai-assistant/chat')) {
+  if (req.method !== 'GET') { calls.push({ path, method: req.method, payload: await body() }); return reply({}, 204); }
+  const row = aiInvestigations.find(i => i.id === url.searchParams.get('conversationId'));
+  if (path.endsWith('/history')) return reply(aiInvestigations.map(i => ({ conversationId: i.id, state: i.state, lastActivityUtc: i.createdUtc, createdByUserId: 'synthetic-admin' })));
+  if (!row) return reply({}, 404);
+  if (path.endsWith('/stream')) {
+   res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
+   res.write(`event: state\ndata: ${row.state}\n\n`);
+   const heartbeat = setInterval(() => res.write(`event: state\ndata: ${row.state}\n\n`), 15000);
+   res.on('close', () => clearInterval(heartbeat)); return;
+  }
+  const events = aiEvents.get(row.id) ?? [];
+  return reply({ conversationId: row.id, state: row.state, lastSequence: events.length, events });
+ }
  if (path.startsWith('/api/v1/admin/mcp-policies')) {
   if (!admin) return reply({}, 403);
   if (path.endsWith('/credentials')) return reply([{ id: identifier(1), name: 'Separate synthetic operator', owner: 'other-owner', organizationId: 'org-a', expiresAtUtc: '2030-01-01T00:00:00Z' }]);

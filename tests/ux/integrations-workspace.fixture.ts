@@ -18,6 +18,8 @@ async function reviewClient(page: Page, code = 'ABCD-TEST') {
 test.beforeEach(async ({ page, request }) => {
  const diagnostics: unknown[] = [];
  (page as any).__integrationDiagnostics = diagnostics;
+ page.on('pageerror', error => diagnostics.push({ pageError: error.message }));
+ page.on('console', message => { if (message.type() === 'error') diagnostics.push({ browserError: message.text() }); });
  page.on('framenavigated', frame => { if (frame === page.mainFrame()) diagnostics.push({ navigation: frame.url() }); });
  page.on('response', async response => {
   if (new URL(response.url()).pathname === '/session/access')
@@ -188,7 +190,7 @@ test('selected inactive cleanup retains only partial failures and survives a fre
  await page.getByRole('checkbox', { name: 'Select inactive Synthetic credential 02', exact: true }).check();
  await request.get(`${fixture}/fault?mode=partial`);
  await page.getByRole('button', { name: 'Delete selected inactive', exact: true }).click();
- const dialog = page.getByRole('dialog', { name: 'Credential details and lifecycle', exact: true });
+ const dialog = page.getByRole('dialog', { name: 'Credential lifecycle', exact: true });
  await expect(dialog).toContainText('Synthetic credential 01'); await expect(dialog).toContainText('Synthetic credential 02');
  await dialog.getByRole('button', { name: 'Confirm delete', exact: true }).click();
  await expect(dialog.getByRole('alert')).toContainText('Synthetic credential 02: action failed');
@@ -359,40 +361,212 @@ test('system connection context, interrupted save, durable resume and row-local 
 });
 
 
+async function openWorkspace(page: Page, path: string, testId: string) {
+ await page.goto(path, { waitUntil: 'domcontentloaded' });
+ await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true', { timeout: 20_000 });
+ await expect(page.getByTestId(testId)).toBeVisible();
+ await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
+}
+async function monacoEditor(page: Page) {
+ const surface = page.getByTestId('monaco-text-editor');
+ await expect(surface.locator('.monaco-editor').first()).toBeVisible({ timeout: 20_000 });
+ await expect(surface.getByText('The code editor could not load.', { exact: false })).toHaveCount(0);
+ return surface;
+}
+async function typeGuidance(page: Page, text: string) {
+ const surface = await monacoEditor(page);
+ await surface.getByRole('textbox', { name: 'Prompt guidance', exact: true }).focus();
+ await page.keyboard.press('ControlOrMeta+A');
+ await page.keyboard.insertText(text);
+ await expect(page.getByTestId('prompt-save')).toBeEnabled();
+ return surface;
+}
+async function credentialDetails(page: Page, name = 'Synthetic credential 03') {
+ const row = page.getByRole('row').filter({ hasText: name });
+ await row.getByRole('button', { name: 'Details', exact: true }).click();
+ const dialog = page.getByRole('dialog', { name: `Integration credential: ${name}`, exact: true });
+ await expect(dialog.getByTestId('credential-edit-access')).toBeVisible();
+ return { row, dialog };
+}
+
+for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
+ test(`aligned credential, investigation and Monaco workspaces ${theme} ${width}px`, async ({ page, request }, info) => {
+  await page.setViewportSize({ width, height: 900 });
+  await page.evaluate(value => localStorage.setItem('helpdesk.theme.preference', value), theme);
+  await request.get(`${fixture}/seed-ai`);
+  await open(page);
+  await expect(page.locator('html')).toHaveAttribute('data-helpdesk-theme', theme);
+  const { row, dialog } = await credentialDetails(page);
+  await assertSystemReviewFits(page, 'Integration credential: Synthetic credential 03', width, 900);
+  await expect(dialog.getByRole('heading', { name: 'Configured access', exact: true })).toBeVisible();
+  await expect(dialog).toContainText('2030-01-01T00:00:00.0000000Z');
+  await page.screenshot({ path: info.outputPath(`aligned-credential-details-${theme}-${width}.png`), animations: 'disabled' });
+  await dialog.getByTestId('credential-edit-access').click();
+  const selector = dialog.getByTestId('credential-permission-selector');
+  await selector.getByRole('searchbox').fill('Incident.Read');
+  await expect(selector.getByRole('checkbox', { name: 'Incident.Read', exact: true })).toBeChecked();
+  await selector.getByRole('searchbox').fill('Request.Read');
+  await selector.getByRole('checkbox', { name: 'Request.Read', exact: true }).check();
+  await dialog.getByRole('button', { name: 'Review changes', exact: true }).click();
+  await expect(dialog.getByTestId('credential-access-review')).toContainText('Request.Read');
+  await expect(dialog.getByRole('button', { name: 'Apply access changes', exact: true })).toBeDisabled();
+  await assertSystemReviewFits(page, 'Integration credential: Synthetic credential 03', width, 900);
+  await dialog.getByRole('button', { name: 'Cancel edit', exact: true }).focus();
+  await page.keyboard.press('Shift+Tab');
+  expect(await dialog.evaluate(el => el.contains(document.activeElement))).toBe(true);
+  await page.screenshot({ path: info.outputPath(`aligned-credential-review-${theme}-${width}.png`), animations: 'disabled' });
+  await dialog.getByRole('button', { name: 'Cancel edit', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Close', exact: true }).focus();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(row.getByRole('button', { name: 'Details', exact: true })).toBeFocused();
+
+  await openWorkspace(page, '/ai/ops?id=00000000-0000-0000-0000-000000000201', 'ai-investigations');
+  const history = page.getByRole('complementary', { name: 'Recent investigations', exact: true });
+  const conversation = page.getByRole('region', { name: 'Investigation workspace', exact: true });
+  await expect(history.locator('.ai-investigation')).toHaveCount(4);
+  await expect(conversation.locator('.ai-chat-transcript')).toContainText('The selected incident records repeated delivery delays');
+  await expect(conversation.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  const sidebar = await history.boundingBox(), detail = await conversation.boundingBox();
+  if (width > 900) {
+   expect(sidebar!.width).toBeLessThanOrEqual(311);
+   expect(detail!.x).toBeGreaterThan(sidebar!.x + sidebar!.width);
+   expect(Math.abs(sidebar!.y - detail!.y)).toBeLessThanOrEqual(2);
+  } else expect(detail!.y).toBeGreaterThan(sidebar!.y + sidebar!.height);
+  await assertNoHorizontalOverflow(page);
+  await page.screenshot({ path: info.outputPath(`aligned-investigations-${theme}-${width}.png`), fullPage: true, animations: 'disabled' });
+  await history.getByRole('combobox', { name: 'Status', exact: true }).selectOption('approval');
+  await expect(history.locator('.ai-investigation')).toHaveCount(1);
+  await expect(history).toContainText('Review proposed remediation');
+  await page.getByRole('combobox', { name: 'Organization', exact: true }).selectOption('org-a');
+  await page.locator('.ai-toolbar').getByRole('button', { name: 'New investigation', exact: true }).click();
+  await expect(page.getByRole('checkbox', { name: /INC-1.*Synthetic incident/ })).toBeVisible();
+  await assertNoHorizontalOverflow(page);
+  await page.screenshot({ path: info.outputPath(`aligned-new-investigation-${theme}-${width}.png`), fullPage: true, animations: 'disabled' });
+
+  await openWorkspace(page, '/ai/prompts', 'prompt-library');
+  await expect(page.getByTestId('prompt-item')).toHaveCount(2);
+  const editor = await monacoEditor(page);
+  await expect(editor.locator('.view-lines')).toContainText('Investigation guidance');
+  await assertNoHorizontalOverflow(page);
+  await page.screenshot({ path: info.outputPath(`aligned-prompts-monaco-${theme}-${width}.png`), fullPage: true, animations: 'disabled' });
+  await editor.getByRole('button', { name: 'Fullscreen', exact: true }).click();
+  await expect(editor).toHaveClass(/fullscreen/);
+  const bounds = await editor.boundingBox();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0); expect(bounds!.y).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width + 1); expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(901);
+  await editor.getByRole('combobox', { name: 'Editor theme', exact: true }).selectOption(theme === 'light' ? 'vs' : 'vs-dark');
+  await editor.getByRole('button', { name: 'Exit fullscreen', exact: true }).focus();
+  await page.keyboard.press('Escape');
+  await expect(editor).not.toHaveClass(/fullscreen/);
+  await assertNoHorizontalOverflow(page);
+  await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
+ });
+}
+
+test('credential access review, failed apply and refreshed retry retain exact identity and draft', async ({ page, request }) => {
+ await open(page);
+ const before = (await (await request.get(`${fixture}/state`)).json()).credentials.find((c: any) => c.name === 'Synthetic credential 03');
+ const { row, dialog } = await credentialDetails(page);
+ await dialog.getByTestId('credential-edit-access').click();
+ const selector = dialog.getByTestId('credential-permission-selector');
+ await selector.getByRole('searchbox').fill('Request.Read');
+ await selector.getByRole('checkbox', { name: 'Request.Read', exact: true }).check();
+ await dialog.getByRole('button', { name: 'Review changes', exact: true }).click();
+ await expect(dialog.getByTestId('credential-access-review')).toContainText('Add (1)');
+ await expect(dialog.getByTestId('credential-access-review')).toContainText('Remove (0)');
+ let state = await (await request.get(`${fixture}/state`)).json();
+ expect(state.calls.filter((c: any) => c.path.endsWith('/access/apply'))).toHaveLength(0);
+ expect(state.credentials.find((c: any) => c.id === before.id).permissions).toEqual(['Incident.Read']);
+ await dialog.getByRole('checkbox', { name: 'I approve these exact permission changes.', exact: true }).check();
+ await request.get(`${fixture}/fault?mode=credential-apply`);
+ await dialog.getByRole('button', { name: 'Apply access changes', exact: true }).click();
+ await expect(dialog.getByRole('alert')).toContainText('your draft is preserved');
+ await expect(selector.getByRole('checkbox', { name: 'Request.Read', exact: true })).toBeChecked();
+ await dialog.getByRole('button', { name: 'Refresh current access', exact: true }).click();
+ await expect(dialog.getByRole('button', { name: 'Review changes', exact: true })).toBeEnabled();
+ await dialog.getByRole('button', { name: 'Review changes', exact: true }).click();
+ await dialog.getByRole('checkbox', { name: 'I approve these exact permission changes.', exact: true }).check();
+ await dialog.getByRole('button', { name: 'Apply access changes', exact: true }).click();
+ await expect(dialog.getByRole('status')).toContainText('Access updated');
+ await expect(dialog.locator('.credential-access')).toContainText('2 permissions');
+ await expect(dialog.locator('.credential-admission-card')).toContainText('2 of 2');
+ await expect(dialog.locator('.credential-admission-card')).toContainText('does not create policy approval');
+ await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+ await expect(row).toContainText('2 permissions');
+ await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+ await expect(row).toContainText('2 permissions');
+ state = await (await request.get(`${fixture}/state`)).json();
+ const after = state.credentials.find((c: any) => c.id === before.id);
+ expect(after).toEqual({ ...before, permissions: ['Incident.Read', 'Request.Read'] });
+ expect(state.calls.filter((c: any) => c.path.endsWith('/access/apply'))).toHaveLength(2);
+ expect(state.calls.filter((c: any) => c.path.endsWith('/access/review'))).toHaveLength(2);
+ expect(state.calls.some((c: any) => c.path.includes('mcp-policies'))).toBe(false);
+});
+
+test('Monaco prompt editing preserves a rejected draft and saves the next revision', async ({ page, request }) => {
+ await request.get(`${fixture}/seed-ai`);
+ await openWorkspace(page, '/ai/prompts', 'prompt-library');
+ await page.getByTestId('prompt-item').filter({ hasText: 'Mail delivery diagnostics' }).click();
+ await page.getByTestId('prompt-edit').click();
+ await page.getByTestId('prompt-name').fill('Mail delivery review');
+ const guidance = '# Delivery review\n\nRead ticket evidence and propose the smallest next check.';
+ await typeGuidance(page, guidance);
+ await request.get(`${fixture}/fault?mode=prompt-save`);
+ await page.getByTestId('prompt-save').click();
+ await expect(page.getByTestId('prompt-library').getByRole('alert')).toContainText('Your draft is preserved');
+ await expect(page.getByTestId('prompt-name')).toHaveValue('Mail delivery review');
+ await expect(page.getByTestId('prompt-save')).toBeEnabled();
+ await page.getByTestId('prompt-save').click();
+ await expect(page.getByRole('heading', { name: 'Mail delivery review', exact: true })).toBeVisible();
+ await expect(page.locator('.prompt-detail .prompt-status')).toHaveText('Revision 3');
+ await expect(page.getByTestId('prompt-edit')).toBeVisible();
+ await monacoEditor(page);
+ const state = await (await request.get(`${fixture}/state`)).json();
+ const writes = state.calls.filter((c: any) => c.method === 'PUT' && c.path.includes('/ai/ops/prompts/'));
+ expect(writes).toHaveLength(2); expect(writes[0].payload).toEqual(writes[1].payload);
+ expect(writes[1].payload).toMatchObject({ organizationId: 'org-a', name: 'Mail delivery review', content: guidance, expectedRevision: 2 });
+ await page.getByRole('searchbox', { name: 'Search prompts', exact: true }).fill('delivery');
+ await expect(page.getByTestId('prompt-item')).toHaveCount(1);
+ await page.getByRole('searchbox', { name: 'Search prompts', exact: true }).fill('');
+ await page.locator('.prompt-toolbar').getByRole('checkbox', { name: 'Archived', exact: true }).check();
+ await expect(page.getByTestId('prompt-item')).toHaveCount(3);
+ await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
+});
+
 test('AI prompts and multi-ticket investigation save preserve selected context without sending', async ({ page, request }) => {
- await page.goto('/ai/prompts');
- await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
- await expect(page.getByRole('heading', { name: 'AI prompts', exact: true })).toBeVisible();
- await page.getByLabel('Organization', { exact: true }).click();
- await page.getByRole('option', { name: 'Synthetic Alpha', exact: true }).click();
- await page.getByLabel('Name', { exact: true }).fill('Synthetic triage guidance');
- await page.getByLabel('Description', { exact: true }).fill('Inspect the selected records');
- await page.getByLabel('Guidance', { exact: true }).fill('Read evidence before proposing action');
- await page.getByLabel('Always include in new investigations for this organization').check();
- await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Synthetic triage guidance');
- await expect(page.getByLabel('Description', { exact: true })).toHaveValue('Inspect the selected records');
- await page.getByRole('button', { name: 'Save revision', exact: true }).click();
- await expect(page.getByRole('button', { name: /Synthetic triage guidance.*revision 1/ })).toBeVisible();
- await page.goto('/ai/ops');
- await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
- await page.getByLabel('Organization', { exact: true }).click();
- await page.getByRole('option', { name: 'Synthetic Alpha', exact: true }).click();
- await expect(page.getByText('Always included: Synthetic triage guidance')).toBeVisible();
+ await openWorkspace(page, '/ai/prompts', 'prompt-library');
+ await expect(page.getByRole('heading', { name: 'Prompts', exact: true })).toBeVisible();
+ await page.getByTestId('prompt-organization').selectOption('org-a');
+ await page.getByTestId('prompt-new').click();
+ await page.getByTestId('prompt-name').fill('Synthetic triage guidance');
+ await page.getByTestId('prompt-description').fill('Inspect the selected records');
+ await typeGuidance(page, 'Read evidence before proposing action');
+ await page.getByRole('checkbox', { name: 'Include in every new investigation for this organization', exact: true }).check();
+ await page.getByTestId('prompt-save').click();
+ await expect(page.getByTestId('prompt-item').filter({ hasText: 'Synthetic triage guidance' })).toContainText('Revision 1');
+ await openWorkspace(page, '/ai/ops', 'ai-investigations');
+ await page.getByRole('combobox', { name: 'Organization', exact: true }).selectOption('org-a');
+ await page.locator('.ai-toolbar').getByRole('button', { name: 'New investigation', exact: true }).click();
+ await expect(page.getByText('Always included:', { exact: false })).toContainText('Synthetic triage guidance');
  await page.getByLabel('Investigation title', { exact: true }).fill('Synthetic incident and task investigation');
- await page.getByLabel('Ticket context (up to 12)', { exact: true }).click();
- await page.getByRole('option', { name: /INC-1.*Synthetic incident/ }).click();
- await page.getByRole('option', { name: /TASK-1.*Synthetic task/ }).click();
- await page.keyboard.press('Escape');
+ await page.getByRole('checkbox', { name: /INC-1.*Synthetic incident/ }).check();
+ await page.getByRole('checkbox', { name: /TASK-1.*Synthetic task/ }).check();
+ await request.get(`${fixture}/fault?mode=investigation-save`);
+ await page.getByRole('button', { name: 'Save investigation context', exact: true }).click();
+ await expect(page.getByTestId('ai-investigations').getByRole('alert')).toContainText('Your selections are preserved');
+ await expect(page.getByRole('checkbox', { name: /TASK-1.*Synthetic task/ })).toBeChecked();
  await page.getByRole('button', { name: 'Save investigation context', exact: true }).click();
  await expect(page).toHaveURL(/ai\/ops\?id=/);
  await page.getByText('Saved guidance and ticket context', { exact: true }).click();
- await expect(page.locator('pre')).toContainText('Read evidence before proposing action');
- await expect(page.locator('pre')).toContainText('ticket-task');
+ await expect(page.locator('.ai-snapshot pre')).toContainText('Read evidence before proposing action');
+ await expect(page.locator('.ai-snapshot pre')).toContainText('ticket-task');
  const state = await (await request.get(`${fixture}/state`)).json();
- const save = state.calls.find((call: any) => call.path === '/api/v1/ai/ops/investigations');
- expect(save.payload.ticketIds.sort()).toEqual(['ticket-incident', 'ticket-task']);
+ const saves = state.calls.filter((call: any) => call.path === '/api/v1/ai/ops/investigations');
+ expect(saves).toHaveLength(2); expect(saves[0].payload).toEqual(saves[1].payload);
+ expect(saves[1].payload.ticketIds.sort()).toEqual(['ticket-incident', 'ticket-task']);
  expect(state.calls.filter((call: any) => call.path.endsWith('/messages'))).toEqual([]);
- await page.locator('a').filter({ hasText: /^All investigations$/ }).click();
+ await page.locator('.ai-toolbar').getByRole('button', { name: 'New investigation', exact: true }).click();
  await expect(page.getByLabel('Investigation title', { exact: true })).toHaveValue('');
  await expect(page.getByRole('button', { name: 'Save investigation context', exact: true })).toBeDisabled();
  await expect(page.locator('#blazor-error-ui')).not.toBeVisible();

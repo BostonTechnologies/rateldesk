@@ -125,6 +125,77 @@ Native client setup/doctor needs no Compose feature upgrade. Client doctor
 success establishes client checks; host acceptance additionally requires source
 and runtime binding plus fresh host verification.
 
+## Edit an existing credential's access
+
+Sign in as the account that owns the credential and open **Integration → API &
+MCP credentials** (`/admin/integration?tab=credentials`; the existing
+`/account/integration-credentials` route also works). Find the connection and
+choose **Details → Configured access → Edit access**. This browser workflow
+supports ordinary API/CLI/stdio and HTTP MCP credentials, including an HTTP MCP
+credential already installed in NetClaw.
+
+1. Check the credential's status, purpose, organization, canonical resource and
+   **Exact expiry (UTC)** in Details. The secret is shown only at creation and
+   cannot be recovered here.
+2. Choose **Edit access**. The editor loads the saved permission set and your
+   current grantable permissions for that same organization. Use the grouped
+   permission selector to add or remove exact grants. Existing selections stay
+   visible when searching or switching permission groups.
+3. Choose **Review changes**. Inspect the explicit additions, removals and the
+   complete resulting permission set. Keep at least one supported permission;
+   use **Revoke** when the connection should lose all access.
+4. Explicitly confirm the reviewed change, then choose **Apply access changes**.
+   The server rechecks your enabled account, current organization permissions,
+   credential status and the exact reviewed credential binding. The review is
+   valid for five minutes. Expired or concurrently changed access needs a fresh
+   review; failed review/apply keeps the editor's draft available for correction.
+5. Check the refreshed list and Details permission counts, then **Current
+   admission**. Configured grants, currently admitted permissions and blocked
+   permissions are shown separately. Use **Refresh admission** after a related
+   role or policy change, and verify a permitted read through the existing client.
+
+Only the selected permissions change. The credential ID, secret, owner,
+organization, purpose, canonical MCP resource and exact UTC expiry stay the
+same; the client continues using its saved credential. A lost apply response
+can be reconciled by refreshing saved access; replaying the same valid reviewed
+confirmation does not issue another credential or write another change.
+
+Ordinary RatelDesk credentials remain **single-organization**. A new organization
+needs a separate credential and client profile. The editor cannot convert an
+ordinary credential into instance-wide owner administration, change its
+organization, extend its expiry or reactivate an inactive credential. For
+instance administration, use the separate [owner-administration consent
+flow](configuration.md#approve-an-agent-to-administer-the-instance). Temporary
+setup-verification credentials keep their dedicated status-only purpose.
+
+### Owner permissions and MCP policies
+
+Saved credential grants are bounded by the owner's current durable permissions.
+The credential editor changes neither the owner's roles nor MCP policies.
+If a permission is no longer grantable, restore the required owner role through
+the existing administration workflow or explicitly remove that permission from
+the proposed credential grant set before reviewing again.
+
+RatelDesk MCP policies are optional additional ceilings on an HTTP MCP
+credential's organization, permissions and expiry. **No policy configured** means
+the current account and credential grants determine access; it does not mean a
+new policy must be created. When a policy exists, an added credential permission
+is still blocked unless the active, unexpired policy admits it. A disabled,
+expired or revoked policy denies access. An independent interactive Helpdesk
+administrator manages the exact credential's policy under **Administration →
+MCP Policies** (`/admin/operator-policies`) using **Preview exact policy → Confirm
+this policy**. A revoked policy cannot be restored. Refresh admission after the
+reviewed policy change; selecting credential checkboxes never broadens policy.
+Owner-administration execution requires its full instance-administrator context;
+applying a credential policy removes that context. Use an ordinary scoped
+credential for access bounded by a credential policy. Details reports this
+special grant's execution prerequisite when such a policy is present.
+
+The existing browser client-code review remains the way to approve a **new**
+client credential. Maintaining an existing credential uses the owner-reviewed
+editor above. RatelDesk does not provide NetRatel's `netratel_access`
+request/approve/resume reconciliation protocol.
+
 ## Check or reconnect a saved client
 
 An unchanged saved profile reloads in a new process without another approval

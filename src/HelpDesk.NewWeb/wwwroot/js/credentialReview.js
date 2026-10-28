@@ -1,11 +1,11 @@
 const reviews = new Map();
 const surfaces = new WeakMap();
 let nextId = 0;
-export function openReview(surface, explicitOpener) {
+export function openReview(surface, explicitOpener, openerId) {
     if (!surface) return 0;
     if (surfaces.has(surface)) return surfaces.get(surface);
     const id = ++nextId;
-    const opener = explicitOpener?.isConnected ? explicitOpener : document.activeElement;
+    const opener = (openerId && document.getElementById(openerId)) || (explicitOpener?.isConnected ? explicitOpener : document.activeElement);
     const focusable = () => [...surface.querySelectorAll('button, input, select, textarea, a[href], [tabindex]')]
         .filter(item => !item.disabled && item.tabIndex >= 0 && item.getClientRects().length);
     const trap = event => {
@@ -54,7 +54,7 @@ export function openReview(surface, explicitOpener) {
         form.addEventListener('submit', submit);
         submissions.push({ form, submit });
     }
-    reviews.set(id, { surface, opener, trap, submissions });
+    reviews.set(id, { surface, opener, openerId, trap, submissions });
     surfaces.set(surface, id);
     surface.focus();
     return id;
@@ -66,5 +66,6 @@ export function closeReview(id) {
     for (const { form, submit } of review.submissions) form.removeEventListener('submit', submit);
     reviews.delete(id);
     surfaces.delete(review.surface);
-    if (review.opener?.isConnected) review.opener.focus();
+    const opener = (review.openerId && document.getElementById(review.openerId)) || review.opener;
+    if (opener?.isConnected) opener.focus();
 }

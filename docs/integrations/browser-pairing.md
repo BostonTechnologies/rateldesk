@@ -33,8 +33,10 @@ shows the actual approved grants, stages a private candidate, acknowledges that
 durable candidate, then atomically activates the working profile and performs
 bounded read-only checks. The created ordinary `rdk_`
 credential appears at `/account/integration-credentials` and can be revoked or
-deleted there normally. The grouped permission selector is shared with manual
-creation: search and group select/clear operate on exact eligible permission
+deleted there normally. **Integration → API & MCP credentials** at
+`/admin/integration?tab=credentials` is the same management surface. The grouped
+permission selector is shared with manual creation and access editing: search
+and group select/clear operate on exact eligible permission
 IDs, and filtered select-all states its displayed scope. Existing selections
 remain visible when filtered. Changing organization requires grant revalidation;
 no broad grant is selected automatically.
@@ -65,7 +67,28 @@ the displayed recovery action.
 ## Credential management
 
 The compact list has search, **All**, **Active**, **Revoked** and **Expired**
-filters/counts and bounded details. **Revoke** retains an inactive record.
+filters/counts and bounded details. **Details** groups the connection resource,
+status and purpose, lifecycle timestamps, exact UTC expiry, configured access
+and current admission. The secret remains unrecoverable.
+
+For an active ordinary credential, choose **Configured access → Edit access**,
+change its same-organization permissions, then **Review changes → Apply access
+changes** after explicitly confirming the additions, removals and resulting
+grants. The current owner must still have every selected permission. This keeps
+the credential ID, secret, owner, organization, purpose, resource and exact
+expiry unchanged; the installed client continues using its existing secret.
+Expired reviews and concurrent changes require fresh review. A failed attempt
+retains the draft, and successful application refreshes list/Details counts and
+admission. See [the complete editing and policy
+workflow](../mcp-http/setup.md#edit-an-existing-credentials-access).
+
+The editor does not change account roles or MCP policies. Additional
+organizations need separate ordinary credentials. Owner-administration and
+temporary-verification grants keep their dedicated consent workflows; inactive
+credentials cannot be edited. Initial client-code approval issues a new
+credential and is separate from this existing-credential review/apply workflow.
+
+**Revoke** retains an inactive record.
 **Revoke & delete** confirms the named active credential, stops subsequent
 authorization and durably removes the authentication record and grants.
 Inactive records offer **Delete**. Removing a local profile alone does neither.

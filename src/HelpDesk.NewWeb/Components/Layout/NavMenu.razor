@@ -60,48 +60,6 @@
 
     <AuthorizeView>
         <Authorized>
-            <TenantAdministrationNavigation />
-            <AuthorizeView Roles="HelpdeskAdmin" Context="adminAuth">
-                <div class="nav-section-heading"><span>Administration</span></div>
-                <HelpdeskNavGroup Title="Administration" Icon="@Icons.Material.Filled.AdminPanelSettings" RoutePrefixes="@AdministrationRoutes">
-                    <HelpdeskNavGroup Title="Accounts & Orgs" RoutePrefixes="@AccountAdministrationRoutes" Icon="@Icons.Material.Filled.AccountTree">
-                        <HelpdeskNavLink Href="/admin/users" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Group" Title="Team">Team</HelpdeskNavLink>
-                        <HelpdeskNavLink Href="/admin/customers" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.People" Title="Customers">
-                            Customers
-                        </HelpdeskNavLink>
-                        <HelpdeskNavLink Href="/admin/organizations" Match="NavLinkMatch.Prefix" Aliases="@OrganizationAliases" Icon="@Icons.Material.Filled.Apartment" Title="Organizations">
-                            Organizations
-                        </HelpdeskNavLink>
-                        <HelpdeskNavLink Href="/admin/support-routing" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.SupportAgent" Title="Support Routing">
-                            Support Routing
-                        </HelpdeskNavLink>
-                        <HelpdeskNavLink Href="/admin/tenant-sla-settings" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Tune" Title="Tenant SLA Settings">Tenant SLA Settings</HelpdeskNavLink>
-                    </HelpdeskNavGroup>
-
-                    <HelpdeskNavLink Href="/admin/roles" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Security" Title="Roles &amp; Permissions">Roles &amp; Permissions</HelpdeskNavLink>
-
-                    <HelpdeskNavGroup Title="Email Settings" Icon="@Icons.Material.Filled.Email" RoutePrefixes="@EmailRoutes">
-                        <HelpdeskNavLink Href="/admin/email-settings" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Mail" Title="Mailbox Configuration">Mailbox Configuration</HelpdeskNavLink>
-                        <HelpdeskNavLink Href="/admin/pending-emails" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.MarkunreadMailbox" Title="Pending Emails">Pending Emails</HelpdeskNavLink>
-                        <HelpdeskNavLink Href="/admin/email-rules" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Rule" Title="Email Rules">Email Rules</HelpdeskNavLink>
-                        <HelpdeskNavLink Href="/admin/templates" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Email" Title="Email Templates">Email Templates</HelpdeskNavLink>
-                        <HelpdeskNavLink Href="/admin/layouts" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.ViewQuilt" Title="Email Layouts">Email Layouts</HelpdeskNavLink>
-                    </HelpdeskNavGroup>
-
-                    <HelpdeskNavLink Href="/admin/integration" Match="NavLinkMatch.Prefix" Aliases="@IntegrationAliases" Icon="@Icons.Material.Filled.Key" Title="Integration">Integration</HelpdeskNavLink>
-
-                    <HelpdeskNavLink Href="/admin/operator-policies" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Policy" Title="MCP Policies">MCP Policies</HelpdeskNavLink>
-
-                    <HelpdeskNavGroup Title="Automation" Icon="@Icons.Material.Filled.SmartToy" RoutePrefixes="@AutomationRoutes">
-                        <HelpdeskNavLink Href="/admin/automation" Match="NavLinkMatch.Prefix" ExcludedRoutes="@IntegrationRoutes" Icon="@Icons.Material.Filled.SmartToy" Title="Automation Rules">Automation Rules</HelpdeskNavLink>
-                        <HelpdeskNavLink Href="/admin/requests/services" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Apps" Title="Service Explorer">Service Explorer</HelpdeskNavLink>
-                        <HelpdeskNavLink Href="/admin/ai-assistant-webhooks" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Webhook" Title="Webhooks">Webhooks</HelpdeskNavLink>
-                    </HelpdeskNavGroup>
-
-                    <HelpdeskNavLink Href="/admin/categories" Match="NavLinkMatch.Prefix" Aliases="@CategoryAliases" Icon="@Icons.Material.Filled.Category" Title="Ticket Categories">Ticket Categories</HelpdeskNavLink>
-                    <HelpdeskNavLink Href="/admin/branding" Match="NavLinkMatch.Prefix" Aliases="@BrandingAliases" Icon="@Icons.Material.Filled.Palette" Title="Branding &amp; Identity">Branding &amp; Identity</HelpdeskNavLink>
-                </HelpdeskNavGroup>
-            </AuthorizeView>
             <div class="helpdesk-nav-account">
                 <div class="nav-section-heading"><span>Account</span></div>
                 <HelpdeskNavLink Href="auth" Match="NavLinkMatch.Prefix" Aliases="@AccountAliases" Icon="@Icons.Material.Filled.Person" Title="@context.User.Identity?.Name">@context.User.Identity?.Name</HelpdeskNavLink>
@@ -111,6 +69,48 @@
                         <HelpdeskNavLink Href="/account/integration-credentials" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Key" Title="Integration credentials">Integration credentials</HelpdeskNavLink>
                     }
                 </Authorized></AuthorizeView>
+                <TenantAdministrationNavigation />
+                <AuthorizeView Roles="HelpdeskAdmin" Context="adminAuth">
+                    <div class="nav-section-heading"><span>Administration</span></div>
+                    <HelpdeskNavGroup Title="Administration" Icon="@Icons.Material.Filled.AdminPanelSettings" RoutePrefixes="@AdministrationRoutes">
+                        <HelpdeskNavGroup Title="Accounts & Orgs" RoutePrefixes="@AccountAdministrationRoutes" Icon="@Icons.Material.Filled.AccountTree">
+                            <HelpdeskNavLink Href="/admin/users" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Group" Title="Team">Team</HelpdeskNavLink>
+                            <HelpdeskNavLink Href="/admin/customers" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.People" Title="Customers">
+                                Customers
+                            </HelpdeskNavLink>
+                            <HelpdeskNavLink Href="/admin/organizations" Match="NavLinkMatch.Prefix" Aliases="@OrganizationAliases" Icon="@Icons.Material.Filled.Apartment" Title="Organizations">
+                                Organizations
+                            </HelpdeskNavLink>
+                            <HelpdeskNavLink Href="/admin/support-routing" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.SupportAgent" Title="Support Routing">
+                                Support Routing
+                            </HelpdeskNavLink>
+                            <HelpdeskNavLink Href="/admin/tenant-sla-settings" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Tune" Title="Tenant SLA Settings">Tenant SLA Settings</HelpdeskNavLink>
+                        </HelpdeskNavGroup>
+
+                        <HelpdeskNavLink Href="/admin/roles" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Security" Title="Roles &amp; Permissions">Roles &amp; Permissions</HelpdeskNavLink>
+
+                        <HelpdeskNavGroup Title="Email Settings" Icon="@Icons.Material.Filled.Email" RoutePrefixes="@EmailRoutes">
+                            <HelpdeskNavLink Href="/admin/email-settings" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Mail" Title="Mailbox Configuration">Mailbox Configuration</HelpdeskNavLink>
+                            <HelpdeskNavLink Href="/admin/pending-emails" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.MarkunreadMailbox" Title="Pending Emails">Pending Emails</HelpdeskNavLink>
+                            <HelpdeskNavLink Href="/admin/email-rules" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Rule" Title="Email Rules">Email Rules</HelpdeskNavLink>
+                            <HelpdeskNavLink Href="/admin/templates" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Email" Title="Email Templates">Email Templates</HelpdeskNavLink>
+                            <HelpdeskNavLink Href="/admin/layouts" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.ViewQuilt" Title="Email Layouts">Email Layouts</HelpdeskNavLink>
+                        </HelpdeskNavGroup>
+
+                        <HelpdeskNavLink Href="/admin/integration" Match="NavLinkMatch.Prefix" Aliases="@IntegrationAliases" Icon="@Icons.Material.Filled.Key" Title="Integration">Integration</HelpdeskNavLink>
+
+                        <HelpdeskNavLink Href="/admin/operator-policies" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Policy" Title="MCP Policies">MCP Policies</HelpdeskNavLink>
+
+                        <HelpdeskNavGroup Title="Automation" Icon="@Icons.Material.Filled.SmartToy" RoutePrefixes="@AutomationRoutes">
+                            <HelpdeskNavLink Href="/admin/automation" Match="NavLinkMatch.Prefix" ExcludedRoutes="@IntegrationRoutes" Icon="@Icons.Material.Filled.SmartToy" Title="Automation Rules">Automation Rules</HelpdeskNavLink>
+                            <HelpdeskNavLink Href="/admin/requests/services" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Apps" Title="Service Explorer">Service Explorer</HelpdeskNavLink>
+                            <HelpdeskNavLink Href="/admin/ai-assistant-webhooks" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Webhook" Title="Webhooks">Webhooks</HelpdeskNavLink>
+                        </HelpdeskNavGroup>
+
+                        <HelpdeskNavLink Href="/admin/categories" Match="NavLinkMatch.Prefix" Aliases="@CategoryAliases" Icon="@Icons.Material.Filled.Category" Title="Ticket Categories">Ticket Categories</HelpdeskNavLink>
+                        <HelpdeskNavLink Href="/admin/branding" Match="NavLinkMatch.Prefix" Aliases="@BrandingAliases" Icon="@Icons.Material.Filled.Palette" Title="Branding &amp; Identity">Branding &amp; Identity</HelpdeskNavLink>
+                    </HelpdeskNavGroup>
+                </AuthorizeView>
                 <HelpdeskNavLink Href="/logout" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Logout" Title="Logout">Logout</HelpdeskNavLink>
             </div>
         </Authorized>

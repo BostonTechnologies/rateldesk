@@ -1,65 +1,341 @@
 @page "/ai/prompts"
 @attribute [Authorize(Roles = "HelpdeskAdmin")]
+@using System.Net
+@using System.Text.Json
 @using Helpdesk.Shared.DTOs.AiOps
 @using Helpdesk.Shared.DTOs.Organization
+@implements IDisposable
 @inject IHttpClientFactory Clients
+@inject NavigationManager Navigation
 
 <PageTitle>AI prompts</PageTitle>
-<MudStack Spacing="3">
-    <MudText Typo="Typo.h4">AI prompts</MudText>
-    <MudText>Organization guidance is saved by revision. Existing investigations retain their original guidance.</MudText>
-    @if (error is not null) { <MudAlert Severity="Severity.Warning">@error</MudAlert> }
-    <MudSelect T="string" Label="Organization" Value="@organization" ValueChanged="ChangeOrganization" Disabled="busy">
-        @foreach (var org in organizations) { <MudSelectItem Value="@org.Id">@org.Name</MudSelectItem> }
-    </MudSelect>
-    @foreach (var prompt in prompts)
+<NavigationLock ConfirmExternalNavigation="@Dirty" OnBeforeInternalNavigation="BeforeNavigationAsync" />
+<main class="prompt-library" data-testid="prompt-library">
+    <header class="prompt-toolbar">
+        <h1>Prompts</h1>
+        <label class="prompt-organization-field">Organization
+            <select @key="organizationPickerKey" value="@organization" @onchange="ChangeOrganization" disabled="@(busy || organizations.Count == 0)" data-testid="prompt-organization">
+                @if (organizations.Count == 0) { <option value="">No organizations</option> }
+                @foreach (var org in organizations) { <option value="@org.Id">@org.Name</option> }
+            </select>
+        </label>
+        <label class="prompt-search-field">Search prompts
+            <input type="search" @bind="search" @bind:event="oninput" maxlength="200" placeholder="Name or description" disabled="@(organization.Length == 0)" />
+        </label>
+        <button type="button" class="prompt-icon-button" @onclick="RefreshAsync" disabled="@(busy || organization.Length == 0)" title="Refresh prompts" aria-label="Refresh prompts"><MudIcon Icon="@Icons.Material.Filled.Refresh" Size="Size.Small" /></button>
+        <label class="prompt-checkbox"><input type="checkbox" @bind="includeArchived" /> Archived</label>
+        <button type="button" class="prompt-primary-button" @onclick="NewAsync" disabled="@(busy || organization.Length == 0)" data-testid="prompt-new"><MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" /> New</button>
+    </header>
+
+    @if (error is not null)
     {
-        <MudButton OnClick="@(() => Edit(prompt))" Disabled="busy">@prompt.Name · revision @prompt.Revision @(prompt.IsDefault ? "· Default" : "") @(prompt.Archived ? "· Archived" : "")</MudButton>
+        <div class="prompt-notice prompt-error" role="alert">
+            <span>@error</span>
+            @if (saveUncertain || revisionConflict) { <button type="button" @onclick="RefreshAsync" disabled="@busy">Reload saved revision</button> }
+        </div>
     }
-    <MudButton OnClick="New" Disabled="@(busy || organization.Length == 0)">New prompt</MudButton>
-    <MudTextField @bind-Value="name" Label="Name" Disabled="@(busy || organization.Length == 0)" MaxLength="120" />
-    <MudTextField @bind-Value="description" Label="Description" Disabled="@(busy || organization.Length == 0)" MaxLength="500" />
-    <MudTextField @bind-Value="content" Label="Guidance" Disabled="@(busy || organization.Length == 0)" Lines="8" MaxLength="12000" />
-    <MudCheckBox T="bool" Disabled="@(busy || organization.Length == 0)" @bind-Value="isDefault" Label="Always include in new investigations for this organization" />
-    <MudCheckBox T="bool" Disabled="@(busy || organization.Length == 0)" @bind-Value="archived" Label="Archived (unavailable for new investigations)" />
-    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save" Disabled="@(busy || organization.Length == 0 || name.Length == 0)">Save revision</MudButton>
-</MudStack>
+    @if (discardChanges)
+    {
+        <div class="prompt-notice" role="alert" aria-label="Unsaved prompt changes">
+            <span>Discard unsaved prompt changes?</span>
+            <button type="button" @onclick="DiscardAsync">Discard changes</button>
+            <button type="button" @onclick="KeepEditing">Keep editing</button>
+        </div>
+    }
+    @if (loading) { <p class="prompt-empty" role="status">Loading organization prompts…</p> }
+    else if (organization.Length == 0)
+    {
+        <section class="prompt-empty"><h2>No organization available</h2><p>An enabled organization is needed to manage investigation guidance.</p></section>
+    }
+    else
+    {
+        <div class="prompt-workspace">
+            <aside class="prompt-list" aria-label="Organization prompt library">
+                <div class="prompt-default-status">Default: <strong>@(DefaultPrompt?.Name ?? "No organization default")</strong></div>
+                <details class="prompt-help">
+                    <summary>How guidance is used</summary>
+                    <p>The organization default is included in new investigations. Other prompts can be selected when starting an investigation.</p>
+                    <p>Each save creates a revision. Existing investigations keep their original guidance. Prompts do not grant permissions or replace approval controls.</p>
+                </details>
+                <div class="prompt-list-items">
+                    @if (!VisiblePrompts.Any()) { <p class="prompt-empty">@(prompts.Count == 0 ? "Create the first prompt for this organization." : "No matching prompts.")</p> }
+                    @foreach (var prompt in VisiblePrompts)
+                    {
+                        <button type="button" @key="prompt.Id" class="prompt-item @(selected?.Id == prompt.Id ? "selected" : "")" @onclick="() => SelectAsync(prompt)" disabled="@busy" aria-pressed="@(selected?.Id == prompt.Id ? "true" : "false")" data-testid="prompt-item" data-prompt-id="@prompt.Id">
+                            <strong>@prompt.Name</strong>
+                            <span>Revision @prompt.Revision @(prompt.IsDefault && !prompt.Archived ? "· Default" : "") @(prompt.Archived ? "· Archived" : "")</span>
+                            @if (!string.IsNullOrWhiteSpace(prompt.Description)) { <small>@prompt.Description</small> }
+                        </button>
+                    }
+                </div>
+            </aside>
+
+            <section class="prompt-detail" aria-label="Prompt guidance">
+                @if (selected is null && !editing)
+                {
+                    <div class="prompt-empty prompt-empty-detail"><MudIcon Icon="@Icons.Material.Outlined.EditNote" Size="Size.Large" /><h2>Choose a prompt</h2><p>Read organization guidance or create a reusable prompt.</p><button type="button" class="prompt-primary-button" @onclick="NewAsync">New prompt</button></div>
+                }
+                else
+                {
+                    <div class="prompt-detail-heading">
+                        <h2>@(editing ? revision == 0 ? "New prompt" : "Edit prompt" : selected!.Name)</h2>
+                        <span class="prompt-status" role="status">@(busy ? "Working…" : Dirty ? "Unsaved changes" : revision > 0 ? $"Revision {revision}" : "New draft")</span>
+                    </div>
+                    @if (editing)
+                    {
+                        <div class="prompt-fields">
+                            <label>Name<input @bind="name" @bind:event="oninput" maxlength="120" disabled="@busy" data-testid="prompt-name" /></label>
+                            <label><span>Description <span class="prompt-muted">(optional)</span></span><input @bind="description" @bind:event="oninput" maxlength="500" disabled="@busy" data-testid="prompt-description" /></label>
+                        </div>
+                    }
+                    else
+                    {
+                        @if (!string.IsNullOrWhiteSpace(description)) { <p class="prompt-description">@description</p> }
+                        @if (selected!.Archived) { <p class="prompt-muted">Archived · unavailable for new investigations</p> }
+                    }
+                    @if (confirmArchive)
+                    {
+                        <div class="prompt-notice" role="alert">
+                            <span>Archive this prompt? New investigations will no longer offer it. @(selected!.IsDefault ? "It will also be removed as the organization default." : "") Existing investigations keep their guidance.</span>
+                            <button type="button" @onclick="ArchiveAsync" disabled="@busy">Confirm archive</button>
+                            <button type="button" @onclick="() => confirmArchive = false" disabled="@busy">Keep prompt</button>
+                        </div>
+                    }
+                    <div class="prompt-editor"><MonacoTextEditor @key="editorKey" @ref="editor" Value="@content" ValueChanged="ContentChanged" ReadOnly="@(!editing || busy)" /></div>
+                    @if (editing)
+                    {
+                        <div class="prompt-options">
+                            <label class="prompt-checkbox"><input type="checkbox" @bind="isDefault" disabled="@(busy || archived)" /> Include in every new investigation for this organization</label>
+                            <label class="prompt-checkbox"><input type="checkbox" @bind="archived" disabled="@busy" /> Archived</label>
+                        </div>
+                        @if (isDefault && !archived && DefaultPrompt is { } currentDefault && currentDefault.Id != id)
+                        {
+                            <p class="prompt-default-conflict">“@currentDefault.Name” is already the default. Remove its default setting before making this prompt the default.</p>
+                        }
+                    }
+                    <footer class="prompt-footer">
+                        <span class="prompt-muted @(content.Length > 12000 ? "prompt-limit" : "")">@content.Length.ToString("N0") / 12,000 characters · Guidance</span>
+                        <div class="prompt-actions">
+                            @if (editing)
+                            {
+                                <button type="button" class="prompt-primary-button" @onclick="SaveAsync" disabled="@(!CanSave)" data-testid="prompt-save">Save revision</button>
+                                <button type="button" @onclick="CancelAsync" disabled="@busy">Cancel</button>
+                            }
+                            else
+                            {
+                                <button type="button" @onclick="CopyAsync" disabled="@busy">Copy</button>
+                                <button type="button" @onclick="Edit" disabled="@busy" data-testid="prompt-edit">Edit</button>
+                                @if (selected!.Archived)
+                                {
+                                    <button type="button" @onclick="RestoreAsync" disabled="@busy">Restore</button>
+                                }
+                                else
+                                {
+                                    <button type="button" @onclick="ToggleDefaultAsync" disabled="@busy">@(selected.IsDefault ? "Remove default" : "Set as default")</button>
+                                    <button type="button" @onclick="() => confirmArchive = true" disabled="@busy">Archive</button>
+                                }
+                            }
+                        </div>
+                    </footer>
+                }
+            </section>
+        </div>
+    }
+</main>
+
 @code {
     private List<OrganizationDto> organizations = [];
     private List<AiPromptDto> prompts = [];
-    private string organization = "", name = "", description = "", content = "";
-    private Guid id = Guid.NewGuid();
-    private int revision;
-    private bool isDefault, archived, busy;
+    private AiPromptDto? selected;
+    private MonacoTextEditor? editor;
+    private readonly CancellationTokenSource lifetime = new();
+    private Func<Task>? pendingTransition;
+    private string organization = "", search = "", name = "", description = "", content = "";
+    private string initialName = "", initialDescription = "", initialContent = "";
+    private Guid id, editorKey = Guid.NewGuid();
+    private int revision, organizationPickerKey;
+    private bool isDefault, archived, initialDefault, initialArchived, editing, busy, loading = true;
+    private bool includeArchived, discardChanges, confirmArchive, saveUncertain, revisionConflict, disposed;
     private string? error;
+
+    private AiPromptDto? DefaultPrompt => prompts.FirstOrDefault(prompt => prompt.IsDefault && !prompt.Archived);
+    private IEnumerable<AiPromptDto> VisiblePrompts => prompts.Where(prompt => (includeArchived || !prompt.Archived)
+        && (prompt.Name.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase) || prompt.Description.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase)));
+    private bool Dirty => editing && (name != initialName || description != initialDescription || content != initialContent || isDefault != initialDefault || archived != initialArchived);
+    private bool ValidDraft => organization.Length > 0 && !string.IsNullOrWhiteSpace(name)
+        && name.Length <= 120 && description.Length <= 500 && content.Length <= 12000
+        && (!isDefault || archived || DefaultPrompt is null || DefaultPrompt.Id == id);
+    private bool CanSave => editing && !busy && !saveUncertain && !revisionConflict && ValidDraft && (revision == 0 || Dirty);
+
     protected override async Task OnInitializedAsync()
     {
-        try { organizations = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations") ?? []; }
-        catch (HttpRequestException) { error = "Unable to load organizations."; }
-    }
-    private async Task ChangeOrganization(string value)
-    {
-        busy = true; organization = value; New();
-        try { await Load(); }
-        finally { busy = false; }
-    }
-    private async Task Load()
-    {
-        try { prompts = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<AiPromptDto>>($"api/v1/ai/ops/prompts?organizationId={Uri.EscapeDataString(organization)}") ?? []; }
-        catch (HttpRequestException) { error = "Unable to load prompts."; }
-    }
-    private void New() { id = Guid.NewGuid(); revision = 0; name = description = content = ""; isDefault = archived = false; }
-    private void Edit(AiPromptDto p) { id = p.Id; revision = p.Revision; name = p.Name; description = p.Description; content = p.Content; isDefault = p.IsDefault; archived = p.Archived; }
-    private async Task Save()
-    {
-        busy = true; error = null;
+        busy = true;
         try
         {
-            using var response = await Clients.CreateClient("SystemPairingApi").PutAsJsonAsync($"api/v1/ai/ops/prompts/{id}", new SaveAiPromptDto(organization, name, description, content, revision, isDefault, archived));
-            if (!response.IsSuccessStatusCode) { error = "Save was rejected. Reload a changed revision, or unset the existing default before selecting another. Your draft is preserved."; return; }
-            var saved = await response.Content.ReadFromJsonAsync<AiPromptDto>(); if (saved is not null) Edit(saved); await Load();
+            organizations = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations", lifetime.Token) ?? [];
+            organization = organizations.FirstOrDefault()?.Id ?? "";
+            if (organization.Length > 0) await LoadAsync();
         }
-        catch (HttpRequestException) { error = "Save could not be confirmed. Reload the prompt before another change."; }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException)
+        { if (!disposed) error = "Unable to load organizations. Refresh the page to try again."; }
+        finally { busy = false; loading = false; }
+    }
+
+    private Task ChangeOrganization(ChangeEventArgs args)
+    {
+        var next = args.Value?.ToString() ?? "";
+        if (next == organization || !organizations.Any(org => org.Id == next)) return Task.CompletedTask;
+        organizationPickerKey++;
+        return GuardAsync(async () =>
+        {
+            organization = next; search = ""; prompts = []; Show(null); error = null;
+            busy = loading = true;
+            try { await LoadAsync(); }
+            finally { busy = loading = false; }
+        });
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            var saved = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<AiPromptDto>>($"api/v1/ai/ops/prompts?organizationId={Uri.EscapeDataString(organization)}", lifetime.Token) ?? [];
+            if (disposed) return;
+            prompts = saved.Where(prompt => prompt.OrganizationId == organization).OrderBy(prompt => prompt.Name, StringComparer.OrdinalIgnoreCase).ToList();
+            var next = prompts.FirstOrDefault(prompt => prompt.Id == selected?.Id) ?? prompts.FirstOrDefault(prompt => !prompt.Archived);
+            Show(next);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException)
+        { if (!disposed) error = "Unable to load prompts. Refresh to try again."; }
+    }
+
+    private Task RefreshAsync() => GuardAsync(async () =>
+    {
+        busy = true; error = null;
+        try { await LoadAsync(); }
+        finally { busy = false; }
+    });
+    private Task SelectAsync(AiPromptDto prompt) => GuardAsync(() => { Show(prompt); error = null; return Task.CompletedTask; });
+    private Task NewAsync() => GuardAsync(() => { BeginNew(); return Task.CompletedTask; });
+    private Task CancelAsync() => GuardAsync(() => { Show(selected); error = null; return Task.CompletedTask; });
+
+    private void Show(AiPromptDto? prompt)
+    {
+        selected = prompt; editing = false; confirmArchive = saveUncertain = revisionConflict = false;
+        id = prompt?.Id ?? Guid.Empty; revision = prompt?.Revision ?? 0;
+        name = prompt?.Name ?? ""; description = prompt?.Description ?? ""; content = prompt?.Content ?? "";
+        isDefault = prompt?.IsDefault ?? false; archived = prompt?.Archived ?? false;
+        RememberOriginal(); editorKey = Guid.NewGuid();
+    }
+    private void BeginNew() { Show(null); id = Guid.NewGuid(); editing = true; error = null; }
+    private void Edit()
+    {
+        if (busy || selected is null) return;
+        editing = true; error = null; confirmArchive = false; RememberOriginal();
+    }
+    private Task CopyAsync() => GuardAsync(() =>
+    {
+        if (selected is null) return Task.CompletedTask;
+        var original = selected; BeginNew();
+        name = original.Name.Length > 113 ? original.Name[..113] + " (copy)" : original.Name + " (copy)";
+        description = original.Description; content = original.Content;
+        return Task.CompletedTask;
+    });
+    private void RememberOriginal() { initialName = name; initialDescription = description; initialContent = content; initialDefault = isDefault; initialArchived = archived; }
+    private void ContentChanged(string value) => content = value;
+
+    private async Task SaveAsync()
+    {
+        if (!CanSave) return;
+        busy = true; error = null;
+        var submitted = false;
+        try
+        {
+            if (editor is not null) content = await editor.GetValueAsync();
+            if (!ValidDraft) { error = "Check the name, guidance length and organization default before saving. Your draft is preserved."; return; }
+            submitted = true;
+            using var response = await Clients.CreateClient("SystemPairingApi").PutAsJsonAsync($"api/v1/ai/ops/prompts/{id}",
+                new SaveAiPromptDto(organization, name.Trim(), description, content, revision, isDefault, archived), lifetime.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                if ((int)response.StatusCode >= 500)
+                {
+                    saveUncertain = true;
+                    error = "Save could not be confirmed. Your draft is preserved. Reload the saved revision before making another change.";
+                }
+                else if (response.StatusCode == HttpStatusCode.Conflict)
+                {
+                    revisionConflict = true;
+                    error = "The saved revision or organization default changed. Your draft is preserved. Reload the saved revision before applying another change.";
+                }
+                else error = "The prompt could not be saved. Check your permissions and the field limits. Your draft is preserved.";
+                return;
+            }
+            var saved = await response.Content.ReadFromJsonAsync<AiPromptDto>(lifetime.Token);
+            if (saved is null || saved.Id != id || saved.OrganizationId != organization || saved.Revision <= revision)
+                throw new JsonException("The saved prompt response was incomplete.");
+            prompts = prompts.Where(prompt => prompt.Id != saved.Id).Append(saved).OrderBy(prompt => prompt.Name, StringComparer.OrdinalIgnoreCase).ToList();
+            Show(saved);
+        }
+        catch (JSException)
+        { if (!disposed) error = "The editor could not be read. Your draft is preserved; reconnect before saving."; }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException)
+        {
+            if (!disposed)
+            {
+                saveUncertain = submitted;
+                error = submitted ? "Save could not be confirmed. Your draft is preserved. Reload the saved revision before making another change."
+                    : "The editor could not be read. Your draft is preserved; reconnect before saving.";
+            }
+        }
         finally { busy = false; }
     }
+    private async Task ToggleDefaultAsync()
+    {
+        if (busy || selected is null || selected.Archived) return;
+        if (!selected.IsDefault && DefaultPrompt is { } existing && existing.Id != selected.Id)
+        { error = $"Remove the default setting from “{existing.Name}” before choosing another organization default."; return; }
+        Edit(); isDefault = !selected.IsDefault; await SaveAsync();
+    }
+    private async Task ArchiveAsync()
+    {
+        if (busy || selected is null || !confirmArchive) return;
+        Edit(); archived = true; isDefault = false; await SaveAsync();
+    }
+    private async Task RestoreAsync()
+    {
+        if (busy || selected is null || !selected.Archived) return;
+        Edit(); archived = false; isDefault = false; await SaveAsync();
+    }
+    private async Task GuardAsync(Func<Task> transition)
+    {
+        if (busy || !await CaptureDraftAsync()) return;
+        if (Dirty) { pendingTransition = transition; discardChanges = true; return; }
+        KeepEditing(); await transition();
+    }
+    private async Task<bool> CaptureDraftAsync()
+    {
+        if (!editing || editor is null) return true;
+        busy = true;
+        try { content = await editor.GetValueAsync(); return true; }
+        catch (Exception exception) when (exception is JSException or OperationCanceledException)
+        { error = "The editor could not be read. Your draft is preserved; reconnect before leaving it."; return false; }
+        finally { busy = false; }
+    }
+    private async Task DiscardAsync()
+    {
+        var transition = pendingTransition; KeepEditing();
+        if (transition is not null) await transition();
+    }
+    private void KeepEditing() { pendingTransition = null; discardChanges = false; }
+    private async Task BeforeNavigationAsync(LocationChangingContext context)
+    {
+        if (!editing) return;
+        context.PreventNavigation();
+        if (busy || !await CaptureDraftAsync()) return;
+        if (!Dirty) { editing = false; Navigation.NavigateTo(context.TargetLocation); return; }
+        pendingTransition = () => { editing = false; Navigation.NavigateTo(context.TargetLocation); return Task.CompletedTask; };
+        discardChanges = true; await InvokeAsync(StateHasChanged);
+    }
+    public void Dispose() { disposed = true; lifetime.Cancel(); lifetime.Dispose(); }
 }

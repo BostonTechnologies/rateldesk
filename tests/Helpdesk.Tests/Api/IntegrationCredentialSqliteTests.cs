@@ -34,7 +34,7 @@ using Xunit;
 
 namespace Helpdesk.Tests.Api;
 
-public sealed class IntegrationCredentialSqliteTests
+public sealed partial class IntegrationCredentialSqliteTests
 {
     [Fact]
     public async Task Pairing_http_protocol_secure_profile_save_and_ordinary_revocation_work_together()
@@ -370,7 +370,7 @@ public sealed class IntegrationCredentialSqliteTests
             device.DefaultRequestHeaders.Add("X-Test-Auth-Mode", "anonymous"); return device;
         }
 
-        public static async Task<Harness> CreateAsync()
+        public static async Task<Harness> CreateAsync(TimeProvider? clock = null)
         {
             var connection = new SqliteConnection("Data Source=:memory:");
             await connection.OpenAsync();
@@ -379,7 +379,7 @@ public sealed class IntegrationCredentialSqliteTests
             builder.Services.AddHttpContextAccessor();
             builder.Configuration["IntegrationCredentials:Pairing:PublicOrigin"] = "https://desk.example";
             builder.Services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
-            builder.Services.AddSingleton(TimeProvider.System);
+            builder.Services.AddSingleton(clock ?? TimeProvider.System);
             builder.Services.AddScoped<IntegrationCredentialIssuer>();
             builder.Services.AddScoped<IntegrationCredentialPairingService>();
             builder.Services.AddRateLimiter(options => options.AddFixedWindowLimiter("IntegrationPairing", limiter =>
@@ -398,9 +398,13 @@ public sealed class IntegrationCredentialSqliteTests
             builder.Services.AddScoped<IAuthorizationHandler, IntegrationCredentialOwnerManagementHandler>();
             builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>("Test", _ => { })
                 .AddScheme<IntegrationCredentialAuthenticationOptions, IntegrationCredentialAuthenticationHandler>(
-                    IntegrationCredentialAuthenticationHandler.SchemeName, _ => { });
+                    IntegrationCredentialAuthenticationHandler.SchemeName, _ => { })
+                .AddScheme<IntegrationCredentialAuthenticationOptions, IntegrationCredentialAuthenticationHandler>(
+                    IntegrationCredentialAuthenticationHandler.McpSchemeName, options => options.Purpose = "mcp");
             builder.Services.AddAuthorization(options => options.AddPolicy("PairingReadOnly", policy =>
             { policy.AddAuthenticationSchemes(IntegrationCredentialAuthenticationHandler.SchemeName); policy.RequireAuthenticatedUser(); }));
+            builder.Services.AddAuthorization(options => options.AddPolicy("McpReadOnly", policy =>
+            { policy.AddAuthenticationSchemes(IntegrationCredentialAuthenticationHandler.McpSchemeName); policy.RequireAuthenticatedUser(); }));
             builder.Services.AddAuthorization(options => options.AddPolicy(IntegrationCredentialEndpoints.CredentialManagementPolicy, policy =>
             {
                 policy.RequireAuthenticatedUser();
@@ -421,6 +425,9 @@ public sealed class IntegrationCredentialSqliteTests
             application.MapGet("/api/v1/pairing-read-only-check", (ClaimsPrincipal principal) =>
                 principal.HasClaim("integration_permission", "Incident.Read") && principal.HasClaim("integration_organization_id", "org-a")
                     ? Results.Ok(new { authenticated = true, readOnly = true }) : Results.Forbid()).RequireAuthorization("PairingReadOnly");
+            application.MapGet("/api/v1/mcp-read-only-check", (ClaimsPrincipal principal) =>
+                principal.HasClaim("integration_permission", "Incident.Read") && principal.HasClaim("integration_organization_id", "org-a")
+                    ? Results.Ok() : Results.Forbid()).RequireAuthorization("McpReadOnly");
             await application.StartAsync();
             await using (var scope = application.Services.CreateAsyncScope())
             {
@@ -490,7 +497,7 @@ public sealed class IntegrationCredentialSqliteTests
 
     private sealed class TestAccessService : ICurrentUserAccessService
     {
-        private static readonly CurrentUserAccessProfile Profile = new(
+        public CurrentUserAccessProfile Profile { get; set; } = new(
             true, "owner", "owner@example.test", "org-a", null, null, false,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             new HashSet<string>(["Incident.Read", "Incident.Write"], StringComparer.OrdinalIgnoreCase),

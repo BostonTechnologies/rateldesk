@@ -1,0 +1,24 @@
+.ai-chat-workspace { min-width: 0; }
+.ai-chat-workspace ::deep > .mud-stack { gap: 0 !important; }
+.ai-chat-status { display: flex; justify-content: space-between; gap: .75rem; padding: .85rem 1.1rem; color: var(--mud-palette-text-secondary); font-size: .75rem; }
+.ai-chat-status > span:first-child { font-weight: 600; color: var(--mud-palette-text-primary); }
+.ai-chat-transcript { padding: .25rem 1.1rem 1rem; max-height: 58vh; min-height: 13rem; overflow: auto; overflow-wrap: anywhere; scrollbar-gutter: stable; }
+.ai-chat-empty { color: var(--mud-palette-text-secondary); line-height: 1.65; font-size: .85rem; max-width: 42rem; padding: 1.75rem 0; }
+.ai-chat-workspace ::deep .ai-assistant-turn { margin: .65rem auto 1.5rem; max-width: 62rem; }
+.ai-chat-workspace ::deep .ai-assistant-turn > .mud-paper { margin-left: 6%; border-left: 3px solid var(--mud-palette-primary); background: var(--mud-palette-background); border-radius: 8px; }
+.ai-chat-workspace ::deep .ai-assistant-turn .mud-typography-body1 { font-size: .875rem; line-height: 1.65; }
+.ai-chat-workspace ::deep .ai-assistant-turn .mud-typography-caption { color: var(--mud-palette-text-secondary); }
+.ai-chat-workspace ::deep [data-testid="ai-assistant-response"] { padding-right: 3%; }
+.ai-chat-workspace ::deep > .mud-stack > .mud-alert { margin: .5rem 1.1rem; }
+.ai-chat-workspace ::deep > .mud-stack > .mud-button-root { align-self: flex-start; margin: .35rem 1.1rem .75rem; }
+.ai-chat-workspace ::deep > .mud-stack > .mud-input-control { margin: .35rem 1.1rem; }
+.ai-chat-composer { padding: 1rem 1.1rem; border-top: 1px solid var(--mud-palette-divider); }
+.ai-chat-composer ::deep > .mud-typography-caption { display: block; color: var(--mud-palette-text-secondary); font-size: .7rem; line-height: 1.5; margin-top: .5rem; }
+@media (max-width: 900px) {
+    .ai-chat-transcript { max-height: 60vh; min-height: 11rem; }
+}
+@media (max-width: 480px) {
+    .ai-chat-transcript { padding-left: .75rem; padding-right: .75rem; }
+    .ai-chat-workspace ::deep .ai-assistant-turn > .mud-paper { margin-left: 2%; }
+    .ai-chat-composer { padding: .85rem; }
+}

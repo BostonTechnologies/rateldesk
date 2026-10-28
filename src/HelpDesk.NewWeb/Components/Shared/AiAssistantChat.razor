@@ -13,8 +13,16 @@
 }
 else
 {
+<div class="@(Workspace ? "ai-chat-workspace" : null)">
 <MudStack Spacing="2">
-    <MudText Typo="Typo.h6">AI Assistant · @state · @connectionStatus</MudText>
+    @if (Workspace)
+    {
+        <div class="ai-chat-status"><span>AI assistant</span><span>@connectionStatus</span></div>
+    }
+    else
+    {
+        <MudText Typo="Typo.h6">AI Assistant · @state · @connectionStatus</MudText>
+    }
     @if (InvestigationId is null && history.Count > 0)
     {
         <MudSelect T="Guid" Label="Conversation history" Value="conversation" ValueChanged="SelectConversationAsync" Disabled="busy">
@@ -46,6 +54,11 @@ else
         <MudButton Color="Color.Warning" Disabled="@(busy || !acknowledgeStopWaiting || UnresolvedMessageId is null)" OnClick="StopWaitingAsync">Stop waiting</MudButton>
     }
     @if (error is not null) { <MudAlert Severity="Severity.Warning">@error</MudAlert> }
+    <div class="@(Workspace ? "ai-chat-transcript" : null)" role="@(Workspace ? "log" : null)" aria-label="@(Workspace ? "Saved conversation" : null)">
+    @if (Workspace && events.Count == 0 && conversation != Guid.Empty && state == ChatState.Idle)
+    {
+        <p class="ai-chat-empty">Your ticket context is saved. Ask a question to begin the investigation.</p>
+    }
     @foreach (var turn in AiAssistantChatPresentation.Build(events))
     {
         <section @key="turn.Operator.Sequence" class="ai-assistant-turn" data-testid="ai-assistant-turn">
@@ -64,14 +77,20 @@ else
         </section>
     }
     @if (draft.Length > 0) { <MudText Style="white-space: pre-wrap">@draft</MudText> }
+    </div>
+    <div class="@(Workspace ? "ai-chat-composer" : null)">
     <AiAssistantComposer @bind-Value="message" Send="SendAsync" Disabled="@(busy || state != ChatState.Idle || conversation == Guid.Empty)" />
+    </div>
     @if (InvestigationId is null) { <MudButton OnClick="NewAsync" Size="Size.Small" Style="align-self: flex-start" Disabled="@(busy || state != ChatState.Idle || conversation == Guid.Empty)">Archive and start new conversation</MudButton> }
 </MudStack>
+</div>
 
 }
 
 @code {
     [Parameter] public Guid? InvestigationId { get; set; }
+    [Parameter] public bool Workspace { get; set; }
+    [Parameter] public EventCallback<ChatState> StateChanged { get; set; }
     [Parameter] public string TicketId { get; set; } = string.Empty;
     [Parameter] public string TicketType { get; set; } = "incidents";
     private readonly List<AiAssistantChatEvent> events = [];
@@ -153,6 +172,7 @@ else
             if (snapshot is not null)
             {
                 conversation = snapshot.ConversationId; state = snapshot.State;
+                await StateChanged.InvokeAsync(state);
                 events.AddRange(snapshot.Events); cursor = events.LastOrDefault()?.Sequence ?? 0;
                 history.Clear();
                 await LoadOlderHistoryAsync();
@@ -202,7 +222,7 @@ else
                     else if (line.Length == 0)
                     {
                         var frameKind = kind; var frameData = data;
-                        await InvokeAsync(() =>
+                        await InvokeAsync(async () =>
                         {
                             if (frameKind == "chat" && JsonSerializer.Deserialize<AiAssistantChatEvent>(frameData) is { } item)
                             {
@@ -214,6 +234,7 @@ else
                             else if (frameKind == "state")
                             {
                                 state = JsonSerializer.Deserialize<ChatState>(frameData);
+                                await StateChanged.InvokeAsync(state);
                                 if (state is ChatState.Idle or ChatState.Archived) draft = "";
                             }
                             connectionStatus = "Connected"; StateHasChanged();

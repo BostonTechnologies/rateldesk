@@ -218,7 +218,49 @@ post-restart ticket journey still require an authorized NetClaw environment.
 The **Test connection** action checks a connected profile; repository tests do
 not substitute for live external acceptance.
 
-### Rotate or revoke the chat device
+## Work with AI investigations and prompts
+
+Open **Operations → AI investigations** (`/ai/ops`) to work in the investigation
+workspace. The organization selector, **Refresh** and **New investigation**
+actions sit above recent-status counts. Search and filter the history in the
+left column, then select an investigation to open its conversation on the
+right. Expand **Saved guidance and ticket context** to inspect its original
+snapshot; use the conversation's approval and recovery controls when a turn
+needs a decision or its outcome is unconfirmed.
+
+To start an investigation, choose **New investigation**, select an
+organization, give it a title, and select up to twelve authorized tickets.
+The organization's default prompt is included automatically; select up to
+eight optional prompts and preview the selected guidance. **Save investigation
+context** stores the ticket and guidance snapshot and opens the conversation.
+Saving context does not send a message to NetClaw. Enter and send the first
+question separately. An idle investigation can be archived; its saved history
+remains available through the history filters.
+
+Administrators manage reusable guidance under **Operations → Prompts**
+(`/ai/prompts`). Choose an organization, search by name or description, and
+select a prompt in the left column. Its text and revision appear in the right
+pane. Use **New**, **Copy** or **Edit** to write guidance in Monaco, with
+Markdown/plain-text modes, light/dark/high-contrast themes, word wrap and
+**Fullscreen**. Escape exits fullscreen. The name, description and guidance
+limits are 120, 500 and 12,000 characters respectively.
+
+**Save revision** records the edited prompt. **Set as default** includes it in
+every new investigation for that organization; remove the current default
+before choosing another. **Archive** excludes the prompt from new selections
+and removes its default setting after confirmation. Turn on **Archived** to
+find old prompts and **Restore** one without automatically making it the
+default. Existing investigations retain the prompt revisions saved in their
+original snapshots.
+
+When a draft has unsaved changes, changing prompts or organizations, refreshing
+the saved state, or leaving the page offers **Keep editing** and **Discard
+changes**. A revision conflict or unconfirmed save keeps the draft visible.
+Use **Reload saved revision** and explicitly discard the draft to inspect what
+was saved before applying another change. Guidance text does not grant ticket
+permissions, credential access or approval authority.
+
+## Rotate or revoke the chat device
 
 Rotate the paired device token using the current NetClaw device-management
 flow. For a DB-managed profile, use **Edit / Re-pair** or the advanced manual
@@ -262,8 +304,9 @@ metadata route; gateway mode does not fabricate OAuth metadata.
 ### Create the RatelDesk credential
 
 Sign in as the account that should own the NetClaw integration, complete any
-configured MFA, and open **Account → Integration credentials**
-(`/account/integration-credentials`).
+configured MFA, and open **Integration → API & MCP credentials**
+(`/admin/integration?tab=credentials`). The existing
+`/account/integration-credentials` route opens the same management surface.
 
 1. Create a credential named for this NetClaw tenant and purpose.
 2. Select **HTTP MCP** as the purpose.
@@ -291,6 +334,41 @@ credential is the intersection of the owner's current RatelDesk authorization,
 the credential's selected permissions, and its organization scope. Disabling
 the owner, removing access, expiring, or revoking the credential takes effect
 on later requests.
+
+### Maintain an existing NetClaw credential
+
+Keep the installed NetClaw connection and saved secret when its same-organization
+permissions need to change. Sign in as the credential owner, find that credential
+under **Integration → API & MCP credentials**, then open **Details → Configured
+access → Edit access**. For example, an incident reader can add `Incident.Write`
+when the owner already has that permission for the credential's organization.
+The existing `Incident.Read` selection remains in the draft unless explicitly
+removed.
+
+Choose **Review changes**, check the additions, removals and complete resulting
+grants, explicitly confirm, then choose **Apply access changes**. The credential
+ID, secret, organization, purpose, canonical resource and exact UTC expiry are
+retained. No NetClaw re-registration, new pairing code or replacement secret is
+needed for this grant edit. Concurrent changes or an expired five-minute review
+require a new review; a failed save leaves the draft available for correction.
+
+Check the refreshed counts and **Current admission** in Details. An existing
+MCP policy can still block the new permission: the credential owner needs its
+current durable role, and any policy must admit the permission for the intended
+organization while remaining active and unexpired. An independent Helpdesk
+administrator can review the exact policy under **Administration → MCP
+Policies**. No policy is created automatically; absence of a policy leaves the
+existing account/credential authorization model in effect. Refresh admission
+after a role/policy change and verify a permitted read through the saved NetClaw
+entry. NetClaw's own tool grants and approval settings continue to apply.
+
+For another organization, create a separate ordinary credential and NetClaw MCP
+entry. The editor keeps the original organization fixed. Instance-wide
+[owner administration](../mcp-http/configuration.md#approve-an-agent-to-administer-the-instance)
+is a separate explicitly approved grant kind, and temporary verification is
+status-only. The [credential editing guide](../mcp-http/setup.md#edit-an-existing-credentials-access)
+describes the complete browser workflow and policy states; RatelDesk does not
+implement NetRatel's MCP request/approve/resume protocol.
 
 ### Register the server in NetClaw
 
@@ -358,6 +436,7 @@ or NetClaw deployment into another organization.
 | HTTP MCP returns `401` | Treat this as a credential, expiry, owner, purpose, resource-URI, permission, or organization-scope problem. Compare the exact configured and credential-bound public `/mcp` URI, then rotate or recreate the credential if necessary. |
 | Proxy rejects or cannot reach `/mcp` | Check DNS, TLS, proxy route, forwarded `Authorization` and MCP headers, streaming behavior, and the MCP host health. This is distinct from a RatelDesk authorization failure. |
 | NetClaw lists the server but no tools run | Restart or reload the daemon as appropriate, confirm `netclaw mcp list` reports discovery, then review explicit grants and approval policy with `netclaw mcp permissions`. |
+| A saved credential permission is still denied | Open **Details → Current admission**. Check the owner's current organization role and any additional MCP policy ceiling, then refresh admission. Use **Edit access** for credential grants and the independent administrator policy workflow for a policy change. |
 
 Review every paired device and integration credential when an employee changes
 role or leaves, a tenant is removed, or a test deployment is retired. Rotate

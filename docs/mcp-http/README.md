@@ -5,6 +5,9 @@ share the Web public origin or use an explicitly configured standalone origin.
 
 - [Set up HTTP MCP](setup.md): start with the Web URL for local-account gateway
   hosting, verification and optional individual client approval.
+- [Edit an existing credential's access](setup.md#edit-an-existing-credentials-access):
+  maintain same-organization permissions in the browser, retain the installed
+  secret and exact expiry, and check current owner/policy admission.
 - [Configuration and authentication](configuration.md): complete host/outbound
   settings, explicit external Authentik/OAuth, secret sources and precedence.
 - [Execution identity and authority](configuration.md#discover-the-active-execution-identity):
