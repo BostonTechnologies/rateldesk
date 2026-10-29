@@ -151,11 +151,16 @@ http.createServer(async (req, res) => {
  }
  if (path.startsWith('/api/v1/admin/mcp-policies')) {
   if (!admin) return reply({}, 403);
+   if (path.endsWith('/directory')) return reply({
+    credentials: [{ id: identifier(1), name: 'Separate synthetic operator', owner: 'other-owner', ownerName: 'Other operator', organizationId: 'org-a', organizationName: 'Synthetic Alpha', expiresAtUtc: '2030-01-01T00:00:00Z', resource: 'https://workspace.example.test/mcp', grantKind: 'ordinary', permissions: ['Incident.Read'], isActive: true, policyRevision: policies.find(row => row.credentialId === identifier(1))?.revision ?? null }],
+    organizations: organizations.map(row => ({ id: row.id, name: row.name })),
+    operations: [{ key: 'helpdesk_incidents.get', family: 'Incidents', name: 'Get', effect: 'read' }, { key: 'helpdesk_requests.get', family: 'Requests', name: 'Get', effect: 'read' }, { key: 'helpdesk_request_tasks.get', family: 'Request tasks', name: 'Get', effect: 'read' }]
+   });
   if (path.endsWith('/credentials')) return reply([{ id: identifier(1), name: 'Separate synthetic operator', owner: 'other-owner', organizationId: 'org-a', expiresAtUtc: '2030-01-01T00:00:00Z' }]);
   if (req.method === 'GET') return reply(path.endsWith('/audit') ? [] : policies);
   const payload = await body(); calls.push({ path, method: req.method, payload });
   if (path.endsWith('/preview')) { policyPreview = payload; return reply({ confirmation: 'synthetic-confirmation', policy: payload, effect: 'Narrow the separate operator credential' }); }
-  if (path.endsWith('/confirm')) { const policy = { ...policyPreview, revision: policyPreview.expectedRevision + 1 }; policies = [policy]; return reply(policy); }
+   if (path.endsWith('/confirm')) { const policy = { ...policyPreview, credentialName: 'Separate synthetic operator', ownerName: 'Other operator', organizationName: 'Synthetic Alpha', resource: 'https://workspace.example.test/mcp', revision: policyPreview.expectedRevision + 1 }; policies = [policy]; return reply(policy); }
  }
 
  if (path.startsWith(systemRoot)) {
