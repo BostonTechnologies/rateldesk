@@ -111,6 +111,9 @@ test('multi-dimension controls, time validation, sorting and page size use serve
  await page.getByLabel('State',{exact:true}).click();await page.getByRole('option',{name:'New',exact:true}).click();await page.keyboard.press('Escape');
  await page.getByLabel('Unassigned',{exact:true}).check();
  await page.getByLabel('Assignee',{exact:true}).fill('technician');await page.getByRole('option',{name:'Synthetic technician',exact:true}).click();
+ // Wait for the URL-driven filter state to hydrate before editing its time draft.
+ await expect(page).toHaveURL(url=>url.searchParams.get('assigneeId')==='staff');
+ await expect(page.getByRole('button',{name:'Remove Assignee: Synthetic technician',exact:true})).toBeVisible();
  await page.getByLabel('From (inclusive)').fill('2026-10-16');await page.getByLabel('To (exclusive)').fill('2026-10-14');
  await page.getByRole('button',{name:'Apply time range'}).click();await expect(page.getByText('From must be earlier than To.')).toBeVisible();
  await page.getByLabel('From (inclusive)').fill('2026-10-15');await page.getByLabel('To (exclusive)').fill('2026-10-15');

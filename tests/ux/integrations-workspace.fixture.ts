@@ -85,6 +85,7 @@ test('exact filtered ordinary grants, organization changes and transient consent
  await selector.getByRole('searchbox').fill('Incident.Read');
  await selector.getByRole('button', { name: 'Select 1 displayed eligible permissions', exact: true }).click();
  await selector.getByRole('searchbox').fill('Request');
+ await selector.locator('.permission-selected > summary').click();
  await expect(selector.getByText('Selected (including search-hidden): Incident.Read', { exact: true })).toBeVisible();
  await selector.getByRole('button', { name: 'Select displayed Request', exact: true }).click();
  await selector.getByRole('button', { name: 'Clear Request', exact: true }).click();
@@ -382,9 +383,17 @@ async function monacoEditor(page: Page) {
 }
 async function typeGuidance(page: Page, text: string) {
  const surface = await monacoEditor(page);
+ await expect.poll(() => page.evaluate(() =>
+  [...((globalThis as any).monaco?.editor?.getEditors() ?? [])]
+   .some(editor => !editor.getRawOptions().readOnly)), { timeout: 20_000 }).toBe(true);
  await surface.getByRole('textbox', { name: 'Prompt guidance', exact: true }).focus();
  await page.keyboard.press('ControlOrMeta+A');
- await page.keyboard.insertText(text);
+ // Monaco's native EditContext needs real key events rather than text insertion.
+ await page.keyboard.type(text.replace(/\r\n/g, '\n'), { delay: 2 });
+ await expect.poll(() => page.evaluate(expected =>
+  (globalThis as any).monaco?.editor?.getModels().some(model => model.getValue() === expected) === true,
+  text), { timeout: 20_000 }).toBe(true);
+ await expect(page.locator('.prompt-footer')).toContainText(`${text.length} /`);
  await expect(page.getByTestId('prompt-save')).toBeEnabled();
  return surface;
 }
@@ -517,7 +526,8 @@ test('Monaco prompt editing preserves a rejected draft and saves the next revisi
  await page.getByTestId('prompt-item').filter({ hasText: 'Mail delivery diagnostics' }).click();
  await page.getByTestId('prompt-edit').click();
  await page.getByTestId('prompt-name').fill('Mail delivery review');
- const guidance = '# Delivery review\n\nRead ticket evidence and propose the smallest next check.';
+ const guidance = '# Delivery review\n\nRead ticket evidence and propose the smallest next check.'
+  .replace(/\n/g, process.platform === 'win32' ? '\r\n' : '\n');
  await typeGuidance(page, guidance);
  await request.get(`${fixture}/fault?mode=prompt-save`);
  await page.getByTestId('prompt-save').click();
