@@ -281,9 +281,12 @@ Add a nested **Deny** exception for selected operations within that base.
 Setting the base itself to **Deny** stops all access in its scope; use a nested
 exception when only particular operations should be blocked. The exception can
 narrow access; it cannot grant access beyond its parent or override a deny with
-a higher priority. Multiple MCP operation names can use the same API route; denying that
-route also blocks the other aliases so an alternate tool name cannot bypass
-the exception.
+a higher priority. Multiple MCP operation names can perform the same API action;
+denying that action also blocks its aliases so an alternate tool name cannot
+bypass the exception. Actions that share a route but have different effects are
+checked separately: reading an existing AI conversation requires a valid
+`conversationId`, while opening one without that identifier is a mutating action
+and is excluded by the Read only preset.
 
 **Disable**, **Revoke** and **Delete** require review of the exact policy
 revision. **Delete** removes the policy from normal inventory and future
