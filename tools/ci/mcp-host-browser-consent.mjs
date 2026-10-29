@@ -65,8 +65,12 @@ try {
     // labels require the same explicit exact-generation host consent.
     await dialog.getByRole('checkbox', { name: /^(?:I approve this exact baseline or configuration proposal and its source generation\.|I authorize these exact deployment settings and source generation\.)$/ }).check();
   } else {
+    if (request.kind !== 'verifier') {
+      const scope = dialog.getByRole('combobox', { name: 'Access scope', exact: true });
+      if (await scope.count()) await scope.selectOption('ordinary');
+    }
     stage = 'organization selection';
-    await dialog.getByLabel('Organization', { exact: true }).selectOption(request.organizationId);
+    await dialog.getByRole('combobox', { name: 'Organization', exact: true }).selectOption(request.organizationId);
     if (request.kind === 'verifier') {
       stage = 'temporary verifier identity';
       await expect(dialog).toContainText('Temporary verification client');
@@ -79,7 +83,10 @@ try {
       stage = 'temporary verifier consent';
       await dialog.getByRole('checkbox', { name: 'I approve only this temporary status verification.', exact: true }).check();
     } else {
-      for (const permission of request.permissions) await dialog.getByRole('checkbox', { name: permission, exact: true }).check();
+      for (const permission of request.permissions) {
+        const choice = dialog.getByTestId('credential-permission-selector').locator('label.permission-choice').filter({ has: page.getByText(permission, { exact: true }) });
+        await choice.getByRole('checkbox').check();
+      }
       await expect(dialog.getByTestId('credential-permission-selector').getByRole('checkbox', { checked: true })).toHaveCount(request.permissions.length);
       await dialog.getByLabel('Credential lifetime (days)', { exact: true }).fill('1');
       await dialog.getByRole('checkbox', { name: 'I approve this client connection with the permissions selected above.', exact: true }).check();

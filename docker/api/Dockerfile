@@ -27,6 +27,8 @@ COPY src/Helpdesk.Infrastructure/*.csproj  src/Helpdesk.Infrastructure/
 COPY src/Helpdesk.Infrastructure.SqliteMigrations/*.csproj src/Helpdesk.Infrastructure.SqliteMigrations/
 COPY src/Helpdesk.Shared/*.csproj          src/Helpdesk.Shared/
 COPY src/Helpdesk.ServiceDefaults/*.csproj src/Helpdesk.ServiceDefaults/
+COPY src/Helpdesk.AgentClient/*.csproj     src/Helpdesk.AgentClient/
+COPY src/Helpdesk.Mcp.Core/*.csproj        src/Helpdesk.Mcp.Core/
 
 RUN dotnet restore src/Helpdesk.API/Helpdesk.API.csproj
 
@@ -37,6 +39,11 @@ COPY src/Helpdesk.Infrastructure/  src/Helpdesk.Infrastructure/
 COPY src/Helpdesk.Infrastructure.SqliteMigrations/ src/Helpdesk.Infrastructure.SqliteMigrations/
 COPY src/Helpdesk.Shared/          src/Helpdesk.Shared/
 COPY src/Helpdesk.ServiceDefaults/ src/Helpdesk.ServiceDefaults/
+COPY src/Helpdesk.AgentClient/     src/Helpdesk.AgentClient/
+COPY src/Helpdesk.Mcp.Core/        src/Helpdesk.Mcp.Core/
+# AgentClient links the same host validation sources as the other distributions.
+COPY src/Helpdesk.Mcp.Http/Configuration/AuthentikMcpOptions.cs src/Helpdesk.Mcp.Http/Configuration/
+COPY src/HelpDesk.NewWeb/Services/WebGatewayOptions.cs src/HelpDesk.NewWeb/Services/WebGatewayConfiguration.cs src/HelpDesk.NewWeb/Services/WebGatewayPaths.cs src/HelpDesk.NewWeb/Services/
 
 # Publish (no-restore to use cached restore layer)
 RUN mkdir /out \

@@ -85,6 +85,7 @@ test('exact filtered ordinary grants, organization changes and transient consent
  await selector.getByRole('searchbox').fill('Incident.Read');
  await selector.getByRole('button', { name: 'Select 1 displayed eligible permissions', exact: true }).click();
  await selector.getByRole('searchbox').fill('Request');
+ await selector.locator('.permission-selected > summary').click();
  await expect(selector.getByText('Selected (including search-hidden): Incident.Read', { exact: true })).toBeVisible();
  await selector.getByRole('button', { name: 'Select displayed Request', exact: true }).click();
  await selector.getByRole('button', { name: 'Clear Request', exact: true }).click();
@@ -93,7 +94,7 @@ test('exact filtered ordinary grants, organization changes and transient consent
  await dialog.getByLabel('Organization', { exact: true }).selectOption('org-b');
  await expect(consent).not.toBeChecked();
  await expect(dialog.locator('input[name="permissions"]')).toHaveCount(0);
- await dialog.getByRole('checkbox', { name: 'Incident.Read', exact: true }).check();
+ await dialog.getByRole('checkbox', { name: /Incident\.Read$/ }).check();
  await consent.check();
  await request.get(`${fixture}/fault?mode=consent`);
  await dialog.getByRole('button', { name: 'Approve connection', exact: true }).click();
@@ -158,20 +159,27 @@ test('manual credential organization selection ignores the native status filter 
  await open(page);
  await expect(page.getByRole('combobox', { name: 'Status', exact: true }).getByRole('option', { name: 'All (25)', exact: true })).toHaveCount(1);
  await page.getByTestId('integration-credential-create').click();
- await page.getByLabel('Name', { exact: true }).fill('Synthetic manual credential');
- await page.getByRole('button', { name: 'Choose access', exact: true }).click();
- const organization = page.getByRole('combobox', { name: 'Organization', exact: true });
- await organization.click();
- await page.getByRole('listbox').getByRole('option', { name: 'Synthetic Beta', exact: true }).click();
- await expect(organization).toHaveText('Synthetic Beta');
+ const integration = page.getByRole('dialog', { name: 'Create integration', exact: true });
+ await integration.getByRole('combobox', { name: 'Connection type', exact: true }).selectOption('api');
+ await integration.getByLabel('Integration name', { exact: true }).fill('Synthetic manual credential');
+ await integration.getByRole('button', { name: 'Next', exact: true }).click();
+ await expect(integration.getByRole('heading', { name: 'Server access', exact: true })).toBeVisible();
+ await integration.getByRole('button', { name: 'Next', exact: true }).click();
+ const organization = integration.getByRole('combobox', { name: 'Organization', exact: true });
+ await organization.selectOption({ label: 'Synthetic Beta' });
+ await expect(organization.locator('option:checked')).toHaveText('Synthetic Beta');
  const permissions = page.getByTestId('credential-permission-selector');
  await expect(permissions.getByRole('checkbox', { checked: true })).toHaveCount(0);
- await permissions.getByRole('checkbox', { name: 'Incident.User', exact: true }).check();
+ await permissions.getByRole('checkbox', { name: /Incident\.User$/ }).check();
  await expect(permissions.getByRole('checkbox', { checked: true })).toHaveCount(1);
- await page.getByRole('button', { name: 'Review credential', exact: true }).click();
- await expect(page.getByText('Organization: Synthetic Beta', { exact: true })).toBeVisible();
- await expect(page.getByText('Permissions: Incident User', { exact: true })).toBeVisible();
- await expect(page.getByRole('button', { name: 'Create and reveal', exact: true })).toBeEnabled();
+ await integration.getByRole('button', { name: 'Next', exact: true }).click();
+ await expect(integration.getByRole('heading', { name: 'Synthetic Beta', exact: true })).toBeVisible();
+ await expect(integration.getByText('No server access', { exact: true })).toBeVisible();
+ await integration.getByText('Selected permissions', { exact: true }).click();
+ await expect(integration.locator('.setup-permission-list li')).toHaveText(['Use incidents']);
+ await expect(integration.getByRole('button', { name: 'Create integration', exact: true })).toBeDisabled();
+ await integration.getByRole('checkbox', { name: 'I have reviewed this connection and its access, and approve creating the integration.', exact: true }).check();
+ await expect(integration.getByRole('button', { name: 'Create integration', exact: true })).toBeEnabled();
 });
 
 test('ordinary account cannot see host approval entry', async ({ page, request }) => {
@@ -375,9 +383,17 @@ async function monacoEditor(page: Page) {
 }
 async function typeGuidance(page: Page, text: string) {
  const surface = await monacoEditor(page);
+ await expect.poll(() => page.evaluate(() =>
+  [...((globalThis as any).monaco?.editor?.getEditors() ?? [])]
+   .some(editor => !editor.getRawOptions().readOnly)), { timeout: 20_000 }).toBe(true);
  await surface.getByRole('textbox', { name: 'Prompt guidance', exact: true }).focus();
  await page.keyboard.press('ControlOrMeta+A');
- await page.keyboard.insertText(text);
+ // Monaco's native EditContext needs real key events rather than text insertion.
+ await page.keyboard.type(text.replace(/\r\n/g, '\n'), { delay: 2 });
+ await expect.poll(() => page.evaluate(expected =>
+  (globalThis as any).monaco?.editor?.getModels().some(model => model.getValue() === expected) === true,
+  text), { timeout: 20_000 }).toBe(true);
+ await expect(page.locator('.prompt-footer')).toContainText(`${text.length} /`);
  await expect(page.getByTestId('prompt-save')).toBeEnabled();
  return surface;
 }
@@ -404,9 +420,9 @@ for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
   await dialog.getByTestId('credential-edit-access').click();
   const selector = dialog.getByTestId('credential-permission-selector');
   await selector.getByRole('searchbox').fill('Incident.Read');
-  await expect(selector.getByRole('checkbox', { name: 'Incident.Read', exact: true })).toBeChecked();
+  await expect(selector.getByRole('checkbox', { name: /Incident\.Read$/ })).toBeChecked();
   await selector.getByRole('searchbox').fill('Request.Read');
-  await selector.getByRole('checkbox', { name: 'Request.Read', exact: true }).check();
+  await selector.getByRole('checkbox', { name: /Request\.Read$/ }).check();
   await dialog.getByRole('button', { name: 'Review changes', exact: true }).click();
   await expect(dialog.getByTestId('credential-access-review')).toContainText('Request.Read');
   await expect(dialog.getByRole('button', { name: 'Apply access changes', exact: true })).toBeDisabled();
@@ -471,7 +487,7 @@ test('credential access review, failed apply and refreshed retry retain exact id
  await dialog.getByTestId('credential-edit-access').click();
  const selector = dialog.getByTestId('credential-permission-selector');
  await selector.getByRole('searchbox').fill('Request.Read');
- await selector.getByRole('checkbox', { name: 'Request.Read', exact: true }).check();
+ await selector.getByRole('checkbox', { name: /Request\.Read$/ }).check();
  await dialog.getByRole('button', { name: 'Review changes', exact: true }).click();
  await expect(dialog.getByTestId('credential-access-review')).toContainText('Add (1)');
  await expect(dialog.getByTestId('credential-access-review')).toContainText('Remove (0)');
@@ -482,7 +498,7 @@ test('credential access review, failed apply and refreshed retry retain exact id
  await request.get(`${fixture}/fault?mode=credential-apply`);
  await dialog.getByRole('button', { name: 'Apply access changes', exact: true }).click();
  await expect(dialog.getByRole('alert')).toContainText('your draft is preserved');
- await expect(selector.getByRole('checkbox', { name: 'Request.Read', exact: true })).toBeChecked();
+ await expect(selector.getByRole('checkbox', { name: /Request\.Read$/ })).toBeChecked();
  await dialog.getByRole('button', { name: 'Refresh current access', exact: true }).click();
  await expect(dialog.getByRole('button', { name: 'Review changes', exact: true })).toBeEnabled();
  await dialog.getByRole('button', { name: 'Review changes', exact: true }).click();
@@ -510,7 +526,8 @@ test('Monaco prompt editing preserves a rejected draft and saves the next revisi
  await page.getByTestId('prompt-item').filter({ hasText: 'Mail delivery diagnostics' }).click();
  await page.getByTestId('prompt-edit').click();
  await page.getByTestId('prompt-name').fill('Mail delivery review');
- const guidance = '# Delivery review\n\nRead ticket evidence and propose the smallest next check.';
+ const guidance = '# Delivery review\n\nRead ticket evidence and propose the smallest next check.'
+  .replace(/\n/g, process.platform === 'win32' ? '\r\n' : '\n');
  await typeGuidance(page, guidance);
  await request.get(`${fixture}/fault?mode=prompt-save`);
  await page.getByTestId('prompt-save').click();
@@ -575,25 +592,29 @@ test('AI prompts and multi-ticket investigation save preserve selected context w
 test('MCP policy preview keeps the reviewed fields locked until explicit confirmation', async ({ page, request }) => {
  await page.goto('/admin/operator-policies');
  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
- await page.getByLabel('Separate operator credential', { exact: true }).click();
- await page.getByRole('option', { name: /Separate synthetic operator/ }).click();
- await page.getByLabel('Organization', { exact: true }).click();
- await page.getByRole('option', { name: 'Synthetic Alpha', exact: true }).click();
- await page.getByLabel('Permission ceiling', { exact: true }).click();
- await page.getByRole('option', { name: 'Incident.Read', exact: true }).click();
- await page.keyboard.press('Escape');
- await page.getByRole('button', { name: 'Preview exact policy', exact: true }).click();
- await expect(page.getByText('Narrow the separate operator credential')).toBeVisible();
- await expect(page.getByRole('combobox', { name: 'Organization', exact: true })).toBeDisabled();
+ await page.getByRole('button', { name: 'New policy', exact: true }).click();
+ const editor = page.getByRole('dialog', { name: 'New MCP policy', exact: true });
+ await editor.getByRole('combobox', { name: 'Integration credential', exact: true }).selectOption({ label: 'Separate synthetic operator · Other operator' });
+ await expect(editor).toContainText('Synthetic Alpha');
+ await page.getByRole('button', { name: 'Review changes', exact: true }).click();
+ const review = page.getByRole('dialog', { name: 'Review MCP policy', exact: true });
+ await expect(review).toContainText('Narrow the separate operator credential');
+ await expect(review.getByRole('combobox')).toHaveCount(0);
+ await expect(review.getByRole('textbox')).toHaveCount(0);
  let state = await (await request.get(`${fixture}/state`)).json();
  expect(state.calls.filter((call: any) => call.path.endsWith('/confirm'))).toHaveLength(0);
- await page.getByRole('button', { name: 'Confirm this policy', exact: true }).click();
- await expect(page.getByText(/Separate synthetic operator.*revision 1/)).toBeVisible();
+ await expect(review.getByRole('button', { name: 'Confirm changes', exact: true })).toBeDisabled();
+ await review.getByRole('checkbox', { name: 'I have reviewed the exact policy changes and approve applying them.', exact: true }).check();
+ await review.getByRole('button', { name: 'Confirm changes', exact: true }).click();
+ const saved = page.getByRole('row').filter({ hasText: 'Separate synthetic operator' });
+ await expect(saved).toContainText('Revision 1');
  state = await (await request.get(`${fixture}/state`)).json();
  expect(state.calls.find((call: any) => call.path.endsWith('/preview')).payload.permissions).toEqual(['Incident.Read']);
+ expect(state.calls.find((call: any) => call.path.endsWith('/preview')).payload.scopes[0].organizationId).toBe('org-a');
  expect(state.calls.find((call: any) => call.path.endsWith('/confirm')).payload.confirmation).toBe('synthetic-confirmation');
- await page.getByRole('button', { name: 'Preview exact policy', exact: true }).click();
- await expect(page.getByRole('button', { name: 'Confirm this policy', exact: true })).toBeVisible();
+ await saved.getByRole('button', { name: 'Edit', exact: true }).click();
+ await page.getByRole('button', { name: 'Review changes', exact: true }).click();
+ await expect(page.getByRole('button', { name: 'Confirm changes', exact: true })).toBeVisible();
  const nextPreview = (await (await request.get(`${fixture}/state`)).json()).calls.filter((call: any) => call.path.endsWith('/preview')).at(-1);
  expect(nextPreview.payload.expectedRevision).toBe(1);
  await expect(page.locator('#blazor-error-ui')).not.toBeVisible();

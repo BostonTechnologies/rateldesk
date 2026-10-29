@@ -778,6 +778,8 @@ h1[tabindex="-1"]:focus
 
 .helpdesk-login-actions
 {
+    min-width: 0;
+    width: 100%;
     gap: 14px;
 }
 
@@ -790,7 +792,8 @@ h1[tabindex="-1"]:focus
 
 .helpdesk-login-copy
 {
-    max-width: 31ch;
+    max-width: min(100%, 31ch);
+    overflow-wrap: anywhere;
     margin-inline: auto;
 }
 

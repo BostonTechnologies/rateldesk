@@ -24,6 +24,16 @@ and [beta.5 notes](../release-notes/0.1.2-beta.5.md).
 
 ## First use and Docker
 
+Older PostgreSQL installations can retain `Sto`-prefixed automation binding
+columns even when the original migration is recorded as applied. The forward
+compatibility migration renames those four columns to their current
+`Orchestration` names without replacing rows or migration history. Current
+schemas remain unchanged. If both names exist for the same field, startup
+stops with an explicit duplicate-column diagnostic; preserve the backup and
+reconcile the conflicting schema before continuing. Do not discard either
+column or replay a failed customer submission until its persisted effects
+have been checked independently.
+
 Use [docker/docker-compose.yml](../../docker/docker-compose.yml) as the default starting point. It starts only Web and API in Production mode and persists four distinct concerns: bootstrap state, data-protection keys, SQLite data, and attachments. Run repository-relative Compose commands from a checked-out repository's root directory. After the first API start, open `http://localhost:8111/`, or your public application URL. Fresh root and login visits automatically open `/setup`.
 
 Retrieve the operator-only setup code using the running API's configuration:
