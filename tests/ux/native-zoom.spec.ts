@@ -78,6 +78,8 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
           await tabs.nth(index).press('Enter');
           await expect(tabs.nth(index)).toHaveAttribute('aria-selected', 'true');
         }
+        if (suite === 'integrations')
+          await expect(page.getByText('Netclaw settings could not be loaded.', { exact: true })).not.toBeVisible();
         if (suite === 'integrations' && route.includes('tab=connections')) {
           await page.getByRole('tab', { name: 'System connections', exact: true }).click();
           const panel = page.getByTestId('system-connections-panel');

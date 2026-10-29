@@ -1,7 +1,7 @@
 {
-  "schemaHash": "b66e9eca38b35b255b4f98e92db50a2f08eda7675ca72a88c2aec5e64c51e16c",
-  "catalogRevision": "2026-10-25.beta11-contracts-v25",
-  "catalogHash": "8a73e9abd9a2804afe8bb12de063617e94cd25dae7ce16acf15d31082e234972",
+  "schemaHash": "9d417c46c52d4b337de2d2cdb98d63af7f20ce205cfca32dc127607bd3865797",
+  "catalogRevision": "2026-10-29.beta14-contracts-v26",
+  "catalogHash": "11d48510f8d8ff4e78d9b56ac5957c745f449e87324ef3689c46b13dcdfedd63",
   "operationCount": 390,
   "operations": [
     {
@@ -1246,12 +1246,19 @@
               "OnHold",
               "Resolved",
               0,
+              "0",
               1,
+              "1",
               2,
+              "2",
               3,
+              "3",
               4,
+              "4",
               5,
+              "5",
               6,
+              "6",
               null
             ]
           },
@@ -1421,12 +1428,19 @@
               "OnHold",
               "Resolved",
               0,
+              "0",
               1,
+              "1",
               2,
+              "2",
               3,
+              "3",
               4,
+              "4",
               5,
-              6
+              "5",
+              6,
+              "6"
             ]
           },
           "comment": {
@@ -1494,12 +1508,19 @@
               "OnHold",
               "Resolved",
               0,
+              "0",
               1,
+              "1",
               2,
+              "2",
               3,
+              "3",
               4,
+              "4",
               5,
-              6
+              "5",
+              6,
+              "6"
             ]
           },
           "comment": {
@@ -2384,12 +2405,19 @@
               "OnHold",
               "Resolved",
               0,
+              "0",
               1,
+              "1",
               2,
+              "2",
               3,
+              "3",
               4,
+              "4",
               5,
+              "5",
               6,
+              "6",
               null
             ]
           },
@@ -2544,12 +2572,19 @@
               "OnHold",
               "Resolved",
               0,
+              "0",
               1,
+              "1",
               2,
+              "2",
               3,
+              "3",
               4,
+              "4",
               5,
-              6
+              "5",
+              6,
+              "6"
             ]
           },
           "comment": {
@@ -3514,12 +3549,19 @@
               "OnHold",
               "Resolved",
               0,
+              "0",
               1,
+              "1",
               2,
+              "2",
               3,
+              "3",
               4,
+              "4",
               5,
+              "5",
               6,
+              "6",
               null
             ]
           },
@@ -3533,12 +3575,19 @@
               "ImplementedSuccess",
               "ImplementedBackedOut",
               0,
+              "0",
               1,
+              "1",
               2,
+              "2",
               3,
+              "3",
               4,
+              "4",
               5,
+              "5",
               6,
+              "6",
               null
             ]
           },
@@ -3633,31 +3682,27 @@
                 ]
               },
               "scopeOfChange": {
-                "type": "string",
-                "minLength": 1
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "affectedSystems": {
                 "type": "array",
-                "minItems": 1,
                 "items": {
-                  "type": "string",
-                  "minLength": 1
+                  "type": "string"
                 }
               },
               "implementationSteps": {
                 "type": "array",
-                "minItems": 1,
                 "items": {
-                  "type": "string",
-                  "minLength": 1
+                  "type": "string"
                 }
               },
               "validationSteps": {
                 "type": "array",
-                "minItems": 1,
                 "items": {
-                  "type": "string",
-                  "minLength": 1
+                  "type": "string"
                 }
               },
               "rollbackReference": {
@@ -3698,10 +3743,8 @@
               },
               "preChangeChecks": {
                 "type": "array",
-                "minItems": 0,
                 "items": {
-                  "type": "string",
-                  "minLength": 1
+                  "type": "string"
                 }
               },
               "testingPlan": {
@@ -3753,168 +3796,13 @@
                 ]
               }
             },
-            "required": [
-              "scopeOfChange",
-              "affectedSystems",
-              "implementationSteps",
-              "validationSteps"
-            ],
-            "anyOf": [
-              {
-                "required": [
-                  "rollbackPlan"
-                ],
-                "properties": {
-                  "rollbackPlan": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                }
-              },
-              {
-                "required": [
-                  "rollbackReference"
-                ],
-                "properties": {
-                  "rollbackReference": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                }
-              }
-            ]
+            "required": []
           }
         },
         "required": [
           "changeId"
         ],
-        "description": "ChangeUpdateRequest for helpdesk_changes operation update. All operation-specific fields belong inside this request object, never at the tool root.",
-        "allOf": [
-          {
-            "if": {
-              "required": [
-                "changeType"
-              ],
-              "properties": {
-                "changeType": {
-                  "const": "Standard"
-                }
-              }
-            },
-            "then": {
-              "properties": {
-                "changeTemplate": {
-                  "required": [
-                    "isPreApproved",
-                    "existingRunbookReference"
-                  ],
-                  "properties": {
-                    "isPreApproved": {
-                      "const": true
-                    },
-                    "existingRunbookReference": {
-                      "type": "string",
-                      "minLength": 1
-                    }
-                  }
-                }
-              }
-            }
-          },
-          {
-            "if": {
-              "required": [
-                "changeType"
-              ],
-              "properties": {
-                "changeType": {
-                  "const": "Normal"
-                }
-              }
-            },
-            "then": {
-              "properties": {
-                "changeTemplate": {
-                  "required": [
-                    "businessJustification",
-                    "impactAssessment",
-                    "riskAssessment",
-                    "preChangeChecks",
-                    "testingPlan"
-                  ],
-                  "properties": {
-                    "businessJustification": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "impactAssessment": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "riskAssessment": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "preChangeChecks": {
-                      "type": "array",
-                      "minItems": 1,
-                      "items": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    },
-                    "testingPlan": {
-                      "type": "string",
-                      "minLength": 1
-                    }
-                  }
-                }
-              }
-            }
-          },
-          {
-            "if": {
-              "required": [
-                "changeType"
-              ],
-              "properties": {
-                "changeType": {
-                  "const": "Emergency"
-                }
-              }
-            },
-            "then": {
-              "properties": {
-                "changeTemplate": {
-                  "required": [
-                    "emergencyReason",
-                    "businessImpactIfNotImplemented",
-                    "immediateRiskAssessment",
-                    "postChangeValidation"
-                  ],
-                  "properties": {
-                    "emergencyReason": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "businessImpactIfNotImplemented": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "immediateRiskAssessment": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "postChangeValidation": {
-                      "type": "string",
-                      "minLength": 1
-                    }
-                  }
-                }
-              }
-            }
-          }
-        ]
+        "description": "ChangeUpdateRequest for helpdesk_changes operation update. All operation-specific fields belong inside this request object, never at the tool root."
       }
     },
     {
@@ -4044,12 +3932,19 @@
               "OnHold",
               "Resolved",
               0,
+              "0",
               1,
+              "1",
               2,
+              "2",
               3,
+              "3",
               4,
+              "4",
               5,
-              6
+              "5",
+              6,
+              "6"
             ]
           },
           "comment": {
@@ -4203,12 +4098,19 @@
               "ImplementedSuccess",
               "ImplementedBackedOut",
               0,
+              "0",
               1,
+              "1",
               2,
+              "2",
               3,
+              "3",
               4,
+              "4",
               5,
-              6
+              "5",
+              6,
+              "6"
             ]
           },
           "comment": {
@@ -4800,12 +4702,19 @@
               "OnHold",
               "Resolved",
               0,
+              "0",
               1,
+              "1",
               2,
+              "2",
               3,
+              "3",
               4,
+              "4",
               5,
-              6
+              "5",
+              6,
+              "6"
             ]
           },
           "view": {
@@ -4876,12 +4785,19 @@
                   "OnHold",
                   "Resolved",
                   0,
+                  "0",
                   1,
+                  "1",
                   2,
+                  "2",
                   3,
+                  "3",
                   4,
+                  "4",
                   5,
-                  6
+                  "5",
+                  6,
+                  "6"
                 ]
               },
               {
@@ -4897,12 +4813,19 @@
                     "OnHold",
                     "Resolved",
                     0,
+                    "0",
                     1,
+                    "1",
                     2,
+                    "2",
                     3,
+                    "3",
                     4,
+                    "4",
                     5,
-                    6
+                    "5",
+                    6,
+                    "6"
                   ]
                 }
               }
@@ -4917,9 +4840,13 @@
                   "High",
                   "Critical",
                   0,
+                  "0",
                   1,
+                  "1",
                   2,
-                  3
+                  "2",
+                  3,
+                  "3"
                 ]
               },
               {
@@ -4932,9 +4859,13 @@
                     "High",
                     "Critical",
                     0,
+                    "0",
                     1,
+                    "1",
                     2,
-                    3
+                    "2",
+                    3,
+                    "3"
                   ]
                 }
               }
@@ -5081,12 +5012,19 @@
               "OnHold",
               "Resolved",
               0,
+              "0",
               1,
+              "1",
               2,
+              "2",
               3,
+              "3",
               4,
+              "4",
               5,
-              6
+              "5",
+              6,
+              "6"
             ]
           },
           "view": {
@@ -5157,12 +5095,19 @@
                   "OnHold",
                   "Resolved",
                   0,
+                  "0",
                   1,
+                  "1",
                   2,
+                  "2",
                   3,
+                  "3",
                   4,
+                  "4",
                   5,
-                  6
+                  "5",
+                  6,
+                  "6"
                 ]
               },
               {
@@ -5178,12 +5123,19 @@
                     "OnHold",
                     "Resolved",
                     0,
+                    "0",
                     1,
+                    "1",
                     2,
+                    "2",
                     3,
+                    "3",
                     4,
+                    "4",
                     5,
-                    6
+                    "5",
+                    6,
+                    "6"
                   ]
                 }
               }
@@ -5198,9 +5150,13 @@
                   "High",
                   "Critical",
                   0,
+                  "0",
                   1,
+                  "1",
                   2,
-                  3
+                  "2",
+                  3,
+                  "3"
                 ]
               },
               {
@@ -5213,9 +5169,13 @@
                     "High",
                     "Critical",
                     0,
+                    "0",
                     1,
+                    "1",
                     2,
-                    3
+                    "2",
+                    3,
+                    "3"
                   ]
                 }
               }
@@ -5482,12 +5442,19 @@
               "OnHold",
               "Resolved",
               0,
+              "0",
               1,
+              "1",
               2,
+              "2",
               3,
+              "3",
               4,
+              "4",
               5,
-              6
+              "5",
+              6,
+              "6"
             ]
           },
           "comment": {
@@ -5738,12 +5705,19 @@
               "OnHold",
               "Resolved",
               0,
+              "0",
               1,
+              "1",
               2,
+              "2",
               3,
+              "3",
               4,
+              "4",
               5,
-              6
+              "5",
+              6,
+              "6"
             ]
           },
           "view": {
@@ -5814,12 +5788,19 @@
                   "ImplementedSuccess",
                   "ImplementedBackedOut",
                   0,
+                  "0",
                   1,
+                  "1",
                   2,
+                  "2",
                   3,
+                  "3",
                   4,
+                  "4",
                   5,
-                  6
+                  "5",
+                  6,
+                  "6"
                 ]
               },
               {
@@ -5835,12 +5816,19 @@
                     "ImplementedSuccess",
                     "ImplementedBackedOut",
                     0,
+                    "0",
                     1,
+                    "1",
                     2,
+                    "2",
                     3,
+                    "3",
                     4,
+                    "4",
                     5,
-                    6
+                    "5",
+                    6,
+                    "6"
                   ]
                 }
               }
@@ -5855,9 +5843,13 @@
                   "High",
                   "Critical",
                   0,
+                  "0",
                   1,
+                  "1",
                   2,
-                  3
+                  "2",
+                  3,
+                  "3"
                 ]
               },
               {
@@ -5870,9 +5862,13 @@
                     "High",
                     "Critical",
                     0,
+                    "0",
                     1,
+                    "1",
                     2,
-                    3
+                    "2",
+                    3,
+                    "3"
                   ]
                 }
               }
@@ -5914,12 +5910,19 @@
               "ImplementedSuccess",
               "ImplementedBackedOut",
               0,
+              "0",
               1,
+              "1",
               2,
+              "2",
               3,
+              "3",
               4,
+              "4",
               5,
-              6
+              "5",
+              6,
+              "6"
             ]
           }
         },
@@ -6441,12 +6444,19 @@
               "OnHold",
               "Resolved",
               0,
+              "0",
               1,
+              "1",
               2,
+              "2",
               3,
+              "3",
               4,
+              "4",
               5,
-              6
+              "5",
+              6,
+              "6"
             ]
           },
           "comment": {
@@ -6700,12 +6710,19 @@
               "PendingApproval",
               "Cancelled",
               1,
+              "1",
               2,
+              "2",
               3,
+              "3",
               4,
+              "4",
               5,
+              "5",
               6,
-              7
+              "6",
+              7,
+              "7"
             ]
           },
           "type": {
@@ -6714,8 +6731,11 @@
               "Automation",
               "Approval",
               1,
+              "1",
               2,
-              3
+              "2",
+              3,
+              "3"
             ]
           }
         },
@@ -8197,9 +8217,13 @@
               "Request",
               "Change",
               0,
+              "0",
               1,
+              "1",
               2,
-              3
+              "2",
+              3,
+              "3"
             ]
           },
           "search": {
@@ -9211,10 +9235,15 @@
               "Success",
               "Critical",
               0,
+              "0",
               1,
+              "1",
               2,
+              "2",
               3,
-              4
+              "3",
+              4,
+              "4"
             ]
           },
           "from": {
@@ -10418,7 +10447,9 @@
           "state": {
             "enum": [
               0,
-              1
+              "0",
+              1,
+              "1"
             ]
           },
           "isEnabled": {
@@ -10527,7 +10558,9 @@
           "state": {
             "enum": [
               0,
-              1
+              "0",
+              1,
+              "1"
             ]
           },
           "isEnabled": {
@@ -10662,7 +10695,9 @@
           "state": {
             "enum": [
               0,
-              1
+              "0",
+              1,
+              "1"
             ]
           },
           "isEnabled": {
@@ -10745,7 +10780,9 @@
           "state": {
             "enum": [
               0,
-              1
+              "0",
+              1,
+              "1"
             ]
           },
           "isEnabled": {
@@ -11094,9 +11131,13 @@
           "type": {
             "enum": [
               0,
+              "0",
               1,
+              "1",
               2,
-              3
+              "2",
+              3,
+              "3"
             ]
           },
           "tenantId": {
@@ -11193,9 +11234,13 @@
           "type": {
             "enum": [
               0,
+              "0",
               1,
+              "1",
               2,
-              3
+              "2",
+              3,
+              "3"
             ]
           },
           "parentCategoryId": {
@@ -12367,7 +12412,9 @@
           "releaseStatus": {
             "enum": [
               0,
-              1
+              "0",
+              1,
+              "1"
             ]
           }
         },
@@ -12461,7 +12508,9 @@
           "releaseStatus": {
             "enum": [
               0,
-              1
+              "0",
+              1,
+              "1"
             ]
           }
         },
@@ -12711,7 +12760,9 @@
           "releaseStatus": {
             "enum": [
               0,
+              "0",
               1,
+              "1",
               null
             ]
           }
@@ -12867,7 +12918,9 @@
           "requestedForPersonSource": {
             "enum": [
               0,
+              "0",
               1,
+              "1",
               null
             ]
           }
@@ -44837,7 +44890,9 @@
                   "state": {
                     "enum": [
                       0,
-                      1
+                      "0",
+                      1,
+                      "1"
                     ]
                   },
                   "isEnabled": {
@@ -44919,7 +44974,9 @@
                   "state": {
                     "enum": [
                       0,
-                      1
+                      "0",
+                      1,
+                      "1"
                     ]
                   },
                   "isEnabled": {
@@ -45006,7 +45063,9 @@
                   "state": {
                     "enum": [
                       0,
-                      1
+                      "0",
+                      1,
+                      "1"
                     ]
                   },
                   "isEnabled": {
@@ -45062,7 +45121,9 @@
                   "state": {
                     "enum": [
                       0,
-                      1
+                      "0",
+                      1,
+                      "1"
                     ]
                   },
                   "isEnabled": {
@@ -45288,9 +45349,13 @@
                   "type": {
                     "enum": [
                       0,
+                      "0",
                       1,
+                      "1",
                       2,
-                      3
+                      "2",
+                      3,
+                      "3"
                     ]
                   },
                   "tenantId": {
@@ -45360,9 +45425,13 @@
                   "type": {
                     "enum": [
                       0,
+                      "0",
                       1,
+                      "1",
                       2,
-                      3
+                      "2",
+                      3,
+                      "3"
                     ]
                   },
                   "parentCategoryId": {
@@ -46331,7 +46400,9 @@
                   "releaseStatus": {
                     "enum": [
                       0,
-                      1
+                      "0",
+                      1,
+                      "1"
                     ]
                   }
                 },
@@ -46398,7 +46469,9 @@
                   "releaseStatus": {
                     "enum": [
                       0,
-                      1
+                      "0",
+                      1,
+                      "1"
                     ]
                   }
                 },
@@ -46568,7 +46641,9 @@
                   "releaseStatus": {
                     "enum": [
                       0,
+                      "0",
                       1,
+                      "1",
                       null
                     ]
                   }
@@ -46674,7 +46749,9 @@
                   "requestedForPersonSource": {
                     "enum": [
                       0,
+                      "0",
                       1,
+                      "1",
                       null
                     ]
                   }
@@ -50625,9 +50702,13 @@
                       "Request",
                       "Change",
                       0,
+                      "0",
                       1,
+                      "1",
                       2,
-                      3
+                      "2",
+                      3,
+                      "3"
                     ]
                   },
                   "search": {
@@ -51321,12 +51402,19 @@
                       "OnHold",
                       "Resolved",
                       0,
+                      "0",
                       1,
+                      "1",
                       2,
+                      "2",
                       3,
+                      "3",
                       4,
+                      "4",
                       5,
+                      "5",
                       6,
+                      "6",
                       null
                     ]
                   },
@@ -51340,12 +51428,19 @@
                       "ImplementedSuccess",
                       "ImplementedBackedOut",
                       0,
+                      "0",
                       1,
+                      "1",
                       2,
+                      "2",
                       3,
+                      "3",
                       4,
+                      "4",
                       5,
+                      "5",
                       6,
+                      "6",
                       null
                     ]
                   },
@@ -51440,31 +51535,27 @@
                         ]
                       },
                       "scopeOfChange": {
-                        "type": "string",
-                        "minLength": 1
+                        "type": [
+                          "string",
+                          "null"
+                        ]
                       },
                       "affectedSystems": {
                         "type": "array",
-                        "minItems": 1,
                         "items": {
-                          "type": "string",
-                          "minLength": 1
+                          "type": "string"
                         }
                       },
                       "implementationSteps": {
                         "type": "array",
-                        "minItems": 1,
                         "items": {
-                          "type": "string",
-                          "minLength": 1
+                          "type": "string"
                         }
                       },
                       "validationSteps": {
                         "type": "array",
-                        "minItems": 1,
                         "items": {
-                          "type": "string",
-                          "minLength": 1
+                          "type": "string"
                         }
                       },
                       "rollbackReference": {
@@ -51505,10 +51596,8 @@
                       },
                       "preChangeChecks": {
                         "type": "array",
-                        "minItems": 0,
                         "items": {
-                          "type": "string",
-                          "minLength": 1
+                          "type": "string"
                         }
                       },
                       "testingPlan": {
@@ -51560,168 +51649,13 @@
                         ]
                       }
                     },
-                    "required": [
-                      "scopeOfChange",
-                      "affectedSystems",
-                      "implementationSteps",
-                      "validationSteps"
-                    ],
-                    "anyOf": [
-                      {
-                        "required": [
-                          "rollbackPlan"
-                        ],
-                        "properties": {
-                          "rollbackPlan": {
-                            "type": "string",
-                            "minLength": 1
-                          }
-                        }
-                      },
-                      {
-                        "required": [
-                          "rollbackReference"
-                        ],
-                        "properties": {
-                          "rollbackReference": {
-                            "type": "string",
-                            "minLength": 1
-                          }
-                        }
-                      }
-                    ]
+                    "required": []
                   }
                 },
                 "required": [
                   "changeId"
                 ],
-                "description": "ChangeUpdateRequest for helpdesk_changes operation update. All operation-specific fields belong inside this request object, never at the tool root.",
-                "allOf": [
-                  {
-                    "if": {
-                      "required": [
-                        "changeType"
-                      ],
-                      "properties": {
-                        "changeType": {
-                          "const": "Standard"
-                        }
-                      }
-                    },
-                    "then": {
-                      "properties": {
-                        "changeTemplate": {
-                          "required": [
-                            "isPreApproved",
-                            "existingRunbookReference"
-                          ],
-                          "properties": {
-                            "isPreApproved": {
-                              "const": true
-                            },
-                            "existingRunbookReference": {
-                              "type": "string",
-                              "minLength": 1
-                            }
-                          }
-                        }
-                      }
-                    }
-                  },
-                  {
-                    "if": {
-                      "required": [
-                        "changeType"
-                      ],
-                      "properties": {
-                        "changeType": {
-                          "const": "Normal"
-                        }
-                      }
-                    },
-                    "then": {
-                      "properties": {
-                        "changeTemplate": {
-                          "required": [
-                            "businessJustification",
-                            "impactAssessment",
-                            "riskAssessment",
-                            "preChangeChecks",
-                            "testingPlan"
-                          ],
-                          "properties": {
-                            "businessJustification": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "impactAssessment": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "riskAssessment": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "preChangeChecks": {
-                              "type": "array",
-                              "minItems": 1,
-                              "items": {
-                                "type": "string",
-                                "minLength": 1
-                              }
-                            },
-                            "testingPlan": {
-                              "type": "string",
-                              "minLength": 1
-                            }
-                          }
-                        }
-                      }
-                    }
-                  },
-                  {
-                    "if": {
-                      "required": [
-                        "changeType"
-                      ],
-                      "properties": {
-                        "changeType": {
-                          "const": "Emergency"
-                        }
-                      }
-                    },
-                    "then": {
-                      "properties": {
-                        "changeTemplate": {
-                          "required": [
-                            "emergencyReason",
-                            "businessImpactIfNotImplemented",
-                            "immediateRiskAssessment",
-                            "postChangeValidation"
-                          ],
-                          "properties": {
-                            "emergencyReason": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "businessImpactIfNotImplemented": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "immediateRiskAssessment": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "postChangeValidation": {
-                              "type": "string",
-                              "minLength": 1
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                ]
+                "description": "ChangeUpdateRequest for helpdesk_changes operation update. All operation-specific fields belong inside this request object, never at the tool root."
               }
             },
             "required": [
@@ -51793,12 +51727,19 @@
                       "OnHold",
                       "Resolved",
                       0,
+                      "0",
                       1,
+                      "1",
                       2,
+                      "2",
                       3,
+                      "3",
                       4,
+                      "4",
                       5,
-                      6
+                      "5",
+                      6,
+                      "6"
                     ]
                   },
                   "comment": {
@@ -51894,12 +51835,19 @@
                       "ImplementedSuccess",
                       "ImplementedBackedOut",
                       0,
+                      "0",
                       1,
+                      "1",
                       2,
+                      "2",
                       3,
+                      "3",
                       4,
+                      "4",
                       5,
-                      6
+                      "5",
+                      6,
+                      "6"
                     ]
                   },
                   "comment": {
@@ -51989,12 +51937,19 @@
                       "OnHold",
                       "Resolved",
                       0,
+                      "0",
                       1,
+                      "1",
                       2,
+                      "2",
                       3,
+                      "3",
                       4,
+                      "4",
                       5,
-                      6
+                      "5",
+                      6,
+                      "6"
                     ]
                   },
                   "view": {
@@ -52065,12 +52020,19 @@
                           "ImplementedSuccess",
                           "ImplementedBackedOut",
                           0,
+                          "0",
                           1,
+                          "1",
                           2,
+                          "2",
                           3,
+                          "3",
                           4,
+                          "4",
                           5,
-                          6
+                          "5",
+                          6,
+                          "6"
                         ]
                       },
                       {
@@ -52086,12 +52048,19 @@
                             "ImplementedSuccess",
                             "ImplementedBackedOut",
                             0,
+                            "0",
                             1,
+                            "1",
                             2,
+                            "2",
                             3,
+                            "3",
                             4,
+                            "4",
                             5,
-                            6
+                            "5",
+                            6,
+                            "6"
                           ]
                         }
                       }
@@ -52106,9 +52075,13 @@
                           "High",
                           "Critical",
                           0,
+                          "0",
                           1,
+                          "1",
                           2,
-                          3
+                          "2",
+                          3,
+                          "3"
                         ]
                       },
                       {
@@ -52121,9 +52094,13 @@
                             "High",
                             "Critical",
                             0,
+                            "0",
                             1,
+                            "1",
                             2,
-                            3
+                            "2",
+                            3,
+                            "3"
                           ]
                         }
                       }
@@ -52165,12 +52142,19 @@
                       "ImplementedSuccess",
                       "ImplementedBackedOut",
                       0,
+                      "0",
                       1,
+                      "1",
                       2,
+                      "2",
                       3,
+                      "3",
                       4,
+                      "4",
                       5,
-                      6
+                      "5",
+                      6,
+                      "6"
                     ]
                   }
                 },
@@ -52647,12 +52631,19 @@
                       "OnHold",
                       "Resolved",
                       0,
+                      "0",
                       1,
+                      "1",
                       2,
+                      "2",
                       3,
+                      "3",
                       4,
+                      "4",
                       5,
-                      6
+                      "5",
+                      6,
+                      "6"
                     ]
                   },
                   "comment": {
@@ -59288,12 +59279,19 @@
                       "OnHold",
                       "Resolved",
                       0,
+                      "0",
                       1,
+                      "1",
                       2,
+                      "2",
                       3,
+                      "3",
                       4,
+                      "4",
                       5,
+                      "5",
                       6,
+                      "6",
                       null
                     ]
                   },
@@ -59407,12 +59405,19 @@
                       "OnHold",
                       "Resolved",
                       0,
+                      "0",
                       1,
+                      "1",
                       2,
+                      "2",
                       3,
+                      "3",
                       4,
+                      "4",
                       5,
-                      6
+                      "5",
+                      6,
+                      "6"
                     ]
                   },
                   "comment": {
@@ -59458,12 +59463,19 @@
                       "OnHold",
                       "Resolved",
                       0,
+                      "0",
                       1,
+                      "1",
                       2,
+                      "2",
                       3,
+                      "3",
                       4,
+                      "4",
                       5,
-                      6
+                      "5",
+                      6,
+                      "6"
                     ]
                   },
                   "comment": {
@@ -59733,12 +59745,19 @@
                       "OnHold",
                       "Resolved",
                       0,
+                      "0",
                       1,
+                      "1",
                       2,
+                      "2",
                       3,
+                      "3",
                       4,
+                      "4",
                       5,
-                      6
+                      "5",
+                      6,
+                      "6"
                     ]
                   },
                   "view": {
@@ -59809,12 +59828,19 @@
                           "OnHold",
                           "Resolved",
                           0,
+                          "0",
                           1,
+                          "1",
                           2,
+                          "2",
                           3,
+                          "3",
                           4,
+                          "4",
                           5,
-                          6
+                          "5",
+                          6,
+                          "6"
                         ]
                       },
                       {
@@ -59830,12 +59856,19 @@
                             "OnHold",
                             "Resolved",
                             0,
+                            "0",
                             1,
+                            "1",
                             2,
+                            "2",
                             3,
+                            "3",
                             4,
+                            "4",
                             5,
-                            6
+                            "5",
+                            6,
+                            "6"
                           ]
                         }
                       }
@@ -59850,9 +59883,13 @@
                           "High",
                           "Critical",
                           0,
+                          "0",
                           1,
+                          "1",
                           2,
-                          3
+                          "2",
+                          3,
+                          "3"
                         ]
                       },
                       {
@@ -59865,9 +59902,13 @@
                             "High",
                             "Critical",
                             0,
+                            "0",
                             1,
+                            "1",
                             2,
-                            3
+                            "2",
+                            3,
+                            "3"
                           ]
                         }
                       }
@@ -61032,10 +61073,15 @@
                       "Success",
                       "Critical",
                       0,
+                      "0",
                       1,
+                      "1",
                       2,
+                      "2",
                       3,
-                      4
+                      "3",
+                      4,
+                      "4"
                     ]
                   },
                   "from": {
@@ -61745,12 +61791,19 @@
                       "PendingApproval",
                       "Cancelled",
                       1,
+                      "1",
                       2,
+                      "2",
                       3,
+                      "3",
                       4,
+                      "4",
                       5,
+                      "5",
                       6,
-                      7
+                      "6",
+                      7,
+                      "7"
                     ]
                   },
                   "type": {
@@ -61759,8 +61812,11 @@
                       "Automation",
                       "Approval",
                       1,
+                      "1",
                       2,
-                      3
+                      "2",
+                      3,
+                      "3"
                     ]
                   }
                 },
@@ -62714,12 +62770,19 @@
                       "OnHold",
                       "Resolved",
                       0,
+                      "0",
                       1,
+                      "1",
                       2,
+                      "2",
                       3,
+                      "3",
                       4,
+                      "4",
                       5,
+                      "5",
                       6,
+                      "6",
                       null
                     ]
                   },
@@ -62818,12 +62881,19 @@
                       "OnHold",
                       "Resolved",
                       0,
+                      "0",
                       1,
+                      "1",
                       2,
+                      "2",
                       3,
+                      "3",
                       4,
+                      "4",
                       5,
-                      6
+                      "5",
+                      6,
+                      "6"
                     ]
                   },
                   "comment": {
@@ -62959,12 +63029,19 @@
                       "OnHold",
                       "Resolved",
                       0,
+                      "0",
                       1,
+                      "1",
                       2,
+                      "2",
                       3,
+                      "3",
                       4,
+                      "4",
                       5,
-                      6
+                      "5",
+                      6,
+                      "6"
                     ]
                   },
                   "view": {
@@ -63035,12 +63112,19 @@
                           "OnHold",
                           "Resolved",
                           0,
+                          "0",
                           1,
+                          "1",
                           2,
+                          "2",
                           3,
+                          "3",
                           4,
+                          "4",
                           5,
-                          6
+                          "5",
+                          6,
+                          "6"
                         ]
                       },
                       {
@@ -63056,12 +63140,19 @@
                             "OnHold",
                             "Resolved",
                             0,
+                            "0",
                             1,
+                            "1",
                             2,
+                            "2",
                             3,
+                            "3",
                             4,
+                            "4",
                             5,
-                            6
+                            "5",
+                            6,
+                            "6"
                           ]
                         }
                       }
@@ -63076,9 +63167,13 @@
                           "High",
                           "Critical",
                           0,
+                          "0",
                           1,
+                          "1",
                           2,
-                          3
+                          "2",
+                          3,
+                          "3"
                         ]
                       },
                       {
@@ -63091,9 +63186,13 @@
                             "High",
                             "Critical",
                             0,
+                            "0",
                             1,
+                            "1",
                             2,
-                            3
+                            "2",
+                            3,
+                            "3"
                           ]
                         }
                       }
@@ -63316,12 +63415,19 @@
                       "OnHold",
                       "Resolved",
                       0,
+                      "0",
                       1,
+                      "1",
                       2,
+                      "2",
                       3,
+                      "3",
                       4,
+                      "4",
                       5,
-                      6
+                      "5",
+                      6,
+                      "6"
                     ]
                   },
                   "comment": {

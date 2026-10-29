@@ -11,6 +11,21 @@ namespace Helpdesk.Tests.Mcp;
 public sealed class McpExecutableSchemaTests
 {
     [Fact]
+    public void Published_current_catalog_matches_runtime_contracts_and_discovery_schemas()
+    {
+        var path = Path.Combine(TestEnvironment.RepositoryRoot, "docs", "contracts", "mcp-operation-catalog.json");
+        var published = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+        Assert.Equal(McpOperationCatalog.Revision, published["catalogRevision"]!.ToString());
+        Assert.Equal(McpOperationCatalog.CatalogHash, published["catalogHash"]!.ToString());
+        Assert.True(JsonNode.DeepEquals(McpOperationCatalog.ToJson(), published["operations"]));
+        var schemas = new JsonArray(HelpdeskToolDefinitions.Create().Select(tool => (JsonNode)new JsonObject
+        {
+            ["tool"] = tool.ProtocolTool.Name, ["inputSchema"] = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText())
+        }).ToArray());
+        Assert.True(JsonNode.DeepEquals(schemas, published["toolSchemas"]));
+    }
+
+    [Fact]
     public void Every_operation_has_schema_valid_positive_preview_and_invalid_examples()
     {
         var definitions = HelpdeskToolDefinitions.Create().ToDictionary(tool => tool.ProtocolTool.Name);
