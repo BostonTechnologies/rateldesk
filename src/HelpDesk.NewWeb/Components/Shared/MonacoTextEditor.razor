@@ -1,0 +1,140 @@
+@using BlazorMonaco.Editor
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="monaco-text-surface @(fullscreen ? "fullscreen" : "")" @onkeydown="HandleKeyDown" data-testid="monaco-text-editor">
+    <div class="monaco-text-toolbar">
+        <label>Format
+            <select value="@language" @onchange="ChangeLanguageAsync" aria-label="Guidance format">
+                <option value="markdown">Markdown</option><option value="plaintext">Plain text</option>
+            </select>
+        </label>
+        <label>Theme
+            <select value="@theme" @onchange="ChangeThemeAsync" aria-label="Editor theme">
+                <option value="vs-dark">Dark</option><option value="vs">Light</option><option value="hc-black">High contrast</option>
+            </select>
+        </label>
+        <button type="button" @onclick="ToggleFullscreen" aria-expanded="@(fullscreen ? "true" : "false")">@(fullscreen ? "Exit fullscreen" : "Fullscreen")</button>
+    </div>
+    <div class="monaco-text-content">
+        @if (assetsReady)
+        {
+            <StandaloneCodeEditor @ref="editor" Id="@editorId" ConstructionOptions="Options"
+                                  OnDidInit="InitializedAsync" OnDidChangeModelContent="ChangedAsync" />
+        }
+        else if (loadFailed)
+        {
+            <p class="monaco-text-notice" role="status">The code editor could not load. You can still read and edit the guidance below.</p>
+            <textarea aria-label="@Label" value="@currentValue" @oninput="FallbackChangedAsync" readonly="@ReadOnly" spellcheck="false"></textarea>
+        }
+        else
+        {
+            <p class="monaco-text-notice" role="status">Loading editor…</p>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public bool ReadOnly { get; set; }
+    [Parameter] public string Label { get; set; } = "Prompt guidance";
+
+    private readonly string editorId = $"prompt-monaco-{Guid.NewGuid():N}";
+    private StandaloneCodeEditor? editor;
+    private IJSObjectReference? loader;
+    private string currentValue = "", language = "markdown", theme = "vs-dark";
+    private bool assetsReady, loadFailed, initialized, fullscreen, readOnly, disposed;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (readOnly != ReadOnly)
+        {
+            readOnly = ReadOnly;
+            if (initialized && editor is not null) await editor.UpdateOptions(new EditorUpdateOptions { ReadOnly = ReadOnly });
+        }
+        if (currentValue == Value) return;
+        currentValue = Value;
+        if (initialized && editor is not null) await editor.SetValue(currentValue);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            IJSObjectReference? candidate = null;
+            try
+            {
+                candidate = await JS.InvokeAsync<IJSObjectReference>("import", "./js/helpdesk-monaco-text.js");
+                if (!disposed) await candidate.InvokeVoidAsync("ensureBlazorMonaco");
+                if (!disposed)
+                {
+                    loader = candidate;
+                    candidate = null;
+                    assetsReady = true;
+                }
+            }
+            catch (JSException) { if (!disposed) loadFailed = true; }
+            catch (OperationCanceledException) { if (!disposed) loadFailed = true; }
+            finally { if (candidate is not null) await ReleaseModuleAsync(candidate); }
+            if (!disposed) StateHasChanged();
+        }
+        else if (initialized && editor is not null && !disposed) await editor.Layout();
+    }
+
+    private StandaloneEditorConstructionOptions Options(StandaloneCodeEditor _) => new()
+    {
+        AutomaticLayout = true, Language = language, Theme = theme, Value = currentValue,
+        ReadOnly = ReadOnly, AriaLabel = Label, ScrollBeyondLastLine = false, WordWrap = "on", GlyphMargin = false
+    };
+    private async Task InitializedAsync()
+    {
+        if (disposed) return;
+        initialized = true; await BlazorMonaco.Editor.Global.SetTheme(JS, theme);
+    }
+    private async Task ChangedAsync(ModelContentChangedEvent _)
+    {
+        if (!initialized || disposed || ReadOnly || editor is null) return;
+        var value = await editor.GetValue();
+        if (disposed || ReadOnly) return;
+        if (value == currentValue) return;
+        currentValue = value; await ValueChanged.InvokeAsync(value);
+    }
+    private async Task FallbackChangedAsync(ChangeEventArgs args)
+    {
+        if (ReadOnly) return;
+        currentValue = args.Value?.ToString() ?? ""; await ValueChanged.InvokeAsync(currentValue);
+    }
+    public Task<string> GetValueAsync() => initialized && editor is not null && !disposed ? editor.GetValue() : Task.FromResult(currentValue);
+    private void ToggleFullscreen() => fullscreen = !fullscreen;
+    private void HandleKeyDown(KeyboardEventArgs args) { if (args.Key == "Escape") fullscreen = false; }
+    private async Task ChangeThemeAsync(ChangeEventArgs args)
+    {
+        theme = args.Value?.ToString() is "vs" ? "vs" : args.Value?.ToString() is "hc-black" ? "hc-black" : "vs-dark";
+        if (initialized) await BlazorMonaco.Editor.Global.SetTheme(JS, theme);
+    }
+    private async Task ChangeLanguageAsync(ChangeEventArgs args)
+    {
+        language = args.Value?.ToString() == "plaintext" ? "plaintext" : "markdown";
+        if (initialized && editor is not null && await editor.GetModel() is { } model)
+            await BlazorMonaco.Editor.Global.SetModelLanguage(JS, model, language);
+    }
+    public async ValueTask DisposeAsync()
+    {
+        disposed = true;
+        var ownedLoader = loader;
+        loader = null;
+        if (ownedLoader is null) return;
+        try
+        {
+            if (assetsReady) await ownedLoader.InvokeVoidAsync("disposeEditor", editorId);
+        }
+        catch (JSDisconnectedException) { }
+        finally { await ReleaseModuleAsync(ownedLoader); }
+    }
+    private static async ValueTask ReleaseModuleAsync(IJSObjectReference module)
+    {
+        try { await module.DisposeAsync(); }
+        catch (JSDisconnectedException) { }
+    }
+}

@@ -2,58 +2,141 @@
 @attribute [Authorize]
 @using Helpdesk.Shared.DTOs.AiOps
 @using Helpdesk.Shared.DTOs.Organization
+@using Helpdesk.Shared.AiAssistant.Chat
+@using System.Text.Json
 @inject IHttpClientFactory Clients
 @inject NavigationManager Navigation
 
 <PageTitle>AI investigations</PageTitle>
-<MudStack Spacing="3">
-    <MudText Typo="Typo.h4">AI investigations</MudText>
-    <MudText>Investigate authorized tickets with Netclaw. Saving context does not send a message.</MudText>
-    @if (error is not null) { <MudAlert Severity="Severity.Warning">@error</MudAlert> }
-    @if (selected is not null)
-    {
-        <MudButton Href="/ai/ops">All investigations</MudButton>
-        <MudText Typo="Typo.h5">@selected.Title · @selected.State</MudText>
-        <MudButton OnClick="Archive" Disabled="@(busy || selected.State != Helpdesk.Shared.AiAssistant.Chat.ChatState.Idle)">Archive investigation</MudButton>
-        <MudExpansionPanels><MudExpansionPanel Text="Saved guidance and ticket context"><pre style="white-space:pre-wrap;overflow-wrap:anywhere">@selected.ContextSnapshot</pre></MudExpansionPanel></MudExpansionPanels>
-        <AiAssistantChat @key="selected.Id" TicketId="@selected.TicketId" TicketType="@selected.TicketType" InvestigationId="selected.Id" />
-    }
-    else
-    {
-        <MudTextField @bind-Value="search" Label="Find investigations" />
-        <MudButton OnClick="LoadList">Search</MudButton>
-        @foreach (var row in investigations)
-        {
-            <MudPaper Class="pa-3" Outlined="true"><MudLink Href="@($"/ai/ops?id={row.Id}")">@row.Title</MudLink><MudText Typo="Typo.caption">@row.CreatedUtc.ToLocalTime().ToString("g") · @row.State</MudText></MudPaper>
-        }
-        <MudDivider />
-        <MudText Typo="Typo.h5">Start with the right tickets</MudText>
-        <MudSelect T="string" Label="Organization" Value="@organization" ValueChanged="ChangeOrganization">
-            @foreach (var org in organizations) { <MudSelectItem Value="@org.Id">@org.Name</MudSelectItem> }
-        </MudSelect>
-        <MudTextField @bind-Value="title" Label="Investigation title" MaxLength="200" />
-        @if (!string.IsNullOrEmpty(organization))
-        {
-            <MudTextField @bind-Value="ticketSearch" Label="Find incidents, requests, changes and tasks" />
-            <MudButton OnClick="FindTickets">Find tickets</MudButton>
-            <MudSelect T="string" Label="Ticket context (up to 12)" MultiSelection="true" @bind-SelectedValues="ticketIds">
-                @foreach (var ticket in tickets) { <MudSelectItem Value="@ticket.Id">@ticket.TrackingId · @ticket.Type · @ticket.Title</MudSelectItem> }
-            </MudSelect>
-            @foreach (var prompt in prompts.Where(x => x.IsDefault))
+<main class="ai-ops" data-testid="ai-investigations">
+    <header class="ai-heading">
+        <p class="ai-eyebrow">AI OPERATIONS</p>
+        <h1>Investigations</h1>
+        <p>Bring the right tickets together and work through the evidence with your AI assistant.</p>
+    </header>
+    <div class="ai-toolbar">
+        <label>Organization
+            <select value="@organization" @onchange="OrganizationChanged" disabled="@busy">
+                <option value="">All organizations</option>
+                @foreach (var org in organizations) { <option value="@org.Id">@org.Name</option> }
+            </select>
+        </label>
+        <button type="button" @onclick="Refresh" disabled="@busy">Refresh</button>
+        <button type="button" class="ai-primary" @onclick="StartCreate" disabled="@(busy || organizations.Count == 0)">New investigation</button>
+    </div>
+    @if (error is not null) { <div class="ai-notice" role="alert">@error</div> }
+    @if (busy) { <p class="ai-loading" role="status">Updating investigation workspace…</p> }
+    <div class="ai-metrics" aria-label="Status in recent results">
+        <div><span>Active in recent results</span><strong>@(listAvailable ? investigations.Count(x => x.State == ChatState.Processing).ToString() : "—")</strong></div>
+        <div><span>Waiting for your decision</span><strong>@(listAvailable ? investigations.Count(x => x.State == ChatState.AwaitingApproval).ToString() : "—")</strong></div>
+        <div><span>Needs recovery</span><strong>@(listAvailable ? investigations.Count(x => x.State == ChatState.DeliveryUnknown).ToString() : "—")</strong></div>
+    </div>
+    <div class="ai-workspace">
+        <aside class="ai-investigation-list" aria-label="Recent investigations">
+            <form class="ai-search" @onsubmit="Search" @onsubmit:preventDefault>
+                <label for="investigation-search">Find investigations</label>
+                <div><input id="investigation-search" @bind="search" @bind:event="oninput" maxlength="200" placeholder="Investigation title" disabled="@busy" />
+                    <button type="submit" disabled="@busy" aria-label="Search investigations"><MudIcon Icon="@Icons.Material.Filled.Search" Size="Size.Small" /></button></div>
+            </form>
+            <label>Status<select @bind="statusFilter" disabled="@busy">
+                <option value="all">All recent investigations</option><option value="active">Active</option><option value="idle">Ready</option>
+                <option value="approval">Waiting for approval</option><option value="recovery">Needs recovery</option><option value="archived">Archived</option>
+            </select></label>
+            <div class="ai-list-items">
+                @foreach (var row in FilteredInvestigations)
+                {
+                    <a @key="row.Id" class="ai-investigation @(selected?.Id == row.Id && !creating ? "selected" : "")"
+                       href="@InvestigationUrl(row.Id)" aria-current="@(selected?.Id == row.Id && !creating ? "page" : null)">
+                        <span class="ai-state @StateClass(row.State)">@StateLabel(row.State)</span>
+                        <strong>@row.Title</strong>
+                        <small>@OrganizationName(row.OrganizationId)</small>
+                        <small>Created @row.CreatedUtc.ToLocalTime().ToString("g")</small>
+                    </a>
+                }
+                @if (!FilteredInvestigations.Any() && !busy && listAvailable)
+                {
+                    <p class="ai-muted ai-list-empty">No matching investigations. Try another title or status, or start a new investigation.</p>
+                }
+            </div>
+            <p class="ai-list-note">@(listAvailable ? $"Latest authorized results · {investigations.Count} loaded" : busy ? "Loading recent history…" : "History is unavailable. Refresh to try again.")</p>
+        </aside>
+        <section class="ai-conversation" aria-label="Investigation workspace">
+            @if (creating)
             {
-                <MudText>Always included: @prompt.Name · revision @prompt.Revision</MudText>
+                <header class="ai-chat-heading"><div><span class="ai-state">NEW INVESTIGATION</span><h2>Start with the right tickets</h2></div>
+                    <button type="button" @onclick="CancelCreate" disabled="@busy">Cancel</button></header>
+                <div class="ai-create">
+                    <p class="ai-muted">Save a snapshot of the tickets and guidance, then ask your first question. Saving context does not send a message.</p>
+                    @if (organization.Length == 0)
+                    {
+                        <div class="ai-empty ai-choose-organization"><MudIcon Icon="@Icons.Material.Filled.Business" Size="Size.Large" /><h3>Choose an organization</h3><p>Select an organization in the toolbar to find its tickets and guidance.</p></div>
+                    }
+                    else
+                    {
+                        <label>Investigation title<input @bind="title" @bind:event="oninput" maxlength="200" placeholder="For example: investigate recurring email delivery failures" disabled="@busy" /></label>
+                        <form class="ai-search" @onsubmit="FindTickets" @onsubmit:preventDefault>
+                            <label for="investigation-ticket-search">Find tickets</label>
+                            <div><input id="investigation-ticket-search" @bind="ticketSearch" @bind:event="oninput" maxlength="200" placeholder="Tracking ID or title" disabled="@busy" />
+                                <button type="submit" disabled="@busy">Search</button></div>
+                        </form>
+                        <div class="ai-section-title"><h3>Ticket context</h3><span>@ticketIds.Count / 12 selected</span></div>
+                        <div class="ai-ticket-picker" aria-label="Select ticket context">
+                            @foreach (var ticket in tickets)
+                            {
+                                <label @key="ticket.Id" class="ai-selection @(ticketIds.Contains(ticket.Id) ? "is-selected" : "")">
+                                    <input type="checkbox" checked="@ticketIds.Contains(ticket.Id)" @onchange="e => SelectTicket(ticket.Id, e)" disabled="@(busy || ticketIds.Count >= 12 && !ticketIds.Contains(ticket.Id))" />
+                                    <span><strong>@ticket.TrackingId <small>· @ticket.Type</small></strong><span>@ticket.Title</span></span>
+                                </label>
+                            }
+                            @if (tickets.Count == 0) { <p class="ai-muted">No authorized tickets match this search.</p> }
+                        </div>
+                        <div class="ai-section-title"><h3>Guidance</h3><span>@promptIds.Count / 8 optional prompts</span></div>
+                        @foreach (var prompt in prompts.Where(x => x.IsDefault))
+                        {
+                            <div class="ai-default-guidance"><MudIcon Icon="@Icons.Material.Filled.CheckCircleOutline" Size="Size.Small" /><span>Always included: <strong>@prompt.Name</strong> · revision @prompt.Revision</span></div>
+                        }
+                        <div class="ai-prompt-picker" aria-label="Optional guidance">
+                            @foreach (var prompt in prompts.Where(x => !x.IsDefault))
+                            {
+                                <label @key="prompt.Id" class="ai-selection @(promptIds.Contains(prompt.Id) ? "is-selected" : "")">
+                                    <input type="checkbox" checked="@promptIds.Contains(prompt.Id)" @onchange="e => SelectPrompt(prompt.Id, e)" disabled="@(busy || promptIds.Count >= 8 && !promptIds.Contains(prompt.Id))" />
+                                    <span><strong>@prompt.Name <small>· revision @prompt.Revision</small></strong><span>@prompt.Description</span></span>
+                                </label>
+                            }
+                            @if (prompts.Count == 0) { <p class="ai-muted">No saved guidance is configured for this organization.</p> }
+                        </div>
+                        @if (prompts.Any(x => x.IsDefault || promptIds.Contains(x.Id)))
+                        {
+                            <details class="ai-guidance-preview"><summary>Preview selected guidance</summary>
+                                @foreach (var prompt in prompts.Where(x => x.IsDefault || promptIds.Contains(x.Id)))
+                                { <h4>@prompt.Name · revision @prompt.Revision</h4><pre>@prompt.Content</pre> }
+                            </details>
+                        }
+                    }
+                    <div class="ai-create-actions"><button type="button" class="ai-primary" @onclick="Create" disabled="@(busy || organization.Length == 0 || string.IsNullOrWhiteSpace(title) || ticketIds.Count == 0)">Save investigation context</button>
+                        <button type="button" @onclick="CancelCreate" disabled="@busy">Cancel</button></div>
+                </div>
             }
-            <MudSelect T="Guid" Label="Add prompts to LLM context" MultiSelection="true" @bind-SelectedValues="promptIds">
-                @foreach (var prompt in prompts.Where(x => !x.IsDefault)) { <MudSelectItem Value="@prompt.Id">@prompt.Name · @prompt.Description</MudSelectItem> }
-            </MudSelect>
-            <MudExpansionPanels><MudExpansionPanel Text="Preview selected guidance">
-                @foreach (var prompt in prompts.Where(x => x.IsDefault || promptIds.Contains(x.Id)))
-                { <MudText Typo="Typo.subtitle2">@prompt.Name · revision @prompt.Revision</MudText><MudText Style="white-space:pre-wrap">@prompt.Content</MudText> }
-            </MudExpansionPanel></MudExpansionPanels>
-        }
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Create" Disabled="@(busy || string.IsNullOrWhiteSpace(title) || !ticketIds.Any())">Save investigation context</MudButton>
-    }
-</MudStack>
+            else if (selected is { } investigation)
+            {
+                <header class="ai-chat-heading">
+                    <div><span class="ai-state @StateClass(selected.State)">@StateLabel(selected.State)</span><h2>@selected.Title</h2><small>@selected.Id</small></div>
+                    <button type="button" @onclick="Archive" disabled="@(busy || selected.State != ChatState.Idle)">Archive</button>
+                </header>
+                <div class="ai-context"><span>@OrganizationName(selected.OrganizationId)</span><span>Created @selected.CreatedUtc.ToLocalTime().ToString("g")</span></div>
+                <details class="ai-snapshot"><summary>Saved guidance and ticket context</summary><pre>@selected.ContextSnapshot</pre></details>
+                <div class="ai-chat-body">
+                    <AiAssistantChat @key="investigation.Id" TicketId="@investigation.TicketId" TicketType="@investigation.TicketType" InvestigationId="investigation.Id" Workspace="true" StateChanged="@(state => ChatStateChanged(investigation.Id, state))" />
+                </div>
+            }
+            else
+            {
+                <div class="ai-empty"><MudIcon Icon="@Icons.Material.Filled.Troubleshoot" Size="Size.Large" /><h2>Bring the evidence together</h2><p>Select an investigation to continue its conversation, or start with the tickets you want to understand.</p>
+                    <button type="button" class="ai-primary" @onclick="StartCreate" disabled="@(busy || organizations.Count == 0)">New investigation</button></div>
+            }
+        </section>
+    </div>
+</main>
 
 @code {
     [SupplyParameterFromQuery(Name = "id")] public Guid? Id { get; set; }
@@ -63,66 +146,182 @@
     private List<AiContextTicketDto> tickets = [];
     private List<AiPromptDto> prompts = [];
     private AiInvestigationDto? selected;
-    private string organization = "", title = "", search = "", ticketSearch = "";
+    private string organization = "", title = "", search = "", ticketSearch = "", statusFilter = "all";
     private string? error;
-    private bool busy;
+    private bool busy, creating, initialized, listAvailable;
+    private int generation;
     private Guid creationId = Guid.NewGuid();
-    private IReadOnlyCollection<string> ticketIds = [];
-    private IReadOnlyCollection<Guid> promptIds = [];
+    private readonly HashSet<string> ticketIds = [];
+    private readonly HashSet<Guid> promptIds = [];
+    private IEnumerable<AiInvestigationDto> FilteredInvestigations => investigations.Where(x => statusFilter switch
+    {
+        "active" => x.State == ChatState.Processing,
+        "idle" => x.State == ChatState.Idle,
+        "approval" => x.State == ChatState.AwaitingApproval,
+        "recovery" => x.State == ChatState.DeliveryUnknown,
+        "archived" => x.State == ChatState.Archived,
+        _ => true
+    });
+    private string OrganizationName(string id) => organizations.FirstOrDefault(x => x.Id == id)?.Name ?? id;
+    private string InvestigationUrl(Guid id) => $"/ai/ops?id={id}" + (search.Length > 0 ? $"&q={Uri.EscapeDataString(search)}" : "");
+    private static string StateLabel(ChatState state) => state switch { ChatState.Idle => "Ready", ChatState.Processing => "Investigating", ChatState.AwaitingApproval => "Waiting for approval", ChatState.DeliveryUnknown => "Outcome unconfirmed", ChatState.Archived => "Archived", _ => state.ToString() };
+    private static string StateClass(ChatState state) => state switch { ChatState.Processing => "is-active", ChatState.AwaitingApproval or ChatState.DeliveryUnknown => "needs-attention", _ => "" };
+
     protected override async Task OnParametersSetAsync()
     {
-        selected = null; error = null; search = Query ?? "";
+        var current = ++generation;
+        busy = true; selected = null; creating = false; error = null; search = Query ?? "";
         try
         {
-            if (Id.HasValue) selected = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<AiInvestigationDto>($"api/v1/ai/ops/investigations/{Id}");
-            else { selected = null; organizations = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations") ?? []; await LoadList(); }
+            if (!initialized)
+            {
+                var loaded = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations") ?? [];
+                if (current != generation) return;
+                organizations = loaded; initialized = true;
+            }
+            if (Id.HasValue)
+            {
+                var loaded = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<AiInvestigationDto>($"api/v1/ai/ops/investigations/{Id}");
+                if (current != generation) return;
+                selected = loaded;
+                if (organization.Length > 0 && selected?.OrganizationId != organization) organization = "";
+            }
+            await LoadList(current);
         }
-        catch (HttpRequestException) { error = "The investigation is unavailable or you no longer have access to its selected tickets."; }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException) { if (current == generation) error = "The investigation is unavailable or you no longer have access to its selected tickets."; }
+        finally { if (current == generation) busy = false; }
     }
-    private async Task LoadList()
+    private async Task LoadList(int current)
     {
-        try { investigations = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<AiInvestigationDto>>($"api/v1/ai/ops/investigations?q={Uri.EscapeDataString(search)}") ?? []; }
-        catch (HttpRequestException) { error = "Unable to load investigations."; }
+        if (current != generation) return;
+        listAvailable = false;
+        var scope = organization.Length == 0 ? "" : $"&organizationId={Uri.EscapeDataString(organization)}";
+        var loaded = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<AiInvestigationDto>>($"api/v1/ai/ops/investigations?q={Uri.EscapeDataString(search)}{scope}") ?? [];
+        if (current == generation) { investigations = loaded; listAvailable = true; }
     }
+    private async Task Search()
+    {
+        if (busy) return;
+        var current = ++generation; busy = true; error = null;
+        try { await LoadList(current); }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException) { if (current == generation) error = "Unable to load investigations. Your current conversation is unchanged."; }
+        finally { if (current == generation) busy = false; }
+    }
+    private async Task Refresh()
+    {
+        if (busy) return;
+        var current = ++generation; busy = true; error = null;
+        try
+        {
+            if (!initialized)
+            {
+                var loadedOrganizations = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations") ?? [];
+                if (current != generation) return;
+                organizations = loadedOrganizations; initialized = true;
+            }
+            if (selected is not null)
+            {
+                var loaded = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<AiInvestigationDto>($"api/v1/ai/ops/investigations/{selected.Id}");
+                if (current != generation) return;
+                selected = loaded;
+            }
+            await LoadList(current);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException)
+        {
+            if (current == generation)
+            {
+                if (exception is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.NotFound }) selected = null;
+                error = "Unable to refresh this workspace. Check your access and try again.";
+            }
+        }
+        finally { if (current == generation) busy = false; }
+    }
+    private Task OrganizationChanged(ChangeEventArgs args) => ChangeOrganization(args.Value?.ToString() ?? "");
     private async Task ChangeOrganization(string value)
     {
-        organization = value; ticketIds = []; promptIds = []; tickets = []; prompts = []; creationId = Guid.NewGuid();
-        try { prompts = (await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<AiPromptDto>>($"api/v1/ai/ops/prompts?organizationId={Uri.EscapeDataString(value)}") ?? []).Where(x => !x.Archived).ToList(); await FindTickets(); }
-        catch (HttpRequestException) { error = "Unable to load guidance for this organization."; }
-    }
-    private async Task FindTickets()
-    {
+        if (busy) return;
+        var current = ++generation; busy = true; error = null;
+        organization = value; investigations = []; ticketIds.Clear(); promptIds.Clear(); tickets = []; prompts = []; ticketSearch = ""; creationId = Guid.NewGuid();
+        if (selected?.OrganizationId != value) selected = null;
         try
         {
-            var found = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<AiContextTicketDto>>($"api/v1/ai/ops/tickets?organizationId={Uri.EscapeDataString(organization)}&q={Uri.EscapeDataString(ticketSearch)}") ?? [];
-            tickets = tickets.Where(x => ticketIds.Contains(x.Id)).Concat(found).DistinctBy(x => x.Id).ToList();
+            await LoadList(current);
+            if (value.Length > 0)
+            {
+                var loaded = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<AiPromptDto>>($"api/v1/ai/ops/prompts?organizationId={Uri.EscapeDataString(value)}") ?? [];
+                if (current != generation) return;
+                prompts = loaded.Where(x => !x.Archived).ToList();
+                await LoadTickets(current);
+            }
         }
-        catch (HttpRequestException) { error = "Unable to find tickets."; }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException) { if (current == generation) error = "Unable to load tickets and guidance for this organization. Refresh or select the organization again."; }
+        finally { if (current == generation) busy = false; }
+    }
+    private void StartCreate() { creating = true; error = null; }
+    private void CancelCreate() { creating = false; error = null; }
+    private async Task FindTickets()
+    {
+        if (busy || organization.Length == 0) return;
+        var current = generation; busy = true; error = null;
+        try { await LoadTickets(current); }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException) { if (current == generation) error = "Unable to find tickets. Your selected context is preserved."; }
+        finally { if (current == generation) busy = false; }
+    }
+    private async Task LoadTickets(int current)
+    {
+        var found = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<AiContextTicketDto>>($"api/v1/ai/ops/tickets?organizationId={Uri.EscapeDataString(organization)}&q={Uri.EscapeDataString(ticketSearch)}") ?? [];
+        if (current == generation) tickets = tickets.Where(x => ticketIds.Contains(x.Id)).Concat(found).DistinctBy(x => x.Id).ToList();
+    }
+    private void SelectTicket(string id, ChangeEventArgs args)
+    {
+        if (busy) return;
+        if (args.Value is true && tickets.Any(x => x.Id == id) && ticketIds.Count < 12) ticketIds.Add(id);
+        else if (args.Value is false) ticketIds.Remove(id);
+    }
+    private void SelectPrompt(Guid id, ChangeEventArgs args)
+    {
+        if (busy) return;
+        if (args.Value is true && prompts.Any(x => x.Id == id && !x.IsDefault) && promptIds.Count < 8) promptIds.Add(id);
+        else if (args.Value is false) promptIds.Remove(id);
+    }
+    private void ChatStateChanged(Guid id, ChatState state)
+    {
+        if (selected is not { } current || current.Id != id) return;
+        selected = current with { State = state };
+        investigations = investigations.Select(x => x.Id == id ? x with { State = state } : x).ToList();
     }
     private async Task Archive()
     {
-        busy = true;
+        if (busy || selected?.State != ChatState.Idle) return;
+        var current = generation;
+        var selectedId = selected.Id;
+        busy = true; error = null;
         try
         {
-            using var response = await Clients.CreateClient("SystemPairingApi").PostAsync($"api/v1/ai/ops/investigations/{selected!.Id}/archive", null);
+            using var response = await Clients.CreateClient("SystemPairingApi").PostAsync($"api/v1/ai/ops/investigations/{selectedId}/archive", null);
+            if (current != generation || selected?.Id != selectedId) return;
             if (!response.IsSuccessStatusCode) { error = "Reconcile the active or uncertain turn before archiving."; return; }
-            Navigation.NavigateTo("/ai/ops");
+            ChatStateChanged(selectedId, ChatState.Archived);
         }
-        catch (HttpRequestException) { error = "Archive could not be confirmed. Refresh to read its state before retrying."; }
-        finally { busy = false; }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException) { if (current == generation) error = "Archive could not be confirmed. Refresh to read its state before retrying."; }
+        finally { if (current == generation) busy = false; }
     }
     private async Task Create()
     {
+        if (busy || organization.Length == 0 || string.IsNullOrWhiteSpace(title) || ticketIds.Count == 0) return;
+        var current = generation;
         busy = true; error = null;
         try
         {
             using var response = await Clients.CreateClient("SystemPairingApi").PostAsJsonAsync("api/v1/ai/ops/investigations", new CreateAiInvestigationDto(creationId, organization, title, ticketIds.ToArray(), promptIds.ToArray()));
+            if (current != generation) return;
             if (!response.IsSuccessStatusCode) { error = "Unable to save context. Check ticket access, prompt revisions, PostgreSQL availability and context size. Your selections are preserved."; return; }
             var savedId = creationId;
-            creationId = Guid.NewGuid(); title = ""; ticketIds = []; promptIds = [];
+            creationId = Guid.NewGuid(); title = ""; ticketIds.Clear(); promptIds.Clear(); creating = false;
             Navigation.NavigateTo($"/ai/ops?id={savedId}");
         }
-        catch (HttpRequestException) { error = "Save could not be confirmed. Retry unchanged to reconcile the same investigation ID."; }
-        finally { busy = false; }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException) { if (current == generation) error = "Save could not be confirmed. Retry unchanged to reconcile the same investigation ID."; }
+        finally { if (current == generation) busy = false; }
     }
 }

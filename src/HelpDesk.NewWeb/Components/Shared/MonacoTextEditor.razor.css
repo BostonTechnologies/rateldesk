@@ -1,0 +1,16 @@
+.monaco-text-surface { display: flex; flex-direction: column; height: 100%; min-height: 24rem; border: 1px solid var(--mud-palette-lines-default); border-radius: 6px; overflow: hidden; background: var(--mud-palette-surface); }
+.monaco-text-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; padding: .4rem .6rem; border-bottom: 1px solid var(--mud-palette-lines-default); }
+.monaco-text-toolbar label { display: flex; align-items: center; gap: .45rem; font-size: .8rem; }
+.monaco-text-toolbar select, .monaco-text-toolbar button { color: var(--mud-palette-text-primary); background: var(--mud-palette-surface); border: 1px solid var(--mud-palette-lines-inputs); border-radius: 5px; padding: .35rem .5rem; font: inherit; }
+.monaco-text-toolbar button { margin-left: auto; cursor: pointer; }
+.monaco-text-toolbar :is(button, select):focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 2px; }
+.monaco-text-content { flex: 1; min-height: 20rem; display: flex; flex-direction: column; }
+.monaco-text-content ::deep .monaco-editor-container { height: 100%; min-height: 20rem; flex: 1; }
+.monaco-text-content textarea { flex: 1; min-height: 20rem; width: 100%; resize: vertical; padding: .8rem; border: 0; background: var(--mud-palette-surface); color: var(--mud-palette-text-primary); font: .9rem/1.6 ui-monospace, monospace; }
+.monaco-text-notice { color: var(--mud-palette-text-secondary); font-size: .85rem; padding: .8rem; }
+.monaco-text-surface.fullscreen { position: fixed; inset: 12px; z-index: 1600; height: calc(100dvh - 24px); box-shadow: 0 0 0 12px rgb(0 0 0 / 65%); }
+@media (max-width: 600px) {
+    .monaco-text-toolbar { gap: .4rem; }
+    .monaco-text-toolbar label { font-size: .75rem; }
+    .monaco-text-surface.fullscreen { inset: 4px; height: calc(100dvh - 8px); }
+}

@@ -4,7 +4,9 @@ using Helpdesk.API.Services.IntegrationCredentials;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Auth;
+using Helpdesk.Shared.DTOs.Auth;
 using Helpdesk.Shared.Services;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -111,6 +113,42 @@ public static class IntegrationCredentialEndpoints
             return await new IntegrationCredentialLifecycle(identityDb).DeleteOwnedAsync(owner.UserId, credentialId, ct)
                 ? Results.NoContent() : Results.NotFound();
         }).WithSummary("Revoke and permanently delete an integration credential");
+
+        var access = group.MapGroup("/{credentialId:guid}/access")
+            .RequireAuthorization(CredentialManagementPolicy)
+            .RequireRateLimiting("IntegrationPairing")
+            .AddEndpointFilter(async (context, next) =>
+            {
+                try { return await next(context); }
+                catch (CredentialGrantException error)
+                { return error.Errors is null ? Results.Forbid() : Results.ValidationProblem(error.Errors); }
+                catch (CredentialAccessException error)
+                { return Results.Json(new { message = error.Message }, statusCode: error.StatusCode); }
+            });
+
+        access.MapGet("", async (Guid credentialId, ClaimsPrincipal principal,
+            IIntegrationCredentialOwnerResolver ownerResolver, ICurrentUserAccessService accessService,
+            HelpdeskDbContext db, RatelDeskIdentityDbContext identityDb, IDataProtectionProvider protection,
+            TimeProvider clock, CancellationToken ct) =>
+            Results.Ok(await new IntegrationCredentialAccessService(ownerResolver, accessService, db, identityDb, protection, clock)
+                .GetAsync(credentialId, principal, ct)))
+            .WithSummary("Inspect configured credential access and current admission");
+
+        access.MapPost("/review", async (Guid credentialId, [FromBody] IntegrationCredentialAccessDraft? request,
+            ClaimsPrincipal principal, IIntegrationCredentialOwnerResolver ownerResolver, ICurrentUserAccessService accessService,
+            HelpdeskDbContext db, RatelDeskIdentityDbContext identityDb, IDataProtectionProvider protection,
+            TimeProvider clock, CancellationToken ct) =>
+            Results.Ok(await new IntegrationCredentialAccessService(ownerResolver, accessService, db, identityDb, protection, clock)
+                .ReviewAsync(credentialId, request, principal, ct)))
+            .WithSummary("Review an exact permission change for an existing credential");
+
+        access.MapPost("/apply", async (Guid credentialId, [FromBody] ApplyIntegrationCredentialAccess? request,
+            ClaimsPrincipal principal, IIntegrationCredentialOwnerResolver ownerResolver, ICurrentUserAccessService accessService,
+            HelpdeskDbContext db, RatelDeskIdentityDbContext identityDb, IDataProtectionProvider protection,
+            TimeProvider clock, CancellationToken ct) =>
+            Results.Ok(await new IntegrationCredentialAccessService(ownerResolver, accessService, db, identityDb, protection, clock)
+                .ApplyAsync(credentialId, request, principal, ct)))
+            .WithSummary("Apply the owner's reviewed credential permission change");
 
         app.MapPost("/api/v1/integration-credentials/self/revoke", async (
             ClaimsPrincipal principal,

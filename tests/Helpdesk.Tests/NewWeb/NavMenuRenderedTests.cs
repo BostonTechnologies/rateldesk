@@ -40,6 +40,23 @@ public sealed class NavMenuRenderedTests
         Assert.Contains("A very long account name for the customer support team", menu.Markup);
     }
 
+    [Theory]
+    [InlineData("HelpdeskAdmin")]
+    [InlineData("Tenant.Roles.Assign")]
+    public async Task Administration_is_rendered_below_the_user_and_above_logout_for_each_administrator_scope(string role)
+    {
+        await using var context = Context(role);
+        var menu = context.Render<NavMenu>();
+        // Inspect one rendered DOM snapshot. A nested component's bUnit query can
+        // return a different wrapper for the same element, so use DOM attributes/text.
+        var actions = menu.FindAll(".helpdesk-nav-account a[href],.helpdesk-nav-account button").ToList();
+        var account = actions.FindIndex(element => element.GetAttribute("href") == "auth");
+        var administration = actions.FindIndex(element => element.LocalName == "button" && element.TextContent.Trim() == "Administration");
+        var logout = actions.FindIndex(element => element.GetAttribute("href") == "/logout");
+        Assert.True(account >= 0 && account < administration, "The account link must precede Administration.");
+        Assert.True(administration < logout, "Administration must precede Logout.");
+    }
+
     [Fact]
     public void Ticket_categories_canonical_menu_destination_and_legacy_alias_both_resolve_to_a_routable_component()
     {
