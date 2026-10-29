@@ -1,5 +1,15 @@
 # Release notes
 
+## 0.1.2-beta.16 candidate
+
+[Legacy automation binding upgrade and login copy wrapping](0.1.2-beta.16.md)
+repair failures found during published-candidate acceptance.
+
+## 0.1.2-beta.15
+
+[Retained conversation index upgrade and campaign initialization](0.1.2-beta.15.md)
+cover installations that already completed the beta.14 migration chain.
+
 ## 0.1.2-beta.14 candidate
 
 [Campaign regression repairs](0.1.2-beta.14.md) cover eight defects reproduced
