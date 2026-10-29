@@ -134,13 +134,15 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // Reviewed credential access adds three interactive-session operations: inspect,
         // review an exact permission change, and apply the confirmed change.
         // Beta.14 adds one instance-administrator orphan attachment metadata deletion.
+        // Reviewed MCP setup adds options, atomic creation and delivery acknowledgement;
+        // policy management adds the named directory and revision-bound deletion preview.
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(440, operationCount);
+        Assert.Equal(445, operationCount);
 #else
-        Assert.Equal(439, operationCount);
+        Assert.Equal(444, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         foreach (var (path, operationId, tag) in new[]
@@ -214,7 +216,10 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
             ("/api/v1/integration-credentials/{credentialId}/record", "delete", "Integration Credentials", true),
             ("/api/v1/integration-credentials/{credentialId}/access", "get", "Integration Credentials", true),
             ("/api/v1/integration-credentials/{credentialId}/access/review", "post", "Integration Credentials", true),
-            ("/api/v1/integration-credentials/{credentialId}/access/apply", "post", "Integration Credentials", true)
+            ("/api/v1/integration-credentials/{credentialId}/access/apply", "post", "Integration Credentials", true),
+            ("/api/v1/integration-credentials/setup-options", "get", "Integration Credentials", true),
+            ("/api/v1/integration-credentials/setup", "post", "Integration Credentials", true),
+            ("/api/v1/integration-credentials/setup/{requestId}/acknowledge", "post", "Integration Credentials", true)
         };
         foreach (var (path, method, expectedTag, requiresSession) in selfServiceOperations)
         {
@@ -225,6 +230,23 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
                 ? new[] { "JwtBearer", "LocalSession", "McpExecution" }
                 : requiresSession ? ["JwtBearer", "LocalSession"] : [];
             Assert.Equal(expectedSecurity, SecuritySchemes(document, path, method));
+        }
+        var policyManagementOperations = new[]
+        {
+            ("/api/v1/admin/mcp-policies", "get"),
+            ("/api/v1/admin/mcp-policies/directory", "get"),
+            ("/api/v1/admin/mcp-policies/credentials", "get"),
+            ("/api/v1/admin/mcp-policies/{id}/audit", "get"),
+            ("/api/v1/admin/mcp-policies/preview", "post"),
+            ("/api/v1/admin/mcp-policies/{id}/delete/preview", "post"),
+            ("/api/v1/admin/mcp-policies/confirm", "post")
+        };
+        foreach (var (path, method) in policyManagementOperations)
+        {
+            Assert.True(paths.TryGetProperty(path, out var policyPath), $"Missing documented policy management path: {path}");
+            Assert.True(policyPath.TryGetProperty(method, out var policyOperation));
+            Assert.Equal(["MCP Policies"], policyOperation.GetProperty("tags").EnumerateArray().Select(tag => tag.GetString()).OfType<string>().ToArray());
+            Assert.Equal(["JwtBearer", "LocalSession"], SecuritySchemes(document, path, method));
         }
         var workspaceOperations = new[]
         {

@@ -157,6 +157,8 @@ public sealed class IntegrationCredentialAccessService(
         var basePolicy = definition?.Scopes.Single();
         var allowedByPolicy = policy is null ? null : basePolicy?.Permissions ?? (JsonSerializer.Deserialize<string[]>(policy.PermissionsJson) ?? []);
         var ownerAdministration = credential.Purpose == IntegrationCredentialGrantKinds.OwnerAdministrationPurpose;
+        if (ownerAdministration && policy is not null && string.IsNullOrEmpty(policy.DefinitionJson))
+            policySummary += " Owner administration requires an instance-administrator context. This legacy organization policy removes that context, so MCP execution is denied.";
         var policyActive = policy is null || policy.State == "Active" && policy.ExpiresUtc > Now.UtcDateTime &&
             (string.IsNullOrEmpty(policy.DefinitionJson) || basePolicy is { Effect: "Allow" } &&
                 basePolicy.ExpiresUtc > Now.UtcDateTime && definition!.Resource == credential.McpResourceUri);
