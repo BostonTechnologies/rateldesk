@@ -1,0 +1,9 @@
+.mcp-policy-summary h4 { font-size: 1rem; font-weight: 600; margin-bottom: .75rem; }
+.mcp-policy-summary p { font-size: .875rem; line-height: 1.6; margin-bottom: .5rem; overflow-wrap: anywhere; }
+.mcp-policy-summary details { border-top: 1px solid var(--mud-palette-lines-default); margin-top: .75rem; }
+.mcp-policy-summary summary { padding: .85rem .25rem; font-size: .9rem; cursor: pointer; }
+.mcp-policy-summary ul { max-height: 20rem; overflow-y: auto; columns: 2; padding-left: 1.4rem; font-size: .85rem; }
+.mcp-policy-summary li { break-inside: avoid; margin-bottom: .5rem; }
+.mcp-policy-summary small { display: block; color: var(--mud-palette-text-secondary); overflow-wrap: anywhere; }
+.mcp-policy-summary section { padding: .75rem; margin-bottom: .5rem; border-left: 3px solid var(--mud-palette-warning); background: var(--mud-palette-background-grey); }
+@media (max-width: 600px) { .mcp-policy-summary ul { columns: 1; } }

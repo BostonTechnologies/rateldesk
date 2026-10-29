@@ -35,6 +35,8 @@
     <ProjectReference Include="..\Helpdesk.Shared\Helpdesk.Shared.csproj" />
     <ProjectReference Include="..\Helpdesk.Infrastructure\Helpdesk.Infrastructure.csproj" />
     <ProjectReference Include="..\Helpdesk.Infrastructure.SqliteMigrations\Helpdesk.Infrastructure.SqliteMigrations.csproj" />
+    <ProjectReference Include="..\Helpdesk.Mcp.Core\Helpdesk.Mcp.Core.csproj" />
   </ItemGroup>
 
 </Project>
+

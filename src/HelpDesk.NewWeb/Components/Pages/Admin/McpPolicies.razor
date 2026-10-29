@@ -1,113 +1,419 @@
 @page "/admin/operator-policies"
 @attribute [Authorize(Roles = "HelpdeskAdmin")]
+@using System.Globalization
 @using Helpdesk.Shared.DTOs.McpPolicies
-@using Helpdesk.Shared.DTOs.Organization
 @using Helpdesk.Shared.Auth
 @inject IHttpClientFactory Clients
+@inject NavigationManager Navigation
 
 <PageTitle>MCP Policies</PageTitle>
-<MudStack Spacing="3">
-    <MudText Typo="Typo.h4">MCP Policies</MudText>
-    <MudText>Bound RatelDesk HTTP MCP credentials to an organization, permissions and expiry. Policies only narrow current account and credential authority. NetRatel agent execution policies are managed in NetRatel.</MudText>
-    <MudAlert Severity="Severity.Info">Manage a separate operator's credential. An expired, disabled or revoked policy denies that credential; it never restores broader access. Revocation is permanent.</MudAlert>
-    @if (error is not null) { <MudAlert Severity="Severity.Warning">@error</MudAlert> }
-    @foreach (var policy in policies)
+<MudPaper Class="helpdesk-content-surface pa-4" data-testid="mcp-policy-management">
+    <div class="policy-page-heading"><div><h1 class="helpdesk-page-title">MCP Policies</h1><p>Manage integration access and operation exceptions.</p></div><MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="New" Disabled="@(busy || loading || draftRetained)">New policy</MudButton></div>
+    @if (error is not null && !editing && preview is null) { <MudAlert Severity="Severity.Error" Class="mb-3">@error</MudAlert> }
+    @if (draftRetained)
+    { <MudAlert Severity="Severity.Info" Class="mb-3">Your policy draft is retained.<MudButton OnClick="ResumeEditor">Resume draft</MudButton><MudButton OnClick="DiscardDraft">Discard draft</MudButton></MudAlert> }
+    <div class="policy-filters">
+        <label>Search policies<input type="search" value="@search" @oninput="SearchChanged" placeholder="Integration, owner or organization" /></label>
+        <label>Status<select value="@filter" @onchange="FilterChangedAsync">@foreach (var value in new[] { "Active", "Disabled", "Revoked", "Deleted", "Expired", "All" }) { <option value="@value">@value</option> }</select></label>
+        <MudButton OnClick="LoadAsync" Disabled="@(loading || busy)">Refresh</MudButton>
+    </div>
+    @if (selectedPolicies.Count > 0)
     {
-        <MudPaper Class="pa-3" Outlined="true">
-            <MudText>@CredentialName(policy.CredentialId) · @policy.State · revision @policy.Revision · expires @policy.ExpiresUtc.ToString("u")</MudText>
-            <MudText>@policy.OrganizationId · @string.Join(", ", policy.Permissions)</MudText>
-            <MudButton OnClick="@(() => Edit(policy))" Disabled="@(busy || policy.State == "Revoked")">Replace / disable / revoke</MudButton>
-            <MudButton OnClick="@(() => Audit(policy.CredentialId))">Audit history</MudButton>
-        </MudPaper>
+        <div class="policy-bulk-selection"><span>@selectedPolicies.Count policies explicitly selected (maximum 50).</span><MudButton Color="Color.Error" OnClick="PreviewBulkDeleteAsync" Disabled="@(busy || draftRetained)">Delete selected</MudButton><MudButton OnClick="ClearPolicySelection" Disabled="@busy">Clear selection</MudButton></div>
     }
-    @if (audits.Count > 0)
+    @if (loading) { <MudProgressLinear Indeterminate="true" /> }
+    else
     {
-        <MudExpansionPanels><MudExpansionPanel Text="Immutable policy audit" Expanded="true">
-            @foreach (var audit in audits) { <MudText>Revision @audit.Revision · @audit.OccurredUtc.ToString("u") · actor @audit.Actor · receipt @audit.Id</MudText><pre style="white-space:pre-wrap">@audit.DefinitionJson</pre> }
-        </MudExpansionPanel></MudExpansionPanels>
+        <MudTable @ref="policyTable" Items="@VisiblePolicies" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" RowsPerPage="10">
+            <HeaderContent><MudTh>Select</MudTh><MudTh>Integration / owner</MudTh><MudTh>Scope / policy</MudTh><MudTh>Status</MudTh><MudTh>Expiry</MudTh><MudTh>Actions</MudTh></HeaderContent>
+            <RowTemplate Context="policy">
+                <MudTd DataLabel="Select">@if (policy.State != "Deleted") { <input type="checkbox" aria-label="@($"Select policy for {CredentialName(policy)}")" checked="@selectedPolicies.Contains(policy.CredentialId)" @onchange="args => SelectPolicy(policy, args)" disabled="@(busy || draftRetained)" /> }</MudTd>
+                <MudTd DataLabel="Integration / owner"><strong>@CredentialName(policy)</strong><small class="policy-secondary">@OwnerName(policy)</small><small class="policy-secondary">@policy.Resource</small></MudTd>
+                <MudTd DataLabel="Scope / policy">
+                    <strong>@ScopeName(policy)</strong><small class="policy-secondary">@(policy.Scopes.Length == 0 ? "Legacy permission ceiling" : policy.Scopes[0].Name)</small>
+                    <small class="policy-secondary">@(policy.Scopes.Length == 0 ? $"{policy.Permissions.Length} permissions" : $"{policy.Scopes[0].Operations.Length} operations · {policy.Scopes[0].Exceptions.Length} exceptions")</small>
+                    @if (policy.Scopes.SelectMany(x => x.Exceptions).Any())
+                    { <details class="policy-inline-exceptions"><summary>View exceptions</summary>@foreach (var exception in policy.Scopes.SelectMany(x => x.Exceptions)) { <p><strong>@exception.Name</strong><br />Deny @exception.Operations.Length operations</p> }</details> }
+                </MudTd>
+                <MudTd DataLabel="Status"><MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="@(DisplayState(policy) == "Active" ? Color.Success : Color.Default)">@DisplayState(policy)</MudChip><small class="policy-secondary">Revision @policy.Revision</small></MudTd>
+                <MudTd DataLabel="Expiry">@policy.ExpiresUtc.ToString("dd MMM yyyy HH:mm 'UTC'")</MudTd>
+                <MudTd DataLabel="Actions"><div class="policy-actions">
+                    @if (policy.State is "Active" or "Disabled")
+                    {
+                        <MudButton Size="Size.Small" OnClick="() => Edit(policy)" Disabled="@(busy || draftRetained)">Edit</MudButton>
+                        @if (policy.State == "Active") { <MudButton Size="Size.Small" OnClick="() => PreviewLifecycleAsync(policy, "Disabled")" Disabled="@(busy || draftRetained)">Disable</MudButton> }
+                        else { <MudButton Size="Size.Small" OnClick="() => PreviewLifecycleAsync(policy, "Active")" Disabled="@(busy || draftRetained)">Enable</MudButton> }
+                        <MudButton Size="Size.Small" Color="Color.Error" OnClick="() => PreviewLifecycleAsync(policy, "Revoked")" Disabled="@(busy || draftRetained)">Revoke</MudButton>
+                    }
+                    @if (policy.State != "Deleted") { <MudButton Size="Size.Small" Color="Color.Error" OnClick="() => PreviewDeleteAsync(policy)" Disabled="@(busy || draftRetained)">Delete</MudButton> }
+                    <MudButton Size="Size.Small" OnClick="() => AuditAsync(policy)" Disabled="@busy">History</MudButton>
+                </div></MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText Class="pa-4">No policies match this view. Use the status filter to view retired policies.</MudText></NoRecordsContent>
+            <PagerContent><MudTablePager PageSizeOptions="@([10, 25, 50])" /></PagerContent>
+        </MudTable>
     }
-    <MudButton OnClick="New" Disabled="busy">New policy</MudButton>
-    <MudSelect T="Guid" Label="Separate operator credential" @bind-Value="credentialId" Disabled="@(preview is not null || revision > 0)">
-        @foreach (var credential in credentials) { <MudSelectItem Value="@credential.Id">@credential.Name · owner @credential.Owner</MudSelectItem> }
-    </MudSelect>
-    <MudSelect T="string" Label="Organization" @bind-Value="organization" Disabled="@(preview is not null)">
-        @foreach (var org in organizations) { <MudSelectItem Value="@org.Id">@org.Name</MudSelectItem> }
-    </MudSelect>
-    <MudSelect T="string" Label="Permission ceiling" MultiSelection="true" @bind-SelectedValues="permissions" Disabled="@(preview is not null)">
-        @foreach (var permission in HelpdeskPermissions.AssignablePermissions) { <MudSelectItem Value="@permission">@permission</MudSelectItem> }
-    </MudSelect>
-    <MudDatePicker Label="Expiry date (UTC, start of day)" @bind-Date="expiry" Disabled="@(preview is not null)" />
-    <MudSelect T="string" Label="State" @bind-Value="state" Disabled="@(preview is not null)">
-        <MudSelectItem Value='@("Active")'>Active</MudSelectItem><MudSelectItem Value='@("Disabled")'>Disabled</MudSelectItem><MudSelectItem Value='@("Revoked")'>Revoked</MudSelectItem>
-    </MudSelect>
-    <MudButton OnClick="Preview" Disabled="@(busy || preview is not null || credentialId == Guid.Empty || expiry is null)">Preview exact policy</MudButton>
-    @if (preview is not null)
-    {
-        <MudAlert Severity="Severity.Warning">@preview.Effect</MudAlert>
-        <MudText>Credential @preview.Policy.CredentialId · organization @preview.Policy.OrganizationId · state @preview.Policy.State · expected revision @preview.Policy.ExpectedRevision</MudText>
-        <MudText>Permissions: @string.Join(", ", preview.Policy.Permissions) · expiry @preview.Policy.ExpiresUtc.ToString("u")</MudText>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Confirm" Disabled="busy">Confirm this policy</MudButton>
-        <MudButton OnClick="@(() => preview = null)" Disabled="busy">Back to edit</MudButton>
-    }
-</MudStack>
+</MudPaper>
+
+@if (editing)
+{
+    <CredentialReviewSurface Title="@(revision == 0 ? "New MCP policy" : "Edit MCP policy")" ExtraWide="true" OnClose="CloseEditor">
+        <h2>@(revision == 0 ? "New MCP policy" : "Edit MCP policy")</h2>
+        <div class="review-body">
+            @if (error is not null) { <MudAlert Severity="Severity.Error" Class="mb-3">@error</MudAlert> }
+            <div class="policy-identity-fields">
+                @if (revision == 0)
+                {
+                    <label class="policy-picker-search">Find integration<input type="search" value="@credentialSearch" @oninput="args => credentialSearch = args.Value?.ToString() ?? string.Empty" placeholder="Integration or owner name" /></label>
+                    <label class="policy-credential-select">Integration credential
+                        <select value="@credentialId" @onchange="CredentialSelectionChanged" disabled="@busy">
+                            <option value="@Guid.Empty">Select integration</option>
+                            @foreach (var credential in VisibleCredentials) { <option value="@credential.Id">@credential.Name · @(credential.OwnerName ?? credential.Owner)</option> }
+                        </select>
+                    </label>
+                }
+                else
+                { <div><strong>@EditingCredentialName</strong><p class="policy-secondary">@EditingOwnerName</p></div> }
+                <div><span class="policy-secondary">@(scope?.Scope == "server" ? "Server / instance" : "Organization")</span><strong>@EditingScopeName</strong></div>
+            </div>
+            @if (editingPolicy?.State == "Disabled")
+            { <p class="policy-note">This policy is disabled. Saving edits keeps it disabled; use Enable after reviewing its current bounds to restore policy admission.</p> }
+            @if (legacy)
+            {
+                <p class="policy-note">This policy retains its existing organization and permission ceiling. Saving an edit preserves that scope.</p>
+                <CredentialPermissionSelector EligiblePermissions="@HelpdeskPermissions.AssignablePermissions" SelectedValues="@legacyPermissions" SelectedValuesChanged="LegacyPermissionsChanged" Disabled="@busy" />
+                <MudTextField T="string" @bind-Value="legacyExpiry" Immediate="true" Label="Exact policy expiry (UTC)" Variant="Variant.Outlined" Disabled="@busy" />
+            }
+            else if (scope is not null)
+            {
+                <McpIntegrationPolicyEditor Value="@scope" ValueChanged="ScopeChanged" Operations="@directory.Operations" EligiblePermissions="@EditingPermissions" ScopeLabel="@EditingScopeName" CredentialExpiry="@EditingExpiry" Disabled="@busy" />
+            }
+            else
+            {
+                <p class="policy-note">@(directory.Credentials.Any(x => x.PolicyRevision is null) ? "Select an integration to configure its base policy." : "Every active integration already has a policy. Use Edit on its existing policy; a revoked or deleted policy requires another credential.")</p>
+            }
+        </div>
+        <footer><MudButton OnClick="CloseEditor" Disabled="@busy">Cancel</MudButton>@if (error is not null && revision > 0) { <MudButton OnClick="ReloadSavedPolicyAsync" Disabled="@busy">Discard draft and reload saved policy</MudButton> }<MudButton OnClick="PreviewAsync" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(busy || credentialId == Guid.Empty)">Review changes</MudButton></footer>
+    </CredentialReviewSurface>
+}
+else if (preview is not null)
+{
+    <CredentialReviewSurface Title="Review MCP policy" ExtraWide="true" OnClose="ClosePreview">
+        <h2>@(preview.Policy.State == "Deleted" ? "Delete policy" : preview.Policy.State == "Revoked" ? "Revoke policy" : previewFromEditor ? "Review policy changes" : preview.Policy.State == "Disabled" ? "Disable policy" : "Enable policy")</h2>
+        <div class="review-body">
+            @if (error is not null) { <MudAlert Severity="Severity.Error" Class="mb-3">@error</MudAlert> }
+            <section class="policy-review-card"><h3>@EditingCredentialName</h3><p>@EditingScopeName · revision @preview.Policy.ExpectedRevision</p><p>@preview.Effect</p></section>
+            @foreach (var item in preview.Policy.Scopes) { <McpIntegrationPolicySummary Policy="@item" Operations="@directory.Operations" /> }
+            @if (preview.Policy.Scopes.Length == 0) { <p>@string.Join(", ", preview.Policy.Permissions)</p><p>Expires @FormatUtc(preview.Policy.ExpiresUtc)</p> }
+            <MudCheckBox T="bool" @bind-Value="approved" Label="I have reviewed the exact policy changes and approve applying them." />
+        </div>
+        <footer><MudButton OnClick="ClosePreview" Disabled="@busy">Cancel</MudButton>@if (previewFromEditor) { <MudButton OnClick="BackToEdit" Disabled="@busy">Back to edit</MudButton> }@if (error is not null && revision > 0) { <MudButton OnClick="ReloadSavedPolicyAsync" Disabled="@busy">Discard review and reload saved policy</MudButton> }<MudButton Color="@(preview.Policy.State is "Deleted" or "Revoked" ? Color.Error : Color.Primary)" Variant="Variant.Filled" OnClick="ConfirmAsync" Disabled="@(busy || !approved)">@(busy ? "Applying…" : "Confirm changes")</MudButton></footer>
+    </CredentialReviewSurface>
+}
+@if (bulkReviews.Count > 0)
+{
+    <CredentialReviewSurface Title="Delete selected policies" ExtraWide="true" OnClose="CloseBulkReview">
+        <h2>Delete selected policies</h2>
+        <div class="review-body">
+            <p>Delete these @bulkReviews.Count reviewed policies and deny access through their credentials. Nested exceptions stop with their base policy. Audit history remains available.</p>
+            @if (bulkFailures.Count > 0) { <MudAlert Severity="Severity.Error">@string.Join("; ", bulkFailures)</MudAlert> }
+            <ul class="policy-bulk-review">@foreach (var review in bulkReviews)
+            { <li><strong>@BulkName(review.Policy.CredentialId)</strong><span>Revision @review.Policy.ExpectedRevision · @review.Policy.Scopes.Sum(x => x.Exceptions.Length) nested exceptions</span></li> }</ul>
+            <MudCheckBox T="bool" @bind-Value="bulkApproved" Label="I approve deletion of these exact reviewed policies." />
+        </div>
+        <footer><MudButton OnClick="CloseBulkReview" Disabled="@busy">Cancel</MudButton>@if (bulkFailures.Count > 0) { <MudButton OnClick="PreviewBulkDeleteAsync" Disabled="@busy">Refresh failed reviews</MudButton> }<MudButton Color="Color.Error" Variant="Variant.Filled" OnClick="ConfirmBulkDeleteAsync" Disabled="@(busy || !bulkApproved)">@(busy ? "Deleting…" : $"Delete {bulkReviews.Count} reviewed policies")</MudButton></footer>
+    </CredentialReviewSurface>
+}
+@if (auditPolicy is not null)
+{
+    <CredentialReviewSurface Title="Policy history" Wide="true" OnClose="CloseAudit">
+        <h2>Policy history · @CredentialName(auditPolicy)</h2>
+        <div class="review-body">
+            @if (audits.Count == 0) { <p>No audit entries are available.</p> }
+            @foreach (var audit in audits)
+            { <details class="policy-audit-entry"><summary>Revision @audit.Revision · @audit.OccurredUtc.ToString("dd MMM yyyy HH:mm:ss 'UTC'")</summary><p>Actor: @audit.Actor</p><p>Receipt: @audit.Id</p><pre>@audit.DefinitionJson</pre></details> }
+        </div>
+        <footer><MudButton OnClick="CloseAudit">Close</MudButton></footer>
+    </CredentialReviewSurface>
+}
+
 @code {
+    [SupplyParameterFromQuery(Name = "q")] public string? SearchQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "state")] public string? StateQuery { get; set; }
     private List<McpPolicyDto> policies = [];
-    private List<McpPolicyCredential> credentials = [];
-    private List<OrganizationDto> organizations = [];
+    private McpPolicyDirectory directory = new([], [], []);
     private List<McpPolicyAuditDto> audits = [];
+    private McpPolicyDto? auditPolicy, editingPolicy;
     private McpPolicyPreview? preview;
+    private McpPolicyScopeDraft? scope;
     private Guid credentialId;
-    private string organization = "", state = "Active";
-    private IReadOnlyCollection<string> permissions = [];
-    private DateTime? expiry = DateTime.UtcNow.Date.AddDays(1);
+    private string search = "", filter = "Active", credentialSearch = "", legacyExpiry = "";
+    private IReadOnlyCollection<string> legacyPermissions = [];
     private int revision;
-    private bool busy;
+    private bool busy, loading = true, editing, approved, legacy, loadedOnce, draftRetained, previewFromEditor;
+    private MudTable<McpPolicyDto>? policyTable;
+    private long loadRevision;
+    private HashSet<Guid> selectedPolicies = [];
+    private List<McpPolicyPreview> bulkReviews = [];
+    private readonly Dictionary<Guid, string> bulkNames = [];
+    private List<string> bulkFailures = [];
+    private List<string> bulkPreparationFailures = [];
+    private bool bulkApproved;
     private string? error;
-    protected override async Task OnInitializedAsync() => await Load();
-    private string CredentialName(Guid id) => credentials.FirstOrDefault(x => x.Id == id)?.Name ?? id.ToString();
-    private async Task Load()
+    private IEnumerable<McpPolicyDto> VisiblePolicies => policies.Where(x => (filter == "All" || DisplayState(x) == filter) &&
+        $"{CredentialName(x)} {OwnerName(x)} {ScopeName(x)} {string.Join(" ", x.Scopes.Select(s => s.Name))}".Contains(search.Trim(), StringComparison.OrdinalIgnoreCase));
+    private IEnumerable<McpPolicyCredential> VisibleCredentials => directory.Credentials.Where(x => x.PolicyRevision is null &&
+        (x.Id == credentialId || $"{x.Name} {x.OwnerName} {x.Owner}".Contains(credentialSearch.Trim(), StringComparison.OrdinalIgnoreCase)));
+    private McpPolicyCredential? EditingCredential => directory.Credentials.FirstOrDefault(x => x.Id == credentialId);
+    private string EditingCredentialName => EditingCredential?.Name ?? editingPolicy?.CredentialName ?? credentialId.ToString();
+    private string EditingOwnerName => EditingCredential?.OwnerName ?? editingPolicy?.OwnerName ?? EditingCredential?.Owner ?? "Unavailable owner";
+    private string EditingScopeName => scope?.Scope == "server" ? "Server / instance" : OrganizationName(scope?.OrganizationId ?? editingPolicy?.OrganizationId ?? EditingCredential?.OrganizationId);
+    private IReadOnlyCollection<string> EditingPermissions => EditingCredential?.Permissions ?? editingPolicy?.Permissions ?? [];
+    private DateTime EditingExpiry => EditingCredential?.ExpiresAtUtc.UtcDateTime ?? editingPolicy?.ExpiresUtc ?? DateTime.UtcNow;
+    protected override async Task OnParametersSetAsync()
     {
+        if (search != (SearchQuery ?? "")) policyTable?.NavigateTo(0);
+        search = SearchQuery ?? "";
+        var requestedFilter = StateQuery is "Disabled" or "Revoked" or "Deleted" or "Expired" or "All" ? StateQuery : "Active";
+        if (!loadedOnce || filter != requestedFilter)
+        {
+            filter = requestedFilter;
+            policyTable?.NavigateTo(0);
+            loadedOnce = true;
+            await LoadAsync();
+        }
+    }
+    private static string DisplayState(McpPolicyDto policy) => policy.State == "Active" && policy.ExpiresUtc <= DateTime.UtcNow ? "Expired" : policy.State;
+    private string CredentialName(McpPolicyDto policy) => policy.CredentialName ?? directory.Credentials.FirstOrDefault(x => x.Id == policy.CredentialId)?.Name ?? $"Unavailable integration ({policy.CredentialId:N})";
+    private string OwnerName(McpPolicyDto policy) => policy.OwnerName ?? directory.Credentials.FirstOrDefault(x => x.Id == policy.CredentialId)?.OwnerName ?? "Unavailable owner";
+    private string OrganizationName(string? id) => directory.Organizations.FirstOrDefault(x => x.Id == id)?.Name ?? editingPolicy?.OrganizationName ?? id ?? "No organization";
+    private string ScopeName(McpPolicyDto policy) => policy.Scopes.Any(x => x.Scope == "server") ? "Server / instance" : policy.OrganizationName ?? directory.Organizations.FirstOrDefault(x => x.Id == policy.OrganizationId)?.Name ?? policy.OrganizationId;
+    private async Task LoadAsync()
+    {
+        var generation = ++loadRevision;
+        loading = true;
         try
         {
             var api = Clients.CreateClient("HelpdeskApi");
-            policies = await api.GetFromJsonAsync<List<McpPolicyDto>>("api/v1/admin/mcp-policies") ?? [];
-            credentials = await api.GetFromJsonAsync<List<McpPolicyCredential>>("api/v1/admin/mcp-policies/credentials") ?? [];
-            organizations = await api.GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations") ?? [];
+            var rows = api.GetFromJsonAsync<List<McpPolicyDto>>("api/v1/admin/mcp-policies" + (filter == "Active" ? "" : "?includeRetired=true"));
+            var choices = api.GetFromJsonAsync<McpPolicyDirectory>("api/v1/admin/mcp-policies/directory");
+            await Task.WhenAll(rows, choices);
+            if (generation != loadRevision) return;
+            policies = await rows ?? [];
+            directory = await choices ?? new([], [], []);
         }
-        catch (HttpRequestException) { error = "Unable to read policy state. Use an interactive instance administrator account."; }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or System.Text.Json.JsonException)
+        { if (generation == loadRevision) error = "Policy state could not be loaded. Refresh using an interactive instance administrator session."; }
+        finally { if (generation == loadRevision) loading = false; }
     }
-    private void New() { credentialId = Guid.Empty; organization = ""; permissions = []; state = "Active"; revision = 0; preview = null; }
-    private void Edit(McpPolicyDto p) { credentialId = p.CredentialId; organization = p.OrganizationId; permissions = p.Permissions; state = p.State; revision = p.Revision; expiry = p.ExpiresUtc; preview = null; }
-    private async Task Audit(Guid id)
+    private void SearchChanged(ChangeEventArgs args) { search = args.Value?.ToString() ?? ""; selectedPolicies.Clear(); policyTable?.NavigateTo(0); SaveQuery(); }
+    private async Task FilterChangedAsync(ChangeEventArgs args) { filter = args.Value?.ToString() ?? "Active"; selectedPolicies.Clear(); policyTable?.NavigateTo(0); SaveQuery(); await LoadAsync(); }
+    private void SaveQuery() => Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(new Dictionary<string, object?> { ["q"] = string.IsNullOrWhiteSpace(search) ? null : search, ["state"] = filter == "Active" ? null : filter }), replace: true);
+    private void New() { if (draftRetained) { ResumeEditor(); return; } error = null; credentialId = Guid.Empty; revision = 0; scope = null; legacy = false; editingPolicy = null; preview = null; approved = false; editing = true; credentialSearch = ""; previewFromEditor = false; }
+    private void CredentialChanged(Guid id)
     {
-        try { audits = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<McpPolicyAuditDto>>($"api/v1/admin/mcp-policies/{id}/audit") ?? []; }
-        catch (HttpRequestException) { error = "Unable to load audit history."; }
+        credentialId = id;
+        var credential = EditingCredential;
+        if (credential is null) { scope = null; return; }
+        var server = credential.GrantKind == IntegrationCredentialGrantKinds.OwnerAdministration;
+        var suffix = $" · {(server ? "Server access" : OrganizationName(credential.OrganizationId))}";
+        if (suffix.Length > 100) suffix = " · Base policy";
+        var name = credential.Name[..Math.Min(credential.Name.Length, 128 - suffix.Length)] + suffix;
+        scope = new(name, server ? "server" : "organization",
+            server ? null : credential.OrganizationId, "Allow", credential.Permissions, directory.Operations.Select(x => x.Key).ToArray(), credential.ExpiresAtUtc.UtcDateTime, []);
     }
-    private async Task Preview()
+    private void CredentialSelectionChanged(ChangeEventArgs args) => CredentialChanged(Guid.TryParse(args.Value?.ToString(), out var id) ? id : Guid.Empty);
+    private void Edit(McpPolicyDto policy)
     {
-        busy = true; error = null;
+        error = null; editingPolicy = policy; credentialId = policy.CredentialId; revision = policy.Revision; legacy = policy.Scopes.Length == 0;
+        scope = policy.Scopes.FirstOrDefault(); legacyPermissions = policy.Permissions; legacyExpiry = FormatUtc(policy.ExpiresUtc);
+        preview = null; approved = false; editing = true;
+    }
+    private void ScopeChanged(McpPolicyScopeDraft value) => scope = value;
+    private void LegacyPermissionsChanged(IEnumerable<string> values) => legacyPermissions = values.ToArray();
+    private void CloseEditor() { if (busy) return; editing = false; draftRetained = credentialId != Guid.Empty; error = null; }
+    private void ClosePreview() { if (busy) return; preview = null; approved = false; draftRetained = previewFromEditor; error = null; }
+    private void ResumeEditor() { editing = true; draftRetained = false; error = null; }
+    private void DiscardDraft() { if (busy) return; draftRetained = false; editingPolicy = null; scope = null; credentialId = Guid.Empty; revision = 0; legacy = false; error = null; }
+    private void BackToEdit() { preview = null; editing = true; approved = false; error = null; }
+    private async Task ReloadSavedPolicyAsync()
+    {
+        if (busy || credentialId == Guid.Empty) return;
+        busy = true;
         try
         {
-            var draft = new McpPolicyDraft(credentialId, organization, permissions.Order(StringComparer.Ordinal).ToArray(), DateTime.SpecifyKind(expiry!.Value, DateTimeKind.Utc), revision, state);
+            var saved = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<McpPolicyDto>>("api/v1/admin/mcp-policies?includeRetired=true");
+            var current = saved?.SingleOrDefault(x => x.CredentialId == credentialId);
+            if (current is null) { error = "This policy is no longer available. Your draft is retained; inspect the policy list before replacing it."; return; }
+            preview = null; approved = false; draftRetained = false;
+            if (current.State is "Revoked" or "Deleted")
+            {
+                editing = false;
+                await LoadAsync();
+                error = $"The saved policy is {current.State.ToLowerInvariant()}. Its history is available through the status filter.";
+                return;
+            }
+            Edit(current);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or System.Text.Json.JsonException)
+        { error = "The saved policy could not be loaded. Your draft and review are retained; retry when the service is available."; }
+        finally { busy = false; }
+    }
+    private async Task AuditAsync(McpPolicyDto policy)
+    {
+        try { audits = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<McpPolicyAuditDto>>($"api/v1/admin/mcp-policies/{policy.CredentialId}/audit") ?? []; auditPolicy = policy; }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or System.Text.Json.JsonException) { error = "Policy history could not be loaded. Refresh and retry."; }
+    }
+    private void CloseAudit() => auditPolicy = null;
+    private McpPolicyDraft? Draft()
+    {
+        var state = editingPolicy?.State == "Disabled" ? "Disabled" : "Active";
+        if (legacy)
+        {
+            if (ParseUtc(legacyExpiry) is not { } expiry) { error = "Enter an exact UTC policy expiry."; return null; }
+            return new(credentialId, editingPolicy!.OrganizationId, legacyPermissions.Order(StringComparer.Ordinal).ToArray(), expiry, revision, state);
+        }
+        if (scope is null) return null;
+        return new(credentialId, EditingCredential?.OrganizationId ?? editingPolicy?.OrganizationId ?? "", scope.Permissions, scope.ExpiresUtc, revision, state) { Scopes = [scope] };
+    }
+    private async Task PreviewAsync()
+    {
+        var draft = Draft();
+        if (draft is null) return;
+        previewFromEditor = true;
+        await PreviewDraftAsync(draft);
+    }
+    private async Task PreviewLifecycleAsync(McpPolicyDto policy, string state)
+    {
+        if (busy || draftRetained) return;
+        Edit(policy); editing = false; previewFromEditor = false;
+        await PreviewDraftAsync(new(policy.CredentialId, policy.OrganizationId, policy.Permissions, policy.ExpiresUtc, policy.Revision, state) { Scopes = policy.Scopes });
+    }
+    private async Task PreviewDraftAsync(McpPolicyDraft draft)
+    {
+        busy = true; error = null; approved = false;
+        try
+        {
             using var response = await Clients.CreateClient("SystemPairingApi").PostAsJsonAsync("api/v1/admin/mcp-policies/preview", draft);
-            if (!response.IsSuccessStatusCode) { error = "Preview rejected. Check separate credential ownership, organization, revision and expiry within the credential lifetime."; return; }
-            preview = await response.Content.ReadFromJsonAsync<McpPolicyPreview>();
+            if (!response.IsSuccessStatusCode) { error = $"Review failed (HTTP {(int)response.StatusCode}). Check the current credential, scope, policy bounds and revision. Your draft is retained."; return; }
+            var reviewed = await response.Content.ReadFromJsonAsync<McpPolicyPreview>();
+            if (reviewed is null || reviewed.Policy.CredentialId != draft.CredentialId || reviewed.Policy.ExpectedRevision != draft.ExpectedRevision ||
+                reviewed.Policy.State != draft.State || string.IsNullOrWhiteSpace(reviewed.Confirmation))
+            { error = "Policy review returned no matching receipt. Your draft is retained; retry the review."; return; }
+            preview = reviewed;
+            editing = false;
         }
-        catch (HttpRequestException) { error = "Unable to preview policy. No policy was changed."; }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or System.Text.Json.JsonException) { error = "Policy review could not be loaded. Your draft is retained; retry the review."; }
         finally { busy = false; }
     }
-    private async Task Confirm()
+    private async Task PreviewDeleteAsync(McpPolicyDto policy)
     {
+        if (busy || draftRetained) return;
+        editingPolicy = policy; credentialId = policy.CredentialId; scope = policy.Scopes.FirstOrDefault(); revision = policy.Revision;
+        busy = true; error = null; approved = false; previewFromEditor = false;
+        try
+        {
+            using var response = await Clients.CreateClient("SystemPairingApi").PostAsJsonAsync($"api/v1/admin/mcp-policies/{policy.CredentialId}/delete/preview", new McpPolicyDeleteDraft(policy.Revision));
+            if (!response.IsSuccessStatusCode) { error = $"Delete review failed (HTTP {(int)response.StatusCode}). Refresh the policy and retry."; return; }
+            var reviewed = await response.Content.ReadFromJsonAsync<McpPolicyPreview>();
+            if (reviewed is null || reviewed.Policy.CredentialId != policy.CredentialId || reviewed.Policy.ExpectedRevision != policy.Revision ||
+                reviewed.Policy.State != "Deleted" || string.IsNullOrWhiteSpace(reviewed.Confirmation))
+            { error = "Delete review returned no matching receipt. Refresh the policy and retry."; return; }
+            preview = reviewed;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or System.Text.Json.JsonException) { error = "Delete review could not be loaded. No deletion was submitted."; }
+        finally { busy = false; }
+    }
+    private async Task ConfirmAsync()
+    {
+        if (busy || preview is null || !approved) return;
         busy = true; error = null;
         try
         {
-            using var response = await Clients.CreateClient("SystemPairingApi").PostAsJsonAsync("api/v1/admin/mcp-policies/confirm", new ConfirmMcpPolicy(preview!.Confirmation));
-            if (!response.IsSuccessStatusCode) { error = "Confirmation rejected or stale. Reload current policy and preview again."; return; }
+            using var response = await Clients.CreateClient("SystemPairingApi").PostAsJsonAsync("api/v1/admin/mcp-policies/confirm", new ConfirmMcpPolicy(preview.Confirmation));
+            if (!response.IsSuccessStatusCode) { error = $"Policy confirmation failed (HTTP {(int)response.StatusCode}). Refresh the current policy and review again."; return; }
             var saved = await response.Content.ReadFromJsonAsync<McpPolicyDto>();
-            if (saved is not null) Edit(saved);
-            preview = null; await Load(); await Audit(credentialId);
+            if (saved is null || saved.CredentialId != preview.Policy.CredentialId || saved.State != preview.Policy.State || saved.Revision != preview.Policy.ExpectedRevision + 1)
+            { error = "Policy confirmation returned no matching receipt. The review is retained; inspect history before retrying."; return; }
+            preview = null; approved = false; editing = false; draftRetained = false; await LoadAsync();
         }
-        catch (HttpRequestException) { error = "Confirmation could not be verified. Read the policy and audit before retrying."; await Load(); }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or System.Text.Json.JsonException)
+        { error = "The confirmation result could not be verified. The review is retained; refresh the policy history before retrying."; }
         finally { busy = false; }
     }
+    private void SelectPolicy(McpPolicyDto policy, ChangeEventArgs args)
+    {
+        if (busy || draftRetained || policy.State == "Deleted") return;
+        if (args.Value is true && selectedPolicies.Count < 50) selectedPolicies.Add(policy.CredentialId);
+        else selectedPolicies.Remove(policy.CredentialId);
+    }
+    private void ClearPolicySelection() { if (!busy) selectedPolicies.Clear(); }
+    private string BulkName(Guid id) => bulkNames.GetValueOrDefault(id, id.ToString());
+    private void CloseBulkReview() { if (busy) return; bulkReviews = []; bulkApproved = false; }
+    private async Task PreviewBulkDeleteAsync()
+    {
+        if (busy || draftRetained || selectedPolicies.Count == 0) return;
+        busy = true; bulkReviews = []; bulkFailures = []; bulkApproved = false; error = null;
+        using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        try
+        {
+            foreach (var id in selectedPolicies.Take(50).ToArray())
+            {
+                var policy = policies.FirstOrDefault(x => x.CredentialId == id);
+                if (policy is null || policy.State == "Deleted") { bulkFailures.Add($"{BulkName(id)}: refresh and inspect its current state before deletion."); continue; }
+                bulkNames[id] = CredentialName(policy);
+                try
+                {
+                    using var response = await Clients.CreateClient("SystemPairingApi").PostAsJsonAsync($"api/v1/admin/mcp-policies/{id}/delete/preview", new McpPolicyDeleteDraft(policy.Revision), deadline.Token);
+                    if (!response.IsSuccessStatusCode) { bulkFailures.Add($"{BulkName(id)}: review failed (HTTP {(int)response.StatusCode})."); continue; }
+                    var review = await response.Content.ReadFromJsonAsync<McpPolicyPreview>(deadline.Token);
+                    if (review is not null && review.Policy.CredentialId == id && review.Policy.ExpectedRevision == policy.Revision && review.Policy.State == "Deleted") bulkReviews.Add(review);
+                    else bulkFailures.Add($"{BulkName(id)}: no matching deletion review was returned.");
+                }
+                catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or System.Text.Json.JsonException)
+                { bulkFailures.Add($"{BulkName(id)}: review could not be loaded; selection retained."); if (deadline.IsCancellationRequested) break; }
+            }
+            bulkPreparationFailures = [.. bulkFailures];
+            if (bulkReviews.Count == 0 && bulkFailures.Count > 0) error = string.Join("; ", bulkFailures);
+        }
+        finally { busy = false; }
+    }
+    private async Task ConfirmBulkDeleteAsync()
+    {
+        if (busy || !bulkApproved || bulkReviews.Count == 0) return;
+        busy = true; bulkFailures = [.. bulkPreparationFailures];
+        var failed = new List<McpPolicyPreview>();
+        var pending = bulkReviews.ToArray();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        try
+        {
+            for (var index = 0; index < pending.Length; index++)
+            {
+                var review = pending[index];
+                var id = review.Policy.CredentialId;
+                try
+                {
+                    using var response = await Clients.CreateClient("SystemPairingApi").PostAsJsonAsync("api/v1/admin/mcp-policies/confirm", new ConfirmMcpPolicy(review.Confirmation), deadline.Token);
+                    if (!response.IsSuccessStatusCode) { failed.Add(review); bulkFailures.Add($"{BulkName(id)}: deletion failed (HTTP {(int)response.StatusCode}); selection retained."); continue; }
+                    var saved = await response.Content.ReadFromJsonAsync<McpPolicyDto>(deadline.Token);
+                    if (saved is null || saved.CredentialId != id || saved.State != "Deleted") { failed.Add(review); bulkFailures.Add($"{BulkName(id)}: deletion receipt could not be verified."); continue; }
+                    selectedPolicies.Remove(id);
+                }
+                catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or System.Text.Json.JsonException)
+                {
+                    failed.Add(review); bulkFailures.Add($"{BulkName(id)}: deletion could not be verified; the same review can be retried.");
+                    if (deadline.IsCancellationRequested) { failed.AddRange(pending.Skip(index + 1)); break; }
+                }
+            }
+            bulkReviews = failed;
+            bulkApproved = false;
+            await LoadAsync();
+            if (failed.Count == 0 && bulkFailures.Count > 0) error = string.Join("; ", bulkFailures);
+        }
+        finally { busy = false; }
+    }
+    private static DateTime? ParseUtc(string value) => DateTime.TryParseExact(value,
+        ["yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd'T'HH:mm:ss.FFFFFF'Z'"], CultureInfo.InvariantCulture,
+        DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed) ? parsed : null;
+    private static string FormatUtc(DateTime value) => value.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'Z'", CultureInfo.InvariantCulture);
 }

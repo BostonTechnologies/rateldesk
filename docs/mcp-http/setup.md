@@ -125,6 +125,76 @@ Native client setup/doctor needs no Compose feature upgrade. Client doctor
 success establishes client checks; host acceptance additionally requires source
 and runtime binding plus fresh host verification.
 
+## Create an integration in the browser
+
+Open **Integration → API & MCP credentials**
+(`/admin/integration?tab=credentials`) and choose **Create credential**.
+The existing `/account/integration-credentials` route opens the same page.
+For an **HTTP MCP gateway** connection, complete these five steps:
+
+1. **Connection** — enter the integration name, the exact public HTTPS MCP
+   resource and expiry. Use the same resource in the client configuration.
+   Expiry is an exact UTC instant, with up to six fractional-second digits;
+   **Use 30 days from this reference** selects 720 hours from the displayed
+   reference time.
+2. **Server access** — keep **Tenant access only**, or explicitly select
+   **Owner administration** if your current account is an instance
+   administrator. Ordinary credentials have no server-wide grant.
+3. **Tenant access** — select a named organization and its exact permissions for
+   an ordinary client. An owner-administration credential instead selects a
+   default organization context; its separately approved instance authority
+   covers all enabled organizations, including organizations created later.
+4. **Policies** — inspect the named base policy, its scope, selected catalog
+   operations and expiry. An ordinary credential has one organization base; an
+   explicitly approved owner credential has a **Server / instance** base.
+   Choose **All access** within the reviewed grants or **Read only**, then
+   narrow the selected operations if needed. Policy approval cannot add account
+   authority or turn an ordinary credential into owner administration.
+5. **Review & create** — check the grouped connection, server/tenant access and
+   policy summaries. Use the section's **Edit** action to correct a selection;
+   Back/Next preserves the draft. Explicitly approve the displayed result, then
+   create the integration and store its one-time secret in the client's
+   protected credential store.
+
+### Save or recover the secret delivery
+
+The HTTP MCP setup commits the credential, approved policy and protected
+handoff together. If policy persistence fails, the setup leaves no usable
+partial integration. A retry of the same approved draft can complete that
+setup after the error is resolved.
+
+Save the displayed secret and choose **I have saved it** before the displayed
+five-minute handoff deadline. This acknowledges delivery and removes the
+server's temporary encrypted copy. The saved credential then keeps its reviewed
+normal expiry; Details does not reveal its secret again.
+
+If creation times out or its response is interrupted, keep the same browser
+page and approved draft. Choose **Resume setup** or **Retry delivery** to recover
+the same credential and policy. The server binds that request to your account
+and approved content; retries do not create another integration. A failed
+acknowledgement keeps the displayed credential available for another **I have
+saved it** attempt.
+
+The browser does not store the secret or pending draft in persistent browser
+storage. Reloading or leaving the page does not provide cross-browser recovery.
+An unacknowledged handoff becomes unusable at its deadline. If the handoff has
+expired or the page was lost, inspect the integration list before starting a
+new reviewed setup. Previously acknowledged credentials retain their normal
+expiry and are unaffected.
+
+### API and ordinary organization scope
+
+API/CLI/stdio credentials use the same connection and access review with the
+Policies step omitted. Ordinary credentials remain single-organization; use a
+separate credential/profile for another organization. Owner administration
+requires its dedicated explicit consent and is never inferred from selecting
+all ordinary permissions.
+
+The final review distinguishes configured access from runtime connectivity.
+After storing the secret, verify the exact endpoint, MCP initialization and an
+allowed read using the client. A saved policy does not prove that the HTTP MCP
+endpoint or an external provider is available.
+
 ## Edit an existing credential's access
 
 Sign in as the account that owns the credential and open **Integration → API &
@@ -176,20 +246,59 @@ If a permission is no longer grantable, restore the required owner role through
 the existing administration workflow or explicitly remove that permission from
 the proposed credential grant set before reviewing again.
 
-RatelDesk MCP policies are optional additional ceilings on an HTTP MCP
-credential's organization, permissions and expiry. **No policy configured** means
-the current account and credential grants determine access; it does not mean a
-new policy must be created. When a policy exists, an added credential permission
-is still blocked unless the active, unexpired policy admits it. A disabled,
-expired or revoked policy denies access. An independent interactive Helpdesk
-administrator manages the exact credential's policy under **Administration →
-MCP Policies** (`/admin/operator-policies`) using **Preview exact policy → Confirm
-this policy**. A revoked policy cannot be restored. Refresh admission after the
-reviewed policy change; selecting credential checkboxes never broadens policy.
-Owner-administration execution requires its full instance-administrator context;
-applying a credential policy removes that context. Use an ordinary scoped
-credential for access bounded by a credential policy. Details reports this
-special grant's execution prerequisite when such a policy is present.
+The HTTP MCP creation wizard explicitly approves a base policy with the
+credential. The policy bounds its supported operations and expiry within the
+owner's current authority and the credential's reviewed grant. Existing
+credentials without a policy keep their established account/grant behavior;
+upgrading does not silently add or expand a policy.
+
+Three separate checks still apply: the owner's current durable authority, the
+credential's approved access, and the active policy's operation bounds. An added
+credential permission does not implicitly add an operation to a policy. A
+disabled, expired, revoked or deleted base policy denies access; retiring a
+policy never returns the credential to its former unconstrained state.
+
+An explicitly approved owner-administration base uses **Server / instance**
+scope. It retains the current instance-administrator context while the policy
+checks requested operations. The default organization is a context selection,
+not the boundary of that owner grant. Historical organization/permission ceiling
+policies retain their original restriction, including removal of the
+instance-administrator context; they are not silently converted into the new
+server policy model.
+
+### Manage policies and exceptions
+
+Open **Administration → MCP Policies** (`/admin/operator-policies`) as an
+interactive Helpdesk administrator. The default list shows active base policies;
+use the history/state filter to inspect retired records. Select integrations
+and organizations by name, and choose operations from the published catalog.
+An unresolved historical identity remains identifiable without being rebound to
+another account or organization.
+
+Use **Edit** to review a base policy's limits. Closing the editor retains the
+draft; choose **Resume draft** to continue or **Discard draft** to clear it.
+Add a nested **Deny** exception for selected operations within that base.
+Setting the base itself to **Deny** stops all access in its scope; use a nested
+exception when only particular operations should be blocked. The exception can
+narrow access; it cannot grant access beyond its parent or override a deny with
+a higher priority. Multiple MCP operation names can use the same API route; denying that
+route also blocks the other aliases so an alternate tool name cannot bypass
+the exception.
+
+**Disable**, **Revoke** and **Delete** require review of the exact policy
+revision. **Delete** removes the policy from normal inventory and future
+authorization while retaining a terminal tombstone and its audit history.
+Children cannot authorize access after their parent is retired or expires.
+Disabled policies can be enabled through a fresh review; revoked and deleted
+policies cannot be restored. Expired records are absent from Active inventory
+and remain available through the explicit history view.
+For bulk cleanup, review the selected records and affected counts; inspect each
+reported outcome before retrying a conflict or failed item. Refresh the
+credential's admission and verify an allowed read after changing a policy.
+
+Policy management is interactive account administration. A delegated MCP
+credential cannot change its own policy or mint a new delegation through these
+browser consent endpoints.
 
 The existing browser client-code review remains the way to approve a **new**
 client credential. Maintaining an existing credential uses the owner-reviewed
@@ -234,3 +343,4 @@ See [recovery](troubleshooting.md#recovery-and-rotation) and
 [migration](deployment.md#migration-persistence-and-rotation).
 
 Use [native CLI/stdio setup](../integrations/cli-stdio.md), [browser approval and recovery](../integrations/browser-pairing.md), or [NetClaw integration](../integrations/netclaw.md#connect-netclaw-to-rateldesk-with-http-mcp). The [configuration](configuration.md), [deployment](deployment.md) and [troubleshooting](troubleshooting.md) references cover advanced and external Authentik/OAuth deployments.
+
