@@ -190,6 +190,7 @@ public class HelpdeskDbContext(
         {
             entity.HasKey(x => x.CredentialId);
             entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.Property(x => x.DefinitionJson).HasDefaultValue("");
         });
         modelBuilder.Entity<Helpdesk.Infrastructure.McpPolicies.McpAccessPolicyAudit>(entity =>
         {
@@ -1010,3 +1011,4 @@ public class HelpdeskDbContext(
         }
     }
 }
+

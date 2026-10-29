@@ -32,6 +32,9 @@ public sealed class IntegrationCredentialDetailsTests
             .Add(x => x.Credential, api.Credential)
             .Add(x => x.OnAccessChanged, value => readbacks.Add(value)));
         view.Find("[data-testid=credential-edit-access]").Click();
+        Assert.Equal("Read incidents", PermissionChoice(view, "Incident.Read").QuerySelector("strong")!.TextContent.Trim());
+        Assert.Equal("Create and update incidents", PermissionChoice(view, "Incident.Write").QuerySelector("strong")!.TextContent.Trim());
+        Assert.Equal("Read requests", PermissionChoice(view, "Request.Read").QuerySelector("strong")!.TextContent.Trim());
         Assert.True(Checked(view, "Incident.Read"));
         Assert.True(Checked(view, "Request.Read"));
         Assert.False(Checked(view, "Incident.Write"));
@@ -238,8 +241,12 @@ public sealed class IntegrationCredentialDetailsTests
     private static IElement Button<T>(IRenderedComponent<T> view, string text) where T : IComponent =>
         Assert.Single(view.FindAll("button"), button => button.TextContent.Trim() == text);
 
+    // The canonical permission token is a stable identity; the adjacent heading
+    // intentionally presents the readable action rather than repeating that token.
+    private static IElement PermissionChoice(IRenderedComponent<Details> view, string name) =>
+        Assert.Single(view.FindAll(".permission-choice"), label => label.QuerySelector("small")?.TextContent.Trim() == name);
     private static IElement Permission(IRenderedComponent<Details> view, string name) =>
-        Assert.Single(view.FindAll(".permission-choice"), label => label.TextContent.Trim() == name).QuerySelector("input")!;
+        Assert.Single(PermissionChoice(view, name).QuerySelectorAll("input[type=checkbox]"));
     private static bool Checked(IRenderedComponent<Details> view, string name) => Permission(view, name).HasAttribute("checked");
     private static void Toggle(IRenderedComponent<Details> view, string name, bool value) => Permission(view, name).Change(value);
     private static HttpResponseMessage Json(object value, HttpStatusCode status = HttpStatusCode.OK) => new(status) { Content = JsonContent.Create(value) };
@@ -310,3 +317,4 @@ public sealed class IntegrationCredentialDetailsTests
         }
     }
 }
+

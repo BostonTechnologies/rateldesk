@@ -99,12 +99,23 @@ campaign result.
 ## Approve an agent to administer the instance
 
 An enabled persisted instance administrator can grant an HTTP MCP client owner
-authority through **Integration Credentials** or the existing browser-approved
-client pairing page. Select the HTTP MCP purpose, the exact canonical resource
-such as `https://rateldesk.example.test/mcp`, and **Owner administration across
-all organizations**. Review the agent, expiry and default organization, and
-explicitly select **I authorize this agent to administer the instance and all
-organizations on my behalf**. Ordinary scoped access remains the default.
+authority through **Integration → API & MCP credentials** or the existing
+browser-approved client pairing page. In the browser creation wizard, select
+the HTTP MCP purpose and exact canonical resource, such as
+`https://rateldesk.example.test/mcp`, under **Connection**. Choose **Owner
+administration** under **Server access**, then review
+the default organization under **Tenant access** and the proposed **Policies**.
+Under **Review & create**, review the agent, exact expiry and scope, and
+explicitly approve administration of the instance and all organizations on your
+behalf within the reviewed policy. Ordinary scoped access remains the default.
+See the [complete five-step browser workflow](setup.md#create-an-integration-in-the-browser).
+
+Manual HTTP MCP creation retains an account-bound encrypted delivery receipt
+for five minutes so the same approved setup can recover an interrupted response.
+Keep the API data-protection key ring stable across API restarts and replicas.
+The HTTP MCP host does not need that key ring or access to the application
+database. Saving the displayed secret and choosing **I have saved it** removes
+the temporary delivery; the credential keeps its separately reviewed expiry.
 
 The public creation/consent contract uses `purpose:"mcp"`,
 `grantKind:"owner-administration"` and `ownerAdministrationConsent:true`.
@@ -372,3 +383,4 @@ mapping from the complete deployment document; do not hand-edit the export.
 A gateway file needs only explicit `apiBaseUrl` and `credentialMode=gateway`;
 an external file retains its separate identity. Do not replace working API state
 or reset account/credential identities. See [setup, persistence and migration](deployment.md).
+

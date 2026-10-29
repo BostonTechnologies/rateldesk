@@ -4,6 +4,8 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Reflection;
 using System.Security.Claims;
+using System.Text.Json;
+using Helpdesk.Shared.DTOs.McpPolicies;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.HtmlRendering.Infrastructure;
@@ -127,6 +129,7 @@ public sealed class IntegrationCredentialManagementPageTests
         draft.GetType().GetProperty("Name")!.SetValue(draft, "uncertain synthetic create");
         draft.GetType().GetProperty("OrganizationId")!.SetValue(draft, "org-a");
         draft.GetType().GetProperty("Permissions")!.SetValue(draft, new HashSet<string> { "Incident.Read" });
+        typeof(Page).GetField("finalApproval", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(reference.Page, true);
         await InvokeAsync(renderer, reference.Page!, "CreateAsync");
         Assert.True(Field<bool>(reference.Page!, "creationUncertain"));
         Assert.False(Field<bool>(reference.Page!, "showCreate"));
@@ -137,6 +140,201 @@ public sealed class IntegrationCredentialManagementPageTests
         Assert.Equal(1, api.Creates);
         Assert.Equal(25, Rows(reference.Page!).Count);
         Assert.Contains("SystemPairingApi", api.ClientNames);
+    }
+
+    [Fact]
+    public async Task Mcp_wizard_uses_five_steps_and_preserves_organization_permission_drafts()
+    {
+        using var api = new Api();
+        await using var services = Services(api);
+        await using var renderer = new Renderer(services, services.GetRequiredService<ILoggerFactory>());
+        var reference = new Reference();
+        var view = await RenderAsync(renderer, reference);
+        await PrepareMcpAsync(renderer, reference.Page!);
+        Assert.Equal(1, Field<int>(reference.Page!, "createStep"));
+        await InvokeAsync(renderer, reference.Page!, "NextCreateStep");
+        Assert.Equal(2, Field<int>(reference.Page!, "createStep"));
+        await InvokeAsync(renderer, reference.Page!, "NextCreateStep");
+        Assert.Equal(3, Field<int>(reference.Page!, "createStep"));
+        await InvokeAsync(renderer, reference.Page!, "OnOrganizationChanged", "org-b");
+        await InvokeAsync(renderer, reference.Page!, "OnPermissionsChanged", (object)new[] { "Request.Read" });
+        await InvokeAsync(renderer, reference.Page!, "OnOrganizationChanged", "org-a");
+        var draft = Field<object>(reference.Page!, "draft");
+        Assert.Equal(["Incident.Read"], ((HashSet<string>)draft.GetType().GetProperty("Permissions")!.GetValue(draft)!).ToArray());
+        await InvokeAsync(renderer, reference.Page!, "NextCreateStep");
+        Assert.Equal(4, Field<int>(reference.Page!, "createStep"));
+        var policy = Field<McpPolicyScopeDraft>(reference.Page!, "basePolicy");
+        Assert.Equal("organization", policy.Scope);
+        Assert.Equal("org-a", policy.OrganizationId);
+        Assert.Equal(["Incident.Read"], policy.Permissions);
+        await InvokeAsync(renderer, reference.Page!, "NextCreateStep");
+        Assert.Equal(5, Field<int>(reference.Page!, "createStep"));
+        var html = await renderer.Dispatcher.InvokeAsync(view.ToHtmlString);
+        Assert.Contains("role=\"dialog\"", html);
+        Assert.Contains("Review &amp; create", html);
+        Assert.Contains("Edit policy", html);
+        Assert.Contains("No server access", html);
+        Assert.Empty(api.SetupBodies);
+        await InvokeAsync(renderer, reference.Page!, "CreateAsync");
+        Assert.Empty(api.SetupBodies);
+        Assert.Contains("approve", Field<string>(reference.Page!, "error"));
+    }
+
+    [Fact]
+    public async Task Switching_from_owner_administration_to_api_restores_the_ordinary_permission_draft()
+    {
+        using var api = new Api();
+        await using var services = Services(api);
+        await using var renderer = new Renderer(services, services.GetRequiredService<ILoggerFactory>());
+        var reference = new Reference();
+        await RenderAsync(renderer, reference);
+        await PrepareMcpAsync(renderer, reference.Page!);
+        await InvokeAsync(renderer, reference.Page!, "OnGrantKindChanged", "owner-administration");
+        await InvokeAsync(renderer, reference.Page!, "OnPurposeChanged", "api");
+        var draft = Field<object>(reference.Page!, "draft");
+        Assert.Equal("ordinary", draft.GetType().GetProperty("GrantKind")!.GetValue(draft));
+        Assert.Equal(["Incident.Read"], ((HashSet<string>)draft.GetType().GetProperty("Permissions")!.GetValue(draft)!).ToArray());
+        Assert.False((bool)draft.GetType().GetProperty("OwnerAdministrationConsent")!.GetValue(draft)!);
+    }
+
+    [Fact]
+    public async Task Policy_choice_failure_retains_connection_and_access_at_the_tenant_step()
+    {
+        using var api = new Api { FailSetupOptions = true };
+        await using var services = Services(api);
+        await using var renderer = new Renderer(services, services.GetRequiredService<ILoggerFactory>());
+        var reference = new Reference();
+        await RenderAsync(renderer, reference);
+        await PrepareMcpAsync(renderer, reference.Page!);
+        await InvokeAsync(renderer, reference.Page!, "NextCreateStep");
+        await InvokeAsync(renderer, reference.Page!, "NextCreateStep");
+        await InvokeAsync(renderer, reference.Page!, "NextCreateStep");
+        Assert.Equal(3, Field<int>(reference.Page!, "createStep"));
+        Assert.True(Field<bool>(reference.Page!, "showCreate"));
+        Assert.False(Field<bool>(reference.Page!, "saving"));
+        Assert.Contains("retained", Field<string>(reference.Page!, "error"));
+        api.FailSetupOptions = false;
+        await InvokeAsync(renderer, reference.Page!, "NextCreateStep");
+        Assert.Equal(4, Field<int>(reference.Page!, "createStep"));
+        Assert.Equal(["Incident.Read"], Field<McpPolicyScopeDraft>(reference.Page!, "basePolicy").Permissions);
+    }
+
+    [Fact]
+    public async Task Returning_to_a_scope_restores_its_reviewed_policy_instead_of_resetting_denials()
+    {
+        using var api = new Api();
+        await using var services = Services(api);
+        await using var renderer = new Renderer(services, services.GetRequiredService<ILoggerFactory>());
+        var reference = new Reference();
+        await RenderAsync(renderer, reference);
+        await PrepareMcpAsync(renderer, reference.Page!);
+        for (var step = 1; step < 4; step++) await InvokeAsync(renderer, reference.Page!, "NextCreateStep");
+        var original = Field<McpPolicyScopeDraft>(reference.Page!, "basePolicy") with { Name = "Reviewed restrictive base", Effect = "Deny" };
+        await InvokeAsync(renderer, reference.Page!, "BasePolicyChanged", original);
+        await InvokeAsync(renderer, reference.Page!, "EditCreateStep", 3);
+        await InvokeAsync(renderer, reference.Page!, "OnOrganizationChanged", "org-b");
+        await InvokeAsync(renderer, reference.Page!, "OnPermissionsChanged", (object)new[] { "Request.Read" });
+        await InvokeAsync(renderer, reference.Page!, "NextCreateStep");
+        Assert.Equal("org-b", Field<McpPolicyScopeDraft>(reference.Page!, "basePolicy").OrganizationId);
+        await InvokeAsync(renderer, reference.Page!, "EditCreateStep", 3);
+        await InvokeAsync(renderer, reference.Page!, "OnOrganizationChanged", "org-a");
+        await InvokeAsync(renderer, reference.Page!, "NextCreateStep");
+        var restored = Field<McpPolicyScopeDraft>(reference.Page!, "basePolicy");
+        Assert.Equal("Reviewed restrictive base", restored.Name);
+        Assert.Equal("Deny", restored.Effect);
+        Assert.Equal(original.Operations, restored.Operations);
+        Assert.Equal(original.ExpiresUtc, restored.ExpiresUtc);
+        Assert.Empty(api.SetupBodies);
+    }
+
+    [Fact]
+    public async Task Setup_delivery_retry_reuses_the_exact_approved_payload_and_saved_secret_requires_acknowledgement()
+    {
+        using var api = new Api { LoseFirstSetupResponse = true };
+        await using var services = Services(api);
+        await using var renderer = new Renderer(services, services.GetRequiredService<ILoggerFactory>());
+        var reference = new Reference();
+        await RenderAsync(renderer, reference);
+        await PrepareMcpAsync(renderer, reference.Page!);
+        for (var step = 1; step < 5; step++) await InvokeAsync(renderer, reference.Page!, "NextCreateStep");
+        typeof(Page).GetField("finalApproval", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(reference.Page, true);
+        await InvokeAsync(renderer, reference.Page!, "CreateAsync");
+        Assert.True(Field<bool>(reference.Page!, "showCreate"));
+        Assert.NotNull(Field<object?>(reference.Page!, "pendingSetup"));
+        Assert.False(Field<bool>(reference.Page!, "creationUncertain"));
+        await InvokeAsync(renderer, reference.Page!, "CreateAsync");
+        Assert.Equal(2, api.SetupBodies.Count);
+        Assert.Equal(api.SetupBodies[0], api.SetupBodies[1]);
+        using var payload = JsonDocument.Parse(api.SetupBodies[0]);
+        Assert.True(payload.RootElement.GetProperty("approved").GetBoolean());
+        Assert.Equal("org-a", payload.RootElement.GetProperty("policies")[0].GetProperty("organizationId").GetString());
+        Assert.False(Field<bool>(reference.Page!, "showCreate"));
+        Assert.NotNull(Field<object?>(reference.Page!, "created"));
+        Assert.Equal(0, api.Acknowledgements);
+        await InvokeAsync(renderer, reference.Page!, "ClearCreatedCredential");
+        Assert.Equal(1, api.Acknowledgements);
+        Assert.Null(Field<object?>(reference.Page!, "created"));
+    }
+
+    [Fact]
+    public async Task An_expired_local_draft_does_not_strand_the_original_setup_receipt_retry()
+    {
+        using var api = new Api { LoseFirstSetupResponse = true };
+        await using var services = Services(api);
+        await using var renderer = new Renderer(services, services.GetRequiredService<ILoggerFactory>());
+        var reference = new Reference();
+        await RenderAsync(renderer, reference);
+        await PrepareMcpAsync(renderer, reference.Page!);
+        for (var step = 1; step < 5; step++) await InvokeAsync(renderer, reference.Page!, "NextCreateStep");
+        typeof(Page).GetField("finalApproval", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(reference.Page, true);
+        await InvokeAsync(renderer, reference.Page!, "CreateAsync");
+        var originalRequest = Assert.Single(api.SetupBodies);
+        var draft = Field<object>(reference.Page!, "draft");
+        draft.GetType().GetProperty("ExpiresAtUtcText")!.SetValue(draft, "2000-01-01T00:00:00.000000Z");
+        typeof(Page).GetField("finalApproval", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(reference.Page, false);
+        api.TerminalSetupResponse = true;
+        await InvokeAsync(renderer, reference.Page!, "CreateAsync");
+        Assert.Equal(2, api.SetupBodies.Count);
+        Assert.Equal(originalRequest, api.SetupBodies[1]);
+        Assert.Null(Field<object?>(reference.Page!, "pendingSetup"));
+        Assert.Null(Field<object?>(reference.Page!, "created"));
+        Assert.False(Field<bool>(reference.Page!, "showCreate"));
+        Assert.Contains("no longer available", Field<string>(reference.Page!, "error"));
+        Assert.Equal(0, api.Creates);
+    }
+
+    [Fact]
+    public async Task A_delivery_for_another_resource_is_not_exposed_or_acknowledged()
+    {
+        using var api = new Api { WrongSetupResource = true };
+        await using var services = Services(api);
+        await using var renderer = new Renderer(services, services.GetRequiredService<ILoggerFactory>());
+        var reference = new Reference();
+        await RenderAsync(renderer, reference);
+        await PrepareMcpAsync(renderer, reference.Page!);
+        for (var step = 1; step < 5; step++) await InvokeAsync(renderer, reference.Page!, "NextCreateStep");
+        typeof(Page).GetField("finalApproval", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(reference.Page, true);
+        await InvokeAsync(renderer, reference.Page!, "CreateAsync");
+        Assert.Null(Field<object?>(reference.Page!, "created"));
+        Assert.NotNull(Field<object?>(reference.Page!, "pendingSetup"));
+        Assert.Equal(0, api.Acknowledgements);
+        Assert.Contains("matching credential delivery", Field<string>(reference.Page!, "error"));
+        api.WrongSetupResource = false;
+        await InvokeAsync(renderer, reference.Page!, "CreateAsync");
+        Assert.NotNull(Field<object?>(reference.Page!, "created"));
+        Assert.Equal(api.SetupBodies[0], api.SetupBodies[1]);
+        Assert.NotNull(Field<DateTimeOffset?>(reference.Page!, "deliveryExpiresAtUtc"));
+    }
+
+    private static async Task PrepareMcpAsync(Renderer renderer, Page page)
+    {
+        await InvokeAsync(renderer, page, "StartCreate");
+        await InvokeAsync(renderer, page, "OnPurposeChanged", "mcp");
+        var draft = Field<object>(page, "draft");
+        draft.GetType().GetProperty("Name")!.SetValue(draft, "Synthetic MCP integration");
+        draft.GetType().GetProperty("McpResourceUri")!.SetValue(draft, "https://desk.example/mcp");
+        await InvokeAsync(renderer, page, "OnOrganizationChanged", "org-a");
+        await InvokeAsync(renderer, page, "OnPermissionsChanged", (object)new[] { "Incident.Read" });
     }
 
     [Fact]
@@ -184,6 +382,12 @@ public sealed class IntegrationCredentialManagementPageTests
         public Guid? FailedDelete { get; set; }
         public bool MalformedCreate { get; set; }
         public bool ThrowCreate { get; set; }
+        public bool FailSetupOptions { get; set; }
+        public bool LoseFirstSetupResponse { get; set; }
+        public bool TerminalSetupResponse { get; set; }
+        public bool WrongSetupResource { get; set; }
+        public List<string> SetupBodies { get; } = [];
+        public int Acknowledgements { get; private set; }
         public Guid? TimeoutDelete { get; set; }
         public int Creates { get; private set; }
         public List<string> ClientNames { get; } = [];
@@ -196,8 +400,15 @@ public sealed class IntegrationCredentialManagementPageTests
             revokedAtUtc = i % 3 == 1 ? (DateTimeOffset?)DateTimeOffset.UtcNow.AddHours(-1) : null
         }).ToArray();
         public HttpClient CreateClient(string name) { ClientNames.Add(name); return new(this, false) { BaseAddress = new("https://desk.example/") }; }
+        private Task<HttpResponseMessage> HandleSetupAsync(HttpRequestMessage request, CancellationToken ct) => SetupResponseAsync(request, ct, SetupBodies, LoseFirstSetupResponse, TerminalSetupResponse, WrongSetupResource);
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            if (request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath.EndsWith("/setup-options"))
+                return Task.FromResult(new HttpResponseMessage(FailSetupOptions ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK)
+                { Content = JsonContent.Create(new { operations = new[] { new McpPolicyOperation("helpdesk_incidents.get", "incidents", "Read incident", "read"), new McpPolicyOperation("helpdesk_incidents.create", "incidents", "Create incident", "write") } }) });
+            if (request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath.EndsWith("/acknowledge"))
+            { Acknowledgements++; return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NoContent)); }
+            if (request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath.EndsWith("/setup")) return HandleSetupAsync(request, cancellationToken);
             if (request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath.EndsWith("/organizations"))
                 return Task.FromResult(new HttpResponseMessage(OrganizationStatus) { Content = JsonContent.Create(Array.Empty<object>()) });
             if (request.Method == HttpMethod.Get)
@@ -216,6 +427,24 @@ public sealed class IntegrationCredentialManagementPageTests
             return Task.FromResult(new HttpResponseMessage(id == FailedDelete ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.NoContent));
         }
     }
+    private static async Task<HttpResponseMessage> SetupResponseAsync(HttpRequestMessage request, CancellationToken ct, List<string> bodies, bool loseFirst, bool terminal, bool wrongResource)
+    {
+        var body = await request.Content!.ReadAsStringAsync(ct);
+        bodies.Add(body);
+        if (loseFirst && bodies.Count == 1) throw new HttpRequestException("Synthetic response loss after completed setup.");
+        if (terminal) return new(HttpStatusCode.Gone) { Content = JsonContent.Create(new { code = "setup_delivery_expired" }) };
+        using var payload = JsonDocument.Parse(body);
+        var credential = payload.RootElement.GetProperty("credential");
+        return new HttpResponseMessage(HttpStatusCode.Created)
+        {
+            Content = JsonContent.Create(new { requestId = payload.RootElement.GetProperty("requestId").GetGuid(), handoffExpiresAtUtc = DateTimeOffset.UtcNow.AddMinutes(5), credential = new
+            {
+                id = Guid.Parse("dd4c360e-0c63-4ec4-92ab-c44d5fbe231a"), prefix = "rdk_test", secret = "synthetic-once-only-test-value", purpose = "mcp", organizationId = "org-a",
+                permissions = new[] { "Incident.Read" }, expiresAtUtc = credential.GetProperty("expiresAtUtc").GetDateTimeOffset(), grantKind = "ordinary",
+                mcpResourceUri = wrongResource ? "https://other.example/mcp" : credential.GetProperty("mcpResourceUri").GetString()
+            } })
+        };
+    }
     private sealed class Renderer(IServiceProvider services, ILoggerFactory loggers) : StaticHtmlRenderer(services, loggers)
     { public async Task<HtmlRootComponent> RenderAsync<T>(ParameterView parameters) where T : IComponent { var root = BeginRenderingComponent(typeof(T), parameters); await root.QuiescenceTask; return root; } }
     public sealed class Reference { public Page? Page { get; set; } }
@@ -226,3 +455,4 @@ public sealed class IntegrationCredentialManagementPageTests
         { builder.OpenComponent<Page>(0); builder.AddComponentReferenceCapture(1, value => Reference.Page = (Page)value); builder.CloseComponent(); }
     }
 }
+

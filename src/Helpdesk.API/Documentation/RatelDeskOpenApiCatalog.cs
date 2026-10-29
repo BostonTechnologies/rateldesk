@@ -40,7 +40,7 @@ public static class RatelDeskOpenApiCatalog
         new("Customer Authentication", "Identity & Access", "Customer identity linking."),
         new("Users", "Identity & Access", "Application users and access."),
         new("Role Definitions", "Identity & Access", "Scoped application role definitions."),
-        new("MCP Policies", "Identity & Access", "Reviewed organization and permission ceilings for separate MCP credentials, with revisioned audit."),
+        new("MCP Policies", "Identity & Access", "Interactive administrator review of credential-scoped organization or server base policies, nested operation restrictions and revisioned audit."),
         new("Integration Credentials", "Identity & Access", "Revocable API credentials. Secrets are shown once."),
         new("Integration Credential Pairing", "Identity & Access", "Browser-approved account credential setup, device delivery and acknowledgement."),
         new("MCP Deployment Approval", "Identity & Access", "Administrator approval of an exact MCP host deployment proposal without issuing a credential."),
@@ -234,6 +234,8 @@ public static class RatelDeskOpenApiCatalog
         operation.Security = policies switch
         {
             _ when tag == "NetRatel Incident Receiver" => Requirements(document, IntegrationCredentialScheme, ServiceIdentityScheme),
+            // Policy management additionally rejects machine principals in its endpoint filter.
+            _ when tag == "MCP Policies" => Requirements(document, JwtBearerScheme, LocalSessionScheme),
             _ when policies.Contains(IntegrationCredentialEndpoints.CredentialManagementPolicy) => Requirements(document, JwtBearerScheme, LocalSessionScheme),
             _ when policies.Contains(ServiceIdentityServiceCollectionExtensions.ManagementPolicy) ||
                 policies.Contains(IntegrationCredentialEndpoints.OwnerManagementPolicy) => Requirements(document, JwtBearerScheme, LocalSessionScheme, McpExecutionScheme),

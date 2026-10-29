@@ -1,0 +1,151 @@
+@using System.Globalization
+@using Helpdesk.Shared.DTOs.McpPolicies
+@using Helpdesk.Shared.Auth
+
+<section class="mcp-policy-editor" data-testid="mcp-policy-editor">
+    <div class="policy-editor-heading"><h3>@ScopeLabel</h3><span class="policy-effect">@effect · Base policy</span></div>
+    <p class="policy-description">One base policy · @selectedOperations.Count selected catalog operations · @exceptions.Count exceptions</p>
+    <div class="policy-presets" aria-label="Policy presets">
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="AllAccessAsync" Disabled="@Disabled">All access</MudButton>
+        <MudButton Variant="Variant.Text" OnClick="ReadOnlyAsync" Disabled="@Disabled">Read only</MudButton>
+    </div>
+    <div class="policy-editor-fields">
+        <MudTextField T="string" Value="@name" ValueChanged="NameChangedAsync" Label="Base policy name" Immediate="true" Variant="Variant.Outlined" Disabled="@Disabled" MaxLength="128" />
+        <label class="policy-effect-select">Effect
+            <select value="@effect" @onchange="args => EffectChangedAsync(args.Value?.ToString() ?? string.Empty)" disabled="@Disabled">
+                <option value="Allow">Allow selected access</option><option value="Deny">Deny this scope</option>
+            </select>
+        </label>
+        <div>
+            <MudTextField T="string" Value="@expiryText" ValueChanged="ExpiryChangedAsync" Label="Exact policy expiry (UTC)" Immediate="true" Variant="Variant.Outlined" Disabled="@Disabled" Error="@(!ValidExpiry)" ErrorText="Use an exact UTC time within the credential lifetime." />
+            <p class="policy-description">Must be no later than @FormatUtc(CredentialExpiry).</p>
+        </div>
+    </div>
+    @if (effect == "Deny") { <p class="policy-description">This base policy denies the entire credential scope. Use nested operation exceptions under an Allow base to deny selected operations.</p> }
+    <details class="policy-expansion" open>
+        <summary>Operation families <span>@selectedOperations.Count selected</span></summary>
+        <p class="policy-description">Operation selections remain bounded by the credential's grants and the account's current authority.</p>
+        <div class="policy-family-grid">
+            @foreach (var family in Operations.GroupBy(x => x.Family).OrderBy(x => x.Key))
+            {
+                var keys = family.Select(x => x.Key).ToArray();
+                <label class="policy-family"><input type="checkbox" checked="@keys.All(selectedOperations.Contains)" @onchange="args => FamilyChangedAsync(keys, args)" disabled="@Disabled" /><span>@Friendly(family.Key)</span><small>@keys.Count(selectedOperations.Contains)/@keys.Length</small></label>
+            }
+        </div>
+    </details>
+    <details class="policy-expansion">
+        <summary>Inspect operation catalog</summary>
+        <label class="policy-search">Search operations<input type="search" value="@operationSearch" @oninput="args => operationSearch = args.Value?.ToString() ?? string.Empty" placeholder="Operation or family" /></label>
+        <div class="policy-operation-list">
+            @foreach (var operation in FilteredOperations)
+            {
+                <label class="policy-operation" @key="operation.Key"><input type="checkbox" checked="@selectedOperations.Contains(operation.Key)" @onchange="args => OperationChangedAsync(operation.Key, args)" disabled="@Disabled" /><span><strong>@operation.Name</strong><small>@operation.Key</small></span><span class="policy-operation-effect">@Friendly(operation.Effect)</span></label>
+            }
+            @foreach (var key in selectedOperations.Except(Operations.Select(x => x.Key), StringComparer.Ordinal))
+            { <label class="policy-operation"><input type="checkbox" checked="true" @onchange="args => OperationChangedAsync(key, args)" disabled="@Disabled" /><span>Unavailable operation<small>@key · remove to revise this policy</small></span></label> }
+        </div>
+        @if (FilteredOperations.Count == 0) { <p class="policy-description">No operations match this search.</p> }
+    </details>
+    @if (!EligiblePermissions.Contains(HelpdeskPermissions.HelpdeskAdmin))
+    {
+        <details class="policy-expansion"><summary>Permission ceiling <span>@permissions.Count selected</span></summary>
+            <CredentialPermissionSelector EligiblePermissions="@EligiblePermissions" SelectedValues="@permissions" SelectedValuesChanged="PermissionsChangedAsync" Disabled="@Disabled" />
+            @foreach (var permission in permissions.Except(EligiblePermissions, StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal))
+            { <label class="policy-unavailable-permission"><input type="checkbox" checked="true" @onchange="() => RemoveUnavailablePermissionAsync(permission)" disabled="@Disabled" /><span>@CredentialPermissionLabels.Name(permission)<small>@permission · no longer granted; remove to revise this policy</small></span></label> }
+        </details>
+    }
+    <details class="policy-expansion" open="@(exceptions.Count > 0)">
+        <summary>Operation exceptions <span>@exceptions.Count</span></summary>
+        <p class="policy-description">Add a narrower denial for selected operations. Exceptions cannot grant additional access or outlive this base policy. Operations that share the same API action are denied together.</p>
+        @for (var index = 0; index < exceptions.Count; index++)
+        {
+            var position = index;
+            var exception = exceptions[index];
+            <section class="policy-exception" @key="exception.Id">
+                <div class="policy-editor-heading"><strong>Exception @(index + 1) · Deny</strong><MudButton Size="Size.Small" Color="Color.Error" OnClick="() => RemoveExceptionAsync(position)" Disabled="@Disabled">Remove exception</MudButton></div>
+                <MudTextField T="string" Value="@exception.Name" ValueChanged="value => ExceptionNameChangedAsync(position, value)" Label="Exception name" Immediate="true" Variant="Variant.Outlined" Disabled="@Disabled" MaxLength="128" />
+                <div class="policy-exception-operations">
+                    @foreach (var operation in Operations.Where(x => selectedOperations.Contains(x.Key) || exception.Operations.Contains(x.Key)))
+                    { <label><input type="checkbox" checked="@exception.Operations.Contains(operation.Key)" @onchange="args => ExceptionOperationChangedAsync(position, operation.Key, args)" disabled="@Disabled" /> @operation.Name <small>@operation.Key@(!selectedOperations.Contains(operation.Key) ? " · outside base selection; remove or restore the base operation" : "")</small></label> }
+                    @foreach (var key in exception.Operations.Except(Operations.Select(x => x.Key), StringComparer.Ordinal))
+                    { <label><input type="checkbox" checked="true" @onchange="args => ExceptionOperationChangedAsync(position, key, args)" disabled="@Disabled" /> Unavailable operation <small>@key · remove to revise this exception</small></label> }
+                </div>
+                <MudTextField T="string" Value="@exception.ExpiryText" ValueChanged="value => ExceptionExpiryChangedAsync(position, value)" Label="Exception expiry (UTC)" Immediate="true" Variant="Variant.Outlined" Disabled="@Disabled" />
+            </section>
+        }
+        <MudButton StartIcon="@Icons.Material.Filled.Add" OnClick="AddExceptionAsync" Disabled="@(Disabled || selectedOperations.Count == 0 || exceptions.Count >= 100)">Add operation exception</MudButton>
+    </details>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public McpPolicyScopeDraft Value { get; set; } = default!;
+    [Parameter] public EventCallback<McpPolicyScopeDraft> ValueChanged { get; set; }
+    [Parameter] public IReadOnlyList<McpPolicyOperation> Operations { get; set; } = [];
+    [Parameter] public IReadOnlyCollection<string> EligiblePermissions { get; set; } = [];
+    [Parameter] public string ScopeLabel { get; set; } = "Organization";
+    [Parameter] public DateTime CredentialExpiry { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    private McpPolicyScopeDraft? loaded;
+    private string name = "", effect = "Allow", expiryText = "", operationSearch = "";
+    private HashSet<string> selectedOperations = new(StringComparer.Ordinal);
+    private HashSet<string> permissions = new(StringComparer.OrdinalIgnoreCase);
+    private List<ExceptionEditor> exceptions = [];
+    private IReadOnlyList<McpPolicyOperation> FilteredOperations => Operations.Where(x =>
+        $"{x.Name} {x.Key} {x.Family}".Contains(operationSearch.Trim(), StringComparison.OrdinalIgnoreCase)).ToArray();
+    private bool ValidExpiry => ParseUtc(expiryText) is { } expiry && expiry > DateTime.UtcNow && expiry <= CredentialExpiry;
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(loaded, Value)) return;
+        loaded = Value;
+        name = Value.Name; effect = Value.Effect; expiryText = FormatUtc(Value.ExpiresUtc);
+        selectedOperations = Value.Operations.ToHashSet(StringComparer.Ordinal);
+        permissions = Value.Permissions.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        exceptions = Value.Exceptions.Select(x => new ExceptionEditor { Name = x.Name, ExpiryText = FormatUtc(x.ExpiresUtc), Operations = x.Operations.ToHashSet(StringComparer.Ordinal) }).ToList();
+    }
+    private Task NameChangedAsync(string value) { name = value; return EmitAsync(); }
+    private Task EffectChangedAsync(string value) { effect = value; return EmitAsync(); }
+    private Task ExpiryChangedAsync(string value) { expiryText = value; return EmitAsync(); }
+    private Task AllAccessAsync() { selectedOperations = Operations.Select(x => x.Key).ToHashSet(StringComparer.Ordinal); permissions = EligiblePermissions.ToHashSet(StringComparer.OrdinalIgnoreCase); effect = "Allow"; PresetName("All access"); return EmitAsync(); }
+    private Task ReadOnlyAsync() { selectedOperations = Operations.Where(x => x.Effect == "read").Select(x => x.Key).ToHashSet(StringComparer.Ordinal); permissions = EligiblePermissions.ToHashSet(StringComparer.OrdinalIgnoreCase); effect = "Allow"; PresetName("Read only"); return EmitAsync(); }
+    private void PresetName(string preset)
+    {
+        if (name.EndsWith(" · All access", StringComparison.Ordinal) || name.EndsWith(" · Read only", StringComparison.Ordinal))
+            name = name[..name.LastIndexOf(" · ", StringComparison.Ordinal)] + " · " + preset;
+    }
+    private Task FamilyChangedAsync(string[] keys, ChangeEventArgs args) { if (args.Value is true) selectedOperations.UnionWith(keys); else selectedOperations.ExceptWith(keys); return EmitAsync(); }
+    private Task OperationChangedAsync(string key, ChangeEventArgs args) { if (args.Value is true) selectedOperations.Add(key); else selectedOperations.Remove(key); return EmitAsync(); }
+    private Task PermissionsChangedAsync(IEnumerable<string> values)
+    {
+        permissions = values.Union(permissions.Except(EligiblePermissions, StringComparer.OrdinalIgnoreCase), StringComparer.OrdinalIgnoreCase).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return EmitAsync();
+    }
+    private Task RemoveUnavailablePermissionAsync(string permission) { if (!Disabled) permissions.Remove(permission); return EmitAsync(); }
+    private Task AddExceptionAsync() { if (Disabled || exceptions.Count >= 100 || selectedOperations.Count == 0) return Task.CompletedTask; exceptions.Add(new() { Name = $"Operation exception {exceptions.Count + 1}", ExpiryText = expiryText }); return EmitAsync(); }
+    private Task RemoveExceptionAsync(int index) { exceptions.RemoveAt(index); return EmitAsync(); }
+    private Task ExceptionNameChangedAsync(int index, string value) { exceptions[index].Name = value; return EmitAsync(); }
+    private Task ExceptionExpiryChangedAsync(int index, string value) { exceptions[index].ExpiryText = value; return EmitAsync(); }
+    private Task ExceptionOperationChangedAsync(int index, string key, ChangeEventArgs args) { if (args.Value is true) exceptions[index].Operations.Add(key); else exceptions[index].Operations.Remove(key); return EmitAsync(); }
+    private Task EmitAsync()
+    {
+        if (Disabled) return Task.CompletedTask;
+        loaded = Value with
+        {
+            Name = name.Trim(), Effect = effect, ExpiresUtc = ParseUtc(expiryText) ?? DateTime.MinValue,
+            Permissions = permissions.Order(StringComparer.Ordinal).ToArray(), Operations = selectedOperations.Order(StringComparer.Ordinal).ToArray(),
+            Exceptions = exceptions.Select(x => new McpPolicyExceptionDraft(x.Name.Trim(), "Deny", x.Operations.Order(StringComparer.Ordinal).ToArray(), ParseUtc(x.ExpiryText) ?? DateTime.MinValue)).ToArray()
+        };
+        return ValueChanged.InvokeAsync(loaded);
+    }
+    private static DateTime? ParseUtc(string value) => DateTime.TryParseExact(value,
+        ["yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd'T'HH:mm:ss.FFFFFF'Z'"], CultureInfo.InvariantCulture,
+        DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed) ? parsed : null;
+    private static string FormatUtc(DateTime value) => value.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'Z'", CultureInfo.InvariantCulture);
+    private static string Friendly(string value) => value.Replace('_', ' ');
+    private sealed class ExceptionEditor
+    {
+        public Guid Id { get; } = Guid.NewGuid();
+        public string Name { get; set; } = "";
+        public string ExpiryText { get; set; } = "";
+        public HashSet<string> Operations { get; set; } = new(StringComparer.Ordinal);
+    }
+}

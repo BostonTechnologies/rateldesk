@@ -111,6 +111,12 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("DefinitionJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("");
+
                     b.Property<DateTime>("ExpiresUtc")
                         .HasColumnType("TEXT");
 
@@ -4859,3 +4865,4 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
         }
     }
 }
+

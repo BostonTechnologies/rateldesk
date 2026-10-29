@@ -66,10 +66,24 @@ the displayed recovery action.
 
 ## Credential management
 
+Manual browser creation starts with **Create credential** on the same
+integration page. HTTP MCP follows **Connection → Server access → Tenant access
+→ Policies → Review & create**; API/CLI/stdio omits Policies. Ordinary access
+stays in one organization. Instance-wide owner administration is a separate
+explicit Server access selection available to current instance administrators.
+The [five-step setup guide](../mcp-http/setup.md#create-an-integration-in-the-browser)
+describes policy review and the one-time secret handoff. This manual creation
+journey is separate from approving a pending client pairing code.
+
 The compact list has search, **All**, **Active**, **Revoked** and **Expired**
 filters/counts and bounded details. **Details** groups the connection resource,
 status and purpose, lifecycle timestamps, exact UTC expiry, configured access
-and current admission. The secret remains unrecoverable.
+and current admission. Details cannot reveal an existing secret. Manual HTTP
+MCP creation has a five-minute protected handoff: save the delivered secret and
+choose **I have saved it** before its displayed deadline. Same-draft delivery
+retries are described in the [setup recovery
+guide](../mcp-http/setup.md#save-or-recover-the-secret-delivery); client-code
+pairing retains its separate acknowledgement protocol below.
 
 For an active ordinary credential, choose **Configured access → Edit access**,
 change its same-organization permissions, then **Review changes → Apply access
@@ -206,3 +220,4 @@ local callback. Browser launch failure leaves the URL/code usable. Denial,
 expiry, bad URL and cancellation preserve previous profiles. Older deployments
 can use manual existing-credential/import or explicit external authentication;
 see [CLI/stdio profiles](cli-stdio.md) and [HTTP MCP setup](../mcp-http/deployment.md).
+

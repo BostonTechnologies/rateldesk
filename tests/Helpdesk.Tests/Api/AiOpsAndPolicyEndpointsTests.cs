@@ -28,12 +28,12 @@ using Testcontainers.PostgreSql;
 
 namespace Helpdesk.Tests.Api;
 
-public sealed class AiOpsAndPolicyEndpointsTests
+public sealed partial class AiOpsAndPolicyEndpointsTests
 {
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Policy_preview_confirm_replay_stale_self_and_revocation_are_enforced(bool postgres)
+    public async Task Policy_preview_confirm_replay_stale_owner_review_and_revocation_are_enforced(bool postgres)
     {
         await using var h = await Harness.Create(postgres);
         var draft = new McpPolicyDraft(h.Credential, "a", [HelpdeskPermissions.IncidentRead], DateTime.UtcNow.AddHours(1), 0, "Active");
@@ -56,7 +56,7 @@ public sealed class AiOpsAndPolicyEndpointsTests
         });
         Assert.Equal(HttpStatusCode.Conflict, (await h.Client.PostAsJsonAsync("/api/v1/admin/mcp-policies/preview", draft)).StatusCode);
         h.Client.DefaultRequestHeaders.Authorization = new("Test", "owner");
-        Assert.Equal(HttpStatusCode.Forbidden, (await h.Client.PostAsJsonAsync("/api/v1/admin/mcp-policies/preview", draft with { ExpectedRevision = 1 })).StatusCode);
+        (await h.Client.PostAsJsonAsync("/api/v1/admin/mcp-policies/preview", draft with { ExpectedRevision = 1 })).EnsureSuccessStatusCode();
         h.Client.DefaultRequestHeaders.Authorization = new("Test", "admin");
         var revoked = await h.Client.PostAsJsonAsync("/api/v1/admin/mcp-policies/preview", draft with { ExpectedRevision = 1, State = "Revoked" });
         revoked.EnsureSuccessStatusCode();
@@ -153,12 +153,13 @@ public sealed class AiOpsAndPolicyEndpointsTests
                 await db.SaveChangesAsync();
                 var identity = scope.ServiceProvider.GetRequiredService<RatelDeskIdentityDbContext>(); await identity.Database.EnsureCreatedAsync();
                 identity.Users.Add(new ApplicationUser { Id = "owner", UserName = "owner", IsEnabled = true });
-                identity.IntegrationCredentials.Add(new IntegrationCredential { Id = credential, OwnerUserId = "owner", Name = "Synthetic credential", Purpose = "mcp", OrganizationId = "a", ExpiresAtUtc = DateTimeOffset.UtcNow.AddDays(2), Permissions = HelpdeskPermissions.IncidentRead, SecretHash = "synthetic-nonsecret" }); await identity.SaveChangesAsync();
+                identity.IntegrationCredentials.Add(new IntegrationCredential { Id = credential, OwnerUserId = "owner", Name = "Synthetic credential", Purpose = "mcp", OrganizationId = "a", McpResourceUri = "https://helpdesk.example.test/mcp", ExpiresAtUtc = DateTimeOffset.UtcNow.AddDays(2), Permissions = HelpdeskPermissions.IncidentRead, SecretHash = "synthetic-nonsecret" }); await identity.SaveChangesAsync();
             }
             await app.StartAsync(); var client = app.GetTestClient(); client.DefaultRequestHeaders.Authorization = new("Test", "admin");
             return new(app, client, postgres, directory, access, credential);
         }
         public async Task WithDb(Func<HelpdeskDbContext, Task> action) { await using var scope = app.Services.CreateAsyncScope(); await action(scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>()); }
+        public async Task WithIdentity(Func<RatelDeskIdentityDbContext, Task> action) { await using var scope = app.Services.CreateAsyncScope(); await action(scope.ServiceProvider.GetRequiredService<RatelDeskIdentityDbContext>()); }
         public async ValueTask DisposeAsync() { client.Dispose(); await app.DisposeAsync(); if (postgres is not null) await postgres.DisposeAsync(); Directory.Delete(directory, true); }
     }
     private sealed class TestAuth(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder) : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
@@ -167,8 +168,11 @@ public sealed class AiOpsAndPolicyEndpointsTests
         {
             var actor = Request.Headers.Authorization.ToString().Split(' ').Last();
             var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, actor), new(ClaimTypes.Role, "HelpdeskAdmin") };
-            if (actor == "integration") claims.Add(new("auth_mode", "integration"));
+            if (actor is "integration" or "mcp" or "gateway" or "service" or "machine") claims.Add(new("auth_mode", actor));
+            if (actor == "service-purpose") claims.Add(new("token_use", "rateldesk_service"));
+            if (actor == "execution-purpose") claims.Add(new("token_use", "mcp_execution"));
             return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(new ClaimsIdentity(claims, Scheme.Name)), Scheme.Name)));
         }
     }
 }
+

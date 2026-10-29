@@ -14,7 +14,7 @@ namespace Helpdesk.API.Services.IntegrationCredentials;
 /// <summary>Credential authority: ordinary grants stay unchanged; browser pairing also has a narrow setup-only path.</summary>
 public sealed class IntegrationCredentialIssuer(
     IIntegrationCredentialOwnerResolver ownerResolver, ICurrentUserAccessService accessService,
-    HelpdeskDbContext db, RatelDeskIdentityDbContext identityDb)
+    HelpdeskDbContext db, RatelDeskIdentityDbContext identityDb, TimeProvider? clock = null)
 {
     public const string SetupVerificationPurpose = "mcp-setup";
     public static readonly TimeSpan SetupVerificationLifetime = TimeSpan.FromMinutes(5);
@@ -60,8 +60,13 @@ public sealed class IntegrationCredentialIssuer(
             throw new CredentialGrantException(null);
         if (request.LifetimeDays is < 1 or > MaximumLifetimeDays)
             throw Invalid("lifetimeDays", $"Lifetime must be between 1 and {MaximumLifetimeDays} days.");
+        var now = (clock ?? TimeProvider.System).GetUtcNow();
+        if (request.ExpiresAtUtc is { } exactExpiry &&
+            (exactExpiry.Offset != TimeSpan.Zero || exactExpiry <= now ||
+             exactExpiry > now.AddDays(MaximumLifetimeDays) || exactExpiry.Ticks % 10 != 0))
+            throw Invalid("expiresAtUtc", "Choose a future UTC expiry within 90 days, with at most six fractional second digits.");
         return new(owner.UserId, request.Name.Trim(), ownerAdministration ? IntegrationCredentialGrantKinds.OwnerAdministrationPurpose : purpose, organizationId!, permissions,
-            request.LifetimeDays ?? DefaultLifetimeDays, resource);
+            request.LifetimeDays ?? DefaultLifetimeDays, resource) { ExpiresAtUtc = request.ExpiresAtUtc };
     }
 
     // Only the pairing service invokes this path, after identifying the persisted setup attempt.
@@ -71,7 +76,7 @@ public sealed class IntegrationCredentialIssuer(
     {
         var owner = await ownerResolver.ResolveAsync(principal, ct);
         if (owner is null) throw new CredentialGrantException(null);
-        if (request.Purpose != SetupVerificationPurpose || request.Permissions is null || request.Permissions.Count != 0 || request.LifetimeDays is not null)
+        if (request.Purpose != SetupVerificationPurpose || request.Permissions is null || request.Permissions.Count != 0 || request.LifetimeDays is not null || request.ExpiresAtUtc is not null)
             throw Invalid("permissions", "Setup verification grants only authenticated status, with no business permissions or configurable lifetime.");
         var resource = CanonicalMcpResourceUri(request.McpResourceUri);
         if (resource is null) throw Invalid("mcpResourceUri", "Setup verification requires the reviewed HTTPS /mcp resource.");
@@ -96,7 +101,7 @@ public sealed class IntegrationCredentialIssuer(
             SecretHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(secret))),
             Purpose = grant.Purpose, McpResourceUri = grant.McpResourceUri, OrganizationId = grant.OrganizationId,
             Permissions = string.Join(' ', grant.Permissions.Order(StringComparer.OrdinalIgnoreCase)),
-            CreatedAtUtc = now, CreatedAtUnixMilliseconds = now.ToUnixTimeMilliseconds(), ExpiresAtUtc = grant.Purpose == SetupVerificationPurpose ? now.Add(SetupVerificationLifetime) : now.AddDays(grant.LifetimeDays)
+            CreatedAtUtc = now, CreatedAtUnixMilliseconds = now.ToUnixTimeMilliseconds(), ExpiresAtUtc = grant.Purpose == SetupVerificationPurpose ? now.Add(SetupVerificationLifetime) : grant.ExpiresAtUtc ?? now.AddDays(grant.LifetimeDays)
         };
         return (record, new(record.Id, record.Prefix, $"rdk_{id:N}_{secret}", record.Purpose is SetupVerificationPurpose or IntegrationCredentialGrantKinds.OwnerAdministrationPurpose ? "mcp" : record.Purpose,
             record.OrganizationId, grant.Permissions, record.ExpiresAtUtc)
@@ -121,8 +126,12 @@ public sealed class IntegrationCredentialIssuer(
 }
 
 public sealed record ValidatedCredentialGrant(string OwnerUserId, string Name, string Purpose, string OrganizationId,
-    IReadOnlyList<string> Permissions, int LifetimeDays, string? McpResourceUri);
+    IReadOnlyList<string> Permissions, int LifetimeDays, string? McpResourceUri)
+{
+    public DateTimeOffset? ExpiresAtUtc { get; init; }
+}
 public sealed class CredentialGrantException(Dictionary<string, string[]>? errors) : Exception("Credential grants were not accepted.")
 {
     public Dictionary<string, string[]>? Errors { get; } = errors;
 }
+

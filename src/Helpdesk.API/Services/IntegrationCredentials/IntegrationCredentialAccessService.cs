@@ -151,19 +151,27 @@ public sealed class IntegrationCredentialAccessService(
         if (policy is { State: "Active" } && policy.ExpiresUtc <= Now.UtcDateTime)
         {
             policyState = "Expired";
-            policySummary = $"MCP policy revision {policy.Revision} has expired. Access remains denied until an independent administrator updates the policy.";
+            policySummary = $"MCP policy revision {policy.Revision} has expired. Access remains denied until an authorized administrator updates the policy.";
         }
-        var allowedByPolicy = policy is null ? null : (JsonSerializer.Deserialize<string[]>(policy.PermissionsJson) ?? []);
+        var definition = policy is null ? null : McpPolicyDefinitionDocumentReader.Read(policy.DefinitionJson);
+        var basePolicy = definition?.Scopes.Single();
+        var allowedByPolicy = policy is null ? null : basePolicy?.Permissions ?? (JsonSerializer.Deserialize<string[]>(policy.PermissionsJson) ?? []);
         var ownerAdministration = credential.Purpose == IntegrationCredentialGrantKinds.OwnerAdministrationPurpose;
-        if (ownerAdministration && policy is not null)
-            policySummary += " Owner-administration execution requires an instance-administrator context, which a credential policy removes. Use an ordinary scoped credential for policy-constrained access.";
-        var active = credential.RevokedAtUtc is null && credential.ExpiresAtUtc > Now &&
-            // The execution authentication handler requires the full current administrator
-            // context for this special grant. Policy enforcement removes that context.
-            (ownerAdministration ? policy is null && access.IsHelpdeskAdmin && configured.SequenceEqual([HelpdeskPermissions.HelpdeskAdmin]) : organization?.IsEnabled == true);
+        if (ownerAdministration && policy is not null && string.IsNullOrEmpty(policy.DefinitionJson))
+            policySummary += " Owner administration requires an instance-administrator context. This legacy organization policy removes that context, so MCP execution is denied.";
+        var policyActive = policy is null || policy.State == "Active" && policy.ExpiresUtc > Now.UtcDateTime &&
+            (string.IsNullOrEmpty(policy.DefinitionJson) || basePolicy is { Effect: "Allow" } &&
+                basePolicy.ExpiresUtc > Now.UtcDateTime && definition!.Resource == credential.McpResourceUri);
+        if (basePolicy is not null)
+            policySummary += $" {basePolicy.Name}: {basePolicy.Operations.Length} selected operations and {basePolicy.Exceptions.Length} nested exceptions. Each request must also satisfy those operation rules.";
+        var scopeMatches = policy is null || (ownerAdministration
+            ? basePolicy is { Scope: "server", OrganizationId: null }
+            : (basePolicy?.Scope is null or "organization") && (basePolicy?.OrganizationId ?? policy.OrganizationId) == credential.OrganizationId);
+        var handoffUsable = await IntegrationCredentialSetupAuthorization.IsUsableAsync(identity, credential.Id, Now, ct);
+        var active = credential.RevokedAtUtc is null && credential.ExpiresAtUtc > Now && handoffUsable && policyActive && scopeMatches &&
+            (ownerAdministration ? access.IsHelpdeskAdmin && configured.SequenceEqual([HelpdeskPermissions.HelpdeskAdmin]) : organization?.IsEnabled == true);
         var effective = active ? configured.Where(permission => access.HasPermission(permission, credential.OrganizationId) &&
-            (policy is null || (policy.State == "Active" && policy.ExpiresUtc > Now.UtcDateTime &&
-                policy.OrganizationId == credential.OrganizationId && allowedByPolicy!.Contains(permission, StringComparer.OrdinalIgnoreCase)))).ToArray() : [];
+            (policy is null || allowedByPolicy!.Contains(permission, StringComparer.OrdinalIgnoreCase))).ToArray() : [];
         return new(credential.Id, credential.OrganizationId, organization?.Name, configured, available, effective,
             configured.Except(effective, StringComparer.OrdinalIgnoreCase).ToArray(), Version(credential), unavailable is null,
             unavailable, policyState, policySummary) { RevokedAtUtc = credential.RevokedAtUtc };
@@ -199,3 +207,4 @@ public sealed class CredentialAccessException(int statusCode, string message) : 
 {
     public int StatusCode { get; } = statusCode;
 }
+

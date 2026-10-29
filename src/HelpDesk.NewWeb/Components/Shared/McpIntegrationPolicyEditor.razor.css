@@ -1,0 +1,34 @@
+.mcp-policy-editor { border: 1px solid var(--mud-palette-lines-default); border-radius: 9px; padding: 1.25rem; }
+.policy-editor-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .75rem; }
+.policy-editor-heading h3 { font-size: 1.1rem; font-weight: 650; }
+.policy-effect { color: var(--mud-palette-primary); border: 1px solid var(--mud-palette-primary); padding: .25rem .75rem; border-radius: 999px; font-size: .8rem; }
+.policy-description { color: var(--mud-palette-text-secondary); font-size: .85rem; line-height: 1.6; margin-block: .5rem .85rem; }
+.policy-presets { display: flex; gap: .5rem; flex-wrap: wrap; margin: 1rem 0 1.5rem; }
+.policy-editor-fields { display: grid; grid-template-columns: 2fr 1fr; gap: 1.25rem; }
+.policy-effect-select { display: grid; align-content: start; gap: .4rem; font-size: .85rem; color: var(--mud-palette-text-secondary); }
+.policy-effect-select select { min-height: 3.5rem; width: 100%; border: 1px solid var(--mud-palette-lines-inputs); border-radius: 5px; padding: .75rem; background: var(--mud-palette-surface); color: var(--mud-palette-text-primary); font: inherit; font-size: 1rem; }
+.policy-effect-select select:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 3px; }
+.policy-unavailable-permission { display: flex; align-items: center; gap: .65rem; padding: .75rem; font-size: .85rem; }
+.policy-unavailable-permission small { display: block; color: var(--mud-palette-text-secondary); }
+.policy-family-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; }
+.policy-family { display: flex; align-items: center; gap: .5rem; padding: .65rem; border: 1px solid var(--mud-palette-lines-default); border-radius: 6px; cursor: pointer; font-size: .875rem; min-width: 0; }
+.policy-family span { overflow-wrap: anywhere; }
+.policy-family small { margin-left: auto; color: var(--mud-palette-text-secondary); }
+.policy-expansion { margin-top: 1rem; border-top: 1px solid var(--mud-palette-lines-default); }
+.policy-expansion summary { padding: 1rem .15rem; cursor: pointer; font-size: .95rem; font-weight: 500; }
+.policy-expansion summary span { margin-left: .75rem; color: var(--mud-palette-text-secondary); font-size: .8rem; }
+.policy-search { display: grid; gap: .35rem; font-size: .875rem; margin-bottom: .75rem; }
+.policy-search input { width: 100%; padding: .6rem; border: 1px solid var(--mud-palette-lines-inputs); border-radius: 5px; background: var(--mud-palette-surface); color: var(--mud-palette-text-primary); }
+.policy-operation-list { max-height: 24rem; overflow-y: auto; border: 1px solid var(--mud-palette-lines-default); border-radius: 6px; }
+.policy-operation { display: flex; align-items: center; gap: .65rem; padding: .65rem; border-bottom: 1px solid var(--mud-palette-lines-default); cursor: pointer; font-size: .875rem; }
+.policy-operation:last-child { border-bottom: 0; }
+.policy-operation strong { display: block; font-weight: 500; }
+.policy-operation small, .policy-exception small { display: block; color: var(--mud-palette-text-secondary); font-size: .75rem; overflow-wrap: anywhere; }
+.policy-operation-effect { margin-left: auto; white-space: nowrap; color: var(--mud-palette-text-secondary); font-size: .75rem; }
+.policy-exception { padding: 1rem; border: 1px solid var(--mud-palette-lines-default); border-left: 3px solid var(--mud-palette-warning); border-radius: 7px; margin-bottom: 1rem; }
+.policy-exception-operations { max-height: 15rem; overflow-y: auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; margin: 1rem 0; }
+.policy-exception-operations label { padding: .35rem; font-size: .85rem; }
+input[type="checkbox"] { accent-color: var(--mud-palette-primary); width: 1rem; height: 1rem; flex-shrink: 0; }
+input:focus-visible, summary:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 3px; }
+@media (max-width: 900px) { .policy-family-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) { .mcp-policy-editor { padding: .85rem; } .policy-editor-fields, .policy-family-grid, .policy-exception-operations { grid-template-columns: minmax(0, 1fr); } }
