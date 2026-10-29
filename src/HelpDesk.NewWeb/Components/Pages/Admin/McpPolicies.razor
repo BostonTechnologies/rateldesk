@@ -41,9 +41,9 @@
                     @if (policy.State is "Active" or "Disabled")
                     {
                         <MudButton Size="Size.Small" OnClick="() => Edit(policy)" Disabled="@(busy || draftRetained)">Edit</MudButton>
-                        @if (policy.State == "Active") { <MudButton Size="Size.Small" OnClick="() => PreviewLifecycleAsync(policy, "Disabled")" Disabled="@(busy || draftRetained)">Disable</MudButton> }
-                        else { <MudButton Size="Size.Small" OnClick="() => PreviewLifecycleAsync(policy, "Active")" Disabled="@(busy || draftRetained)">Enable</MudButton> }
-                        <MudButton Size="Size.Small" Color="Color.Error" OnClick="() => PreviewLifecycleAsync(policy, "Revoked")" Disabled="@(busy || draftRetained)">Revoke</MudButton>
+                        @if (policy.State == "Active") { <MudButton Size="Size.Small" OnClick='() => PreviewLifecycleAsync(policy, "Disabled")' Disabled="@(busy || draftRetained)">Disable</MudButton> }
+                        else { <MudButton Size="Size.Small" OnClick='() => PreviewLifecycleAsync(policy, "Active")' Disabled="@(busy || draftRetained)">Enable</MudButton> }
+                        <MudButton Size="Size.Small" Color="Color.Error" OnClick='() => PreviewLifecycleAsync(policy, "Revoked")' Disabled="@(busy || draftRetained)">Revoke</MudButton>
                     }
                     @if (policy.State != "Deleted") { <MudButton Size="Size.Small" Color="Color.Error" OnClick="() => PreviewDeleteAsync(policy)" Disabled="@(busy || draftRetained)">Delete</MudButton> }
                     <MudButton Size="Size.Small" OnClick="() => AuditAsync(policy)" Disabled="@busy">History</MudButton>
