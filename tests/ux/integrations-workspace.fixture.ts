@@ -158,20 +158,27 @@ test('manual credential organization selection ignores the native status filter 
  await open(page);
  await expect(page.getByRole('combobox', { name: 'Status', exact: true }).getByRole('option', { name: 'All (25)', exact: true })).toHaveCount(1);
  await page.getByTestId('integration-credential-create').click();
- await page.getByLabel('Name', { exact: true }).fill('Synthetic manual credential');
- await page.getByRole('button', { name: 'Choose access', exact: true }).click();
+ const integration = page.getByRole('dialog', { name: 'Create integration', exact: true });
+ await integration.getByLabel('Connection type', { exact: true }).selectOption('api');
+ await integration.getByLabel('Integration name', { exact: true }).fill('Synthetic manual credential');
+ await integration.getByRole('button', { name: 'Next', exact: true }).click();
+ await expect(integration.getByRole('heading', { name: 'Server access', exact: true })).toBeVisible();
+ await integration.getByRole('button', { name: 'Next', exact: true }).click();
  const organization = page.getByRole('combobox', { name: 'Organization', exact: true });
- await organization.click();
- await page.getByRole('listbox').getByRole('option', { name: 'Synthetic Beta', exact: true }).click();
- await expect(organization).toHaveText('Synthetic Beta');
+ await organization.selectOption({ label: 'Synthetic Beta' });
+ await expect(organization.locator('option:checked')).toHaveText('Synthetic Beta');
  const permissions = page.getByTestId('credential-permission-selector');
  await expect(permissions.getByRole('checkbox', { checked: true })).toHaveCount(0);
- await permissions.getByRole('checkbox', { name: 'Incident.User', exact: true }).check();
+ await permissions.getByRole('checkbox', { name: /Incident\.User$/ }).check();
  await expect(permissions.getByRole('checkbox', { checked: true })).toHaveCount(1);
- await page.getByRole('button', { name: 'Review credential', exact: true }).click();
- await expect(page.getByText('Organization: Synthetic Beta', { exact: true })).toBeVisible();
- await expect(page.getByText('Permissions: Incident User', { exact: true })).toBeVisible();
- await expect(page.getByRole('button', { name: 'Create and reveal', exact: true })).toBeEnabled();
+ await integration.getByRole('button', { name: 'Next', exact: true }).click();
+ await expect(integration.getByRole('heading', { name: 'Synthetic Beta', exact: true })).toBeVisible();
+ await expect(integration.getByText('No server access', { exact: true })).toBeVisible();
+ await integration.getByText('Selected permissions', { exact: true }).click();
+ await expect(integration.locator('.setup-permission-list li')).toHaveText(['Use incidents']);
+ await expect(integration.getByRole('button', { name: 'Create integration', exact: true })).toBeDisabled();
+ await integration.getByRole('checkbox', { name: 'I have reviewed this connection and its access, and approve creating the integration.', exact: true }).check();
+ await expect(integration.getByRole('button', { name: 'Create integration', exact: true })).toBeEnabled();
 });
 
 test('ordinary account cannot see host approval entry', async ({ page, request }) => {
