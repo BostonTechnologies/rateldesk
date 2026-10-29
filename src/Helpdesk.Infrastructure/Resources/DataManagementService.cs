@@ -5,7 +5,6 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Azure.Core;
-using Azure.Identity;
 using Helpdesk.Application.Resources;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Application.Services.AI;
@@ -27,7 +26,8 @@ public sealed class DataManagementService(
     IMemoryCache cache,
     ISecretProtector protector,
     IHttpClientFactory httpClientFactory,
-    ILogger<DataManagementService> logger) : IDataManagementService, IOperatorDatasetWriter
+    ILogger<DataManagementService> logger,
+    IGraphDatasetCredentialFactory? graphCredentials = null) : IDataManagementService, IOperatorDatasetWriter
 {
     private const string BoundLabelKey = "_boundLabels";
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -600,7 +600,7 @@ public sealed class DataManagementService(
                     new DatasetColumnDto { Name = "id", IsKey = true, DataType = DatasetColumnDataType.Text, SortOrder = 0 },
                     new DatasetColumnDto { Name = "displayName", IsDisplay = true, IsSearchable = true, DataType = DatasetColumnDataType.Text, SortOrder = 1 },
                     new DatasetColumnDto { Name = "webUrl", IsSearchable = true, DataType = DatasetColumnDataType.Text, SortOrder = 2 }
-                }, "https://graph.microsoft.com/v1.0/sites?$search=*", token, settings, x => x.LastSharePointSitesSyncUtc = DateTimeOffset.UtcNow, cancellationToken));
+                }, "https://graph.microsoft.com/v1.0/sites?search=*", token, settings, x => x.LastSharePointSitesSyncUtc = DateTimeOffset.UtcNow, cancellationToken));
             }
 
             settings.LastSyncStatus = "Succeeded";
@@ -752,7 +752,8 @@ public sealed class DataManagementService(
 
     private async Task<string> GetGraphAccessTokenAsync(string tenantId, string clientId, string clientSecret, CancellationToken cancellationToken)
     {
-        var credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
+        var credential = (graphCredentials ?? new ClientSecretGraphDatasetCredentialFactory())
+            .Create(tenantId, clientId, clientSecret);
         var token = await credential.GetTokenAsync(new TokenRequestContext(["https://graph.microsoft.com/.default"]), cancellationToken);
         return token.Token;
     }

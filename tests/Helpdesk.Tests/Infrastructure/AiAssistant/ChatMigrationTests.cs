@@ -21,8 +21,10 @@ public sealed class ChatMigrationTests : IAsyncLifetime
     public Task InitializeAsync() => postgres.StartAsync();
     public Task DisposeAsync() => postgres.DisposeAsync().AsTask();
 
-    [Fact]
-    public async Task ExistingDevMigrationBaselineUpgradesWithoutChangingWebhookData()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExistingDevMigrationBaselineUpgradesWithoutChangingWebhookData(bool snapshotIndexName)
     {
         var options = new DbContextOptionsBuilder<HelpdeskDbContext>()
             .UseNpgsql(postgres.GetConnectionString())
@@ -38,6 +40,13 @@ public sealed class ChatMigrationTests : IAsyncLifetime
         await db.SaveChangesAsync();
         var original = JsonSerializer.Serialize(await db.Set<AiAssistantWebhookConfiguration>().AsNoTracking().SingleAsync(x => x.Id == webhook.Id));
         await migrator.MigrateAsync("20260909063810_AddAiAssistantSignalRChat");
+        if (snapshotIndexName)
+        {
+            await db.Database.ExecuteSqlRawAsync("""
+                ALTER INDEX "IX_AiAssistantChatConversations_OrganizationId_TicketType_TicketId"
+                RENAME TO "IX_AiAssistantChatConversations_OrganizationId_TicketType_Tick~";
+                """);
+        }
         var legacyConversationId = Guid.NewGuid();
         await db.Database.ExecuteSqlInterpolatedAsync($"""
             INSERT INTO "AiAssistantChatConversations"

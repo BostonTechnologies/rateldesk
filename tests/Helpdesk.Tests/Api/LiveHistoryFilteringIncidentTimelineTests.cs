@@ -10,6 +10,29 @@ namespace Helpdesk.Tests.Api;
 
 public sealed partial class LiveHistoryFilteringEndpointsTests
 {
+    [Fact]
+    public async Task IncidentPeek_AllowsScopedReaderAndRejectsForeignAndAnonymousReaders()
+    {
+        var access = new CurrentUserAccessProfile(true, "Reader", null, "org-1", null, null, false,
+            new HashSet<string>(), new HashSet<string> { HelpdeskPermissions.IncidentRead },
+            new HashSet<string> { "org-1" }, new HashSet<string>())
+        { ScopedPermissionGrants = new HashSet<ScopedPermissionGrant> { new(HelpdeskPermissions.IncidentRead, "org-1") } };
+        await using var harness = await LiveHistoryFilteringHarness.CreateAsync(access,
+            storageOptions: new Helpdesk.Infrastructure.Storage.StorageOptions { PublicApiBaseUrl = "https://api.example.test" });
+        await harness.SeedAsync(db => db.Incidents.AddRange(
+            new Incident { Id = "peek-owned", TrackingId = "INC-PEEK-OWNED", Title = "Readable", OrganizationId = "org-1", OriginalEmailText = "Readable message" },
+            new Incident { Id = "peek-foreign", TrackingId = "INC-PEEK-FOREIGN", Title = "Foreign", OrganizationId = "org-2", OriginalEmailText = "Foreign message" }));
+        harness.Client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Test", "Incident.Read");
+        var response = await harness.Client.GetAsync("/api/v1/incidents/peek-owned/peek");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("Readable message", await response.Content.ReadAsStringAsync());
+        var foreign = await harness.Client.GetAsync("/api/v1/incidents/peek-foreign/peek");
+        Assert.Equal(HttpStatusCode.Forbidden, foreign.StatusCode);
+        Assert.DoesNotContain("Foreign message", await foreign.Content.ReadAsStringAsync());
+        harness.Client.DefaultRequestHeaders.Authorization = null;
+        Assert.Equal(HttpStatusCode.Unauthorized, (await harness.Client.GetAsync("/api/v1/incidents/peek-owned/peek")).StatusCode);
+    }
+
     [Theory]
     [InlineData("asc", "older", "newer")]
     [InlineData("desc", "newer", "older")]

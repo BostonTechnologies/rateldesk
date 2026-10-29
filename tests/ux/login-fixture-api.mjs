@@ -2,10 +2,32 @@
 import http from 'node:http';
 let logo = '/branding/rateldesk-mark.webp';
 let applicationName = 'RatelDesk';
+let publicViews = 0, publicTimelines = 0;
 const origin = 'http://127.0.0.1:18499';
 http.createServer((req, res) => {
   const url = new URL(req.url, origin);
   const reply = value => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(value)); };
+  if (url.pathname === '/fixture/public-stats') {
+    if (url.searchParams.has('reset')) { publicViews = 0; publicTimelines = 0; }
+    return reply({ publicViews, publicTimelines });
+  }
+  if (url.pathname.startsWith('/api/v1/tickets/public/')) {
+    if (req.headers.authorization || url.searchParams.get('token') !== 'signed-public-fixture'
+        || url.searchParams.get('email') !== 'customer@example.test') {
+      res.statusCode = 401; return reply({ error: 'Invalid fixture signature' });
+    }
+    if (url.pathname.endsWith('/view')) {
+      publicViews++;
+      return reply({ id: 'public-ui-fixture', trackingId: 'UX-PUBLIC', title: 'Signed public fixture ticket', state: 0 });
+    }
+    publicTimelines++;
+    return reply([
+      { id: '11111111-1111-4111-8111-111111111111', ticketId: 'public-ui-fixture', eventType: 0,
+        messageText: 'Public fixture worklog', recordedHours: 0.25, technicianName: 'Helpdesk', createdUtc: '2026-10-29T10:00:00Z' },
+      { id: '22222222-2222-4222-8222-222222222222', ticketId: 'public-ui-fixture', eventType: 7,
+        messageText: 'Internal fixture note must stay hidden', createdUtc: '2026-10-29T10:01:00Z' }
+    ]);
+  }
   if (url.pathname === '/fixture/branding') {
     logo = url.searchParams.get('logo') || '/branding/rateldesk-mark.webp';
     applicationName = url.searchParams.get('name') || 'RatelDesk';

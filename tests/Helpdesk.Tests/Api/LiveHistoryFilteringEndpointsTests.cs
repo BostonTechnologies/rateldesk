@@ -2027,6 +2027,8 @@ public sealed partial class LiveHistoryFilteringEndpointsTests
 
         protected override Task<AuthenticateResult> HandleAuthenticateAsync()
         {
+            if (!Request.Headers.ContainsKey("Authorization"))
+                return Task.FromResult(AuthenticateResult.NoResult());
             var role = "HelpdeskAdmin";
             if (Request.Headers.TryGetValue("Authorization", out var header))
             {

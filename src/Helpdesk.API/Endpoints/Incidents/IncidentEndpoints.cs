@@ -1145,11 +1145,17 @@ public static class IncidentEndpoints
         group.MapGet("/{id}/peek", async (
             string id,
             [FromServices] IRepository<Incident> repo,
+            [FromServices] ICurrentUserAccessService accessService,
             [FromServices] IImageLinkSigner imageLinkSigner,
-            [FromServices] IOptions<StorageOptions> storageOptions) =>
+            [FromServices] IOptions<StorageOptions> storageOptions,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
         {
             var inc = await repo.GetAsync(id);
             if (inc is null) return Results.NotFound();
+            var access = await accessService.ResolveAsync(user, cancellationToken);
+            if (!access.CanViewIncident(inc.OrganizationId, inc.CustomerId, inc.RequesterEmail))
+                return Results.Forbid();
 
             string html = IncidentInlineImageLinks.Refresh(
                 inc.OriginalEmailHtml ?? string.Empty,
@@ -1174,7 +1180,6 @@ public static class IncidentEndpoints
                 text
             ));
         })
-        .RequireAuthorization("HelpdeskAdmin")
         .WithName("IncidentPeek")
         .WithSummary("Get incident email preview")
         .WithDescription("Returns sanitized HTML and a text snippet for an incident.")

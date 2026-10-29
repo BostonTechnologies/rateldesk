@@ -2038,7 +2038,7 @@
                     ["height"] = model.Height,
                     ["depth"] = model.Depth
                 },
-                ["fields"] = JsonSerializer.SerializeToNode(FormFields, JsonOptions),
+                ["fields"] = JsonSerializer.SerializeToNode(FormFields.Select(RequestFormFieldEditorState.ForPersistence), JsonOptions),
                 ["tasks"] = JsonSerializer.SerializeToNode(Tasks, JsonOptions)
             };
 
@@ -2213,18 +2213,10 @@
     }
 
     private static FormField NormalizeFieldForEditor(FormField field)
-    {
-        if (field.DataBinding is not null)
-        {
-            field.Type = "helpdeskData";
-        }
-        field.PredefinedOptions ??= new List<string>();
-
-        return field;
-    }
+        => RequestFormFieldEditorState.ForEditor(field);
 
     private static bool IsHelpdeskDataField(FormField field)
-        => string.Equals(field.Type, "helpdeskData", StringComparison.OrdinalIgnoreCase);
+        => RequestFormFieldEditorState.SupportsDatasetBinding(field);
 
     private static bool IsPredefinedField(FormField field)
         => string.Equals(field.Type, "predefined", StringComparison.OrdinalIgnoreCase);

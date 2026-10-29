@@ -77,7 +77,11 @@ builder.Services.AddFormCraftMudBlazor();
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
+    .AddInteractiveServerComponents()
+    // A 16,000 UTF-16-unit composer value can exceed the default 32 KiB
+    // transport limit when JSON escapes Unicode. Keep this bounded while
+    // admitting the existing input limit without dropping the circuit.
+    .AddHubOptions(options => options.MaximumReceiveMessageSize = 128 * 1024);
 builder.Services.AddControllers();
 
 builder.Services.AddAntiforgery();
