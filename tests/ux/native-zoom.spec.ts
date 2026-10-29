@@ -39,6 +39,8 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
       viewport: { width, height: 1000 },
       args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`]
     });
+    context.setDefaultTimeout(15_000);
+    await context.tracing.start({ screenshots: true, snapshots: true, sources: false });
     try {
       await expect.poll(() => context.serviceWorkers().length, {
         message: 'The isolated native zoom extension service worker must become available before opening the application.'
@@ -97,6 +99,9 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
           expect(await review.evaluate(el => el.contains(document.activeElement))).toBe(true);
         }
         if (suite === 'integrations' && !route.includes('tab=connections')) {
+          // Keyboard traversal deliberately leaves the final Integration tab
+          // active. Restore the owning panel before exercising its consent flow.
+          await page.getByRole('tab', { name: 'API & MCP credentials', exact: true }).click();
           await page.getByLabel('Client code', { exact: true }).fill('ABCD-TEST');
           await page.getByRole('button', { name: 'Review client', exact: true }).click();
           const review = page.getByRole('dialog', { name: 'Connection consent', exact: true });
@@ -167,6 +172,7 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
           capture: 'physical viewport without CSS clip', captureWidth, captureHeight }), contentType: 'application/json' });
       }
     } finally {
+      await context.tracing.stop({ path: info.outputPath('native-zoom-trace.zip') });
       await context.close();
       await rm(profile, { recursive: true, force: true });
     }

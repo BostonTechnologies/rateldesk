@@ -10,6 +10,38 @@ namespace Helpdesk.Tests.Mcp;
 public sealed class TicketListClosedSchemaTests
 {
     [Theory]
+    [InlineData("helpdesk_incidents", "q")]
+    [InlineData("helpdesk_requests", "q")]
+    [InlineData("helpdesk_changes", "q")]
+    [InlineData("helpdesk_request_tasks", "q")]
+    [InlineData("helpdesk_incidents", "query")]
+    [InlineData("helpdesk_requests", "query")]
+    [InlineData("helpdesk_changes", "query")]
+    [InlineData("helpdesk_request_tasks", "query")]
+    public async Task Published_search_length_is_enforced_before_network_io(string tool, string alias)
+    {
+        var client = Substitute.For<IHelpdeskAgentClient>();
+        client.GetAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(new JsonObject());
+        var tools = new HelpdeskTools(client, new AgentClientConfigurationStore(Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".json")));
+        async Task<HelpdeskToolResponse> Call(int length)
+        {
+            var request = JsonSerializer.SerializeToElement(new Dictionary<string, string> { [alias] = new('x', length) });
+            return tool switch
+            {
+                "helpdesk_incidents" => await tools.helpdesk_incidents("list", request),
+                "helpdesk_requests" => await tools.helpdesk_requests("list", request),
+                "helpdesk_changes" => await tools.helpdesk_changes("list", request),
+                _ => await tools.helpdesk_request_tasks("list", request)
+            };
+        }
+        var rejected = await Call(201);
+        Assert.Equal("validation_failed", rejected.Status);
+        await client.DidNotReceive().GetAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+        Assert.True((await Call(200)).Success);
+        await client.Received(1).GetAsync(Arg.Any<string>(), true, Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
     [InlineData("helpdesk_incidents")]
     [InlineData("helpdesk_requests")]
     [InlineData("helpdesk_changes")]

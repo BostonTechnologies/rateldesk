@@ -29,7 +29,7 @@ using Microsoft.Extensions.Options;
 
 namespace Helpdesk.Tests.Api;
 
-public sealed class LocalAuthenticationEndpointsTests : IAsyncLifetime
+public sealed partial class LocalAuthenticationEndpointsTests : IAsyncLifetime
 {
     private readonly WebApplicationFactory<Program> _factory;
     private readonly InMemoryDatabaseRoot _applicationDatabaseRoot = new();

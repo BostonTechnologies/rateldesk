@@ -274,7 +274,11 @@ provider regressions do not establish deployed provider acceptance.
 ## Persistence and uncertainty
 
 Incident state updates reject undefined states before changing records,
-timestamps or effects. Task priorities use Low, Medium, High and Critical in MCP
+timestamps or effects. Legacy ticket-state enums accept their published names,
+defined integers and defined numeric strings (for example `"2"`); discovery
+lists those forms and the adapter normalizes them to API integers. This does
+not broaden the separate named priority or change-type contracts.
+Task priorities use Low, Medium, High and Critical in MCP
 create/update payloads; supported names normalize to defined numeric API enum
 values. Omitted priority retains the existing/default value. Explicit null,
 numeric strings and numbers are invalid MCP priority edits. Direct API optional

@@ -157,6 +157,30 @@ public sealed class McpExecutableSchemaTests
     }
 
     [Fact]
+    public void Change_updates_advertise_incomplete_drafts_and_reject_numeric_type_strings()
+    {
+        var schema = Schema("helpdesk_changes");
+        var arguments = new JsonObject
+        {
+            ["operation"] = "update",
+            ["request"] = new JsonObject { ["changeId"] = "change-one", ["changeType"] = "Normal", ["changeTemplate"] = new JsonObject { ["preChangeChecks"] = new JsonArray() } }
+        };
+        Assert.True(schema.Evaluate(arguments).IsValid);
+        arguments["request"]!["changeType"] = "2";
+        Assert.False(schema.Evaluate(arguments).IsValid);
+    }
+
+    [Fact]
+    public void Incident_state_discovery_preserves_defined_numeric_string_compatibility()
+    {
+        var schema = Schema("helpdesk_incidents");
+        var arguments = new JsonObject { ["operation"] = "state", ["request"] = new JsonObject { ["incidentId"] = "incident-one", ["newState"] = "2" } };
+        Assert.True(schema.Evaluate(arguments).IsValid);
+        arguments["request"]!["newState"] = "999";
+        Assert.False(schema.Evaluate(arguments).IsValid);
+    }
+
+    [Fact]
     public void Notification_and_category_identifiers_expose_the_actual_uuid_contract()
     {
         var options = new EvaluationOptions { RequireFormatValidation = true };

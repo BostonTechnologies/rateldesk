@@ -104,6 +104,13 @@ public sealed class TicketAdapterHttpTests
             return Task.CompletedTask;
         });
         var tools = Tools(h.Client, admin: true);
+        foreach (var length in new[] { 200, 201 })
+        {
+            using var direct = new HttpRequestMessage(HttpMethod.Get, "/api/v1/request-tasks/?q=" + new string('x', length));
+            direct.Headers.Add("X-Synthetic-Admin", "true");
+            using var response = await h.Client.SendAsync(direct);
+            Assert.Equal(length == 200 ? System.Net.HttpStatusCode.OK : System.Net.HttpStatusCode.BadRequest, response.StatusCode);
+        }
         foreach (var alias in new[] { "query", "q" })
         {
             var first = await tools.helpdesk_request_tasks("list", Request(new JsonObject { [alias] = "campaign-match-alpha", ["requestId"] = "search-parent", ["assignedToId"] = "support-user", ["serviceId"] = "search-service", ["status"] = "Pending", ["page"] = 1, ["pageSize"] = 2 }));

@@ -62,6 +62,9 @@ public static class RequestTaskEndpoints
                 return Results.Forbid();
             }
 
+            if (q?.Length > 200)
+                return Results.BadRequest(new { error = "Search is limited to 200 characters." });
+
             var effectivePage = Math.Max(page ?? 1, 1);
             var effectivePageSize = Math.Clamp(pageSize ?? 10, 1, 100);
             var shouldFilterAssignedToMe = assignedToMe ?? false;
