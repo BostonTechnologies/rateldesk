@@ -1,5 +1,14 @@
 # Releases
 
+## 0.1.2-beta.14 candidate — campaign regressions
+
+[Candidate notes](../release-notes/0.1.2-beta.14.md) describe scoped incident
+previews, resilient Integration and signed public pages, request field schemas,
+Unicode chat, Graph synchronization and predecessor database upgrades.
+Publication uses the existing exact-main CI and immutable release workflow;
+fresh deployed acceptance remains tracked by
+[#219](https://github.com/BostonTechnologies/RatelDesk/issues/219).
+
 ## 0.1.2-beta.13 candidate
 
 [Candidate notes](../release-notes/0.1.2-beta.13.md) cover consolidated Integration,
