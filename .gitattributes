@@ -1,0 +1,4 @@
+# Historical campaign requirements are checksummed as exact committed bytes.
+tools/ci/beta8-campaign-contract.json text eol=lf
+tools/ci/beta12-residual-fixtures.json text eol=lf
+tools/ci/beta10-operation-ids.json text eol=lf

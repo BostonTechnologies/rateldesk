@@ -1,5 +1,12 @@
 # Releases
 
+## 0.1.2-beta.15 candidate — retained index and campaign initialization
+
+[Candidate notes](../release-notes/0.1.2-beta.15.md) describe removal of the
+superseded legacy conversation index and current-catalog campaign initialization.
+The follow-up migration also repairs databases already upgraded to beta.14.
+Published beta.14 files remain unchanged; full deployed acceptance is separate.
+
 ## 0.1.2-beta.14 candidate — campaign regressions
 
 [Candidate notes](../release-notes/0.1.2-beta.14.md) describe scoped incident
