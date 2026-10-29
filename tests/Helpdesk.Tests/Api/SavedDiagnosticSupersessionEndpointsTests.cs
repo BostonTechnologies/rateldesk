@@ -47,7 +47,7 @@ public sealed class SavedDiagnosticSupersessionEndpointsTests
                 container = new PostgreSqlBuilder("postgres:16").Build();
                 await container.StartAsync();
             }
-            var connectionString = postgres ? container!.GetConnectionString() : $"Data Source={databasePath}";
+            var connectionString = postgres ? container!.GetConnectionString() : $"Data Source={databasePath};Pooling=False";
             var optionsBuilder = new DbContextOptionsBuilder<HelpdeskDbContext>();
             if (postgres) optionsBuilder.UseNpgsql(connectionString);
             else optionsBuilder.UseSqlite(connectionString);

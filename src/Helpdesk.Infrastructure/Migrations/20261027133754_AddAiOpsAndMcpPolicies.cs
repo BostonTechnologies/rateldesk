@@ -12,11 +12,13 @@ namespace Helpdesk.Infrastructure.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             // The original hand-authored migration used this long identifier.
-            // PostgreSQL truncates it at 63 bytes; its name differs from EF's
-            // later tilde-suffixed snapshot convention.
-            migrationBuilder.DropIndex(
-                name: "IX_AiAssistantChatConversations_OrganizationId_TicketType_TicketId",
-                table: "AiAssistantChatConversations");
+            // PostgreSQL truncates it at 63 bytes. Retained databases also
+            // contain EF's later tilde-suffixed snapshot convention; either
+            // predecessor must be removed before installing the new filter.
+            migrationBuilder.Sql("""
+                DROP INDEX IF EXISTS "IX_AiAssistantChatConversations_OrganizationId_TicketType_TicketId";
+                DROP INDEX IF EXISTS "IX_AiAssistantChatConversations_OrganizationId_TicketType_Tick~";
+                """);
 
             migrationBuilder.AddColumn<bool>(
                 name: "IsInvestigation",

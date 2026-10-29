@@ -88,7 +88,7 @@ public partial class IncidentCcRecipientsEndpointsTests
     }
 
     [Fact]
-    public async Task Peek_DoesNotBroadenExistingAdministrativeAccess()
+    public async Task Peek_RejectsReaderWithoutTicketOrganizationAccess()
     {
         await _incidentRepo.CreateAsync(new Incident { Id = "inc-private-preview", Title = "Synthetic", TrackingId = "UX-164", OriginalEmailText = "Restricted content" });
         using var client = _factory.CreateClient();

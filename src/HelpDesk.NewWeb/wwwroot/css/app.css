@@ -727,6 +727,8 @@ h1[tabindex="-1"]:focus
 
 .helpdesk-login-header
 {
+    min-width: 0;
+    width: 100%;
     gap: 8px;
     margin-bottom: 22px;
     text-align: center;
@@ -751,6 +753,8 @@ h1[tabindex="-1"]:focus
 
 .helpdesk-login-title
 {
+    max-width: 100%;
+    overflow-wrap: anywhere;
     margin: 0;
     color: var(--mud-palette-text-primary);
     text-align: center;
@@ -760,6 +764,8 @@ h1[tabindex="-1"]:focus
 
 .helpdesk-login-environment
 {
+    max-width: 100%;
+    overflow-wrap: anywhere;
     margin: 0;
     padding: 3px 12px;
     border: 1px solid color-mix(in srgb, var(--mud-palette-secondary) 28%, transparent);

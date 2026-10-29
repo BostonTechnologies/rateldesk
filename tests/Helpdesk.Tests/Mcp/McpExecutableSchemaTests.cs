@@ -11,6 +11,21 @@ namespace Helpdesk.Tests.Mcp;
 public sealed class McpExecutableSchemaTests
 {
     [Fact]
+    public void Published_current_catalog_matches_runtime_contracts_and_discovery_schemas()
+    {
+        var path = Path.Combine(TestEnvironment.RepositoryRoot, "docs", "contracts", "mcp-operation-catalog.json");
+        var published = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+        Assert.Equal(McpOperationCatalog.Revision, published["catalogRevision"]!.ToString());
+        Assert.Equal(McpOperationCatalog.CatalogHash, published["catalogHash"]!.ToString());
+        Assert.True(JsonNode.DeepEquals(McpOperationCatalog.ToJson(), published["operations"]));
+        var schemas = new JsonArray(HelpdeskToolDefinitions.Create().Select(tool => (JsonNode)new JsonObject
+        {
+            ["tool"] = tool.ProtocolTool.Name, ["inputSchema"] = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText())
+        }).ToArray());
+        Assert.True(JsonNode.DeepEquals(schemas, published["toolSchemas"]));
+    }
+
+    [Fact]
     public void Every_operation_has_schema_valid_positive_preview_and_invalid_examples()
     {
         var definitions = HelpdeskToolDefinitions.Create().ToDictionary(tool => tool.ProtocolTool.Name);
@@ -154,6 +169,30 @@ public sealed class McpExecutableSchemaTests
         Assert.False(schema.Evaluate(request).IsValid);
         request["request"]!.AsObject().Remove("assignedToId"); request["request"]!["clearDueDate"] = true; request["request"]!["dueDate"] = "2027-01-01T00:00:00Z";
         Assert.False(schema.Evaluate(request).IsValid);
+    }
+
+    [Fact]
+    public void Change_updates_advertise_incomplete_drafts_and_reject_numeric_type_strings()
+    {
+        var schema = Schema("helpdesk_changes");
+        var arguments = new JsonObject
+        {
+            ["operation"] = "update",
+            ["request"] = new JsonObject { ["changeId"] = "change-one", ["changeType"] = "Normal", ["changeTemplate"] = new JsonObject { ["preChangeChecks"] = new JsonArray() } }
+        };
+        Assert.True(schema.Evaluate(arguments).IsValid);
+        arguments["request"]!["changeType"] = "2";
+        Assert.False(schema.Evaluate(arguments).IsValid);
+    }
+
+    [Fact]
+    public void Incident_state_discovery_preserves_defined_numeric_string_compatibility()
+    {
+        var schema = Schema("helpdesk_incidents");
+        var arguments = new JsonObject { ["operation"] = "state", ["request"] = new JsonObject { ["incidentId"] = "incident-one", ["newState"] = "2" } };
+        Assert.True(schema.Evaluate(arguments).IsValid);
+        arguments["request"]!["newState"] = "999";
+        Assert.False(schema.Evaluate(arguments).IsValid);
     }
 
     [Fact]

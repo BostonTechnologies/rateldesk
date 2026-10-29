@@ -20,6 +20,22 @@ namespace Helpdesk.Tests.NewWeb;
 
 public sealed class IntegrationCredentialManagementPageTests
 {
+    [Theory]
+    [InlineData(HttpStatusCode.Forbidden)]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    public async Task OrganizationLookupFailureDoesNotDiscardAuthorizedAccountCredentials(HttpStatusCode status)
+    {
+        using var api = new Api { OrganizationStatus = status };
+        await using var services = Services(api);
+        await using var renderer = new Renderer(services, services.GetRequiredService<ILoggerFactory>());
+        var reference = new Reference();
+        await RenderAsync(renderer, reference);
+        Assert.Equal(25, Rows(reference.Page!).Count);
+        Assert.True(Field<bool>(reference.Page!, "organizationChoicesUnavailable"));
+        Assert.Null(Field<string?>(reference.Page!, "error"));
+        Assert.False(Field<bool>(reference.Page!, "loading"));
+    }
+
     [Fact]
     public async Task Compact_list_counts_twenty_five_rows_and_cleanup_targets_only_explicit_inactive_selection_with_partial_failures()
     {
@@ -163,6 +179,7 @@ public sealed class IntegrationCredentialManagementPageTests
     { public Navigation() => Initialize("https://desk.example/", "https://desk.example/account/integration-credentials"); }
     private sealed class Api : HttpMessageHandler, IHttpClientFactory
     {
+        public HttpStatusCode OrganizationStatus { get; set; } = HttpStatusCode.OK;
         public Guid[] Ids { get; } = Enumerable.Range(0, 25).Select(_ => Guid.NewGuid()).ToArray();
         public Guid? FailedDelete { get; set; }
         public bool MalformedCreate { get; set; }
@@ -182,7 +199,7 @@ public sealed class IntegrationCredentialManagementPageTests
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             if (request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath.EndsWith("/organizations"))
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(Array.Empty<object>()) });
+                return Task.FromResult(new HttpResponseMessage(OrganizationStatus) { Content = JsonContent.Create(Array.Empty<object>()) });
             if (request.Method == HttpMethod.Get)
                 return PendingList?.Task ?? Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(Metadata()) });
             if (request.Method == HttpMethod.Post)

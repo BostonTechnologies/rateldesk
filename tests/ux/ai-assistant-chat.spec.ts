@@ -21,6 +21,27 @@ async function openChat(page, theme: 'Light' | 'Dark' = 'Light') {
   await expect.poll(() => page.evaluate(() => document.documentElement.dataset.helpdeskTheme)).toBe(theme.toLowerCase());
 }
 
+for (const [label, text] of [
+  ['ASCII control', 'a'.repeat(14000)],
+  ['7000 emoji', '😀'.repeat(7000)],
+  ['8000 emoji at the UTF16 limit', '😀'.repeat(8000)]
+] as const) {
+  test(`composer keeps the circuit connected and sends exact ${label}`, async ({ page, request }) => {
+    await openChat(page);
+    const input = page.getByRole('textbox', { name: 'Message AiAssistant' });
+    await expect(input).toHaveAttribute('maxlength', '16000');
+    await input.fill(text);
+    await expect(input).toHaveValue(text);
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect.poll(async () => {
+      const response = await request.get('http://127.0.0.1:18299/api/v1/incidents/ux-chat/chat');
+      const chat = await response.json();
+      return chat.events.filter(event => event.Type === 'operator').at(-1)?.Text;
+    }).toBe(text);
+    await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
+  });
+}
+
 for (const theme of ['Light', 'Dark'] as const) {
   for (const mobile of [false, true]) {
     test(`${theme} ${mobile ? 'mobile' : 'desktop'} completed, expand and composer boundary`, async ({ page }, testInfo) => {

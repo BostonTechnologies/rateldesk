@@ -151,9 +151,10 @@ internal static class McpRequestSchemas
                 }
                 else if (tool == "helpdesk_changes")
                 {
-                    targetFields["changeTemplate"] = Nullable(ChangeTemplate());
+                    // Updates may save incomplete drafts. Lifecycle submission
+                    // separately requires a complete type-specific template.
+                    targetFields["changeTemplate"] = Nullable(TypeSchema(typeof(ChangeTemplateDto)));
                     targetFields["changeType"] = Nullable(Named("Standard", "Normal", "Emergency"));
-                    target["allOf"] = ChangeConditions();
                 }
                 if (op == "bulk_create") Field(fields, required, "items", new JsonObject { ["type"] = "array", ["minItems"] = 1, ["maxItems"] = 25, ["items"] = target }, true);
             }
@@ -367,7 +368,14 @@ internal static class McpRequestSchemas
     {
         var values = new JsonArray();
         if (names) foreach (var name in Enum.GetNames(type)) values.Add(name);
-        foreach (var value in Enum.GetValues(type)) values.Add(Convert.ToInt32(value));
+        foreach (var value in Enum.GetValues(type))
+        {
+            var numeric = Convert.ToInt32(value);
+            values.Add(numeric);
+            // Legacy ticket adapters accept defined numeric strings and normalize
+            // them before calling the API. Advertise that existing compatibility.
+            values.Add(numeric.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
         return new JsonObject { ["enum"] = values };
     }
     private static JsonObject Repeated(JsonObject item) => new() { ["oneOf"] = new JsonArray(item.DeepClone(), new JsonObject { ["type"] = "array", ["maxItems"] = 20, ["items"] = item }) };

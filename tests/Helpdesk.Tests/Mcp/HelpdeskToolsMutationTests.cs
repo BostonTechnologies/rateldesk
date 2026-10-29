@@ -11,6 +11,33 @@ namespace Helpdesk.Tests.Mcp;
 
 public sealed class HelpdeskToolsMutationTests
 {
+    [Theory]
+    [InlineData("\"2\"")]
+    [InlineData("2")]
+    [InlineData("\"Unknown\"")]
+    public async Task Change_update_rejects_unpublished_type_values_before_upstream_mutation(string value)
+    {
+        var client = Substitute.For<IHelpdeskAgentClient>();
+        var tools = new HelpdeskTools(client, Store());
+        using var json = JsonDocument.Parse("{\"changeId\":\"change-one\",\"changeType\":" + value + "}");
+        var result = await tools.helpdesk_changes("update", json.RootElement, confirm: true);
+        Assert.Equal("validation_failed", result.Status);
+        await client.DidNotReceive().SendAsync(Arg.Any<HttpMethod>(), Arg.Any<string>(), Arg.Any<JsonNode?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Change_update_preserves_supported_incomplete_normal_draft()
+    {
+        var client = Substitute.For<IHelpdeskAgentClient>();
+        client.SendAsync(Arg.Any<HttpMethod>(), Arg.Any<string>(), Arg.Any<JsonNode?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(new JsonObject());
+        var tools = new HelpdeskTools(client, Store());
+        var request = JsonSerializer.SerializeToElement(new { changeId = "change-one", changeType = "Normal", changeTemplate = new { preChangeChecks = Array.Empty<string>() } });
+        var result = await tools.helpdesk_changes("update", request, confirm: true);
+        Assert.True(result.Success, result.Summary);
+        await client.Received(1).SendAsync(HttpMethod.Put, "/api/v1/changes/change-one",
+            Arg.Is<JsonNode?>(body => body!["changeType"]!.ToString() == "Normal" && body["changeTemplate"]!["preChangeChecks"]!.AsArray().Count == 0), true, Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task Outbound_timeout_is_returned_as_a_structured_tool_failure()
     {

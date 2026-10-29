@@ -241,6 +241,15 @@ On startup, RatelDesk verifies the database instance and operation marker before
 
 Private attachments live under `StorageOptions__RootPath/attachments` (the Compose `/app/storage` volume). At startup existing files under `wwwroot/attachments` are migrated into that directory. A different file with the same name is reported as a conflict and both copies are retained. Legacy `/attachments/...` URLs no longer serve private files anonymously; use the authorized attachment API. Keep the storage volume when recreating API containers.
 
+For a known orphan left by an older parent-ticket deletion, an instance
+administrator can call `DELETE /api/v1/attachments/{id}/orphan-metadata` with the
+exact attachment ID. The API returns `409` if the parent still exists, if private
+bytes remain in either storage location, or if the stored filename is unsafe.
+Only metadata whose parent and private file are both absent can be removed;
+this operation deletes no file bytes and performs no bulk cleanup. A removed or
+unknown ID returns `404` on a later attempt. Preserve the original attachment
+receipt and confirm its ownership before retiring that exact record.
+
 Outside Compose, the default storage path is `storage` under the API content root. Relative overrides resolve against that same content root for attachments and all image stores. If the application directory is read-only, set `StorageOptions__RootPath` to an absolute, durable directory writable by the API service account, such as `/var/lib/rateldesk/storage`. Keep it outside `wwwroot`; startup fails if private attachment storage is unsafe or unavailable.
 
 For the bundled PostgreSQL sidecar, use host `postgres`, port `5432`, and the configured database credentials in setup. Leave **Require TLS** unchecked for that private Compose network; the bundled server does not configure TLS. Use **Require TLS** for an external server with TLS configured.

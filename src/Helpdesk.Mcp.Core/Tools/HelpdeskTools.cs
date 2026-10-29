@@ -451,8 +451,12 @@ public sealed partial class HelpdeskTools(
         }
         payload = Object(request);
         foreach (var alias in new[] { "query", "q" })
+        {
             if (payload?[alias] is { } value && value.GetValueKind() != JsonValueKind.String)
                 return $"request.{alias} must be a string or null.";
+            if (payload?[alias]?.GetValue<string>()?.Length > 200)
+                return $"request.{alias} is limited to 200 characters.";
+        }
         var query = payload?["query"]?.GetValue<string>();
         var q = payload?["q"]?.GetValue<string>();
         var hasQuery = !string.IsNullOrWhiteSpace(query);
@@ -844,6 +848,10 @@ public sealed partial class HelpdeskTools(
     private static string? TicketEnumValidation(JsonObject? request)
     {
         if (request is null) return null;
+        if (request["changeType"] is { } changeType &&
+            (changeType.GetValueKind() != JsonValueKind.String ||
+             changeType.GetValue<string>().Trim().ToLowerInvariant() is not ("standard" or "normal" or "emergency")))
+            return "request.changeType must be Standard, Normal, or Emergency.";
         foreach (var field in new[] { "state", "newState", "lifecycleState" })
         {
             if (request[field] is not { } value) continue;

@@ -1,5 +1,11 @@
 # Release notes
 
+## 0.1.2-beta.14 candidate
+
+[Campaign regression repairs](0.1.2-beta.14.md) cover eight defects reproduced
+against beta.13. Source verification, publication and fresh deployed acceptance
+remain separate evidence.
+
 ## 0.1.2-beta.13 candidate
 
 [Integration, policies and AI investigations](0.1.2-beta.13.md), with a fresh

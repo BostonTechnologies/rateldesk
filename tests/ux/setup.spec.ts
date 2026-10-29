@@ -273,10 +273,10 @@ test('first-run setup initializes, survives restart, and supports isolated scope
 
   // MFA is offered only after a correct password for an explicitly enrolled account.
   for (const code of [totp(sharedKey), recoveryCode]) {
-    await page.context().clearCookies();
-    // The previous authenticated Blazor circuit may redirect as its cookie is
-    // cleared. Use a fresh tab so that redirect cannot abort this navigation.
-    const loginPage = await page.context().newPage();
+    // Each challenge starts anonymously with its own cookie jar. Clearing cookies
+    // under an authenticated circuit can race its redirect and the new form token.
+    const mfaContext = await browser.newContext({ baseURL, ignoreHTTPSErrors: true });
+    const loginPage = await mfaContext.newPage();
     try {
       await loginPage.goto('/login');
       await expect(loginPage.getByTestId('local-login-form')).toHaveAttribute('data-interactive', 'true');
@@ -293,7 +293,7 @@ test('first-run setup initializes, survives restart, and supports isolated scope
       await expect(loginPage).toHaveURL(/\/home(?:[?#].*)?$/);
       expect((await (await loginPage.request.get('/api/v1/auth/me')).json()).isHelpdeskAdmin).toBe(true);
     } finally {
-      await loginPage.close();
+      await mfaContext.close();
     }
   }
 });

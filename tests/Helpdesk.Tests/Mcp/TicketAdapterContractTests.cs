@@ -145,6 +145,9 @@ public sealed class TicketAdapterContractTests
         Assert.True((await tools.helpdesk_incidents("state", Request("""{"incidentId":"ticket","newState":"Resolved"}"""), true)).Success);
         Assert.Equal((int)TicketState.Resolved, Assert.IsType<JsonObject>(Assert.Single(client.ReceivedCalls()).GetArguments()[2])["newState"]!.GetValue<int>());
         client.ClearReceivedCalls();
+        Assert.True((await tools.helpdesk_incidents("state", Request("""{"incidentId":"ticket","newState":"2"}"""), true)).Success);
+        Assert.Equal(2, Assert.IsType<JsonObject>(Assert.Single(client.ReceivedCalls()).GetArguments()[2])["newState"]!.GetValue<int>());
+        client.ClearReceivedCalls();
         Assert.True((await tools.helpdesk_changes("lifecycle", Request("""{"changeId":"ticket","lifecycleState":"Submitted"}"""), true)).Success);
         Assert.Equal((int)ChangeLifecycleState.Submitted, Assert.IsType<JsonObject>(Assert.Single(client.ReceivedCalls()).GetArguments()[2])["lifecycleState"]!.GetValue<int>());
         client.ClearReceivedCalls();

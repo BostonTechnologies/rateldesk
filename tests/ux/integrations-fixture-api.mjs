@@ -70,6 +70,11 @@ http.createServer(async (req, res) => {
  if (path === '/api/v1/auth/me') return reply({ isAuthenticated: true, name: 'Synthetic Operator', email: 'operator@example.test', userId: claims.sub, primaryOrganizationId: 'org-a', customerId: null, isHelpdeskAdmin: admin, roleBundles: claims.roles ?? [], permissions: claims.roles ?? [], allowedOrganizationIds: ['org-a'], managedOrganizationIds: [] });
  if (path === '/api/v1/branding') return reply({ applicationName: 'RatelDesk', faviconUrl: '/favicon.ico' });
  if (path === '/api/v1/organizations') return reply(admin ? organizations : organizations.slice(0, 1));
+ if (req.method === 'GET' && path === '/api/v1/admin/netclaw') return admin
+  ? reply({ providerKey: 'Netclaw', enabled: false, runtimeSupported: true, instance: 'dev', idleMinutes: 15, connectionCapacity: 25,
+    turnInactivityTimeout: '00:05:00', activityHeartbeatInterval: '00:00:15', revision: 0, source: 'database', hasDeviceToken: false, secretState: 'not-configured', profileFingerprint: '' })
+  : reply({}, 403);
+ if (req.method === 'GET' && path === '/api/v1/admin/netclaw/legacy-sessions/unbound') return reply(admin ? [] : {}, admin ? 200 : 403);
  if (path === '/api/v1/integration-credentials' && req.method === 'GET') return reply(credentials);
  const accessRoute = path.match(/^\/api\/v1\/integration-credentials\/([a-f0-9-]+)\/access(?:\/(review|apply))?$/i);
  if (accessRoute) {

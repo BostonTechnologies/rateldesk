@@ -2,6 +2,7 @@
 @page "/view-ticket/{TrackingId}"
 @layout PublicLayout
 @attribute [AllowAnonymous]
+@inject AuthenticationStateProvider AuthenticationState
 @rendermode InteractiveServer
 
 @using Helpdesk.Shared.DTOs
@@ -122,7 +123,7 @@ else
 @code {
     [Parameter] public string? TrackingId { get; set; }
 
-    private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("SystemApi");
+    private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("SystemApiNoAuth");
     private MudForm? form;
     private bool _loading;
 
@@ -230,7 +231,8 @@ else
 
                 if (ticket is not null)
                 {
-                    _ = MarkSeenAsync(ticket.Id); // fire & forget
+                    if ((await AuthenticationState.GetAuthenticationStateAsync()).User.Identity?.IsAuthenticated == true)
+                        _ = MarkSeenAsync(ticket.Id); // signed anonymous reads do not require a private session
                     if (rememberEmail)
                         await JS.InvokeVoidAsync("localStorage.setItem", "helpdeskEmail", mail);
                     else
@@ -256,7 +258,7 @@ else
 
     private async Task MarkSeenAsync(string id)
     {
-        try { await HelpdeskApi.PostAsync($"api/v1/tickets/{id}/mark-as-seen", null); }
+        try { await HttpClientFactory.CreateClient("SystemApi").PostAsync($"api/v1/tickets/{id}/mark-as-seen", null); }
         catch { /* non-critical */ }
     }
 

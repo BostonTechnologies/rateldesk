@@ -50,6 +50,37 @@ public static class AttachmentEndpoints
             return Results.File(filePath, attachment.ContentType, attachment.FileName);
         });
 
+        // A deleted parent has no remaining tenant authority to resolve. Restrict
+        // this maintenance operation to an instance administrator and preserve
+        // every record that still has a parent or private bytes.
+        individualAttachmentGroup.MapDelete("/{id:guid}/orphan-metadata", async (
+            Guid id,
+            HelpdeskDbContext db,
+            ICurrentUserAccessService accessService,
+            ClaimsPrincipal user,
+            TicketAttachmentFileStore fileStore,
+            CancellationToken token) =>
+        {
+            if (!(await accessService.ResolveAsync(user, token)).IsHelpdeskAdmin)
+                return Results.Forbid();
+            var attachment = await db.Attachments.FindAsync([id], token);
+            if (attachment is null) return Results.NotFound();
+            if (await db.Tickets.IgnoreQueryFilters().AnyAsync(ticket => ticket.Id == attachment.TicketId, token))
+                return Results.Conflict(new { code = "attachment_parent_exists" });
+            var name = attachment.FilePath;
+            if (string.IsNullOrWhiteSpace(name) || name is "." or ".." ||
+                name.Contains('/') || name.Contains('\\') || Path.IsPathRooted(name))
+                return Results.Conflict(new { code = "attachment_storage_name_invalid" });
+            if (fileStore.GetReadPath(name) is not null)
+                return Results.Conflict(new { code = "attachment_bytes_exist" });
+            db.Attachments.Remove(attachment);
+            await db.SaveChangesAsync(token);
+            return Results.NoContent();
+        })
+        .RequireAuthorization("HelpdeskAdmin")
+        .WithSummary("Remove one orphan attachment metadata record")
+        .WithDescription("Instance administrators may remove an exact record only when its parent ticket and private file are both absent. This operation never deletes file bytes.");
+
         var ticketAttachmentGroup = app.MapGroup("/api/v1/tickets/{ticketId}/attachments")
             .WithTags("Attachments")
             .RequireAuthorization();

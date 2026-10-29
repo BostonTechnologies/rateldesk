@@ -133,13 +133,14 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // Beta.13 adds five MCP policy and seven AI investigation/guidance operations.
         // Reviewed credential access adds three interactive-session operations: inspect,
         // review an exact permission change, and apply the confirmed change.
+        // Beta.14 adds one instance-administrator orphan attachment metadata deletion.
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(439, operationCount);
+        Assert.Equal(440, operationCount);
 #else
-        Assert.Equal(438, operationCount);
+        Assert.Equal(439, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         foreach (var (path, operationId, tag) in new[]
@@ -165,6 +166,18 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
                 endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods.Contains("DELETE") == true);
         Assert.Null(inboundRuleEndpoint.Metadata.GetMetadata<IAllowAnonymous>());
         Assert.Contains(inboundRuleEndpoint.Metadata.OfType<IAuthorizeData>(), metadata => metadata.Policy == "HelpdeskAdmin");
+        const string orphanAttachmentPath = "/api/v1/attachments/{id}/orphan-metadata";
+        Assert.True(paths.TryGetProperty(orphanAttachmentPath, out var orphanAttachmentRoute));
+        Assert.True(orphanAttachmentRoute.TryGetProperty("delete", out var orphanAttachmentDeletion));
+        Assert.Equal(["Attachments"], orphanAttachmentDeletion.GetProperty("tags").EnumerateArray().Select(value => value.GetString()).OfType<string>().ToArray());
+        Assert.Equal("Remove one orphan attachment metadata record", orphanAttachmentDeletion.GetProperty("summary").GetString());
+        Assert.Equal(["IntegrationCredential", "JwtBearer", "LocalSession", "McpExecution"], SecuritySchemes(document, orphanAttachmentPath, "delete"));
+        var orphanAttachmentEndpoint = Assert.Single(_factory.Services.GetServices<EndpointDataSource>()
+            .SelectMany(source => source.Endpoints).OfType<RouteEndpoint>(),
+            endpoint => endpoint.RoutePattern.RawText?.TrimEnd('/') == "/api/v1/attachments/{id:guid}/orphan-metadata" &&
+                endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods.Contains("DELETE") == true);
+        Assert.Null(orphanAttachmentEndpoint.Metadata.GetMetadata<IAllowAnonymous>());
+        Assert.Contains(orphanAttachmentEndpoint.Metadata.OfType<IAuthorizeData>(), metadata => metadata.Policy == "HelpdeskAdmin");
         var identityGroup = Assert.Single(document.RootElement.GetProperty("x-tagGroups").EnumerateArray(),
             group => group.GetProperty("name").GetString() == "Identity & Access");
         Assert.Contains(identityGroup.GetProperty("tags").EnumerateArray(),

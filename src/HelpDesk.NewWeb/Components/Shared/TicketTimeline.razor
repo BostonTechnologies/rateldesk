@@ -83,7 +83,7 @@
 @code {
     [Parameter] public bool ReadOnly { get; set; }
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
-    private HttpClient SystemApi => HttpClientFactory.CreateClient("SystemApi");
+    private HttpClient PublicApi => HttpClientFactory.CreateClient("SystemApiNoAuth");
 
     [Parameter] public string? TicketId { get; set; }
     [Parameter] public string TicketType { get; set; } = "incidents";
@@ -186,7 +186,7 @@
                     return;
                 }
 
-                var api = PublicMode ? SystemApi : HelpdeskApi;
+                var api = PublicMode ? PublicApi : HelpdeskApi;
                 var url =
                     $"api/v1/tickets/public/timeline?trackingId={Uri.EscapeDataString(TrackingId)}&email={Uri.EscapeDataString(Email)}&token={Uri.EscapeDataString(Token)}";
 
@@ -254,7 +254,7 @@
 
         try
         {
-            var api = PublicMode ? SystemApi : HelpdeskApi;
+            var api = PublicMode ? PublicApi : HelpdeskApi;
             var submittedAt = DateTimeOffset.UtcNow;
             var internalNote = newWorklog.IsInternalNote;
             var response = await api.PostAsJsonAsync(worklogApiUrl, newWorklog);
