@@ -40,6 +40,7 @@ jobs:
           python3 -m venv .venv-campaign
           .venv-campaign/bin/python -m pip install -r tests/http_mcp/requirements.txt
           .venv-campaign/bin/python -m unittest discover -s tests/http_mcp -p 'test_*.py'
+          .venv-campaign/bin/python tools/ci/test-current-campaign.py
 
   public-disclosure:
     name: Public disclosure gate
