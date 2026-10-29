@@ -7,6 +7,7 @@ using Helpdesk.API.Authentication;
 using Helpdesk.API.Services.IntegrationCredentials;
 using Helpdesk.API.Endpoints.Authentication;
 using Helpdesk.Infrastructure.Identity;
+using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
@@ -17,6 +18,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using NSubstitute;
 using Xunit;
 
 namespace Helpdesk.Tests.Api;
@@ -126,7 +128,7 @@ public sealed class McpGatewayDelegationEndpointTests
         Assert.Equal(HttpStatusCode.Unauthorized, after.StatusCode);
     }
 
-    private sealed class Harness(WebApplication application) : IAsyncDisposable
+    private sealed class Harness(WebApplication application, SqliteConnection businessConnection) : IAsyncDisposable
     {
         public HttpClient Client { get; } = application.GetTestClient();
 
@@ -139,6 +141,13 @@ public sealed class McpGatewayDelegationEndpointTests
             await identityConnection.OpenAsync();
             builder.Services.AddSingleton(identityConnection);
             builder.Services.AddDbContext<RatelDeskIdentityDbContext>(options => options.UseSqlite(identityConnection));
+            var businessConnection = new SqliteConnection("Data Source=:memory:");
+            await businessConnection.OpenAsync();
+            builder.Services.AddHttpContextAccessor();
+            var tenant = Substitute.For<ITenantContext>();
+            tenant.IsHelpdeskAdmin.Returns(true);
+            builder.Services.AddSingleton(tenant);
+            builder.Services.AddDbContext<HelpdeskDbContext>(options => options.UseSqlite(businessConnection));
             builder.Services.AddSingleton<McpExecutionTokenService>();
             builder.Services.AddSingleton<ICurrentUserAccessService>(new TestAccessService());
             builder.Services.AddAuthentication(IntegrationCredentialAuthenticationHandler.McpSchemeName)
@@ -172,9 +181,11 @@ public sealed class McpGatewayDelegationEndpointTests
                 await identity.Database.EnsureCreatedAsync();
                 identity.Users.Add(new ApplicationUser { Id = "owner", UserName = "owner", IsEnabled = true });
                 await identity.SaveChangesAsync();
+                var business = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+                await business.Database.EnsureCreatedAsync();
             }
 
-            return new Harness(application);
+            return new Harness(application, businessConnection);
         }
 
         public async Task<(Guid Id, string Bearer)> CreateCredentialAsync(string resourceUri, bool setup = false)
@@ -218,7 +229,11 @@ public sealed class McpGatewayDelegationEndpointTests
             await identity.SaveChangesAsync();
         }
 
-        public async ValueTask DisposeAsync() => await application.DisposeAsync();
+        public async ValueTask DisposeAsync()
+        {
+            await application.DisposeAsync();
+            await businessConnection.DisposeAsync();
+        }
     }
 
     private sealed class TestAccessService : ICurrentUserAccessService
@@ -234,3 +249,4 @@ public sealed class McpGatewayDelegationEndpointTests
             => Task.FromResult(user.HasClaim("setup_verification", "true") ? Profile with { Permissions = new HashSet<string>() } : Profile);
     }
 }
+

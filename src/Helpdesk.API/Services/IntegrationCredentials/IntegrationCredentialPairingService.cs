@@ -236,6 +236,7 @@ public sealed class IntegrationCredentialPairingService(
 
     public async Task CleanupAsync(CancellationToken ct)
     {
+        await IntegrationCredentialSetupMaintenance.ExpireAsync(identity, Now, ct);
         var now = Now.ToUnixTimeMilliseconds();
         var expired = await identity.IntegrationCredentialPairings.Where(p =>
             (p.ExpiresAtUnixMilliseconds <= now || p.DeliveryExpiresAtUnixMilliseconds <= now) &&
@@ -346,3 +347,4 @@ public sealed class IntegrationCredentialPairingCleanup(IServiceScopeFactory sco
         }
     }
 }
+

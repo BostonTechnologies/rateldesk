@@ -1,0 +1,22 @@
+@using Helpdesk.Shared.DTOs.McpPolicies
+<div class="mcp-policy-summary">
+    <h4>@Policy.Name</h4>
+    <p><strong>@Policy.Effect</strong> · @(ReadOnly ? "Read only operations" : "Selected operations") · @Policy.Operations.Length operations · @Policy.Permissions.Length permissions · @Policy.Exceptions.Length exceptions</p>
+    <p>Expires @Policy.ExpiresUtc.ToString("yyyy-MM-dd HH:mm:ss.ffffff 'UTC'")</p>
+    <details><summary>Selected permissions and operations</summary>
+        <p>@string.Join(", ", Policy.Permissions.Select(CredentialPermissionLabels.Name))</p>
+        <ul>@foreach (var key in Policy.Operations) { <li>@(Operations.FirstOrDefault(x => x.Key == key)?.Name ?? key)<small>@key</small></li> }</ul>
+    </details>
+    @if (Policy.Exceptions.Length > 0)
+    {
+        <details open><summary>Nested operation exceptions</summary>
+            @foreach (var exception in Policy.Exceptions)
+            { <section><strong>@exception.Name · @exception.Effect</strong><p>@string.Join(", ", exception.Operations.Select(key => Operations.FirstOrDefault(x => x.Key == key)?.Name ?? key))</p><p>Expires @exception.ExpiresUtc.ToString("yyyy-MM-dd HH:mm:ss.ffffff 'UTC'")</p></section> }
+        </details>
+    }
+</div>
+@code {
+    [Parameter, EditorRequired] public McpPolicyScopeDraft Policy { get; set; } = default!;
+    [Parameter] public IReadOnlyList<McpPolicyOperation> Operations { get; set; } = [];
+    private bool ReadOnly => Policy.Operations.Length > 0 && Policy.Operations.All(key => Operations.Any(x => x.Key == key && x.Effect == "read"));
+}

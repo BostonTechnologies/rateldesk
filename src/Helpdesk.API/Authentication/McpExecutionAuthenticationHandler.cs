@@ -3,6 +3,9 @@ using Helpdesk.Infrastructure.Identity;
 using Helpdesk.API.Services.IntegrationCredentials;
 using Helpdesk.Shared.Services;
 using Helpdesk.Shared.Auth;
+using Helpdesk.API.Endpoints.McpPolicies;
+using Helpdesk.Infrastructure.McpPolicies;
+using Helpdesk.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -20,11 +23,20 @@ public sealed class McpExecutionAuthenticationHandler(
     System.Text.Encodings.Web.UrlEncoder encoder,
     McpExecutionTokenService executionTokens,
     RatelDeskIdentityDbContext identityDb,
-    ICurrentUserAccessService accessService)
+    ICurrentUserAccessService accessService,
+    HelpdeskDbContext db)
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
     public const string SchemeName = "McpExecution";
     internal const string SetupOperationDeniedItem = "RatelDesk.SetupVerification.OperationDenied";
+    private const string PolicyOperationDeniedItem = "RatelDesk.McpPolicy.OperationDenied";
+
+    protected override Task HandleChallengeAsync(AuthenticationProperties properties)
+    {
+        if (!Context.Items.ContainsKey(PolicyOperationDeniedItem)) return base.HandleChallengeAsync(properties);
+        Response.StatusCode = StatusCodes.Status403Forbidden;
+        return Response.WriteAsJsonAsync(new { error = "mcp_policy_denied", message = "The current MCP policy does not allow this operation." }, Context.RequestAborted);
+    }
 
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
@@ -47,6 +59,10 @@ public sealed class McpExecutionAuthenticationHandler(
         {
             return AuthenticateResult.Fail("The delegated MCP execution credential is no longer valid.");
         }
+
+        if (!await IntegrationCredentialSetupAuthorization.IsUsableAsync(identityDb, credential.Id,
+                DateTimeOffset.UtcNow, Context.RequestAborted).ConfigureAwait(false))
+            return AuthenticateResult.Fail("The integration setup has not completed or its delivery expired.");
 
         if (credential.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose &&
             (credential.Permissions.Length != 0 || string.IsNullOrWhiteSpace(credential.OrganizationId) ||
@@ -89,6 +105,17 @@ public sealed class McpExecutionAuthenticationHandler(
         foreach (var permission in credential.Permissions.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             claims.Add(new Claim("integration_permission", permission));
 
+        var policy = await db.Set<McpAccessPolicy>().AsNoTracking()
+            .SingleOrDefaultAsync(candidate => candidate.CredentialId == credential.Id, Context.RequestAborted)
+            .ConfigureAwait(false);
+        if (policy is { DefinitionJson.Length: > 0 } && !McpPolicyDefinitionService.AllowsRequest(policy, credential,
+                Request.Method, Request.Path.Value ?? "", (Context.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText,
+                DateTime.UtcNow, Request.Query))
+        {
+            Context.Items[PolicyOperationDeniedItem] = true;
+            return AuthenticateResult.Fail("The current MCP policy does not allow this operation.");
+        }
+
         var identity = new ClaimsIdentity(claims, SchemeName, ClaimTypes.Name, ClaimTypes.Role);
         var principal = new ClaimsPrincipal(identity);
         if (credential.Purpose == IntegrationCredentialGrantKinds.OwnerAdministrationPurpose)
@@ -109,3 +136,4 @@ public sealed class McpExecutionAuthenticationHandler(
         return AuthenticateResult.Success(new AuthenticationTicket(principal, SchemeName));
     }
 }
+

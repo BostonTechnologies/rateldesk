@@ -117,6 +117,12 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("DefinitionJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("");
+
                     b.Property<DateTime>("ExpiresUtc")
                         .HasColumnType("timestamp without time zone");
 
@@ -4818,3 +4824,4 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
         }
     }
 }
+

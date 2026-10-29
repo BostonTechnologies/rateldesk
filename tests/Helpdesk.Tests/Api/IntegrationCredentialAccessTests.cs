@@ -2,11 +2,13 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Helpdesk.API.Endpoints.Authentication;
+using Helpdesk.API.Endpoints.McpPolicies;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.McpPolicies;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.DTOs.Auth;
+using Helpdesk.Shared.DTOs.McpPolicies;
 using Helpdesk.Shared.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -171,6 +173,42 @@ public sealed partial class IntegrationCredentialSqliteTests
         Assert.Empty(access.EffectivePermissions);
         Assert.Equal([HelpdeskPermissions.HelpdeskAdmin], access.DeniedPermissions);
         Assert.Contains("requires an instance-administrator context", access.PolicySummary);
+        Assert.False(access.CanEdit);
+    }
+
+    [Fact]
+    public async Task Owner_administration_with_a_server_policy_reports_effective_access_and_operation_limits()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var current = (TestAccessService)harness.Services.GetRequiredService<ICurrentUserAccessService>();
+        current.Profile = current.Profile with { IsHelpdeskAdmin = true };
+        var credential = Credential("owner", "owner administration", DateTimeOffset.UtcNow);
+        credential.Purpose = IntegrationCredentialGrantKinds.OwnerAdministrationPurpose;
+        credential.Permissions = HelpdeskPermissions.HelpdeskAdmin;
+        credential.McpResourceUri = "https://desk.example/mcp";
+        await harness.AddCredentialsAsync(credential);
+        await using (var scope = harness.Services.CreateAsyncScope())
+        {
+            var identity = scope.ServiceProvider.GetRequiredService<RatelDeskIdentityDbContext>();
+            (await identity.Users.SingleAsync(x => x.Id == "owner")).IsInstanceAdministrator = true;
+            await identity.SaveChangesAsync();
+            var now = DateTime.UtcNow;
+            var definition = new McpPolicyScopeDraft("Owner base", "server", null, "Allow",
+                [HelpdeskPermissions.HelpdeskAdmin], ["helpdesk_auth.status"], now.AddHours(1), []);
+            var (policy, audit) = McpPolicyDefinitionService.Create(credential, [definition], "owner", now);
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            db.Add(policy);
+            db.Add(audit);
+            await db.SaveChangesAsync();
+        }
+
+        var access = await ReadAccessAsync(harness, credential.Id);
+        Assert.Equal([HelpdeskPermissions.HelpdeskAdmin], access.EffectivePermissions);
+        Assert.Empty(access.DeniedPermissions);
+        Assert.Equal("Active", access.PolicyState);
+        Assert.Contains("Owner base: 1 selected operations and 0 nested exceptions", access.PolicySummary);
+        Assert.Contains("Each request must also satisfy those operation rules", access.PolicySummary);
+        Assert.DoesNotContain("requires an instance-administrator context", access.PolicySummary);
         Assert.False(access.CanEdit);
     }
 

@@ -28,6 +28,7 @@ public static class IntegrationCredentialEndpoints
             context.HttpContext.Response.Headers.CacheControl = "no-store";
             return await next(context);
         });
+        IntegrationCredentialSetupEndpoints.Map(group);
 
         group.MapGet("/", async (ClaimsPrincipal principal, IIntegrationCredentialOwnerResolver ownerResolver, RatelDeskIdentityDbContext identityDb, CancellationToken ct) =>
         {
@@ -184,6 +185,7 @@ public static class IntegrationCredentialEndpoints
         public string? McpResourceUri { get; init; }
         public string GrantKind { get; init; } = IntegrationCredentialGrantKinds.Ordinary;
         public bool OwnerAdministrationConsent { get; init; }
+        public DateTimeOffset? ExpiresAtUtc { get; init; }
     }
 
     public sealed record IntegrationCredentialMetadata(Guid Id, string Name, string Prefix, string Purpose, string? OrganizationId, IReadOnlyList<string> Permissions, DateTimeOffset ExpiresAtUtc, DateTimeOffset CreatedAtUtc, DateTimeOffset? LastUsedAtUtc, DateTimeOffset? RevokedAtUtc)
@@ -199,3 +201,4 @@ public static class IntegrationCredentialEndpoints
         public override string ToString() => $"CreatedIntegrationCredential {{ Id = {Id}, Prefix = {Prefix}, Secret = [redacted], Purpose = {Purpose} }}";
     }
 }
+

@@ -50,6 +50,10 @@ public sealed class IntegrationCredentialAuthenticationHandler(
             return AuthenticateResult.Fail("The integration credential is not valid for this API.");
         }
 
+        if (!await IntegrationCredentialSetupAuthorization.IsUsableAsync(identityDb, credential.Id,
+                DateTimeOffset.UtcNow, Context.RequestAborted).ConfigureAwait(false))
+            return AuthenticateResult.Fail("The integration setup has not completed or its delivery expired.");
+
         if (credential.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose &&
             (credential.Permissions.Length != 0 || string.IsNullOrWhiteSpace(credential.OrganizationId) ||
              credential.ExpiresAtUtc > credential.CreatedAtUtc.Add(IntegrationCredentialIssuer.SetupVerificationLifetime)))
@@ -101,3 +105,4 @@ public sealed class IntegrationCredentialAuthenticationHandler(
 
     private string ExpectedPurpose => Options.Purpose;
 }
+

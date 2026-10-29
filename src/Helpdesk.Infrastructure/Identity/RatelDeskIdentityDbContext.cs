@@ -8,6 +8,7 @@ public sealed class RatelDeskIdentityDbContext(DbContextOptions<RatelDeskIdentit
     : IdentityDbContext<ApplicationUser, IdentityRole, string>(options)
 {
     public DbSet<IntegrationCredential> IntegrationCredentials => Set<IntegrationCredential>();
+    public DbSet<IntegrationCredentialSetupAttempt> IntegrationCredentialSetupAttempts => Set<IntegrationCredentialSetupAttempt>();
 
     public DbSet<IntegrationCredentialPairing> IntegrationCredentialPairings => Set<IntegrationCredentialPairing>();
     public DbSet<IntegrationCredentialPairingRateLimit> IntegrationCredentialPairingRateLimits => Set<IntegrationCredentialPairingRateLimit>();
@@ -15,6 +16,17 @@ public sealed class RatelDeskIdentityDbContext(DbContextOptions<RatelDeskIdentit
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
+
+        builder.Entity<IntegrationCredentialSetupAttempt>(entity =>
+        {
+            entity.HasKey(x => x.RequestId);
+            entity.Property(x => x.OwnerUserId).HasMaxLength(450).IsRequired();
+            entity.Property(x => x.RequestHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.State).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.HasIndex(x => x.CredentialId).IsUnique();
+            entity.HasIndex(x => new { x.State, x.DeliveryExpiresAtUnixMilliseconds }).HasDatabaseName("IX_IntegrationSetup_State_Deadline");
+        });
 
         builder.Entity<ApplicationUser>(entity =>
         {
@@ -66,3 +78,4 @@ public sealed class RatelDeskIdentityDbContext(DbContextOptions<RatelDeskIdentit
         });
     }
 }
+

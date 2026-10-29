@@ -89,10 +89,12 @@ next API request to reject the old local session.
 ## Owner administration through HTTP MCP
 
 An instance administrator can explicitly authorize an account-bound HTTP MCP
-agent to administer the instance on their behalf. In **Integration credentials**,
-create an **HTTP MCP client**, choose **Owner administration across all
-organizations** under **Access scope**, and approve the instance-wide consent on
-the review step. The browser pairing consent page offers the same choice to a
+agent to administer the instance on their behalf. In **Integration → API & MCP
+credentials**, create an **HTTP MCP gateway** connection, choose **Owner
+administration** under **Server access**, and approve the instance-wide
+consent on **Review & create**. **Tenant access** sets the default context and
+**Policies** shows the proposed policy bounds before that final approval. The
+browser pairing consent page offers the same owner-administration choice to a
 current instance administrator. Ordinary clients start with selected permissions
 in one organization; upgrading the application does not upgrade their grants.
 
@@ -119,11 +121,27 @@ next request, including execution tokens already issued by the gateway.
 | Owner administration | Current instance administrator authority across organizations | An enabled persisted instance administrator with explicit owner consent |
 | Temporary setup verification | Authenticated status only for its reviewed organization; five minutes | An account authorized for that organization |
 
+The browser's HTTP MCP creation workflow also reviews an operation base policy:
+one organization scope for an ordinary credential, or **Server / instance** for
+explicit owner administration. **All access** means the operations supported by
+the selected grant and current owner authority. A policy never creates a role
+assignment, adds an organization to an ordinary credential, or replaces the
+owner-administration consent.
+
+Nested operation-deny exceptions narrow the parent's scope. Deny takes
+precedence, and parent expiry or retirement prevents child admission. Retired
+policies retain their audit history; deleting a policy does not restore
+unconstrained access. Existing flat organization/permission ceilings preserve
+their original semantics. See [policy setup and
+management](../mcp-http/setup.md#owner-permissions-and-mcp-policies) for the
+operator workflow and the distinction between grants and policy admission.
+
 The public create/pairing contract uses `purpose: "mcp"`,
 `grantKind: "owner-administration"`, `permissions: ["HelpdeskAdmin"]`, and
 `ownerAdministrationConsent: true`. The API stores the distinct `mcp-owner`
-purpose in the existing credential and pairing tables, so no migration or
-retroactive grant conversion is required. The public delivery identifies
+purpose in its credential and pairing records. Existing owner-administration
+credentials retain this purpose; the setup and policy upgrade does not
+retroactively convert ordinary grants. The public delivery identifies
 `grantKind: "owner-administration"`; the gateway execution receipt also includes
 `isHelpdeskAdmin: true` and the current enabled organization identifiers.
 
@@ -199,3 +217,4 @@ Incident and request bulk state/assignment changes require Write in every target
 organization. Every target and assignee is checked before any record changes;
 a batch containing a missing or unauthorized ticket changes nothing. The same
 endpoints support inline assignment of a single request.
+
