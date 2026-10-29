@@ -175,13 +175,13 @@ test('first-run setup initializes, survives restart, and supports isolated scope
   await page.getByTestId('integration-credential-create').click();
   const integration = page.getByRole('dialog', { name: 'Create integration', exact: true });
   await expect(integration.getByLabel('Integration name', { exact: true })).toBeVisible();
-  await integration.getByLabel('Connection type', { exact: true }).selectOption('api');
+  await integration.getByRole('combobox', { name: 'Connection type', exact: true }).selectOption('api');
   await integration.getByLabel('Integration name', { exact: true }).fill('Browser wizard credential');
   await integration.getByRole('button', { name: 'Next', exact: true }).click();
   await expect(integration.getByRole('heading', { name: 'Server access', exact: true })).toBeVisible();
   await integration.getByRole('button', { name: 'Next', exact: true }).click();
-  await expect(page.getByRole('combobox', { name: 'Organization', exact: true })).toBeVisible();
-  const organization = page.getByRole('combobox', { name: 'Organization', exact: true });
+  await expect(integration.getByRole('combobox', { name: 'Organization', exact: true })).toBeVisible();
+  const organization = integration.getByRole('combobox', { name: 'Organization', exact: true });
   await organization.selectOption({ label: 'Browser Wizard Organization' });
   await expect(organization.locator('option:checked')).toHaveText('Browser Wizard Organization');
   const permissions = page.getByTestId('credential-permission-selector');

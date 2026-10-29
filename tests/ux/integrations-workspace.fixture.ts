@@ -159,12 +159,12 @@ test('manual credential organization selection ignores the native status filter 
  await expect(page.getByRole('combobox', { name: 'Status', exact: true }).getByRole('option', { name: 'All (25)', exact: true })).toHaveCount(1);
  await page.getByTestId('integration-credential-create').click();
  const integration = page.getByRole('dialog', { name: 'Create integration', exact: true });
- await integration.getByLabel('Connection type', { exact: true }).selectOption('api');
+ await integration.getByRole('combobox', { name: 'Connection type', exact: true }).selectOption('api');
  await integration.getByLabel('Integration name', { exact: true }).fill('Synthetic manual credential');
  await integration.getByRole('button', { name: 'Next', exact: true }).click();
  await expect(integration.getByRole('heading', { name: 'Server access', exact: true })).toBeVisible();
  await integration.getByRole('button', { name: 'Next', exact: true }).click();
- const organization = page.getByRole('combobox', { name: 'Organization', exact: true });
+ const organization = integration.getByRole('combobox', { name: 'Organization', exact: true });
  await organization.selectOption({ label: 'Synthetic Beta' });
  await expect(organization.locator('option:checked')).toHaveText('Synthetic Beta');
  const permissions = page.getByTestId('credential-permission-selector');
