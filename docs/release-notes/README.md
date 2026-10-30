@@ -1,5 +1,10 @@
 # Release notes
 
+## 0.1.2-beta.18 candidate
+
+[Campaign acceptance repairs](0.1.2-beta.18.md) cover logo fidelity, text-field
+schema equivalence, scoped investigation setup and Peek discovery metadata.
+
 ## 0.1.2-beta.16 candidate
 
 [Legacy automation binding upgrade and login copy wrapping](0.1.2-beta.16.md)
