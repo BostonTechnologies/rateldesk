@@ -5,7 +5,6 @@ using Bunit;
 using Bunit.TestDoubles;
 using Helpdesk.Shared.AiAssistant.Chat;
 using Helpdesk.Shared.DTOs.AiOps;
-using Helpdesk.Shared.DTOs.Organization;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
@@ -17,6 +16,34 @@ namespace Helpdesk.Tests.NewWeb;
 
 public sealed class AiInvestigationsWorkspaceTests
 {
+    [Fact]
+    public async Task Scoped_staff_workspace_uses_investigation_directory_instead_of_admin_organization_list()
+    {
+        using var api = new Api();
+        await using var context = Context(api);
+        var page = context.Render<Page>();
+        page.WaitForAssertion(() => Assert.Equal(4, page.FindAll(".ai-investigation").Count));
+        Assert.Contains("/api/v1/ai/ops/organizations", api.Requests);
+        Assert.DoesNotContain("/api/v1/organizations", api.Requests);
+        Assert.False(page.Find(".ai-toolbar .ai-primary").HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public async Task Refresh_retries_unavailable_investigation_directory_without_admin_fallback()
+    {
+        using var api = new Api { FailOrganizations = true };
+        await using var context = Context(api);
+        var page = context.Render<Page>();
+        page.WaitForAssertion(() => Assert.Single(page.FindAll("[role='alert']")));
+        Assert.True(page.Find(".ai-toolbar .ai-primary").HasAttribute("disabled"));
+        api.FailOrganizations = false;
+        page.FindAll(".ai-toolbar button").Single(x => x.TextContent == "Refresh").Click();
+        page.WaitForAssertion(() => Assert.Equal(4, page.FindAll(".ai-investigation").Count));
+        Assert.Empty(page.FindAll("[role='alert']"));
+        Assert.Equal(2, api.Requests.Count(x => x == "/api/v1/ai/ops/organizations"));
+        Assert.DoesNotContain("/api/v1/organizations", api.Requests);
+    }
+
     [Fact]
     public async Task History_has_focused_search_and_status_filters_and_creation_is_explicit()
     {
@@ -151,6 +178,7 @@ public sealed class AiInvestigationsWorkspaceTests
         public Guid OptionalPromptId { get; } = Guid.NewGuid();
         public bool RejectCreate { get; set; }
         public bool FailHistory { get; set; }
+        public bool FailOrganizations { get; set; }
         public List<string> Requests { get; } = [];
         public List<CreateAiInvestigationDto> Creations { get; } = [];
         public List<Guid> Archived { get; } = [];
@@ -168,8 +196,10 @@ public sealed class AiInvestigationsWorkspaceTests
             var query = QueryHelpers.ParseQuery(request.RequestUri.Query);
             if (request.Method == HttpMethod.Get)
             {
-                if (path.EndsWith("/organizations", StringComparison.Ordinal))
-                    return Json(new[] { new OrganizationDto { Id = "org-a", Name = "Organization A" }, new OrganizationDto { Id = "org-b", Name = "Organization B" } });
+                if (path == "/api/v1/organizations") return new(HttpStatusCode.Forbidden);
+                if (path == "/api/v1/ai/ops/organizations" && FailOrganizations) return new(HttpStatusCode.ServiceUnavailable);
+                if (path == "/api/v1/ai/ops/organizations")
+                    return Json(new[] { new AiOpsOrganizationDto("org-a", "Organization A"), new AiOpsOrganizationDto("org-b", "Organization B") });
                 if (path.EndsWith("/investigations", StringComparison.Ordinal) && FailHistory) return new(HttpStatusCode.ServiceUnavailable);
                 if (path.EndsWith("/investigations", StringComparison.Ordinal))
                     return Json(Rows.Where(x => (!query.TryGetValue("organizationId", out var org) || x.OrganizationId == org.ToString()) && x.Title.Contains(query["q"].ToString(), StringComparison.OrdinalIgnoreCase)).Select(x => x with { ContextSnapshot = "" }).ToArray());

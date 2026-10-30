@@ -1,7 +1,6 @@
 @page "/ai/ops"
 @attribute [Authorize]
 @using Helpdesk.Shared.DTOs.AiOps
-@using Helpdesk.Shared.DTOs.Organization
 @using Helpdesk.Shared.AiAssistant.Chat
 @using System.Text.Json
 @inject IHttpClientFactory Clients
@@ -141,7 +140,7 @@
 @code {
     [SupplyParameterFromQuery(Name = "id")] public Guid? Id { get; set; }
     [SupplyParameterFromQuery(Name = "q")] public string? Query { get; set; }
-    private List<OrganizationDto> organizations = [];
+    private List<AiOpsOrganizationDto> organizations = [];
     private List<AiInvestigationDto> investigations = [];
     private List<AiContextTicketDto> tickets = [];
     private List<AiPromptDto> prompts = [];
@@ -175,7 +174,7 @@
         {
             if (!initialized)
             {
-                var loaded = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations") ?? [];
+                var loaded = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<AiOpsOrganizationDto>>("api/v1/ai/ops/organizations") ?? [];
                 if (current != generation) return;
                 organizations = loaded; initialized = true;
             }
@@ -215,7 +214,7 @@
         {
             if (!initialized)
             {
-                var loadedOrganizations = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations") ?? [];
+                var loadedOrganizations = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<AiOpsOrganizationDto>>("api/v1/ai/ops/organizations") ?? [];
                 if (current != generation) return;
                 organizations = loadedOrganizations; initialized = true;
             }

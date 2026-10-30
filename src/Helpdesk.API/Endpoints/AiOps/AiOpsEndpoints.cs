@@ -8,6 +8,7 @@ using Helpdesk.Infrastructure.AiOps;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.AiAssistant.Chat;
 using Helpdesk.Shared.DTOs.AiOps;
+using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.Services;
 using Microsoft.EntityFrameworkCore;
 
@@ -24,6 +25,19 @@ public static class AiOpsEndpoints
             catch (ArgumentException ex) { return Results.Problem(ex.Message, statusCode: 400); }
             catch (DbUpdateConcurrencyException) { return Results.Conflict(new { message = "The saved revision changed. Reload before editing." }); }
             catch (DbUpdateException) { return Results.Conflict(new { message = "The saved state changed concurrently. Reload before editing." }); }
+        });
+        group.MapGet("/organizations", async (HelpdeskDbContext db, ICurrentUserAccessService accessService, HttpContext ctx, CancellationToken ct) =>
+        {
+            var access = await accessService.ResolveAsync(ctx.User, ct);
+            var orgs = access.OrganizationIdsForAny(
+                HelpdeskPermissions.IncidentWrite, HelpdeskPermissions.IncidentManager,
+                HelpdeskPermissions.RequestWrite, HelpdeskPermissions.RequestManager,
+                HelpdeskPermissions.ChangeWrite, HelpdeskPermissions.ChangeManager).ToArray();
+            var organizations = await db.Organizations.AsNoTracking()
+                .Where(x => x.State == Helpdesk.Shared.Models.EntityState.Enabled && (access.IsHelpdeskAdmin || orgs.Contains(x.Id)))
+                .OrderBy(x => x.Name).ThenBy(x => x.Id)
+                .Select(x => new AiOpsOrganizationDto(x.Id, x.Name)).ToListAsync(ct);
+            return Results.Ok(organizations.Where(x => CanUse(access, x.Id)));
         });
         group.MapGet("/tickets", async (string organizationId, string? q, HelpdeskDbContext db, ICurrentUserAccessService accessService, HttpContext ctx, CancellationToken ct) =>
         {
