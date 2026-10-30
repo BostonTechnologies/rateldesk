@@ -224,6 +224,47 @@ public sealed class AutomationBindingDriftServiceTests
         Assert.All(refreshed, binding => Assert.Equal(AutomationBindingSyncState.InSync, binding.SyncState));
     }
 
+    [Theory]
+    [InlineData("text", "string", true, true, "Unchanged")]
+    [InlineData("text", " STRING ", true, true, "Unchanged")]
+    [InlineData("string", "text", false, false, "Unchanged")]
+    [InlineData("helpdeskData", "string", true, true, "Unchanged")]
+    [InlineData("text", "string", false, true, "Modified")]
+    [InlineData("text", "number", true, true, "Modified")]
+    public async Task PreviewAndRefresh_NormalizeTextAliasesWithoutHidingSemanticChanges(
+        string localType, string remoteType, bool localRequired, bool remoteRequired, string expectedChange)
+    {
+        await using var db = CreateDb();
+        var form = CreateRequestForm(
+            [new FormField { Key = "input", Label = "Input", Type = localType, Required = localRequired }],
+            new Dictionary<string, string> { ["input"] = "input" });
+        var binding = CreateBinding("text-alias-binding", form.Id, TaskTemplateId);
+        binding.SyncState = AutomationBindingSyncState.Drifted;
+        db.RequestForms.Add(form);
+        db.AutomationBindings.Add(binding);
+        await db.SaveChangesAsync();
+        var sut = new AutomationBindingDriftService(
+            db, new TestTenantContext(),
+            new StubOrchestrationCatalogService([
+                new OrchestrationCatalogRequestDefinitionDto
+                {
+                    RequestDefinitionId = binding.OrchestrationRequestDefinitionId,
+                    RequestDefinitionName = "Text input job",
+                    Inputs = [new OrchestrationCatalogInputDefinitionDto
+                    {
+                        Key = "input", Type = remoteType, Required = remoteRequired, Order = 0
+                    }]
+                }
+            ]), new RequestFormSchemaParser());
+
+        var preview = await sut.PreviewAsync(binding.Id);
+        Assert.Equal(expectedChange, Assert.Single(preview.Differences).ChangeType);
+        var refreshed = Assert.Single(await sut.RefreshAsync(form.Id));
+        Assert.Equal(expectedChange == "Unchanged"
+            ? AutomationBindingSyncState.InSync
+            : AutomationBindingSyncState.Drifted, refreshed.SyncState);
+    }
+
     private static readonly Guid TaskTemplateId = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
     private static HelpdeskDbContext CreateDb()
