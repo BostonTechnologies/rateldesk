@@ -60,6 +60,12 @@ configuration surface.
 
 ## Typed operator adapters
 
+`helpdesk_incidents.peek` follows the incident's current organization and
+customer visibility, just like the incident read endpoint. Scoped incident
+readers can preview authorized incidents; foreign organizations and other
+customers remain subject to the API's record checks. Discovery describes that
+permission and organization intersection for ordinary bounded credentials.
+
 `helpdesk_automation.workflow_metrics` returns structured data with
 `format: "prometheus"` and `text` containing the API's Prometheus metrics. It
 preserves the API's Request.Read/Request.Write/Request.Manager organization scope;

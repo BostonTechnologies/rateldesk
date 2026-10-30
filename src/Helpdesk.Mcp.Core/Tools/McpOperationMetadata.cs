@@ -71,7 +71,6 @@ public static class McpOperationMetadata
     private static bool RequiresAdministrator(McpOperationDefinition item) =>
         OperatorOperationCatalog.Find(item.Tool, item.Operation)?.Authority == "HelpdeskAdmin" ||
         item.Tool is "helpdesk_connectivity" or "helpdesk_search" ||
-        (item.Tool == "helpdesk_incidents" && item.Operation == "peek") ||
         (item.Tool == "helpdesk_services" && item.Operation == "list") ||
         (item.Tool == "helpdesk_request_forms" && item.Operation == "by_service") ||
         item.Tool is "helpdesk_organizations" or "helpdesk_customers" or "helpdesk_users" ||
