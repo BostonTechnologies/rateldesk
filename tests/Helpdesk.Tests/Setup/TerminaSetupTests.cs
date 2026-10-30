@@ -12,6 +12,34 @@ namespace Helpdesk.Tests.Setup;
 public sealed class TerminaSetupTests
 {
     [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task Terminal_exit_and_host_cancellation_finish_without_a_second_shutdown(int exitMode)
+    {
+        var priorOutput = Console.Out;
+        using var captured = new StringWriter();
+        Console.SetOut(captured);
+        try
+        {
+            for (var attempt = 0; attempt < 100; attempt++)
+            {
+                using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                using var workflow = new FakeWorkflow();
+                var runtime = SetupRunner.CreateHost(new(), workflow, new VirtualInputSource(), new VirtualTerminal(80, 24));
+                using var host = runtime.Host;
+                var run = host.RunAsync(deadline.Token);
+                await runtime.Application.InvokeAsync(() => { }).WaitAsync(TimeSpan.FromSeconds(3));
+                if (exitMode != 1) runtime.Application.Shutdown();
+                if (exitMode != 0) deadline.Cancel();
+                await run.WaitAsync(TimeSpan.FromSeconds(3));
+                await runtime.ViewModel.CleanupAsync();
+            }
+        }
+        finally { Console.SetOut(priorOutput); }
+    }
+
+    [Theory]
     [InlineData(SetupTransport.Cli)]
     [InlineData(SetupTransport.Stdio)]
     [InlineData(SetupTransport.Http)]
@@ -922,7 +950,7 @@ public sealed class TerminaSetupTests
         {
             try
             {
-                Application.Shutdown(); _deadline.Cancel();
+                _deadline.Cancel();
                 await Run.WaitAsync(TimeSpan.FromSeconds(3));
                 await Model.CleanupAsync();
                 _runtime.Host.Dispose();
