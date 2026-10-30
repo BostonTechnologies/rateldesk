@@ -43,7 +43,7 @@
     private readonly string editorId = $"prompt-monaco-{Guid.NewGuid():N}";
     private StandaloneCodeEditor? editor;
     private IJSObjectReference? loader;
-    private string currentValue = "", language = "markdown", theme = "vs-dark";
+    private string currentValue = "", constructionValue = "", language = "markdown", theme = "vs-dark";
     private bool assetsReady, loadFailed, initialized, fullscreen, readOnly, disposed;
 
     protected override async Task OnParametersSetAsync()
@@ -82,15 +82,27 @@
         else if (initialized && editor is not null && !disposed) await editor.Layout();
     }
 
-    private StandaloneEditorConstructionOptions Options(StandaloneCodeEditor _) => new()
+    private StandaloneEditorConstructionOptions Options(StandaloneCodeEditor _)
     {
-        AutomaticLayout = true, Language = language, Theme = theme, Value = currentValue,
-        ReadOnly = ReadOnly, AriaLabel = Label, ScrollBeyondLastLine = false, WordWrap = "on", GlyphMargin = false
-    };
+        constructionValue = currentValue;
+        return new()
+        {
+            AutomaticLayout = true, Language = language, Theme = theme, Value = currentValue,
+            ReadOnly = ReadOnly, AriaLabel = Label, ScrollBeyondLastLine = false, WordWrap = "on", GlyphMargin = false
+        };
+    }
     private async Task InitializedAsync()
     {
         if (disposed) return;
-        initialized = true; await BlazorMonaco.Editor.Global.SetTheme(JS, theme);
+        initialized = true;
+        if (editor is not null)
+        {
+            // Parameters can change while the browser creates the editor. Apply
+            // the current state without resetting text that has not changed.
+            if (constructionValue != currentValue) await editor.SetValue(currentValue);
+            if (!disposed) await editor.UpdateOptions(new EditorUpdateOptions { ReadOnly = ReadOnly });
+        }
+        if (!disposed) await BlazorMonaco.Editor.Global.SetTheme(JS, theme);
     }
     private async Task ChangedAsync(ModelContentChangedEvent _)
     {

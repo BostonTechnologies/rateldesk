@@ -231,6 +231,35 @@ public sealed class AiPromptsRenderedTests
 
 public sealed class MonacoTextEditorRenderedTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Parameter_changes_during_browser_editor_creation_are_applied_after_initialization(bool initiallyReadOnly)
+    {
+        await using var context = new BunitContext();
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        context.JSInterop.SetupModule("./js/helpdesk-monaco-text.js").Mode = JSRuntimeMode.Loose;
+        var creation = context.JSInterop.SetupVoid("blazorMonaco.editor.create", _ => true);
+        var editor = context.Render<Editor>(parameters => parameters
+            .Add(x => x.Value, "Saved guidance")
+            .Add(x => x.ReadOnly, initiallyReadOnly));
+        editor.WaitForAssertion(() => Assert.Single(creation.Invocations));
+
+        editor.Render(parameters => parameters
+            .Add(x => x.Value, "Latest guidance")
+            .Add(x => x.ReadOnly, !initiallyReadOnly));
+        creation.SetVoidResult();
+
+        editor.WaitForAssertion(() =>
+        {
+            var update = Assert.Single(context.JSInterop.Invocations["blazorMonaco.editor.updateOptions"]);
+            var options = Assert.IsType<System.Text.Json.JsonElement>(update.Arguments[1]);
+            Assert.Equal(!initiallyReadOnly, options.GetProperty("readOnly").GetBoolean());
+            var value = Assert.Single(context.JSInterop.Invocations["blazorMonaco.editor.setValue"]);
+            Assert.Equal("Latest guidance", value.Arguments[1]);
+        });
+    }
+
     [Fact]
     public async Task Leaving_during_asset_loading_disposes_the_module_once_after_loading_finishes()
     {
