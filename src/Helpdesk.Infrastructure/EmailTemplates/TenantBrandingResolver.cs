@@ -201,7 +201,10 @@ public sealed class TenantBrandingResolver(
         if (string.IsNullOrWhiteSpace(publicApiBaseUrl))
             return string.Empty;
 
-        var logoPath = configuration["EmailBrand:LogoPath"] ?? "/email-brand/rateldesk-email-wordmark.png";
+        var configuredLogoPath = configuration["EmailBrand:LogoPath"];
+        var logoPath = string.IsNullOrWhiteSpace(configuredLogoPath)
+            ? "/email-brand/rateldesk-email-wordmark.png"
+            : configuredLogoPath;
         var normalizedPath = logoPath.StartsWith("/", StringComparison.Ordinal) ? logoPath : $"/{logoPath}";
         return BuildLogoHtml($"{publicApiBaseUrl}{normalizedPath}", string.Empty, applicationUrl);
     }
