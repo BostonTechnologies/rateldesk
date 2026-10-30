@@ -140,6 +140,19 @@ public sealed class McpExecutableSchemaTests
     }
 
     [Fact]
+    public void Incident_peek_discovery_allows_current_scoped_readers()
+    {
+        var peek = McpOperationCatalog.ToJson().OfType<JsonObject>()
+            .Single(row => row["tool"]!.ToString() == "helpdesk_incidents" && row["operation"]!.ToString() == "peek");
+
+        Assert.Equal("permission_and_organization_intersection", peek["boundedIntegrationCredential"]!["support"]!.ToString());
+        Assert.Equal("available_subject_to_identity_permission_scope_and_prerequisites", peek["transportSupport"]!["http"]!.ToString());
+        Assert.Contains("organization scope", peek["authority"]!.ToString());
+        Assert.DoesNotContain("HelpdeskAdmin", peek["authority"]!.ToString());
+        Assert.Contains("api-purpose account-bound credential (stdio)", peek["credentialModes"]!.AsArray().Select(value => value!.ToString()));
+    }
+
+    [Fact]
     public void Authority_metadata_distinguishes_delete_approval_and_specific_tool_boundaries()
     {
         var rows = McpOperationCatalog.ToJson().OfType<JsonObject>().ToArray();
