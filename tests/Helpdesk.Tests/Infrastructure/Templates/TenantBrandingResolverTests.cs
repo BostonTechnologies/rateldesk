@@ -52,15 +52,20 @@ public class TenantBrandingResolverTests
         Assert.Equal("noreply@example.test", resolved.ReplyTo);
     }
 
-    [Fact]
-    public async Task ResolveAsync_Uses_BundledPngWordmark_ForDefaultEmailBrand()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("\t")]
+    public async Task ResolveAsync_Uses_BundledPngWordmark_ForDefaultEmailBrand(string? configuredLogoPath)
     {
         var repo = Substitute.For<IRepository<TenantBranding>>();
         repo.GetAllAsync().Returns(Array.Empty<TenantBranding>());
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["StorageOptions:PublicApiBaseUrl"] = "https://api.example.test"
+                ["StorageOptions:PublicApiBaseUrl"] = "https://api.example.test",
+                ["EmailBrand:LogoPath"] = configuredLogoPath
             })
             .Build();
 
@@ -68,6 +73,27 @@ public class TenantBrandingResolverTests
         var resolved = await resolver.ResolveAsync(null);
 
         Assert.Contains("https://api.example.test/email-brand/rateldesk-email-wordmark.png", resolved.LogoHtml);
+    }
+
+    [Theory]
+    [InlineData("/custom/email-logo.png")]
+    [InlineData("custom/email-logo.png")]
+    public async Task ResolveAsync_PreservesConfiguredDefaultLogoPath(string configuredLogoPath)
+    {
+        var repo = Substitute.For<IRepository<TenantBranding>>();
+        repo.GetAllAsync().Returns(Array.Empty<TenantBranding>());
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["StorageOptions:PublicApiBaseUrl"] = "https://api.example.test",
+                ["EmailBrand:LogoPath"] = configuredLogoPath
+            })
+            .Build();
+
+        var resolver = new TenantBrandingResolver(repo, new TestImageLinkSigner(), config);
+        var resolved = await resolver.ResolveAsync(null);
+
+        Assert.Contains("https://api.example.test/custom/email-logo.png", resolved.LogoHtml);
     }
 
     [Fact]
