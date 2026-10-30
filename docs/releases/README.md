@@ -1,5 +1,13 @@
 # Releases
 
+## 0.1.2-beta.17 candidate — terminal shutdown lifecycle
+
+[Candidate notes](../release-notes/0.1.2-beta.17.md) describe cancellation-based
+terminal shutdown while preserving render-task failures. The allocated beta.16
+tag remains unchanged after its validation failure before publication; beta.17
+also includes its legacy-column and login-copy repairs. Fresh deployed acceptance
+continues under [#219](https://github.com/BostonTechnologies/RatelDesk/issues/219).
+
 ## 0.1.2-beta.15 candidate — retained index and campaign initialization
 
 [Candidate notes](../release-notes/0.1.2-beta.15.md) describe removal of the

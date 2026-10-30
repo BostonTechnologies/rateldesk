@@ -68,6 +68,12 @@ public static class SetupRunner
             termina.ConfigureRuntime(runtime => { runtime.PreferRawInput = true; runtime.CtrlCHandlingMode = CtrlCHandlingMode.Disabled; });
             termina.RegisterRoute<SetupPage, SetupViewModel>("/setup", services => new SetupPage(options, services.GetRequiredService<IClipboardService>()), _ => model);
         });
+        // Keep Termina's input, routing and rendering registrations, replacing
+        // only its runner so host cancellation cannot race the loop's disposal.
+        var terminalRunner = builder.Services.Single(service => service.ServiceType == typeof(IHostedService)
+            && service.ImplementationType?.FullName == "Termina.Hosting.TerminaHostedService");
+        builder.Services.Remove(terminalRunner);
+        builder.Services.AddHostedService<SetupTerminalHostedService>();
         var host = builder.Build();
         return new(host, model, host.Services.GetRequiredService<TerminaApplication>());
     }
