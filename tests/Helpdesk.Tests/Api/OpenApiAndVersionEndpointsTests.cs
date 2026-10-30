@@ -136,13 +136,14 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // Beta.14 adds one instance-administrator orphan attachment metadata deletion.
         // Reviewed MCP setup adds options, atomic creation and delivery acknowledgement;
         // policy management adds the named directory and revision-bound deletion preview.
+        // Scoped AI workspace initialization adds one authorized organization lookup.
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(445, operationCount);
+        Assert.Equal(446, operationCount);
 #else
-        Assert.Equal(444, operationCount);
+        Assert.Equal(445, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         foreach (var (path, operationId, tag) in new[]
@@ -252,6 +253,7 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         {
             ("/api/v1/ticketing/assignees/search", "get", "Ticket Lookups"),
             ("/api/v1/ticketing/assignees/current", "get", "Ticket Lookups"),
+            ("/api/v1/ai/ops/organizations", "get", "AI Operations"),
             ("/api/v1/changes/{id}/assignee", "post", "Changes"),
             ("/api/v1/ticketing/filter-options", "get", "Ticket Lookups"),
             ("/api/v1/timeline/pending", "get", "Timeline"),
