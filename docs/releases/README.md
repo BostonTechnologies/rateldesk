@@ -1,5 +1,13 @@
 # Releases
 
+## 0.1.2-beta.18 candidate — campaign acceptance repairs
+
+[Candidate notes](../release-notes/0.1.2-beta.18.md) cover login logo sizing,
+equivalent text-field schema names, scoped investigation organization choices
+and incident Peek discovery authority. Required checks, immutable publication
+and fresh deployed acceptance remain separate gates; the full campaign remains
+tracked by [#219](https://github.com/BostonTechnologies/RatelDesk/issues/219).
+
 ## 0.1.2-beta.17 candidate — terminal shutdown lifecycle
 
 [Candidate notes](../release-notes/0.1.2-beta.17.md) describe cancellation-based

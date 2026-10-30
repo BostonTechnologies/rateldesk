@@ -263,6 +263,10 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
+      - name: Verify integrations fixture directory contract
+        if: matrix.suite == 'integrations'
+        run: node --test tests/ux/integrations-fixture-api.test.mjs
+
       - name: Build the real Web application
         run: |
           dotnet dev-certs https --quiet
