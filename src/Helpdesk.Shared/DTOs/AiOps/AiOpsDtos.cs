@@ -1,5 +1,6 @@
 namespace Helpdesk.Shared.DTOs.AiOps;
 
+public sealed record AiOpsOrganizationDto(string Id, string Name);
 public sealed record AiPromptDto(Guid Id, string OrganizationId, string Name, string Description, string Content, int Revision, bool IsDefault, bool Archived);
 public sealed record SaveAiPromptDto(string OrganizationId, string Name, string Description, string Content, int ExpectedRevision, bool IsDefault, bool Archived);
 public sealed record CreateAiInvestigationDto(Guid Id, string OrganizationId, string Title, string[] TicketIds, Guid[] PromptIds);

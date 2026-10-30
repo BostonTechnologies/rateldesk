@@ -139,8 +139,8 @@ public sealed partial class AiOpsAndPolicyEndpointsTests
             builder.Services.AddSingleton(Substitute.For<Helpdesk.Application.AiAssistant.Chat.IAiAssistantChatTransport>());
             var tenant = Substitute.For<ITenantContext>(); tenant.IsHelpdeskAdmin.Returns(true); builder.Services.AddSingleton(tenant);
             var access = Substitute.For<ICurrentUserAccessService>(); access.ResolveAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<CancellationToken>()).Returns(Profile(true)); builder.Services.AddSingleton(access);
-            builder.Services.AddDbContext<HelpdeskDbContext>(o => { if (postgres is null) o.UseSqlite($"Data Source={directory}/business.db"); else o.UseNpgsql(postgres.GetConnectionString()); });
-            builder.Services.AddDbContext<RatelDeskIdentityDbContext>(o => o.UseSqlite($"Data Source={directory}/identity.db"));
+            builder.Services.AddDbContext<HelpdeskDbContext>(o => { if (postgres is null) o.UseSqlite($"Data Source={directory}/business.db;Pooling=False"); else o.UseNpgsql(postgres.GetConnectionString()); });
+            builder.Services.AddDbContext<RatelDeskIdentityDbContext>(o => o.UseSqlite($"Data Source={directory}/identity.db;Pooling=False"));
             builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, TestAuth>("Test", _ => { });
             builder.Services.AddAuthorization(o => { o.AddPolicy("HelpdeskAdmin", p => p.RequireRole("HelpdeskAdmin")); o.AddPolicy("HelpdeskStaff", p => p.RequireAuthenticatedUser()); });
             var app = builder.Build(); app.UseAuthentication(); app.UseAuthorization(); app.MapAiOpsEndpoints(); app.MapMcpPolicyEndpoints();
