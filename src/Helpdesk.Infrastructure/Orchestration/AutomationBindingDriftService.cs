@@ -316,8 +316,10 @@ public sealed class AutomationBindingDriftService(
             return "text";
         }
 
-        return string.Equals(value.Trim(), "helpdeskData", StringComparison.OrdinalIgnoreCase)
-            ? "text"
-            : value.Trim().ToLowerInvariant();
+        return value.Trim().ToLowerInvariant() switch
+        {
+            "helpdeskdata" or "string" => "text",
+            var type => type
+        };
     }
 }
