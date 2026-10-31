@@ -131,7 +131,7 @@ else
                                         @if (context.Type == RequestTaskType.Automation && !string.IsNullOrWhiteSpace(context.LastAutomationStatus))
                                         {
                                             <MudText Typo="Typo.caption" Class="d-block">
-                                                External orchestration: @context.LastAutomationStatus
+                                                External orchestration: @(RequiresManualReconciliation(context.LastAutomationStatus) ? "Reconciliation required" : context.LastAutomationStatus)
                                                 @if (context.LastAutomationUpdatedAt.HasValue)
                                                 {
                                                     <span> (@context.LastAutomationUpdatedAt.Value.LocalDateTime.ToString("g"))</span>
@@ -803,7 +803,8 @@ else
         => !string.IsNullOrWhiteSpace(GetAutomationRecoverySearch(task));
 
     private static bool RequiresManualReconciliation(string? status)
-        => status is "SubmitUncertainManualReconcile";
+        => string.Equals(status, "SubmitUncertainManualReconcile", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, "ExecutionUnknownManualReconcile", StringComparison.OrdinalIgnoreCase);
 
     private string BuildAutomationRecoveryLink(RequestTaskDto task)
         => $"/notifications?source={Uri.EscapeDataString("Orchestration")}&search={Uri.EscapeDataString(GetAutomationRecoverySearch(task) ?? string.Empty)}";

@@ -1,5 +1,10 @@
 # Release notes
 
+## 0.1.2-beta.20 candidate
+
+[Unknown automation outcome reconciliation](0.1.2-beta.20.md) preserves execution
+identity and results while holding retries until the provider outcome is known.
+
 ## 0.1.2-beta.18 candidate
 
 [Campaign acceptance repairs](0.1.2-beta.18.md) cover logo fidelity, text-field

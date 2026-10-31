@@ -139,6 +139,16 @@ public static class OrchestrationCallbackEndpoints
             return Results.BadRequest();
         }
 
+        var requiresReconciliation = task.Status == RequestTaskStatus.Failed
+            && AutomationTaskStatuses.RequiresManualReconciliation(task.LastAutomationStatus);
+        // A known outcome may reconcile the same uncertain execution. Lower-confidence
+        // and duplicate callbacks must not overwrite a hold or an established outcome.
+        if (task.Status != RequestTaskStatus.InProgress
+            && !(requiresReconciliation && incomingStatus is "succeeded" or "failed"))
+        {
+            return Results.NoContent();
+        }
+
         await domainEvents.PublishAsync(
             new OrchestrationCallbackReceivedEvent(
                 RequestId: task.RequestId,
@@ -152,7 +162,8 @@ public static class OrchestrationCallbackEndpoints
             ct);
 
         var now = DateTimeOffset.UtcNow;
-        var callbackResultJson = BuildCallbackResultJson(dto);
+        var callbackResultJson = BuildCallbackResultJson(dto,
+            incomingStatus == "unknown" || requiresReconciliation ? task.ResultJson : null);
         task.OrchestrationExternalRequestId = FirstNonEmpty(task.OrchestrationExternalRequestId, dto.OrchestrationRequestId, dto.RequestId);
         task.OrchestrationExternalRunId = FirstNonEmpty(task.OrchestrationExternalRunId, dto.OrchestrationRunId, dto.ExecutionId);
         task.OrchestratorExecutionId = FirstNonEmpty(task.OrchestratorExecutionId, dto.ExecutionId, dto.OrchestrationRunId);
@@ -189,6 +200,7 @@ public static class OrchestrationCallbackEndpoints
                 return Results.NoContent();
 
             case (RequestTaskStatus.InProgress, "succeeded"):
+            case (RequestTaskStatus.Failed, "succeeded") when requiresReconciliation:
                 task.Status = RequestTaskStatus.Completed;
                 task.State = TicketState.Resolved;
                 task.CompletedAt = dto.CompletedAtUtc ?? now;
@@ -220,6 +232,7 @@ public static class OrchestrationCallbackEndpoints
                 return Results.NoContent();
 
             case (RequestTaskStatus.InProgress, "failed"):
+            case (RequestTaskStatus.Failed, "failed") when requiresReconciliation:
                 task.Status = RequestTaskStatus.Failed;
                 task.State = TicketState.OnHold;
                 task.CompletedAt = dto.CompletedAtUtc ?? task.CompletedAt;
@@ -249,6 +262,24 @@ public static class OrchestrationCallbackEndpoints
                         callerClientId),
                     ct);
                 await failurePolicyEngine.OnTaskFailedAsync(task.RequestId, task.Id, ct);
+                return Results.NoContent();
+
+            case (RequestTaskStatus.InProgress, "unknown"):
+                task.Status = RequestTaskStatus.Failed;
+                task.State = TicketState.OnHold;
+                task.LastAutomationStatus = AutomationTaskStatuses.ExecutionUnknownManualReconcile;
+                task.NextRetryAt = null;
+                task.FailureReason = "Automation execution outcome is unknown. Reconcile the recorded provider execution before retrying.";
+                task.ResultJson = callbackResultJson;
+                task.UpdatedAt = now.UtcDateTime;
+                await db.SaveChangesAsync(ct);
+
+                await AppendAutomationWorklogAsync(sender, task, dto, incomingStatus, callerClientId, ct);
+                await domainEvents.PublishAsync(
+                    new RequestTaskFailedEvent(task.Id, task.RequestId, task.OrganizationId, now, correlationId), ct);
+                // Unknown is neither a confirmed failure nor permission to dispatch again.
+                // Do not apply retry/failure policy or create a failure incident.
+                await requestTaskStateService.EvaluateParentRequestState(task.RequestId, ct);
                 return Results.NoContent();
 
             case (RequestTaskStatus.Completed, "succeeded"):
@@ -303,7 +334,7 @@ public static class OrchestrationCallbackEndpoints
         }
 
         var normalized = status.Trim().ToLowerInvariant();
-        return normalized is "running" or "succeeded" or "failed" ? normalized : null;
+        return normalized is "running" or "succeeded" or "failed" or "unknown" ? normalized : null;
     }
 
     private static string GetCorrelationId(ICorrelationContext correlationContext) => correlationContext.GetCorrelationId() ?? $"corr-{Guid.NewGuid():N}";
@@ -400,7 +431,7 @@ public static class OrchestrationCallbackEndpoints
         return trimmed;
     }
 
-    private static string BuildCallbackResultJson(OrchestrationCallbackDto dto)
+    private static string BuildCallbackResultJson(OrchestrationCallbackDto dto, string? previousResultJson = null)
     {
         var payload = new
         {
@@ -412,6 +443,7 @@ public static class OrchestrationCallbackEndpoints
             status = dto.Status,
             message = dto.Message,
             resultJson = dto.ResultJson,
+            previousResultJson,
             errorJson = dto.ErrorJson,
             worklogSummary = dto.WorklogSummary,
             startedAtUtc = dto.StartedAtUtc,
@@ -456,6 +488,11 @@ public static class OrchestrationCallbackEndpoints
             $"Automation task '{task.Name}' reported '{status}'.",
             $"Source: {callerClientId}"
         };
+
+        if (string.Equals(status, "unknown", StringComparison.OrdinalIgnoreCase))
+        {
+            lines.Add("Reconciliation required. Check the recorded provider execution before retrying; automatic and manual retries are held.");
+        }
 
         var bindingId = FirstNonEmpty(task.AutomationBindingId);
         if (!string.IsNullOrWhiteSpace(bindingId))
