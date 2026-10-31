@@ -187,6 +187,15 @@ jobs:
             release-assets/release-manifest.json.sha256
           if-no-files-found: error
 
+      - name: Reclaim intermediate Docker build cache
+        run: |
+          # Release images and the validated payload are already retained.
+          # Drop only this hosted job's unused intermediate build cache.
+          docker system df
+          docker builder prune --all --force
+          docker system df
+          df -h .
+
       - name: Start and smoke-test source Compose stack
         run: |
           docker compose -f docker/docker-compose.yml config --quiet
