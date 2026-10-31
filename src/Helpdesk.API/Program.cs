@@ -395,7 +395,7 @@ if (useHangfireRuntime)
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(sqliteHangfirePath!)!);
-        config.UseSQLiteStorage(sqliteHangfirePath!);
+        config.UseSQLiteStorage(SqliteHangfireStorage.CreateConnectionFactory(sqliteHangfirePath!));
     });
     builder.Services.AddHangfireServer(options =>
     {
