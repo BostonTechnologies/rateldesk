@@ -1,5 +1,13 @@
 # Releases
 
+## 0.1.2-beta.19 candidate — SQLite scheduler and narrow login repairs
+
+[Candidate notes](../release-notes/0.1.2-beta.19.md) cover serialized SQLite
+scheduler connections and login wrapping at narrow widths with enlarged text.
+The fixes preserve PostgreSQL and existing campaign requirements. Publication
+and fresh deployed acceptance remain separate gates under
+[#219](https://github.com/BostonTechnologies/RatelDesk/issues/219).
+
 ## 0.1.2-beta.18 candidate — campaign acceptance repairs
 
 [Candidate notes](../release-notes/0.1.2-beta.18.md) cover login logo sizing,
