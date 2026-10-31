@@ -139,6 +139,16 @@ public sealed class ManagedOrchestrationCallbackHttpTests
         callback.ResultJson = "{\"output\":\"provider-confirmed\"}";
         using var confirmed = await PairingBusinessFixture.SendAsync(h, token, HttpMethod.Post, "/api/v1/orchestration/provider/callback", callback);
         Assert.Equal(HttpStatusCode.NoContent, confirmed.StatusCode);
+        string[] confirmedWorklogs = [];
+        await h.EditAsync(async db =>
+        {
+            var logs = await db.WorkLogs.OrderBy(x => x.Id).ToListAsync();
+            // A confirmed failure also records the normal workflow-block notification.
+            Assert.Equal(outcome == "failed" ? 3 : 2, logs.Count);
+            Assert.Single(logs, x => x.NotesText?.Contains("reported 'unknown'", StringComparison.Ordinal) == true);
+            Assert.Single(logs, x => x.NotesText?.Contains($"reported '{outcome}'", StringComparison.Ordinal) == true);
+            confirmedWorklogs = logs.Select(x => $"{x.Id}|{x.NotesText}").ToArray();
+        });
         foreach (var status in new[] { "unknown", "running", outcome })
         {
             callback.Status = status;
@@ -153,7 +163,8 @@ public sealed class ManagedOrchestrationCallbackHttpTests
             Assert.False(AutomationTaskStatuses.RequiresManualReconciliation(saved.LastAutomationStatus));
             Assert.Equal(Execution, saved.OrchestratorExecutionId);
             Assert.Equal(ExternalRequest, saved.OrchestrationExternalRequestId);
-            Assert.Equal(2, await db.WorkLogs.CountAsync());
+            var logs = await db.WorkLogs.OrderBy(x => x.Id).ToListAsync();
+            Assert.Equal(confirmedWorklogs, logs.Select(x => $"{x.Id}|{x.NotesText}").ToArray());
             using var result = JsonDocument.Parse(saved.ResultJson!);
             Assert.Equal("{\"output\":\"provider-confirmed\"}", result.RootElement.GetProperty("resultJson").GetString());
             Assert.Contains("unknown", result.RootElement.GetProperty("previousResultJson").GetString()!, StringComparison.OrdinalIgnoreCase);
