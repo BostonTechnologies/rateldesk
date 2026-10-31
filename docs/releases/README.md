@@ -1,5 +1,12 @@
 # Releases
 
+## 0.1.2-beta.20 candidate — unknown automation outcomes
+
+[Candidate notes](../release-notes/0.1.2-beta.20.md) cover correlated `unknown`
+callbacks, reconciliation holds and safe late-result handling. Normal reviewed
+checks, immutable publication and fresh deployed acceptance remain separate
+gates under [#219](https://github.com/BostonTechnologies/RatelDesk/issues/219).
+
 ## 0.1.2-beta.19 candidate — SQLite scheduler and narrow login repairs
 
 [Candidate notes](../release-notes/0.1.2-beta.19.md) cover serialized SQLite

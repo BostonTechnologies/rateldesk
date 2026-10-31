@@ -474,14 +474,15 @@ public sealed class RequestTaskLifecycleServiceTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Retry_preserves_attempt_history_and_only_admits_a_known_failed_outcome(bool uncertain)
+    [InlineData("failed", false)]
+    [InlineData(AutomationTaskStatuses.SubmitUncertainManualReconcile, true)]
+    [InlineData(AutomationTaskStatuses.ExecutionUnknownManualReconcile, true)]
+    public async Task Retry_preserves_attempt_history_and_only_admits_a_known_failed_outcome(string status, bool uncertain)
     {
         var task = new RequestTask { Id = "task-1", RequestId = "request-1", Title = "Automation", Type = RequestTaskType.Automation,
             Status = RequestTaskStatus.Failed, AutoStart = false, OrchestrationExternalRunId = "run-1",
             OrchestrationExternalRequestId = "provider-request-1", AutomationAttemptCorrelationId = "first-attempt",
-            LastAutomationStatus = uncertain ? AutomationTaskStatuses.SubmitUncertainManualReconcile : "failed" };
+            LastAutomationStatus = status };
         var parent = new Request { Id = task.RequestId, WorkflowStatus = "Blocked", WorkflowBlockReason = "Task 'Automation' failed." };
         var tasks = Substitute.For<IRepository<RequestTask>>();
         tasks.GetAsync(task.Id).Returns(task);

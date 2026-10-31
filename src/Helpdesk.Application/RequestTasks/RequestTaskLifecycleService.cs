@@ -410,7 +410,7 @@ public sealed class RequestTaskLifecycleService(
         }
 
         if (AutomationTaskStatuses.RequiresManualReconciliation(task.LastAutomationStatus))
-            throw new InvalidOperationException("The previous submission outcome is uncertain. Reconcile its provider execution before retrying.");
+            throw new InvalidOperationException("The previous automation outcome is uncertain. Reconcile its provider execution before retrying.");
         var parent = await _requests.GetAsync(task.RequestId);
         if (string.Equals(parent?.WorkflowStatus, "Cancelled", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("A cancelled request cannot be resumed by retrying a task.");

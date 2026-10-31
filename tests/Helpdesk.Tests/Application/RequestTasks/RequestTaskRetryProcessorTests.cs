@@ -52,8 +52,11 @@ public sealed class RequestTaskRetryProcessorTests
         await workflow.Received(1).RunAsync(requestId, WorkflowRunReason.TaskFailed, Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task ProcessAsync_ManualRetrySubmitFailure_DoesNotAutoRetry()
+    [Theory]
+    [InlineData(AutomationTaskStatuses.SubmitFailedManualRetry)]
+    [InlineData(AutomationTaskStatuses.SubmitUncertainManualReconcile)]
+    [InlineData(AutomationTaskStatuses.ExecutionUnknownManualReconcile)]
+    public async Task ProcessAsync_OperatorActionRequired_DoesNotAutoRetry(string status)
     {
         var tasks = Substitute.For<IRepository<RequestTask>>();
         var lifecycle = Substitute.For<IRequestTaskLifecycleService>();
@@ -72,7 +75,7 @@ public sealed class RequestTaskRetryProcessorTests
                 Title = "Test LS on NIX",
                 Type = RequestTaskType.Automation,
                 Status = RequestTaskStatus.Failed,
-                LastAutomationStatus = AutomationTaskStatuses.SubmitFailedManualRetry,
+                LastAutomationStatus = status,
                 NextRetryAt = DateTimeOffset.UtcNow.AddMinutes(-1),
                 OrganizationId = "tenant-1"
             }
