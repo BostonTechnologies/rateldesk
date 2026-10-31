@@ -22,6 +22,13 @@ callback for that same execution can resolve the uncertainty. Duplicate
 `unknown` and late `running` callbacks cannot reset this hold. Do not submit a
 replacement execution merely because no start acknowledgement was received.
 
+A callback can arrive before RatelDesk saves the provider's ingest
+acknowledgement. An authenticated callback for that exact current mapped attempt
+receives HTTP 503 with `Retry-After: 1` while the acknowledgement is pending.
+The provider can retry the same callback; RatelDesk does not learn remote IDs
+from an early callback. Stale attempts, foreign mappings and conflicting or
+partial identities remain denied.
+
 Upgrade both products and pair afresh. Previous manual/deployment NetRatel
 connection profiles are retired; the new pairing model is the sole setup path.
 The independent Netclaw integration and API/MCP credentials are unchanged.

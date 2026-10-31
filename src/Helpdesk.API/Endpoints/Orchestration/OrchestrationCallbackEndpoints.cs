@@ -27,6 +27,7 @@ public static class OrchestrationCallbackEndpoints
     private const string CallbackRejectedReasonTaskNotFound = "TaskNotFound";
     private const string CallbackRejectedReasonInvalidStatus = "InvalidStatus";
     private const string CallbackRejectedReasonIdentifierMismatch = "IdentifierMismatch";
+    private const string CallbackRejectedReasonAcknowledgementPending = "AcknowledgementPending";
 
     public static void MapExternalOrchestrationCallbackEndpoints(this IEndpointRouteBuilder app)
     {
@@ -43,7 +44,8 @@ public static class OrchestrationCallbackEndpoints
             .Produces(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status403Forbidden)
-            .Produces(StatusCodes.Status404NotFound);
+            .Produces(StatusCodes.Status404NotFound)
+            .Produces(StatusCodes.Status503ServiceUnavailable);
 
         group.MapGet("/m2m/ping", async (
             HttpContext httpContext,
@@ -109,7 +111,15 @@ public static class OrchestrationCallbackEndpoints
             return Results.BadRequest();
         }
 
-        var task = await ResolveManagedTaskAsync(db, dto, registration!, ct);
+        var resolution = await ResolveManagedTaskAsync(db, dto, registration!, correlationId, ct);
+        if (resolution.AcknowledgementPending)
+        {
+            await PublishRejectedAsync(domainEvents, CallbackRejectedReasonAcknowledgementPending, callerClientId, correlationId, ct);
+            httpContext.Response.Headers.RetryAfter = "1";
+            return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
+
+        var task = resolution.Task;
         if (task is null)
         {
             await PublishRejectedAsync(
@@ -340,25 +350,47 @@ public static class OrchestrationCallbackEndpoints
     private static string GetCorrelationId(ICorrelationContext correlationContext) => correlationContext.GetCorrelationId() ?? $"corr-{Guid.NewGuid():N}";
     private static bool HasTaskIdentifier(OrchestrationCallbackDto dto) => !string.IsNullOrWhiteSpace(dto.RequestTaskId) || !string.IsNullOrWhiteSpace(dto.ExecutionId) || !string.IsNullOrWhiteSpace(dto.OrchestrationRunId) || !string.IsNullOrWhiteSpace(dto.OrchestrationRequestId) || !string.IsNullOrWhiteSpace(dto.RequestId);
 
-    private static async Task<RequestTask?> ResolveManagedTaskAsync(HelpdeskDbContext db, OrchestrationCallbackDto dto,
-        ServicePrincipalRegistration registration, CancellationToken ct)
+    private static async Task<(RequestTask? Task, bool AcknowledgementPending)> ResolveManagedTaskAsync(
+        HelpdeskDbContext db, OrchestrationCallbackDto dto, ServicePrincipalRegistration registration,
+        string correlationId, CancellationToken ct)
     {
         var id = NormalizeIdentifier(dto.RequestTaskId);
         var execution = FirstNonEmpty(dto.ExecutionId, dto.OrchestrationRunId);
         var request = FirstNonEmpty(dto.OrchestrationRequestId, dto.RequestId);
         // Managed callbacks cannot create a missing correlation or use a client ID as a user identity.
-        if (id is null || execution is null || request is null) return null;
-        if (registration.MappingId is not { } mappingId) return null;
+        if (id is null || execution is null || request is null) return (null, false);
+        if (registration.MappingId is not { } mappingId) return (null, false);
         var mapping = mappingId.ToString("D");
         var tasks = db.RequestTasks.Where(x => x.Id == id && x.OrganizationId == registration.OrganizationId &&
             x.OrchestrationLinkId == mapping && x.OrchestrationPeerInstanceId == registration.PeerInstanceId && x.OrchestrationLinkRevision == registration.MappingRevision);
         var task = await tasks.FirstOrDefaultAsync(ct);
         if (task is null || task.Type != RequestTaskType.Automation ||
-            string.IsNullOrWhiteSpace(task.OrchestrationExternalRequestId) ||
+            !await db.Requests.AnyAsync(x => x.Id == task.RequestId && x.OrganizationId == registration.OrganizationId, ct))
+            return (null, false);
+
+        // Start persists the scoped attempt before invoking the provider. A fast
+        // callback may precede its ingest response, but cannot establish remote IDs.
+        // Ask for the same callback again only for that exact in-flight attempt.
+        if (task.Status == RequestTaskStatus.InProgress
+            && string.Equals(task.AutomationAttemptCorrelationId, correlationId, StringComparison.Ordinal)
+            && !string.IsNullOrWhiteSpace(task.AutomationAttemptCorrelationId)
+            && string.IsNullOrWhiteSpace(task.OrchestrationExternalRequestId)
+            && string.IsNullOrWhiteSpace(task.OrchestrationExternalRunId)
+            && string.IsNullOrWhiteSpace(task.OrchestratorExecutionId)
+            && NormalizeStatus(dto.Status) is not null
+            && MatchesOrEmpty(dto.ExecutionId, execution)
+            && MatchesOrEmpty(dto.OrchestrationRunId, execution)
+            && MatchesOrEmpty(dto.RequestId, request)
+            && MatchesOrEmpty(dto.OrchestrationRequestId, request))
+        {
+            return (null, true);
+        }
+
+        if (string.IsNullOrWhiteSpace(task.OrchestrationExternalRequestId) ||
             !string.Equals(task.OrchestrationExternalRequestId, request, StringComparison.Ordinal) ||
-            !new[] { task.OrchestratorExecutionId, task.OrchestrationExternalRunId }.Any(x => !string.IsNullOrEmpty(x) && x == execution) ||
-            !await db.Requests.AnyAsync(x => x.Id == task.RequestId && x.OrganizationId == registration.OrganizationId, ct)) return null;
-        return task;
+            !new[] { task.OrchestratorExecutionId, task.OrchestrationExternalRunId }.Any(x => !string.IsNullOrEmpty(x) && x == execution))
+            return (null, false);
+        return (task, false);
     }
 
     private static bool IdentifiersMatch(RequestTask task, OrchestrationCallbackDto dto)

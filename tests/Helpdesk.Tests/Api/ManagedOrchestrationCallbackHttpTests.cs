@@ -15,6 +15,93 @@ public sealed class ManagedOrchestrationCallbackHttpTests
 {
     private const string ExternalRequest = "recorded-external-request";
     private const string Execution = "recorded-execution";
+
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task Callback_before_acknowledgement_is_retryable_only_for_current_scoped_attempt(bool postgres)
+    {
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true);
+        var client = await PairingBusinessFixture.CreateAsync(h, incidents: false, automation: true);
+        var task = await SeedAsync(h, client);
+        const string attempt = "current-attempt-awaiting-acknowledgement";
+        await h.EditAsync(async db =>
+        {
+            var saved = await db.RequestTasks.SingleAsync();
+            saved.OrchestrationExternalRequestId = null;
+            saved.OrchestratorExecutionId = null;
+            saved.OrchestrationExternalRunId = null;
+            saved.AutomationAttemptCorrelationId = attempt;
+            saved.ResultJson = "preserved-progress";
+        });
+        var token = await PairingBusinessFixture.TokenAsync(h, client);
+        using var wrongAttempt = await SendCorrelatedAsync(h, token, Callback(task), "previous-attempt");
+        Assert.Equal(HttpStatusCode.Forbidden, wrongAttempt.StatusCode);
+        using var missingAttempt = await PairingBusinessFixture.SendAsync(h, token, HttpMethod.Post, "/api/v1/orchestration/provider/callback", Callback(task));
+        Assert.Equal(HttpStatusCode.Forbidden, missingAttempt.StatusCode);
+        var other = await PairingBusinessFixture.CreateAsync(h, incidents: false, automation: true);
+        var otherToken = await PairingBusinessFixture.TokenAsync(h, other);
+        using var wrongMapping = await SendCorrelatedAsync(h, otherToken, Callback(task), attempt);
+        Assert.Equal(HttpStatusCode.Forbidden, wrongMapping.StatusCode);
+        await h.EditAsync(async db => (await db.RequestTasks.SingleAsync()).OrchestrationLinkRevision = 2);
+        using var staleMapping = await SendCorrelatedAsync(h, token, Callback(task), attempt);
+        Assert.Equal(HttpStatusCode.Forbidden, staleMapping.StatusCode);
+        await h.EditAsync(async db =>
+        {
+            var saved = await db.RequestTasks.SingleAsync();
+            saved.OrchestrationLinkRevision = 1;
+            saved.OrchestrationExternalRequestId = ExternalRequest;
+        });
+        using var partialIdentity = await SendCorrelatedAsync(h, token, Callback(task), attempt);
+        Assert.Equal(HttpStatusCode.Forbidden, partialIdentity.StatusCode);
+        await h.EditAsync(async db => (await db.RequestTasks.SingleAsync()).OrchestrationExternalRequestId = null);
+        var inconsistent = Callback(task); inconsistent.OrchestrationRunId = "different-execution";
+        using var inconsistentIdentity = await SendCorrelatedAsync(h, token, inconsistent, attempt);
+        Assert.Equal(HttpStatusCode.Forbidden, inconsistentIdentity.StatusCode);
+        foreach (var status in new[] { "running", "succeeded", "failed", "unknown" })
+        {
+            var callback = Callback(task); callback.Status = status;
+            using var pending = await SendCorrelatedAsync(h, token, callback, attempt);
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, pending.StatusCode);
+            Assert.Equal(TimeSpan.FromSeconds(1), pending.Headers.RetryAfter?.Delta);
+        }
+        await h.RestartAsync();
+        using var afterRestart = await SendCorrelatedAsync(h, token, Callback(task), attempt);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, afterRestart.StatusCode);
+        await h.EditAsync(async db =>
+        {
+            var saved = await db.RequestTasks.SingleAsync();
+            Assert.Equal(RequestTaskStatus.InProgress, saved.Status);
+            Assert.Null(saved.OrchestrationExternalRequestId);
+            Assert.Null(saved.OrchestrationExternalRunId);
+            Assert.Null(saved.OrchestratorExecutionId);
+            Assert.Equal(attempt, saved.AutomationAttemptCorrelationId);
+            Assert.Equal("preserved-progress", saved.ResultJson);
+            Assert.Equal(0, await db.WorkLogs.CountAsync());
+            // Only the normal ingest acknowledgement may establish the remote identity.
+            saved.OrchestrationExternalRequestId = ExternalRequest;
+            saved.OrchestrationExternalRunId = Execution;
+            saved.OrchestratorExecutionId = Execution;
+        });
+        var running = Callback(task); running.Status = "running";
+        using var accepted = await SendCorrelatedAsync(h, token, running, attempt);
+        Assert.Equal(HttpStatusCode.NoContent, accepted.StatusCode);
+        await h.EditAsync(async db =>
+        {
+            var saved = await db.RequestTasks.SingleAsync();
+            Assert.Equal(RequestTaskStatus.InProgress, saved.Status);
+            Assert.Equal("running", saved.LastAutomationStatus);
+            Assert.Equal(Execution, saved.OrchestrationExternalRunId);
+            Assert.Equal(attempt, saved.AutomationAttemptCorrelationId);
+        });
+    }
+
+    private static async Task<HttpResponseMessage> SendCorrelatedAsync(IncidentReceiverTests.Harness h, string token, OrchestrationCallbackDto callback, string correlation)
+    {
+        using var message = new HttpRequestMessage(HttpMethod.Post, "/api/v1/orchestration/provider/callback") { Content = JsonContent.Create(callback) };
+        message.Headers.Authorization = new("Bearer", token);
+        message.Headers.Add("X-NetRatel-Source-Instance", h.SourceId.ToString("D"));
+        message.Headers.Add("X-Correlation-Id", correlation);
+        return await h.Client.SendAsync(message);
+    }
     [Theory][InlineData(false)][InlineData(true)]
     public async Task Paired_callback_updates_only_its_correlated_execution_and_preserves_idempotent_restart(bool postgres)
     {
