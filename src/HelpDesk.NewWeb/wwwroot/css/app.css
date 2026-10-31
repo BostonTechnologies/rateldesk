@@ -23,7 +23,8 @@ html[data-helpdesk-theme="light"]
 
 body
 {
-    min-width: 320px;
+    /* Account for a classic scrollbar in a 320px viewport. */
+    min-width: min(320px, 100%);
     background: var(--mud-palette-background);
 }
 
