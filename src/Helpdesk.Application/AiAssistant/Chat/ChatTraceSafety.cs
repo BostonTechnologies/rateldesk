@@ -17,7 +17,8 @@ public static partial class ChatTraceSafety
         if (frame.TryGetProperty("timestampMs", out var raw) && raw.ValueKind == JsonValueKind.Number && raw.TryGetInt64(out var ms) && ms is >= 946684800000 and <= 4102444800000)
             timestamp = DateTimeOffset.FromUnixTimeMilliseconds(ms);
         var failure = String(frame, "toolFailureCode");
-        if (failure is not null) failure = ChatOutputSafety.Identifier(failure);
+        if (failure is not null && ChatOutputSafety.Identifier(failure) != failure)
+        { failure = null; redacted = true; }
         var measures = new Dictionary<string, JsonElement>();
         // Event-specific numeric/boolean diagnostics; no free-form error, path, thinking or subagent prose.
         foreach (var name in new[] { "inputTokens", "outputTokens", "totalTokens", "cachedInputTokens", "reasoningTokens", "contextWindowTokens", "usagePercent", "promptMs", "predictedPerSecond", "isProcessing", "processingStateRequired", "messagesBefore", "messagesAfter", "summarized", "toolResultsCleared", "preCompactionInputTokens", "keepCountUsed", "toolCountSub", "subAgentSuccess", "durationMs", "findingsCount" })

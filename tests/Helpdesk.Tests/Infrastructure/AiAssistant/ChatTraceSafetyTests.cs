@@ -5,6 +5,13 @@ namespace Helpdesk.Tests.Infrastructure.AiAssistant;
 
 public sealed class ChatTraceSafetyTests
 {
+    [Fact]
+    public void Malformed_failure_code_is_omitted_without_manufacturing_a_replacement_code()
+    {
+        var details = ChatTraceSafety.Extract(JsonSerializer.SerializeToElement(new { toolFailureCode = "bad code with private detail" }));
+        Assert.Null(details.FailureCode); Assert.True(details.Redacted);
+    }
+
     [Theory]
     [InlineData("{\"command\":\"curl --password PRIVATE_VALUE https://example.com\"}")]
     [InlineData("{\"command\":\"curl <user-option> user:PRIVATE_VALUE https://example.com\"}")]
