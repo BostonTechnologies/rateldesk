@@ -1,0 +1,173 @@
+{
+  "repository": "https://github.com/Aaronontheweb/dotnet-skills",
+  "revision": "5ca5db8cf25566f19d2a5dc53204d4af22b23a0d",
+  "license": "MIT",
+  "skills": [
+    {
+      "name": "akka-net-aspire-configuration",
+      "path": "akka-aspire-configuration/SKILL.md"
+    },
+    {
+      "name": "akka-net-best-practices",
+      "path": "akka-best-practices/SKILL.md"
+    },
+    {
+      "name": "akka-hosting-actor-patterns",
+      "path": "akka-hosting-actor-patterns/SKILL.md"
+    },
+    {
+      "name": "akka-net-management",
+      "path": "akka-management/SKILL.md"
+    },
+    {
+      "name": "akka-net-testing-patterns",
+      "path": "akka-testing-patterns/SKILL.md"
+    },
+    {
+      "name": "aot-trimming",
+      "path": "aot-trimming/SKILL.md"
+    },
+    {
+      "name": "aspire-configuration",
+      "path": "aspire-configuration/SKILL.md"
+    },
+    {
+      "name": "aspire-integration-testing",
+      "path": "aspire-integration-testing/SKILL.md"
+    },
+    {
+      "name": "mailpit-integration",
+      "path": "aspire-mailpit-integration/SKILL.md"
+    },
+    {
+      "name": "aspire-service-defaults",
+      "path": "aspire-service-defaults/SKILL.md"
+    },
+    {
+      "name": "crap-analysis",
+      "path": "crap-analysis/SKILL.md"
+    },
+    {
+      "name": "cscheck",
+      "path": "cscheck/SKILL.md"
+    },
+    {
+      "name": "api-design",
+      "path": "csharp-api-design/SKILL.md"
+    },
+    {
+      "name": "modern-csharp-coding-standards",
+      "path": "csharp-coding-standards/SKILL.md"
+    },
+    {
+      "name": "csharp-concurrency-patterns",
+      "path": "csharp-concurrency-patterns/SKILL.md"
+    },
+    {
+      "name": "csharp-nullable-reference-types",
+      "path": "csharp-nullable-reference-types/SKILL.md"
+    },
+    {
+      "name": "type-design-performance",
+      "path": "csharp-type-design-performance/SKILL.md"
+    },
+    {
+      "name": "database-performance",
+      "path": "database-performance/SKILL.md"
+    },
+    {
+      "name": "dotnet-devcert-trust",
+      "path": "dotnet-devcert-trust/SKILL.md"
+    },
+    {
+      "name": "efcore-patterns",
+      "path": "efcore-patterns/SKILL.md"
+    },
+    {
+      "name": "ilspy-decompile",
+      "path": "ilspy-decompile/SKILL.md"
+    },
+    {
+      "name": "dotnet-local-tools",
+      "path": "local-tools/SKILL.md"
+    },
+    {
+      "name": "marketplace-publishing",
+      "path": "marketplace-publishing/SKILL.md"
+    },
+    {
+      "name": "microsoft-extensions-configuration",
+      "path": "microsoft-extensions-configuration/SKILL.md"
+    },
+    {
+      "name": "dependency-injection-patterns",
+      "path": "microsoft-extensions-dependency-injection/SKILL.md"
+    },
+    {
+      "name": "mjml-email-templates",
+      "path": "mjml-email-templates/SKILL.md"
+    },
+    {
+      "name": "opentelemetry-net-instrumentation",
+      "path": "opentelementry-dotnet-instrumentation/SKILL.md"
+    },
+    {
+      "name": "package-management",
+      "path": "package-management/SKILL.md"
+    },
+    {
+      "name": "playwright-blazor-testing",
+      "path": "playwright-blazor/SKILL.md"
+    },
+    {
+      "name": "playwright-ci-caching",
+      "path": "playwright-ci-caching/SKILL.md"
+    },
+    {
+      "name": "dotnet-project-structure",
+      "path": "project-structure/SKILL.md"
+    },
+    {
+      "name": "r3-reactive-extensions",
+      "path": "r3-reactive-extensions/SKILL.md"
+    },
+    {
+      "name": "sdk-container-publishing",
+      "path": "sdk-container-publishing/SKILL.md"
+    },
+    {
+      "name": "serialization",
+      "path": "serialization/SKILL.md"
+    },
+    {
+      "name": "skills-index-snippets",
+      "path": "skills-index-snippets/SKILL.md"
+    },
+    {
+      "name": "dotnet-slopwatch",
+      "path": "slopwatch/SKILL.md"
+    },
+    {
+      "name": "snapshot-testing",
+      "path": "snapshot-testing/SKILL.md"
+    },
+    {
+      "name": "testcontainers-integration-tests",
+      "path": "testcontainers/SKILL.md"
+    },
+    {
+      "name": "verify-email-snapshots",
+      "path": "verify-email-snapshots/SKILL.md"
+    }
+  ],
+  "localPatches": [
+    {
+      "path": "akka-testing-patterns/examples.md",
+      "change": "Add an explicit anchor for the existing upstream contents link; preserve the heading and guidance."
+    },
+    {
+      "path": "csharp-coding-standards/performance-and-api-design.md",
+      "change": "Add an explicit anchor for the existing upstream contents link; preserve the heading and guidance."
+    }
+  ]
+}

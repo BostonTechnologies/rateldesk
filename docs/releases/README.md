@@ -1,5 +1,19 @@
 # Releases
 
+## 0.1.3-beta.2 — immediate Chat and workspace parity
+
+The [beta.2 notes and testing checklist](../release-notes/0.1.3-beta.2.md)
+cover the NetRatel-based Chat flow, conversation chrome, read-only native
+connection evidence and repository-local dotnet-skills installation. The root
+`Directory.Build.props` owns `0.1.3-beta.2`. This version adds no migration and
+retains the documented exact-turn replay limitation in #308.
+
+Use one reviewed PR, required PR and exact merged-main checks, then the hosted
+immutable prerelease workflow for `v0.1.3-beta.2`. Verify all three multi-platform
+image families, seven archives, checksums, manifest and SBOM/provenance before
+publishing the complete draft. Keep `latest` unchanged. The owner performs
+fresh live native-daemon acceptance after publication.
+
 ## 0.1.3-beta.1 — organization AI Chat
 
 The first 0.1.3 beta includes organization-scoped Chat, shared fullscreen

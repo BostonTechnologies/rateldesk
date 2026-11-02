@@ -274,6 +274,54 @@ public sealed class AiAssistantChatEndpointsTests(ChatPostgresFixture database, 
     }
 
     [Fact]
+    public async Task First_message_start_is_scoped_and_duplicate_HTTP_requests_never_resend()
+    {
+        await using var host = new ChatApi(database);
+        using var staff = host.Client(); using var reader = host.Client("Incident.Read"); using var foreign = host.Client(tenant: "other");
+        const string route = "/api/v1/ai/chat/organizations/org";
+        var request = new ChatStartRequest(Guid.NewGuid(), Guid.NewGuid(), "Help me plan the queue", []);
+        Assert.Equal(HttpStatusCode.Forbidden, (await reader.PostAsJsonAsync($"{route}/start", request)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await foreign.PostAsJsonAsync($"{route}/start", request)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await staff.PostAsJsonAsync($"{route}/start", request)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await staff.PostAsJsonAsync($"{route}/start", request)).StatusCode);
+        var saved = await staff.GetFromJsonAsync<ChatOrganizationConversation>($"{route}/conversations/{request.ConversationId}");
+        Assert.Equal(request.Text, saved!.Title);
+        Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync($"{route}/start", request with { Text = "A different request" })).StatusCode);
+        await host.Transport.Received(1).SendAsync(request.ConversationId, request.ClientMessageId, request.Text, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Connection_details_are_scoped_secret_free_read_only_native_observations()
+    {
+        await using var host = new ChatApi(database);
+        using var staff = host.Client(); using var reader = host.Client("Incident.Read"); using var foreign = host.Client(tenant: "other");
+        const string route = "/api/v1/ai/chat/organizations/org";
+        var id = Guid.NewGuid();
+        Assert.Equal(HttpStatusCode.OK, (await staff.PostAsJsonAsync($"{route}/new", new ChatCreateRequest(id, "Connection observation", []))).StatusCode);
+        var profile = host.Runtime.Current;
+        host.Runtime.Publish(profile with { Endpoint = new UriBuilder("https://chat.invalid/hub/session") { UserName = "fixture-user", Password = "fixture-only", Query = "token=fixture-only" }.Uri.AbsoluteUri });
+        await using (var db = database.Context())
+        {
+            var row = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == id);
+            row.ProviderProfileFingerprint = profile.ProfileFingerprint; await db.SaveChangesAsync();
+        }
+        host.Transport.ConnectionObservationsAvailable.Returns(true);
+        host.Transport.ObserveConnection(id).Returns(new ChatSessionConnection(id, "signalr/synthetic", ChatTransportConnectionState.Connected, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+        var response = await reader.GetAsync($"{route}/connection?conversationId={id}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        var observed = JsonSerializer.Deserialize<ChatConnectionStatus>(body, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.Equal("https://chat.invalid", observed!.Endpoint);
+        Assert.Null(observed.SetupUrl);
+        Assert.Equal(ChatTransportConnectionState.Connected, Assert.Single(observed.Sessions).State);
+        Assert.DoesNotContain("fixture-user", body); Assert.DoesNotContain("fixture-only", body); Assert.DoesNotContain("test-only-device-token", body);
+        Assert.Equal(HttpStatusCode.Forbidden, (await foreign.GetAsync($"{route}/connection?conversationId={id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await staff.GetAsync($"{route}/connection?conversationId={Guid.NewGuid()}")).StatusCode);
+        await host.Transport.DidNotReceiveWithAnyArgs().SendAsync(default, default, default!, default);
+        await host.Transport.DidNotReceiveWithAnyArgs().ReconcileAsync(default, default);
+    }
+
+    [Fact]
     public async Task Disabled_organization_chat_exposes_capability_and_does_not_fall_back_to_ticket_admission()
     {
         await using var host = new ChatApi(database, enabled: false); using var staff = host.Client();

@@ -1,5 +1,12 @@
 # Release notes
 
+## 0.1.3-beta.2
+
+[Immediate Chat and NetRatel workspace parity](0.1.3-beta.2.md) covers the
+first-message flow, compact workspace controls, scoped native connection
+observations, navigation and installed .NET agent guidance. Historical native
+recovery remains limited as documented in #308.
+
 ## 0.1.3-beta.1
 
 [Organization AI Chat and shared fullscreen conversations](0.1.3-beta.1.md)

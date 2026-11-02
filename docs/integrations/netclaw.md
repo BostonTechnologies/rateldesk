@@ -220,11 +220,16 @@ not substitute for live external acceptance.
 
 ## Organization Chat, investigations and prompts
 
-Use **Operations → AI → Chat** (`/ai/chat`) for general operator conversation.
-Choose an authorized organization, select **New chat**, name the conversation
-and select optional saved guidance. The default guidance is included. **Save chat**
-pins the actual guidance revisions and opens a blank composer; it does not send
-a prompt, create a ticket or contact the daemon. Send your first message explicitly.
+Use **Operations → AI Ops → Chat** (`/ai/chat`) for general operator conversation.
+Choose an authorized organization and start typing in the ready composer. Welcome
+cards fill in a suggested prompt without sending it. There is no title form or
+Save chat step: the first explicit send creates the conversation, derives its
+title and pins the actual default/optional guidance revisions together with the
+message. An invalid first message leaves no empty conversation behind. Use
+Ctrl / ⌘ + Enter to send; Enter adds a new line. **New chat** starts another blank
+composer when needed; it does not create a ticket or contact the daemon.
+An uncertain response retains the original conversation/message IDs for an
+explicit retry. Organization changes discard the old draft and fence late responses.
 Search the paged history by title and include archived transcripts as needed.
 Conversation links carry `organizationId` and `conversationId`; reopening them
 does not send a message or create a remote session. Changing organization clears
@@ -253,9 +258,17 @@ tool durations are locally observed. A result does not prove a business operatio
 succeeded. Old events say **Details were not recorded**. Payloads are bounded and
 redacted before storage; unstructured or malformed payloads are omitted for privacy.
 Redaction/truncation labels explain missing detail. **Chat display settings** saves
-per-operator browser preferences across both routes, including compact rows,
+per-operator browser preferences in a compact anchored popover across both routes, including compact rows,
 timestamps/identifiers, automatic expansion and optional diagnostic measures.
 Approvals, errors and recovery remain visible regardless of those preferences.
+
+The sidebar's **Netclaw connection** link opens setup for eligible administrators.
+The connection badge opens safe endpoint/configuration and saved-verification
+details, plus current native SignalR session observations when available. A
+connected API update stream is separate from a connected daemon session. Saved
+verification does not prove current connectivity; missing or stale observations
+are shown as unknown. Viewing connection details never starts or resumes a native
+session, and credentials are never included in the response.
 
 **Check saved session** never resends a message or approval. Recovery shows its
 last attempt and result. Confirmed admission is separate from completion: the
@@ -278,7 +291,7 @@ the original transcript and pinned context and fences late output. Start a separ
 chat or investigation explicitly; no previous request is retried. **Stop waiting**
 records uncertainty locally and cannot cancel work on the daemon.
 
-Open **Operations → AI → Investigations** (`/ai/ops`) to work in the investigation
+Open **Operations → AI Ops → Investigations** (`/ai/ops`) to work in the investigation
 workspace. The organization selector, **Refresh** and **New investigation**
 actions sit above recent-status counts. Search and filter the history in the
 left column, then select an investigation to open its conversation on the
@@ -295,7 +308,7 @@ Saving context does not send a message to NetClaw. Enter and send the first
 question separately. An idle investigation can be archived; its saved history
 remains available through the history filters.
 
-Administrators manage reusable guidance under **Operations → AI → Prompts**
+Administrators manage reusable guidance under **Operations → AI Ops → Prompts**
 (`/ai/prompts`). Choose an organization, search by name or description, and
 select a prompt in the left column. Its text and revision appear in the right
 pane. Use **New**, **Copy** or **Edit** to write guidance in Monaco, with

@@ -17,9 +17,13 @@
 .ai-metrics > div { display: flex; align-items: center; justify-content: space-between; gap: 1rem; border: 1px solid var(--mud-palette-divider); border-radius: 8px; padding: 1rem; background: var(--mud-palette-surface); }
 .ai-metrics span { font-size: .78rem; color: var(--mud-palette-text-secondary); }
 .ai-metrics strong { font-size: 1.65rem; line-height: 1; font-weight: 600; }
-.ai-workspace { display: grid; grid-template-columns: minmax(245px, 310px) minmax(0, 1fr); gap: 1rem; align-items: start; }
-.ai-investigation-list, .ai-conversation { min-width: 0; border: 1px solid var(--mud-palette-divider); border-radius: 10px; background: var(--mud-palette-surface); overflow: hidden; }
-.ai-investigation-list { display: flex; flex-direction: column; gap: .85rem; padding: .85rem; max-height: 78vh; }
+.ai-workspace { display: grid; grid-template-columns: minmax(245px, 310px) minmax(0, 1fr); gap: 0; align-items: stretch; min-height: 600px; height: min(820px, calc(100dvh - 260px)); border: 1px solid var(--mud-palette-divider); border-radius: 16px; overflow: hidden; background: var(--mud-palette-surface); box-shadow: 0 4px 24px rgba(0,0,0,.025); }
+.ai-investigation-list, .ai-conversation { min-width: 0; min-height: 0; background: var(--mud-palette-surface); }
+.ai-investigation-list { display: flex; flex-direction: column; gap: .85rem; padding: .85rem; border-right: 1px solid var(--mud-palette-divider); background: var(--mud-palette-background); overflow: auto; }
+.ai-conversation { overflow: auto; }
+.ai-conversation ::deep > .ai-conversation-surface { height: 100%; }
+.ai-connection-link { display: flex; align-items: center; gap: .5rem; color: var(--mud-palette-text-secondary); font-size: .73rem; text-decoration: none; padding: .7rem .3rem .2rem; border-top: 1px solid var(--mud-palette-divider); }
+.ai-connection-link:hover { color: var(--mud-palette-primary); }
 .ai-search { display: grid; gap: .35rem; }
 .ai-search > label { font-size: .78rem; }
 .ai-search > div { display: flex; gap: .4rem; min-width: 0; }
@@ -72,7 +76,8 @@
 .ai-guidance-preview h4 { margin: 1rem 0 .4rem; }
 .ai-create-actions { display: flex; flex-wrap: wrap; gap: .6rem; padding-top: 1rem; border-top: 1px solid var(--mud-palette-divider); }
 @media (max-width: 900px) {
-    .ai-workspace { grid-template-columns: 1fr; }
+    .ai-workspace { grid-template-columns: 1fr; height: auto; min-height: 0; }
+    .ai-conversation { height: 660px; max-height: 85dvh; min-height: 480px; }
     .ai-investigation-list { max-height: 22rem; }
     .ai-list-items { max-height: 11rem; }
     .ai-metrics { gap: .5rem; }

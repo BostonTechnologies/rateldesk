@@ -167,6 +167,7 @@ public sealed class AiInvestigationsWorkspaceTests
         var context = new BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddMudServices();
+        context.AddAuthorization().SetAuthorized("Synthetic investigation operator");
         context.Services.AddSingleton<IHttpClientFactory>(api);
         context.ComponentFactories.AddStub<Chat>();
         return context;

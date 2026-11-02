@@ -29,6 +29,18 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
     private NpgsqlConnection? singleOwner;
     private volatile bool ready;
     private DateTimeOffset Now => (timeProvider ?? TimeProvider.System).GetUtcNow();
+    public bool ConnectionObservationsAvailable => ready && runtime.Current.Enabled;
+
+    public ChatSessionConnection? ObserveConnection(Guid conversation)
+    {
+        if (!ConnectionObservationsAvailable || !owners.TryGetValue(conversation, out var owner) || owner.Retired ||
+            !string.Equals(owner.ProfileFingerprint, runtime.Current.ProfileFingerprint, StringComparison.Ordinal)) return null;
+        return new ChatSessionConnection(conversation, owner.SessionId,
+            owner.Client.IsConnected && !owner.Consumer.IsCompleted && !owner.Overflowed
+                ? ChatTransportConnectionState.Connected : ChatTransportConnectionState.Disconnected,
+            owner.AuthenticatedAtUtc, owner.LastObservedAtUtc);
+    }
+
     private sealed class Owner(IAiAssistantChatClient client, string profileFingerprint)
     {
         public IAiAssistantChatClient Client { get; } = client;
@@ -57,6 +69,9 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
         public volatile bool ReconciliationConfirmed;
         private long lastObservedUtcTicks;
         private long lastCheckpointUtcTicks;
+        public DateTimeOffset AuthenticatedAtUtc { get; set; }
+        public DateTimeOffset? LastObservedAtUtc => Volatile.Read(ref lastObservedUtcTicks) is > 0 and var ticks
+            ? new DateTimeOffset(ticks, TimeSpan.Zero) : null;
         public void Observe(DateTimeOffset now) => Interlocked.Exchange(ref lastObservedUtcTicks, now.UtcTicks);
         public bool WasObservedSince(DateTimeOffset cutoff) => Volatile.Read(ref lastObservedUtcTicks) >= cutoff.UtcTicks;
         public void InitializeActivity(DateTimeOffset now)
@@ -323,6 +338,7 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
                 if (conversation.AiAssistantSessionId is not null && conversation.AiAssistantSessionId != ensured.SessionId)
                     throw new ChatConflictException("The conversation's session binding changed.");
                 owner.SessionId = ensured.SessionId;
+                owner.AuthenticatedAtUtc = Now;
                 owner.AdvanceSequence(conversation.LastSequence);
                 conversation.ProviderProfileFingerprint = snapshot.ProfileFingerprint;
                 conversation.AiAssistantSessionId = ensured.SessionId;

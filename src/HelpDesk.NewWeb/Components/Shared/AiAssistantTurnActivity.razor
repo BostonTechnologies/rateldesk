@@ -5,7 +5,7 @@
 <section class="ai-assistant-activity" data-testid="ai-assistant-activity">
     <button type="button" class="activity-heading" aria-expanded="@expanded.ToString().ToLowerInvariant()" @onclick="Toggle">
         <MudIcon Icon="@(expanded ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)" />
-        <span>AiAssistant activity · @Turn.Summary</span>
+        <span>Netclaw activity · @Turn.Summary</span>
         @if (HasPendingApproval)
         {
             <span class="approval-heading-status">

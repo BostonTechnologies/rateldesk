@@ -2,28 +2,37 @@
 @inject IJSRuntime JS
 @inject ILogger<AiAssistantComposer> Logger
 
-<div class="chat-composer" @ref="root" data-testid="ai-assistant-composer">
-    <textarea aria-label="Message AiAssistant" placeholder="Message AiAssistant…" rows="2"
-              value="@Value" @oninput="ChangedAsync" disabled="@Disabled" maxlength="16000"></textarea>
+<div class="chat-composer" @ref="root" data-testid="ai-assistant-composer" data-submit-modifier="@SubmitWithModifier.ToString().ToLowerInvariant()">
+    <textarea aria-label="Message Netclaw" placeholder="Message Netclaw…" rows="3"
+              value="@Value" @oninput="ChangedAsync" disabled="@Disabled" readonly="@ReadOnly" maxlength="16000"></textarea>
     <div class="composer-actions">
-        <span class="composer-hint">Shift+Enter for a new line</span>
+        <span class="composer-identity"><MudIcon Icon="@Icons.Material.Outlined.AutoAwesome" Size="Size.Small" /><span>Netclaw</span>
+            @if (!string.IsNullOrWhiteSpace(Identity)) { <span>· @Identity</span> }
+        </span>
         <button type="button" class="composer-send" data-chat-send disabled="@(Disabled || string.IsNullOrWhiteSpace(Value))" @onclick="SendAsync">
-            <MudIcon Icon="@Icons.Material.Filled.Send" Size="Size.Small" /> Send
+            <span>@SendLabel</span><MudIcon Icon="@Icons.Material.Outlined.ArrowUpward" Size="Size.Small" />
         </button>
     </div>
 </div>
-<MudText Typo="Typo.caption">Images and files cannot be sent to AiAssistant yet. Ticket attachments are not automatically visible to the assistant.</MudText>
+<p class="composer-hint">@(SubmitWithModifier ? "Ctrl / ⌘ + Enter to send · Enter for a new line" : "Enter to send · Shift+Enter for a new line")</p>
+@if (ShowAttachmentNotice) { <p class="composer-notice">Text messages only. Ticket attachments are not automatically shared.</p> }
 
 @code {
     [Parameter] public string Value { get; set; } = "";
     [Parameter] public EventCallback<string> ValueChanged { get; set; }
     [Parameter] public bool Disabled { get; set; }
+    [Parameter] public bool ReadOnly { get; set; }
+    [Parameter] public bool SubmitWithModifier { get; set; }
+    [Parameter] public bool ShowAttachmentNotice { get; set; } = true;
+    [Parameter] public string Identity { get; set; } = "";
+    [Parameter] public string SendLabel { get; set; } = "Send";
     [Parameter] public EventCallback Send { get; set; }
     private ElementReference root;
     private IJSObjectReference? module;
     private bool disposed;
     private Task ChangedAsync(ChangeEventArgs args) => ValueChanged.InvokeAsync(args.Value?.ToString() ?? "");
     private Task SendAsync() => Disabled || string.IsNullOrWhiteSpace(Value) ? Task.CompletedTask : Send.InvokeAsync();
+    public async Task FocusAsync() { if (module is not null) await module.InvokeVoidAsync("focus", root); }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {

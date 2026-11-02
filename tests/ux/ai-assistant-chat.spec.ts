@@ -28,7 +28,7 @@ for (const [label, text] of [
 ] as const) {
   test(`composer keeps the circuit connected and sends exact ${label}`, async ({ page, request }) => {
     await openChat(page);
-    const input = page.getByRole('textbox', { name: 'Message AiAssistant' });
+    const input = page.getByRole('textbox', { name: 'Message Netclaw' });
     await expect(input).toHaveAttribute('maxlength', '16000');
     await input.fill(text);
     await expect(input).toHaveValue(text);
@@ -58,7 +58,7 @@ for (const theme of ['Light', 'Dark'] as const) {
       await assertNoHorizontalOverflow(page);
       await page.screenshot({ path: testInfo.outputPath('expanded.png'), fullPage: true });
       await heading.click();
-      const input = page.getByRole('textbox', { name: 'Message AiAssistant' });
+      const input = page.getByRole('textbox', { name: 'Message Netclaw' });
       await input.fill('Composer focus test');
       await input.focus();
       const styles = await input.evaluate(element => {
@@ -122,7 +122,7 @@ for (const mode of ['empty', 'processing', 'approval', 'failed', 'archived']) {
     }
     if (mode === 'archived') {
       await expect(page.getByText('Archived transcript', { exact: false })).toBeVisible();
-      await expect(page.getByRole('textbox', { name: 'Message AiAssistant' })).toBeDisabled();
+      await expect(page.getByRole('textbox', { name: 'Message Netclaw' })).toBeDisabled();
     }
     await assertNoHorizontalOverflow(page);
     await page.screenshot({ path: testInfo.outputPath(`${mode}.png`), fullPage: true });
@@ -162,7 +162,7 @@ test('stop waiting shows authoritative uncertain-delivery recovery controls', as
 test('desktop Enter admission lock, Shift+Enter and IME', async ({ page, request }) => {
   await request.get('http://127.0.0.1:18299/fixture/reset?mode=empty');
   await openChat(page);
-  const input = page.getByRole('textbox', { name: 'Message AiAssistant' });
+  const input = page.getByRole('textbox', { name: 'Message Netclaw' });
   await input.fill('First line');
   await input.press('Shift+Enter');
   await input.press('a');
@@ -210,7 +210,7 @@ test('mobile dark approval controls and bounded growing composer', async ({ page
   await page.screenshot({ path: testInfo.outputPath('mobile-dark-approval.png'), fullPage: true });
   await request.get('http://127.0.0.1:18299/fixture/reset?mode=empty');
   await openChat(page, 'Dark');
-  const input = page.getByRole('textbox', { name: 'Message AiAssistant' });
+  const input = page.getByRole('textbox', { name: 'Message Netclaw' });
   await input.fill(Array.from({ length: 30 }, (_, i) => `Line ${i}`).join('\n'));
   await expect.poll(() => input.evaluate(e => e.scrollHeight > e.clientHeight)).toBe(true);
   expect((await input.boundingBox())!.height).toBeLessThanOrEqual(240);

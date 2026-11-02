@@ -268,6 +268,15 @@ var helpdeskApiClient = builder.Services.AddHttpClient("HelpdeskApi", client =>
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false })
     .AddHttpMessageHandler<TokenAuthorizationHandler>();
 
+// Chat commands carry stable operation IDs and require an explicit operator retry.
+var chatCommandsClient = builder.Services.AddHttpClient("HelpdeskChatCommands", client =>
+{
+    client.BaseAddress = apiBaseUri;
+    client.Timeout = TimeSpan.FromMinutes(5);
+})
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false })
+    .AddHttpMessageHandler<TokenAuthorizationHandler>();
+
 // Pairing consumes a one-time code; a transient response must never replay this POST.
 var netclawPairingApiClient = builder.Services.AddHttpClient("NetclawPairingApi", client =>
 {
@@ -296,6 +305,7 @@ var helpdeskApiStreamingClient = builder.Services.AddHttpClient("HelpdeskApiStre
 
 #pragma warning disable EXTEXP0001
 helpdeskApiClient.RemoveAllResilienceHandlers();
+chatCommandsClient.RemoveAllResilienceHandlers();
 netclawPairingApiClient.RemoveAllResilienceHandlers();
 systemPairingApiClient.RemoveAllResilienceHandlers();
 helpdeskApiClient.AddStandardResilienceHandler(options =>

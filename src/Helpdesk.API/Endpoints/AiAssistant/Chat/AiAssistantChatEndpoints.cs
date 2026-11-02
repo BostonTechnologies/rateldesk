@@ -33,7 +33,8 @@ public static partial class AiAssistantChatEndpoints
         var group = app.MapGroup("/api/v1/{ticketType}/{ticketId}/ai-assistant/chat").RequireAuthorization("HelpdeskStaff").WithTags("AiAssistant Chat");
         group.AddEndpointFilter(async (context, next) =>
         {
-            if (!context.HttpContext.RequestServices.GetRequiredService<IAiAssistantChatRuntimeState>().Current.Enabled)
+            if (!context.HttpContext.RequestServices.GetRequiredService<IAiAssistantChatRuntimeState>().Current.Enabled
+                && !context.HttpContext.Request.Path.Value!.EndsWith("/connection", StringComparison.Ordinal))
                 return Results.Problem("Chat is not enabled.", statusCode: 503);
             var routeValues = context.HttpContext.Request.RouteValues;
             var failure = await AuthorizeTicketManagementAsync(
@@ -77,6 +78,9 @@ public static partial class AiAssistantChatEndpoints
             catch (UnauthorizedAccessException) { return Results.Forbid(); }
         });
         group.MapGet("", (string ticketType, string ticketId, Guid? conversationId, long? cursor, HttpContext context, IAiAssistantChatStore store, CancellationToken ct) => store.LoadAsync(ticketType, ticketId, conversationId, cursor ?? 0, Actor(context), ct)).WithName("GetAiAssistantChat").WithSummary("Load authorized ticket conversation events");
+        group.MapGet("/connection", (string ticketType, string ticketId, Guid? conversationId, HttpContext context, HelpdeskDbContext db,
+            IAiAssistantChatRuntimeState runtime, IAiAssistantChatTransport transport, ICurrentUserAccessService access, CancellationToken ct) =>
+            ConnectionAsync(ChatScope.Ticket(ticketType, ticketId), conversationId, context, db, runtime, transport, access, ct));
         group.MapGet("/history", (string ticketType, string ticketId, int? skip, IAiAssistantChatStore store, CancellationToken ct) => store.HistoryAsync(ticketType, ticketId, skip ?? 0, ct))
             .WithName("GetAiAssistantChatHistory").WithSummary("List authorized ticket conversations").WithDescription("Returns up to 50 conversations, active first; use skip for older pages. No daemon credentials or session paths are returned.");
         group.MapPost("/reconcile", async (string ticketType, string ticketId, ChatNewRequest request, HttpContext context, IAiAssistantChatStore store, IAiAssistantChatTransport transport, CancellationToken ct) =>

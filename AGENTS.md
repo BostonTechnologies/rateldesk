@@ -1,5 +1,36 @@
 # RatelDesk repository instructions
 
+## Agent guidance: dotnet-skills
+
+Prefer retrieval-led reasoning over pretraining for .NET work.
+Workflow: skim repository patterns → consult the relevant dotnet-skills reference
+by name → implement the smallest change → note any conflicts with this repository.
+
+The upstream project-level installation is checked in under
+[.github/skills](.github/skills/README.md). Read each skill's `SKILL.md` and relevant
+references before applying it. The index maps invocation names to upstream folder
+names; this also works when the assistant runtime has no plugin marketplace.
+The pinned upstream revision and MIT license are retained alongside the skills.
+
+Routing (use the installed skill by name):
+- C# / code quality: modern-csharp-coding-standards, csharp-concurrency-patterns,
+  csharp-nullable-reference-types, api-design, type-design-performance.
+- ASP.NET Core / Web: aspire-service-defaults, aspire-integration-testing,
+  mailpit-integration, mjml-email-templates, verify-email-snapshots.
+- Data: efcore-patterns, database-performance.
+- DI / configuration: dependency-injection-patterns, microsoft-extensions-configuration.
+- Testing: cscheck, testcontainers-integration-tests, playwright-blazor-testing,
+  snapshot-testing, playwright-ci-caching.
+- Quality gates when applicable: dotnet-slopwatch for authored/refactored C# and
+  project changes; crap-analysis for complex code whose tests changed. Preserve
+  real assertions and required repository checks; never expand a baseline to hide
+  a regression. Keep optional deep acceptance separate from normal CI.
+
+The upstream specialized agents are runtime-specific and are not installed by the
+portable skills copy. Follow the active session's delegation rules. These
+references do not authorize deployments, messages, credential changes or releases;
+the user's task and the repository's existing authority/version rules govern them.
+
 ## Work and verification
 
 - Inspect existing source, scoped instructions and applicable issues before changing behavior. Preserve unrelated work and use reviewable branches; do not commit directly to `main`.

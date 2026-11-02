@@ -53,6 +53,7 @@ public static partial class AiAssistantChatEndpoints
                 db, services.GetRequiredService<ICurrentUserAccessService>(), ctx.HttpContext.RequestAborted);
             if (failure is not null) return failure;
             if (!ctx.HttpContext.Request.Path.Value!.EndsWith("/capabilities", StringComparison.Ordinal)
+                && !ctx.HttpContext.Request.Path.Value!.EndsWith("/connection", StringComparison.Ordinal)
                 && (!db.Database.IsNpgsql() || !services.GetRequiredService<IAiAssistantChatRuntimeState>().Current.Enabled))
                 return Results.Problem("Organization chat requires PostgreSQL and an enabled Netclaw connection.", statusCode: 503);
             try { return await next(ctx); }
@@ -70,11 +71,22 @@ public static partial class AiAssistantChatEndpoints
         });
         group.MapGet("/history", (string organizationId, int? skip, string? q, bool? archived, IAiAssistantChatStore store, CancellationToken ct) =>
             store.HistoryAsync(ChatScope.Organization(organizationId), skip ?? 0, q, archived ?? true, ct));
+        group.MapGet("/connection", (string organizationId, Guid? conversationId, HttpContext ctx, HelpdeskDbContext db,
+            IAiAssistantChatRuntimeState runtime, IAiAssistantChatTransport transport, ICurrentUserAccessService access, CancellationToken ct) =>
+            ConnectionAsync(ChatScope.Organization(organizationId), conversationId, ctx, db, runtime, transport, access, ct));
         group.MapGet("/conversations/{id:guid}", (string organizationId, Guid id, IAiAssistantChatStore store, CancellationToken ct) => store.GetOrganizationAsync(organizationId, id, ct));
         group.MapGet("", (string organizationId, Guid conversationId, long? cursor, HttpContext ctx, IAiAssistantChatStore store, CancellationToken ct) =>
             store.LoadAsync(ChatScope.Organization(organizationId), conversationId, cursor ?? 0, Actor(ctx), ct));
         group.MapPost("/new", (string organizationId, ChatCreateRequest request, HttpContext ctx, IAiAssistantChatStore store, CancellationToken ct) =>
             store.CreateOrganizationAsync(organizationId, request, Actor(ctx), ct));
+        group.MapPost("/start", async (string organizationId, ChatStartRequest request, HttpContext ctx,
+            IAiAssistantChatStore store, IAiAssistantChatTransport transport, CancellationToken ct) =>
+        {
+            var admission = await store.StartOrganizationAsync(organizationId, request, Actor(ctx), ct);
+            if (admission.Accepted)
+                await transport.SendAsync(request.ConversationId, request.ClientMessageId, request.Text, ct);
+            return await store.GetOrganizationAsync(organizationId, request.ConversationId, ct);
+        });
         group.MapPost("/archive", async (string organizationId, ChatNewRequest request, HttpContext ctx, IAiAssistantChatStore store, IAiAssistantChatTransport transport, CancellationToken ct) =>
         {
             await store.ArchiveAsync(ChatScope.Organization(organizationId), request.ConversationId, Actor(ctx), ct);

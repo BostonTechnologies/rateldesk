@@ -58,6 +58,7 @@
                 }
             </div>
             <p class="ai-list-note">@(listAvailable ? $"Latest authorized results · {investigations.Count} loaded" : busy ? "Loading recent history…" : "History is unavailable. Refresh to try again.")</p>
+            <AuthorizeView Roles="HelpdeskAdmin"><a class="ai-connection-link" href="/admin/automation/integration/netclaw"><MudIcon Icon="@Icons.Material.Outlined.Settings" Size="Size.Small" />Netclaw connection</a></AuthorizeView>
         </aside>
         <section class="ai-conversation" aria-label="Investigation workspace">
             @if (creating)
