@@ -63,7 +63,8 @@ public static partial class ChatTraceSafety
                 foreach (var field in value.EnumerateObject().Take(65))
                 {
                     if (result.Count >= 64) { flags.Truncated = true; break; }
-                    if (SensitiveKey().IsMatch(field.Name)) { flags.Redacted = true; result[SafeText(field.Name, flags)] = "[Redacted]"; }
+                    var normalizedKey = new string(field.Name.Where(char.IsLetterOrDigit).ToArray());
+                    if (SensitiveKey().IsMatch(normalizedKey)) { flags.Redacted = true; result[SafeText(field.Name, flags)] = "[Redacted]"; }
                     else result[SafeText(field.Name, flags)] = Clean(field.Value, flags, depth + 1);
                 }
                 return result;
@@ -87,9 +88,9 @@ public static partial class ChatTraceSafety
         if (text.Length > 1024) { flags.Truncated = true; return text[..1024] + " [Truncated]"; }
         return text;
     }
-    [GeneratedRegex("password|passwd|secret|token|authorization|credential|cookie|connection.?string|api.?key|private.?key|certificate|environment|headers", RegexOptions.IgnoreCase)]
+    [GeneratedRegex("password|passwd|secret|token|auth|credential|cookie|connectionstring|key|certificate|environment|headers|^env$|^pwd$", RegexOptions.IgnoreCase)]
     private static partial Regex SensitiveKey();
-    [GeneratedRegex("bearer\\s|basic\\s|eyJ[A-Za-z0-9_-]+\\.|(?:sk-|gh[pousr]_|github_pat_|AKIA)[A-Za-z0-9_-]+|(?:password|passwd|secret|token|api.?key|authorization)\\s*[:=]", RegexOptions.IgnoreCase)]
+    [GeneratedRegex("bearer\\s|basic\\s|eyJ[A-Za-z0-9_-]+\\.|(?:sk-|gh[pousr]_|github_pat_|AKIA)[A-Za-z0-9_-]+|(?:password|passwd|secret|token|api.?key|authorization)(?:\\s*[:=]|\\s+)|(?:^|\\s)(?:-u|--user|--header|-p)\\s", RegexOptions.IgnoreCase)]
     private static partial Regex SecretValue();
     [GeneratedRegex("\\A[A-Za-z0-9_.:/-]+\\z")]
     private static partial Regex CallIdentifier();

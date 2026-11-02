@@ -5,6 +5,19 @@ namespace Helpdesk.Tests.Infrastructure.AiAssistant;
 
 public sealed class ChatTraceSafetyTests
 {
+    [Theory]
+    [InlineData("{\"command\":\"curl --password PRIVATE_VALUE https://example.com\"}")]
+    [InlineData("{\"command\":\"curl -u user:PRIVATE_VALUE https://example.com\"}")]
+    [InlineData("{\"api__key\":\"PRIVATE_VALUE\"}")]
+    [InlineData("{\"pass-word\":\"PRIVATE_VALUE\"}")]
+    [InlineData("{\"env\":{\"VALUE\":\"PRIVATE_VALUE\"}}")]
+    public void Credential_flags_and_normalized_secret_keys_are_removed_before_storage(string payload)
+    {
+        var details = ChatTraceSafety.Extract(JsonSerializer.SerializeToElement(new { argumentsJson = payload }));
+        Assert.True(details.Redacted);
+        Assert.DoesNotContain("PRIVATE_VALUE", JsonSerializer.Serialize(details));
+    }
+
     [Fact]
     public void Structured_payload_is_redacted_before_durable_serialization_and_keeps_source_time()
     {
