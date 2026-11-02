@@ -1,14 +1,21 @@
 namespace Helpdesk.Shared.AiAssistant.Chat;
 
 public enum ChatState { Idle, Processing, AwaitingApproval, DeliveryUnknown, Archived }
+public enum ChatConversationScope { Ticket, Organization }
 
 public sealed class AiAssistantChatConversation
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public bool IsInvestigation { get; set; }
+    public ChatConversationScope Scope { get; set; }
+    public string Title { get; set; } = "";
+    public string? GuidanceSnapshot { get; set; }
+    public string? CreationFingerprint { get; set; }
+    public DateTimeOffset? RecoveryLastAttemptUtc { get; set; }
+    public string? RecoveryResult { get; set; }
     public string OrganizationId { get; set; } = string.Empty;
-    public string TicketId { get; set; } = string.Empty;
-    public string TicketType { get; set; } = string.Empty;
+    public string? TicketId { get; set; }
+    public string? TicketType { get; set; }
     public string? AiAssistantSessionId { get; set; }
     public string? ProviderProfileFingerprint { get; set; }
     public ChatState State { get; set; }
@@ -47,13 +54,21 @@ public sealed class AiAssistantChatInteraction
 public sealed record ChatMessageRequest(Guid ConversationId, Guid ClientMessageId, string Text);
 public sealed record ChatApprovalRequest(Guid ConversationId, string SelectedKey);
 public sealed record ChatNewRequest(Guid ConversationId);
-public sealed record ChatSnapshot(Guid ConversationId, ChatState State, long LastSequence, IReadOnlyList<AiAssistantChatEvent> Events);
+public sealed record ChatSnapshot(Guid ConversationId, ChatState State, long LastSequence, IReadOnlyList<AiAssistantChatEvent> Events,
+    DateTimeOffset? RecoveryLastAttemptUtc = null, string? RecoveryResult = null);
 public sealed record ChatOption(string Key, string Label);
 public sealed record ChatActivityMetadata(string DisplayName, string ToolKind, string? ProviderName,
-    string? SkillName, long? DurationMs, string Outcome);
+    string? SkillName, long? DurationMs, string Outcome,
+    ChatTraceDetails? Details = null);
+public sealed record ChatTraceDetails(int Version = 1, DateTimeOffset? SourceTimestampUtc = null,
+    string? Arguments = null, string? Result = null, string? FailureCode = null,
+    bool Redacted = false, bool Truncated = false, string? Measures = null);
 public sealed record ChatDelta(Guid ConversationId, string? Text, long AfterSequence = 0);
 public sealed record ChatAbandonRequest(Guid ConversationId, Guid ResolutionId, Guid ExpectedMessageId, bool AcknowledgePossibleDelivery);
 public sealed record ChatStopWaitingRequest(Guid ConversationId, Guid ExpectedMessageId);
-public sealed record ChatConversationSummary(Guid ConversationId, ChatState State, DateTimeOffset LastActivityUtc, string CreatedByUserId);
+public sealed record ChatConversationSummary(Guid ConversationId, ChatState State, DateTimeOffset LastActivityUtc, string CreatedByUserId,
+    string? Title = null, string? OrganizationId = null);
+public sealed record ChatCreateRequest(Guid ConversationId, string Title, Guid[] PromptIds);
+public sealed record ChatOrganizationConversation(Guid ConversationId, string OrganizationId, string Title, string GuidanceSnapshot, ChatState State);
 
-public sealed record ChatCapabilities(bool Enabled, string? Reason);
+public sealed record ChatCapabilities(bool Enabled, string? Reason, bool CanWrite = true, string? SetupUrl = null);

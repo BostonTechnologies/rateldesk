@@ -244,6 +244,45 @@ public sealed class AiAssistantChatEndpointsTests(ChatPostgresFixture database, 
         Assert.Equal(conversation, history[1].ConversationId);
     }
 
+    [Fact]
+    public async Task Organization_chat_uses_explicit_scope_and_rechecks_read_write_and_guessed_ids()
+    {
+        await using var host = new ChatApi(database);
+        using var staff = host.Client(); using var foreign = host.Client(tenant: "other"); using var reader = host.Client("Incident.Read");
+        const string route = "/api/v1/ai/chat/organizations/org";
+        var request = new ChatCreateRequest(Guid.NewGuid(), "Synthetic organization planning", []);
+        Assert.Equal(HttpStatusCode.Forbidden, (await foreign.PostAsJsonAsync($"{route}/new", request)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await reader.PostAsJsonAsync($"{route}/new", request)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await staff.PostAsJsonAsync($"{route}/new", request)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await staff.PostAsJsonAsync($"{route}/new", request)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await reader.GetAsync($"{route}?conversationId={request.ConversationId}")).StatusCode);
+        var caps = await reader.GetFromJsonAsync<ChatCapabilities>($"{route}/capabilities");
+        Assert.True(caps!.Enabled); Assert.False(caps.CanWrite);
+        Assert.Equal(HttpStatusCode.Forbidden, (await foreign.GetAsync($"{route}?conversationId={request.ConversationId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await staff.GetAsync($"{route}?conversationId={Guid.NewGuid()}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await reader.PostAsJsonAsync($"{route}/messages", new ChatMessageRequest(request.ConversationId, Guid.NewGuid(), "No"))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await reader.PostAsJsonAsync($"{route}/reconcile", new ChatNewRequest(request.ConversationId))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await reader.PostAsJsonAsync($"{route}/archive", new ChatNewRequest(request.ConversationId))).StatusCode);
+        await using var stream = await SseConnection.OpenAsync(reader, $"{route}/stream?conversationId={request.ConversationId}");
+        var frames = await stream.ReadThroughStateAsync();
+        Assert.Single(frames, f => f.Kind == "chat");
+        await host.Transport.DidNotReceiveWithAnyArgs().SendAsync(default, default, default!, default);
+        var message = new ChatMessageRequest(request.ConversationId, Guid.NewGuid(), "Synthetic request");
+        Assert.Equal(HttpStatusCode.Accepted, (await staff.PostAsJsonAsync($"{route}/messages", message)).StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, (await staff.PostAsJsonAsync($"{route}/messages", message)).StatusCode);
+        await host.Transport.Received(1).SendAsync(request.ConversationId, message.ClientMessageId, message.Text, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Disabled_organization_chat_exposes_capability_and_does_not_fall_back_to_ticket_admission()
+    {
+        await using var host = new ChatApi(database, enabled: false); using var staff = host.Client();
+        const string route = "/api/v1/ai/chat/organizations/org";
+        var capability = await staff.GetFromJsonAsync<ChatCapabilities>($"{route}/capabilities");
+        Assert.False(capability!.Enabled);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await staff.PostAsJsonAsync($"{route}/new", new ChatCreateRequest(Guid.NewGuid(), "Disabled", []))).StatusCode);
+    }
+
     private sealed class ChatApi(ChatPostgresFixture database, bool enabled = true) : WebApplicationFactory<Program>
     {
         public IAiAssistantChatTransport Transport { get; } = Substitute.For<IAiAssistantChatTransport>();
@@ -319,6 +358,7 @@ public sealed class AiAssistantChatEndpointsTests(ChatPostgresFixture database, 
             var isAdmin = roles.Contains(HelpdeskPermissions.HelpdeskAdmin);
             var permissions = roles.Contains("Technician")
                 ? HelpdeskPermissions.TechnicalBundle.ToHashSet(StringComparer.OrdinalIgnoreCase)
+                : roles.Contains("Incident.Read") ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) { HelpdeskPermissions.IncidentRead }
                 : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             var allowedOrganizations = string.IsNullOrWhiteSpace(organizationId)

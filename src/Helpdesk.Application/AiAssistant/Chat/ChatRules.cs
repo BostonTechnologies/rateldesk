@@ -29,6 +29,16 @@ public static class ChatRules
 
 public interface IAiAssistantChatStore
 {
+    Task<IReadOnlyList<ChatConversationSummary>> HistoryAsync(ChatScope scope, int skip, string? search, bool archived, CancellationToken ct);
+    Task<ChatOrganizationConversation> CreateOrganizationAsync(string organization, ChatCreateRequest request, string actor, CancellationToken ct);
+    Task<ChatOrganizationConversation> GetOrganizationAsync(string organization, Guid id, CancellationToken ct);
+    Task ArchiveAsync(ChatScope scope, Guid id, string actor, CancellationToken ct);
+    Task RequestRecoveryAsync(ChatScope scope, Guid conversation, string actor, CancellationToken ct);
+    Task StopWaitingAsync(ChatScope scope, ChatStopWaitingRequest request, string actor, CancellationToken ct);
+    Task AbandonAsync(ChatScope scope, ChatAbandonRequest request, string actor, CancellationToken ct);
+    Task<ChatSnapshot> LoadAsync(ChatScope scope, Guid? conversation, long after, string actor, CancellationToken ct);
+    Task<bool> AcceptMessageAsync(ChatScope scope, ChatMessageRequest request, string actor, CancellationToken ct);
+    Task AcceptApprovalAsync(ChatScope scope, string callId, ChatApprovalRequest request, string actor, CancellationToken ct);
     Task<IReadOnlyList<ChatConversationSummary>> HistoryAsync(string type, string ticket, int skip, CancellationToken ct);
     Task RequestRecoveryAsync(string type, string ticket, Guid conversation, string actor, CancellationToken ct);
     Task StopWaitingAsync(string type, string ticket, ChatStopWaitingRequest request, string actor, CancellationToken ct);

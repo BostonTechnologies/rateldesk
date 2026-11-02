@@ -49,11 +49,16 @@
         <HelpdeskNavGroup Title="Operations" RoutePrefixes="@OperationsRoutes" Icon="@Icons.Material.Filled.SettingsSuggest">
             <AuthorizeView Roles="Incident.Write,Incident.Manager,Request.Read,Request.Write,Request.Execute,Request.Manager,Change.Write,Change.Manager,HelpdeskAdmin" Context="opsGate">
                 <HelpdeskNavLink Href="/ops" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.SettingsSuggest" Title="Operations console">Operations console</HelpdeskNavLink>
-                <AuthorizeView Roles="Incident.Write,Incident.Manager,Request.Write,Request.Manager,Change.Write,Change.Manager,HelpdeskAdmin" Context="investigationGate">
-                <HelpdeskNavLink Href="/ai/ops" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Psychology" Title="AI investigations">AI investigations</HelpdeskNavLink>
-                </AuthorizeView>
             </AuthorizeView>
-            <AuthorizeView Roles="HelpdeskAdmin" Context="promptGate"><HelpdeskNavLink Href="/ai/prompts" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.EditNote" Title="Prompts">Prompts</HelpdeskNavLink></AuthorizeView>
+            <AuthorizeView Roles="Incident.Read,Incident.Write,Incident.Manager,Request.Read,Request.Write,Request.Manager,Change.Read,Change.Write,Change.Manager,HelpdeskAdmin" Context="aiGate">
+                <HelpdeskNavGroup Title="AI" RoutePrefixes="@AiRoutes" Icon="@Icons.Material.Filled.Psychology">
+                    <HelpdeskNavLink Href="/ai/chat" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Chat" Title="Chat">Chat</HelpdeskNavLink>
+                    <AuthorizeView Roles="Incident.Write,Incident.Manager,Request.Write,Request.Manager,Change.Write,Change.Manager,HelpdeskAdmin" Context="investigationGate">
+                        <HelpdeskNavLink Href="/ai/ops" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Troubleshoot" Title="Investigations">Investigations</HelpdeskNavLink>
+                    </AuthorizeView>
+                    <AuthorizeView Roles="HelpdeskAdmin" Context="promptGate"><HelpdeskNavLink Href="/ai/prompts" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.EditNote" Title="Prompts">Prompts</HelpdeskNavLink></AuthorizeView>
+                </HelpdeskNavGroup>
+            </AuthorizeView>
             <HelpdeskNavLink Href="notifications" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Notifications" Title="Notifications">Notifications</HelpdeskNavLink>
         </HelpdeskNavGroup>
     </AuthorizeView>
@@ -125,7 +130,8 @@
     private static readonly string[] PortalRoutes = ["self-service"];
     private static readonly string[] MyRequestRoutes = ["self-service/my-requests"];
     private static readonly string[] WorkspaceRoutes = ["incidents", "requests", "tasks", "changes"];
-    private static readonly string[] OperationsRoutes = ["ops", "notifications", "ai/ops", "ai/prompts"];
+    private static readonly string[] OperationsRoutes = ["ops", "notifications", "ai/chat", "ai/ops", "ai/prompts"];
+    private static readonly string[] AiRoutes = ["ai/chat", "ai/ops", "ai/prompts"];
     private static readonly string[] ResourcesRoutes = ["assets", "admin/resources/data-management"];
     private static readonly string[] OrganizationAliases = ["tenant-administration", "tenant-settings"];
     private static readonly string[] AccountAdministrationRoutes = ["admin/users", "admin/customers", "admin/organizations", "admin/support-routing", "admin/tenant-sla-settings", .. OrganizationAliases];

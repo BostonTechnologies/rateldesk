@@ -28,6 +28,13 @@ presentation, archive, responsive layout and themes. It is not live AiAssistant,
 attachment ingestion or authorization evidence. It is deliberately excluded
 from the ordinary live-instance UX configuration.
 
+`ai-parity.spec.ts` uses that same isolated fixture to exercise `/ai/chat` and
+`/ai/ops`: normal/fullscreen draft and tool-state retention, saved preferences,
+keyboard restoration, responsive light/dark rendering, streaming, approvals,
+honest recovery and archived access. It also checks that layout/open/create
+actions do not send messages. These are deterministic browser receipts, not
+acceptance against a running Netclaw daemon or production data.
+
 ## Assignee picker interaction
 
 Build the web project using the SDK pinned in `global.json`, then run

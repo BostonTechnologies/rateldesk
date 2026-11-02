@@ -147,20 +147,19 @@ public sealed class AiInvestigationsWorkspaceTests
         var page = context.Render<Page>();
         page.WaitForAssertion(() => Assert.Single(page.FindComponents<Stub<Chat>>()));
         Assert.Equal(4, page.FindAll(".ai-investigation").Count);
-        Assert.Contains("Synthetic saved ticket and guidance", page.Find(".ai-snapshot").TextContent);
         var chat = page.FindComponent<Stub<Chat>>();
         Assert.Equal(api.Rows[0].Id, chat.Instance.Parameters.Get(x => x.InvestigationId));
         Assert.Equal("ticket-a", chat.Instance.Parameters.Get(x => x.TicketId));
         Assert.True(chat.Instance.Parameters.Get(x => x.Workspace));
-        Assert.True(page.Find(".ai-chat-heading button").HasAttribute("disabled"));
+        var savedContext = context.Render(builder => builder.AddContent(0, chat.Instance.Parameters.Get(x => x.SavedContext)));
+        Assert.Contains("Synthetic saved ticket and guidance", savedContext.Markup);
+        Assert.Equal("Active investigation", chat.Instance.Parameters.Get(x => x.Title));
         await page.InvokeAsync(() => chat.Instance.Parameters.Get(x => x.StateChanged).InvokeAsync(ChatState.Idle));
-        Assert.False(page.Find(".ai-chat-heading button").HasAttribute("disabled"));
         Assert.Equal("0", page.FindAll(".ai-metrics strong")[0].TextContent);
-        page.Find(".ai-chat-heading button").Click();
+        await page.InvokeAsync(() => chat.Instance.Parameters.Get(x => x.Archive).InvokeAsync());
         page.WaitForAssertion(() => Assert.Single(api.Archived));
         Assert.Equal(api.Rows[0].Id, api.Archived[0]);
-        Assert.Contains("Archived", page.Find(".ai-chat-heading").TextContent);
-        Assert.True(page.Find(".ai-chat-heading button").HasAttribute("disabled"));
+        Assert.Contains("Archived", page.Find(".ai-investigation.selected").TextContent);
     }
 
     private static BunitContext Context(Api api)

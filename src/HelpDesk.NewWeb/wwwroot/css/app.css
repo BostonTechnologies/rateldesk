@@ -1328,3 +1328,6 @@ h1[tabindex="-1"]:focus
     width: min(600px, calc(100% - 16px)) !important;
     max-width: calc(100% - 16px);
 }
+
+/* Conversation overlays keep the native Mud dialogs/popovers above the focused surface. */
+body.chat-conversation-maximised .mud-popover-open { z-index: 1450 !important; }

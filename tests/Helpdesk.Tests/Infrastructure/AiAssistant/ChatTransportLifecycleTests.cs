@@ -139,6 +139,53 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
     }
 
     [Theory]
+    [InlineData("Final report after remote completion")]
+    [InlineData("Partial work before remote interruption")]
+    [InlineData("Still working")]
+    [InlineData("Approval may be outstanding")]
+    public async Task Role_content_join_cannot_prove_exact_turn_outcome_and_repeated_checks_keep_attached_owner(string historicalText)
+    {
+        await using var run = await Run.CreateAsync(fixture);
+        run.Client.FailSend = true; await run.SendAsync();
+        var original = Assert.Single(run.Client.Sent);
+        var resumed = new ControlledClient { RecentMessages = JsonSerializer.SerializeToElement(new[]
+        { new { role = "user", content = original }, new { role = "assistant", content = historicalText } }) };
+        run.Factory.Next = resumed;
+        await run.Manager.ReconcileAsync(run.Conversation, default);
+        var count = run.Factory.Snapshots.Count;
+        await run.Manager.ReconcileAsync(run.Conversation, default);
+        await run.Manager.ReconcileAsync(run.Conversation, default);
+        Assert.Equal(count, run.Factory.Snapshots.Count);
+        Assert.False(resumed.Disposed); Assert.Empty(resumed.Sent); Assert.Empty(resumed.Responses);
+        await using var db = fixture.Context();
+        var conversation = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == run.Conversation);
+        Assert.Equal(ChatState.DeliveryUnknown, conversation.State);
+        Assert.Contains("outcome unknown", conversation.RecoveryResult);
+        var events = await db.Set<AiAssistantChatEvent>().Where(x => x.ConversationId == run.Conversation).ToListAsync();
+        Assert.Single(events, x => x.Type == "recovery_admission_confirmed");
+        Assert.DoesNotContain(events, x => x.Type is "assistant" or "turn_completed");
+    }
+
+    [Fact]
+    public async Task Parallel_native_tool_frames_persist_sanitized_payloads_and_source_times_per_call()
+    {
+        await using var run = await Run.CreateAsync(fixture); await run.SendAsync();
+        foreach (var call in new[] { "parallel-one", "parallel-two" })
+            await run.Client.EmitAsync(new { type = "tool_call", sessionId = run.Client.SessionId, callId = call, toolName = "provider/lookup", timestampMs = 1793606400000L,
+                argumentsJson = "{\"query\":\"safe\",\"password\":\"PRIVATE_ARGUMENT\"}" });
+        await run.Client.EmitAsync(new { type = "tool_result", sessionId = run.Client.SessionId, callId = "parallel-two", toolName = "provider/lookup", timestampMs = 1793606401000L,
+            result = "{\"value\":2,\"token\":\"PRIVATE_RESULT\"}", toolFailureCode = "Denied" });
+        await run.Client.EmitAsync(new { type = "turn_completed", sessionId = run.Client.SessionId });
+        var events = await run.WaitForAsync(x => x.Any(e => e.Type == "turn_completed"));
+        var tools = events.Where(x => x.Type is "tool_call" or "tool_result").ToList();
+        Assert.Equal(3, tools.Count); Assert.DoesNotContain("PRIVATE_", JsonSerializer.Serialize(tools));
+        var result = JsonSerializer.Deserialize<ChatActivityMetadata>(Assert.Single(tools, x => x.Type == "tool_result").MetadataJson!)!;
+        Assert.Equal("Denied", result.Details!.FailureCode); Assert.True(result.Details.Redacted);
+        Assert.NotNull(result.DurationMs); Assert.Equal(DateTimeOffset.FromUnixTimeMilliseconds(1793606401000L), result.Details.SourceTimestampUtc);
+        Assert.Equal("parallel-two", Assert.Single(tools, x => x.Type == "tool_result").CallId);
+    }
+
+    [Theory]
     [InlineData("matched", true)]
     [InlineData("assistant-quote", false)]
     [InlineData("different-message", false)]
@@ -174,8 +221,9 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
         {
             await resumed.EmitAsync(new { type = "text", sessionId = resumed.SessionId, text = "Authoritative final output" });
             await resumed.EmitAsync(new { type = "turn_completed", sessionId = resumed.SessionId });
-            var completed = await run.WaitForAsync(x => x.Any(e => e.Type == "turn_completed"));
-            Assert.Equal("Authoritative final output", Assert.Single(completed, x => x.Type == "assistant").Text);
+            await resumed.EmitAsync(new { type = "session_joined", sessionId = resumed.SessionId, recentMessages = Array.Empty<object>() });
+            var retained = await run.WaitForAsync(x => x.Any(e => e.Type == "recovery_inconclusive"));
+            Assert.DoesNotContain(retained, x => x.Type is "assistant" or "turn_completed");
         }
     }
 
@@ -221,11 +269,12 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
 
         await resumed.EmitAsync(new { type = "text", sessionId = resumed.SessionId, text = "Recovered historical turn output" });
         await resumed.EmitAsync(new { type = "turn_completed", sessionId = resumed.SessionId });
-        var completed = await run.WaitForAsync(items => items.Any(item => item.Type == "turn_completed"));
-        Assert.Equal("Recovered historical turn output", Assert.Single(completed, item => item.Type == "assistant").Text);
+        await resumed.EmitAsync(new { type = "session_joined", sessionId = resumed.SessionId, recentMessages = Array.Empty<object>() });
+        var retained = await run.WaitForAsync(items => items.Any(item => item.Type == "recovery_inconclusive"));
+        Assert.DoesNotContain(retained, item => item.Type is "assistant" or "turn_completed");
         await using var check = fixture.Context();
         var persisted = await check.Set<AiAssistantChatConversation>().AsNoTracking().SingleAsync(x => x.Id == run.Conversation);
-        Assert.Equal(ChatState.Idle, persisted.State);
+        Assert.Equal(ChatState.DeliveryUnknown, persisted.State);
         Assert.Equal(confirmed.ProviderProfileFingerprint, persisted.ProviderProfileFingerprint);
         Assert.Single(run.Client.Sent);
         Assert.Empty(resumed.Sent);

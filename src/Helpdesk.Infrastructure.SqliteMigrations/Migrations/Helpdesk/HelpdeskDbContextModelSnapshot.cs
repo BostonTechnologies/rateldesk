@@ -836,6 +836,13 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("CreationFingerprint")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("GuidanceSnapshot")
+                        .HasColumnType("TEXT");
+
                     b.Property<bool>("IsInvestigation")
                         .HasColumnType("INTEGER");
 
@@ -856,16 +863,32 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTimeOffset?>("RecoveryLastAttemptUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RecoveryResult")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Scope")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(0);
+
                     b.Property<int>("State")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("TicketId")
-                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("TicketType")
-                        .IsRequired()
                         .HasColumnType("TEXT");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("");
 
                     b.Property<DateTimeOffset?>("TurnStartedAtUtc")
                         .HasColumnType("TEXT");
@@ -874,11 +897,16 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
 
                     b.HasIndex("State", "LastTransportActivityAtUtc");
 
+                    b.HasIndex("OrganizationId", "Scope", "LastActivityUtc");
+
                     b.HasIndex("OrganizationId", "TicketType", "TicketId")
                         .IsUnique()
-                        .HasFilter("\"State\" <> 4 AND \"IsInvestigation\" = FALSE");
+                        .HasFilter("\"State\" <> 4 AND \"IsInvestigation\" = FALSE AND \"Scope\" = 0");
 
-                    b.ToTable("AiAssistantChatConversations", (string)null);
+                    b.ToTable("AiAssistantChatConversations", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ChatConversation_Scope", "(\"Scope\" = 0 AND \"TicketId\" IS NOT NULL AND \"TicketType\" IS NOT NULL) OR (\"Scope\" = 1 AND \"TicketId\" IS NULL AND \"TicketType\" IS NULL AND \"IsInvestigation\" = FALSE)");
+                        });
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.AiAssistant.Chat.AiAssistantChatEvent", b =>
@@ -4865,4 +4893,3 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
         }
     }
 }
-

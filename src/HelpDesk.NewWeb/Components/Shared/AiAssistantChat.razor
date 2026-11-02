@@ -5,15 +5,40 @@
 @implements IAsyncDisposable
 @inject IHttpClientFactory HttpClientFactory
 @inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IJSRuntime JS
 
 @if (capabilities is { Enabled: false })
 {
     <MudAlert Severity="Severity.Info">@capabilities.Reason</MudAlert>
-    <TicketAiAssistant TicketId="@TicketId" TicketType="@TicketType" />
+    @if (OrganizationId is null) { <TicketAiAssistant TicketId="@TicketId" TicketType="@TicketType" /> }
+    @if (capabilities.SetupUrl is { } setup) { <MudLink Href="@setup">Configure Netclaw connection</MudLink> }
 }
 else
 {
-<div class="@(Workspace ? "ai-chat-workspace" : null)">
+<div @ref="root" class="ai-conversation-surface @(Workspace ? "ai-chat-workspace" : "") @(fullscreen ? "ai-chat-fullscreen" : "")" role="@(fullscreen ? "dialog" : "region")" aria-modal="@(fullscreen ? "true" : null)" aria-label="Conversation">
+<header class="conversation-header">
+    <div><h2>@Title</h2><small>@Identity · @state</small></div>
+    <div class="conversation-actions">
+        @if (Archive.HasDelegate) { <MudButton Disabled="@(busy || capabilities?.CanWrite == false || state != ChatState.Idle)" OnClick="Archive">Archive</MudButton> }
+        else if (OrganizationId is null && InvestigationId is null) { <MudButton Disabled="@(busy || state != ChatState.Idle || conversation == Guid.Empty)" OnClick="NewAsync">Archive</MudButton> }
+        <MudTooltip Text="@(fullscreen ? "Restore conversation" : "Maximise conversation")"><MudIconButton Icon="@(fullscreen ? Icons.Material.Filled.FullscreenExit : Icons.Material.Filled.Fullscreen)" aria-label="@(fullscreen ? "Restore conversation" : "Maximise conversation")" Disabled="@(module is null || conversation == Guid.Empty)" OnClick="ToggleFullscreenAsync" /></MudTooltip>
+        <MudTooltip Text="Chat display settings"><MudIconButton Icon="@Icons.Material.Filled.Settings" aria-label="Chat display settings" aria-expanded="@settingsOpen.ToString().ToLowerInvariant()" OnClick="@(() => settingsOpen = !settingsOpen)" /></MudTooltip>
+    </div>
+</header>
+@if (settingsOpen)
+{
+    <div class="chat-display-settings" role="group" aria-label="Chat display settings">
+        <MudCheckBox T="bool" Value="preferences.Compact" ValueChanged="@(v => SavePreferenceAsync(() => preferences.Compact = v))" Label="Compact tool rows" />
+        <MudCheckBox T="bool" Value="preferences.ShowTimestamps" ValueChanged="@(v => SavePreferenceAsync(() => preferences.ShowTimestamps = v))" Label="Show timestamps" />
+        <MudCheckBox T="bool" Value="preferences.ShowIdentifiers" ValueChanged="@(v => SavePreferenceAsync(() => preferences.ShowIdentifiers = v))" Label="Show call identifiers" />
+        <MudCheckBox T="bool" Value="preferences.AutoExpand" ValueChanged="@(v => SavePreferenceAsync(() => preferences.AutoExpand = v))" Label="Expand tool details automatically" />
+        <MudCheckBox T="bool" Value="preferences.ShowUsage" ValueChanged="@(v => SavePreferenceAsync(() => preferences.ShowUsage = v))" Label="Usage" />
+        <MudCheckBox T="bool" Value="preferences.ShowProcessing" ValueChanged="@(v => SavePreferenceAsync(() => preferences.ShowProcessing = v))" Label="Processing" />
+        <MudCheckBox T="bool" Value="preferences.ShowCompaction" ValueChanged="@(v => SavePreferenceAsync(() => preferences.ShowCompaction = v))" Label="Compaction" />
+        <MudCheckBox T="bool" Value="preferences.ShowSubagents" ValueChanged="@(v => SavePreferenceAsync(() => preferences.ShowSubagents = v))" Label="Subagent measures" />
+    </div>
+}
+@if (SavedContext is not null) { <div class="conversation-context">@SavedContext</div> }
 <MudStack Spacing="2">
     @if (Workspace)
     {
@@ -23,7 +48,7 @@ else
     {
         <MudText Typo="Typo.h6">AI Assistant · @state · @connectionStatus</MudText>
     }
-    @if (InvestigationId is null && history.Count > 0)
+    @if (OrganizationId is null && InvestigationId is null && history.Count > 0)
     {
         <MudSelect T="Guid" Label="Conversation history" Value="conversation" ValueChanged="SelectConversationAsync" Disabled="busy">
             @foreach (var entry in history)
@@ -36,28 +61,30 @@ else
     @if (state == ChatState.Archived)
     {
         <MudAlert Severity="Severity.Info">Archived transcript — read-only. Its remote session is not resumed.</MudAlert>
-        @if (InvestigationId is null) { <MudButton Disabled="busy" OnClick="@(() => SelectConversationAsync(Guid.Empty))">Return to current conversation</MudButton> }
+        @if (OrganizationId is null && InvestigationId is null) { <MudButton Disabled="busy" OnClick="@(() => SelectConversationAsync(Guid.Empty))">Return to current conversation</MudButton> }
     }
     @if (state == ChatState.DeliveryUnknown)
     {
         <MudAlert Severity="Severity.Warning">Delivery or completion could not be confirmed. AiAssistant may already have accepted this turn. Checking the session never resends it.</MudAlert>
-        <MudButton Disabled="busy" OnClick="ReconcileAsync">Check saved session</MudButton>
-        @if (InvestigationId is null) {
-        <MudCheckBox T="bool" @bind-Value="acknowledgeAbandon" Disabled="busy" Label="I understand the old turn may still execute. Archive this transcript and start blank, without retrying it." />
-        <MudButton Color="Color.Warning" Disabled="@(busy || !acknowledgeAbandon || UnresolvedMessageId is null)" OnClick="AbandonAsync">Abandon unresolved turn and start blank</MudButton>
+        @if (recoveryResult is not null) { <MudAlert Severity="Severity.Info">@recoveryResult</MudAlert> }
+        @if (recoveryAt is not null) { <small>Last check: @recoveryAt.Value.UtcDateTime.ToString("u") · reference @conversation</small> }
+        <MudButton Disabled="@(busy || capabilities?.CanWrite == false)" OnClick="ReconcileAsync">Check saved session</MudButton>
+        @if (capabilities?.CanWrite != false) {
+        <MudCheckBox T="bool" @bind-Value="acknowledgeAbandon" Disabled="busy" Label="I understand the old turn may still execute. Archive this transcript without retrying it. Remote side effects may already have occurred." />
+        <MudButton Color="Color.Warning" Disabled="@(busy || !acknowledgeAbandon || UnresolvedMessageId is null)" OnClick="AbandonAsync">Abandon unresolved turn and archive</MudButton>
         }
     }
     @if (state == ChatState.Processing)
     {
         <MudAlert Severity="Severity.Warning">The remote assistant may still be processing. Stopping locally never resends this request.</MudAlert>
-        <MudCheckBox T="bool" @bind-Value="acknowledgeStopWaiting" Disabled="busy" Label="The remote assistant may still be processing. RatelDesk will stop waiting locally and will not resend this request automatically." />
-        <MudButton Color="Color.Warning" Disabled="@(busy || !acknowledgeStopWaiting || UnresolvedMessageId is null)" OnClick="StopWaitingAsync">Stop waiting</MudButton>
+        <MudCheckBox T="bool" @bind-Value="acknowledgeStopWaiting" Disabled="@(busy || capabilities?.CanWrite == false)" Label="The remote assistant may still be processing. RatelDesk will stop waiting locally and will not resend this request automatically." />
+        <MudButton Color="Color.Warning" Disabled="@(busy || capabilities?.CanWrite == false || !acknowledgeStopWaiting || UnresolvedMessageId is null)" OnClick="StopWaitingAsync">Stop waiting</MudButton>
     }
     @if (error is not null) { <MudAlert Severity="Severity.Warning">@error</MudAlert> }
     <div class="@(Workspace ? "ai-chat-transcript" : null)" role="@(Workspace ? "log" : null)" aria-label="@(Workspace ? "Saved conversation" : null)">
-    @if (Workspace && events.Count == 0 && conversation != Guid.Empty && state == ChatState.Idle)
+    @if (Workspace && events.All(x => x.Type != "operator") && conversation != Guid.Empty && state == ChatState.Idle)
     {
-        <p class="ai-chat-empty">Your ticket context is saved. Ask a question to begin the investigation.</p>
+        <p class="ai-chat-empty">@(OrganizationId is null ? "Your ticket context is saved. Ask a question to begin the investigation." : "Your organization guidance is saved. Send a message to begin. No tickets are included.")</p>
     }
     @foreach (var turn in AiAssistantChatPresentation.Build(events))
     {
@@ -66,12 +93,12 @@ else
                 <MudText Typo="Typo.caption">@ActorLabel(turn.Operator.CreatedByUserId) · @turn.Operator.CreatedUtc.ToLocalTime().ToString("g")</MudText>
                 <MudText Style="white-space: pre-wrap; overflow-wrap: anywhere">@turn.Operator.Text</MudText>
             </MudPaper>
-            <AiAssistantTurnActivity Turn="turn" State="state" Busy="busy" Approval="@(answer => ApproveAsync(answer.CallId, answer.Key))" />
+            <AiAssistantTurnActivity Turn="turn" State="state" Busy="@(busy || capabilities?.CanWrite == false)" Preferences="preferences" Approval="@(answer => ApproveAsync(answer.CallId, answer.Key))" />
             @foreach (var response in turn.Responses)
             {
                 <div class="pa-3" data-testid="ai-assistant-response">
                     <MudText Typo="Typo.caption">AiAssistant · @response.CreatedUtc.ToLocalTime().ToString("t")</MudText>
-                    <MudText Style="white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7">@response.Text</MudText>
+                    <AiAssistantMarkdown Text="@response.Text" />
                 </div>
             }
         </section>
@@ -79,15 +106,21 @@ else
     @if (draft.Length > 0) { <MudText Style="white-space: pre-wrap">@draft</MudText> }
     </div>
     <div class="@(Workspace ? "ai-chat-composer" : null)">
-    <AiAssistantComposer @bind-Value="message" Send="SendAsync" Disabled="@(busy || state != ChatState.Idle || conversation == Guid.Empty)" />
+    <AiAssistantComposer @bind-Value="message" Send="SendAsync" Disabled="@(busy || capabilities?.CanWrite == false || state != ChatState.Idle || conversation == Guid.Empty)" />
     </div>
-    @if (InvestigationId is null) { <MudButton OnClick="NewAsync" Size="Size.Small" Style="align-self: flex-start" Disabled="@(busy || state != ChatState.Idle || conversation == Guid.Empty)">Archive and start new conversation</MudButton> }
+
 </MudStack>
 </div>
 
 }
 
 @code {
+    [Parameter] public string? OrganizationId { get; set; }
+    [Parameter] public Guid? SelectedConversationId { get; set; }
+    [Parameter] public string Title { get; set; } = "AI Assistant";
+    [Parameter] public string Identity { get; set; } = "";
+    [Parameter] public RenderFragment? SavedContext { get; set; }
+    [Parameter] public EventCallback Archive { get; set; }
     [Parameter] public Guid? InvestigationId { get; set; }
     [Parameter] public bool Workspace { get; set; }
     [Parameter] public EventCallback<ChatState> StateChanged { get; set; }
@@ -110,25 +143,44 @@ else
     private bool busy;
     private bool acknowledgeAbandon, acknowledgeStopWaiting, hasOlderHistory;
     private Guid resolutionId = Guid.NewGuid();
+    private ElementReference root;
+    private IJSObjectReference? module;
+    private DotNetObjectReference<AiAssistantChat>? reference;
+    private bool fullscreen, settingsOpen;
+    private ChatDisplayPreferences preferences = new();
+    private string? recoveryResult;
+    private DateTimeOffset? recoveryAt;
     private string connectionStatus = "Connecting";
     private string? currentActor;
     private string ActorLabel(string? actor) => actor == currentActor && currentActor is not null ? "You" : "Helpdesk operator";
     private Guid? UnresolvedMessageId => events.LastOrDefault(x => x.Type == "operator")?.ClientMessageId;
-    private string Route => $"api/v1/{TicketType}/{TicketId}/ai-assistant/chat";
+    private string Route => OrganizationId is null ? $"api/v1/{TicketType}/{TicketId}/ai-assistant/chat" : $"api/v1/ai/chat/organizations/{Uri.EscapeDataString(OrganizationId)}";
     private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
+        AuthenticationStateProvider.AuthenticationStateChanged += IdentityChanged;
         var ct = cancellation.Token;
         var user = (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User;
         if (disposed) return;
         currentActor = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
         try
         {
+            var imported = await JS.InvokeAsync<IJSObjectReference>("import", "./Components/Shared/AiAssistantChat.razor.js");
+            if (disposed) { if (imported is not null) await imported.DisposeAsync(); return; }
+            module = imported;
+            if (module is null) return;
+            reference = DotNetObjectReference.Create(this);
+            var stored = await module.InvokeAsync<string?>("readPreferences", currentActor);
+            if (stored is not null) { try { preferences = JsonSerializer.Deserialize<ChatDisplayPreferences>(stored) ?? new(); } catch (JsonException) { } }
+        }
+        catch (JSException) { }
+        try
+        {
             using var api = Api;
             capabilities = await api.GetFromJsonAsync<ChatCapabilities>(
-                $"api/v1/{TicketType}/{TicketId}/ai-assistant/chat-capabilities", ct);
+                OrganizationId is null ? $"api/v1/{TicketType}/{TicketId}/ai-assistant/chat-capabilities" : $"{Route}/capabilities", ct);
             if (capabilities is { Enabled: false })
             {
                 await InvokeAsync(StateHasChanged);
@@ -143,7 +195,7 @@ else
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
         if (disposed) return;
-        await SelectConversationAsync(InvestigationId ?? Guid.Empty);
+        await SelectConversationAsync(SelectedConversationId ?? InvestigationId ?? Guid.Empty);
         if (!disposed) await InvokeAsync(StateHasChanged);
     }
 
@@ -171,11 +223,11 @@ else
             var snapshot = await api.GetFromJsonAsync<ChatSnapshot>(id == Guid.Empty ? Route : $"{Route}?conversationId={id}", cancellation.Token);
             if (snapshot is not null)
             {
-                conversation = snapshot.ConversationId; state = snapshot.State;
+                conversation = snapshot.ConversationId; state = snapshot.State; recoveryAt = snapshot.RecoveryLastAttemptUtc; recoveryResult = snapshot.RecoveryResult;
                 await StateChanged.InvokeAsync(state);
                 events.AddRange(snapshot.Events); cursor = events.LastOrDefault()?.Sequence ?? 0;
                 history.Clear();
-                await LoadOlderHistoryAsync();
+                if (OrganizationId is null && InvestigationId is null) await LoadOlderHistoryAsync();
                 if (disposed) return;
                 streamCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
                 stream = ReadAsync(streamCancellation.Token);
@@ -224,12 +276,14 @@ else
                         var frameKind = kind; var frameData = data;
                         await InvokeAsync(async () =>
                         {
+                            if (disposed || ct.IsCancellationRequested) return;
                             if (frameKind == "chat" && JsonSerializer.Deserialize<AiAssistantChatEvent>(frameData) is { } item)
                             {
                                 if (item.Sequence > cursor) { events.Add(item); cursor = item.Sequence; }
                                 if (item.Type == "operator" && submittedMessage is { } sent && item.ClientMessageId == sent.ClientMessageId) AcknowledgeMessage(sent);
                                 if (item.Type is "assistant" or "turn_completed") draft = "";
                             }
+                            else if (frameKind == "recovery" && JsonSerializer.Deserialize<ChatSnapshot>(frameData) is { } recovery) { recoveryAt = recovery.RecoveryLastAttemptUtc; recoveryResult = recovery.RecoveryResult; }
                             else if (frameKind == "text-delta") draft = JsonSerializer.Deserialize<ChatDelta>(frameData)?.Text ?? "";
                             else if (frameKind == "state")
                             {
@@ -256,7 +310,7 @@ else
 
     private async Task SendAsync()
     {
-        if (busy || state != ChatState.Idle || conversation == Guid.Empty || string.IsNullOrWhiteSpace(message)) return;
+        if (busy || capabilities?.CanWrite == false || state != ChatState.Idle || conversation == Guid.Empty || string.IsNullOrWhiteSpace(message)) return;
         busy = true; error = null;
         var submitted = submittedMessage ??= new ChatMessageRequest(conversation, messageId, message);
         try
@@ -340,16 +394,50 @@ else
         {
             using var api = Api;
             using var response = await api.PostAsJsonAsync($"{Route}/abandon", new ChatAbandonRequest(conversation, resolutionId, expectedMessage, acknowledgeAbandon), cancellation.Token);
-            if (response.IsSuccessStatusCode) await SelectConversationAsync(Guid.Empty);
+            if (response.IsSuccessStatusCode)
+            {
+                if (OrganizationId is null && InvestigationId is null) await SelectConversationAsync(Guid.Empty);
+                else { state = ChatState.Archived; await StateChanged.InvokeAsync(state); await SelectConversationAsync(conversation); }
+            }
             else error = "Abandonment was not accepted. The turn may already have changed or been resolved.";
         }
         catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException) { error = "The resolution response was interrupted. Retry uses the same resolution ID; no message is resent."; }
         finally { busy = false; }
     }
 
+    private void IdentityChanged(Task<AuthenticationState> changed) => _ = InvokeAsync(async () =>
+    {
+        await cancellation.CancelAsync(); events.Clear(); message = draft = ""; submittedMessage = null; conversation = Guid.Empty;
+        capabilities = new(false, "Your account changed. Reload to check current access.", false); StateHasChanged();
+    });
+    private async Task SavePreferenceAsync(Action update)
+    {
+        update();
+        if (module is not null) { try { await module.InvokeVoidAsync("savePreferences", currentActor, JsonSerializer.Serialize(preferences)); } catch (JSException) { } }
+    }
+    private async Task ToggleFullscreenAsync()
+    {
+        if (module is null) return;
+        fullscreen = !fullscreen;
+        await module.InvokeVoidAsync(fullscreen ? "maximise" : "restore", root, reference);
+    }
+    [JSInvokable] public Task RestoreConversationAsync() => InvokeAsync(async () =>
+    {
+        if (!fullscreen) return;
+        fullscreen = false;
+        if (module is not null) await module.InvokeVoidAsync("restore", root);
+        StateHasChanged();
+    });
+
     public async ValueTask DisposeAsync()
     {
         disposed = true;
+        AuthenticationStateProvider.AuthenticationStateChanged -= IdentityChanged;
+        if (module is not null)
+        {
+            try { await module.InvokeVoidAsync("restore", root); await module.DisposeAsync(); } catch (JSDisconnectedException) { }
+        }
+        reference?.Dispose();
         await cancellation.CancelAsync();
         await selection;
         await stream;

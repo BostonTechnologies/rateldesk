@@ -214,7 +214,12 @@ public class HelpdeskDbContext(
             entity.ToTable("AiAssistantChatConversations");
             entity.HasKey(x => x.Id);
             entity.Property(x => x.ProviderProfileFingerprint).HasMaxLength(64);
-            entity.HasIndex(x => new { x.OrganizationId, x.TicketType, x.TicketId }).IsUnique().HasFilter("\"State\" <> 4 AND \"IsInvestigation\" = FALSE");
+            entity.Property(x => x.CreationFingerprint).HasMaxLength(64);
+            entity.Property(x => x.Title).HasMaxLength(200).HasDefaultValue("");
+            entity.Property(x => x.Scope).HasDefaultValue(Helpdesk.Shared.AiAssistant.Chat.ChatConversationScope.Ticket);
+            entity.HasIndex(x => new { x.OrganizationId, x.Scope, x.LastActivityUtc });
+            entity.ToTable(t => t.HasCheckConstraint("CK_ChatConversation_Scope", "(\"Scope\" = 0 AND \"TicketId\" IS NOT NULL AND \"TicketType\" IS NOT NULL) OR (\"Scope\" = 1 AND \"TicketId\" IS NULL AND \"TicketType\" IS NULL AND \"IsInvestigation\" = FALSE)"));
+            entity.HasIndex(x => new { x.OrganizationId, x.TicketType, x.TicketId }).IsUnique().HasFilter("\"State\" <> 4 AND \"IsInvestigation\" = FALSE AND \"Scope\" = 0");
             entity.HasIndex(x => new { x.State, x.LastTransportActivityAtUtc });
         });
         modelBuilder.Entity<Helpdesk.Shared.AiAssistant.Chat.AiAssistantChatEvent>(entity =>

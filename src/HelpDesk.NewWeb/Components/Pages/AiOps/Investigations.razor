@@ -118,15 +118,10 @@
             }
             else if (selected is { } investigation)
             {
-                <header class="ai-chat-heading">
-                    <div><span class="ai-state @StateClass(selected.State)">@StateLabel(selected.State)</span><h2>@selected.Title</h2><small>@selected.Id</small></div>
-                    <button type="button" @onclick="Archive" disabled="@(busy || selected.State != ChatState.Idle)">Archive</button>
-                </header>
-                <div class="ai-context"><span>@OrganizationName(selected.OrganizationId)</span><span>Created @selected.CreatedUtc.ToLocalTime().ToString("g")</span></div>
-                <details class="ai-snapshot"><summary>Saved guidance and ticket context</summary><pre>@selected.ContextSnapshot</pre></details>
-                <div class="ai-chat-body">
-                    <AiAssistantChat @key="investigation.Id" TicketId="@investigation.TicketId" TicketType="@investigation.TicketType" InvestigationId="investigation.Id" Workspace="true" StateChanged="@(state => ChatStateChanged(investigation.Id, state))" />
-                </div>
+                <AiAssistantChat @key="investigation.Id" TicketId="@investigation.TicketId" TicketType="@investigation.TicketType" InvestigationId="investigation.Id" Workspace="true"
+                    Title="@investigation.Title" Identity="@OrganizationName(investigation.OrganizationId)" Archive="Archive" StateChanged="@(state => ChatStateChanged(investigation.Id, state))">
+                    <SavedContext><details class="ai-snapshot"><summary>Saved guidance and ticket context</summary><pre>@investigation.ContextSnapshot</pre></details></SavedContext>
+                </AiAssistantChat>
             }
             else
             {
