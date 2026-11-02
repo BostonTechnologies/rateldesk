@@ -1,8 +1,10 @@
 using Helpdesk.Shared.AiAssistant.Chat;
+using System.Text;
 
 namespace Helpdesk.Application.AiAssistant.Chat;
 
 public sealed class ChatConflictException(string message) : Exception(message);
+public sealed record ChatStartAdmission(ChatOrganizationConversation Conversation, bool Accepted);
 
 public static class ChatRules
 {
@@ -18,6 +20,13 @@ public static class ChatRules
             throw new ArgumentException("A message ID and between 1 and 16000 characters are required.");
     }
 
+    public static string ConversationTitle(string message)
+    {
+        var normalized = string.Join(' ', message.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        var runes = normalized.EnumerateRunes().Take(81).ToArray();
+        return string.Concat(runes.Take(80).Select(rune => rune.ToString())) + (runes.Length > 80 ? "…" : "");
+    }
+
     public static void ValidateApproval(AiAssistantChatInteraction interaction, string selectedKey, IReadOnlyList<ChatOption> options)
     {
         if (interaction.SelectedKey is not null)
@@ -31,6 +40,8 @@ public interface IAiAssistantChatStore
 {
     Task<IReadOnlyList<ChatConversationSummary>> HistoryAsync(ChatScope scope, int skip, string? search, bool archived, CancellationToken ct);
     Task<ChatOrganizationConversation> CreateOrganizationAsync(string organization, ChatCreateRequest request, string actor, CancellationToken ct);
+    Task<ChatStartAdmission> StartOrganizationAsync(string organization, ChatStartRequest request, string actor, CancellationToken ct)
+        => throw new NotSupportedException("This chat store does not support atomic first-message admission.");
     Task<ChatOrganizationConversation> GetOrganizationAsync(string organization, Guid id, CancellationToken ct);
     Task ArchiveAsync(ChatScope scope, Guid id, string actor, CancellationToken ct);
     Task RequestRecoveryAsync(ChatScope scope, Guid conversation, string actor, CancellationToken ct);
@@ -51,6 +62,8 @@ public interface IAiAssistantChatStore
 
 public interface IAiAssistantChatTransport
 {
+    bool ConnectionObservationsAvailable => false;
+    ChatSessionConnection? ObserveConnection(Guid conversation) => null;
     Task ReconfigureAsync(CancellationToken ct);
     Task ReconfigureAsync(AiAssistantChatRuntimeSnapshot snapshot, CancellationToken ct)
         => ReconfigureAsync(ct);

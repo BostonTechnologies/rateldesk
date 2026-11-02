@@ -1,7 +1,28 @@
 const active = new WeakMap();
+const popovers = new WeakMap();
 const key = actor => `helpdesk.chat.display.v1.${actor || 'operator'}`;
 export function readPreferences(actor) { try { return localStorage.getItem(key(actor)); } catch { return null; } }
 export function savePreferences(actor, value) { try { localStorage.setItem(key(actor), value); } catch { } }
+export function watchPopover(root, dotnet, kind) {
+    if (!root?.querySelector || popovers.has(root)) return;
+    const controller = new AbortController();
+    popovers.set(root, controller);
+    const options = { capture: true, signal: controller.signal };
+    const current = () => root.querySelector(`[data-chat-popover="${kind}"]`);
+    const trigger = () => root.querySelector(`[data-chat-popover-trigger="${kind}"]`);
+    const outside = event => {
+        const panel = current();
+        if (panel && !panel.contains(event.target) && !trigger()?.contains(event.target)) dotnet.invokeMethodAsync('ClosePopoverAsync');
+    };
+    document.addEventListener('pointerdown', outside, options);
+    document.addEventListener('focusin', outside, options);
+    document.addEventListener('keydown', event => {
+        if (event.key !== 'Escape' || !current() || nestedOpen()) return;
+        event.preventDefault(); event.stopImmediatePropagation();
+        dotnet.invokeMethodAsync('ClosePopoverAsync'); trigger()?.focus({ preventScroll: true });
+    }, options);
+}
+export function unwatchPopover(root) { popovers.get(root)?.abort(); popovers.delete(root); }
 const nestedOpen = () => [...document.querySelectorAll('.mud-dialog-container, .mud-popover-open')].some(x =>
     x.getClientRects().length && getComputedStyle(x).visibility !== 'hidden'
     && !x.matches('.mud-tooltip') && !x.querySelector('.mud-tooltip')

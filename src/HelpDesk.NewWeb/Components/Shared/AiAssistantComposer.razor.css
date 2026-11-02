@@ -1,13 +1,16 @@
-.chat-composer { border: 1px solid var(--mud-palette-lines-inputs); border-radius: .75rem; background: var(--mud-palette-surface); padding: .75rem; min-width: 0; }
-.chat-composer:focus-within { border-color: var(--mud-palette-primary); box-shadow: 0 0 0 1px var(--mud-palette-primary); }
+.chat-composer { max-width: 800px; margin: 0 auto; border: 1px solid var(--mud-palette-divider); border-radius: 12px; padding: .8rem .85rem .65rem; background: var(--mud-palette-surface); box-shadow: 0 4px 18px rgba(0,0,0,.035); min-width: 0; }
+.chat-composer:focus-within { border-color: var(--mud-palette-primary); }
 /* app.css gives every textarea an !important focus-visible outline. The enclosing
    composer provides this control's visible focus boundary instead. */
 .chat-composer textarea:focus-visible { outline: none !important; }
-.chat-composer textarea { display: block; width: 100%; min-height: 64px; max-height: 240px; resize: none; overflow-y: auto; border: 0; outline: none; box-shadow: none; padding: 0; background: transparent; color: var(--mud-palette-text-primary); font: inherit; line-height: 1.5; }
+.chat-composer textarea { display: block; width: 100%; min-height: 64px; max-height: 240px; resize: vertical; overflow-y: auto; border: 0; outline: none; box-shadow: none; padding: .15rem .25rem; background: transparent; color: var(--mud-palette-text-primary); font: inherit; font-size: .85rem; line-height: 1.65; }
 .chat-composer textarea:disabled { color: var(--mud-palette-text-disabled); }
-.composer-actions { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-top: .5rem; }
-.composer-hint { color: var(--mud-palette-text-secondary); font-size: .75rem; }
-.composer-send { display: flex; align-items: center; gap: .4rem; border: 0; border-radius: .5rem; padding: .5rem .9rem; color: var(--mud-palette-primary-text); background: var(--mud-palette-primary); cursor: pointer; }
+.composer-actions { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-top: .45rem; }
+.composer-identity { display: flex; align-items: center; gap: .4rem; font-size: .7rem; color: var(--mud-palette-text-secondary); min-width: 0; }
+.composer-identity span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 210px; }
+.composer-hint, .composer-notice { text-align: center; color: var(--mud-palette-text-secondary); font-size: .62rem; margin: .65rem 0 0; }
+.composer-notice { margin-top: .3rem; }
+.composer-send { display: flex; align-items: center; justify-content: center; gap: .5rem; border: 1px solid var(--mud-palette-primary); border-radius: 8px; padding: .5rem .7rem; color: var(--mud-palette-primary-text); background: var(--mud-palette-primary); font: inherit; font-size: .75rem; font-weight: 600; flex-shrink: 0; cursor: pointer; }
 .composer-send:disabled { opacity: .5; cursor: default; }
 .composer-send:focus-visible { outline: 2px solid var(--mud-palette-text-primary); outline-offset: 2px; }
-@media (max-width: 600px) { .composer-hint { display: none; } .composer-actions { justify-content: flex-end; } }
+@media (max-width: 600px) { .composer-identity span { max-width: 115px; } }

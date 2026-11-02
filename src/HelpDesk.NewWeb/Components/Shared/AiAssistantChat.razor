@@ -6,6 +6,7 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IJSRuntime JS
+@inject ILogger<AiAssistantChat> Logger
 
 @if (capabilities is { Enabled: false })
 {
@@ -17,36 +18,42 @@ else
 {
 <div @ref="root" class="ai-conversation-surface @(Workspace ? "ai-chat-workspace" : "") @(fullscreen ? "ai-chat-fullscreen" : "")" role="@(fullscreen ? "dialog" : "region")" aria-modal="@(fullscreen ? "true" : null)" aria-label="Conversation">
 <header class="conversation-header">
-    <div><h2>@Title</h2><small>@Identity · @state</small></div>
+    <div class="conversation-identity"><span class="conversation-avatar"><MudIcon Icon="@Icons.Material.Outlined.AutoAwesome" Size="Size.Small" /></span><div><h2>@Title</h2><small>@(string.IsNullOrWhiteSpace(Identity) ? StateLabel(state) : $"{Identity} · {StateLabel(state)}")</small></div></div>
     <div class="conversation-actions">
-        @if (Archive.HasDelegate) { <MudButton Disabled="@(busy || capabilities?.CanWrite == false || state != ChatState.Idle)" OnClick="Archive">Archive</MudButton> }
-        else if (OrganizationId is null && InvestigationId is null) { <MudButton Disabled="@(busy || state != ChatState.Idle || conversation == Guid.Empty)" OnClick="NewAsync">Archive</MudButton> }
-        <MudTooltip Text="@(fullscreen ? "Restore conversation" : "Maximise conversation")"><MudIconButton Icon="@(fullscreen ? Icons.Material.Filled.FullscreenExit : Icons.Material.Filled.Fullscreen)" aria-label="@(fullscreen ? "Restore conversation" : "Maximise conversation")" Disabled="@(module is null || conversation == Guid.Empty)" OnClick="ToggleFullscreenAsync" /></MudTooltip>
-        <MudTooltip Text="Chat display settings"><MudIconButton Icon="@Icons.Material.Filled.Settings" aria-label="Chat display settings" aria-expanded="@settingsOpen.ToString().ToLowerInvariant()" OnClick="@(() => settingsOpen = !settingsOpen)" /></MudTooltip>
+        @if (state != ChatState.Archived && (Archive.HasDelegate || OrganizationId is null && InvestigationId is null))
+        {
+            <MudTooltip Text="Archive conversation"><MudIconButton Icon="@Icons.Material.Outlined.Archive" Size="Size.Small" aria-label="Archive conversation" Disabled="@(busy || capabilities?.CanWrite == false || state != ChatState.Idle || conversation == Guid.Empty)" OnClick="ArchiveCurrentAsync" /></MudTooltip>
+        }
+        <MudTooltip Text="@(fullscreen ? "Restore conversation" : "Maximise conversation")"><MudIconButton Size="Size.Small" Icon="@(fullscreen ? Icons.Material.Filled.FullscreenExit : Icons.Material.Filled.Fullscreen)" aria-label="@(fullscreen ? "Restore conversation" : "Maximise conversation")" Disabled="@(module is null || conversation == Guid.Empty)" OnClick="ToggleFullscreenAsync" /></MudTooltip>
+        <div class="chat-settings-anchor">
+            <MudTooltip Text="Chat display settings"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Outlined.Settings" aria-label="Chat display settings" aria-expanded="@settingsOpen.ToString().ToLowerInvariant()" data-chat-popover-trigger="settings" OnClick="@(() => settingsOpen = !settingsOpen)" /></MudTooltip>
+            @if (settingsOpen)
+            {
+                <div class="chat-display-settings" role="dialog" aria-label="Chat display settings" data-chat-popover="settings">
+                    <strong>Chat display settings</strong>
+                    <label><input type="checkbox" checked="@preferences.Compact" @onchange="e => SavePreferenceAsync(() => preferences.Compact = e.Value is true)" />Compact tool rows</label>
+                    <label><input type="checkbox" checked="@preferences.ShowTimestamps" @onchange="e => SavePreferenceAsync(() => preferences.ShowTimestamps = e.Value is true)" />Timestamps</label>
+                    <label><input type="checkbox" checked="@preferences.ShowIdentifiers" @onchange="e => SavePreferenceAsync(() => preferences.ShowIdentifiers = e.Value is true)" />Call IDs on rows</label>
+                    <label><input type="checkbox" checked="@preferences.AutoExpand" @onchange="e => SavePreferenceAsync(() => preferences.AutoExpand = e.Value is true)" />Expand details automatically</label>
+                    <label><input type="checkbox" checked="@preferences.ShowUsage" @onchange="e => SavePreferenceAsync(() => preferences.ShowUsage = e.Value is true)" />Token usage</label>
+                    <label><input type="checkbox" checked="@preferences.ShowProcessing" @onchange="e => SavePreferenceAsync(() => preferences.ShowProcessing = e.Value is true)" />Processing trace</label>
+                    <label><input type="checkbox" checked="@preferences.ShowCompaction" @onchange="e => SavePreferenceAsync(() => preferences.ShowCompaction = e.Value is true)" />Compaction</label>
+                    <label><input type="checkbox" checked="@preferences.ShowSubagents" @onchange="e => SavePreferenceAsync(() => preferences.ShowSubagents = e.Value is true)" />Subagent activity</label>
+                    @if (OrganizationId is not null && SavedContext is not null) { <div class="conversation-context">@SavedContext</div> }
+                </div>
+            }
+        </div>
     </div>
 </header>
-@if (settingsOpen)
-{
-    <div class="chat-display-settings" role="group" aria-label="Chat display settings">
-        <MudCheckBox T="bool" Value="preferences.Compact" ValueChanged="@(v => SavePreferenceAsync(() => preferences.Compact = v))" Label="Compact tool rows" />
-        <MudCheckBox T="bool" Value="preferences.ShowTimestamps" ValueChanged="@(v => SavePreferenceAsync(() => preferences.ShowTimestamps = v))" Label="Show timestamps" />
-        <MudCheckBox T="bool" Value="preferences.ShowIdentifiers" ValueChanged="@(v => SavePreferenceAsync(() => preferences.ShowIdentifiers = v))" Label="Show call identifiers" />
-        <MudCheckBox T="bool" Value="preferences.AutoExpand" ValueChanged="@(v => SavePreferenceAsync(() => preferences.AutoExpand = v))" Label="Expand tool details automatically" />
-        <MudCheckBox T="bool" Value="preferences.ShowUsage" ValueChanged="@(v => SavePreferenceAsync(() => preferences.ShowUsage = v))" Label="Usage" />
-        <MudCheckBox T="bool" Value="preferences.ShowProcessing" ValueChanged="@(v => SavePreferenceAsync(() => preferences.ShowProcessing = v))" Label="Processing" />
-        <MudCheckBox T="bool" Value="preferences.ShowCompaction" ValueChanged="@(v => SavePreferenceAsync(() => preferences.ShowCompaction = v))" Label="Compaction" />
-        <MudCheckBox T="bool" Value="preferences.ShowSubagents" ValueChanged="@(v => SavePreferenceAsync(() => preferences.ShowSubagents = v))" Label="Subagent measures" />
-    </div>
-}
-@if (SavedContext is not null) { <div class="conversation-context">@SavedContext</div> }
-<MudStack Spacing="2">
-    @if (Workspace)
+@if (OrganizationId is null && conversation != Guid.Empty)
     {
-        <div class="ai-chat-status"><span>AI assistant</span><span>@connectionStatus</span></div>
+        <div class="conversation-connection"><AiNetclawConnectionStatus ApiRoute="@Route" OrganizationName="@Identity" ConversationId="conversation" /></div>
     }
-    else
+<div class="ai-chat-content"><div class="ai-chat-scroll">
+    @if (OrganizationId is null && SavedContext is not null) { <div class="conversation-context">@SavedContext</div> }
+    @if (connectionStatus != "Connected" && state != ChatState.Archived)
     {
-        <MudText Typo="Typo.h6">AI Assistant · @state · @connectionStatus</MudText>
+        <p class="ai-chat-live-status" role="status">Live updates: @connectionStatus</p>
     }
     @if (OrganizationId is null && InvestigationId is null && history.Count > 0)
     {
@@ -93,11 +100,14 @@ else
                 <MudText Typo="Typo.caption">@ActorLabel(turn.Operator.CreatedByUserId) · @turn.Operator.CreatedUtc.ToLocalTime().ToString("g")</MudText>
                 <MudText Style="white-space: pre-wrap; overflow-wrap: anywhere">@turn.Operator.Text</MudText>
             </MudPaper>
-            <AiAssistantTurnActivity Turn="turn" State="state" Busy="@(busy || capabilities?.CanWrite == false)" Preferences="preferences" Approval="@(answer => ApproveAsync(answer.CallId, answer.Key))" />
+            @if (turn.Operations.Count > 0 || !turn.Completed || turn.Activity.Any(VisibleActivity))
+            {
+                <AiAssistantTurnActivity Turn="turn" State="state" Busy="@(busy || capabilities?.CanWrite == false)" Preferences="preferences" Approval="@(answer => ApproveAsync(answer.CallId, answer.Key))" />
+            }
             @foreach (var response in turn.Responses)
             {
                 <div class="pa-3" data-testid="ai-assistant-response">
-                    <MudText Typo="Typo.caption">AiAssistant · @response.CreatedUtc.ToLocalTime().ToString("t")</MudText>
+                    <MudText Typo="Typo.caption">Netclaw · @response.CreatedUtc.ToLocalTime().ToString("t")</MudText>
                     <AiAssistantMarkdown Text="@response.Text" />
                 </div>
             }
@@ -105,11 +115,11 @@ else
     }
     @if (draft.Length > 0) { <MudText Style="white-space: pre-wrap">@draft</MudText> }
     </div>
-    <div class="@(Workspace ? "ai-chat-composer" : null)">
-    <AiAssistantComposer @bind-Value="message" Send="SendAsync" Disabled="@(busy || capabilities?.CanWrite == false || state != ChatState.Idle || conversation == Guid.Empty)" />
     </div>
-
-</MudStack>
+    <div class="@(Workspace ? "ai-chat-composer" : null)">
+    <AiAssistantComposer @bind-Value="message" Send="SendAsync" Identity="@Identity" SubmitWithModifier="Workspace" ShowAttachmentNotice="@(OrganizationId is null)" Disabled="@(busy || capabilities?.CanWrite == false || state != ChatState.Idle || conversation == Guid.Empty)" />
+    </div>
+</div>
 </div>
 
 }
@@ -152,18 +162,27 @@ else
     private DateTimeOffset? recoveryAt;
     private string connectionStatus = "Connecting";
     private string? currentActor;
+    private ChatIdentitySnapshot? identity;
     private string ActorLabel(string? actor) => actor == currentActor && currentActor is not null ? "You" : "Helpdesk operator";
+    private static string StateLabel(ChatState value) => value switch { ChatState.Idle => "Ready", ChatState.Processing => "Working", ChatState.AwaitingApproval => "Needs a decision", ChatState.DeliveryUnknown => "Needs recovery", _ => "Archived" };
+    private bool VisibleActivity(AiAssistantChatEvent item) => item.Type switch
+    {
+        "usage" => preferences.ShowUsage, "processing_state" => preferences.ShowProcessing,
+        "compaction" => preferences.ShowCompaction, "subagent" => preferences.ShowSubagents, _ => true
+    };
     private Guid? UnresolvedMessageId => events.LastOrDefault(x => x.Type == "operator")?.ClientMessageId;
     private string Route => OrganizationId is null ? $"api/v1/{TicketType}/{TicketId}/ai-assistant/chat" : $"api/v1/ai/chat/organizations/{Uri.EscapeDataString(OrganizationId)}";
     private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
+    private HttpClient Commands => HttpClientFactory.CreateClient("HelpdeskChatCommands");
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
-        AuthenticationStateProvider.AuthenticationStateChanged += IdentityChanged;
         var ct = cancellation.Token;
         var user = (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User;
         if (disposed) return;
+        identity = new(user);
+        AuthenticationStateProvider.AuthenticationStateChanged += IdentityChanged;
         currentActor = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
         try
         {
@@ -172,10 +191,11 @@ else
             module = imported;
             if (module is null) return;
             reference = DotNetObjectReference.Create(this);
+            await module.InvokeVoidAsync("watchPopover", root, reference, "settings");
             var stored = await module.InvokeAsync<string?>("readPreferences", currentActor);
-            if (stored is not null) { try { preferences = JsonSerializer.Deserialize<ChatDisplayPreferences>(stored) ?? new(); } catch (JsonException) { } }
+            if (stored is not null) { try { preferences = JsonSerializer.Deserialize<ChatDisplayPreferences>(stored) ?? new(); } catch (JsonException ex) { Logger.LogDebug(ex, "Saved chat display preferences were invalid."); } }
         }
-        catch (JSException) { }
+        catch (JSException ex) { Logger.LogDebug(ex, "Enhanced chat presentation is unavailable."); }
         try
         {
             using var api = Api;
@@ -315,7 +335,7 @@ else
         var submitted = submittedMessage ??= new ChatMessageRequest(conversation, messageId, message);
         try
         {
-            using var api = Api;
+            using var api = Commands;
             using var response = await api.PostAsJsonAsync($"{Route}/messages", submitted, cancellation.Token);
             if (response.IsSuccessStatusCode) AcknowledgeMessage(submitted);
             else { submittedMessage = null; error = "Message was not accepted. Check the conversation state."; }
@@ -335,7 +355,7 @@ else
         busy = true; error = null;
         try
         {
-            using var api = Api;
+            using var api = Commands;
             using var response = await api.PostAsJsonAsync($"{Route}/interactions/{Uri.EscapeDataString(callId)}", new ChatApprovalRequest(conversation, key), cancellation.Token);
             if (!response.IsSuccessStatusCode) error = "Approval was not accepted. It may already have been answered.";
         }
@@ -347,7 +367,7 @@ else
         busy = true;
         try
         {
-            using var api = Api;
+            using var api = Commands;
             using var response = await api.PostAsJsonAsync($"{Route}/new", new ChatNewRequest(conversation), cancellation.Token);
             response.EnsureSuccessStatusCode();
             var snapshot = await response.Content.ReadFromJsonAsync<ChatSnapshot>(cancellation.Token);
@@ -364,7 +384,7 @@ else
         busy = true; error = null;
         try
         {
-            using var api = Api;
+            using var api = Commands;
             using var response = await api.PostAsJsonAsync($"{Route}/reconcile", new ChatNewRequest(conversation), cancellation.Token);
             if (!response.IsSuccessStatusCode) error = "The session check was not accepted. Refresh the conversation state.";
         }
@@ -378,7 +398,7 @@ else
         busy = true; error = null;
         try
         {
-            using var api = Api;
+            using var api = Commands;
             using var response = await api.PostAsJsonAsync($"{Route}/stop-waiting", new ChatStopWaitingRequest(conversation, expectedMessage), cancellation.Token);
             if (!response.IsSuccessStatusCode) error = "Stopping locally was not accepted. Refresh the conversation state.";
         }
@@ -392,7 +412,7 @@ else
         busy = true; error = null;
         try
         {
-            using var api = Api;
+            using var api = Commands;
             using var response = await api.PostAsJsonAsync($"{Route}/abandon", new ChatAbandonRequest(conversation, resolutionId, expectedMessage, acknowledgeAbandon), cancellation.Token);
             if (response.IsSuccessStatusCode)
             {
@@ -407,14 +427,19 @@ else
 
     private void IdentityChanged(Task<AuthenticationState> changed) => _ = InvokeAsync(async () =>
     {
+        var user = (await changed).User;
+        if (disposed || identity?.Matches(user) == true) return;
+        identity = new(user);
         await cancellation.CancelAsync(); events.Clear(); message = draft = ""; submittedMessage = null; conversation = Guid.Empty;
         capabilities = new(false, "Your account changed. Reload to check current access.", false); StateHasChanged();
     });
     private async Task SavePreferenceAsync(Action update)
     {
         update();
-        if (module is not null) { try { await module.InvokeVoidAsync("savePreferences", currentActor, JsonSerializer.Serialize(preferences)); } catch (JSException) { } }
+        if (module is not null) { try { await module.InvokeVoidAsync("savePreferences", currentActor, JsonSerializer.Serialize(preferences)); } catch (JSException ex) { Logger.LogDebug(ex, "Chat display preferences could not be stored."); } }
     }
+    [JSInvokable] public Task ClosePopoverAsync() => InvokeAsync(() => { settingsOpen = false; StateHasChanged(); });
+    private Task ArchiveCurrentAsync() => Archive.HasDelegate ? Archive.InvokeAsync() : NewAsync();
     private async Task ToggleFullscreenAsync()
     {
         if (module is null) return;
@@ -435,7 +460,8 @@ else
         AuthenticationStateProvider.AuthenticationStateChanged -= IdentityChanged;
         if (module is not null)
         {
-            try { await module.InvokeVoidAsync("restore", root); await module.DisposeAsync(); } catch (JSDisconnectedException) { }
+            try { await module.InvokeVoidAsync("unwatchPopover", root); await module.InvokeVoidAsync("restore", root); await module.DisposeAsync(); }
+            catch (JSDisconnectedException) { Logger.LogDebug("Chat presentation circuit disconnected during disposal."); }
         }
         reference?.Dispose();
         await cancellation.CancelAsync();

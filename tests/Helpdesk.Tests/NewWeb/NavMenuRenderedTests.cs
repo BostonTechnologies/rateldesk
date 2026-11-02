@@ -69,13 +69,13 @@ public sealed class NavMenuRenderedTests
 
     [Theory]
     [InlineData("SelfService.User", "self-service,self-service/my-requests", "Portal")]
-    [InlineData("Incident.Read", "incidents,/ai/chat", "Workspace,AI")]
-    [InlineData("Incident.Manager", "incidents,/ops,/ai/chat,/ai/ops", "Workspace,Operations,AI")]
+    [InlineData("Incident.Read", "incidents,/ai/chat", "Workspace,AI Ops")]
+    [InlineData("Incident.Manager", "incidents,/ops,/ai/chat,/ai/ops", "Workspace,Operations,AI Ops")]
     [InlineData("Request.User", "requests", "Workspace")]
-    [InlineData("Request.Read", "requests,tasks,/ops,/ai/chat", "Workspace,Operations,AI")]
-    [InlineData("Request.Manager", "requests,tasks,/ops,/ai/chat,/ai/ops", "Workspace,Operations,AI")]
-    [InlineData("Change.Read", "changes,/ai/chat", "Workspace,AI")]
-    [InlineData("Change.Manager", "changes,/ops,/ai/chat,/ai/ops", "Workspace,Operations,AI")]
+    [InlineData("Request.Read", "requests,tasks,/ops,/ai/chat", "Workspace,Operations,AI Ops")]
+    [InlineData("Request.Manager", "requests,tasks,/ops,/ai/chat,/ai/ops", "Workspace,Operations,AI Ops")]
+    [InlineData("Change.Read", "changes,/ai/chat", "Workspace,AI Ops")]
+    [InlineData("Change.Manager", "changes,/ops,/ai/chat,/ai/ops", "Workspace,Operations,AI Ops")]
     [InlineData("DataManagement.Admin", "/admin/resources/data-management", "Resources")]
     [InlineData("Tenant.Roles.Assign", "/admin/users,/admin/organizations,/admin/roles", "Administration,Accounts & Orgs")]
     [InlineData("Tenant.Settings.Manage", "/admin/organizations", "Administration,Accounts & Orgs")]
@@ -148,9 +148,9 @@ public sealed class NavMenuRenderedTests
     [InlineData("/settings/connectivity", "Administration")]
     [InlineData("/admin/integration", "Administration")]
     [InlineData("/admin/operator-policies", "Administration")]
-    [InlineData("/ai/chat?organizationId=org", "Operations,AI")]
-    [InlineData("/ai/ops", "Operations,AI")]
-    [InlineData("/ai/prompts", "Operations,AI")]
+    [InlineData("/ai/chat?organizationId=org", "Operations,AI Ops")]
+    [InlineData("/ai/ops", "Operations,AI Ops")]
+    [InlineData("/ai/prompts", "Operations,AI Ops")]
     public async Task Deep_links_expand_required_parent_groups(string route, string expandedTitles)
     {
         await using var context = Context("HelpdeskAdmin");

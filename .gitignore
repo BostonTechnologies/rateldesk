@@ -23,7 +23,8 @@ src/HelpDesk.NewWeb/Data/*.db
 *.key
 id_rsa
 **/.keys/
-.slopwatch/
+.slopwatch/*
+!.slopwatch/baseline.json
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs

@@ -139,13 +139,15 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // Scoped AI workspace initialization adds one authorized organization lookup.
         // Organization Chat adds thirteen separately authorized directory/capability/history,
         // conversation CRUD/admission/interaction/recovery and SSE operations.
+        // Immediate Chat adds atomic first-send and two scoped, read-only native
+        // connection observation operations. These do not expand the MCP inventory.
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(459, operationCount);
+        Assert.Equal(462, operationCount);
 #else
-        Assert.Equal(458, operationCount);
+        Assert.Equal(461, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         foreach (var (path, operationId, tag) in new[]

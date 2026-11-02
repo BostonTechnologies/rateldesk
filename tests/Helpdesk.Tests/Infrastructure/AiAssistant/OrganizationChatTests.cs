@@ -37,8 +37,47 @@ public sealed class OrganizationChatTests(ChatPostgresFixture fixture) : IClassF
             await client.Received(1).SendAsync("signalr/general-fixture", Arg.Is<string>(text =>
                 text.StartsWith($"[helpdesk-chat:{chat.ConversationId:D}:{message.ClientMessageId:D}]\n")
                 && text.Contains("Authenticated organization invocation") && text.Contains("Plan safely") && !text.Contains("Ticket context")), Arg.Any<CancellationToken>());
+            var observation = Assert.IsType<ChatSessionConnection>(manager.ObserveConnection(chat.ConversationId));
+            Assert.Equal(ChatTransportConnectionState.Connected, observation.State);
+            Assert.Equal("signalr/general-fixture", observation.SessionId);
+            await client.Received(1).ConnectAsync(Arg.Any<string?>(), Arg.Any<Func<System.Text.Json.JsonElement, Task>>(), Arg.Any<CancellationToken>());
+            await manager.RetireAsync(chat.ConversationId, default);
+            Assert.Null(manager.ObserveConnection(chat.ConversationId));
         }
         finally { await manager.StopAsync(default); }
+    }
+
+    [Fact]
+    public async Task First_message_creates_and_names_one_conversation_with_one_admission()
+    {
+        var request = new ChatStartRequest(Guid.NewGuid(), Guid.NewGuid(), "  Help me\nreview this queue  ", []);
+        await using var db = fixture.Context(); var store = fixture.Store(db);
+        var result = await store.StartOrganizationAsync("org", request, "operator", default);
+        Assert.True(result.Accepted);
+        Assert.Equal("Help me review this queue", result.Conversation.Title);
+        Assert.Equal(ChatState.Processing, result.Conversation.State);
+        Assert.False((await store.StartOrganizationAsync("org", request, "operator", default)).Accepted);
+        await Assert.ThrowsAsync<ChatConflictException>(() => store.StartOrganizationAsync("org", request with { ClientMessageId = Guid.NewGuid() }, "operator", default));
+        var snapshot = await store.LoadAsync(ChatScope.Organization("org"), request.ConversationId, 0, "operator", default);
+        var message = Assert.Single(snapshot.Events, x => x.Type == "operator");
+        Assert.Equal(request.ClientMessageId, message.ClientMessageId);
+        Assert.Equal(request.Text, message.Text);
+        var row = await db.Set<AiAssistantChatConversation>().AsNoTracking().SingleAsync(x => x.Id == request.ConversationId);
+        Assert.Null(row.TicketId); Assert.Null(row.TicketType);
+    }
+
+    [Fact]
+    public async Task Rejected_first_message_rolls_back_the_conversation_and_its_saved_guidance()
+    {
+        var prompt = new AiGuidancePrompt { OrganizationId = "org", Name = "Bounded context", Content = new string('g', 15000) };
+        await using (var seed = fixture.Context()) { seed.Add(prompt); await seed.SaveChangesAsync(); }
+        var request = new ChatStartRequest(Guid.NewGuid(), Guid.NewGuid(), new string('q', 16000), [prompt.Id]);
+        await using (var db = fixture.Context())
+            await Assert.ThrowsAsync<ArgumentException>(() => fixture.Store(db).StartOrganizationAsync("org", request, "operator", default));
+        await using var check = fixture.Context();
+        Assert.False(await check.Set<AiAssistantChatConversation>().AnyAsync(x => x.Id == request.ConversationId));
+        Assert.False(await check.Set<AiAssistantChatEvent>().AnyAsync(x => x.ConversationId == request.ConversationId));
+        check.Remove(await check.Set<AiGuidancePrompt>().SingleAsync(x => x.Id == prompt.Id)); await check.SaveChangesAsync();
     }
 
     [Fact]

@@ -47,17 +47,17 @@
 
     <AuthorizeView>
         <HelpdeskNavGroup Title="Operations" RoutePrefixes="@OperationsRoutes" Icon="@Icons.Material.Filled.SettingsSuggest">
-            <AuthorizeView Roles="Incident.Write,Incident.Manager,Request.Read,Request.Write,Request.Execute,Request.Manager,Change.Write,Change.Manager,HelpdeskAdmin" Context="opsGate">
-                <HelpdeskNavLink Href="/ops" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.SettingsSuggest" Title="Operations console">Operations console</HelpdeskNavLink>
-            </AuthorizeView>
             <AuthorizeView Roles="Incident.Read,Incident.Write,Incident.Manager,Request.Read,Request.Write,Request.Manager,Change.Read,Change.Write,Change.Manager,HelpdeskAdmin" Context="aiGate">
-                <HelpdeskNavGroup Title="AI" RoutePrefixes="@AiRoutes" Icon="@Icons.Material.Filled.Psychology">
+                <HelpdeskNavGroup Title="AI Ops" RoutePrefixes="@AiRoutes" Icon="@Icons.Material.Filled.Psychology">
                     <HelpdeskNavLink Href="/ai/chat" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Chat" Title="Chat">Chat</HelpdeskNavLink>
                     <AuthorizeView Roles="Incident.Write,Incident.Manager,Request.Write,Request.Manager,Change.Write,Change.Manager,HelpdeskAdmin" Context="investigationGate">
                         <HelpdeskNavLink Href="/ai/ops" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Troubleshoot" Title="Investigations">Investigations</HelpdeskNavLink>
                     </AuthorizeView>
                     <AuthorizeView Roles="HelpdeskAdmin" Context="promptGate"><HelpdeskNavLink Href="/ai/prompts" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.EditNote" Title="Prompts">Prompts</HelpdeskNavLink></AuthorizeView>
                 </HelpdeskNavGroup>
+            </AuthorizeView>
+            <AuthorizeView Roles="Incident.Write,Incident.Manager,Request.Read,Request.Write,Request.Execute,Request.Manager,Change.Write,Change.Manager,HelpdeskAdmin" Context="opsGate">
+                <HelpdeskNavLink Href="/ops" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.SettingsSuggest" Title="Operations console">Operations console</HelpdeskNavLink>
             </AuthorizeView>
             <HelpdeskNavLink Href="notifications" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Notifications" Title="Notifications">Notifications</HelpdeskNavLink>
         </HelpdeskNavGroup>

@@ -69,6 +69,13 @@ public sealed record ChatStopWaitingRequest(Guid ConversationId, Guid ExpectedMe
 public sealed record ChatConversationSummary(Guid ConversationId, ChatState State, DateTimeOffset LastActivityUtc, string CreatedByUserId,
     string? Title = null, string? OrganizationId = null);
 public sealed record ChatCreateRequest(Guid ConversationId, string Title, Guid[] PromptIds);
+public sealed record ChatStartRequest(Guid ConversationId, Guid ClientMessageId, string Text, Guid[] PromptIds);
 public sealed record ChatOrganizationConversation(Guid ConversationId, string OrganizationId, string Title, string GuidanceSnapshot, ChatState State);
 
 public sealed record ChatCapabilities(bool Enabled, string? Reason, bool CanWrite = true, string? SetupUrl = null);
+public enum ChatTransportConnectionState { Unknown, Connected, Disconnected }
+public sealed record ChatSessionConnection(Guid ConversationId, string SessionId, ChatTransportConnectionState State,
+    DateTimeOffset AuthenticatedAtUtc, DateTimeOffset? LastActivityUtc);
+public sealed record ChatConnectionStatus(string OrganizationId, bool Enabled, string? Endpoint, string Source, int Revision, DateTimeOffset? LastTestedAtUtc,
+    bool? LastTestSucceeded, DateTimeOffset ObservedAtUtc, bool ObservationAvailable,
+    IReadOnlyList<ChatSessionConnection> Sessions, string? SetupUrl);

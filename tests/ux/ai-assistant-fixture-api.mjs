@@ -5,6 +5,10 @@ const conversation = '11111111-1111-4111-8111-111111111111';
 const actor = 'c0c48409df3ca07e12725a961d4152790fd135c2384a3e3a522282e2bd847178';
 let events = [], state = 0;
 let streamOpens = 0, sends = 0, recoveries = 0;
+let starts = 0, startAttempts = 0, activeConversation = conversation, loseStartResponse = false, connectionMode = 'verified';
+let holdStartResponse = false;
+const heldStarts = [];
+const startRequests = new Map();
 const generalChats = new Map();
 const generalRow = (id = conversation, organizationId = 'org', title = 'Synthetic organization planning') => ({ conversationId: id, organizationId, title, guidanceSnapshot: 'Pinned synthetic organization guidance', state });
 const investigation = () => ({ id: conversation, organizationId: 'org', title: 'Synthetic ticket investigation', ticketId: 'ux-chat', ticketType: 'incidents', contextSnapshot: 'Pinned synthetic ticket and guidance', createdUtc: new Date().toISOString(), state });
@@ -12,13 +16,14 @@ let netclawPresentationMode = 'first-run';
 let netclawPairResponseStatuses = [];
 const streams = new Set();
 function event(type, text, extra = {}) {
-  const value = { Id: crypto.randomUUID(), ConversationId: conversation, Sequence: events.length + 1,
+  const value = { Id: crypto.randomUUID(), ConversationId: activeConversation, Sequence: events.length + 1,
     Type: type, Text: text, CreatedUtc: new Date().toISOString(), ...extra };
   events.push(value);
   for (const stream of streams) stream.write(`id: ${value.Sequence}\nevent: chat\ndata: ${JSON.stringify(value)}\n\n`);
   return value;
 }
 function reset(mode = 'completed') {
+  activeConversation = conversation; starts = startAttempts = 0; loseStartResponse = false; startRequests.clear(); connectionMode = 'verified';
   generalChats.clear(); generalChats.set(conversation, generalRow()); streamOpens = sends = recoveries = 0;
   events = []; state = mode === 'processing' ? 1 : mode === 'approval' ? 2 : mode === 'archived' ? 4 : mode === 'recovery' ? 3 : 0;
   event('created', 'Conversation created.');
@@ -38,11 +43,22 @@ function reset(mode = 'completed') {
   }
 }
 reset();
+function connectionStatus(organizationId, selected) {
+  const now = new Date().toISOString();
+  return { organizationId, enabled: true, endpoint: 'https://netclaw.example.test', source: 'database', revision: 3,
+    lastTestedAtUtc: now, lastTestSucceeded: true, observedAtUtc: connectionMode === 'stale' ? new Date(Date.now() - 120000).toISOString() : now,
+    observationAvailable: true, setupUrl: '/admin/automation/integration/netclaw',
+    sessions: ['connected', 'stale'].includes(connectionMode) && organizationId === 'org'
+      ? [{ conversationId: selected || activeConversation, sessionId: 'signalr/synthetic-session', state: 1, authenticatedAtUtc: now, lastActivityUtc: now }] : [] };
+}
 http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1');
   let chatPath = url.pathname;
   const reply = value => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(value)); };
-  if (url.pathname === '/fixture/chat-counts') return reply({ streamOpens, sends, recoveries });
+  if (url.pathname === '/fixture/chat-counts') return reply({ streamOpens, sends, recoveries, starts, startAttempts });
+  if (url.pathname === '/fixture/release-start') { for (const release of heldStarts.splice(0)) release(); return reply({ ok: true }); }
+  if (url.pathname === '/fixture/connection') { connectionMode = url.searchParams.get('mode') || 'verified'; return reply({ mode: connectionMode }); }
+  if (url.pathname.endsWith('/chat/connection')) return reply(connectionStatus('org', url.searchParams.get('conversationId')));
   if (url.pathname === '/api/v1/ai/chat/organizations' || url.pathname === '/api/v1/ai/ops/organizations') return reply([{ id: 'org', name: 'Synthetic organization' }, { id: 'org-b', name: 'Other synthetic organization' }]);
   if (url.pathname === '/api/v1/ai/ops/prompts') return reply([]);
   if (url.pathname === '/api/v1/ai/ops/investigations') return reply([investigation()]);
@@ -51,7 +67,8 @@ http.createServer(async (req, res) => {
   const orgRoute = url.pathname.match(/^\/api\/v1\/ai\/chat\/organizations\/([^/]+)(.*)$/);
   if (orgRoute) {
     const [, org, suffix] = orgRoute;
-    if (suffix === '/capabilities') return reply({ enabled: true, canWrite: true });
+    if (suffix === '/capabilities') return reply({ enabled: true, canWrite: true, setupUrl: '/admin/automation/integration/netclaw' });
+    if (suffix === '/connection') return reply(connectionStatus(org, url.searchParams.get('conversationId')));
     if (suffix.startsWith('/conversations/')) {
       const row = generalChats.get(suffix.split('/')[2]);
       if (!row || row.organizationId !== org) { res.statusCode = 404; return reply({}); }
@@ -61,6 +78,24 @@ http.createServer(async (req, res) => {
     if (suffix === '/new') {
       let body = ''; for await (const part of req) body += part;
       const request = JSON.parse(body); const row = generalRow(request.conversationId, org, request.title); generalChats.set(row.conversationId, row); return reply(row);
+    }
+    if (suffix === '/start') {
+      let body = ''; for await (const part of req) body += part;
+      const request = JSON.parse(body); startAttempts++;
+      if (startRequests.has(request.conversationId)) {
+        if (startRequests.get(request.conversationId) !== body) { res.statusCode = 409; return reply({}); }
+        return reply(generalChats.get(request.conversationId));
+      }
+      starts++; sends++; activeConversation = request.conversationId; events = []; state = 0;
+      const normalized = request.text.trim().replace(/\s+/g, ' ');
+      const row = generalRow(request.conversationId, org, [...normalized].slice(0, 80).join('') + ([...normalized].length > 80 ? '…' : ''));
+      generalChats.set(row.conversationId, row); startRequests.set(row.conversationId, body);
+      event('created', 'Organization conversation started.');
+      event('operator', request.text, { CreatedByUserId: actor, ClientMessageId: request.clientMessageId });
+      event('assistant', 'Synthetic first reply.'); event('turn_completed', 'Turn completed.');
+      if (holdStartResponse) { holdStartResponse = false; await new Promise(resolve => heldStarts.push(resolve)); if (res.destroyed) return; }
+      if (loseStartResponse) { loseStartResponse = false; req.socket.destroy(); return; }
+      return reply(row);
     }
     if (suffix === '/archive' || suffix === '/abandon') { state = 4; event('archived', 'Archived synthetic conversation.'); for (const stream of streams) stream.write('event: state\ndata: 4\n\n'); return reply({}); }
     chatPath = `/chat${suffix}`;
@@ -83,7 +118,7 @@ http.createServer(async (req, res) => {
     }
     return reply({ mode: netclawPresentationMode, pairResponseStatuses: [...netclawPairResponseStatuses] });
   }
-  if (url.pathname === '/fixture/reset') { reset(url.searchParams.get('mode')); return reply({ ok: true }); }
+  if (url.pathname === '/fixture/reset') { reset(url.searchParams.get('mode')); loseStartResponse = url.searchParams.get('loseStartResponse') === 'true'; holdStartResponse = url.searchParams.get('holdStartResponse') === 'true'; return reply({ ok: true }); }
   if (url.pathname === '/fixture/draft') {
     for (const stream of streams) stream.write(`event: text-delta\ndata: ${JSON.stringify({ ConversationId: conversation, Text: 'Streaming response', AfterSequence: events.length })}\n\n`);
     return reply({ ok: true });

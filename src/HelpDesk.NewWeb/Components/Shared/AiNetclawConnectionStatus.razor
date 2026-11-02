@@ -1,0 +1,130 @@
+@using Helpdesk.Shared.AiAssistant.Chat
+@using System.Text.Json
+@implements IAsyncDisposable
+@inject IHttpClientFactory Clients
+@inject IJSRuntime JS
+@inject ILogger<AiNetclawConnectionStatus> Logger
+
+<span @ref="root" class="netclaw-connection-status" @onmouseenter="ShowDetails" @onmouseleave="HideDetails">
+    <button type="button" class="netclaw-connection-badge @StatusClass" data-testid="netclaw-connection-status" data-chat-popover-trigger="connection"
+            aria-label="Netclaw connection status" aria-expanded="@open.ToString().ToLowerInvariant()" @onclick="ToggleDetails">@StatusText</button>
+    @if (open)
+    {
+        <span class="netclaw-connection-details" role="dialog" aria-label="Netclaw connection details" data-chat-popover="connection">
+            <strong>Netclaw@(string.IsNullOrWhiteSpace(OrganizationName) ? "" : $" · {OrganizationName}")</strong>
+            @if (status is { } current)
+            {
+                <span>Organization @current.OrganizationId</span>
+                @if (current.Endpoint is { } endpoint) { <span>Daemon: @endpoint</span> }
+                <span>Configuration: @current.Source · revision @current.Revision</span>
+                @if (current.LastTestedAtUtc is { } tested) { <span>Last saved verification: @Time(tested) · @(current.LastTestSucceeded == true ? "Succeeded" : "Failed")</span> }
+                else { <span>No successful saved verification is recorded.</span> }
+                <span>Session observation: @Time(current.ObservedAtUtc)</span>
+                @foreach (var session in current.Sessions)
+                {
+                    <span>SignalR: @session.State · conversation @session.ConversationId</span>
+                    <span>Authenticated: @Time(session.AuthenticatedAtUtc)</span>
+                    @if (session.LastActivityUtc is { } activity) { <span>Last activity: @Time(activity)</span> }
+                }
+                @if (!Fresh) { <span>This observation is stale; current connectivity is unknown.</span> }
+                @if (!current.ObservationAvailable || current.Sessions.Count == 0) { <span>No active native session observation is available. Idle conversations do not need an active session.</span> }
+                <span>A saved verification or connected API stream does not establish a live daemon connection.</span>
+                @if (current.SetupUrl is { } setup) { <a href="@setup">Netclaw connection settings</a> }
+            }
+            else { <span>Connection details are unavailable. Current daemon connectivity is unknown.</span> }
+        </span>
+    }
+</span>
+
+@code {
+    [Parameter] public string ApiRoute { get; set; } = "";
+    [Parameter] public string OrganizationName { get; set; } = "";
+    [Parameter] public Guid? ConversationId { get; set; }
+    private ChatConnectionStatus? status;
+    private (string Route, Guid? Conversation)? selection;
+    private CancellationTokenSource lifetime = new();
+    private Task polling = Task.CompletedTask;
+    private ElementReference root;
+    private IJSObjectReference? module;
+    private DotNetObjectReference<AiNetclawConnectionStatus>? reference;
+    private bool disposed, open, pinned;
+    private bool Fresh => status is { } value && DateTimeOffset.UtcNow - value.ObservedAtUtc is var age && age >= TimeSpan.FromSeconds(-30) && age <= TimeSpan.FromSeconds(30);
+    private bool Connected => Fresh && status is { Enabled: true, ObservationAvailable: true } value && value.Sessions.Any(x => x.State == ChatTransportConnectionState.Connected);
+    private string StatusClass => Connected ? "connected" : status?.LastTestSucceeded == false ? "failed" : "unverified";
+    private string StatusText => status switch
+    {
+        null => "○ Netclaw status unknown",
+        { Enabled: false } => "○ Netclaw unavailable",
+        _ when Connected => "● Netclaw connected",
+        _ when !Fresh => "○ Netclaw status unknown",
+        _ when status.Sessions.Any(x => x.State == ChatTransportConnectionState.Disconnected) => "○ Netclaw disconnected",
+        { LastTestSucceeded: true } => "✓ Netclaw verified",
+        { LastTestSucceeded: false } => "○ Netclaw check failed",
+        _ => "○ Netclaw unverified"
+    };
+    private static string Time(DateTimeOffset time) => time.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss 'UTC'");
+    private void ShowDetails() => open = true;
+    private void HideDetails() { if (!pinned) open = false; }
+    private void ToggleDetails() { pinned = !pinned; open = pinned; }
+    [JSInvokable] public Task ClosePopoverAsync() => InvokeAsync(() => { open = pinned = false; StateHasChanged(); });
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var scope = (ApiRoute, ConversationId);
+        if (disposed || selection == scope) return;
+        selection = scope; status = null; open = pinned = false;
+        var previous = lifetime; var previousPolling = polling;
+        lifetime = new(); polling = Task.CompletedTask;
+        var ct = lifetime.Token;
+        await previous.CancelAsync(); await previousPolling; previous.Dispose();
+        if (disposed || selection != scope || ct.IsCancellationRequested) return;
+        await RefreshAsync(scope, ct);
+        if (!disposed && selection == scope && !ct.IsCancellationRequested) polling = PollAsync(scope, ct);
+    }
+    private async Task RefreshAsync((string Route, Guid? Conversation) scope, CancellationToken ct)
+    {
+        ChatConnectionStatus? observed;
+        try
+        {
+            using var api = Clients.CreateClient("HelpdeskApi");
+            observed = await api.GetFromJsonAsync<ChatConnectionStatus>($"{scope.Route}/connection" + (scope.Conversation is { } id ? $"?conversationId={id}" : ""), ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException) { observed = null; }
+        if (!disposed && !ct.IsCancellationRequested && selection == scope) status = observed;
+    }
+    private async Task PollAsync((string Route, Guid? Conversation) scope, CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(ct))
+                await InvokeAsync(async () => { await RefreshAsync(scope, ct); if (!disposed && !ct.IsCancellationRequested) StateHasChanged(); });
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
+    }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || disposed) return;
+        try
+        {
+            var imported = await JS.InvokeAsync<IJSObjectReference>("import", "./Components/Shared/AiAssistantChat.razor.js");
+            if (imported is null) return;
+            if (disposed) { await imported.DisposeAsync(); return; }
+            module = imported;
+            reference = DotNetObjectReference.Create(this);
+            await module.InvokeVoidAsync("watchPopover", root, reference, "connection");
+        }
+        catch (JSException ex) { Logger.LogDebug(ex, "Connection popover enhancement unavailable."); }
+    }
+    public async ValueTask DisposeAsync()
+    {
+        disposed = true; await lifetime.CancelAsync(); await polling; lifetime.Dispose();
+        if (module is not null)
+        {
+            try { await module.InvokeVoidAsync("unwatchPopover", root); await module.DisposeAsync(); }
+            catch (JSDisconnectedException) { Logger.LogDebug("Connection popover circuit disconnected during disposal."); }
+        }
+        reference?.Dispose();
+    }
+}

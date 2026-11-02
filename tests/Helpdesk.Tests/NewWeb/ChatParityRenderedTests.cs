@@ -1,4 +1,6 @@
 extern alias NewWeb;
+using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
 using Bunit;
 using Bunit.TestDoubles;
@@ -12,11 +14,36 @@ using NewWeb::HelpDesk.NewWeb.Services;
 using Activity = NewWeb::HelpDesk.NewWeb.Components.Shared.AiAssistantTurnActivity;
 using Markdown = NewWeb::HelpDesk.NewWeb.Components.Shared.AiAssistantMarkdown;
 using Menu = NewWeb::HelpDesk.NewWeb.Components.Layout.NavMenu;
+using Chat = NewWeb::HelpDesk.NewWeb.Components.Shared.AiAssistantChat;
+using Composer = NewWeb::HelpDesk.NewWeb.Components.Shared.AiAssistantComposer;
 
 namespace Helpdesk.Tests.NewWeb;
 
 public sealed class ChatParityRenderedTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Authentication_refresh_preserves_draft_but_changed_access_clears_it(bool changeAccount)
+    {
+        await using var context = Context();
+        var authorization = context.AddAuthorization();
+        authorization.SetAuthorized("Synthetic operator");
+        context.Services.AddHttpClient("HelpdeskApi", client => client.BaseAddress = new("https://desk.example.test/"))
+            .ConfigurePrimaryHttpMessageHandler(() => new ChatApi());
+        context.ComponentFactories.AddStub<Composer>();
+        var chat = context.Render<Chat>(p => p.Add(x => x.OrganizationId, "org-a"));
+        var composer = chat.FindComponent<Stub<Composer>>();
+        await chat.InvokeAsync(() => composer.Instance.Parameters.Get(x => x.ValueChanged).InvokeAsync("Unsent draft"));
+        authorization.SetAuthorized("Synthetic operator");
+        await chat.InvokeAsync(() => { });
+        Assert.Equal("Unsent draft", chat.FindComponent<Stub<Composer>>().Instance.Parameters.Get(x => x.Value));
+        if (changeAccount) authorization.SetAuthorized("Another synthetic operator");
+        else authorization.SetRoles("Incident.Read");
+        chat.WaitForAssertion(() => Assert.Contains("Your account changed", chat.Markup));
+        Assert.Empty(chat.FindComponents<Stub<Composer>>());
+    }
+
     [Fact]
     public async Task Completed_tools_remain_identifiable_without_expanding_group_and_recorded_details_are_inert()
     {
@@ -71,6 +98,18 @@ public sealed class ChatParityRenderedTests
     private static BunitContext Context()
     {
         var context = new BunitContext(); context.JSInterop.Mode = JSRuntimeMode.Loose; context.Services.AddMudServices(); return context;
+    }
+    private sealed class ChatApi : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            HttpContent content = request.RequestUri!.AbsolutePath.EndsWith("/capabilities", StringComparison.Ordinal)
+                ? JsonContent.Create(new ChatCapabilities(true, null, true))
+                : request.RequestUri.AbsolutePath.EndsWith("/stream", StringComparison.Ordinal)
+                    ? new StringContent("")
+                    : JsonContent.Create(new ChatSnapshot(Guid.NewGuid(), ChatState.Idle, 0, []));
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = content });
+        }
     }
     private static AiAssistantChatEvent E(long sequence, string type, string? call = null) => new() { Sequence = sequence, Type = type, CallId = call };
 }
