@@ -1,5 +1,5 @@
 # 1) Runtime
-FROM mcr.microsoft.com/dotnet/aspnet:10.0.13-noble AS base
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.14-noble AS base
 WORKDIR /app
 ENV ASPNETCORE_URLS=http://+:8222
 # Keep GSS authentication and IANA time zones on the supported glibc runtime.
@@ -11,7 +11,7 @@ ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=0
 EXPOSE 8222 8222
 
 # 2) Build
-FROM mcr.microsoft.com/dotnet/sdk:10.0.402-noble AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0.403-noble AS build
 WORKDIR /src
 ARG BUILD_CONFIGURATION=Release
 ARG VERSION=0.0.0-local
