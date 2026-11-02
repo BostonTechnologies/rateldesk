@@ -1,5 +1,19 @@
 # Releases
 
+## 0.1.2 stable release preparation
+
+The [cumulative release notes](../release-notes/0.1.2.md) cover the changes since
+0.1.1. The release uses the runtime implementation tested in beta.20; the stable
+preparation changes product version metadata and release documentation only.
+The [owner acceptance record](../implementation/0.1.2-stable-acceptance.md)
+records completed functional testing and soak, retained cleanup evidence and
+the owner's accepted exception for two disposable external test-mail accounts.
+
+Stable publication still requires exact-source PR/main checks, the hosted
+release workflow, verification of all published archives and immutable images,
+and the protected stable-channel promotion described below. This source entry
+does not claim that publication or promotion has happened.
+
 ## 0.1.2-beta.20 candidate — unknown automation outcomes
 
 [Candidate notes](../release-notes/0.1.2-beta.20.md) cover correlated `unknown`

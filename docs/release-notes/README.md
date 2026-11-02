@@ -1,5 +1,12 @@
 # Release notes
 
+## 0.1.2 stable
+
+[MCP administration, investigations and campaign repairs](0.1.2.md) bring the
+tested beta series into the stable release line. The
+[owner acceptance record](../implementation/0.1.2-stable-acceptance.md) retains
+the tested source, scope and explicitly accepted test-provider cleanup exception.
+
 ## 0.1.2-beta.20 candidate
 
 [Unknown automation outcome reconciliation](0.1.2-beta.20.md) preserves execution
