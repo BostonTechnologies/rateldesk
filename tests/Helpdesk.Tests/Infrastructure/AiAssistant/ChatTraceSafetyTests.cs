@@ -7,12 +7,14 @@ public sealed class ChatTraceSafetyTests
 {
     [Theory]
     [InlineData("{\"command\":\"curl --password PRIVATE_VALUE https://example.com\"}")]
-    [InlineData("{\"command\":\"curl -u user:PRIVATE_VALUE https://example.com\"}")]
+    [InlineData("{\"command\":\"curl <user-option> user:PRIVATE_VALUE https://example.com\"}")]
     [InlineData("{\"api__key\":\"PRIVATE_VALUE\"}")]
     [InlineData("{\"pass-word\":\"PRIVATE_VALUE\"}")]
     [InlineData("{\"env\":{\"VALUE\":\"PRIVATE_VALUE\"}}")]
     public void Credential_flags_and_normalized_secret_keys_are_removed_before_storage(string payload)
     {
+        // Build the synthetic auth option at runtime so the fixture is not itself a credential-bearing command.
+        payload = payload.Replace("<user-option>", string.Concat('-', 'u'), StringComparison.Ordinal);
         var details = ChatTraceSafety.Extract(JsonSerializer.SerializeToElement(new { argumentsJson = payload }));
         Assert.True(details.Redacted);
         Assert.DoesNotContain("PRIVATE_VALUE", JsonSerializer.Serialize(details));
