@@ -1,5 +1,19 @@
 # Releases
 
+## 0.1.3-beta.1 — organization AI Chat
+
+The first 0.1.3 beta includes organization-scoped Chat, shared fullscreen
+conversation presentation and bounded/redacted trace details from
+[#309](https://github.com/BostonTechnologies/rateldesk/pull/309). The
+[release notes and testing checklist](../release-notes/0.1.3-beta.1.md) retain
+the native historical recovery limitation and the owner's post-release live
+acceptance scope. Version ownership remains in the root `Directory.Build.props`.
+
+Publish through the normal reviewed PR/main checks and hosted immutable release
+workflow. Keep the three image families, seven archives, checksums, release
+manifest and SBOM/provenance contract. This beta uses exact `0.1.3-beta.1` image
+tags and a GitHub prerelease; it does not promote the stable channel.
+
 ## 0.1.2 stable release preparation
 
 The [cumulative release notes](../release-notes/0.1.2.md) cover the changes since

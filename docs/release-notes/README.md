@@ -1,5 +1,13 @@
 # Release notes
 
+## 0.1.3-beta.1
+
+[Organization AI Chat and shared fullscreen conversations](0.1.3-beta.1.md)
+add general organization conversations, shared trace presentation preferences
+and conservative recovery controls. Native historical completion recovery
+remains limited by the supported daemon replay contract; live owner acceptance
+follows publication.
+
 ## 0.1.2 stable
 
 [MCP administration, investigations and campaign repairs](0.1.2.md) bring the
