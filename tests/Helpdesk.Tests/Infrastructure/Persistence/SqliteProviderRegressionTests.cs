@@ -24,6 +24,29 @@ namespace Helpdesk.Tests.Infrastructure.Persistence;
 public sealed class SqliteProviderRegressionTests
 {
     [Fact]
+    public async Task Chat_scope_migration_preserves_ticket_transcripts_and_provider_history_on_sqlite()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:"); await connection.OpenAsync();
+        await using var db = CreateDb(connection); var migrator = db.GetService<IMigrator>();
+        await migrator.MigrateAsync("20261029190000_AddMcpPolicyDefinitions");
+        var id = Guid.NewGuid();
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO AiAssistantChatConversations
+            (Id, OrganizationId, TicketId, TicketType, State, LastSequence, LastActivityUtc, CreatedByUserId, IsInvestigation)
+            VALUES ({id}, {"org"}, {"legacy-ticket"}, {"incidents"}, 0, 0, {DateTimeOffset.UtcNow}, {"operator"}, 0)
+            """);
+        await migrator.MigrateAsync(); await migrator.MigrateAsync();
+        var conversation = await db.Set<Helpdesk.Shared.AiAssistant.Chat.AiAssistantChatConversation>().SingleAsync(x => x.Id == id);
+        Assert.Equal("legacy-ticket", conversation.TicketId);
+        Assert.Equal(Helpdesk.Shared.AiAssistant.Chat.ChatConversationScope.Ticket, conversation.Scope);
+        Assert.Null(conversation.GuidanceSnapshot); Assert.Empty(await db.Database.GetPendingMigrationsAsync());
+        db.Add(new Helpdesk.Shared.AiAssistant.Chat.AiAssistantChatConversation { Scope = Helpdesk.Shared.AiAssistant.Chat.ChatConversationScope.Organization,
+            OrganizationId = "org", Title = "Schema compatible", CreatedByUserId = "operator" });
+        await db.SaveChangesAsync();
+        Assert.Equal(2, await db.Set<Helpdesk.Shared.AiAssistant.Chat.AiAssistantChatConversation>().CountAsync());
+    }
+
+    [Fact]
     public async Task Migration_preserves_existing_automation_binding_rows()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");

@@ -22,3 +22,16 @@
     .ai-chat-workspace ::deep .ai-assistant-turn > .mud-paper { margin-left: 2%; }
     .ai-chat-composer { padding: .85rem; }
 }
+.ai-conversation-surface { min-width: 0; background: var(--mud-palette-surface); color: var(--mud-palette-text-primary); }
+.conversation-header { display: flex; justify-content: space-between; align-items: center; gap: .5rem; padding: 1rem; border-bottom: 1px solid var(--mud-palette-divider); }
+.conversation-header h2 { margin: 0; font-size: 1.15rem; overflow-wrap: anywhere; }
+.conversation-header small { color: var(--mud-palette-text-secondary); overflow-wrap: anywhere; }
+.conversation-actions { display: flex; align-items: center; flex-shrink: 0; }
+.conversation-context { padding: .6rem 1rem; max-height: 24vh; overflow: auto; }
+.conversation-context ::deep pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .75rem; }
+.chat-display-settings { display: flex; flex-wrap: wrap; gap: .25rem 1rem; padding: .5rem 1rem; max-height: 30vh; overflow: auto; border-bottom: 1px solid var(--mud-palette-divider); }
+.ai-chat-fullscreen { position: fixed; inset: 0; z-index: 1350; display: flex; flex-direction: column; height: 100dvh; overflow: auto; overscroll-behavior: contain; }
+.ai-chat-fullscreen ::deep > .mud-stack { min-height: 0; flex: 1; overflow: auto; }
+.ai-chat-fullscreen .ai-chat-transcript { flex: 1; max-height: none; min-height: 8rem; }
+.ai-chat-fullscreen .ai-chat-composer { position: sticky; bottom: 0; background: var(--mud-palette-surface); }
+@media (max-width: 520px) { .conversation-header { align-items: flex-start; flex-wrap: wrap; } .conversation-actions { margin-left: auto; } }

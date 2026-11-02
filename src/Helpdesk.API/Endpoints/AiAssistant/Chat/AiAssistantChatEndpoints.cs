@@ -12,10 +12,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Helpdesk.API.Endpoints.AiAssistant.Chat;
 
-public static class AiAssistantChatEndpoints
+public static partial class AiAssistantChatEndpoints
 {
     public static void MapAiAssistantChatEndpoints(this IEndpointRouteBuilder app)
     {
+        MapOrganizationChatEndpoints(app);
         app.MapGet("/api/v1/{ticketType}/{ticketId}/ai-assistant/chat-capabilities", async (
             string ticketType, string ticketId, HttpContext context, HelpdeskDbContext db,
             ICurrentUserAccessService access, IAiAssistantChatRuntimeState runtime, CancellationToken ct) =>
@@ -90,9 +91,10 @@ public static class AiAssistantChatEndpoints
             await transport.RetireAsync(request.ConversationId, ct);
             return Results.Accepted();
         }).WithName("StopWaitingForAiAssistantChat").WithSummary("Stop waiting for an uncertain processing turn").WithDescription("Records uncertain delivery, retires the local transport owner, and never resends the operator message.");
-        group.MapPost("/abandon", async (string ticketType, string ticketId, ChatAbandonRequest request, HttpContext context, IAiAssistantChatStore store, CancellationToken ct) =>
+        group.MapPost("/abandon", async (string ticketType, string ticketId, ChatAbandonRequest request, HttpContext context, IAiAssistantChatStore store, IAiAssistantChatTransport transport, CancellationToken ct) =>
         {
             await store.AbandonAsync(ticketType, ticketId, request, Actor(context), ct);
+            await transport.RetireAsync(request.ConversationId, ct);
             return Results.Accepted();
         }).WithName("AbandonAiAssistantChat").WithSummary("Deliberately abandon unresolved delivery and start a blank conversation").WithDescription("Requires acknowledgement that the old remote turn may still execute. Audited, idempotent and transactionally serialized; never resends an old message.");
         group.MapPost("/messages", async (string ticketType, string ticketId, ChatMessageRequest request, HttpContext context, IAiAssistantChatStore store, IAiAssistantChatTransport transport, CancellationToken ct) =>
@@ -147,7 +149,10 @@ public static class AiAssistantChatEndpoints
             _ => false
         };
 
-    private static async Task StreamAsync(string ticketType, string ticketId, Guid conversationId, long? cursor, HttpContext context, IChatLiveFeed feed, IServiceScopeFactory scopes, CancellationToken ct)
+    private static Task StreamAsync(string ticketType, string ticketId, Guid conversationId, long? cursor, HttpContext context, IChatLiveFeed feed, IServiceScopeFactory scopes, CancellationToken ct) =>
+        StreamCoreAsync(ChatScope.Ticket(ticketType, ticketId), conversationId, cursor, context, feed, scopes, ct);
+
+    private static async Task StreamCoreAsync(ChatScope chatScope, Guid conversationId, long? cursor, HttpContext context, IChatLiveFeed feed, IServiceScopeFactory scopes, CancellationToken ct)
     {
         var header = context.Request.Headers["Last-Event-ID"].ToString();
         var position = cursor ?? 0;
@@ -164,21 +169,21 @@ public static class AiAssistantChatEndpoints
                 await using (var scope = scopes.CreateAsyncScope())
                 {
                     var services = scope.ServiceProvider;
-                    if (await AuthorizeTicketManagementAsync(
-                            ticketType,
-                            ticketId,
-                            context.User,
-                            services.GetRequiredService<HelpdeskDbContext>(),
-                            services.GetRequiredService<ICurrentUserAccessService>(),
-                            ct) is not null)
+                    if (!services.GetRequiredService<IAiAssistantChatRuntimeState>().Current.Enabled) return;
+                    var db = services.GetRequiredService<HelpdeskDbContext>();
+                    var access = services.GetRequiredService<ICurrentUserAccessService>();
+                    if (chatScope.Kind == ChatConversationScope.Organization)
                     {
-                        return;
+                        if (await AuthorizeOrganizationAsync(chatScope.OrganizationId!, false, context.User, db, access, ct) is not null) return;
                     }
-
-                    var investigation = await services.GetRequiredService<HelpdeskDbContext>().Set<AiOpsInvestigation>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == conversationId, ct);
-                    if (investigation is not null && !await AiOpsContext.CanAccessAsync(services.GetRequiredService<HelpdeskDbContext>(), await services.GetRequiredService<ICurrentUserAccessService>().ResolveAsync(context.User, ct), investigation, ct)) return;
+                    else
+                    {
+                        if (await AuthorizeTicketManagementAsync(chatScope.TicketType, chatScope.TicketId, context.User, db, access, ct) is not null) return;
+                        var investigation = await db.Set<AiOpsInvestigation>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == conversationId, ct);
+                        if (investigation is not null && !await AiOpsContext.CanAccessAsync(db, await access.ResolveAsync(context.User, ct), investigation, ct)) return;
+                    }
                     snapshot = await services.GetRequiredService<IAiAssistantChatStore>()
-                        .LoadAsync(ticketType, ticketId, conversationId, position, Actor(context), ct);
+                        .LoadAsync(chatScope, conversationId, position, Actor(context), ct);
                 }
                 if (!started)
                 {
@@ -197,6 +202,7 @@ public static class AiAssistantChatEndpoints
                     if (delta.Text is not null && delta.AfterSequence == position && snapshot.State is ChatState.Processing or ChatState.AwaitingApproval)
                         await context.Response.WriteAsync($"event: text-delta\ndata: {JsonSerializer.Serialize(delta)}\n\n", ct);
                 await context.Response.WriteAsync($"event: state\ndata: {JsonSerializer.Serialize(snapshot.State)}\n\n", ct);
+                await context.Response.WriteAsync($"event: recovery\ndata: {JsonSerializer.Serialize(snapshot with { Events = Array.Empty<AiAssistantChatEvent>() })}\n\n", ct);
                 await context.Response.Body.FlushAsync(ct);
                 if (position < snapshot.LastSequence) continue;
                 // Notifications reduce latency; polling recovers a commit whose notification was lost.

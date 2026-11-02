@@ -10,7 +10,7 @@ public static class AiAssistantChatPresentation
     {
         var turns = new List<ChatTurn>();
         ChatTurn? current = null;
-        foreach (var item in events.DistinctBy(x => x.Sequence).OrderBy(x => x.Sequence))
+        foreach (var item in events.DistinctBy(x => (x.ConversationId, x.Sequence)).OrderBy(x => x.ConversationId).ThenBy(x => x.Sequence))
         {
             if (item.Type == "operator")
             {
@@ -19,7 +19,7 @@ public static class AiAssistantChatPresentation
                 continue;
             }
 
-            if (current is null) continue;
+            if (current is null || current.Operator.ConversationId != item.ConversationId) continue;
             if (item.Type == "assistant") current.Responses.Add(item);
             else if (item.Type == "turn_completed")
             {
@@ -37,7 +37,7 @@ public static class AiAssistantChatPresentation
                 if (item.Type == "tool_call") operation.Call = item;
                 else operation.Result = item;
             }
-            else if (item.Type is "approval_request" or "approval_response" or "error" or "file")
+            else if (item.Type is "approval_request" or "approval_response" or "error" or "file" or "usage" or "processing_state" or "compaction" or "subagent")
                 current.Activity.Add(item);
         }
         return turns;
@@ -81,7 +81,7 @@ public sealed class ChatOperation(string? callId, long sequence)
         }
     }
 
-    private static ChatActivityMetadata? Read(string? json)
+    public static ChatActivityMetadata? Read(string? json)
     {
         if (json is null) return null;
         try { return JsonSerializer.Deserialize<ChatActivityMetadata>(json); }

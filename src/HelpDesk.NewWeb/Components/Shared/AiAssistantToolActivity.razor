@@ -1,0 +1,51 @@
+@using HelpDesk.NewWeb.Services
+@using Helpdesk.Shared.AiAssistant.Chat
+
+<div class="tool-lifecycle @(Preferences.Compact ? "compact" : "comfortable")" data-testid="chat-tool">
+    <button type="button" class="tool-summary" aria-expanded="@expanded.ToString().ToLowerInvariant()" @onclick="@(() => expanded = !expanded)">
+        <span aria-hidden="true">@(expanded ? "▾" : "▸")</span>
+        <span>@Name: @Status</span>
+        @if (Preferences.ShowTimestamps && Event is { } timestampEvent) { <time title="@TimeLabel(timestampEvent)">@Time(timestampEvent).UtcDateTime.ToString("HH:mm:ss'Z'")</time> }
+        @if (Operation.Metadata?.ToolKind is "mcp" or "skill" or "discovery") { <small>@Operation.Metadata.ToolKind.ToUpperInvariant()</small> }
+    </button>
+    @if (Preferences.ShowIdentifiers && Operation.CallId is { } identifier) { <small>@identifier</small> }
+    @if (expanded)
+    {
+        <div class="tool-details">
+            @if (Operation.CallId is { } id) { <p>Call ID: @id</p> }
+            @if (Operation.Metadata?.DurationMs is { } duration) { <p>Locally observed duration: @duration ms</p> }
+            @foreach (var item in new[] { Operation.Call, Operation.Result }.OfType<AiAssistantChatEvent>())
+            {
+                var details = ChatOperation.Read(item.MetadataJson)?.Details;
+                <p>@item.Type · received @item.CreatedUtc.UtcDateTime.ToString("u")</p>
+                @if (details?.SourceTimestampUtc is { } source) { <p>Native source time: @source.UtcDateTime.ToString("u")</p> }
+                @if (details is null) { <p>Details were not recorded.</p> }
+                else
+                {
+                    @if (details.Redacted) { <p>Contains redactions / omitted private data.</p> }
+                    @if (details.Truncated) { <p>Payload was truncated.</p> }
+                    @if (details.FailureCode is { } failure) { <p>Reported failure code: @failure</p> }
+                    @if (details.Arguments is { } args) { <AiAssistantCode Text="@args" Label="Sanitized arguments" /> }
+                    @if (details.Result is { } result) { <AiAssistantCode Text="@result" Label="Sanitized result" /> }
+                    @if (details.Arguments is null && details.Result is null && details.FailureCode is null) { <p>No payload details were recorded.</p> }
+                }
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public ChatOperation Operation { get; set; } = null!;
+    [Parameter] public ChatDisplayPreferences Preferences { get; set; } = new();
+    private bool expanded, initialized, autoExpand;
+    private AiAssistantChatEvent? Event => Operation.Result ?? Operation.Call;
+    private string Name => Operation.Metadata is { } m ? $"{(m.ProviderName is null ? "" : m.ProviderName + "/")}{m.DisplayName}" : "Tool activity (legacy record)";
+    private string Status => Operation.Metadata?.Outcome == "failed" ? "reported failure" : Operation.Result is not null ? "result received" : "started";
+    private static string TimeLabel(AiAssistantChatEvent item) => (ChatOperation.Read(item.MetadataJson)?.Details?.SourceTimestampUtc is null ? "Received " : "Native source ") + Time(item).UtcDateTime.ToString("u");
+    private static DateTimeOffset Time(AiAssistantChatEvent item) => ChatOperation.Read(item.MetadataJson)?.Details?.SourceTimestampUtc ?? item.CreatedUtc;
+    protected override void OnParametersSet()
+    {
+        if (!initialized || autoExpand != Preferences.AutoExpand) expanded = Preferences.AutoExpand;
+        initialized = true; autoExpand = Preferences.AutoExpand;
+    }
+}

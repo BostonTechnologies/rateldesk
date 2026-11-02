@@ -47,7 +47,7 @@ for (const theme of ['Light', 'Dark'] as const) {
     test(`${theme} ${mobile ? 'mobile' : 'desktop'} completed, expand and composer boundary`, async ({ page }, testInfo) => {
       await openChat(page, theme);
       await page.setViewportSize(mobile ? { width: 390, height: 844 } : { width: 1440, height: 1000 });
-      const heading = page.getByTestId('ai-assistant-activity').getByRole('button');
+      const heading = page.getByTestId('ai-assistant-activity').getByRole('button').first();
       await expect(heading).toHaveAttribute('aria-expanded', 'false');
       await expect(page.getByTestId('ai-assistant-turn')).toHaveCount(1);
       await expect(page.getByTestId('ai-assistant-response')).toHaveCount(1);
@@ -154,7 +154,7 @@ test('stop waiting shows authoritative uncertain-delivery recovery controls', as
   await stopWaiting.click();
   await expect(page.getByText('Delivery or completion could not be confirmed.', { exact: false })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Check saved session' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Abandon unresolved turn and start blank' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Abandon unresolved turn and archive' })).toBeVisible();
   await expect(page.getByText('Working…', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Stop waiting' })).toHaveCount(0);
 });
@@ -181,7 +181,7 @@ test('desktop Enter admission lock, Shift+Enter and IME', async ({ page, request
 test('live draft replacement, automatic completion collapse and duplicate replay', async ({ page, request }) => {
   await request.get('http://127.0.0.1:18299/fixture/reset?mode=processing');
   await openChat(page);
-  const heading = page.getByTestId('ai-assistant-activity').getByRole('button');
+  const heading = page.getByTestId('ai-assistant-activity').getByRole('button').first();
   await expect(heading).toHaveAttribute('aria-expanded', 'true');
   await request.get('http://127.0.0.1:18299/fixture/draft');
   await expect(page.getByText('Streaming response', { exact: true })).toBeVisible();
@@ -191,11 +191,11 @@ test('live draft replacement, automatic completion collapse and duplicate replay
   await expect(page.getByTestId('ai-assistant-response')).toHaveCount(1);
   await request.get('http://127.0.0.1:18299/fixture/replay');
   await heading.click();
-  await expect(page.locator('.activity-row')).toHaveCount(14);
+  await expect(page.getByTestId('chat-tool')).toHaveCount(14);
   await expect(page.getByTestId('ai-assistant-response')).toHaveCount(1);
   await openChat(page);
   await expect(page.getByTestId('ai-assistant-response')).toHaveCount(1);
-  await expect(page.getByTestId('ai-assistant-activity').getByRole('button')).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByTestId('ai-assistant-activity').getByRole('button').first()).toHaveAttribute('aria-expanded', 'false');
 });
 
 test('mobile dark approval controls and bounded growing composer', async ({ page, request }, testInfo) => {

@@ -1,0 +1,14 @@
+@inject IJSRuntime JS
+<div class="chat-code">
+    <div><small>@Label</small><MudButton Size="Size.Small" OnClick="CopyAsync" aria-label="@($"Copy {Label}")">@(copied ? "Copied" : "Copy")</MudButton></div>
+    <pre><code>@Text</code></pre>
+</div>
+@code {
+    [Parameter] public string Text { get; set; } = "";
+    [Parameter] public string Label { get; set; } = "Code";
+    private bool copied;
+    private async Task CopyAsync()
+    {
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", Text); copied = true; } catch (JSException) { copied = false; }
+    }
+}

@@ -842,6 +842,13 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("CreationFingerprint")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("GuidanceSnapshot")
+                        .HasColumnType("text");
+
                     b.Property<bool>("IsInvestigation")
                         .HasColumnType("boolean");
 
@@ -862,16 +869,32 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<DateTimeOffset?>("RecoveryLastAttemptUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RecoveryResult")
+                        .HasColumnType("text");
+
+                    b.Property<int>("Scope")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
                     b.Property<int>("State")
                         .HasColumnType("integer");
 
                     b.Property<string>("TicketId")
-                        .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<string>("TicketType")
-                        .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasDefaultValue("");
 
                     b.Property<DateTimeOffset?>("TurnStartedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -880,11 +903,16 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("State", "LastTransportActivityAtUtc");
 
+                    b.HasIndex("OrganizationId", "Scope", "LastActivityUtc");
+
                     b.HasIndex("OrganizationId", "TicketType", "TicketId")
                         .IsUnique()
-                        .HasFilter("\"State\" <> 4 AND \"IsInvestigation\" = FALSE");
+                        .HasFilter("\"State\" <> 4 AND \"IsInvestigation\" = FALSE AND \"Scope\" = 0");
 
-                    b.ToTable("AiAssistantChatConversations", (string)null);
+                    b.ToTable("AiAssistantChatConversations", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ChatConversation_Scope", "(\"Scope\" = 0 AND \"TicketId\" IS NOT NULL AND \"TicketType\" IS NOT NULL) OR (\"Scope\" = 1 AND \"TicketId\" IS NULL AND \"TicketType\" IS NULL AND \"IsInvestigation\" = FALSE)");
+                        });
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.AiAssistant.Chat.AiAssistantChatEvent", b =>
@@ -4824,4 +4852,3 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
         }
     }
 }
-

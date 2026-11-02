@@ -1,0 +1,36 @@
+@using System.Net
+@using System.Text.RegularExpressions
+
+<div class="chat-markdown">
+@foreach (var block in Text.Replace("\r\n", "\n").Split("```" ).Select((text, index) => (text, index)))
+{
+    @if (block.index % 2 == 1)
+    {
+        var newline = block.text.IndexOf('\n');
+        <AiAssistantCode Text="@(newline >= 0 ? block.text[(newline + 1)..] : block.text)" Label="Code" />
+    }
+    else
+    {
+        @foreach (var line in block.text.Split('\n'))
+        {
+            @if (line.StartsWith("### ")) { <h4>@Inline(line[4..])</h4> }
+            else if (line.StartsWith("## ")) { <h3>@Inline(line[3..])</h3> }
+            else if (line.StartsWith("# ")) { <h2>@Inline(line[2..])</h2> }
+            else if (line.StartsWith("- ") || line.StartsWith("* ")) { <p>• @Inline(line[2..])</p> }
+            else if (line.Length == 0) { <br /> }
+            else { <p>@Inline(line)</p> }
+        }
+    }
+}
+</div>
+@code {
+    [Parameter] public string Text { get; set; } = "";
+    // Encode all source text first. Only these fixed, inert formatting tags are introduced.
+    private static MarkupString Inline(string text)
+    {
+        var encoded = WebUtility.HtmlEncode(text);
+        encoded = Regex.Replace(encoded, @"`([^`\n]{1,2048})`", "<code>$1</code>", RegexOptions.None, TimeSpan.FromMilliseconds(50));
+        encoded = Regex.Replace(encoded, @"\*\*([^*\n]{1,2048})\*\*", "<strong>$1</strong>", RegexOptions.None, TimeSpan.FromMilliseconds(50));
+        return new(encoded);
+    }
+}

@@ -218,9 +218,67 @@ post-restart ticket journey still require an authorized NetClaw environment.
 The **Test connection** action checks a connected profile; repository tests do
 not substitute for live external acceptance.
 
-## Work with AI investigations and prompts
+## Organization Chat, investigations and prompts
 
-Open **Operations → AI investigations** (`/ai/ops`) to work in the investigation
+Use **Operations → AI → Chat** (`/ai/chat`) for general operator conversation.
+Choose an authorized organization, select **New chat**, name the conversation
+and select optional saved guidance. The default guidance is included. **Save chat**
+pins the actual guidance revisions and opens a blank composer; it does not send
+a prompt, create a ticket or contact the daemon. Send your first message explicitly.
+Search the paged history by title and include archived transcripts as needed.
+Conversation links carry `organizationId` and `conversationId`; reopening them
+does not send a message or create a remote session. Changing organization clears
+the selected conversation and its unsent draft.
+
+General transcripts belong to one immutable organization and have no ticket
+identity. Current organization Incident/Request/Change read grants permit reading;
+corresponding write/manager grants permit creation, send, recovery, archive and
+offered approvals. Administrators retain their existing authority. The API checks
+the current account and organization again on operations and during SSE replay;
+the navigation menu alone grants no access. Native chat requires PostgreSQL and
+an enabled profile. SQLite keeps its existing ticket webhook assistance.
+
+Both Chat and Investigations use the same interactive conversation. The
+**Maximise conversation** icon beside **Archive** expands the selected conversation
+and saved context. **Restore conversation** or Escape returns it to its original
+layout; open nested dialogs/popovers take Escape first. Drafts, tool expansion,
+history and the active stream remain mounted. Archived and read-only transcripts
+can also be maximised. Markdown headings, lists, emphasis, inline code and fenced
+code render inertly; Copy uses only the displayed code or sanitized details.
+
+Tool rows show provider/name, started/result-received/reported-failure status
+and UTC time. Expand a call for its recorded arguments, result, failure code and
+call ID. Native source time is labelled separately from local receipt time;
+tool durations are locally observed. A result does not prove a business operation
+succeeded. Old events say **Details were not recorded**. Payloads are bounded and
+redacted before storage; unstructured or malformed payloads are omitted for privacy.
+Redaction/truncation labels explain missing detail. **Chat display settings** saves
+per-operator browser preferences across both routes, including compact rows,
+timestamps/identifiers, automatic expansion and optional diagnostic measures.
+Approvals, errors and recovery remain visible regardless of those preferences.
+
+**Check saved session** never resends a message or approval. Recovery shows its
+last attempt and result. Confirmed admission is separate from completion: the
+inspected Netclaw join contract provides recent role/content history and a turn
+count, without a durable outcome bound to the exact operator message. RatelDesk
+therefore keeps that turn unresolved, even if history contains assistant text or
+an unrelated completion arrives after reattachment. Full restoration of a missed
+final report/completion, and authoritative historical running/interrupted/approval
+states, require an upstream exact-message outcome and replay contract. See the
+[inspected wire DTO](https://github.com/netclaw-dev/netclaw/blob/fd887a692fd2fddde937e2da97e6244c793451dc/src/Netclaw.Actors/Protocol/SessionOutputDto.cs),
+[actual mapping](https://github.com/netclaw-dev/netclaw/blob/fd887a692fd2fddde937e2da97e6244c793451dc/src/Netclaw.Actors/Protocol/SessionOutputDtoMapper.cs)
+and [SignalR delivery](https://github.com/netclaw-dev/netclaw/blob/fd887a692fd2fddde937e2da97e6244c793451dc/src/Netclaw.Daemon/Gateway/SignalRSessionActor.cs).
+These upstream sources do not establish a deployed daemon's version or replay
+capability; that acceptance must use a disposable, supported daemon. Repeated
+checks keep a useful attached stream and avoid duplicate transcript notices.
+
+For a permanently uncertain turn, acknowledge that remote work may have executed
+or may still run, then select **Abandon unresolved turn and archive**. This preserves
+the original transcript and pinned context and fences late output. Start a separate
+chat or investigation explicitly; no previous request is retried. **Stop waiting**
+records uncertainty locally and cannot cancel work on the daemon.
+
+Open **Operations → AI → Investigations** (`/ai/ops`) to work in the investigation
 workspace. The organization selector, **Refresh** and **New investigation**
 actions sit above recent-status counts. Search and filter the history in the
 left column, then select an investigation to open its conversation on the
@@ -237,7 +295,7 @@ Saving context does not send a message to NetClaw. Enter and send the first
 question separately. An idle investigation can be archived; its saved history
 remains available through the history filters.
 
-Administrators manage reusable guidance under **Operations → Prompts**
+Administrators manage reusable guidance under **Operations → AI → Prompts**
 (`/ai/prompts`). Choose an organization, search by name or description, and
 select a prompt in the left column. Its text and revision appear in the right
 pane. Use **New**, **Copy** or **Edit** to write guidance in Monaco, with

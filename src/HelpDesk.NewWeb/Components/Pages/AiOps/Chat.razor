@@ -1,0 +1,185 @@
+@page "/ai/chat"
+@attribute [Authorize]
+@using Helpdesk.Shared.AiAssistant.Chat
+@using Helpdesk.Shared.DTOs.AiOps
+@using System.Text.Json
+@implements IAsyncDisposable
+@inject IHttpClientFactory Clients
+@inject NavigationManager Navigation
+
+<PageTitle>AI Chat</PageTitle>
+<main class="organization-chat" data-testid="organization-chat">
+    <header><p class="eyebrow">AI OPERATIONS</p><h1>Chat</h1><p>Work with Netclaw in your organization. Start a conversation without a ticket.</p></header>
+    <div class="chat-toolbar">
+        <label>Organization<select value="@organization" @onchange="ChangeOrganization"><option value="">Choose an organization</option>
+            @foreach (var org in organizations) { <option value="@org.Id">@org.Name</option> }
+        </select></label>
+        <MudButton OnClick="StartNew" Disabled="@(busy || capabilities is not { Enabled: true, CanWrite: true })">New chat</MudButton>
+        <MudButton OnClick="RefreshAsync" Disabled="busy">Refresh</MudButton>
+    </div>
+    @if (error is not null) { <MudAlert Severity="Severity.Warning">@error</MudAlert> }
+    @if (busy) { <p role="status">Loading organization workspace…</p> }
+    @if (capabilities is { Enabled: false })
+    {
+        <MudAlert Severity="Severity.Info">@capabilities.Reason</MudAlert>
+        @if (capabilities.SetupUrl is { } setup) { <MudLink Href="@setup">Configure Netclaw connection</MudLink> }
+    }
+    <div class="chat-layout">
+        <aside aria-label="Recent organization conversations">
+            <form @onsubmit="SearchAsync" @onsubmit:preventDefault>
+                <label>Find conversations<input @bind="search" @bind:event="oninput" maxlength="200" placeholder="Conversation title" /></label>
+                <MudButton ButtonType="ButtonType.Submit" Disabled="@(busy || capabilities?.Enabled != true)">Search</MudButton>
+                <label class="archive-filter"><input type="checkbox" @bind="includeArchived" />Include archived history</label>
+            </form>
+            @foreach (var chat in history)
+            {
+                <a class="chat-history @(selected?.ConversationId == chat.ConversationId ? "selected" : "")" href="@Url(organization, chat.ConversationId)" aria-current="@(selected?.ConversationId == chat.ConversationId ? "page" : null)">
+                    <strong>@chat.Title</strong><span>@chat.State · @chat.LastActivityUtc.ToLocalTime().ToString("g")</span>
+                </a>
+            }
+            @if (hasMore) { <MudButton OnClick="MoreAsync" Disabled="busy">Older conversations</MudButton> }
+        </aside>
+        <section class="chat-selected" aria-label="Organization conversation workspace">
+            @if (creating && capabilities is { Enabled: true, CanWrite: true })
+            {
+                <div class="chat-create">
+                    <h2>New organization chat</h2><p>Save this conversation and its guidance, then send your first message. No tickets are included.</p>
+                    <label>Conversation title<input @bind="title" @bind:event="oninput" maxlength="200" /></label>
+                    @foreach (var prompt in prompts)
+                    {
+                        <label class="prompt-choice"><input type="checkbox" checked="@(prompt.IsDefault || promptIds.Contains(prompt.Id))" disabled="@(busy || prompt.IsDefault)" @onchange="e => SelectPrompt(prompt.Id, e)" />
+                            @prompt.Name · revision @prompt.Revision @(prompt.IsDefault ? "(always included)" : "")</label>
+                    }
+                    <MudButton OnClick="CreateAsync" Disabled="@(busy || string.IsNullOrWhiteSpace(title))">Save chat</MudButton>
+                </div>
+            }
+            else if (selected is { } chat)
+            {
+                <AiAssistantChat @key="chat.ConversationId" OrganizationId="@chat.OrganizationId" SelectedConversationId="chat.ConversationId" Workspace="true" Title="@chat.Title" Identity="@OrganizationName(chat.OrganizationId)" Archive="ArchiveAsync" StateChanged="@(s => StateChanged(chat.ConversationId, s))">
+                    <SavedContext><details><summary>Saved organization guidance</summary><pre>@chat.GuidanceSnapshot</pre></details></SavedContext>
+                </AiAssistantChat>
+            }
+            else { <div class="chat-empty"><h2>A place to think and work</h2><p>Choose an organization, then open a saved conversation or select New chat. Opening a chat never sends a message.</p></div> }
+        </section>
+    </div>
+</main>
+
+@code {
+    [SupplyParameterFromQuery(Name = "organizationId")] public string? Organization { get; set; }
+    [SupplyParameterFromQuery(Name = "conversationId")] public Guid? Conversation { get; set; }
+    private List<AiOpsOrganizationDto> organizations = [];
+    private List<ChatConversationSummary> history = [];
+    private List<AiPromptDto> prompts = [];
+    private readonly HashSet<Guid> promptIds = [];
+    private ChatOrganizationConversation? selected;
+    private ChatCapabilities? capabilities;
+    private string organization = "", search = "", title = "";
+    private bool creating, busy, includeArchived = true, hasMore, disposed;
+    private string? error;
+    private Guid creationId = Guid.NewGuid();
+    private int generation;
+    private CancellationTokenSource cancellation = new();
+    private string Route => $"api/v1/ai/chat/organizations/{Uri.EscapeDataString(organization)}";
+    private static string Url(string org, Guid? id = null) => $"/ai/chat?organizationId={Uri.EscapeDataString(org)}" + (id is null ? "" : $"&conversationId={id}");
+    private string OrganizationName(string org) => organizations.FirstOrDefault(x => x.Id == org)?.Name ?? org;
+
+    protected override Task OnParametersSetAsync() => RefreshAsync();
+    private async Task RefreshAsync()
+    {
+        var current = ++generation;
+        await cancellation.CancelAsync(); cancellation.Dispose(); cancellation = new();
+        var ct = cancellation.Token;
+        organization = Organization ?? ""; selected = null; capabilities = null; history = []; prompts = []; promptIds.Clear(); creating = false;
+        title = ""; creationId = Guid.NewGuid(); busy = true; error = null;
+        try
+        {
+            using var api = Clients.CreateClient("HelpdeskApi");
+            var orgs = await api.GetFromJsonAsync<List<AiOpsOrganizationDto>>("api/v1/ai/chat/organizations", ct) ?? [];
+            if (current != generation || disposed) return;
+            organizations = orgs;
+            if (organization.Length == 0) return;
+            if (!organizations.Any(x => x.Id == organization)) { error = "Organization access is unavailable."; return; }
+            var caps = await api.GetFromJsonAsync<ChatCapabilities>($"{Route}/capabilities", ct);
+            if (current != generation || disposed) return;
+            capabilities = caps;
+            if (caps?.Enabled != true) return;
+            await LoadHistoryAsync(current, ct);
+            if (caps.CanWrite)
+            {
+                var guidance = await api.GetFromJsonAsync<List<AiPromptDto>>($"api/v1/ai/ops/prompts?organizationId={Uri.EscapeDataString(organization)}", ct) ?? [];
+                if (current != generation || disposed) return;
+                prompts = guidance.Where(x => !x.Archived).ToList();
+            }
+            if (Conversation is { } id)
+            {
+                var chat = await api.GetFromJsonAsync<ChatOrganizationConversation>($"{Route}/conversations/{id}", ct);
+                if (current == generation && !disposed) selected = chat;
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException)
+        { if (current == generation && !disposed) { selected = null; error = "Unable to load this organization chat. Check your access and connection, then refresh."; } }
+        finally { if (current == generation && !disposed) busy = false; }
+    }
+    private void ChangeOrganization(ChangeEventArgs e)
+    {
+        selected = null; creating = false; history = []; promptIds.Clear();
+        Navigation.NavigateTo(Url(e.Value?.ToString() ?? ""));
+    }
+    private void StartNew() { if (capabilities is not { Enabled: true, CanWrite: true }) return; selected = null; creating = true; title = ""; promptIds.Clear(); creationId = Guid.NewGuid(); }
+    private void SelectPrompt(Guid id, ChangeEventArgs e) { if (e.Value is true && promptIds.Count < 8) promptIds.Add(id); else if (e.Value is false) promptIds.Remove(id); }
+    private async Task LoadHistoryAsync(int current, CancellationToken ct, bool more = false)
+    {
+        using var api = Clients.CreateClient("HelpdeskApi");
+        var rows = await api.GetFromJsonAsync<List<ChatConversationSummary>>($"{Route}/history?skip={(more ? history.Count : 0)}&q={Uri.EscapeDataString(search)}&archived={includeArchived.ToString().ToLowerInvariant()}", ct) ?? [];
+        if (current != generation || disposed) return;
+        hasMore = rows.Count == 50;
+        history = more ? history.Concat(rows).DistinctBy(x => x.ConversationId).ToList() : rows;
+    }
+    private Task SearchAsync() => ReadHistoryAsync(false);
+    private Task MoreAsync() => ReadHistoryAsync(true);
+    private async Task ReadHistoryAsync(bool more)
+    {
+        if (busy || capabilities?.Enabled != true) return;
+        var current = generation; busy = true; error = null;
+        try { await LoadHistoryAsync(current, cancellation.Token, more); }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException) { if (current == generation) error = "History could not be loaded. Refresh to try again."; }
+        finally { if (current == generation) busy = false; }
+    }
+    private async Task CreateAsync()
+    {
+        if (busy || capabilities is not { CanWrite: true, Enabled: true } || organization.Length == 0) return;
+        var current = generation; var route = Route; var org = organization; busy = true; error = null;
+        try
+        {
+            using var api = Clients.CreateClient("HelpdeskApi");
+            using var response = await api.PostAsJsonAsync($"{route}/new", new ChatCreateRequest(creationId, title, promptIds.ToArray()), cancellation.Token);
+            if (current != generation || disposed) return;
+            response.EnsureSuccessStatusCode();
+            Navigation.NavigateTo(Url(org, creationId));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException) { if (current == generation) error = "Saving could not be confirmed. Retry unchanged to reconcile the same conversation ID. No message was sent."; }
+        finally { if (current == generation) busy = false; }
+    }
+    private void StateChanged(Guid id, ChatState state)
+    {
+        if (selected?.ConversationId != id) return;
+        selected = selected with { State = state };
+        history = history.Select(x => x.ConversationId == id ? x with { State = state } : x).ToList();
+    }
+    private async Task ArchiveAsync()
+    {
+        if (busy || selected is not { State: ChatState.Idle } chat || capabilities?.CanWrite != true) return;
+        var current = generation; busy = true; error = null;
+        try
+        {
+            using var api = Clients.CreateClient("HelpdeskApi");
+            using var response = await api.PostAsJsonAsync($"{Route}/archive", new ChatNewRequest(chat.ConversationId), cancellation.Token);
+            if (current != generation || disposed) return;
+            response.EnsureSuccessStatusCode(); StateChanged(chat.ConversationId, ChatState.Archived);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException) { if (current == generation) error = "Archive could not be confirmed. Refresh before retrying."; }
+        finally { if (current == generation) busy = false; }
+    }
+    public async ValueTask DisposeAsync() { disposed = true; ++generation; await cancellation.CancelAsync(); cancellation.Dispose(); }
+}

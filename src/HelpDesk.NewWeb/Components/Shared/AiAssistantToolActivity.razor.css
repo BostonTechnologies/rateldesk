@@ -1,0 +1,8 @@
+.tool-summary { display: flex; gap: .5rem; width: 100%; text-align: left; align-items: baseline; border: 0; background: transparent; color: inherit; cursor: pointer; padding: .35rem; font: inherit; font-size: .8rem; }
+.tool-summary span:nth-child(2) { overflow-wrap: anywhere; min-width: 0; }
+.tool-summary time { margin-left: auto; white-space: nowrap; color: var(--mud-palette-text-secondary); }
+.tool-summary small { flex-shrink: 0; white-space: nowrap; color: var(--mud-palette-primary); }
+.comfortable .tool-summary { padding: .8rem; }
+.tool-details { padding: .5rem 1rem; border-left: 2px solid var(--mud-palette-divider); font-size: .8rem; overflow-wrap: anywhere; }
+.tool-details p { margin: .3rem 0; }
+.tool-summary:focus-visible { outline: 2px solid var(--mud-palette-primary); }

@@ -19,20 +19,16 @@
             <span>Working…</span>
         }
     </button>
-    @if (expanded)
+    @foreach (var operation in Turn.Operations)
     {
-        @foreach (var operation in Turn.Operations)
-        {
-            var metadata = operation.Metadata;
-            <div class="activity-row" @key="operation.Sequence">
-                <MudIcon Icon="@Icon(metadata)" Color="@(metadata?.Outcome == "failed" ? Color.Error : Color.Default)" />
-                <span class="activity-name">@(metadata is null ? "Tool activity (legacy record)" : $"{metadata.ProviderName ?? (metadata.ToolKind == "skill" ? "Skill" : "")}{(metadata.ProviderName is not null || metadata.ToolKind == "skill" ? " · " : "")}{metadata.DisplayName}")</span>
-                <span>@(metadata?.Outcome ?? (operation.Result is null ? "Running" : "Finished"))</span>
-                @if (metadata?.DurationMs is { } ms) { <span>@((ms / 1000d).ToString("0.##"))s</span> }
-            </div>
-        }
+        <AiAssistantToolActivity @key="operation.Sequence" Operation="operation" Preferences="Preferences" />
+    }
+    @if (expanded || HasPendingApproval || Turn.HasError)
+    {
         @foreach (var item in Turn.Activity)
         {
+            if (item.Type == "usage" && !Preferences.ShowUsage || item.Type == "processing_state" && !Preferences.ShowProcessing
+                || item.Type == "compaction" && !Preferences.ShowCompaction || item.Type == "subagent" && !Preferences.ShowSubagents) { continue; }
             var isPendingApproval = IsPendingApproval(item);
             <div class="@(isPendingApproval ? "activity-interaction approval-callout" : "activity-interaction")"
                  data-testid="@(isPendingApproval ? "ai-assistant-approval" : null)">
@@ -44,6 +40,7 @@
                     </div>
                 }
                 <MudText Style="white-space: pre-wrap; overflow-wrap: anywhere">@item.Text</MudText>
+                @if (ChatOperation.Read(item.MetadataJson)?.Details?.Measures is { } measures) { <AiAssistantCode Text="@measures" Label="Recorded measures" /> }
                 @if (isPendingApproval)
                 {
                     <div class="approval-actions">
@@ -66,6 +63,7 @@
 
 @code {
     [Parameter, EditorRequired] public ChatTurn Turn { get; set; } = null!;
+    [Parameter] public ChatDisplayPreferences Preferences { get; set; } = new();
     [Parameter] public ChatState State { get; set; }
     [Parameter] public bool Busy { get; set; }
     [Parameter] public EventCallback<(string CallId, string Key)> Approval { get; set; }

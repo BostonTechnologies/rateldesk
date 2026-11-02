@@ -4,6 +4,10 @@ import http from 'node:http';
 const conversation = '11111111-1111-4111-8111-111111111111';
 const actor = 'c0c48409df3ca07e12725a961d4152790fd135c2384a3e3a522282e2bd847178';
 let events = [], state = 0;
+let streamOpens = 0, sends = 0, recoveries = 0;
+const generalChats = new Map();
+const generalRow = (id = conversation, organizationId = 'org', title = 'Synthetic organization planning') => ({ conversationId: id, organizationId, title, guidanceSnapshot: 'Pinned synthetic organization guidance', state });
+const investigation = () => ({ id: conversation, organizationId: 'org', title: 'Synthetic ticket investigation', ticketId: 'ux-chat', ticketType: 'incidents', contextSnapshot: 'Pinned synthetic ticket and guidance', createdUtc: new Date().toISOString(), state });
 let netclawPresentationMode = 'first-run';
 let netclawPairResponseStatuses = [];
 const streams = new Set();
@@ -15,7 +19,8 @@ function event(type, text, extra = {}) {
   return value;
 }
 function reset(mode = 'completed') {
-  events = []; state = mode === 'processing' ? 1 : mode === 'approval' ? 2 : mode === 'archived' ? 4 : 0;
+  generalChats.clear(); generalChats.set(conversation, generalRow()); streamOpens = sends = recoveries = 0;
+  events = []; state = mode === 'processing' ? 1 : mode === 'approval' ? 2 : mode === 'archived' ? 4 : mode === 'recovery' ? 3 : 0;
   event('created', 'Conversation created.');
   if (mode === 'empty') return;
   event('operator', 'Investigate the Helpdesk integration and explain the result.', { CreatedByUserId: actor, ClientMessageId: crypto.randomUUID() });
@@ -27,7 +32,7 @@ function reset(mode = 'completed') {
       MetadataJson: JSON.stringify({ ...metadata, Outcome: mode === 'failed' && i === 13 ? 'failed' : 'completed', DurationMs: 1851 }) });
   }
   if (mode === 'approval') event('approval_request', 'Allow this tool operation?', { CallId: 'approval-1', OptionsJson: JSON.stringify([{ Key: 'approve_once', Label: 'Allow once' }, { Key: 'deny', Label: 'Deny' }]) });
-  if (!['processing', 'approval'].includes(mode)) {
+  if (!['processing', 'approval', 'recovery'].includes(mode)) {
     event('assistant', 'The integration is responding normally.\n\n• Ticket context reached the harness.\n• Tool activity was recorded safely.\n\nNo production changes were made.');
     event('turn_completed', 'Turn completed.');
   }
@@ -35,7 +40,41 @@ function reset(mode = 'completed') {
 reset();
 http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1');
+  let chatPath = url.pathname;
   const reply = value => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(value)); };
+  if (url.pathname === '/fixture/chat-counts') return reply({ streamOpens, sends, recoveries });
+  if (url.pathname === '/api/v1/ai/chat/organizations' || url.pathname === '/api/v1/ai/ops/organizations') return reply([{ id: 'org', name: 'Synthetic organization' }, { id: 'org-b', name: 'Other synthetic organization' }]);
+  if (url.pathname === '/api/v1/ai/ops/prompts') return reply([]);
+  if (url.pathname === '/api/v1/ai/ops/investigations') return reply([investigation()]);
+  if (url.pathname === `/api/v1/ai/ops/investigations/${conversation}`) return reply(investigation());
+  if (url.pathname === `/api/v1/ai/ops/investigations/${conversation}/archive`) { state = 4; for (const stream of streams) stream.write('event: state\ndata: 4\n\n'); return reply({}); }
+  const orgRoute = url.pathname.match(/^\/api\/v1\/ai\/chat\/organizations\/([^/]+)(.*)$/);
+  if (orgRoute) {
+    const [, org, suffix] = orgRoute;
+    if (suffix === '/capabilities') return reply({ enabled: true, canWrite: true });
+    if (suffix.startsWith('/conversations/')) {
+      const row = generalChats.get(suffix.split('/')[2]);
+      if (!row || row.organizationId !== org) { res.statusCode = 404; return reply({}); }
+      return reply({ ...row, state });
+    }
+    if (suffix === '/history') return reply([...generalChats.values()].filter(x => x.organizationId === org && x.title.toLowerCase().includes((url.searchParams.get('q') || '').toLowerCase()) && (url.searchParams.get('archived') !== 'false' || state !== 4)).slice(Number(url.searchParams.get('skip') || 0), Number(url.searchParams.get('skip') || 0) + 50).map(x => ({ ...x, state, createdByUserId: actor, lastActivityUtc: new Date().toISOString() })));
+    if (suffix === '/new') {
+      let body = ''; for await (const part of req) body += part;
+      const request = JSON.parse(body); const row = generalRow(request.conversationId, org, request.title); generalChats.set(row.conversationId, row); return reply(row);
+    }
+    if (suffix === '/archive' || suffix === '/abandon') { state = 4; event('archived', 'Archived synthetic conversation.'); for (const stream of streams) stream.write('event: state\ndata: 4\n\n'); return reply({}); }
+    chatPath = `/chat${suffix}`;
+    if (suffix === '') return reply({ conversationId: url.searchParams.get('conversationId'), state, lastSequence: events.length, events });
+  }
+  if (chatPath.endsWith('/chat/reconcile')) {
+    recoveries++;
+    for (const stream of streams) stream.write(`event: recovery\ndata: ${JSON.stringify({ ConversationId: conversation, State: state, LastSequence: events.length, Events: [], RecoveryLastAttemptUtc: new Date().toISOString(), RecoveryResult: 'Admission confirmed; outcome unknown. Saved history does not provide an exact-message terminal outcome. No message was resent.' })}\n\n`);
+    return reply({});
+  }
+  if (chatPath.includes('/chat/interactions/')) {
+    event('approval_response', 'approve_once', { CallId: 'approval-1' }); state = 1;
+    for (const stream of streams) stream.write('event: state\ndata: 1\n\n'); return reply({});
+  }
   if (url.pathname === '/fixture/netclaw') {
     const requestedMode = url.searchParams.get('mode');
     if (['first-run', 'legacy', 'connected', 'uncertain'].includes(requestedMode)) {
@@ -124,7 +163,8 @@ http.createServer(async (req, res) => {
     netclawPresentationMode = 'connected';
     return reply({ success: true, statusCode: 200, message: 'Authenticated SignalR verified.', sessionProtocol: 'SignalR' });
   }
-  if (url.pathname.endsWith('/chat/stream')) {
+  if (chatPath.endsWith('/chat/stream')) {
+    streamOpens++;
     res.writeHead(200, { 'Content-Type': 'text/event-stream' });
     for (const item of events.filter(x => x.Sequence > Number(url.searchParams.get('cursor') ?? 0))) res.write(`id: ${item.Sequence}\nevent: chat\ndata: ${JSON.stringify(item)}\n\n`);
     res.write(`event: state\ndata: ${state}\n\n`);
@@ -132,12 +172,13 @@ http.createServer(async (req, res) => {
   }
   if (url.pathname.endsWith('/chat-capabilities')) return reply({ enabled: true, reason: null });
   if (url.pathname.endsWith('/chat/history')) return reply([{ conversationId: conversation, state, lastActivityUtc: new Date().toISOString(), createdByUserId: actor }]);
-  if (url.pathname.endsWith('/chat/stop-waiting')) {
+  if (chatPath.endsWith('/chat/stop-waiting')) {
     state = 3; event('delivery_unknown', 'Operator stopped waiting locally.');
     for (const stream of streams) stream.write('event: state\ndata: 3\n\n');
     return reply({ accepted: true });
   }
-  if (url.pathname.endsWith('/chat/messages')) {
+  if (chatPath.endsWith('/chat/messages')) {
+    sends++;
     let body = ''; for await (const part of req) body += part;
     const message = JSON.parse(body);
     if (state !== 0) { res.statusCode = 409; return reply({ error: 'busy' }); }
@@ -145,7 +186,7 @@ http.createServer(async (req, res) => {
     for (const stream of streams) stream.write('event: state\ndata: 1\n\n');
     return reply({ accepted: true });
   }
-  if (url.pathname.endsWith('/chat')) return reply({ conversationId: conversation, state, lastSequence: events.length, events });
+  if (chatPath.endsWith('/chat')) return reply({ conversationId: conversation, state, lastSequence: events.length, events });
   if (url.pathname === '/api/v1/incidents/ux-chat') return reply({ id: 'ux-chat', subject: 'AiAssistant UX fixture', trackingId: 'UX-799', state: 0, priority: 1, categoryIds: [] });
   if (url.pathname.endsWith('/count')) return reply(0);
   if (url.pathname.includes('summary')) return reply({});

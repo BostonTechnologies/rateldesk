@@ -137,13 +137,15 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // Reviewed MCP setup adds options, atomic creation and delivery acknowledgement;
         // policy management adds the named directory and revision-bound deletion preview.
         // Scoped AI workspace initialization adds one authorized organization lookup.
+        // Organization Chat adds thirteen separately authorized directory/capability/history,
+        // conversation CRUD/admission/interaction/recovery and SSE operations.
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(446, operationCount);
+        Assert.Equal(459, operationCount);
 #else
-        Assert.Equal(445, operationCount);
+        Assert.Equal(458, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         foreach (var (path, operationId, tag) in new[]
