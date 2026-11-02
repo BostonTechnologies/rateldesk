@@ -16,7 +16,7 @@ while IFS=$'\t' read -r image latest digest; do
     exit 1
   fi
   updated=("${promoted[@]}" "$latest")
-  if ! actual="$("$docker_bin" buildx imagetools inspect "$latest" --format '{{.Digest}}')"; then
+  if ! actual="$("$docker_bin" buildx imagetools inspect "$latest" --format '{{.Manifest.Digest}}')"; then
     printf 'Partial promotion; already updated: %s. Read-back of %s failed. Re-run this exact tag after investigating.\n' "${updated[*]}" "$latest" >&2
     exit 1
   fi
