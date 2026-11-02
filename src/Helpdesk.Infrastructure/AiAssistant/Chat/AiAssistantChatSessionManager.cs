@@ -177,7 +177,8 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
             if (runtime.Current.Enabled && owners.TryGetValue(conversation, out var attached)
                 && string.Equals(attached.ProfileFingerprint, runtime.Current.ProfileFingerprint, StringComparison.Ordinal)
                 && string.Equals(current.ProviderProfileFingerprint, attached.ProfileFingerprint, StringComparison.Ordinal)
-                && attached.Client.IsConnected && !attached.Retired && !attached.Consumer.IsCompleted && attached.Joined.Task.IsCompletedSuccessfully)
+                && attached.ReconciliationConfirmed && attached.Client.IsConnected && !attached.Retired
+                && !attached.Consumer.IsCompleted && attached.Joined.Task.IsCompletedSuccessfully)
             {
                 await RecordRecoveryResultAsync(conversation, current.ActiveMessageId, attached.ReconciliationConfirmed);
                 return;
@@ -186,6 +187,11 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
             // EnsureSession acknowledgement and SessionJoined output are separate
             // messages. Return only after the history outcome has been committed.
             await owner.Joined.Task.WaitAsync(TimeSpan.FromSeconds(30), ct);
+        }
+        catch (ChatConflictException) when (!ct.IsCancellationRequested && !stopping.IsCancellationRequested)
+        {
+            await RecordRecoveryFailureAsync(conversation, current.ActiveMessageId, ct);
+            throw;
         }
         catch (Exception ex) when (ex is not ChatConflictException && !ct.IsCancellationRequested && !stopping.IsCancellationRequested)
         {

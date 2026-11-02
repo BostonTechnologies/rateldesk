@@ -138,6 +138,46 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
         await Assert.ThrowsAsync<ChatConflictException>(() => fixture.Store(check).AcceptApprovalAsync("incidents", run.Ticket, "call-two", new(run.Conversation, "deny"), "other", default));
     }
 
+    [Fact]
+    public async Task Inconclusive_join_can_refresh_later_history_without_resending()
+    {
+        await using var run = await Run.CreateAsync(fixture);
+        run.Client.FailSend = true; await run.SendAsync();
+        var original = Assert.Single(run.Client.Sent);
+        var inconclusive = new ControlledClient { RecentMessages = JsonSerializer.SerializeToElement(Array.Empty<object>()) };
+        run.Factory.Next = inconclusive;
+        await run.Manager.ReconcileAsync(run.Conversation, default);
+        var refreshed = new ControlledClient { RecentMessages = JsonSerializer.SerializeToElement(new[] { new { role = "user", content = original } }) };
+        run.Factory.Next = refreshed;
+        await run.Manager.ReconcileAsync(run.Conversation, default);
+        Assert.True(inconclusive.Disposed); Assert.Empty(inconclusive.Sent); Assert.Empty(refreshed.Sent);
+        var events = await run.WaitForAsync(items => items.Any(x => x.Type == "recovery_admission_confirmed"));
+        Assert.Single(events, x => x.Type == "recovery_inconclusive");
+        Assert.Single(events, x => x.Type == "recovery_admission_confirmed");
+        await using var db = fixture.Context();
+        Assert.Equal(ChatState.DeliveryUnknown, (await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == run.Conversation)).State);
+    }
+
+    [Fact]
+    public async Task Profile_conflict_finishes_recovery_progress_without_changing_ownership_or_resending()
+    {
+        await using var run = await Run.CreateAsync(fixture);
+        run.Client.FailSend = true; await run.SendAsync();
+        await using (var db = fixture.Context())
+        {
+            await fixture.Store(db).RequestRecoveryAsync("incidents", run.Ticket, run.Conversation, "operator", default);
+            var row = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == run.Conversation);
+            row.ProviderProfileFingerprint = "other-provider"; await db.SaveChangesAsync();
+        }
+        await Assert.ThrowsAsync<ChatConflictException>(() => run.Manager.ReconcileAsync(run.Conversation, default));
+        await using var check = fixture.Context();
+        var conversation = await check.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == run.Conversation);
+        Assert.Equal("other-provider", conversation.ProviderProfileFingerprint);
+        Assert.Equal(ChatState.DeliveryUnknown, conversation.State);
+        Assert.Contains("unavailable", conversation.RecoveryResult);
+        Assert.Single(run.Client.Sent);
+    }
+
     [Theory]
     [InlineData("Final report after remote completion")]
     [InlineData("Partial work before remote interruption")]
