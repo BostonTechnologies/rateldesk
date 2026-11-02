@@ -4,7 +4,7 @@
 
 The first 0.1.3 beta includes organization-scoped Chat, shared fullscreen
 conversation presentation and bounded/redacted trace details from
-[#309](https://github.com/BostonTechnologies/rateldesk/pull/309). The
+[#309](https://github.com/BostonTechnologies/RatelDesk/pull/309). The
 [release notes and testing checklist](../release-notes/0.1.3-beta.1.md) retain
 the native historical recovery limitation and the owner's post-release live
 acceptance scope. Version ownership remains in the root `Directory.Build.props`.
