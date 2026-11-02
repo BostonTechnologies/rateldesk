@@ -25,6 +25,10 @@ if [[ "$*" == *"imagetools create"* && "${FAKE_FAIL_TARGET:-}" != "" && "$*" == 
   exit 42
 fi
 if [[ "$*" == *"imagetools inspect"* ]]; then
+  if [[ "$#" -ne 6 || "$5" != '--format' || "$6" != '{{.Manifest.Digest}}' ]]; then
+    echo 'Unsupported Buildx digest inspection contract.' >&2
+    exit 44
+  fi
   if [[ "${FAKE_INSPECT_FAIL_TARGET:-}" != "" && "$*" == *"$FAKE_INSPECT_FAIL_TARGET"* ]]; then
     exit 43
   fi

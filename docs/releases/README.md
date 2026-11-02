@@ -367,8 +367,13 @@ its `main` ancestry, all release pages, the complete archive contract, and all
 three immutable multi-architecture image digests before it changes any
 `latest` reference. The three registry references are not atomic: if one write
 or read-back fails, the workflow names the references already updated; after
-correcting registry access, rerun the same stable tag rather than moving the
-channel backwards or rebuilding an immutable image.
+correcting registry access or the read-back failure, promote the same stable
+tag rather than moving the channel backwards or rebuilding an immutable image.
+If recovery changes the promotion script, merge and validate that tooling fix,
+then dispatch the protected workflow from the corrected `main` with the same
+published tag. Rerunning the old workflow run retains its old script revision.
+Buildx exposes the inspected registry digest as `{{.Manifest.Digest}}`; the
+promotion regression checks retain this CLI contract and partial-failure paths.
 
 ## 0.1.0 — first usable alpha
 
