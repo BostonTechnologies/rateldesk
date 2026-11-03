@@ -128,9 +128,17 @@ jobs:
 
       - name: Build, measure and exercise both exact archive pairs
         shell: bash
-        run: >-
-          ${{ matrix.python }} tools/size-campaign/client-batch.py run
-          --rid '${{ matrix.rid }}' --sdk '${{ needs.prepare.outputs.sdk }}'
+        run: |
+          archive_bash="$BASH"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            if [[ "${archive_bash,,}" != *.exe ]]; then
+              archive_bash="${archive_bash}.exe"
+            fi
+            archive_bash="$(cygpath -m "$archive_bash")"
+          fi
+          ${{ matrix.python }} tools/size-campaign/client-batch.py run \
+          --rid '${{ matrix.rid }}' --sdk '${{ needs.prepare.outputs.sdk }}' \
+          --bash "$archive_bash" \
           --output "$RUNNER_TEMP/rd-size-client-${{ matrix.rid }}"
 
       - name: Retain reports, logs, discovery snapshots and measured archives
