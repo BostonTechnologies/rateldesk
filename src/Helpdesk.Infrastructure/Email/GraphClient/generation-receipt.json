@@ -111,6 +111,11 @@
     "GraphServiceClient.cs",
     "CustomBatchRequestBuilder.cs"
   ],
-  "wrapperChanges": "Nullable annotations; retain upstream SDK telemetry version 6.8.0 independently of the owning product assembly version",
-  "licenseSha256": "30ab5b020121fb39f4a4126a0e7476586cb9f37497d90f22bbad9edf02567c72"
+  "wrapperChanges": "Nullable annotations; retain upstream SDK telemetry version 6.8.0 independently of the owning product assembly version; normalized whitespace and license line endings",
+  "licenseSha256": "599e06e0340930faaf738422c5d87e08a28b0bd05e90c58a4b4ec6f4d7da3ab9",
+  "upstreamLicenseSha256": "30ab5b020121fb39f4a4126a0e7476586cb9f37497d90f22bbad9edf02567c72",
+  "wrapperSha256": {
+    "GraphServiceClient.cs": "2ca5ae1df33da072f4389dcac109d4d324370a7500e45525b01d918ab90ff44d",
+    "CustomBatchRequestBuilder.cs": "58db1a197dcdc8bc8d680978cc5fdf8dae4d99370f4bbc83959cb96445033a2e"
+  }
 }

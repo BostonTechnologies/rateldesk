@@ -58,4 +58,3 @@ public class CustomBatchRequestBuilder: Core.Requests.BatchRequestBuilder
         return base.PostAsync(batchRequestContentCollection, cancellationToken, batchErrorMappings);
         }
 }
-

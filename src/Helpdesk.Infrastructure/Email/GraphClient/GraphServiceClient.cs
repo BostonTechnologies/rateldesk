@@ -118,7 +118,7 @@ namespace Microsoft.Graph
                 disposable.Dispose();
             }
         }
-        
+
         private static IRequestAdapter InitializeRequestAdapterWithBaseUrl(IRequestAdapter requestAdapter, string baseUrl)
         {
             if (!string.IsNullOrEmpty(baseUrl))
@@ -130,4 +130,3 @@ namespace Microsoft.Graph
         }
     }
 }
-
