@@ -43,8 +43,8 @@ public static class Program
             builder.Services.AddMcpServer()
                 .WithStreamServerTransport(new McpDuplicateArgumentsStream(Console.OpenStandardInput()), Console.OpenStandardOutput())
                 .WithTools(HelpdeskToolDefinitions.Create())
-                .WithResourcesFromAssembly(typeof(HelpdeskResources).Assembly)
-                .WithPromptsFromAssembly(typeof(HelpdeskPrompts).Assembly);
+                .WithResources<HelpdeskResources>()
+                .WithPrompts<HelpdeskPrompts>();
 
             var host = builder.Build();
             host.Services.GetRequiredService<ILoggerFactory>()

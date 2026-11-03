@@ -173,7 +173,7 @@ public sealed partial class Program
             .WithHttpTransport(options => options.Stateless = true)
             .WithTools(HelpdeskToolDefinitions.Create())
             .WithResources(resourceTarget)
-            .WithPromptsFromAssembly(typeof(HelpdeskPrompts).Assembly)
+            .WithPrompts<HelpdeskPrompts>()
             .WithRequestFilters(filters => filters.AddCallToolFilter(next => (context, cancellationToken) =>
             {
                 var services = context.Services ?? throw new InvalidOperationException("MCP request context does not have a service provider.");

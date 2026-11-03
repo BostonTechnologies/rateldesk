@@ -90,3 +90,23 @@ the named campaign PR when tooling changes, or by explicit manual dispatch. It
 does not add a mandatory size matrix to every normal PR. Evidence artifacts are
 retained for 30 days; preserve decision metrics and relevant logs in the campaign
 record before that period expires.
+
+## Closed schema reflection roots
+
+After changing a catalog request DTO or a nested DTO type, build the untrimmed
+stdio application and regenerate its explicit property/enum registry. The SDK
+tool inventories compiled catalog roots and their nested serialized fields; it
+never starts a host or contacts a backend. Use the owning application's complete
+output so the inventory can resolve its dependencies.
+
+```bash
+dotnet build src/Helpdesk.Mcp/Helpdesk.Mcp.csproj -c Release
+python3 tools/size-campaign/generate-schema-types.py \
+  --assembly src/Helpdesk.Mcp/bin/Release/net10.0/Helpdesk.Mcp.Core.dll \
+  --work-directory /tmp/rd-size-schema-types
+```
+
+Review the generated diff and rerun schema/golden and emitted-binary catalog
+acceptance. An unregistered type fails explicitly; new fields must not disappear
+from an optimized catalog. The registry preserves the existing reflection and
+attribute behavior for the complete compiled DTO graph.

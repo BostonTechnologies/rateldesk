@@ -221,7 +221,7 @@ internal static class OperatorRequestSchemas
         else if (type == typeof(DateOnly)) result = new() { ["type"] = "string", ["format"] = "date" };
         else if (type == typeof(TimeOnly)) result = new() { ["type"] = "string", ["maxLength"] = 16, ["format"] = "time-local", ["pattern"] = "^([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(\\.\\d{1,7})?$", ["examples"] = new JsonArray("09:00:00") };
         else if (type == typeof(bool)) result = new() { ["type"] = "boolean" };
-        else if (type.IsEnum) result = new() { ["type"] = "integer", ["enum"] = new JsonArray(Enum.GetValues(type).Cast<object>().Select(value => (JsonNode?)JsonValue.Create(Convert.ToInt32(value))).ToArray()) };
+        else if (type.IsEnum) result = new() { ["type"] = "integer", ["enum"] = new JsonArray(McpSchemaTypes.EnumValues(type).Numbers.Select(value => (JsonNode?)JsonValue.Create(value)).ToArray()) };
         else if (type == typeof(int)) result = new() { ["type"] = "integer", ["minimum"] = int.MinValue, ["maximum"] = int.MaxValue };
         else if (type == typeof(long)) result = new() { ["type"] = "integer", ["minimum"] = long.MinValue, ["maximum"] = long.MaxValue };
         else if (type == typeof(short)) result = new() { ["type"] = "integer", ["minimum"] = short.MinValue, ["maximum"] = short.MaxValue };
@@ -242,7 +242,7 @@ internal static class OperatorRequestSchemas
     private static void AddProperties(JsonObject schema, Type type)
     {
         var nullability = new NullabilityInfoContext();
-        foreach (var property in type.GetProperties(BindingFlags.Public | BindingFlags.Instance).Where(property => property.CanWrite && property.GetCustomAttribute<JsonIgnoreAttribute>() is null))
+        foreach (var property in McpSchemaTypes.GetProperties(type).Where(property => property.CanWrite && property.GetCustomAttribute<JsonIgnoreAttribute>() is null))
         {
             var name = property.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ?? JsonNamingPolicy.CamelCase.ConvertName(property.Name);
             var field = TypeSchema(property.PropertyType);
@@ -255,7 +255,7 @@ internal static class OperatorRequestSchemas
                 field["maximum"] = Convert.ToDecimal(range.Maximum, CultureInfo.InvariantCulture);
             }
             if (property.GetCustomAttribute<AllowedValuesAttribute>() is { } allowed)
-                field["enum"] = new JsonArray(allowed.Values.Select(value => JsonSerializer.SerializeToNode(value)).ToArray());
+                field["enum"] = new JsonArray(allowed.Values.Select(value => JsonSerializer.SerializeToNode(value, McpJsonContext.Default.Object)).ToArray());
             if (property.GetCustomAttribute<RegularExpressionAttribute>() is { } expression) field["pattern"] = expression.Pattern;
             if (property.GetCustomAttribute<DataTypeAttribute>()?.DataType == DataType.Password)
             {
@@ -276,7 +276,7 @@ internal static class OperatorRequestSchemas
     private static void Require(JsonObject schema, string name, bool nonempty = false, bool disallowNull = false)
     {
         var required = schema["required"]!.AsArray();
-        if (!required.Any(item => item!.GetValue<string>() == name)) required.Add(name);
+        if (!required.Any(item => item!.GetValue<string>() == name)) required.Add((JsonNode?)name);
         if (schema["properties"]?[name] is JsonObject field)
         {
             if (disallowNull && field["type"] is JsonArray types) field["type"] = types.First(item => item!.GetValue<string>() != "null")!.DeepClone();

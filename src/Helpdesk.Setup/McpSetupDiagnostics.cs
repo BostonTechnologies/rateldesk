@@ -15,8 +15,7 @@ internal static class McpSetupDiagnostics
     // ceiling truncated valid catalogs. Bound each response to 1MiB and all pages to 4MiB.
     internal const int MaximumResponseCharacters = 1024 * 1024;
     private static readonly HashSet<string> CompatibleVersions = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
-    private static readonly IReadOnlyDictionary<string, JsonElement> ExpectedTools = HelpdeskToolDefinitions.Create()
-        .ToDictionary(tool => tool.ProtocolTool.Name, tool => tool.ProtocolTool.InputSchema, StringComparer.Ordinal);
+    private static readonly IReadOnlyDictionary<string, JsonElement> ExpectedTools = HelpdeskToolDefinitions.CreateInputSchemas();
     private static readonly object Initialize = new { protocolVersion = "2025-11-25", capabilities = new { }, clientInfo = new { name = "rateldesk-setup", version = "1" } };
     private static readonly object AuthStatus = new { name = "helpdesk_auth", arguments = new { operation = "status", confirm = false } };
 

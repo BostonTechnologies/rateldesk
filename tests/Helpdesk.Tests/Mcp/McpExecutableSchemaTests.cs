@@ -11,6 +11,17 @@ namespace Helpdesk.Tests.Mcp;
 public sealed class McpExecutableSchemaTests
 {
     [Fact]
+    public void Setup_schema_catalog_matches_every_registered_tool_without_creating_handlers()
+    {
+        var schemas = HelpdeskToolDefinitions.CreateInputSchemas();
+        var registered = HelpdeskToolDefinitions.Create();
+        Assert.Equal(37, schemas.Count);
+        Assert.Equal(registered.Count, schemas.Count);
+        foreach (var tool in registered)
+            Assert.True(JsonElement.DeepEquals(tool.ProtocolTool.InputSchema, schemas[tool.ProtocolTool.Name]), tool.ProtocolTool.Name);
+    }
+
+    [Fact]
     public void Published_current_catalog_matches_runtime_contracts_and_discovery_schemas()
     {
         var path = Path.Combine(TestEnvironment.RepositoryRoot, "docs", "contracts", "mcp-operation-catalog.json");
