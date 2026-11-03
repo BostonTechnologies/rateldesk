@@ -1,5 +1,12 @@
 # Releases
 
+## 0.1.3-beta.3 candidate — AI workspace corrections
+
+[Candidate notes](../release-notes/0.1.3-beta.3.md) cover actual received tool
+payloads, compact Stop controls, contained header popups and the full-height
+Investigation workspace. Publish from verified merged main through the immutable
+workflow below; owner deployment/native-daemon acceptance follows publication.
+
 ## 0.1.3-beta.2 — immediate Chat and workspace parity
 
 The [beta.2 notes and testing checklist](../release-notes/0.1.3-beta.2.md)

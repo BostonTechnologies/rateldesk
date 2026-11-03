@@ -1,5 +1,5 @@
-.ai-assistant-activity { margin-inline-start: 1rem; border-inline-start: 2px solid var(--mud-palette-divider); padding: .5rem; min-width: 0; }
-.activity-heading { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; text-align: start; width: 100%; background: transparent; color: inherit; border: 0; cursor: pointer; padding: .5rem; }
+.ai-assistant-activity { display: block; align-self: stretch; margin: .5rem 0; border-inline-start: 2px solid var(--mud-palette-divider); padding: .5rem; min-width: 0; text-align: left; }
+.activity-heading { display: flex; justify-content: flex-start; align-items: center; flex-wrap: wrap; gap: .5rem; text-align: left; width: 100%; background: transparent; color: inherit; border: 0; cursor: pointer; padding: .35rem; }
 .activity-heading:focus-visible { outline: 2px solid var(--mud-palette-primary); }
 .approval-heading-status { display: inline-flex; align-items: center; gap: .25rem; color: var(--mud-palette-warning); font-size: .875rem; font-weight: 600; }
 .activity-row { display: flex; align-items: center; gap: .5rem; padding: .5rem; flex-wrap: wrap; font-size: .875rem; }
@@ -10,7 +10,6 @@
 .approval-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
 .approval-actions ::deep .approval-action { min-height: 2.75rem; }
 @media (max-width: 600px) {
-    .ai-assistant-activity { margin-inline-start: .25rem; }
     .approval-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
     .approval-actions ::deep .approval-action { width: 100%; }
 }

@@ -62,7 +62,7 @@ public sealed record ChatActivityMetadata(string DisplayName, string ToolKind, s
     ChatTraceDetails? Details = null);
 public sealed record ChatTraceDetails(int Version = 1, DateTimeOffset? SourceTimestampUtc = null,
     string? Arguments = null, string? Result = null, string? FailureCode = null,
-    bool Redacted = false, bool Truncated = false, string? Measures = null);
+    bool Redacted = false, bool Truncated = false, string? Measures = null, string? ToolName = null);
 public sealed record ChatDelta(Guid ConversationId, string? Text, long AfterSequence = 0);
 public sealed record ChatAbandonRequest(Guid ConversationId, Guid ResolutionId, Guid ExpectedMessageId, bool AcknowledgePossibleDelivery);
 public sealed record ChatStopWaitingRequest(Guid ConversationId, Guid ExpectedMessageId);

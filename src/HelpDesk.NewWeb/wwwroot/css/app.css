@@ -1331,3 +1331,6 @@ h1[tabindex="-1"]:focus
 
 /* Conversation overlays keep the native Mud dialogs/popovers above the focused surface. */
 body.chat-conversation-maximised .mud-popover-open { z-index: 1450 !important; }
+
+/* The AI investigation workspace uses the space below the shared application bar. */
+.helpdesk-main-content:has(> .ai-ops) { height: 100dvh; display: flex; flex-direction: column; padding-bottom: 14px !important; }

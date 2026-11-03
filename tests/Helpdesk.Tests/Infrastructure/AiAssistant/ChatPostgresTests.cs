@@ -262,7 +262,7 @@ public sealed class ChatPostgresTests(ChatPostgresFixture fixture) : IClassFixtu
     }
 
     [Fact]
-    public async Task StreamedDeltasProduceOneCanonicalMessageAndSafeToolMetadata()
+    public async Task StreamedDeltasProduceOneCanonicalMessageAndRetainReceivedToolPayloads()
     {
         await using var services = new ServiceCollection().AddScoped(_ => fixture.Context())
             .AddSingleton(Substitute.For<IDomainEventPublisher>())
@@ -287,8 +287,8 @@ public sealed class ChatPostgresTests(ChatPostgresFixture fixture) : IClassFixtu
                 await manager.SendAsync(conversation, request.ClientMessageId, request.Text, default);
                 await client.EmitAsync(new { type = "text_delta", sessionId = "signalr/test", text = "Hel" });
                 await client.EmitAsync(new { type = "text_delta", sessionId = "signalr/test", text = "lo" });
-                await client.EmitAsync(new { type = "tool_call", sessionId = "signalr/test", toolName = "safe_tool", callId = "call", argumentsJson = "NEVER_PERSIST_SECRET" });
-                await client.EmitAsync(new { type = "tool_result", sessionId = "signalr/test", toolName = "safe_tool", callId = "call", result = "NEVER_PERSIST_SECRET" });
+                await client.EmitAsync(new { type = "tool_call", sessionId = "signalr/test", toolName = "safe_tool", callId = "call", argumentsJson = "{\"Name\":\"example-skill\",\"_rationale\":\"Review the synthetic queue\"}" });
+                await client.EmitAsync(new { type = "tool_result", sessionId = "signalr/test", toolName = "safe_tool", callId = "call", result = "# Example skill\nFull plain-text instructions 😀" });
                 await client.EmitAsync(new { type = "text", sessionId = "signalr/test", text = "Hello" });
                 await client.EmitAsync(new { type = "turn_completed", sessionId = "signalr/test" });
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
@@ -300,7 +300,10 @@ public sealed class ChatPostgresTests(ChatPostgresFixture fixture) : IClassFixtu
                     var events = await db.Set<AiAssistantChatEvent>().Where(x => x.ConversationId == conversation).ToListAsync(timeout.Token);
                     Assert.Equal("Hello", Assert.Single(events, x => x.Type == "assistant").Text);
                     Assert.DoesNotContain(events, x => x.Type == "text_delta");
-                    Assert.DoesNotContain("NEVER_PERSIST_SECRET", JsonSerializer.Serialize(events));
+                    var call = JsonSerializer.Deserialize<ChatActivityMetadata>(Assert.Single(events, x => x.Type == "tool_call").MetadataJson!)!;
+                    var result = JsonSerializer.Deserialize<ChatActivityMetadata>(Assert.Single(events, x => x.Type == "tool_result").MetadataJson!)!;
+                    Assert.Equal("{\"Name\":\"example-skill\",\"_rationale\":\"Review the synthetic queue\"}", call.Details!.Arguments);
+                    Assert.Equal("# Example skill\nFull plain-text instructions 😀", result.Details!.Result);
                     return;
                 }
                 Assert.Fail("The chat feed closed before turn completion.");

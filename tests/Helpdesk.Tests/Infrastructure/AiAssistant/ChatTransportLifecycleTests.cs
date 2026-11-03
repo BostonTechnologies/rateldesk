@@ -108,13 +108,14 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
 
         await run.Manager.RespondAsync(run.Conversation, "call-one", "approve_once", default);
         Assert.Equal((run.Client.SessionId, "call-one", "approve_once"), Assert.Single(run.Client.Responses));
-        await run.Client.EmitAsync(new { type = "tool_result", sessionId = run.Client.SessionId, toolName = "safe_tool", callId = "call-one", result = "RAW_RESULT_MUST_NOT_PERSIST" });
+        await run.Client.EmitAsync(new { type = "tool_result", sessionId = run.Client.SessionId, toolName = "safe_tool", callId = "call-one", result = "Synthetic approved tool result" });
         await run.Client.EmitAsync(new { type = "text", sessionId = run.Client.SessionId, text = "Approved work completed." });
         await run.Client.EmitAsync(new { type = "turn_completed", sessionId = run.Client.SessionId });
         var events = await run.WaitForAsync(events => events.Any(x => x.Type == "turn_completed"));
         Assert.Single(events, x => x.Type == "approval_response");
         Assert.Single(events, x => x.Type == "assistant");
-        Assert.DoesNotContain("RAW_RESULT_MUST_NOT_PERSIST", JsonSerializer.Serialize(events));
+        Assert.Equal("Synthetic approved tool result", JsonSerializer.Deserialize<ChatActivityMetadata>(
+            Assert.Single(events, x => x.Type == "tool_result").MetadataJson!)!.Details!.Result);
         await using var check = fixture.Context();
         Assert.Equal(ChatState.Idle, (await check.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == run.Conversation)).State);
     }
@@ -207,7 +208,7 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
     }
 
     [Fact]
-    public async Task Parallel_native_tool_frames_persist_sanitized_payloads_and_source_times_per_call()
+    public async Task Parallel_native_tool_frames_persist_actual_payloads_and_source_times_per_call()
     {
         await using var run = await Run.CreateAsync(fixture); await run.SendAsync();
         foreach (var call in new[] { "parallel-one", "parallel-two" })
@@ -218,9 +219,13 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
         await run.Client.EmitAsync(new { type = "turn_completed", sessionId = run.Client.SessionId });
         var events = await run.WaitForAsync(x => x.Any(e => e.Type == "turn_completed"));
         var tools = events.Where(x => x.Type is "tool_call" or "tool_result").ToList();
-        Assert.Equal(3, tools.Count); Assert.DoesNotContain("PRIVATE_", JsonSerializer.Serialize(tools));
+        Assert.Equal(3, tools.Count);
+        foreach (var call in tools.Where(x => x.Type == "tool_call"))
+            Assert.Equal("{\"query\":\"safe\",\"password\":\"PRIVATE_ARGUMENT\"}", JsonSerializer.Deserialize<ChatActivityMetadata>(call.MetadataJson!)!.Details!.Arguments);
         var result = JsonSerializer.Deserialize<ChatActivityMetadata>(Assert.Single(tools, x => x.Type == "tool_result").MetadataJson!)!;
-        Assert.Equal("Denied", result.Details!.FailureCode); Assert.True(result.Details.Redacted);
+        Assert.Equal("Denied", result.Details!.FailureCode); Assert.False(result.Details.Redacted);
+        Assert.Equal("{\"value\":2,\"token\":\"PRIVATE_RESULT\"}", result.Details.Result);
+        Assert.Equal("provider/lookup", result.Details.ToolName);
         Assert.NotNull(result.DurationMs); Assert.Equal(DateTimeOffset.FromUnixTimeMilliseconds(1793606401000L), result.Details.SourceTimestampUtc);
         Assert.Equal("parallel-two", Assert.Single(tools, x => x.Type == "tool_result").CallId);
     }

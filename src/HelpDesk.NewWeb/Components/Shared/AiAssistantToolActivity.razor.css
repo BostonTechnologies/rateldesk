@@ -1,4 +1,5 @@
-.tool-summary { display: flex; gap: .5rem; width: 100%; text-align: left; align-items: baseline; border: 0; background: transparent; color: inherit; cursor: pointer; padding: .35rem; font: inherit; font-size: .8rem; }
+.tool-lifecycle { display: block; width: 100%; min-width: 0; text-align: left; }
+.tool-summary { display: grid; grid-template-columns: .75rem minmax(0, 1fr) auto auto; justify-content: flex-start; gap: .5rem; width: 100%; text-align: left; align-items: baseline; border: 0; background: transparent; color: inherit; cursor: pointer; padding: .35rem; font: inherit; font-size: .8rem; }
 .tool-summary span:nth-child(2) { overflow-wrap: anywhere; min-width: 0; }
 .tool-summary time { margin-left: auto; white-space: nowrap; color: var(--mud-palette-text-secondary); }
 .tool-summary small { flex-shrink: 0; white-space: nowrap; color: var(--mud-palette-primary); }

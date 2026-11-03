@@ -249,26 +249,39 @@ and saved context. **Restore conversation** or Escape returns it to its original
 layout; open nested dialogs/popovers take Escape first. Drafts, tool expansion,
 history and the active stream remain mounted. Archived and read-only transcripts
 can also be maximised. Markdown headings, lists, emphasis, inline code and fenced
-code render inertly; Copy uses only the displayed code or sanitized details.
+code render inertly; Copy uses the exact displayed code or recorded tool payload.
 
 Tool rows show provider/name, started/result-received/reported-failure status
 and UTC time. Expand a call for its recorded arguments, result, failure code and
 call ID. Native source time is labelled separately from local receipt time;
 tool durations are locally observed. A result does not prove a business operation
-succeeded. Old events say **Details were not recorded**. Payloads are bounded and
-redacted before storage; unstructured or malformed payloads are omitted for privacy.
-Redaction/truncation labels explain missing detail. **Chat display settings** saves
+succeeded. New tool events retain the exact received tool name, arguments (including
+skill `Name` and `_rationale`), result and reported failure detail through storage,
+API delivery and reload. JSON, plain text and Markdown remain readable and copyable
+as inert text. This trace is available within the existing conversation authorization;
+payloads are not copied into general logs or connection-status responses.
+Old events say **Details were not recorded**. Legacy redaction/truncation indicators
+explain that previously discarded contents cannot be restored. A missing payload on
+a new event is labelled as not supplied by the daemon. **Chat display settings** saves
 per-operator browser preferences in a compact anchored popover across both routes, including compact rows,
 timestamps/identifiers, automatic expansion and optional diagnostic measures.
 Approvals, errors and recovery remain visible regardless of those preferences.
 
 The sidebar's **Netclaw connection** link opens setup for eligible administrators.
-The connection badge opens safe endpoint/configuration and saved-verification
+The right-hand header connection badge opens safe endpoint/configuration and saved-verification
 details, plus current native SignalR session observations when available. A
 connected API update stream is separate from a connected daemon session. Saved
 verification does not prove current connectivity; missing or stale observations
 are shown as unknown. Viewing connection details never starts or resumes a native
-session, and credentials are never included in the response.
+session, and credentials are never included in the connection response. Only a fresh
+native Connected observation gives the badge its green outline, text and status dot.
+Connection and display popups stay within the viewport, including fullscreen and zoom.
+
+Investigations uses one compact toolbar and three small status counters above the
+history/conversation panes. Both panes fill the available height below the app bar;
+the transcript scrolls within its pane and the composer remains reachable. While a
+turn is working, **Stop waiting** is a compact header action. Its warning and
+confirmation appear only when invoked; cancelling keeps the current turn attached.
 
 **Check saved session** never resends a message or approval. Recovery shows its
 last attempt and result. Confirmed admission is separate from completion: the

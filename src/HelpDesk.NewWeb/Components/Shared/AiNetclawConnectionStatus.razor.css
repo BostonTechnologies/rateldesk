@@ -4,9 +4,10 @@
 .netclaw-connection-badge.failed{color:var(--mud-palette-error);border-color:var(--mud-palette-error)}
 .netclaw-connection-badge:hover{background:var(--mud-palette-action-default-hover)}
 .netclaw-connection-badge:focus-visible{outline:2px solid var(--mud-palette-primary);outline-offset:3px}
-.netclaw-connection-details{position:absolute;right:0;top:calc(100% + .5rem);z-index:1300;display:flex;flex-direction:column;gap:.4rem;width:min(400px,calc(100vw - 3rem));padding:.85rem;border:1px solid var(--mud-palette-divider);border-radius:6px;background:var(--mud-palette-surface);color:var(--mud-palette-text-primary);box-shadow:var(--mud-elevation-4);line-height:1.5;overflow-wrap:anywhere;text-align:left}
+.netclaw-connection-details{position:fixed;margin:0;z-index:1300;flex-direction:column;gap:.4rem;width:min(400px,calc(100vw - 3rem));padding:.85rem;border:1px solid var(--mud-palette-divider);border-radius:6px;background:var(--mud-palette-surface);color:var(--mud-palette-text-primary);box-shadow:var(--mud-elevation-4);line-height:1.5;overflow-wrap:anywhere;text-align:left}
 .netclaw-connection-details[hidden]{display:none}
 .netclaw-connection-badge{font:inherit;cursor:pointer;line-height:1.5}
 .netclaw-connection-details{z-index:1500;max-height:70dvh;overflow:auto}
 .netclaw-connection-details a{color:var(--mud-palette-primary);text-decoration:none;margin-top:.35rem}
-@media(max-width:600px){.netclaw-connection-details{position:fixed;left:1rem;right:1rem;top:7rem;width:auto;max-height:calc(100dvh - 9rem)}}
+
+.netclaw-connection-details:popover-open{display:flex}

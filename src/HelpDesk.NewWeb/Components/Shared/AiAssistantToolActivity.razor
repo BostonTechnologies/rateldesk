@@ -22,12 +22,13 @@
                 @if (details is null) { <p>Details were not recorded.</p> }
                 else
                 {
-                    @if (details.Redacted) { <p>Contains redactions / omitted private data.</p> }
-                    @if (details.Truncated) { <p>Payload was truncated.</p> }
+                    @if (details.Redacted) { <p>Previously discarded data cannot be restored. This legacy record contains redactions or omissions.</p> }
+                    @if (details.Truncated) { <p>This recorded payload was truncated; the missing contents are unavailable.</p> }
+                    @if (details.ToolName is { } toolName) { <p>Received tool name: @toolName</p> }
                     @if (details.FailureCode is { } failure) { <p>Reported failure code: @failure</p> }
-                    @if (details.Arguments is { } args) { <AiAssistantCode Text="@args" Label="Sanitized arguments" /> }
-                    @if (details.Result is { } result) { <AiAssistantCode Text="@result" Label="Sanitized result" /> }
-                    @if (details.Arguments is null && details.Result is null && details.FailureCode is null) { <p>No payload details were recorded.</p> }
+                    @if (details.Arguments is { } args) { <AiAssistantCode Text="@args" Label="Arguments" /> }
+                    @if (details.Result is { } result) { <AiAssistantCode Text="@result" Label="Result" /> }
+                    @if (details.Arguments is null && details.Result is null && details.FailureCode is null) { <p>@(details.Version >= 2 ? "No payload was supplied by the daemon for this event." : "No payload details were recorded.")</p> }
                 }
             }
         </div>

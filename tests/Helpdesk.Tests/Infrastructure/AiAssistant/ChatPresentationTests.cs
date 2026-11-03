@@ -42,6 +42,15 @@ public sealed class ChatPresentationTests
     }
 
     [Theory]
+    [InlineData("name")]
+    [InlineData("Name")]
+    public void Skill_summary_recognizes_native_name_casing(string field)
+    {
+        var metadata = ChatActivitySafety.Extract("skill_load", JsonSerializer.Serialize(new Dictionary<string, string> { [field] = "example-skill" }), false, false, null);
+        Assert.Equal("example-skill", metadata.SkillName);
+    }
+
+    [Theory]
     [InlineData("{\"name\":\"/etc/secrets\"}")]
     [InlineData("{\"name\":\"token=secret\"}")]
     [InlineData("{\"name\":\"valid\",\"name\":\"other\"}")]

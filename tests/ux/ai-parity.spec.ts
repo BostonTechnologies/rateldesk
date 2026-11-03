@@ -93,6 +93,7 @@ test(`general chat ${theme} ${width}px starts immediately and names itself on fi
   await page.addInitScript(value => localStorage.setItem('helpdesk.theme.preference', value), theme);
   await page.setViewportSize({ width, height: 950 });
   await page.goto('/auth/development'); await page.goto('/ai/chat');
+  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
   const input = page.getByRole('textbox', { name: 'Message Netclaw' });
   await expect(input).toBeEnabled();
   await expect(page.getByRole('heading', { name: 'What would you like to work on?' })).toBeVisible();
@@ -128,6 +129,7 @@ test(`general chat ${theme} ${width}px starts immediately and names itself on fi
 test('uncertain first-send response retries the same conversation and message', async ({ page, request }) => {
   await request.get(`${fixture}/fixture/reset?mode=empty&loseStartResponse=true`);
   await page.goto('/auth/development'); await page.goto('/ai/chat?organizationId=org');
+  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
   await page.getByRole('textbox', { name: 'Message Netclaw' }).fill('Preserve this first message');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Retry message', exact: true })).toBeVisible();
@@ -141,6 +143,7 @@ test('uncertain first-send response retries the same conversation and message', 
 test('changing organization fences an in-flight first-send response and clears its draft', async ({ page, request }) => {
   await request.get(`${fixture}/fixture/reset?mode=empty&holdStartResponse=true`);
   await page.goto('/auth/development'); await page.goto('/ai/chat?organizationId=org');
+  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
   const input = page.getByRole('textbox', { name: 'Message Netclaw' });
   await input.fill('First request for the previous organization');
   await page.getByRole('button', { name: 'Send', exact: true }).click();

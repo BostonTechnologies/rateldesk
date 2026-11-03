@@ -15,6 +15,12 @@ const investigation = () => ({ id: conversation, organizationId: 'org', title: '
 let netclawPresentationMode = 'first-run';
 let netclawPairResponseStatuses = [];
 const streams = new Set();
+const tracePayloads = {
+  skillArguments: JSON.stringify({ Name: 'example-skill', _rationale: 'Inspect synthetic authentication and token usage' }, null, 2),
+  skillResult: '# Example skill\nFull instructions with `code`, emoji 😀 and <script>window.traceExecuted = true</script>.',
+  discoveryArguments: '{"query":"synthetic tools"}',
+  discoveryResult: JSON.stringify({ tools: Array.from({ length: 300 }, (_, i) => ({ name: `example_tool_${i}`, description: 'Synthetic discovery result retained in full' })) })
+};
 function event(type, text, extra = {}) {
   const value = { Id: crypto.randomUUID(), ConversationId: activeConversation, Sequence: events.length + 1,
     Type: type, Text: text, CreatedUtc: new Date().toISOString(), ...extra };
@@ -32,9 +38,15 @@ function reset(mode = 'completed') {
   for (let i = 0; i < 14; i++) {
     const metadata = { DisplayName: i === 12 ? 'terminal_execute_12_with_a_long_tool_identifier_that_must_wrap_inside_the_activity_panel'
       : `terminal_execute_${i}`, ToolKind: 'mcp', ProviderName: 'Example Provider', Outcome: 'running' };
-    event('tool_call', 'tool: started', { CallId: `call-${i}`, MetadataJson: JSON.stringify(metadata) });
+    if (mode === 'payloads' && i < 2) {
+      Object.assign(metadata, { DisplayName: i === 0 ? 'example-skill' : 'Discover tools', ToolKind: i === 0 ? 'skill' : 'discovery', ProviderName: null,
+        Details: { Version: 2, ToolName: i === 0 ? 'skill_load' : 'search_tools', SourceTimestampUtc: '2026-11-03T08:00:00Z',
+          Arguments: i === 0 ? tracePayloads.skillArguments : tracePayloads.discoveryArguments } });
+    }
+    event('tool_call', 'tool: started' , { CallId: `call-${i}`, MetadataJson: JSON.stringify(metadata) });
     if (mode !== 'processing' || i < 13) event('tool_result', 'tool: finished', { CallId: `call-${i}`,
-      MetadataJson: JSON.stringify({ ...metadata, Outcome: mode === 'failed' && i === 13 ? 'failed' : 'completed', DurationMs: 1851 }) });
+      MetadataJson: JSON.stringify({ ...metadata, Outcome: mode === 'failed' && i === 13 ? 'failed' : 'completed', DurationMs: 1851,
+        ...(mode === 'payloads' && i < 2 ? { Details: { Version: 2, ToolName: metadata.Details.ToolName, SourceTimestampUtc: '2026-11-03T08:00:01Z', Result: i === 0 ? tracePayloads.skillResult : tracePayloads.discoveryResult } } : {}) }) });
   }
   if (mode === 'approval') event('approval_request', 'Allow this tool operation?', { CallId: 'approval-1', OptionsJson: JSON.stringify([{ Key: 'approve_once', Label: 'Allow once' }, { Key: 'deny', Label: 'Deny' }]) });
   if (!['processing', 'approval', 'recovery'].includes(mode)) {
@@ -55,6 +67,7 @@ http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1');
   let chatPath = url.pathname;
   const reply = value => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(value)); };
+  if (url.pathname === '/fixture/trace-payloads') return reply(tracePayloads);
   if (url.pathname === '/fixture/chat-counts') return reply({ streamOpens, sends, recoveries, starts, startAttempts });
   if (url.pathname === '/fixture/release-start') { for (const release of heldStarts.splice(0)) release(); return reply({ ok: true }); }
   if (url.pathname === '/fixture/connection') { connectionMode = url.searchParams.get('mode') || 'verified'; return reply({ mode: connectionMode }); }
