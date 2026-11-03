@@ -124,6 +124,7 @@ jobs:
           path: |
             ${{ runner.temp }}/rd-size/clients-${{ matrix.mode }}/*.json
             ${{ runner.temp }}/rd-size/clients-${{ matrix.mode }}/*.log
+            ${{ runner.temp }}/rd-size/clients-${{ matrix.mode }}/discovery/**
             ${{ runner.temp }}/rd-size/clients-${{ matrix.mode }}/symbols/**
           if-no-files-found: error
           retention-days: 30

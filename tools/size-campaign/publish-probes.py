@@ -7,6 +7,7 @@ import argparse
 from collections import Counter
 import datetime as dt
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tarfile
 import time
 
 from inventory import inventory_archive, inventory_directory
@@ -112,18 +114,21 @@ def base_command(target: str, mode: str, directory: Path, metadata: dict) -> tup
                "--self-contained", str(self_contained).lower(), "--output", str(directory),
                "--verbosity", "minimal", "-p:Version=" + metadata["version"],
                "-p:SourceRevisionId=" + metadata["sourceRevision"],
-               "-p:BuildTimestamp=" + metadata["startedAt"], "-p:ContinuousIntegrationBuild=true"]
+               "-p:BuildTimestamp=" + metadata.get("buildTimestamp", metadata["startedAt"]),
+               "-p:ContinuousIntegrationBuild=true", "-p:UseSharedCompilation=false", "-m:1", "-nr:false",
+               "-p:PublishTrimmed=" + str(mode in ("trimmed", "aot")).lower(),
+               "-p:PublishAot=" + str(mode == "aot").lower(),
+               "-p:PublishSingleFile=false", "-p:PublishReadyToRun=false"]
     if rid:
         command += ["--runtime", rid]
     if not self_contained:
         command.append("-p:UseAppHost=false")
     if mode == "portable-symbols":
         command += ["-p:DebugType=portable", "-p:DebugSymbols=true"]
-    elif mode == "trimmed":
-        command += ["-p:PublishTrimmed=true", "-p:TrimmerSingleWarn=false",
-                    "-p:SuppressTrimAnalysisWarnings=false"]
-    elif mode == "aot":
-        command += ["-p:PublishAot=true", "-p:TrimmerSingleWarn=false",
+    else:
+        command += ["-p:DebugType=embedded", "-p:DebugSymbols=true"]
+    if mode in ("trimmed", "aot"):
+        command += ["-p:TrimmerSingleWarn=false",
                     "-p:SuppressTrimAnalysisWarnings=false"]
     elif mode == "analysis":
         command += ["-p:EnableTrimAnalyzer=true", "-p:EnableAotAnalyzer=true",
@@ -132,6 +137,39 @@ def base_command(target: str, mode: str, directory: Path, metadata: dict) -> tup
     deployment = "native-aot" if mode == "aot" else ("self-contained" if self_contained else "framework-dependent")
     return command, {"runtimeIdentifier": rid, "deploymentMode": deployment,
                      "shippingContainerEquivalent": False if self_contained and not client else None}
+
+
+def capture_archived_catalog(archive: Path, evidence: Path) -> dict:
+    spec = importlib.util.spec_from_file_location("publish_probe_discovery", Path(__file__).with_name("client-discovery.py"))
+    discovery = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(discovery)
+    directory = evidence / "discovery"
+    directory.mkdir()
+    result = {"status": "FAIL", "archiveSha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+              "scope": "Full backend-free archived stdio discovery only; not complete profile acceptance"}
+    with discovery.backend_tripwire() as tripwire:
+        try:
+            extracted = evidence / "work" / "discovery-extracted"
+            extracted.mkdir()
+            with tarfile.open(archive, "r:gz") as stream:
+                stream.extractall(extracted, filter="data")
+            roots = list(extracted.iterdir())
+            if len(roots) != 1 or not roots[0].is_dir():
+                raise ValueError("Catalog archive must contain exactly one package root")
+            files = {path.relative_to(roots[0]).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+                     for path in sorted(roots[0].rglob("*")) if path.is_file()}
+            write_json(directory / "executed-files.json", files)
+            result["executedFileManifestSha256"] = hashlib.sha256((directory / "executed-files.json").read_bytes()).hexdigest()
+            snapshot = discovery.capture_discovery(roots[0] / "rateldesk-mcp", directory, tripwire["origin"])
+            if tripwire["requests"]:
+                raise discovery.DiscoveryFailure("Catalog discovery contacted its backend")
+            result.update(status="PASS", counts={key: len(snapshot[key]) for key in ("tools", "resources", "resourceTemplates", "prompts")},
+                          snapshotSha256=hashlib.sha256((directory / "snapshot.json").read_bytes()).hexdigest())
+        except Exception as error:
+            result["error"] = str(error)
+        result["backendRequests"] = tripwire["requests"]
+    write_json(directory / "result.json", result)
+    return result
 
 
 def make_package(target: str, publish: Path, work: Path, evidence: Path, metadata: dict, mode: str) -> dict:
@@ -188,6 +226,8 @@ def probe(target: str, mode: str, work: Path, evidence: Path, metadata: dict) ->
             if result["diagnostics"]["uniqueDiagnosticCount"] else "PUBLISHED_NO_IL_DIAGNOSTICS")
         if target in ("cli", "stdio"):
             value["package"] = make_package(target, directory, work, evidence, metadata, mode)
+            if target == "stdio" and value["package"]["status"] == "PACKAGED":
+                value["catalogDiscovery"] = capture_archived_catalog(work / "archives" / value["package"]["name"], evidence)
         elif mode == "portable-symbols":
             # Host-side measurement only; these files are retained as diagnostics,
             # and no changed container is built or promoted by this probe.
@@ -227,6 +267,8 @@ def main() -> int:
                 "version": baseline["release"]["version"], "platform": platform.platform(),
                 "machine": platform.machine(), "runId": os.environ.get("GITHUB_RUN_ID"),
                 "startedAt": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+    epoch = int(subprocess.check_output(["git", "show", "-s", "--format=%ct", source], cwd=ROOT, text=True))
+    metadata["buildTimestamp"] = dt.datetime.fromtimestamp(epoch, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     sdk = run(["dotnet", "--info"], evidence / "sdk.log", timeout=30)
     report = {**metadata, "mode": args.mode, "sdk": sdk, "results": [],
               "runtimeAcceptance": "NOT_RUN", "releaseEligible": False}
@@ -267,7 +309,8 @@ def main() -> int:
           "releaseEligible": False}), flush=True)
     baseline_failed = args.mode == "baseline" and (
         any(r["publishStatus"] != "PUBLISHED" for r in report["results"]) or
-        (args.target == "clients" and report["runtimeAcceptance"] != "SMOKE_PASSED"))
+        (args.target == "clients" and (report["runtimeAcceptance"] != "SMOKE_PASSED" or
+         any(r["target"] == "stdio" and r.get("catalogDiscovery", {}).get("status") != "PASS" for r in report["results"]))))
     return 1 if baseline_failed else 0
 
 

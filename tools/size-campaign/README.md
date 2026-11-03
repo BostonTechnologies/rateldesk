@@ -85,6 +85,13 @@ discovery means the experiment produced evidence. All initial publish reports us
 `releaseEligible: false`; a smoke pass does not establish full functional or
 trim/AOT acceptance. Unresolved IL2xxx/IL3xxx diagnostics remain explicit.
 
+Profiles use the source commit's timestamp for embedded build metadata and record
+the separate run start time. Trim/AOT, single-file, ReadyToRun and symbol settings
+are explicit. Each packaged stdio profile is extracted again for complete
+backend-free discovery. The retained `discovery/` files bind the full executed
+file manifest and protocol streams to the archive hash, including failed process
+results. A discovery pass alone does not accept an optimized profile.
+
 The separate [campaign workflow](../../.github/workflows/size-campaign.yml) runs on
 the named campaign PR when tooling changes, or by explicit manual dispatch. It
 does not add a mandatory size matrix to every normal PR. Evidence artifacts are
