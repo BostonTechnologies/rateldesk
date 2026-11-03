@@ -11,12 +11,17 @@ The ordinary release workflow and production project settings are unchanged.
 ## Read-only inventory
 
 Use Python 3, GitHub CLI and the repository's existing authorized connection.
-The release inventory needs read access to the pinned release, which was a draft
-when recorded. The token is supplied through the CLI's normal environment;
-never include it in command arguments or evidence.
+Direct release inventory needs read access to the pinned release. GitHub's
+read-only workflow token could not retrieve the draft beta.3 release, so the
+hosted campaign explicitly selects its original release workflow artifact instead.
+This mode needs `actions: read` and validates the pinned artifact ID, source run,
+repository, size and SHA-256 before extracting the exact flat member set.
+The token is supplied through the CLI's normal environment; never include it in
+command arguments or evidence.
 
 ```bash
 python3 tools/size-campaign/inventory.py release \
+  --release-source workflow-artifact \
   --baseline tools/size-campaign/baseline-0.1.3-beta.3.json \
   --output /tmp/rd-size/release
 
@@ -24,6 +29,17 @@ python3 tools/size-campaign/inventory.py images \
   --baseline tools/size-campaign/baseline-0.1.3-beta.3.json \
   --output /tmp/rd-size/images
 ```
+
+Workflow-artifact mode verifies the seven original archive files and SHA256SUMS.
+It reconstructs the final manifest and detached checksum from the provisional
+manifest and pinned image digests, requiring exact matches to both final published
+metadata hashes. Each receipt labels those two files `RECONSTRUCTED`; they are
+never described as downloaded. The original artifact expires on its own retention
+schedule, and an expired or changed artifact fails verification. Omitting
+`--release-source` selects direct download of all ten release files instead.
+
+The initial failed direct acquisition and its independently recovered evidence
+remain recorded in [#319](https://github.com/BostonTechnologies/RatelDesk/issues/319).
 
 Images require Docker and Buildx. The image tool pulls exact platform digests and
 copies `/app` from stopped containers; it does not start an application. It records

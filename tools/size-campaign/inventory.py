@@ -10,6 +10,7 @@ import os
 from pathlib import Path, PurePosixPath
 import platform
 import re
+import shutil
 import stat
 import subprocess
 import tarfile
@@ -214,6 +215,12 @@ def validate_baseline(baseline):
                        "ghcr.io/bostontechnologies/rateldesk-mcp-http"}
     require(len(images) == 3 and {i["name"] for i in images} == expected_images, "Baseline image set mismatch")
     require(all(valid_digest(i["digest"]) for i in images), "Invalid image digest")
+    if "workflowArtifact" in baseline:
+        artifact = baseline["workflowArtifact"]
+        for field in ("id", "runId", "sizeBytes"):
+            require(type(artifact[field]) is int and artifact[field] > 0, f"Invalid workflow artifact {field}")
+        require(artifact["name"] == "release-assets", "Unexpected workflow artifact name")
+        require(valid_digest("sha256:" + artifact["sha256"]), "Invalid workflow artifact digest")
 
 
 def verify_file(path, asset):
@@ -272,6 +279,7 @@ def verify_release_metadata(metadata, baseline):
 
 
 def release_inventory(baseline, output, report):
+    report["acquisition"] = {"source": "release-assets", "finalMetadata": "NOT_VERIFIED"}
     assets_dir = output / "assets"
     assets_dir.mkdir(exist_ok=True)
     repository = baseline["repository"]
@@ -308,9 +316,110 @@ def release_inventory(baseline, output, report):
     try:
         require(all(item["status"] == "PASS" for item in report["assets"]), "Some pinned release assets were not verified")
         report["documentVerification"] = verify_release_documents(assets_dir, baseline)
+        report["acquisition"]["finalMetadata"] = "DOWNLOADED_HASH_MATCH"
     except (ValueError, OSError, KeyError, TypeError) as error:
         report["documentVerification"] = {"status": "FAIL", "error": str(error)}
         report["errors"].append(f"Release documents: {error}")
+
+
+def verify_workflow_artifact_metadata(metadata, baseline):
+    expected = baseline["workflowArtifact"]
+    require(metadata["id"] == expected["id"] and metadata["name"] == expected["name"],
+            "Workflow artifact identity mismatch")
+    require(metadata["size_in_bytes"] == expected["sizeBytes"], "Workflow artifact size mismatch")
+    require(metadata["digest"] == "sha256:" + expected["sha256"], "Workflow artifact digest mismatch")
+    require(metadata["expired"] is False, "Pinned workflow artifact has expired")
+    run = metadata["workflow_run"]
+    require(run["id"] == expected["runId"] and run["head_sha"] == baseline["release"]["sourceRevision"],
+            "Workflow artifact source/run mismatch")
+    require(run["repository_id"] == run["head_repository_id"], "Workflow artifact came from a fork")
+
+
+def reconstruct_release_metadata(provisional, baseline):
+    """Reproduce the pinned finalizer's bytes; never label them as downloaded."""
+    release = baseline["release"]
+    require(set(provisional) == {"version", "sourceRevision", "supportedRids", "assets", "containers"},
+            "Unexpected provisional manifest fields")
+    for field in ("version", "sourceRevision"):
+        require(provisional[field] == release[field], f"Provisional manifest {field} mismatch")
+    archives = {a["name"]: a["sha256"] for a in baseline["assets"]
+                if a["name"] in expected_archives(release["version"])}
+    require(provisional["assets"] == archives, "Provisional manifest archive mismatch")
+    require(sorted(provisional["supportedRids"]) == ["linux-arm64", "linux-x64", "win-x64"],
+            "Provisional manifest RID mismatch")
+    images = {item["name"] + ":" + release["version"]: item["digest"] for item in baseline["images"]}
+    require(len(provisional["containers"]) == 3 and set(provisional["containers"]) == set(images),
+            "Provisional manifest image mismatch")
+    final = {"version": provisional["version"], "tag": release["tag"],
+             "sourceRevision": provisional["sourceRevision"], "supportedRids": provisional["supportedRids"],
+             "assets": provisional["assets"],
+             "containers": [{"image": name, "digest": images[name]} for name in provisional["containers"]]}
+    return (json.dumps(final, indent=2) + "\n").encode("utf-8")
+
+
+def extract_workflow_assets(archive_path, baseline, directory):
+    """Extract only the exact flat, size-bound artifact members after ZIP hash verification."""
+    verify_file(archive_path, baseline["workflowArtifact"])
+    wanted = expected_archives(baseline["release"]["version"]) | {"SHA256SUMS", "release-manifest.json"}
+    expected = {item["name"]: item for item in baseline["assets"]}
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(archive_path) as archive:
+        members = archive.infolist()
+        names = [safe_member(member.filename) for member in members]
+        require(len(names) == len(wanted) and set(names) == wanted, "Workflow artifact member set mismatch")
+        for member, name in zip(members, names):
+            require(member.filename == name and "/" not in name and not member.is_dir()
+                    and stat.S_IFMT(member.external_attr >> 16) in (0, stat.S_IFREG),
+                    "Workflow artifact members must be flat regular files")
+            require(0 < member.file_size <= 65536 if name == "release-manifest.json"
+                    else member.file_size == expected[name]["sizeBytes"],
+                    f"Workflow artifact member size mismatch: {name}")
+        for member, name in zip(members, names):
+            with archive.open(member) as source, (directory / name).open("wb") as destination:
+                shutil.copyfileobj(source, destination, 1024 * 1024)
+            if name != "release-manifest.json":
+                verify_file(directory / name, expected[name])
+    provisional_path = directory / "release-manifest.json"
+    provisional = read_json(provisional_path.read_bytes())
+    provisional_digest = digest_file(provisional_path)
+    final = reconstruct_release_metadata(provisional, baseline)
+    provisional_path.write_bytes(final)
+    verify_file(provisional_path, expected["release-manifest.json"])
+    checksum_path = directory / "release-manifest.json.sha256"
+    checksum_path.write_bytes((hashlib.sha256(final).hexdigest() + "  release-manifest.json\n").encode("utf-8"))
+    verify_file(checksum_path, expected[checksum_path.name])
+    return provisional_digest
+
+
+def workflow_release_inventory(baseline, output, report):
+    expected = baseline["workflowArtifact"]
+    repository = baseline["repository"]
+    report["acquisition"] = {"source": "original-release-workflow-artifact", "runId": expected["runId"],
+                             "artifactId": expected["id"], "artifactSha256": expected["sha256"],
+                             "finalMetadata": "NOT_VERIFIED", "directReleaseRetrieval": "NOT_REQUESTED"}
+    report["metadataStatus"] = "NOT_VERIFIED"
+    report["assets"] = []
+    metadata = read_json(command(["gh", "api", f"repos/{repository}/actions/artifacts/{expected['id']}"], timeout=60))
+    verify_workflow_artifact_metadata(metadata, baseline)
+    report["metadataStatus"] = "PINNED_WORKFLOW_METADATA"
+    with tempfile.TemporaryDirectory(prefix="rd-size-reference-") as temporary:
+        archive = Path(temporary) / "release-assets.zip"
+        command(["gh", "api", f"repos/{repository}/actions/artifacts/{expected['id']}/zip"],
+                timeout=600, destination=archive)
+        assets_dir = output / "assets"
+        report["acquisition"]["provisionalManifestSha256"] = extract_workflow_assets(archive, baseline, assets_dir)
+    report["acquisition"]["finalMetadata"] = "RECONSTRUCTED_HASH_MATCH"
+    for asset in baseline["assets"]:
+        record = {"name": asset["name"], "id": asset["id"], "status": "PASS",
+                  "provenance": "RECONSTRUCTED" if asset["name"].startswith("release-manifest.json") else "DOWNLOADED_WORKFLOW_ARTIFACT"}
+        record.update(verify_file(assets_dir / asset["name"], asset))
+        if asset["name"].endswith((".zip", ".tar.gz")):
+            record["inventory"] = inventory_archive(assets_dir / asset["name"])
+        report["assets"].append(record)
+        write_json(output / "release-inventory.json", report)
+    report["documentVerification"] = verify_release_documents(assets_dir, baseline)
+    report["documentVerification"]["finalMetadataProvenance"] = "RECONSTRUCTED_HASH_MATCH"
 
 
 def verify_raw_manifest(raw, digest, expected_size=None):
@@ -447,6 +556,8 @@ def main(argv=None):
     parser.add_argument("operation", choices=("release", "images"))
     parser.add_argument("--baseline", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--release-source", choices=("release", "workflow-artifact"), default="release",
+                        help="Explicit acquisition source; workflow mode verifies original archives and reconstructed final metadata")
     args = parser.parse_args(argv)
     args.output.mkdir(parents=True, exist_ok=True)
     report = {"schemaVersion": 1, "status": "RUNNING", "operation": args.operation,
@@ -459,8 +570,14 @@ def main(argv=None):
         validate_baseline(baseline)
         report.update({"campaignId": baseline["campaignId"], "baselineSha256": digest_file(args.baseline),
                        "baselineRelease": baseline["release"]})
-        (release_inventory if args.operation == "release" else image_inventory)(baseline, args.output, report)
-    except (ValueError, OSError, KeyError, TypeError) as error:
+        if args.operation == "images":
+            require(args.release_source == "release", "--release-source applies only to release inventory")
+            image_inventory(baseline, args.output, report)
+        elif args.release_source == "workflow-artifact":
+            workflow_release_inventory(baseline, args.output, report)
+        else:
+            release_inventory(baseline, args.output, report)
+    except (ValueError, OSError, KeyError, TypeError, zipfile.BadZipFile, tarfile.TarError) as error:
         report["errors"].append(str(error))
     report["status"] = "FAIL" if report["errors"] else "PASS"
     report["completedAt"] = datetime.now(timezone.utc).isoformat()

@@ -85,9 +85,13 @@ Native AOT symbol output is also included explicitly in the inventory.
 The separate [workflow](../../.github/workflows/size-campaign.yml) and
 [tool guide](../../tools/size-campaign/README.md) provide:
 
-1. Downloaded-byte verification of all ten reference assets, exact manifest and
-   checksum reconciliation, member/file inventories for all seven archives, and
-   a fresh Linux x64 archive smoke check.
+1. Exact manifest/checksum reconciliation, member/file inventories for all seven
+   archives, and a fresh Linux x64 archive smoke check. Direct release mode downloads
+   all ten files. The hosted workflow selects the pinned original release workflow
+   artifact because read-only direct access to the draft was unavailable; it verifies
+   the seven original archives and SHA256SUMS, then reconstructs the two final metadata
+   files and requires their exact pinned hashes. Receipts distinguish reconstructed
+   metadata from downloaded bytes.
 2. Exact OCI index/platform verification and compressed layer, image and `/app`
    inventories for all three image families on both architectures. Inspection
    uses stopped containers and does not establish native runtime acceptance.
@@ -122,14 +126,42 @@ expanded bytes, registry layer transfer with Docker's uncompressed image size,
 or a glibc self-contained publish with a musl framework-dependent image without
 labeling the difference. Report symbols and shared layers separately.
 
+## Initial measured findings
+
+[Discovery run 41677597295](https://github.com/BostonTechnologies/RatelDesk/actions/runs/41677597295)
+used source `2da1979dbab491f3f45d01fff6b27e3efd9e57f2` and SDK 10.0.403. All 22 publish
+commands completed; compatibility and runtime acceptance remained separate:
+
+- API RID-specific framework-dependent output fell from 126,783,669 to 94,266,996
+  bytes (25.647%), predominantly by selecting the correct SQLite native asset.
+- CLI/stdio Linux x64 trimming reduced archive bytes by 61.275%/61.056%, but both
+  optimized profiles failed the paired malformed-stdio-configuration assertion.
+  The baseline and portable-symbol pairs passed the existing archive smoke.
+- AOT archives retain 39,438,008/42,502,736 bytes of debug files; compare consistent
+  symbol policies before ranking AOT against trimming.
+- Web's Monaco content contributes 22,454,657 bytes; RID-specific Web/HTTP publish
+  changes provide no meaningful saving. HTTP needs a complete-image comparison.
+- All six image/platform baselines and all seven original archive hashes were
+  verified. The initial workflow's direct draft acquisition failed; its receipt
+  remains historical evidence. The explicit original-workflow mode makes the
+  independent recovery reproducible with read-only permissions.
+
+Exact measurements, interpretation and follow-up tests are retained in #319 and
+the target issues linked above. The original normal PR validation passed 3,601
+tests with eight skips; its separate HTTP/provider job passed 437 tests. These
+source tests do not replace optimized executable or container acceptance.
+
 ## Execution sequence and closure
 
-Complete baseline/dependency attribution, process CLI Linux x64 and its two native
-platform follow-ups, then stdio and its follow-ups. Deployment packaging can run
-independently. Continue with HTTP MCP, Web and API image improvements, retaining
-separate outcomes for every architecture. A supported improvement can finish
-while an unsuitable AOT technique receives a reasoned rejected/deferred or
-not-applicable disposition.
+The measured order starts with API RID-specific framework-dependent publishing
+(#330), including native amd64/arm64 and SQLite/PostgreSQL candidate acceptance.
+Then process shared dependencies and the Linux x64 CLI/stdio pilots, followed by
+their native ARM64/Windows gates. Deployment packaging and supported Web asset
+work can proceed independently; HTTP trim/AOT follows its shared prerequisites.
+Retain separate outcomes for every architecture. Merge reasonable tested batches
+individually, keeping unresolved research in its owning issue. A supported
+improvement can finish while an unsuitable AOT technique receives an evidenced
+rejected/deferred or not-applicable disposition.
 
 Each accepted change needs its owning published-candidate tests and normal
 repository checks. Keep standalone clients, setup commands, full MCP discovery,

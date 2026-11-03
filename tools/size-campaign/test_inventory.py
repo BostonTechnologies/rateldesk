@@ -2,6 +2,7 @@
 """Offline regressions for inventory integrity and non-executing image inspection."""
 
 import copy
+from contextlib import nullcontext
 import hashlib
 import io
 import json
@@ -216,6 +217,105 @@ class InventoryTests(unittest.TestCase):
             report = json.loads((root / "evidence" / "release-inventory.json").read_text())
             self.assertEqual("FAIL", report["status"])
             self.assertTrue(report["errors"])
+
+    def provisional_manifest(self):
+        release = BASELINE["release"]
+        return {"version": release["version"], "sourceRevision": release["sourceRevision"],
+                "supportedRids": ["linux-x64", "linux-arm64", "win-x64"],
+                "assets": {a["name"]: a["sha256"] for a in BASELINE["assets"]
+                           if a["name"] in inventory.expected_archives(release["version"])},
+                "containers": [f"ghcr.io/bostontechnologies/rateldesk-{name}:{release['version']}"
+                               for name in ("web", "api", "mcp-http")]}
+
+    def test_finalizer_reconstruction_matches_independently_pinned_release_hashes(self):
+        final = inventory.reconstruct_release_metadata(self.provisional_manifest(), BASELINE)
+        pinned = {a["name"]: a for a in BASELINE["assets"]}
+        self.assertEqual(pinned["release-manifest.json"]["sizeBytes"], len(final))
+        digest = hashlib.sha256(final).hexdigest()
+        self.assertEqual(pinned["release-manifest.json"]["sha256"], digest)
+        detached = (digest + "  release-manifest.json\n").encode("utf-8")
+        self.assertEqual(pinned["release-manifest.json.sha256"]["sha256"], hashlib.sha256(detached).hexdigest())
+
+    def test_reconstruction_rejects_unexpected_provisional_content(self):
+        for field, value in (("sourceRevision", "b" * 40), ("version", "0.0.0"),
+                             ("assets", {}), ("supportedRids", ["linux-x64"]),
+                             ("containers", ["untrusted"] * 3), ("unexpected", "value")):
+            with self.subTest(field=field), self.assertRaises(inventory.InventoryError):
+                manifest = self.provisional_manifest()
+                manifest[field] = value
+                inventory.reconstruct_release_metadata(manifest, BASELINE)
+
+    def artifact_metadata(self):
+        expected = BASELINE["workflowArtifact"]
+        return {"id": expected["id"], "name": expected["name"], "size_in_bytes": expected["sizeBytes"],
+                "digest": "sha256:" + expected["sha256"], "expired": False,
+                "workflow_run": {"id": expected["runId"], "head_sha": BASELINE["release"]["sourceRevision"],
+                                 "repository_id": 1, "head_repository_id": 1}}
+
+    def test_workflow_artifact_requires_pinned_identity_source_digest_and_live_bytes(self):
+        metadata = self.artifact_metadata()
+        inventory.verify_workflow_artifact_metadata(metadata, BASELINE)
+        changes = [("id", 1), ("name", "other"), ("size_in_bytes", 1), ("digest", DIGEST_A), ("expired", True)]
+        for field, value in changes:
+            with self.subTest(field=field), self.assertRaises(inventory.InventoryError):
+                changed = copy.deepcopy(metadata)
+                changed[field] = value
+                inventory.verify_workflow_artifact_metadata(changed, BASELINE)
+        for field, value in (("id", 1), ("head_sha", "b" * 40), ("head_repository_id", 2)):
+            with self.subTest(field=field), self.assertRaises(inventory.InventoryError):
+                changed = copy.deepcopy(metadata)
+                changed["workflow_run"][field] = value
+                inventory.verify_workflow_artifact_metadata(changed, BASELINE)
+
+    def test_workflow_zip_is_hash_verified_before_any_extraction(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive = root / "artifact.zip"
+            archive.write_bytes(b"unexpected content")
+            with self.assertRaises(inventory.InventoryError):
+                inventory.extract_workflow_assets(archive, BASELINE, root / "assets")
+            self.assertFalse((root / "assets").exists())
+
+    def test_workflow_zip_rejects_traversal_unexpected_members_and_symlinks(self):
+        for kind in ("traversal", "extra", "symlink", "duplicate"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                baseline = copy.deepcopy(BASELINE)
+                members = {a["name"]: b"" for a in baseline["assets"] if a["name"] != "release-manifest.json.sha256"}
+                for asset in baseline["assets"]:
+                    if asset["name"] in members:
+                        asset.update(sizeBytes=0, sha256=hashlib.sha256(b"").hexdigest())
+                members["release-manifest.json"] = json.dumps(self.provisional_manifest()).encode("utf-8")
+                archive_path = root / "artifact.zip"
+                with zipfile.ZipFile(archive_path, "w") as archive:
+                    for name, payload in members.items():
+                        member = zipfile.ZipInfo(name)
+                        if kind == "symlink" and name == "SHA256SUMS":
+                            member.create_system = 3
+                            member.external_attr = (stat.S_IFLNK | 0o777) << 16
+                        archive.writestr(member, payload)
+                    if kind != "symlink":
+                        name = "../outside" if kind == "traversal" else "SHA256SUMS" if kind == "duplicate" else "extra"
+                        with self.assertWarns(UserWarning) if kind == "duplicate" else nullcontext():
+                            archive.writestr(name, b"extra")
+                baseline["workflowArtifact"].update(sizeBytes=archive_path.stat().st_size, sha256=inventory.digest_file(archive_path))
+                with self.assertRaises(inventory.InventoryError):
+                    inventory.extract_workflow_assets(archive_path, baseline, root / "assets")
+                self.assertFalse((root / "outside").exists())
+
+    def test_failed_artifact_access_does_not_claim_reconstructed_metadata_passed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            baseline_path = root / "baseline.json"
+            baseline_path.write_text(json.dumps(BASELINE))
+            with patch.object(inventory, "provenance", return_value={}), \
+                 patch.object(inventory, "command", side_effect=inventory.InventoryError("Read unavailable")):
+                self.assertEqual(1, inventory.main(["release", "--release-source", "workflow-artifact",
+                                                  "--baseline", str(baseline_path), "--output", str(root / "evidence")]))
+            report = json.loads((root / "evidence" / "release-inventory.json").read_text())
+            self.assertEqual("FAIL", report["status"])
+            self.assertEqual("NOT_VERIFIED", report["acquisition"]["finalMetadata"])
+            self.assertEqual([], report["assets"])
 
 
 if __name__ == "__main__":

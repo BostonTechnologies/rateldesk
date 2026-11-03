@@ -86,5 +86,12 @@
       "name": "ghcr.io/bostontechnologies/rateldesk-mcp-http",
       "digest": "sha256:5c99ab63df71bc8df8b7c94888654213185020ca7019478f96d7e66ec379795a"
     }
-  ]
+  ],
+  "workflowArtifact": {
+    "id": 13224668601,
+    "runId": 41618847344,
+    "name": "release-assets",
+    "sizeBytes": 378939497,
+    "sha256": "c6674f4810ced66dd0580d1eca95c4dc5ac3b6397b7c9f6338bb7b29efa1f5c1"
+  }
 }
