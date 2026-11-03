@@ -13,6 +13,7 @@ EXPOSE 8222 8222
 # 2) Build
 FROM mcr.microsoft.com/dotnet/sdk:10.0.402-noble AS build
 WORKDIR /src
+ARG TARGETARCH
 ARG BUILD_CONFIGURATION=Release
 ARG VERSION=0.0.0-local
 ARG SOURCE_REVISION_ID=unknown
@@ -30,7 +31,8 @@ COPY src/Helpdesk.ServiceDefaults/*.csproj src/Helpdesk.ServiceDefaults/
 COPY src/Helpdesk.AgentClient/*.csproj     src/Helpdesk.AgentClient/
 COPY src/Helpdesk.Mcp.Core/*.csproj        src/Helpdesk.Mcp.Core/
 
-RUN dotnet restore src/Helpdesk.API/Helpdesk.API.csproj
+RUN test -n "$TARGETARCH" \
+ && dotnet restore src/Helpdesk.API/Helpdesk.API.csproj --arch "$TARGETARCH" -p:SelfContained=false
 
 # Copy only the source projects included in the API dependency graph.
 COPY src/Helpdesk.API/             src/Helpdesk.API/
@@ -49,6 +51,7 @@ COPY src/HelpDesk.NewWeb/Services/WebGatewayOptions.cs src/HelpDesk.NewWeb/Servi
 RUN mkdir /out \
  && dotnet publish src/Helpdesk.API/Helpdesk.API.csproj \
       -c $BUILD_CONFIGURATION -o /out --no-restore -v:n \
+      --arch "$TARGETARCH" --self-contained false \
       -p:UseAppHost=false \
       -p:Version=$VERSION \
       -p:SourceRevisionId=$SOURCE_REVISION_ID \
@@ -60,3 +63,4 @@ FROM base AS final
 WORKDIR /app
 COPY --from=build /out ./
 ENTRYPOINT ["dotnet", "Helpdesk.API.dll"]
+
