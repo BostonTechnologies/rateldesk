@@ -41,12 +41,6 @@ RUN dotnet publish src/HelpDesk.NewWeb/HelpDesk.NewWeb.csproj \
     -p:BuildTimestamp=$BUILD_TIMESTAMP \
     -p:ContinuousIntegrationBuild=true
 
-# Reuse identical PNG content while preserving both public asset URLs.
-# Keep separate files automatically if branding changes make their bytes differ.
-RUN if cmp -s /out/wwwroot/branding/rateldesk-mark.png /out/wwwroot/pwa-512x512.png; then \
-      ln -sf ../pwa-512x512.png /out/wwwroot/branding/rateldesk-mark.png; \
-    fi
-
 # 3) Final
 FROM base AS final
 WORKDIR /app

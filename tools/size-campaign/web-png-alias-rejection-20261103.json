@@ -1,0 +1,109 @@
+{
+  "sourceRevision": "1730de5397103007006bbba46dc5468e37b51245",
+  "runId": 41739864992,
+  "status": "REJECTED",
+  "technique": "Relative PNG symlink deduplication after publish",
+  "reason": "Both native images return HTTP500 for the aliased PNG. StaticAssetsInvoker/SendFileFallback throws ArgumentOutOfRangeException for count277344 because symlink file length does not match published asset metadata. Preserve both regular files; do not bypass static-asset checks.",
+  "candidateWouldSave": {
+    "compressedLayerBytes": {
+      "baseline": 82676557,
+      "candidate": 82399771,
+      "savedBytes": 276786,
+      "savedPercent": 0.33478172053052474
+    },
+    "uncompressedImageBytes": {
+      "baseline": 186496681,
+      "candidate": 186219337,
+      "savedBytes": 277344,
+      "savedPercent": 0.14871256609655162
+    },
+    "applicationRegularFileBytes": {
+      "baseline": 57832845,
+      "candidate": 57555501,
+      "savedBytes": 277344,
+      "savedPercent": 0.4795613980256375
+    }
+  },
+  "nativeOutcomes": {
+    "amd64": "Graph57 and control20 static checks pass; candidate18 Monaco checks pass, PNG500 fails",
+    "arm64": "Same candidate PNG500 failure; independent owning lane fails"
+  },
+  "artifact": {
+    "id": 13282165732,
+    "sha256": "6adc2e94719556805e94cd52230704f18167e4c8e09a1d479add12209d6015f8"
+  },
+  "symbolComparison": {
+    "api": {
+      "status": "MEASURED_NOT_ADOPTED",
+      "symbolPolicy": "Portable PDBs retained in image; no symbol deletion",
+      "deltas": {
+        "compressedLayerBytes": {
+          "baseline": 114151608,
+          "candidate": 114160736,
+          "savedBytes": -9128,
+          "savedPercent": -0.007996383195933604
+        },
+        "uncompressedImageBytes": {
+          "baseline": 280078917,
+          "candidate": 281544505,
+          "savedBytes": -1465588,
+          "savedPercent": -0.5232768020164831
+        },
+        "applicationRegularFileBytes": {
+          "baseline": 47157027,
+          "candidate": 48622615,
+          "savedBytes": -1465588,
+          "savedPercent": -3.1078888836652063
+        }
+      }
+    },
+    "web": {
+      "status": "MEASURED_NOT_ADOPTED",
+      "symbolPolicy": "Portable PDBs retained in image; no symbol deletion",
+      "deltas": {
+        "compressedLayerBytes": {
+          "baseline": 82399771,
+          "candidate": 82410428,
+          "savedBytes": -10657,
+          "savedPercent": -0.012933288370425204
+        },
+        "uncompressedImageBytes": {
+          "baseline": 186219337,
+          "candidate": 186786837,
+          "savedBytes": -567500,
+          "savedPercent": -0.30474815835049396
+        },
+        "applicationRegularFileBytes": {
+          "baseline": 57555501,
+          "candidate": 58123001,
+          "savedBytes": -567500,
+          "savedPercent": -0.9860047956145842
+        }
+      }
+    },
+    "http": {
+      "status": "MEASURED_NOT_ADOPTED",
+      "symbolPolicy": "Portable PDBs retained in image; no symbol deletion",
+      "deltas": {
+        "compressedLayerBytes": {
+          "baseline": 61053744,
+          "candidate": 61053213,
+          "savedBytes": 531,
+          "savedPercent": 0.0008697255323113354
+        },
+        "uncompressedImageBytes": {
+          "baseline": 138230067,
+          "candidate": 138512899,
+          "savedBytes": -282832,
+          "savedPercent": -0.2046096092827619
+        },
+        "applicationRegularFileBytes": {
+          "baseline": 9563010,
+          "candidate": 9845842,
+          "savedBytes": -282832,
+          "savedPercent": -2.9575625247699207
+        }
+      }
+    }
+  }
+}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Native final image inventories, Web alias/symbol experiments and archive lifecycle."""
+"""Native final image inventories, symbol experiments and archive lifecycle."""
 
 import argparse
 import collections
@@ -164,7 +164,6 @@ def run(args):
               "startedAt": dt.datetime.now(dt.timezone.utc).isoformat()}
     receipt_path = evidence / "host-final.json"
     write_json(receipt_path, report)
-    control = output / "web-control"
     try:
         require(platform.system() == "Linux" and platform.machine() == api.ARCHITECTURES[args.architecture][0], "Native matching hardware required")
         require(not host.git(ROOT, "status", "--porcelain", "--untracked-files=no").strip(), "Tracked source dirty")
@@ -181,16 +180,12 @@ def run(args):
         require(prefix is not None and suffix is not None and "$" not in prefix + suffix, "Literal root version required")
         version = prefix + ("-" + suffix if suffix else "")
         report["version"] = version
-        subprocess.run(["git", "worktree", "add", "--detach", str(control), report["sourceRevision"]], cwd=ROOT, check=True)
-        (control / "docker/web/Dockerfile").write_bytes(host.git(ROOT, "show", WEB_CONTROL + ":docker/web/Dockerfile"))
-        require(host.git(control, "diff", "--name-only").decode().splitlines() == ["docker/web/Dockerfile"], "Web control projection changed other source")
-        host.normalize_checkout(control, seconds)
         host.normalize_checkout(ROOT, seconds)
         names = {}
-        definitions = [("api", "api", False), ("web-control", "web", False), ("web", "web", False), ("http", "mcp-http", False),
+        definitions = [("api", "api", False), ("web", "web", False), ("http", "mcp-http", False),
                        ("api-portable", "api", True), ("web-portable", "web", True), ("http-portable", "mcp-http", True)]
         for name, folder, portable in definitions:
-            context = control if name == "web-control" else ROOT
+            context = ROOT
             dockerfile = context / ("docker/" + folder + "/Dockerfile")
             if portable:
                 text = dockerfile.read_text()
@@ -226,16 +221,13 @@ def run(args):
             report["images"][name] = host.measure(image, oci, args.architecture, evidence, name, assembly, database=folder == "api")
             oci.unlink()
             write_json(receipt_path, report)
-        host.compare_builds(report["builds"]["web-control"], report["builds"]["web"])
-        report["webAliasDeltas"] = comparison(report["images"]["web-control"], report["images"]["web"])
-        require(all(metric["savedBytes"] > 0 for metric in report["webAliasDeltas"].values()), "PNG alias did not reduce complete image and regular-file bytes")
         for name in ("api", "web", "http"):
             portable = name + "-portable"
             host.compare_builds(report["builds"][name], report["builds"][portable])
             report["symbolResearch"][name] = {"status": "MEASURED_NOT_ADOPTED", "symbolPolicy": "Portable PDBs retained in image; no symbol deletion", "deltas": comparison(report["images"][name], report["images"][portable])}
         report["cases"].append(published_graph_case(names["api"], report["images"]["api"]["configDigest"], report["builds"]["api"], args.architecture, evidence))
         write_json(receipt_path, report)
-        for name in ("web-control", "web"):
+        for name in ("web",):
             case = browser_case(names[name], evidence, name + "-" + args.architecture)
             require(case["executedConfigDigest"] == report["images"][name]["configDigest"], "Browser did not execute measured Web config")
             report["cases"].append(case)
@@ -313,17 +305,12 @@ def run(args):
             report["cases"].append(result)
             write_json(receipt_path, report)
             successful(result)
-        require(len(report["cases"]) == 22 and all(case["status"] == "PASS" for case in report["cases"]), "Not all owning final cases passed")
+        require(len(report["cases"]) == 21 and all(case["status"] == "PASS" for case in report["cases"]), "Not all owning final cases passed")
         report["status"] = "PASS"
     except Exception as error:
         report.update(status="FAIL", error=str(error))
         print("Final host acceptance failed: " + str(error), file=sys.stderr)
     finally:
-        if control.exists():
-            cleanup = execute(["git", "worktree", "remove", "--force", str(control)], evidence / "control-cleanup.log", timeout=120)
-            report["controlCleanup"] = cleanup
-            if cleanup["status"] != "PASS":
-                report["status"] = "FAIL"
         report["finishedAt"] = dt.datetime.now(dt.timezone.utc).isoformat()
         write_json(receipt_path, report)
     return 0 if report["status"] == "PASS" else 1
