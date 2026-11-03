@@ -7,6 +7,7 @@ import datetime as dt
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import platform
 import re
@@ -153,6 +154,33 @@ def run(args):
             require(case["executedConfigDigest"] == report["images"][name]["configDigest"], "Browser did not execute measured Web config")
             report["cases"].append(case)
             write_json(receipt_path, report)
+        # Execute the existing owning suites with their synthetic API fixtures,
+        # replacing only each Web process with the measured image. Local/OIDC/
+        # Hybrid presentation and role/circuit journeys retain their assertions.
+        for suite in ("login", "ai", "assignee", "email", "filters", "details", "operations", "admin", "pending", "integrations"):
+            environment = os.environ.copy()
+            result_json = evidence / ("browser-" + suite + ".json")
+            environment.update(HELPDESK_PUBLISHED_WEB_IMAGE=names["web"], HELPDESK_PUBLISHED_SUITE=suite,
+                               HELPDESK_PUBLISHED_WEB_CONFIG_DIGEST=report["images"]["web"]["configDigest"],
+                               HELPDESK_PUBLISHED_WEB_PROVENANCE=str(evidence / ("browser-" + suite + "-images")),
+                               PLAYWRIGHT_JSON_OUTPUT_NAME=str(result_json), CI="true")
+            case = execute(["npx", "playwright", "test", "--config", "playwright.published.config.ts", "--workers", "1",
+                            "--reporter", "json", "--output", str(evidence / ("browser-" + suite))],
+                           evidence / ("browser-" + suite + ".log"), environment=environment, timeout=1500)
+            case.update(kind="Existing owning browser suite against measured Web image", suite=suite,
+                        executedConfigDigest=report["images"]["web"]["configDigest"])
+            report["cases"].append(case)
+            write_json(receipt_path, report)
+            successful(case)
+            stats = json.loads(result_json.read_text())["stats"]
+            require(stats["expected"] > 0 and stats["unexpected"] == 0, "Browser suite has no passing assertions or unexpected failures")
+            case["browserStats"] = stats
+            observed = [json.loads(p.read_text()) for p in (evidence / ("browser-" + suite + "-images")).glob("*.json")]
+            require(observed and all(item["observedConfigDigest"] == report["images"]["web"]["configDigest"] for item in observed),
+                    "Browser suite has missing or mismatched executed-image receipts")
+            case["imageReceipts"] = observed
+            remaining = api.capture(["docker", "ps", "--all", "--quiet", "--filter", "label=rateldesk.acceptance.published-web=true"])
+            require(not remaining, "Published browser fixture left a container behind")
         successful(execute(["docker", "pull", "postgres:16"], evidence / "postgres-pull.log", timeout=300))
         for provider in ("Sqlite", "PostgreSql"):
             for mode in ("fresh", "upgrade"):
@@ -188,7 +216,7 @@ def run(args):
             report["cases"].append(result)
             write_json(receipt_path, report)
             successful(result)
-        require(len(report["cases"]) == 10 and all(case["status"] == "PASS" for case in report["cases"]), "Not all owning final cases passed")
+        require(len(report["cases"]) == 20 and all(case["status"] == "PASS" for case in report["cases"]), "Not all owning final cases passed")
         report["status"] = "PASS"
     except Exception as error:
         report.update(status="FAIL", error=str(error))
