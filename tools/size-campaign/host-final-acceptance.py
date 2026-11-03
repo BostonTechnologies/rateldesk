@@ -83,21 +83,33 @@ def browser_case(image, output, name):
     return result
 
 
-def published_graph_case(image, expected_digest, output):
+def published_graph_case(image, expected_digest, build_metadata, architecture, output):
     build = execute(["dotnet", "build", "tests/Helpdesk.Tests/Helpdesk.Tests.csproj", "-c", "Release", "-m:1", "-nr:false", "-p:UseSharedCompilation=false"],
                     output / "published-graph-build.log", timeout=1200)
     successful(build)
-    version = api.capture(["dotnet", "--version"])
-    locations = [line for line in api.capture(["dotnet", "--list-sdks"]).splitlines() if line.startswith(version + " ")]
-    require(len(locations) == 1, "Ambiguous VSTest SDK path")
-    sdk = Path(locations[0].split("[", 1)[1].rstrip("]")) / version
-    require((sdk / "vstest.console.dll").is_file(), "VSTest runner missing from selected SDK")
+    fixture_sdk = api.capture(["dotnet", "--version"])
+    version = build_metadata["sdk"]["version"]
+    sdk_image = "mcr.microsoft.com/dotnet/sdk@" + build_metadata["imageMaterials"]["sdk"]["digest"]
+    # The host SDK403's VSTest requires CLR10.0.14, while the selected API image
+    # deliberately ships CLR10.0.13. Use its exact publishing SDK's test runner;
+    # do not mount another CLR or relax the product image/runtime contract.
+    successful(execute(["docker", "pull", "--platform", "linux/" + architecture, sdk_image],
+                       output / "published-graph-sdk-pull.log", timeout=600))
     tests = ROOT / "tests/Helpdesk.Tests/bin/Release/net10.0"
     bindings = {}
     with tempfile.TemporaryDirectory(prefix="rd-published-graph-") as temporary:
         temporary = Path(temporary)
-        payload, backup = temporary / "payload", temporary / "backup"
-        payload.mkdir(); backup.mkdir()
+        payload, backup, sdk = temporary / "payload", temporary / "backup", temporary / "sdk"
+        payload.mkdir(); backup.mkdir(); sdk.mkdir()
+        tools_container = api.capture(["docker", "create", "--entrypoint", "/__inventory_never_started", sdk_image])
+        try:
+            subprocess.run(["docker", "cp", tools_container + ":/usr/share/dotnet/sdk/" + version + "/.", str(sdk)], check=True, timeout=180)
+        finally:
+            subprocess.run(["docker", "rm", tools_container], check=True, stdout=subprocess.DEVNULL)
+        require((sdk / "vstest.console.dll").is_file(), "Publishing SDK has no VSTest runner")
+        requested_runtime = json.loads((sdk / "vstest.console.runtimeconfig.json").read_text())["runtimeOptions"]["framework"]["version"]
+        runtime_list = api.capture(["docker", "run", "--rm", "--entrypoint", "dotnet", image, "--list-runtimes"])
+        require("Microsoft.NETCore.App " + requested_runtime + " " in runtime_list, "VSTest does not match the image CLR")
         inventory = api.capture(["docker", "create", "--entrypoint", "/__inventory_never_started", image])
         try:
             subprocess.run(["docker", "cp", inventory + ":/app/.", str(payload)], check=True, timeout=180)
@@ -117,9 +129,9 @@ def published_graph_case(image, expected_digest, output):
                 bindings[source.name] = host.sha256(source)
             require({"Helpdesk.API.dll", "Helpdesk.Infrastructure.dll"} <= set(bindings), "Published owning Graph assemblies missing")
             container = api.capture(["docker", "create", "--entrypoint", "dotnet", "--network", "host",
-                "--mount", f"type=bind,src={sdk},dst={sdk},readonly", "--mount", f"type=bind,src={ROOT},dst={ROOT},readonly",
+                "--mount", f"type=bind,src={sdk},dst=/acceptance-vstest,readonly", "--mount", f"type=bind,src={ROOT},dst={ROOT},readonly",
                 "--mount", f"type=bind,src={output},dst=/acceptance-evidence", "--mount", "type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock",
-                "--workdir", str(ROOT), image, str(sdk / "vstest.console.dll"), str(tests / "Helpdesk.Tests.dll"),
+                "--workdir", str(ROOT), image, "/acceptance-vstest/vstest.console.dll", str(tests / "Helpdesk.Tests.dll"),
                 "/TestCaseFilter:FullyQualifiedName~GraphMailbox|FullyQualifiedName~GraphEmail|FullyQualifiedName~GraphNotification",
                 "/Logger:trx;LogFileName=published-graph.trx", "/ResultsDirectory:/acceptance-evidence"])
             try:
@@ -131,7 +143,8 @@ def published_graph_case(image, expected_digest, output):
                 counters = ET.parse(output / "published-graph.trx").find(".//{*}Counters").attrib
                 require(int(counters["total"]) == int(counters["passed"]) == 57, "Expected all57 published Graph cases without skips")
                 result.update(kind="Published Graph fixture on native API image runtime", executedConfigDigest=observed, boundProductAssemblies=bindings,
-                              counters=counters, scope="Actual published product assemblies on the API image CLR; read-only VSTest SDK/test-source mounts are fixture tooling")
+                              counters=counters, fixtureBuildSdk=fixture_sdk, testRunnerSdk=version, testRunnerImage=sdk_image,
+                              executedRuntimeList=runtime_list, scope="Actual published product assemblies on the API image CLR; read-only VSTest SDK/test-source mounts are fixture tooling")
                 return result
             finally:
                 subprocess.run(["docker", "rm", "--force", container], check=True, stdout=subprocess.DEVNULL)
@@ -220,7 +233,7 @@ def run(args):
             portable = name + "-portable"
             host.compare_builds(report["builds"][name], report["builds"][portable])
             report["symbolResearch"][name] = {"status": "MEASURED_NOT_ADOPTED", "symbolPolicy": "Portable PDBs retained in image; no symbol deletion", "deltas": comparison(report["images"][name], report["images"][portable])}
-        report["cases"].append(published_graph_case(names["api"], report["images"]["api"]["configDigest"], evidence))
+        report["cases"].append(published_graph_case(names["api"], report["images"]["api"]["configDigest"], report["builds"]["api"], args.architecture, evidence))
         write_json(receipt_path, report)
         for name in ("web-control", "web"):
             case = browser_case(names[name], evidence, name + "-" + args.architecture)
