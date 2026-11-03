@@ -1,0 +1,179 @@
+name: Artifact size discovery campaign
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - .github/workflows/size-campaign.yml
+      - tools/size-campaign/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: size-campaign-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-inventory:
+    name: Verify and inventory pinned release assets
+    permissions:
+      contents: read
+      actions: read
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.head_ref == 'campaign/rd-size-20261103' && github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Test measurement and failure-reporting contracts offline
+        run: python3 -m unittest discover -s tools/size-campaign -p 'test_*.py'
+      - name: Export the reviewed tracked source for campaign analysis
+        run: git archive --format=tar.gz --output="$RUNNER_TEMP/rd-size-source.tar.gz" HEAD
+      - name: Retain the exact source snapshot
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: size-source-snapshot
+          path: ${{ runner.temp }}/rd-size-source.tar.gz
+          if-no-files-found: error
+          retention-days: 30
+      - name: Verify exact release bytes, manifests and archive contents
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          python3 tools/size-campaign/inventory.py release
+          --release-source workflow-artifact
+          --baseline tools/size-campaign/baseline-0.1.3-beta.3.json
+          --output "${{ runner.temp }}/rd-size/release"
+      - name: Re-run published Linux x64 archive smoke checks
+        run: >-
+          bash tools/release/test-executable-archives.sh
+          "${{ runner.temp }}/rd-size/release/assets" linux-x64
+      - name: Retain inventory evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: size-release-inventory
+          path: |
+            ${{ runner.temp }}/rd-size/release/*.json
+            ${{ runner.temp }}/rd-size/release/*.log
+          if-no-files-found: error
+          retention-days: 30
+
+  image-inventory:
+    name: Measure pinned images on both architectures
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.head_ref == 'campaign/rd-size-20261103' && github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Inventory index, platform manifests, layers and application files
+        run: >-
+          python3 tools/size-campaign/inventory.py images
+          --baseline tools/size-campaign/baseline-0.1.3-beta.3.json
+          --output "${{ runner.temp }}/rd-size/images"
+      - name: Retain image evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: size-image-inventory
+          path: |
+            ${{ runner.temp }}/rd-size/images/**/*.json
+            ${{ runner.temp }}/rd-size/images/**/*.log
+          if-no-files-found: error
+          retention-days: 30
+
+  client-probes:
+    name: Client publish discovery (${{ matrix.mode }})
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.head_ref == 'campaign/rd-size-20261103' && github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        mode: [baseline, portable-symbols, trimmed, aot]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          global-json-file: global.json
+      - name: Install native AOT linker dependencies
+        if: matrix.mode == 'aot'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang zlib1g-dev
+      - name: Publish complete candidate packages and execute extracted apphosts
+        run: >-
+          python3 tools/size-campaign/publish-probes.py clients
+          --mode "${{ matrix.mode }}"
+          --output "${{ runner.temp }}/rd-size/clients-${{ matrix.mode }}"
+      - name: Retain exact commands, diagnostics, sizes and smoke results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: size-clients-${{ matrix.mode }}
+          path: |
+            ${{ runner.temp }}/rd-size/clients-${{ matrix.mode }}/*.json
+            ${{ runner.temp }}/rd-size/clients-${{ matrix.mode }}/*.log
+            ${{ runner.temp }}/rd-size/clients-${{ matrix.mode }}/symbols/**
+          if-no-files-found: error
+          retention-days: 30
+
+  host-probes:
+    name: Host publish discovery (${{ matrix.target }})
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.head_ref == 'campaign/rd-size-20261103' && github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [api, web, http]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          global-json-file: global.json
+      - name: Install native AOT linker dependencies for HTTP MCP research
+        if: matrix.target == 'http'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang zlib1g-dev
+      - name: Compare publish profiles in separate clean worktrees
+        env:
+          SIZE_TARGET: ${{ matrix.target }}
+          SIZE_TEMP: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          profiles=(baseline portable-symbols rid-specific analysis)
+          if [[ "$SIZE_TARGET" == http ]]; then
+            profiles+=(trimmed aot)
+          fi
+          for profile in "${profiles[@]}"; do
+            checkout="$SIZE_TEMP/rd-size-source-$SIZE_TARGET-$profile"
+            git worktree add --detach "$checkout" HEAD
+            python3 "$checkout/tools/size-campaign/publish-probes.py" "$SIZE_TARGET" \
+              --mode "$profile" --output "$SIZE_TEMP/rd-size/$SIZE_TARGET/$profile"
+            git worktree remove --force "$checkout"
+          done
+      - name: Retain exact commands, diagnostics and sizes
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: size-host-${{ matrix.target }}
+          path: |
+            ${{ runner.temp }}/rd-size/${{ matrix.target }}/**/publish-report.json
+            ${{ runner.temp }}/rd-size/${{ matrix.target }}/**/*.log
+            ${{ runner.temp }}/rd-size/${{ matrix.target }}/**/symbols/**
+          if-no-files-found: error
+          retention-days: 30

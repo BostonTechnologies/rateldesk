@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "campaignId": "rd-size-20261103",
+  "repository": "BostonTechnologies/RatelDesk",
+  "release": {
+    "id": 432612585,
+    "tag": "v0.1.3-beta.3",
+    "version": "0.1.3-beta.3",
+    "sourceRevision": "6a2be88000a7bcea3e70369a26413daee2a430c3",
+    "observedDraft": true,
+    "observedPublishedAt": null
+  },
+  "reviewSourceRevision": "59248cacce44ad33a1c3367f0eb000e8705e072b",
+  "assets": [
+    {
+      "id": 705376646,
+      "name": "rateldesk-cli-0.1.3-beta.3-linux-arm64.tar.gz",
+      "sizeBytes": 59557163,
+      "sha256": "ce3b3b02d9ec1cae0c431790d90d5107d12127cf68b3a4c81b01bb396600c299"
+    },
+    {
+      "id": 705376104,
+      "name": "rateldesk-cli-0.1.3-beta.3-linux-x64.tar.gz",
+      "sizeBytes": 62123464,
+      "sha256": "82a54ad1562e6808377cacf39a5a731d70317a881082d557de2a06d210f166db"
+    },
+    {
+      "id": 705377058,
+      "name": "rateldesk-cli-0.1.3-beta.3-win-x64.zip",
+      "sizeBytes": 63064675,
+      "sha256": "9e0670cadcdc25e8ab10445e6b02a0d0cd5f565b72f6cd943af316c058f29a72"
+    },
+    {
+      "id": 705377373,
+      "name": "rateldesk-deployment-0.1.3-beta.3.tar.gz",
+      "sizeBytes": 11406272,
+      "sha256": "4968ac115bb6cb68fcd0de438f01f9a5e9467e3883f8e0070bf1e3ac20fc92e1"
+    },
+    {
+      "id": 705376869,
+      "name": "rateldesk-mcp-stdio-0.1.3-beta.3-linux-arm64.tar.gz",
+      "sizeBytes": 59463231,
+      "sha256": "21fd75b60e363cae40386062e7c01e62cd8f5d765ecb113cbe8c5d27297f1313"
+    },
+    {
+      "id": 705376421,
+      "name": "rateldesk-mcp-stdio-0.1.3-beta.3-linux-x64.tar.gz",
+      "sizeBytes": 62029555,
+      "sha256": "c01650c984ff6e719ae0bcfdec31228b120ce8d0f2b120d7b8062f7bc2701530"
+    },
+    {
+      "id": 705377207,
+      "name": "rateldesk-mcp-stdio-0.1.3-beta.3-win-x64.zip",
+      "sizeBytes": 62971126,
+      "sha256": "21c7179e2f8d6a918710bd280ab6043faf6c0e8e919368d88bbad6e4758b9ad1"
+    },
+    {
+      "id": 705377505,
+      "name": "release-manifest.json",
+      "sizeBytes": 1610,
+      "sha256": "405011afa81b1c6d9df8ed25fd9b1e681b85d45c4d86a2532e1751476960839a"
+    },
+    {
+      "id": 705377537,
+      "name": "release-manifest.json.sha256",
+      "sizeBytes": 88,
+      "sha256": "7ce1c48544ac60e3acea3d159267250e4afb172f71663fef75a078204766dadb"
+    },
+    {
+      "id": 705377447,
+      "name": "SHA256SUMS",
+      "sizeBytes": 779,
+      "sha256": "a6c5e3bf64ec54e9c2148793513c08a7719d229327811e54656eeeaa0adb4c90"
+    }
+  ],
+  "images": [
+    {
+      "name": "ghcr.io/bostontechnologies/rateldesk-api",
+      "digest": "sha256:4a63d0e1b1b3e97b9879db3e3863778dca53f19699eeb5ac87199a1e74d41f90"
+    },
+    {
+      "name": "ghcr.io/bostontechnologies/rateldesk-web",
+      "digest": "sha256:2ee7c03fea7206385c380603964610cba16e608cce2b5e1bbcc7bcd79a430136"
+    },
+    {
+      "name": "ghcr.io/bostontechnologies/rateldesk-mcp-http",
+      "digest": "sha256:5c99ab63df71bc8df8b7c94888654213185020ca7019478f96d7e66ec379795a"
+    }
+  ],
+  "workflowArtifact": {
+    "id": 13224668601,
+    "runId": 41618847344,
+    "name": "release-assets",
+    "sizeBytes": 378939497,
+    "sha256": "c6674f4810ced66dd0580d1eca95c4dc5ac3b6397b7c9f6338bb7b29efa1f5c1"
+  }
+}
