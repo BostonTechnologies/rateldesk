@@ -31,9 +31,14 @@ public sealed class HostTelemetryTests
         {
             builder.UseIsolatedTestStorage();
             builder.UseEnvironment(Environments.Production);
+            // Program snapshots telemetry settings while registering ServiceDefaults.
+            // Host settings reach CreateBuilder before that code; the later
+            // ConfigureAppConfiguration callback is too late for this snapshot.
+            foreach (var setting in TelemetrySettings("api-telemetry-test"))
+                builder.UseSetting(setting.Key, setting.Value);
             builder.ConfigureAppConfiguration((_, configuration) =>
             {
-                var settings = TelemetrySettings("api-telemetry-test");
+                var settings = new Dictionary<string, string?>();
                 settings["Jwt:Issuer"] = "test";
                 settings["Jwt:Audience"] = "test";
                 settings["Jwt:Key"] = "test-key-123456789012345678901234";
