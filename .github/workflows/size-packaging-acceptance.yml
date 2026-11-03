@@ -140,11 +140,42 @@ jobs:
           mkdir -p packaging-evidence
           tools/release/test-executable-archives.sh release-assets '${{ matrix.rid }}' --validate-docs 2>&1 | tee packaging-evidence/native.log
 
+      - name: Exercise archived commands, protocol, isolation, TLS and performance fixtures
+        shell: bash
+        run: |
+          python3 -m unittest discover -s tools/size-campaign -p 'test_client_behavior.py'
+          python3 tools/size-campaign/client-behavior.py \
+            --archives release-assets --rid '${{ matrix.rid }}' --source-revision "$GITHUB_SHA" \
+            --output "$RUNNER_TEMP/client-behavior-${{ matrix.rid }}"
+
       - name: Retain native acceptance evidence even on failure
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: size-packaging-${{ matrix.rid }}-evidence
           path: packaging-evidence/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Retain exact archived-client behavior and measurement receipts
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: size-client-behavior-${{ matrix.rid }}
+          path: |
+            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/report.json
+            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/backend-requests.json
+            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/*-executed-files.json
+            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/*-host-resolution.log
+            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/cli/cases.json
+            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/cli/*.stdout
+            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/cli/*.stderr
+            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/stdio/cases.json
+            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/stdio/**/stdout.jsonl
+            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/stdio/**/stderr.log
+            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/tls/*.stdout
+            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/tls/*.stderr
+            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/tls/stdio/stdout.jsonl
+            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/tls/stdio/stderr.log
           if-no-files-found: error
           retention-days: 14

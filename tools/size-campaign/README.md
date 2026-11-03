@@ -117,3 +117,27 @@ Review the generated diff and rerun schema/golden and emitted-binary catalog
 acceptance. An unregistered type fails explicitly; new fields must not disappear
 from an optimized catalog. The registry preserves the existing reflection and
 attribute behavior for the complete compiled DTO graph.
+
+## Archived client behavior
+
+The packaging workflow runs the actual extracted self-contained JIT apphosts on
+native Linux x64, Linux ARM64 and Windows x64. It verifies their archive/source
+hashes, executed file manifests, dependency closure and archive-local CoreCLR
+resolution before checking the complete CLI help tree, enum metadata, JSON reads,
+paging/search, legacy profiles, dry-run and permission failures. Stdio coverage
+includes full paged discovery, all resource reads and prompts, structured tool
+results, duplicate/unknown arguments, confirmation, concurrent instance isolation,
+backend cancellation and natural EOF. Both clients must reject an untrusted local
+TLS certificate. Synthetic fixtures perform no backend mutations.
+
+```bash
+python3 tools/size-campaign/client-behavior.py \
+  --archives release-assets --rid linux-x64 --source-revision <full-candidate-sha> \
+  --output /tmp/rd-size-client-behavior
+```
+
+OpenSSL generates the disposable test certificate; no trust root is installed.
+Receipts retain five startup samples, twenty stdio read timings and process memory
+observations with their sampling limits. An SDK-equipped runner loading its own
+archive runtime is reported precisely; it is not relabeled as a runtime-free VM.
+The artifact excludes private fixture files and extracted payload duplicates.
