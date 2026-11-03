@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "sourceRevision": "e2e9b9722884ccd8f37c365d7b8e061cb9504c35",
+  "inputRunId": 41714238810,
+  "inputArtifactId": 13269476454,
+  "inputArtifactSha256": "8ee8fe85b426470d9b420fea98eee21b093575f3656a8e848135aa76119d8036",
+  "comparison": "Same input tar streams or extracted ZIP tree, GNU compression level 6 versus 9; no source/payload omission",
+  "scope": "Compression-only probe of existing verified archives; fresh source rebuild and native acceptance are separately required",
+  "releaseEligible": false,
+  "status": "PASS",
+  "results": [
+    {
+      "name": "rateldesk-cli-0.0.0-size-packaging-linux-arm64.tar.gz",
+      "sourceArchiveSha256": "72a7f566a7e15d4a43d398ae62848f519e7ccfdcc57256a1a1aefedc604d2ff6",
+      "controlBytes": 47703121,
+      "candidateBytes": 47529574,
+      "savedBytes": 173547,
+      "unchangedTarSha256": "567ca18909ab1ce939c6eba9633045240102d4cd7746857d1f58be5180755661",
+      "controlElapsedIncludingVerificationSeconds": 5.771,
+      "candidateElapsedIncludingVerificationSeconds": 10.726,
+      "compressor": "GNU gzip 1.13"
+    },
+    {
+      "name": "rateldesk-cli-0.0.0-size-packaging-linux-x64.tar.gz",
+      "sourceArchiveSha256": "d99aa304741c0c5ce829ceb89da8abb78b195a60a7f19bc82179c8e72e6b4f5b",
+      "controlBytes": 49806911,
+      "candidateBytes": 49639144,
+      "savedBytes": 167767,
+      "unchangedTarSha256": "e41a612912783ef56391e532e082cc34dd626deea4e7e1ad279ae4e101b6b845",
+      "controlElapsedIncludingVerificationSeconds": 5.685,
+      "candidateElapsedIncludingVerificationSeconds": 11.614,
+      "compressor": "GNU gzip 1.13"
+    },
+    {
+      "name": "rateldesk-cli-0.0.0-size-packaging-win-x64.zip",
+      "sourceArchiveSha256": "d05a1b601e1c956ee9a3e75384724f54ec3a0fa4d3683491e796bfb4330d726a",
+      "controlBytes": 50438827,
+      "candidateBytes": 50275068,
+      "savedBytes": 163759,
+      "controlSha256": "70f135097b3c696780a227e260375db6ab58cc73d5237c11c32b6babd140c534",
+      "candidateSha256": "a0e8ff34d0aefe742055a4671c61b38b905d7a678b46d7a570ae203a9431186c",
+      "contentVerification": "Every regular-file path and SHA256 exactly equals the original input and both levels",
+      "controlElapsedIncludingVerificationSeconds": 10.368,
+      "candidateElapsedIncludingVerificationSeconds": 13.282,
+      "compressor": "This is Zip 3.0 (July 5th 2008), by Info-ZIP."
+    },
+    {
+      "name": "rateldesk-deployment-0.0.0-size-packaging.tar.gz",
+      "sourceArchiveSha256": "ce19184db555798243196e98079d9c082ba865ac2cab0b10df266b29524093f7",
+      "controlBytes": 11421433,
+      "candidateBytes": 11382674,
+      "savedBytes": 38759,
+      "unchangedTarSha256": "db4ae3d9b940baf993d4f4d40d589ca35fab55f445d964319b52a21e78a0ea60",
+      "controlElapsedIncludingVerificationSeconds": 0.731,
+      "candidateElapsedIncludingVerificationSeconds": 1.122,
+      "compressor": "GNU gzip 1.13"
+    },
+    {
+      "name": "rateldesk-mcp-stdio-0.0.0-size-packaging-linux-arm64.tar.gz",
+      "sourceArchiveSha256": "d38556b454f3fea2b6955d62f576671132347dfffd2d16babe24e52ed722ecb9",
+      "controlBytes": 47608938,
+      "candidateBytes": 47449225,
+      "savedBytes": 159713,
+      "unchangedTarSha256": "6c5175fcad2b576d632f84fbbe871f5112a024739a21690f56dd056dca2ab547",
+      "controlElapsedIncludingVerificationSeconds": 5.762,
+      "candidateElapsedIncludingVerificationSeconds": 11.377,
+      "compressor": "GNU gzip 1.13"
+    },
+    {
+      "name": "rateldesk-mcp-stdio-0.0.0-size-packaging-linux-x64.tar.gz",
+      "sourceArchiveSha256": "6eb8502ec30892b3617ea6ea6f6679cedf6d57bf2176dac8d70d6571ccdf8a56",
+      "controlBytes": 49713562,
+      "candidateBytes": 49552525,
+      "savedBytes": 161037,
+      "unchangedTarSha256": "1900640a1accd9c0951a368c6030e89767bdbbc807bb739cc4bb24e57070377d",
+      "controlElapsedIncludingVerificationSeconds": 5.994,
+      "candidateElapsedIncludingVerificationSeconds": 11.137,
+      "compressor": "GNU gzip 1.13"
+    },
+    {
+      "name": "rateldesk-mcp-stdio-0.0.0-size-packaging-win-x64.zip",
+      "sourceArchiveSha256": "e8651090a3fac1103c5d40dbd157f4980ce91fb5dda6d6484387e1972812b80d",
+      "controlBytes": 50343831,
+      "candidateBytes": 50180311,
+      "savedBytes": 163520,
+      "controlSha256": "0efdcbb4547651e692d271d9950f5e0df9ef984c00a6e8d32e8eb22dc5b0f1dc",
+      "candidateSha256": "2b73c3adcfb7c405cdb7a25015c2d22db71cf39ed347354f86050df4fffe7664",
+      "contentVerification": "Every regular-file path and SHA256 exactly equals the original input and both levels",
+      "controlElapsedIncludingVerificationSeconds": 5.362,
+      "candidateElapsedIncludingVerificationSeconds": 13.931,
+      "compressor": "This is Zip 3.0 (July 5th 2008), by Info-ZIP."
+    }
+  ],
+  "totalSavedBytes": 1028102
+}

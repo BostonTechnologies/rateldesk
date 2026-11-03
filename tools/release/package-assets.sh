@@ -41,9 +41,9 @@ Run ./$tool --help or ./$tool --version after extracting. Run ./$tool setup expl
 Canonical configuration/setup guidance is bundled in docs/integrations/cli-stdio.md and docs/mcp-http/. Third-party notices and licenses are included alongside LICENSE.
 EOF
   if [[ "$rid" == win-* ]]; then
-    (cd "$staging_directory" && zip -qr "$output_directory/$archive_base.zip" "$archive_base")
+    (cd "$staging_directory" && zip -9qr "$output_directory/$archive_base.zip" "$archive_base")
   else
-    tar -C "$staging_directory" -czf "$output_directory/$archive_base.tar.gz" "$archive_base"
+    tar -C "$staging_directory" -cf - "$archive_base" | gzip -9n > "$output_directory/$archive_base.tar.gz"
   fi
 }
 
@@ -101,7 +101,7 @@ ingress and deployment-manager ownership. Use exact image tags or manifest
 digests; beta publication never promotes latest. Third-party notices/licenses
 are included in licenses/.
 EOF
-tar -C "$staging_directory" -czf "$output_directory/rateldesk-deployment-$version.tar.gz" "rateldesk-deployment-$version"
+tar -C "$staging_directory" -cf - "rateldesk-deployment-$version" | gzip -9n > "$output_directory/rateldesk-deployment-$version.tar.gz"
 
 (cd "$output_directory" && find . -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' \) -printf '%f\n' | sort | xargs -r sha256sum > SHA256SUMS)
 python3 - "$output_directory" "$version" "$source_revision" <<'PY'
