@@ -1,0 +1,67 @@
+name: API RID container acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - docker/api/Dockerfile
+      - tools/ci/smoke-first-run-local.sh
+      - tools/size-campaign/api-rid-acceptance.py
+      - tools/size-campaign/test_api_rid_acceptance.py
+      - .github/workflows/api-rid-acceptance.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: api-rid-acceptance-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-provider-acceptance:
+    name: API image size and providers (${{ matrix.architecture }})
+    if: ${{ github.event_name == 'workflow_dispatch' || (startsWith(github.head_ref, 'campaign/rd-size-api') && github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: amd64
+            runner: ubuntu-24.04
+          - architecture: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Check out exact candidate source and immutable Dockerfile control
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up native Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Verify evidence parser rejects corrupt or mismatched images
+        run: python3 -m unittest discover -s tools/size-campaign -p 'test_api_rid_acceptance.py' -v
+
+      - name: Build paired images and exercise SQLite/PostgreSQL fresh and retained data
+        env:
+          API_SIZE_ARCHITECTURE: ${{ matrix.architecture }}
+          API_SIZE_OUTPUT: ${{ runner.temp }}/rd-size-api
+        run: >-
+          python3 tools/size-campaign/api-rid-acceptance.py
+          --architecture "$API_SIZE_ARCHITECTURE" --output "$API_SIZE_OUTPUT"
+
+      - name: Retain measurements, commands and all provider outcomes
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: size-api-rid-${{ matrix.architecture }}
+          path: |
+            ${{ runner.temp }}/rd-size-api/*.json
+            ${{ runner.temp }}/rd-size-api/*.log
+            ${{ runner.temp }}/rd-size-api/*.Dockerfile
+          if-no-files-found: error
+          retention-days: 30
