@@ -398,6 +398,8 @@ def run(architecture: str, sdk: str, output: Path) -> int:
         report["telemetryTests"] = telemetry_tests(test_directory / "host-telemetry.trx")
         timestamp = git(ROOT, "show", "-s", "--format=%cI", "HEAD").decode().strip()
         seconds = int(git(ROOT, "show", "-s", "--format=%ct", "HEAD"))
+        report["timestampPolicy"] = {"sourceDateEpoch": seconds, "rewriteTimestamp": True,
+                                     "exporters": ["docker", "oci"]}
         props = ET.parse(ROOT / "Directory.Build.props").getroot()
         prefix, suffix = props.findtext(".//VersionPrefix"), props.findtext(".//VersionSuffix")
         require(prefix is not None and suffix is not None and "$" not in prefix + suffix, "Version must be literal")
@@ -425,9 +427,14 @@ def run(architecture: str, sdk: str, output: Path) -> int:
                 image_names[name] = image_name
                 oci = output / (name + ".oci.tar")
                 command = ["docker", "buildx", "build", "--platform", "linux/" + architecture, "--file", str(context / definition["dockerfile"]),
-                           "--tag", image_name, "--load", "--progress", "plain", "--provenance=false", "--sbom=false",
+                           "--tag", image_name, "--progress", "plain", "--provenance=false", "--sbom=false",
                            "--metadata-file", str(evidence / (name + "-build-metadata.json")),
-                           "--output", "type=oci,dest=" + str(oci) + ",compression=gzip",
+                           # COPY can change directory mtimes even for identical
+                           # licenses. Normalize both exports so their identities
+                           # match and unchanged layers remain byte-identical.
+                           "--output", "type=docker,rewrite-timestamp=true",
+                           "--output", "type=oci,dest=" + str(oci) + ",compression=gzip,rewrite-timestamp=true",
+                           "--build-arg", "SOURCE_DATE_EPOCH=" + str(seconds),
                            "--build-arg", "VERSION=" + version, "--build-arg", "SOURCE_REVISION_ID=" + source,
                            "--build-arg", "BUILD_TIMESTAMP=" + timestamp, str(context)]
                 print("Build " + name + " on native " + architecture, flush=True)
