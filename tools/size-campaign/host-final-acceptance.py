@@ -147,7 +147,8 @@ def run(args):
     evidence = output / "evidence"
     evidence.mkdir()
     report = {"status": "RUNNING", "sourceRevision": api.capture(["git", "rev-parse", "HEAD"]), "architecture": args.architecture,
-              "releaseEligible": False, "builds": {}, "images": {}, "cases": [], "symbolResearch": {}, "trimAotAdopted": False}
+              "releaseEligible": False, "builds": {}, "images": {}, "cases": [], "symbolResearch": {}, "trimAotAdopted": False,
+              "startedAt": dt.datetime.now(dt.timezone.utc).isoformat()}
     receipt_path = evidence / "host-final.json"
     write_json(receipt_path, report)
     control = output / "web-control"
@@ -163,7 +164,10 @@ def run(args):
         timestamp = host.git(ROOT, "show", "-s", "--format=%cI", "HEAD").decode().strip()
         report["timestampPolicy"] = {"sourceDateEpoch": seconds, "buildTimestamp": timestamp, "bothExportersRewriteTimestamp": True}
         props = ET.parse(ROOT / "Directory.Build.props").getroot()
-        version = props.findtext(".//VersionPrefix") + "-" + props.findtext(".//VersionSuffix")
+        prefix, suffix = props.findtext(".//VersionPrefix"), props.findtext(".//VersionSuffix")
+        require(prefix is not None and suffix is not None and "$" not in prefix + suffix, "Literal root version required")
+        version = prefix + ("-" + suffix if suffix else "")
+        report["version"] = version
         subprocess.run(["git", "worktree", "add", "--detach", str(control), report["sourceRevision"]], cwd=ROOT, check=True)
         (control / "docker/web/Dockerfile").write_bytes(host.git(ROOT, "show", WEB_CONTROL + ":docker/web/Dockerfile"))
         require(host.git(control, "diff", "--name-only").decode().splitlines() == ["docker/web/Dockerfile"], "Web control projection changed other source")
@@ -184,7 +188,9 @@ def run(args):
             names[name] = image
             oci = output / (name + ".oci.tar")
             command = ["docker", "buildx", "build", "--platform", "linux/" + args.architecture, "--file", str(dockerfile), "--tag", image,
-                       "--progress", "plain", "--provenance=false", "--sbom=false", "--metadata-file", str(evidence / (name + "-metadata.json")),
+                       # A shared publish cache can hide the actual compiler/SDK
+                       # paths. Re-run the build stage to retain direct evidence.
+                       "--no-cache-filter", "build", "--progress", "plain", "--provenance=false", "--sbom=false", "--metadata-file", str(evidence / (name + "-metadata.json")),
                        "--output", "type=docker,rewrite-timestamp=true", "--output", "type=oci,dest=" + str(oci) + ",compression=gzip,rewrite-timestamp=true",
                        "--build-arg", "SOURCE_DATE_EPOCH=" + str(seconds), "--build-arg", "VERSION=" + version,
                        "--build-arg", "SOURCE_REVISION_ID=" + report["sourceRevision"], "--build-arg", "BUILD_TIMESTAMP=" + timestamp, str(context)]
@@ -196,8 +202,13 @@ def run(args):
             log = (evidence / (name + "-build.log")).read_text(errors="replace")
             build["sdk"] = api.resolved_sdk(log)
             build["imageMaterials"] = host.image_materials(json.loads((evidence / (name + "-metadata.json")).read_text()), args.architecture)
-            build["warningOccurrences"] = dict(collections.Counter(re.findall(r"warning ((?:IL|NU|CS)\d+)", log)))
-            require(not build["warningOccurrences"], "Unresolved image publish warnings")
+            build["warningOccurrences"] = dict(collections.Counter(re.findall(r"\bwarning ([A-Z]+\d+)\b", log)))
+            allowed = {"MCP9005"} if folder == "mcp-http" else set()
+            require(not (set(build["warningOccurrences"]) - allowed), "Unresolved image publish diagnostics")
+            if "MCP9005" in build["warningOccurrences"]:
+                require(all("AddSetLoggingLevelFilter" in line for line in log.splitlines() if "warning MCP9005" in line),
+                        "Unexpected deprecated MCP API outside the retained logging compatibility boundary")
+                build["warningDisposition"] = {"MCP9005": "Existing logging API deprecation retained for protocol/diagnostic compatibility; no suppression or feature removal"}
             assembly = {"api": "Helpdesk.API", "web": "HelpDesk.NewWeb", "mcp-http": "Helpdesk.Mcp.Http"}[folder]
             report["images"][name] = host.measure(image, oci, args.architecture, evidence, name, assembly, database=folder == "api")
             oci.unlink()
@@ -264,6 +275,17 @@ def run(args):
         for service, name in (("api", "api"), ("web", "web"), ("mcp-http", "http")):
             require(runtime["executedConfigDigests"][service] == report["images"][name]["configDigest"], "Gateway fixture used a different measured image")
         report["cases"].append(gateway)
+        authentik_directory = evidence / "http-authentik"
+        authentik = execute(["node", "tools/size-campaign/http-authentik-acceptance.mjs", names["http"],
+                             report["images"]["http"]["configDigest"], str(authentik_directory)],
+                            evidence / "http-authentik.log", timeout=360)
+        report["cases"].append(authentik)
+        write_json(receipt_path, report)
+        successful(authentik)
+        auth = json.loads((authentik_directory / "authentik.json").read_text())
+        require(auth["status"] == "PASS" and len(auth["checks"]) == 17 and
+                auth["executedConfigDigest"] == report["images"]["http"]["configDigest"], "External-mode fixture has incomplete or mismatched native evidence")
+        report["httpAuthentik"] = auth
         rid = api.ARCHITECTURES[args.architecture][1]
         archive = args.archives / f"rateldesk-mcp-stdio-{manifest['version']}-{rid}.tar.gz"
         extracted = output / "native"
@@ -278,7 +300,7 @@ def run(args):
             report["cases"].append(result)
             write_json(receipt_path, report)
             successful(result)
-        require(len(report["cases"]) == 21 and all(case["status"] == "PASS" for case in report["cases"]), "Not all owning final cases passed")
+        require(len(report["cases"]) == 22 and all(case["status"] == "PASS" for case in report["cases"]), "Not all owning final cases passed")
         report["status"] = "PASS"
     except Exception as error:
         report.update(status="FAIL", error=str(error))
