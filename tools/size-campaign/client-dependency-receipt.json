@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "originalSourceRevision": "59248cacce44ad33a1c3367f0eb000e8705e072b",
+  "preparedFromSourceRevision": "43c04183025f0db0341864bc6df9c159be89ca64",
+  "sdk": "10.0.403",
+  "preparationScriptSha256": "6c51026940065a22f6b2fba7334e820a39ac661ea5b97fb535844805b64a32a8",
+  "packageGeneration": "dotnet add/remove package; final restore and native acceptance are separate gates",
+  "files": [
+    {
+      "path": "src/Helpdesk.AgentClient/Helpdesk.AgentClient.csproj",
+      "originalSha256": "76ccff98ee93e9071bccec259a4238fba8cf36e0978c1fcdad819498ac29d0e8",
+      "candidateSha256": "34002a3de2f98bcb03afab71261052e342db036d50d9591477f09504e4054d0c"
+    },
+    {
+      "path": "src/Helpdesk.Setup/Helpdesk.Setup.csproj",
+      "originalSha256": "865bdb1c1eb72ab6544dc8e6e511bc1232674b56fe5cbdab95f82d2c8a7e9923",
+      "candidateSha256": "23279e0ef04f5c3920ba4ed99fcd84ce3ffad5a9d1bf371787013e0da0c735a4"
+    },
+    {
+      "path": "src/Helpdesk.Mcp/Helpdesk.Mcp.csproj",
+      "originalSha256": "94ce6068b8c074efc0932d988cdad9d7b0d2f741d0166b52d0c4ba55032b1f39",
+      "candidateSha256": "051930b80f3eeec67dbee8979747f21406c518948d1c931f8ee1e50f28e44064"
+    },
+    {
+      "path": "src/Helpdesk.Shared/Helpdesk.Shared.csproj",
+      "originalSha256": "a0f8a0eea2adbd7cf9e9040f42f0519ef1fa825a5cea7bfadb5e0769d8e428e8",
+      "candidateSha256": "ca1bae2edc33e62a8cd2a8a6c33564c7f82950c06d49b673cadc845035314f78"
+    },
+    {
+      "path": "src/Helpdesk.Infrastructure/Helpdesk.Infrastructure.csproj",
+      "originalSha256": "cdcbe05f51cf6aa27454f2f865c237f431485e340398f88ddaa4c85c391889cc",
+      "candidateSha256": "68abff88f0129878027ac5ead060f06acbe78be5f9dc6d62ab3bb057e599e4f4"
+    },
+    {
+      "path": "src/Helpdesk.API/Helpdesk.API.csproj",
+      "originalSha256": "37d1081fa865b7b188f3f2e0eff48218defd36c0eb420fa9deee0f21ad1103ae",
+      "candidateSha256": "fc9e39068e4c0946e9e84c1092b167d2231f736d6ce9e74f0a9cb76b522c417a"
+    }
+  ]
+}

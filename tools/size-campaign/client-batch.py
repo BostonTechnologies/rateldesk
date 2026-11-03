@@ -412,7 +412,7 @@ def execute_batch(output: Path, rid: str, sdk: str) -> int:
                     (side_evidence / "archives/SHA256SUMS").write_text("".join(f"{digest}  {name}\n" for name, digest in sorted(hashes.items())))
                     environment = os.environ.copy()
                     environment["RATELDESK_ARCHIVE_PTY_ACCEPTANCE"] = "true" if rid.startswith("linux-") else "false"
-                    command(["bash", "tools/release/test-executable-archives.sh", (side_evidence / "archives").as_posix(), rid],
+                    command(["bash", "tools/release/test-executable-archives.sh", (side_evidence / "archives").as_posix(), rid, "--validate-docs"],
                             side_evidence / "archive-smoke.log", 600, environment)
                     snapshots[side] = discovery.capture_discovery(extracted["stdio"], side_evidence / "discovery", tripwire["origin"])
                     if tripwire["requests"]:
