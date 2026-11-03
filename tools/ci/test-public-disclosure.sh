@@ -44,6 +44,49 @@ printf '# Repository instructions\nKeep documentation in categorized guides.\n' 
 git -C "$public_agents" add AGENTS.md
 (cd "$public_agents" && bash tools/ci/check-public-disclosure.sh) >/dev/null
 
+public_skills="$(new_fixture public-skills)"
+mkdir -p "$public_skills/.agents/skills/example/.references"
+printf '%s\n' '---' 'name: example' 'description: Public development guidance.' '---' '# Public skill' > "$public_skills/.agents/skills/example/SKILL.md"
+printf '# Public reference\n' > "$public_skills/.agents/skills/example/.references/guide.md"
+git -C "$public_skills" add .agents
+(cd "$public_skills" && bash tools/ci/check-public-disclosure.sh) >/dev/null
+
+for skill_reference in SKILL.md .references/private.md; do
+  private_skill="$(new_fixture "private-skill-$skill_reference")"
+  mkdir -p "$(dirname "$private_skill/.agents/skills/example/$skill_reference")"
+  printf '# Skill reference\n%s%s\n' 'bos' 'tec-private-infrastructure' > "$private_skill/.agents/skills/example/$skill_reference"
+  git -C "$private_skill" add .agents
+  expect_rejected "$private_skill"
+done
+
+ignored_skill="$(new_fixture ignored-skill)"
+mkdir -p "$ignored_skill/.agents/skills/example/.references"
+printf '.references/\n' > "$ignored_skill/.gitignore"
+printf '%s%s\n' 'bos' 'tec-private-infrastructure' > "$ignored_skill/.agents/skills/example/.references/private.md"
+git -C "$ignored_skill" add -f .agents
+expect_rejected "$ignored_skill"
+
+for secret_name in .env .references/id_ed25519; do
+  secret_skill="$(new_fixture "secret-skill-$secret_name")"
+  mkdir -p "$(dirname "$secret_skill/.agents/skills/example/$secret_name")"
+  printf 'synthetic-secret-fixture\n' > "$secret_skill/.agents/skills/example/$secret_name"
+  git -C "$secret_skill" add .agents
+  expect_rejected "$secret_skill"
+done
+
+for private_path in \
+  .agents/workflow.md \
+  .agents/.private/instructions.md \
+  .agents/skills-private/SKILL.md \
+  .codex/config.toml \
+  openspec/.private/proposal.md; do
+  private_directory="$(new_fixture "private-directory-$private_path")"
+  mkdir -p "$(dirname "$private_directory/$private_path")"
+  printf '# Private workflow fixture\n' > "$private_directory/$private_path"
+  git -C "$private_directory" add -- "$private_path"
+  expect_rejected "$private_directory"
+done
+
 private_agents="$(new_fixture private-agents)"
 printf '# Repository instructions\n%s%s\n' 'bos' 'tec-private-infrastructure' > "$private_agents/AGENTS.md"
 git -C "$private_agents" add AGENTS.md

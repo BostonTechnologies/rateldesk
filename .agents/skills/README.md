@@ -1,8 +1,15 @@
 # Installed dotnet-skills
 
-This is the upstream recommended project-level installation of
+This repository installs all 39 skills from
 [Aaronontheweb/dotnet-skills](https://github.com/Aaronontheweb/dotnet-skills),
-copied from its `skills/` directory. The complete reference files are retained. Two explicit contents-link anchors are
+copied from its `skills/` directory into `.agents/skills`. Codex automatically
+discovers this repository location, including when launched from a subdirectory;
+see [Codex skill discovery](https://developers.openai.com/codex/skills).
+[GitHub Copilot](https://docs.github.com/en/copilot/concepts/customizations/agent-skills)
+also supports `.agents/skills`. These are ordinary tracked directories, so a fresh
+Windows or Linux checkout contains the same skills without symlink setup.
+
+The complete reference files are retained. Two explicit contents-link anchors are
 added for offline link validation; these small local patches are recorded in the
 source manifest.
 The skills are advisory references used through the routing guidance in the root
@@ -17,14 +24,25 @@ directories from that revision's `skills/`, and update the source record and thi
 index together. Keep the license and review upstream changes before adopting them.
 Do not silently download new instructions during a build or release.
 
-Codex agents can read the listed files directly. For a CLI runtime that supports
-the upstream plugin marketplace, its optional runtime installation is:
+## Use in Codex
+
+Open this repository in the Codex CLI or IDE extension and use `/skills` to inspect
+the discovered skills, or invoke one by name, such as `$aot-trimming` or
+`$modern-csharp-coding-standards`. Agents can also read the indexed files directly.
+No marketplace command is needed for this checked-in repository installation.
+
+For skills shared across repositories, a CLI runtime that supports the upstream
+plugin marketplace can additionally install the runtime plugin:
 
 ```bash
 codex plugin marketplace add Aaronontheweb/dotnet-skills
 codex plugin add dotnet-skills@dotnet-skills
 codex plugin list
 ```
+
+`codex plugin list` verifies that runtime plugin installation; it does not list
+the checked-in repository skills. Keep the repository source pin explicit when
+updating this copy, even if a runtime plugin has been updated separately.
 
 Specialized Claude Code agents are not part of this portable project installation.
 

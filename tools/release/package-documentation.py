@@ -20,7 +20,7 @@ def main() -> None:
         shutil.copy2(repository / name, destination / name)
     # AGENTS.md and release notes refer to this portable, MIT-licensed index.
     # Retain the complete references and upstream license in offline bundles.
-    shutil.copytree(repository / ".github/skills", destination / ".github/skills", dirs_exist_ok=True)
+    shutil.copytree(repository / ".agents/skills", destination / ".agents/skills", dirs_exist_ok=True)
     if args.flat_deployment:
         # Existing deployments extract Compose at archive root. Fix only bundled
         # local-link targets; source canonical guides remain repository-relative.
