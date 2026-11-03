@@ -224,8 +224,9 @@ class InventoryTests(unittest.TestCase):
                 "supportedRids": ["linux-x64", "linux-arm64", "win-x64"],
                 "assets": {a["name"]: a["sha256"] for a in BASELINE["assets"]
                            if a["name"] in inventory.expected_archives(release["version"])},
-                "containers": [f"ghcr.io/bostontechnologies/rateldesk-{name}:{release['version']}"
-                               for name in ("web", "api", "mcp-http")]}
+                "containers": [f"ghcr.io/bostontechnologies/rateldesk-web:{release['version']}",
+                               f"ghcr.io/bostontechnologies/rateldesk-api:{release['version']}",
+                               f"ghcr.io/bostontechnologies/rateldesk-mcp-http:{release['version']}"]}
 
     def test_finalizer_reconstruction_matches_independently_pinned_release_hashes(self):
         final = inventory.reconstruct_release_metadata(self.provisional_manifest(), BASELINE)
