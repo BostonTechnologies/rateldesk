@@ -122,7 +122,7 @@ public sealed class SetupProtocolTests
     [InlineData("http")]
     public async Task Unconfigured_distribution_help_and_nontty_setup_dispatch_before_serving_validation(string distribution)
     {
-        var assembly = distribution == "stdio" ? typeof(HelpdeskMcpStdioHost).Assembly.Location : typeof(Helpdesk.Mcp.Http.Program).Assembly.Location;
+        var assembly = distribution == "stdio" ? TestEnvironment.ApplicationAssembly("Helpdesk.Mcp", "rateldesk-mcp.dll") : TestEnvironment.ApplicationAssembly("Helpdesk.Mcp.Http", "Helpdesk.Mcp.Http.dll");
         var help = await RunProcessAsync(assembly, "--help");
         Assert.Equal(0, help.Code); Assert.Contains("setup", help.Output, StringComparison.Ordinal); Assert.Empty(help.Error);
         var setup = await RunProcessAsync(assembly, "setup");

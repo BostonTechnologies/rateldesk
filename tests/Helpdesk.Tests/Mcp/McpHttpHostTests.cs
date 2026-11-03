@@ -52,7 +52,7 @@ public sealed partial class McpHttpHostTests
         listener.Start();
         var port = ((IPEndPoint)listener.LocalEndpoint).Port;
         listener.Stop();
-        var assembly = typeof(Helpdesk.Mcp.Http.Program).Assembly.Location;
+        var assembly = TestEnvironment.ApplicationAssembly("Helpdesk.Mcp.Http", "Helpdesk.Mcp.Http.dll");
         var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet")
         {
             UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
@@ -1902,7 +1902,7 @@ public sealed partial class McpHttpHostTests
                 RedirectStandardError = true,
                 UseShellExecute = false
             };
-            start.ArgumentList.Add(typeof(Helpdesk.Mcp.HelpdeskMcpStdioHost).Assembly.Location);
+            start.ArgumentList.Add(TestEnvironment.ApplicationAssembly("Helpdesk.Mcp", "rateldesk-mcp.dll"));
             start.Environment["RATELDESK_MCP_CONFIG"] = configurationPath;
             start.Environment["RATELDESK_MCP_INSTANCE"] = "dev";
             start.Environment["RATELDESK_MCP_DEV_API_BASE_URL"] = apiBaseUrl;
