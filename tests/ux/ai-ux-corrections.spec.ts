@@ -157,7 +157,10 @@ test('investigation popups remain contained at native browser zoom 200 percent',
     await expect(page.getByRole('textbox', { name: 'Message Netclaw' })).toBeEnabled();
     const composer = page.getByRole('textbox', { name: 'Message Netclaw' });
     await composer.scrollIntoViewIfNeeded();
-    expect(await composer.evaluate(el => el.getBoundingClientRect().bottom <= innerHeight)).toBe(true);
+    const composerBounds = await composer.evaluate(el => ({ bottom: el.getBoundingClientRect().bottom, height: innerHeight }));
+    await info.attach('native-zoom-composer-bounds', { body: JSON.stringify(composerBounds), contentType: 'application/json' });
+    // Native zoom rounds scrolling to physical pixels (observed delta: 0.21 CSS px).
+    expect(composerBounds.bottom).toBeLessThanOrEqual(composerBounds.height + 1);
     await page.getByRole('button', { name: 'Netclaw connection status' }).click();
     await contained(page.getByRole('dialog', { name: 'Netclaw connection details' }));
     await page.screenshot({ path: info.outputPath('native-zoom-200.png'), fullPage: true });
