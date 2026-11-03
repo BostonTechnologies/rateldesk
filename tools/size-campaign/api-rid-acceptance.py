@@ -86,7 +86,8 @@ def resolved_sdk(log: str) -> dict:
             "source": "Verbose publish compiler/targets paths; not inferred from image tag"}
 
 
-def oci_inventory(path: Path, architecture: str, inspected: dict) -> dict:
+def oci_inventory(path: Path, architecture: str, inspected: dict, *,
+                  expected_entrypoint: tuple[str, ...] = ("dotnet", "Helpdesk.API.dll")) -> dict:
     """Verify every referenced OCI blob and tie it to the locally executed image."""
     with tarfile.open(path, "r:") as archive:
         members = archive.getmembers()
@@ -118,7 +119,7 @@ def oci_inventory(path: Path, architecture: str, inspected: dict) -> dict:
                 "Loaded Docker image architecture mismatch")
         require(inspected["Id"] == manifest["config"]["digest"], "OCI export and loaded image config differ")
         require(inspected["RootFS"]["Layers"] == config["rootfs"]["diff_ids"], "Loaded image layer identity mismatch")
-        require(inspected["Config"]["Entrypoint"] == ["dotnet", "Helpdesk.API.dll"], "API entrypoint changed")
+        require(inspected["Config"]["Entrypoint"] == list(expected_entrypoint), "Image entrypoint changed")
         for layer in manifest["layers"]:
             require(layer["mediaType"].endswith("tar+gzip"), "Expected gzip-compressed OCI layers")
             blob(layer)

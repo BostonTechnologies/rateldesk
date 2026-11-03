@@ -1,0 +1,117 @@
+name: Native host telemetry ownership batch
+
+on:
+  push:
+    branches:
+      - 'campaign/rd-size-host-telemetry'
+      - 'campaign/rd-size-host-telemetry/**'
+      - 'campaign/rd-size-host-telemetry-*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: host-telemetry-batch-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    name: Generate or verify telemetry package ownership
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      state: ${{ steps.inputs.outputs.state }}
+      sdk: ${{ steps.inputs.outputs.sdk }}
+    steps:
+      - name: Check out exact candidate and original ownership history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up the campaign SDK accepted by global.json
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          dotnet-version: '10.0.403'
+
+      - name: Verify receipt, measurement and test-evidence failure boundaries
+        run: python3 -m unittest discover -s tools/size-campaign -p 'test_host_telemetry*.py' -v
+
+      - name: Generate projects once or verify exact checked-in receipt
+        id: inputs
+        run: python3 tools/size-campaign/host-telemetry-batch.py prepare --output "$RUNNER_TEMP/host-telemetry-preparation"
+
+      - name: Retain exact generated projects and receipt before graph validation
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rd-size-host-telemetry-preparation-${{ github.run_id }}
+          path: ${{ runner.temp }}/host-telemetry-preparation
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Validate generated graph and unchanged Slopwatch baseline
+        shell: bash
+        run: |
+          set -o pipefail
+          dotnet restore Helpdesk.sln 2>&1 | tee "$RUNNER_TEMP/host-telemetry-restore.log"
+          dotnet tool restore 2>&1 | tee "$RUNNER_TEMP/host-telemetry-tool-restore.log"
+          dotnet tool run slopwatch analyze --fail-on warning 2>&1 | tee "$RUNNER_TEMP/host-telemetry-slopwatch.log"
+
+      - name: Retain graph and quality evidence on success or failure
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rd-size-host-telemetry-quality-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/host-telemetry-restore.log
+            ${{ runner.temp }}/host-telemetry-tool-restore.log
+            ${{ runner.temp }}/host-telemetry-slopwatch.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  native:
+    name: Native telemetry and image acceptance (${{ matrix.architecture }})
+    needs: prepare
+    if: needs.prepare.outputs.state == 'checked-in'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 100
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            architecture: amd64
+          - runner: ubuntu-24.04-arm
+            architecture: arm64
+    steps:
+      - name: Check out exact candidate and original ownership history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up exact preparation SDK for real telemetry tests
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          dotnet-version: ${{ needs.prepare.outputs.sdk }}
+
+      - name: Set up native Buildx without emulation
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Verify evidence boundaries before native execution
+        run: python3 -m unittest discover -s tools/size-campaign -p 'test_host_telemetry*.py' -v
+
+      - name: Run three real tracing cases and paired published-container acceptance
+        run: >-
+          python3 tools/size-campaign/host-telemetry-batch.py run
+          --architecture '${{ matrix.architecture }}' --sdk '${{ needs.prepare.outputs.sdk }}'
+          --output "$RUNNER_TEMP/rd-size-host-telemetry-${{ matrix.architecture }}"
+
+      - name: Retain native reports, metadata, logs, inventories and runtime receipts
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rd-size-host-telemetry-${{ matrix.architecture }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/rd-size-host-telemetry-${{ matrix.architecture }}/evidence
+          if-no-files-found: error
+          retention-days: 14

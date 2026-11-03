@@ -319,6 +319,9 @@ if (bootstrapDescriptor is not null && bootstrapDescriptor.State is not Bootstra
 }
 
 builder.AddServiceDefaults();
+// Keep database instrumentation with the host that owns Npgsql.
+builder.Services.AddOpenTelemetry()
+    .WithTracing(tracing => tracing.AddNpgsql());
 builder.Services.AddSingleton(aiAgentOpsLogBuffer);
 builder.Logging.AddProvider(new AiAgentOpsLoggerProvider(aiAgentOpsLogBuffer));
 // TODO: GlobalTypeMapper is deprecated, switch to AddJsonOptions
