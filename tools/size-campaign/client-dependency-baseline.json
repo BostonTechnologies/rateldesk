@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "campaignId": "rd-size-20261103",
+  "originalSourceRevision": "59248cacce44ad33a1c3367f0eb000e8705e072b",
+  "sdk": "10.0.403",
+  "files": [
+    {
+      "path": "src/Helpdesk.AgentClient/Helpdesk.AgentClient.csproj",
+      "sha256": "76ccff98ee93e9071bccec259a4238fba8cf36e0978c1fcdad819498ac29d0e8"
+    },
+    {
+      "path": "src/Helpdesk.Setup/Helpdesk.Setup.csproj",
+      "sha256": "865bdb1c1eb72ab6544dc8e6e511bc1232674b56fe5cbdab95f82d2c8a7e9923"
+    },
+    {
+      "path": "src/Helpdesk.Mcp/Helpdesk.Mcp.csproj",
+      "sha256": "94ce6068b8c074efc0932d988cdad9d7b0d2f741d0166b52d0c4ba55032b1f39"
+    },
+    {
+      "path": "src/Helpdesk.Shared/Helpdesk.Shared.csproj",
+      "sha256": "a0f8a0eea2adbd7cf9e9040f42f0519ef1fa825a5cea7bfadb5e0769d8e428e8"
+    },
+    {
+      "path": "src/Helpdesk.Infrastructure/Helpdesk.Infrastructure.csproj",
+      "sha256": "cdcbe05f51cf6aa27454f2f865c237f431485e340398f88ddaa4c85c391889cc"
+    },
+    {
+      "path": "src/Helpdesk.API/Helpdesk.API.csproj",
+      "sha256": "37d1081fa865b7b188f3f2e0eff48218defd36c0eb420fa9deee0f21ad1103ae"
+    }
+  ]
+}

@@ -6,6 +6,20 @@ internal static class TestEnvironment
 {
     internal static string RepositoryRoot { get; } = FindRepositoryRoot();
 
+    internal static string ApplicationAssembly(string projectName, string assemblyFileName)
+    {
+        // The test output shares ASP.NET's dependency closure. A standalone
+        // executable copied there can lose assemblies supplied by that framework.
+        // Launch the owning project's output with its matching runtime/deps files.
+        var relativeOutput = Path.GetRelativePath(
+            Path.Combine(RepositoryRoot, "tests", "Helpdesk.Tests"), AppContext.BaseDirectory);
+        var path = Path.GetFullPath(Path.Combine(RepositoryRoot, "src", projectName,
+            relativeOutput, assemblyFileName));
+        if (!File.Exists(path))
+            throw new FileNotFoundException("Build the owning application before running process acceptance.", path);
+        return path;
+    }
+
     [ModuleInitializer]
     public static void Initialize()
     {

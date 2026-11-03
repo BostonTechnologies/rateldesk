@@ -18,7 +18,7 @@ public sealed class HelpdeskMcpProcessTests
             RedirectStandardError = true,
             UseShellExecute = false
         };
-        start.ArgumentList.Add(typeof(HelpdeskMcpStdioHost).Assembly.Location);
+        start.ArgumentList.Add(TestEnvironment.ApplicationAssembly("Helpdesk.Mcp", "rateldesk-mcp.dll"));
         foreach (var name in new[]
                  {
                      HelpdeskMcpTarget.InstanceEnvironmentVariable,
@@ -134,7 +134,7 @@ public sealed class HelpdeskMcpProcessTests
                 RedirectStandardError = true,
                 UseShellExecute = false
             };
-            start.ArgumentList.Add(typeof(HelpdeskMcpStdioHost).Assembly.Location);
+            start.ArgumentList.Add(TestEnvironment.ApplicationAssembly("Helpdesk.Mcp", "rateldesk-mcp.dll"));
             foreach (var name in new[]
                      {
                          "RATELDESK_MCP_CONFIG",
