@@ -11,6 +11,16 @@ SPEC.loader.exec_module(probes)
 
 
 class PublishEvidenceTests(unittest.TestCase):
+    def test_profiles_use_the_common_source_timestamp_and_explicit_publish_flags(self):
+        metadata = {"version": "0.0.0-test", "sourceRevision": "a" * 40,
+                    "startedAt": "2026-01-02T00:00:00Z", "buildTimestamp": "2026-01-01T00:00:00Z"}
+        for mode in ("baseline", "portable-symbols", "trimmed", "aot"):
+            command, _ = probes.base_command("stdio", mode, Path("/tmp/candidate"), metadata)
+            self.assertIn("-p:BuildTimestamp=2026-01-01T00:00:00Z", command)
+            self.assertNotIn("-p:BuildTimestamp=2026-01-02T00:00:00Z", command)
+            self.assertIn("-p:PublishTrimmed=" + str(mode in ("trimmed", "aot")).lower(), command)
+            self.assertIn("-p:PublishAot=" + str(mode == "aot").lower(), command)
+
     def test_il_diagnostics_include_warning_and_error_without_double_counting_identical_lines(self):
         warning = "Source.cs(10,5): warning IL2026: Reflective call [App.csproj]"
         error = "Source.cs(12,5): error IL3050: Dynamic call [App.csproj]"

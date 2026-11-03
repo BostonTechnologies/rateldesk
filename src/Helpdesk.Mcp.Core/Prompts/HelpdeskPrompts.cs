@@ -4,7 +4,7 @@ using ModelContextProtocol.Server;
 namespace Helpdesk.Mcp.Prompts;
 
 [McpServerPromptType]
-public static class HelpdeskPrompts
+public sealed class HelpdeskPrompts
 {
     [McpServerPrompt(Name = "triage_incident")]
     public static string TriageIncident([Description("Incident identifier")] string incidentId) => $"Inspect incident '{incidentId}' using helpdesk_incidents get, timeline, and bounded diagnostics where relevant. Summarize evidence and next actions. If closure is requested, first explain that helpdesk_incidents operation=close requires request.incidentId, request.closureNote, and explicit confirm=true; use an internal note unless customer-visible communication is specifically requested.";

@@ -38,15 +38,22 @@ public static class Program
             var target = HelpdeskMcpTarget.Resolve(configuration, configurationPath,
                 builder.Configuration["Helpdesk:Mcp:Instance"], builder.Configuration["Helpdesk:Mcp:ExpectedApiBaseUrl"]);
             var configurationSurface = HelpdeskMcpConfigurationSurface.Create(resolution);
+            var hostContext = target.ToHostContext("stdio");
+            IServiceProvider? applicationServices = null;
+            var resourceTarget = new HelpdeskResources(
+                () => applicationServices?.GetRequiredService<IHelpdeskAgentClient>()
+                    ?? throw new InvalidOperationException("Helpdesk MCP resources were invoked before the application service provider was available."),
+                hostContext);
 
-            builder.Services.AddHelpdeskMcpCore(configuration, configurationSurface, target, "stdio");
+            builder.Services.AddHelpdeskMcpCore(configuration, configurationSurface, hostContext);
             builder.Services.AddMcpServer()
                 .WithStreamServerTransport(new McpDuplicateArgumentsStream(Console.OpenStandardInput()), Console.OpenStandardOutput())
                 .WithTools(HelpdeskToolDefinitions.Create())
-                .WithResourcesFromAssembly(typeof(HelpdeskResources).Assembly)
-                .WithPromptsFromAssembly(typeof(HelpdeskPrompts).Assembly);
+                .WithResources(resourceTarget)
+                .WithPrompts<HelpdeskPrompts>();
 
             var host = builder.Build();
+            applicationServices = host.Services;
             host.Services.GetRequiredService<ILoggerFactory>()
                 .CreateLogger("Helpdesk.Mcp.Target")
                 .LogInformation("Helpdesk MCP target validated for {Instance} at {ApiBaseUrl}", target.Instance, target.CanonicalApiBaseUrl);

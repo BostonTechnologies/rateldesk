@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.DependencyInjection;
+using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
@@ -17,6 +18,15 @@ namespace Helpdesk.Mcp.Tools;
 /// </summary>
 public static class HelpdeskToolDefinitions
 {
+    private static readonly JsonSerializerOptions ToolSerializerOptions = CreateSerializerOptions();
+
+    private static JsonSerializerOptions CreateSerializerOptions()
+    {
+        var options = new JsonSerializerOptions(McpJsonUtilities.DefaultOptions);
+        options.TypeInfoResolverChain.Insert(0, McpJsonContext.Default);
+        return options;
+    }
+
     private const string EnvelopeGuidance = "Use exactly the outer envelope { operation, request, confirm }. Put every operation-specific field inside request; never place those fields at the tool root.";
 
     private static readonly IReadOnlySet<string> OpenWorldTools = new HashSet<string>(StringComparer.Ordinal)
@@ -30,6 +40,14 @@ public static class HelpdeskToolDefinitions
             .OrderBy(method => method.Name, StringComparer.Ordinal)
             .Select(Create)
             .ToArray();
+
+    // Setup needs the wire contract without constructing SDK invocation handlers.
+    public static IReadOnlyDictionary<string, JsonElement> CreateInputSchemas()
+        => McpOperationCatalog.All.GroupBy(definition => definition.Tool, StringComparer.Ordinal)
+            .OrderBy(group => group.Key, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key,
+                group => JsonSerializer.SerializeToElement(InputSchema(group.ToArray()), McpJsonContext.Default.JsonObject),
+                StringComparer.Ordinal);
 
     private static McpServerTool Create(MethodInfo method)
     {
@@ -45,11 +63,12 @@ public static class HelpdeskToolDefinitions
             Destructive = !readOnly,
             Idempotent = readOnly,
             OpenWorld = OpenWorldTools.Contains(name) || OperatorOperationCatalog.All.Any(item => item.Tool == name && item.ExternalIo),
-            UseStructuredContent = true
+            UseStructuredContent = true,
+            SerializerOptions = ToolSerializerOptions
         };
 
         var tool = McpServerTool.Create(method, context => (context.Services ?? throw new InvalidOperationException("MCP request context has no service provider.")).GetRequiredService<HelpdeskTools>(), options);
-        tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(InputSchema(definitions));
+        tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(InputSchema(definitions), McpJsonContext.Default.JsonObject);
         return new ValidatedTool(tool);
     }
 
@@ -57,16 +76,13 @@ public static class HelpdeskToolDefinitions
     // both HTTP and stdio transports. Discovery and runtime share the catalog.
     private sealed class ValidatedTool(McpServerTool inner) : McpServerTool
     {
-        private static readonly JsonSerializerOptions ResponseOptions = new(JsonSerializerDefaults.Web)
-        {
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-        };
         public override Tool ProtocolTool => inner.ProtocolTool;
         public override IReadOnlyList<object> Metadata => inner.Metadata;
 
         public override ValueTask<CallToolResult> InvokeAsync(RequestContext<CallToolRequestParams> request, CancellationToken cancellationToken = default)
         {
-            if (HasDuplicateEnvelopeFields(JsonSerializer.SerializeToElement(request.JsonRpcRequest.Params)))
+            if (HasDuplicateEnvelopeFields(JsonSerializer.SerializeToElement(request.JsonRpcRequest.Params,
+                    ToolSerializerOptions.GetTypeInfo(typeof(object)))))
                 return Reject(request, "Duplicate tool argument envelope fields are not supported.");
             var args = request.Params.Arguments;
             if (args is null || args.Keys.Any(key => key is not ("operation" or "request" or "confirm")) ||
@@ -88,7 +104,7 @@ public static class HelpdeskToolDefinitions
         private static ValueTask<CallToolResult> Reject(RequestContext<CallToolRequestParams> request, string message)
         {
             var tools = (request.Services ?? throw new InvalidOperationException("MCP request context has no service provider.")).GetRequiredService<HelpdeskTools>();
-            var content = JsonSerializer.SerializeToElement(tools.Validation(message), ResponseOptions);
+            var content = JsonSerializer.SerializeToElement(tools.Validation(message), McpJsonContext.Default.HelpdeskToolResponse);
             return ValueTask.FromResult(new CallToolResult
             {
                 IsError = true,
@@ -138,9 +154,9 @@ public static class HelpdeskToolDefinitions
                 properties["request"] = RequestSchema(definition);
 
             var required = new JsonArray("operation");
-            if (definition.RequiresRequest) required.Add("request");
+            if (definition.RequiresRequest) required.Add((JsonNode?)"request");
 
-            alternatives.Add(new JsonObject
+            alternatives.Add((JsonNode)new JsonObject
             {
                 ["type"] = "object",
                 ["additionalProperties"] = false,

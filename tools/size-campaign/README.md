@@ -85,8 +85,59 @@ discovery means the experiment produced evidence. All initial publish reports us
 `releaseEligible: false`; a smoke pass does not establish full functional or
 trim/AOT acceptance. Unresolved IL2xxx/IL3xxx diagnostics remain explicit.
 
+Profiles use the source commit's timestamp for embedded build metadata and record
+the separate run start time. Trim/AOT, single-file, ReadyToRun and symbol settings
+are explicit. Each packaged stdio profile is extracted again for complete
+backend-free discovery. The retained `discovery/` files bind the full executed
+file manifest and protocol streams to the archive hash, including failed process
+results. A discovery pass alone does not accept an optimized profile.
+
 The separate [campaign workflow](../../.github/workflows/size-campaign.yml) runs on
 the named campaign PR when tooling changes, or by explicit manual dispatch. It
 does not add a mandatory size matrix to every normal PR. Evidence artifacts are
 retained for 30 days; preserve decision metrics and relevant logs in the campaign
 record before that period expires.
+
+## Closed schema reflection roots
+
+After changing a catalog request DTO or a nested DTO type, build the untrimmed
+stdio application and regenerate its explicit property/enum registry. The SDK
+tool inventories compiled catalog roots and their nested serialized fields; it
+never starts a host or contacts a backend. Use the owning application's complete
+output so the inventory can resolve its dependencies.
+
+```bash
+dotnet build src/Helpdesk.Mcp/Helpdesk.Mcp.csproj -c Release
+python3 tools/size-campaign/generate-schema-types.py \
+  --assembly src/Helpdesk.Mcp/bin/Release/net10.0/Helpdesk.Mcp.Core.dll \
+  --work-directory /tmp/rd-size-schema-types
+```
+
+Review the generated diff and rerun schema/golden and emitted-binary catalog
+acceptance. An unregistered type fails explicitly; new fields must not disappear
+from an optimized catalog. The registry preserves the existing reflection and
+attribute behavior for the complete compiled DTO graph.
+
+## Archived client behavior
+
+The packaging workflow runs the actual extracted self-contained JIT apphosts on
+native Linux x64, Linux ARM64 and Windows x64. It verifies their archive/source
+hashes, executed file manifests, dependency closure and archive-local CoreCLR
+resolution before checking the complete CLI help tree, enum metadata, JSON reads,
+paging/search, legacy profiles, dry-run and permission failures. Stdio coverage
+includes full paged discovery, all resource reads and prompts, structured tool
+results, duplicate/unknown arguments, confirmation, concurrent instance isolation,
+backend cancellation and natural EOF. Both clients must reject an untrusted local
+TLS certificate. Synthetic fixtures perform no backend mutations.
+
+```bash
+python3 tools/size-campaign/client-behavior.py \
+  --archives release-assets --rid linux-x64 --source-revision <full-candidate-sha> \
+  --output /tmp/rd-size-client-behavior
+```
+
+OpenSSL generates the disposable test certificate; no trust root is installed.
+Receipts retain five startup samples, twenty stdio read timings and process memory
+observations with their sampling limits. An SDK-equipped runner loading its own
+archive runtime is reported precisely; it is not relabeled as a runtime-free VM.
+The artifact excludes private fixture files and extracted payload duplicates.

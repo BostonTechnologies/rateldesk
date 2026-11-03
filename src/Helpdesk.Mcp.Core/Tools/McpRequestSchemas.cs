@@ -71,7 +71,7 @@ internal static class McpRequestSchemas
             case "BulkRequestTaskActionRequest":
                 Field(fields, required, "ids", Strings(1), true); break;
             case "TicketStateRequest": case "BulkTicketStateRequest":
-                Field(fields, required, "newState", EnumSchema(typeof(TicketState), names: true), true);
+                Field(fields, required, "newState", EnumSchema<TicketState>(names: true), true);
                 fields["comment"] = Text(false);
                 if (op == "bulk_state") Field(fields, required, "ids", Strings(1), true);
                 break;
@@ -88,7 +88,7 @@ internal static class McpRequestSchemas
             case "TicketCountRequest":
                 fields["ticketType"] = Named("incidents", "requests", "changes"); break;
             case "ChangeLifecycleRequest":
-                Field(fields, required, "lifecycleState", EnumSchema(typeof(ChangeLifecycleState), names: true), true); fields["comment"] = Text(false); break;
+                Field(fields, required, "lifecycleState", EnumSchema<ChangeLifecycleState>(names: true), true); fields["comment"] = Text(false); break;
             case "AiAssistantWorklogRequest":
                 foreach (var name in new[] { "eventId", "ticketId", "correlationId", "message" }) Field(fields, required, name, Text(), true);
                 fields["invocationId"] = new JsonObject { ["type"] = "string", ["format"] = "uuid" };
@@ -129,8 +129,8 @@ internal static class McpRequestSchemas
                 var targetFields = (JsonObject)target["properties"]!;
                 var targetRequired = (JsonArray)target["required"]!;
                 targetFields["priority"] = Named(Enum.GetNames<TicketPriority>());
-                if (targetFields.ContainsKey("state")) targetFields["state"] = Nullable(EnumSchema(typeof(TicketState), names: true));
-                if (targetFields.ContainsKey("lifecycleState")) targetFields["lifecycleState"] = Nullable(EnumSchema(typeof(ChangeLifecycleState), names: true));
+                if (targetFields.ContainsKey("state")) targetFields["state"] = Nullable(EnumSchema<TicketState>(names: true));
+                if (targetFields.ContainsKey("lifecycleState")) targetFields["lifecycleState"] = Nullable(EnumSchema<ChangeLifecycleState>(names: true));
                 if (op is "create" or "bulk_create")
                 {
                     foreach (var name in new[] { "title", "description", "organizationId" }) Require(targetRequired, name);
@@ -249,20 +249,20 @@ internal static class McpRequestSchemas
             if (tool == "helpdesk_request_tasks")
             {
                 foreach (var name in new[] { "assignedToId", "requestId", "serviceId" }) fields[name] = Text();
-                fields["assignedToMe"] = Boolean(); fields["status"] = EnumSchema(typeof(RequestTaskStatus), true); fields["type"] = EnumSchema(typeof(RequestTaskType), true);
+                fields["assignedToMe"] = Boolean(); fields["status"] = EnumSchema<RequestTaskStatus>(true); fields["type"] = EnumSchema<RequestTaskType>(true);
             }
             else
             {
                 foreach (var name in new[] { "activeOnly", "summaryOnly", "unassigned", "descending" }) fields[name] = Boolean();
-                fields["state"] = EnumSchema(typeof(TicketState), true); fields["view"] = Named("all", "active", "historic");
+                fields["state"] = EnumSchema<TicketState>(true); fields["view"] = Named("all", "active", "historic");
                 foreach (var name in new[] { "customerOrgId", "forId", "assigneeId" }) fields[name] = Repeated(Text());
                 fields["stateValues"] = Repeated(EnumSchema(tool == "helpdesk_changes" ? typeof(ChangeLifecycleState) : typeof(TicketState), true));
-                fields["priority"] = Repeated(EnumSchema(typeof(TicketPriority), true));
+                fields["priority"] = Repeated(EnumSchema<TicketPriority>(true));
                 fields["timeField"] = Named("updated", "created"); fields["sort"] = Named("updated", "created", "trackingId", "subject", "priority", "state");
                 fields["from"] = Date(); fields["to"] = Date();
                 if (tool == "helpdesk_incidents") { fields["organizationId"] = Text(); fields["excludeId"] = Text(); fields["requesterEmail"] = Text(); }
                 if (tool == "helpdesk_requests") fields["aiOnly"] = Boolean();
-                if (tool == "helpdesk_changes") fields["lifecycleState"] = EnumSchema(typeof(ChangeLifecycleState), true);
+                if (tool == "helpdesk_changes") fields["lifecycleState"] = EnumSchema<ChangeLifecycleState>(true);
             }
         }
         else if (tool == "helpdesk_self_service") { if (operation == "request_users") { fields.Remove("page"); fields["query"] = Text(false); } else fields["q"] = Text(false); }
@@ -271,14 +271,14 @@ internal static class McpRequestSchemas
             if (operation == "list")
             {
                 foreach (var name in new[] { "search", "source", "category", "sortBy", "sortDir" }) fields[name] = Text(false);
-                fields["severity"] = EnumSchema(typeof(Helpdesk.Shared.DTOs.Notification.NotificationSeverity), true);
+                fields["severity"] = EnumSchema<Helpdesk.Shared.DTOs.Notification.NotificationSeverity>(true);
                 fields["from"] = Date(); fields["to"] = Date();
             }
             else { fields.Clear(); if (operation == "unread_errors") fields["take"] = Integer(1, 100); }
         }
         else if (tool == "helpdesk_categories")
         {
-            fields.Clear(); fields["type"] = EnumSchema(typeof(Helpdesk.Shared.Enums.TicketCategoryType), true);
+            fields.Clear(); fields["type"] = EnumSchema<Helpdesk.Shared.Enums.TicketCategoryType>(true);
             fields["search"] = new JsonObject { ["type"] = "string", ["maxLength"] = 120 }; fields["ids"] = Text(); fields["take"] = Integer(1, 100); fields["allScopes"] = Boolean(); fields["includeInactive"] = Boolean();
             // tenantId is currently filtered by the legacy adapter; do not advertise an ignored field.
         }
@@ -289,7 +289,7 @@ internal static class McpRequestSchemas
     {
         var fields = (JsonObject)schema["properties"]!; var required = (JsonArray)schema["required"]!;
         var nullability = new NullabilityInfoContext();
-        foreach (var property in type.GetProperties(BindingFlags.Public | BindingFlags.Instance).Where(property => property.CanWrite && property.GetCustomAttribute<JsonIgnoreAttribute>() is null))
+        foreach (var property in McpSchemaTypes.GetProperties(type).Where(property => property.CanWrite && property.GetCustomAttribute<JsonIgnoreAttribute>() is null))
         {
             var name = property.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ?? JsonNamingPolicy.CamelCase.ConvertName(property.Name);
             var field = TypeSchema(property.PropertyType);
@@ -347,7 +347,7 @@ internal static class McpRequestSchemas
         foreach (var permission in permissions.Where(permission => !Helpdesk.Shared.Auth.RoleDefinitionCatalog.SatisfiesDependencies([permission])))
         {
             var dependency = permissions.Single(candidate => candidate != permission && Helpdesk.Shared.Auth.RoleDefinitionCatalog.SatisfiesDependencies([permission, candidate]));
-            conditions.Add(new JsonObject
+            conditions.Add((JsonNode)new JsonObject
             {
                 ["if"] = new JsonObject { ["required"] = new JsonArray("permissions"), ["properties"] = new JsonObject { ["permissions"] = new JsonObject { ["contains"] = new JsonObject { ["const"] = permission } } } },
                 ["then"] = new JsonObject { ["properties"] = new JsonObject { ["permissions"] = new JsonObject { ["contains"] = new JsonObject { ["const"] = dependency } } } }
@@ -364,17 +364,24 @@ internal static class McpRequestSchemas
     private static JsonObject Date() => new() { ["type"] = "string", ["format"] = "date-time" };
     private static JsonObject Strings(int minimum = 0) => new() { ["type"] = "array", ["minItems"] = minimum, ["items"] = Text() };
     private static JsonObject Named(params string[] values) => new() { ["type"] = "string", ["enum"] = new JsonArray(values.Select(value => JsonValue.Create(value)).ToArray()) };
+    private static JsonObject EnumSchema<TEnum>(bool names) where TEnum : struct, Enum
+        => EnumSchemaValues(names ? Enum.GetNames<TEnum>() : [],
+            Enum.GetValues<TEnum>().Select(value => Convert.ToInt32(value)));
+
     private static JsonObject EnumSchema(Type type, bool names)
+        => EnumSchemaValues(names ? McpSchemaTypes.EnumValues(type).Names : [],
+            McpSchemaTypes.EnumValues(type).Numbers);
+
+    private static JsonObject EnumSchemaValues(IEnumerable<string> names, IEnumerable<int> numbers)
     {
         var values = new JsonArray();
-        if (names) foreach (var name in Enum.GetNames(type)) values.Add(name);
-        foreach (var value in Enum.GetValues(type))
+        foreach (var name in names) values.Add((JsonNode?)name);
+        foreach (var numeric in numbers)
         {
-            var numeric = Convert.ToInt32(value);
-            values.Add(numeric);
+            values.Add((JsonNode?)numeric);
             // Legacy ticket adapters accept defined numeric strings and normalize
             // them before calling the API. Advertise that existing compatibility.
-            values.Add(numeric.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            values.Add((JsonNode?)numeric.ToString(System.Globalization.CultureInfo.InvariantCulture));
         }
         return new JsonObject { ["enum"] = values };
     }
@@ -391,7 +398,7 @@ internal static class McpRequestSchemas
         if (field["enum"] is JsonArray values) for (var i = values.Count - 1; i >= 0; i--) if (values[i] is null) values.RemoveAt(i);
     }
     private static void Field(JsonObject fields, JsonArray required, string name, JsonObject field, bool mandatory) { fields[name] = field; if (mandatory) Require(required, name); }
-    private static void Require(JsonArray required, string name) { if (!required.Any(value => value!.GetValue<string>() == name)) required.Add(name); }
+    private static void Require(JsonArray required, string name) { if (!required.Any(value => value!.GetValue<string>() == name)) required.Add((JsonNode?)name); }
     internal static IEnumerable<string> Identifiers(string path)
     {
         for (var position = 0; position < path.Length;)
