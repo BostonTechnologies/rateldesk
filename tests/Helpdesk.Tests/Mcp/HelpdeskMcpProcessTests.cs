@@ -9,6 +9,21 @@ namespace Helpdesk.Tests.Mcp;
 
 public sealed class HelpdeskMcpProcessTests
 {
+    [Theory]
+    [InlineData("helpdesk://capabilities")]
+    [InlineData("helpdesk://config/redacted")]
+    [InlineData("helpdesk://server/status")]
+    public async Task Stdio_resources_are_invocable_with_the_active_host_identity(string uri)
+    {
+        await using var host = StdioHost.Start("resource-test", "https://api.example");
+        await host.InitializeAsync();
+        using var response = await host.CallAsync(2, "resources/read", new { uri });
+        var text = response.RootElement.GetProperty("result").GetProperty("contents")[0].GetProperty("text").GetString()!;
+        using var resource = JsonDocument.Parse(text);
+        Assert.Equal("resource-test", resource.RootElement.GetProperty("instance").GetString());
+        Assert.DoesNotContain("not-a-real-secret", text, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Missing_instance_fails_closed_with_stderr_only_diagnostic()
     {
