@@ -4,8 +4,8 @@ set -euo pipefail
 # Executes the CLI and stdio MCP apphosts from a generated release archive.
 # Invoke this on the matching platform (or a deliberate emulator); it never
 # contacts a RatelDesk API and creates only a disposable local MCP config.
-if [[ $# -ne 2 ]]; then
-  echo "usage: $0 <asset-directory> <rid>" >&2
+if [[ $# -lt 2 || $# -gt 3 || ( $# -eq 3 && "${3:-}" != --validate-docs ) ]]; then
+  echo "usage: $0 <asset-directory> <rid> [--validate-docs]" >&2
   exit 64
 fi
 
@@ -43,6 +43,13 @@ extract_archive "$mcp_archive" "$temporary_directory/mcp"
 cli_directory="$(find "$temporary_directory/cli" -mindepth 1 -maxdepth 1 -type d -print -quit)"
 mcp_directory="$(find "$temporary_directory/mcp" -mindepth 1 -maxdepth 1 -type d -print -quit)"
 [[ -n "$cli_directory" && -n "$mcp_directory" ]] || { echo "Archives must contain one package directory." >&2; exit 1; }
+
+# New release/rehearsal callers require this gate. Historical immutable archives
+# can rerun their executable acceptance without retroactive documentation changes.
+if [[ "${3:-}" == --validate-docs ]]; then
+  "$python_bin" "$(dirname "${BASH_SOURCE[0]}")/../ci/validate-docs.py" --root "$cli_directory"
+  "$python_bin" "$(dirname "${BASH_SOURCE[0]}")/../ci/validate-docs.py" --root "$mcp_directory"
+fi
 
 suffix=""
 [[ "$rid" == win-x64 ]] && suffix=.exe

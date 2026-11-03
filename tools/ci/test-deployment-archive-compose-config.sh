@@ -18,6 +18,8 @@ tar -C "$extracted_directory" -xzf "$archive"
 deployment_directory=$(find "$extracted_directory" -mindepth 1 -maxdepth 1 -type d -print -quit)
 test -n "$deployment_directory"
 
+python3 "$(dirname "${BASH_SOURCE[0]}")/validate-docs.py" --root "$deployment_directory"
+
 test -x "$deployment_directory/setup-http-mcp.sh"
 test -f "$deployment_directory/setup-http-mcp.py"
 python3 - "$deployment_directory/setup-release.json" <<'PY'

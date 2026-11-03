@@ -32,7 +32,7 @@ package_tool() {
   mkdir -p "$package_directory"
   cp -a "$publish_directory/." "$package_directory/"
   cp "$repository_root/LICENSE" "$package_directory/LICENSE"
-  python3 "$repository_root/tools/release/package-documentation.py" "$package_directory"
+  python3 "$repository_root/tools/release/package-documentation.py" "$package_directory" --source-revision "$source_revision"
   cat > "$package_directory/README.txt" <<EOF
 RatelDesk $tool $version
 
@@ -60,7 +60,7 @@ cp -a "$repository_root/tools/mcp/." "$deployment_directory/"
 find "$deployment_directory" -type d -name __pycache__ -prune -exec rm -rf {} +
 chmod 0755 "$deployment_directory/setup-http-mcp.sh" "$deployment_directory/setup-http-mcp.py"
 cp "$repository_root/LICENSE" "$deployment_directory/LICENSE"
-python3 "$repository_root/tools/release/package-documentation.py" "$deployment_directory" --flat-deployment
+python3 "$repository_root/tools/release/package-documentation.py" "$deployment_directory" --flat-deployment --source-revision "$source_revision"
 python3 - "$deployment_directory/setup-release.json" "$version" <<'PY'
 import json, pathlib, sys
 pathlib.Path(sys.argv[1]).write_text(json.dumps({
