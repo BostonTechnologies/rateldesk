@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "originalSourceRevision": "173ba8baef9074f015a9219e81cbde1e62e98f63",
+  "preparedFromSourceRevision": "064daefc5b7e05ca8c1d0206a1d1ef39bf1b77a2",
+  "sdk": "10.0.403",
+  "preparationScriptSha256": "c471a63f8ae3cae5753bcb7933da104af185110c98e062c0d378f64902282df1",
+  "files": [
+    {
+      "path": "src/Helpdesk.API/Helpdesk.API.csproj",
+      "originalSha256": "fc9e39068e4c0946e9e84c1092b167d2231f736d6ce9e74f0a9cb76b522c417a",
+      "candidateSha256": "7178ce33934e666b4035cedde46daa85eca48b039ac54d69f3e617a9855034a5"
+    },
+    {
+      "path": "src/Helpdesk.ServiceDefaults/Helpdesk.ServiceDefaults.csproj",
+      "originalSha256": "e32b390545c2590a174e12fdf3e1e35bc9925187f0b9ffac5846560dc9f16c2d",
+      "candidateSha256": "288a5476d1ffa8272cf504c1ecaea5b99fa2a1f80fbc128bfe67f30c9fe26a66"
+    }
+  ]
+}

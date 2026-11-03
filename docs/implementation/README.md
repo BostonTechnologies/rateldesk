@@ -4,6 +4,7 @@ These documents retain dated plans, source pins and evidence. Current operator
 guidance is linked from the [documentation index](../README.md).
 
 - [Artifact size, trimming and Native AOT campaign](size-campaign-20261103.md)
+- [Artifact size campaign: Codex Cloud handoff — 3 November 2026](size-campaign-codex-cloud-handoff-20261103.md)
 - [0.1.3-beta.3 AI workspace comparison and synthetic rendered evidence](0.1.3-beta.3-ai-ux.md)
 - [0.1.2 stable candidate: completed campaign and owner cleanup disposition](0.1.2-stable-acceptance.md)
 - [0.1.1 workspace implementation and acceptance evidence](workspace-0.1.1.md)
