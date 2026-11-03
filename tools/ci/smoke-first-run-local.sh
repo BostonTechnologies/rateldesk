@@ -305,7 +305,15 @@ jq -n --arg api "$discovery_api_base_url" --arg web "$discovery_web_base_url" \
     PublicWebAppUrl: $web
   }}}}' > "$discovery_override"
 compose_arguments+=(-f "$discovery_override")
-docker compose "${compose_arguments[@]}" up --detach --no-deps --force-recreate api
+# Optional campaign acceptance: retain all data, files and keys while changing only
+# the API image at the existing recreation boundary. Normal first-run CI is unchanged.
+if [[ -n "${RATELDESK_UPGRADE_API_IMAGE:-}" ]]; then
+  upgrade_override="$work_directory/upgrade-image.compose.json"
+  jq -n --arg image "$RATELDESK_UPGRADE_API_IMAGE" \
+    '{services: {api: {image: $image, pull_policy: "never"}}}' > "$upgrade_override"
+  compose_arguments+=(-f "$upgrade_override")
+fi
+docker compose "${compose_arguments[@]}" up --detach --no-deps --force-recreate --no-build api
 curl --retry 30 --retry-all-errors --retry-delay 2 --fail --silent --show-error \
   --cookie "$cookie_jar" "$api_base_url/api/v1/attachments/$attachment_id" > "$work_directory/restored.txt"
 cmp "$work_directory/attachment.txt" "$work_directory/restored.txt"
@@ -365,3 +373,4 @@ if grep -q 'Cannot load library libgssapi_krb5' "$work_directory/api.log"; then
 fi
 
 echo "First-run $setup_provider setup, local sign-in, core ticket CRUD, self-service request, attachment, and public Web discovery smoke test passed."
+
