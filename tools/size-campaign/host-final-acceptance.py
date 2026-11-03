@@ -11,9 +11,11 @@ import os
 from pathlib import Path
 import platform
 import re
+import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 import time
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -79,6 +81,64 @@ def browser_case(image, output, name):
         result["cleanup"] = execute(["docker", "rm", "--force", container], output / (name + "-cleanup.log"), timeout=60)
         require(result["cleanup"]["status"] == "PASS", "Browser container cleanup failed")
     return result
+
+
+def published_graph_case(image, expected_digest, output):
+    build = execute(["dotnet", "build", "tests/Helpdesk.Tests/Helpdesk.Tests.csproj", "-c", "Release", "-m:1", "-nr:false", "-p:UseSharedCompilation=false"],
+                    output / "published-graph-build.log", timeout=1200)
+    successful(build)
+    version = api.capture(["dotnet", "--version"])
+    locations = [line for line in api.capture(["dotnet", "--list-sdks"]).splitlines() if line.startswith(version + " ")]
+    require(len(locations) == 1, "Ambiguous VSTest SDK path")
+    sdk = Path(locations[0].split("[", 1)[1].rstrip("]")) / version
+    require((sdk / "vstest.console.dll").is_file(), "VSTest runner missing from selected SDK")
+    tests = ROOT / "tests/Helpdesk.Tests/bin/Release/net10.0"
+    bindings = {}
+    with tempfile.TemporaryDirectory(prefix="rd-published-graph-") as temporary:
+        temporary = Path(temporary)
+        payload, backup = temporary / "payload", temporary / "backup"
+        payload.mkdir(); backup.mkdir()
+        inventory = api.capture(["docker", "create", "--entrypoint", "/__inventory_never_started", image])
+        try:
+            subprocess.run(["docker", "cp", inventory + ":/app/.", str(payload)], check=True, timeout=180)
+        finally:
+            subprocess.run(["docker", "rm", inventory], check=True, stdout=subprocess.DEVNULL)
+        copied = []
+        try:
+            for source in payload.glob("*.dll"):
+                if not (source.name.startswith("Helpdesk.") or source.name == "Microsoft.Graph.dll"):
+                    continue
+                destination = tests / source.name
+                require(destination.is_file(), "Published product assembly has no owning fixture reference: " + source.name)
+                shutil.copy2(destination, backup / source.name)
+                copied.append(destination)
+                shutil.copy2(source, destination)
+                require(host.sha256(destination) == host.sha256(source), "Published Graph assembly binding differs")
+                bindings[source.name] = host.sha256(source)
+            require({"Helpdesk.API.dll", "Helpdesk.Infrastructure.dll"} <= set(bindings), "Published owning Graph assemblies missing")
+            container = api.capture(["docker", "create", "--entrypoint", "dotnet", "--network", "host",
+                "--mount", f"type=bind,src={sdk},dst={sdk},readonly", "--mount", f"type=bind,src={ROOT},dst={ROOT},readonly",
+                "--mount", f"type=bind,src={output},dst=/acceptance-evidence", "--mount", "type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock",
+                "--workdir", str(ROOT), image, str(sdk / "vstest.console.dll"), str(tests / "Helpdesk.Tests.dll"),
+                "/TestCaseFilter:FullyQualifiedName~GraphMailbox|FullyQualifiedName~GraphEmail|FullyQualifiedName~GraphNotification",
+                "/Logger:trx;LogFileName=published-graph.trx", "/ResultsDirectory:/acceptance-evidence"])
+            try:
+                observed = api.capture(["docker", "inspect", "--format", "{{.Image}}", container])
+                require(observed == expected_digest, "Published Graph fixture uses a different image")
+                result = execute(["docker", "start", "--attach", container], output / "published-graph-tests.log", timeout=600)
+                successful(result)
+                require(api.capture(["docker", "inspect", "--format", "{{.State.ExitCode}}", container]) == "0", "Published Graph test process failed")
+                counters = ET.parse(output / "published-graph.trx").find(".//{*}Counters").attrib
+                require(int(counters["total"]) == int(counters["passed"]) == 57, "Expected all57 published Graph cases without skips")
+                result.update(kind="Published Graph fixture on native API image runtime", executedConfigDigest=observed, boundProductAssemblies=bindings,
+                              counters=counters, scope="Actual published product assemblies on the API image CLR; read-only VSTest SDK/test-source mounts are fixture tooling")
+                return result
+            finally:
+                subprocess.run(["docker", "rm", "--force", container], check=True, stdout=subprocess.DEVNULL)
+        finally:
+            for destination in copied:
+                shutil.copy2(backup / destination.name, destination)
+                require(host.sha256(destination) == host.sha256(backup / destination.name), "Owning test assembly restoration failed")
 
 
 def run(args):
@@ -149,6 +209,8 @@ def run(args):
             portable = name + "-portable"
             host.compare_builds(report["builds"][name], report["builds"][portable])
             report["symbolResearch"][name] = {"status": "MEASURED_NOT_ADOPTED", "symbolPolicy": "Portable PDBs retained in image; no symbol deletion", "deltas": comparison(report["images"][name], report["images"][portable])}
+        report["cases"].append(published_graph_case(names["api"], report["images"]["api"]["configDigest"], evidence))
+        write_json(receipt_path, report)
         for name in ("web-control", "web"):
             case = browser_case(names[name], evidence, name + "-" + args.architecture)
             require(case["executedConfigDigest"] == report["images"][name]["configDigest"], "Browser did not execute measured Web config")
@@ -216,7 +278,7 @@ def run(args):
             report["cases"].append(result)
             write_json(receipt_path, report)
             successful(result)
-        require(len(report["cases"]) == 20 and all(case["status"] == "PASS" for case in report["cases"]), "Not all owning final cases passed")
+        require(len(report["cases"]) == 21 and all(case["status"] == "PASS" for case in report["cases"]), "Not all owning final cases passed")
         report["status"] = "PASS"
     except Exception as error:
         report.update(status="FAIL", error=str(error))
