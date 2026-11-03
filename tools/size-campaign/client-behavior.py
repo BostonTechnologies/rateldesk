@@ -484,7 +484,7 @@ def main():
                        if line.startswith("CoreCLR path = ")]
             require(len(matches) == 1 and str(coreclr).replace("\\", "/").casefold() in matches[0], "Apphost loaded a global runtime instead of its archive runtime")
             report["archives"][target]["runtimeResolution"] = {"status": "PASS", "coreclr": coreclr.name,
-                "trace": trace_path.name, "scope": "Loaded the archive's CoreCLR with DOTNET_ROOT pointing to an absent directory; SDK-equipped host"}
+                "trace": trace_path.name, "scope": "Loaded the archive's CoreCLR with DOTNET_ROOT pointing to an absent directory; installed runtimes are assessed separately by the owning fixture"}
         with backend() as (origin, state):
             report["cli"] = cli_cases(executables["cli"], output / "cli", origin, state)
             report["stdio"] = mcp_cases(executables["stdio"], output / "stdio", origin, state)

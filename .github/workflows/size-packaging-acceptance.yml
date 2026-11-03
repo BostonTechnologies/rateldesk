@@ -148,6 +148,35 @@ jobs:
             --archives release-assets --rid '${{ matrix.rid }}' --source-revision "$GITHUB_SHA" \
             --output "$RUNNER_TEMP/client-behavior-${{ matrix.rid }}"
 
+      - name: Repeat archived behavior without an installed shared runtime
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 -m unittest discover -s tools/size-campaign -p 'test_runtime_free_clients.py'
+          python3 tools/size-campaign/runtime-free-clients.py \
+            --archives release-assets --rid '${{ matrix.rid }}' --source-revision "$GITHUB_SHA" \
+            --output "$RUNNER_TEMP/runtime-free-${{ matrix.rid }}" 2>&1 | tee packaging-evidence/runtime-free.log
+
+      - name: Retain runtime-free acceptance and exact executed manifests
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: size-runtime-free-${{ matrix.rid }}
+          path: |
+            ${{ runner.temp }}/runtime-free-${{ matrix.rid }}/runtime-free.json
+            ${{ runner.temp }}/runtime-free-${{ matrix.rid }}/behavior/report.json
+            ${{ runner.temp }}/runtime-free-${{ matrix.rid }}/behavior/backend-requests.json
+            ${{ runner.temp }}/runtime-free-${{ matrix.rid }}/behavior/*-executed-files.json
+            ${{ runner.temp }}/runtime-free-${{ matrix.rid }}/behavior/*-host-resolution.log
+            ${{ runner.temp }}/runtime-free-${{ matrix.rid }}/behavior/cli/cases.json
+            ${{ runner.temp }}/runtime-free-${{ matrix.rid }}/behavior/cli/*.stdout
+            ${{ runner.temp }}/runtime-free-${{ matrix.rid }}/behavior/cli/*.stderr
+            ${{ runner.temp }}/runtime-free-${{ matrix.rid }}/behavior/stdio/cases.json
+            ${{ runner.temp }}/runtime-free-${{ matrix.rid }}/behavior/stdio/**/stdout.jsonl
+            ${{ runner.temp }}/runtime-free-${{ matrix.rid }}/behavior/stdio/**/stderr.log
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Retain native acceptance evidence even on failure
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
