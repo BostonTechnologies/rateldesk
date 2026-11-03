@@ -70,6 +70,18 @@ def main():
             raise RuntimeError("Credential was not bound to the fixture MCP resource")
         fixture.probe_incident_search(secret=fixture.client_secret)
         report["checks"]["realInitializeCatalogAuthStatusSeededListFilterGetAndPermission403"] = "PASS"
+        samples = []
+        for _ in range(5):
+            started = time.monotonic()
+            fixture.probe_incident_search(secret=fixture.client_secret)
+            samples.append(round((time.monotonic() - started) * 1000, 3))
+        report["measurement"] = {"scope": "Five descriptive warm authenticated sessions, each initialize/catalog/seeded list/filter/get/permission denial; no performance improvement claim",
+                                 "authenticatedReadWorkloadMilliseconds": samples, "memory": {}}
+        for service in ("api", "web", "mcp-http"):
+            identifier = checked([*fixture.compose, "ps", "-q", service])
+            stats = json.loads(checked(["docker", "stats", "--no-stream", "--format", "{{json .}}", identifier]))
+            report["measurement"]["memory"][service] = {"usage": stats["MemUsage"], "percent": stats["MemPerc"],
+                "definition": "One post-workload docker stats Linux sample, cache excluded"}
         try:
             fixture.probe_incident_search(secret="rdk_synthetic_unauthorized_telemetry_fixture")
         except urllib.error.HTTPError as error:
