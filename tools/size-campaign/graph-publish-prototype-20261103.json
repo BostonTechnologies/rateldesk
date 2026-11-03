@@ -1,0 +1,28 @@
+{
+  "sourceRevision": "57e62f8eee86e865a5d051e88af9dd5ae0c29407",
+  "scope": "Matched SDK10.0.403 linux-x64 FDD publish payload; not a whole-image measurement",
+  "version": "0.1.3-beta.3",
+  "buildTimestamp": "2026-11-03T21:00:00Z",
+  "mode": "untrimmed JIT, embedded symbols retained",
+  "releaseEligible": false,
+  "sides": {
+    "control": {
+      "expandedBytes": 94299282,
+      "fileCount": 203,
+      "compressedPublishBytes": 26772700,
+      "compressedPublishSha256": "6317dd0a90de2e13a5c0233f2fa6b368131dafebaa5b312e1bcce93cc28d25e6",
+      "packAndVerifySeconds": 4.125,
+      "fileInventorySha256": "af53f7d79b86d8b7103ed6193de60ee74b0da00fd215be29b952321bae23aa44"
+    },
+    "candidate": {
+      "expandedBytes": 47087300,
+      "fileCount": 202,
+      "compressedPublishBytes": 16821931,
+      "compressedPublishSha256": "deeaf73dc57c63953415407d99d0cd1fbda09ae932bd360cc7d3caf9e53d2c17",
+      "packAndVerifySeconds": 2.136,
+      "fileInventorySha256": "9a32f65951aba476bdd4d353524217afb61d0b7cdb6235b51760c8cf0d07540a"
+    }
+  },
+  "status": "MEASURED_NOT_ACCEPTED",
+  "candidateScope": "Local prototype before the final license-content item and native acceptance tooling; final owning gate supplies exact final source identities"
+}

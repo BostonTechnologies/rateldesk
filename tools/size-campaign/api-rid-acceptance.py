@@ -169,7 +169,7 @@ def measure_image(image: str, oci_path: Path, architecture: str, output: Path, v
     return result
 
 
-def provider_case(provider: str, mode: str, architecture: str, images: dict, output: Path) -> dict:
+def provider_case(provider: str, mode: str, architecture: str, images: dict, output: Path, *, measurement=None) -> dict:
     """Exercise fresh candidate data and a control-to-candidate retained-data upgrade."""
     name = f"rd-size-api-{architecture}-{provider.lower()}-{mode}"
     environment = os.environ.copy()
@@ -211,6 +211,8 @@ def provider_case(provider: str, mode: str, architecture: str, images: dict, out
             expected_image = capture(["docker", "image", "inspect", "--format", "{{.Id}}", images["candidate"]])
             require(actual_image == expected_image, "Smoke did not finish on the measured candidate image")
             result["executedCandidateConfigDigest"] = actual_image
+            if measurement is not None:
+                result["measurement"] = measurement(container)
             result["status"] = "PASS"
         except (RuntimeError, subprocess.SubprocessError) as error:
             result["status"] = "FAIL"

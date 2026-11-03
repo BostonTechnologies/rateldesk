@@ -1,0 +1,9 @@
+{
+  "controlModelCount": 7114,
+  "candidateModelCount": 87,
+  "differences": [],
+  "status": "MATCHING_MODEL_SURFACES",
+  "sourceRevision": "57e62f8eee86e865a5d051e88af9dd5ae0c29407",
+  "scope": "Local generated-client prototype: public property types, wire keys, enum names/values and default OData type; not live external Graph acceptance",
+  "releaseEligible": false
+}

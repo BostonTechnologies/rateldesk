@@ -22,3 +22,11 @@ Source: https://pypi.org/project/PyYAML/6.0.3/
 Source archive SHA-256: d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f
 Provenance: tools/mcp/vendor/PyYAML.json
 License: MIT (PyYAML-MIT.txt)
+
+Microsoft Graph SDK for .NET 6.8.0 (bounded generated mail client and wrappers)
+Copyright 2019 Microsoft Graph; Copyright Microsoft Corporation
+Source: https://github.com/microsoftgraph/msgraph-sdk-dotnet
+Source revision: 8139c5d736164db753cf97cd557a1cedab18fd25
+Generation provenance: src/Helpdesk.Infrastructure/Email/GraphClient/generation-receipt.json
+License: MIT (Microsoft-Graph-MIT.txt)
+The API publish also retains Email/GraphClient/LICENSE.txt alongside the client.

@@ -25,8 +25,8 @@
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.13" />
 	  <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.13" />
 	  <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="10.11.0" />
-    <PackageReference Include="Microsoft.Graph" Version="6.8.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.13" />
+    <PackageReference Include="Microsoft.Graph.Core" Version="4.0.1" />
     <!-- Keep the Kiota runtime family aligned: Graph's transitive 1.x serializers
          reference interfaces removed in Kiota Abstractions 2.x. -->
     <PackageReference Include="Microsoft.Kiota.Abstractions" Version="2.1.2" />
@@ -44,6 +44,9 @@
   <ItemGroup>
     <ProjectReference Include="..\Helpdesk.Application\Helpdesk.Application.csproj" />
     <ProjectReference Include="..\Helpdesk.Shared\Helpdesk.Shared.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="Email/GraphClient/LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
