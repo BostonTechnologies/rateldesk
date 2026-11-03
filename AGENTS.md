@@ -6,21 +6,30 @@ Prefer retrieval-led reasoning over pretraining for .NET work.
 Workflow: skim repository patterns → consult the relevant dotnet-skills reference
 by name → implement the smallest change → note any conflicts with this repository.
 
-The upstream project-level installation is checked in under
-[.github/skills](.github/skills/README.md). Read each skill's `SKILL.md` and relevant
-references before applying it. The index maps invocation names to upstream folder
-names; this also works when the assistant runtime has no plugin marketplace.
+All 39 upstream skills are checked in under
+[.agents/skills](.agents/skills/README.md), the repository location Codex discovers
+automatically. Read each skill's `SKILL.md` and relevant references before applying
+it. The index maps invocation names to upstream folder names; the complete files
+are available in a fresh checkout without a runtime plugin installation.
 The pinned upstream revision and MIT license are retained alongside the skills.
 
 Routing (use the installed skill by name):
+- Akka.NET: akka-net-best-practices, akka-net-testing-patterns,
+  akka-hosting-actor-patterns, akka-net-aspire-configuration, akka-net-management.
 - C# / code quality: modern-csharp-coding-standards, csharp-concurrency-patterns,
-  csharp-nullable-reference-types, api-design, type-design-performance.
+  csharp-nullable-reference-types, api-design, type-design-performance,
+  r3-reactive-extensions.
 - ASP.NET Core / Web: aspire-service-defaults, aspire-integration-testing,
-  mailpit-integration, mjml-email-templates, verify-email-snapshots.
+  aspire-configuration, mailpit-integration, mjml-email-templates,
+  verify-email-snapshots.
 - Data: efcore-patterns, database-performance.
 - DI / configuration: dependency-injection-patterns, microsoft-extensions-configuration.
 - Testing: cscheck, testcontainers-integration-tests, playwright-blazor-testing,
   snapshot-testing, playwright-ci-caching.
+- .NET build / runtime: aot-trimming, sdk-container-publishing,
+  dotnet-project-structure, dotnet-local-tools, package-management, serialization,
+  dotnet-devcert-trust, ilspy-decompile, opentelemetry-net-instrumentation.
+- Skill maintenance: skills-index-snippets, marketplace-publishing.
 - Quality gates when applicable: dotnet-slopwatch for authored/refactored C# and
   project changes; crap-analysis for complex code whose tests changed. Preserve
   real assertions and required repository checks; never expand a baseline to hide

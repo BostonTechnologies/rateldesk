@@ -20,12 +20,22 @@ blocked_files='(^|/)(\.env|appsettings\.Development\.local\.json)$|\.(pfx|pem|ke
 
 failed=false
 
-disallowed_matches=$(rg -n -i -e "$blocked_text" \
+# Repository skills are public instructions. Scan their hidden descendants too,
+# including tracked files matched by ignore rules, without exposing other hidden
+# workflow directories through a broader allowlist.
+scan_public_files() {
+  rg "$@" . || true
+  if [[ -d .agents/skills ]]; then
+    rg --hidden --no-ignore "$@" .agents/skills || true
+  fi
+}
+
+disallowed_matches=$(scan_public_files -n -i -e "$blocked_text" \
   --glob '!LICENSE' \
   --glob '!tools/ci/check-public-disclosure.sh' \
   --glob '!**/bin/**' \
   --glob '!**/obj/**' \
-  . | sed \
+  | sed \
     -e 's#https://github.com/BostonTechnologies/RatelDesk##g' \
     -e 's#ghcr.io/bostontechnologies/rateldesk-web##g' \
     -e 's#ghcr.io/bostontechnologies/rateldesk-api##g' \
@@ -49,7 +59,7 @@ if [[ -n "$disallowed_matches" ]]; then
   failed=true
 fi
 
-if rg --files -g '!**/bin/**' -g '!**/obj/**' | rg -n -i "$blocked_files"; then
+if scan_public_files --files -g '!**/bin/**' -g '!**/obj/**' | rg -n -i "$blocked_files"; then
   printf 'public disclosure gate: prohibited secret-bearing file is tracked\n' >&2
   failed=true
 fi
@@ -75,14 +85,18 @@ while IFS= read -r candidate_file; do
   fi
 done < <(git ls-files -co --exclude-standard)
 
-# The canonical AGENTS.md is intentionally public repository guidance. Its
-# contents still pass through the same text/binary disclosure checks above.
-for forbidden_path in .agents .codex openspec AGENTS_Old.md; do
-  if rg --files "$forbidden_path" 2>/dev/null | rg -q '.'; then
-    printf 'public disclosure gate: private workflow material is tracked at %s\n' "$forbidden_path" >&2
-    failed=true
-  fi
-done
+# The canonical AGENTS.md and .agents/skills/ are intentionally public repository
+# guidance. Both pass through the disclosure checks above. All other .agents
+# material remains private, including hidden files and similarly named folders.
+while IFS= read -r -d '' candidate_file; do
+  case "$candidate_file" in
+    .agents/skills/*) ;;
+    .agents|.agents/*|.codex|.codex/*|openspec|openspec/*|AGENTS_Old.md)
+      printf 'public disclosure gate: private workflow material is tracked at %s\n' "$candidate_file" >&2
+      failed=true
+      ;;
+  esac
+done < <(git ls-files -co --exclude-standard -z)
 
 if [[ "$failed" == true ]]; then
   exit 1
