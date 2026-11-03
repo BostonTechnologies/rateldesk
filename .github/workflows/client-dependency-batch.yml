@@ -1,0 +1,144 @@
+name: Native client dependency batch
+
+on:
+  push:
+    branches:
+      - 'campaign/rd-size-clients'
+      - 'campaign/rd-size-clients/**'
+      - 'campaign/rd-size-clients-*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: client-dependency-batch-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    name: Generate or verify exact dependency inputs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      state: ${{ steps.inputs.outputs.state }}
+      sdk: ${{ steps.inputs.outputs.sdk }}
+    steps:
+      - name: Check out the exact campaign commit and pinned control history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up the campaign SDK accepted by global.json
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          dotnet-version: '10.0.403'
+
+      - name: Test receipt, payload and discovery failure boundaries
+        run: python3 -m unittest discover -s tools/size-campaign -p 'test_client_*.py' -v
+
+      - name: Generate project files once, or verify the committed receipt
+        id: inputs
+        run: python3 tools/size-campaign/client-batch.py prepare --output "$RUNNER_TEMP/client-dependency-preparation"
+
+      # Upload before solution restore, so the exact CLI-generated files are
+      # reviewable immediately even when a later validation step fails.
+      - name: Retain generated project files and exact generation receipt
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rd-size-client-preparation-${{ github.run_id }}
+          path: ${{ runner.temp }}/client-dependency-preparation
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Validate the newly generated dependency graph
+        if: steps.inputs.outputs.state == 'generated'
+        shell: bash
+        run: |
+          dotnet restore Helpdesk.sln 2>&1 | tee "$RUNNER_TEMP/client-dependency-restore.log"
+
+      - name: Retain initial graph validation
+        if: always() && steps.inputs.outputs.state == 'generated'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rd-size-client-preparation-restore-${{ github.run_id }}
+          path: ${{ runner.temp }}/client-dependency-restore.log
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Audit project changes against the existing Slopwatch baseline
+        shell: bash
+        run: |
+          dotnet tool restore 2>&1 | tee "$RUNNER_TEMP/client-slopwatch-restore.log"
+          dotnet tool run slopwatch analyze --fail-on warning 2>&1 | tee "$RUNNER_TEMP/client-slopwatch.log"
+
+      - name: Retain project quality gate evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rd-size-client-quality-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/client-slopwatch-restore.log
+            ${{ runner.temp }}/client-slopwatch.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  native:
+    name: Native control and candidate (${{ matrix.rid }})
+    needs: prepare
+    if: needs.prepare.outputs.state == 'checked-in'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            rid: linux-x64
+            python: python3
+          - runner: ubuntu-24.04-arm
+            rid: linux-arm64
+            python: python3
+          - runner: windows-latest
+            rid: win-x64
+            python: python
+    steps:
+      - name: Preserve exact receipt bytes and long paths on Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          git config --global core.longpaths true
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - name: Check out the exact campaign commit and pinned control history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up the exact preparation SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          dotnet-version: ${{ needs.prepare.outputs.sdk }}
+
+      - name: Test native harness failure boundaries
+        shell: bash
+        run: ${{ matrix.python }} -m unittest discover -s tools/size-campaign -p 'test_client_*.py' -v
+
+      - name: Build, measure and exercise both exact archive pairs
+        shell: bash
+        run: >-
+          ${{ matrix.python }} tools/size-campaign/client-batch.py run
+          --rid '${{ matrix.rid }}' --sdk '${{ needs.prepare.outputs.sdk }}'
+          --output "$RUNNER_TEMP/rd-size-client-${{ matrix.rid }}"
+
+      - name: Retain reports, logs, discovery snapshots and measured archives
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rd-size-client-native-${{ matrix.rid }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/rd-size-client-${{ matrix.rid }}/evidence
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
