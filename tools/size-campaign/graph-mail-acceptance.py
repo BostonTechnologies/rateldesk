@@ -9,6 +9,7 @@ import datetime as dt
 import hashlib
 import importlib.util
 import json
+import os
 import platform
 from pathlib import Path
 import re
@@ -16,6 +17,7 @@ import shutil
 import statistics
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import urllib.request
@@ -40,6 +42,8 @@ def source_contract():
               for p in sorted((ROOT / CLIENT / "Generated").rglob("*.cs"))}
     require(len(actual) == 100 and actual == receipt["generatedFiles"], "Generated Graph source receipt differs")
     require(host.sha256(ROOT / CLIENT / "LICENSE.txt") == receipt["licenseSha256"], "Graph license differs")
+    require(all(host.sha256(ROOT / CLIENT / name) == digest for name, digest in receipt["wrapperSha256"].items()),
+            "Graph wrapper source receipt differs")
     for path in PROJECTS:
         before = ET.fromstring(host.git(ROOT, "show", CONTROL + ":" + path))
         after = ET.parse(ROOT / path).getroot()
@@ -50,6 +54,20 @@ def source_contract():
             require(new.pop("Microsoft.Graph.Core") == "4.0.1", "Graph Core version differs")
         require(old == new, "Unrelated NuGet dependencies changed")
     return receipt
+
+
+def normalize_checkout(checkout, seconds, *, control):
+    # The bounded control deliberately deletes the generated client. Every other
+    # tracked source must exist; do not silently skip unexpected missing input.
+    for item in host.git(checkout, "ls-files", "-z").split(b"\0"):
+        if not item:
+            continue
+        relative = os.fsdecode(item)
+        path = checkout / relative
+        if not path.exists() and not path.is_symlink():
+            require(control and relative.startswith(CLIENT + "/"), "Unexpected missing build input: " + relative)
+            continue
+        os.utime(path, (seconds, seconds), follow_symlinks=False)
 
 
 def measurements(container):
@@ -145,7 +163,7 @@ def run(architecture, output):
                 changed = host.git(checkout, "diff", "--name-only").decode().splitlines()
                 require(set(PROJECTS) <= set(changed) and all(p in PROJECTS or p.startswith(CLIENT + "/") for p in changed), "Control projection changed unrelated source")
                 report["controlChangedPaths"] = changed
-            host.normalize_checkout(checkout, seconds)
+            normalize_checkout(checkout, seconds, control=side == "baseline")
         for side in ("baseline", "candidate", "web"):
             checkout = output / ("candidate" if side == "web" else side)
             dockerfile = "docker/" + ("web" if side == "web" else "api") + "/Dockerfile"
@@ -183,7 +201,7 @@ def run(architecture, output):
                 write_json(report_path, report)
         require(len(report["cases"]) == 4 and all(c["status"] == "PASS" for c in report["cases"]), "Not all native provider cases passed")
         report["status"] = "PASS"
-    except (RuntimeError, OSError, ValueError, KeyError, TypeError, ET.ParseError, subprocess.SubprocessError) as error:
+    except (RuntimeError, OSError, ValueError, KeyError, TypeError, ET.ParseError, tarfile.TarError, subprocess.SubprocessError) as error:
         report.update(status="FAIL", error=str(error))
         print("Graph mail acceptance failed: " + str(error), file=sys.stderr)
     finally:
