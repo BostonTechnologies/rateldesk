@@ -99,7 +99,7 @@ public sealed partial class ConfigurationProfiles(string? rootPath = null, Confi
             if (saved.IntegrationCredentialFile is not null || saved.AuthentikAppPasswordFile is not null)
                 saved = saved with { CredentialTarget = target.AbsoluteUri.TrimEnd('/') };
             cancellationToken.ThrowIfCancellationRequested();
-            var revision = SecureConfigurationFiles.WriteAtomic(path, JsonSerializer.Serialize(saved, AgentClientConfiguration.JsonOptions) + Environment.NewLine, expectedRevision ?? currentRevision ?? string.Empty);
+            var revision = SecureConfigurationFiles.WriteAtomic(path, JsonSerializer.Serialize(saved, AgentClientConfiguration.JsonTypeInfo) + Environment.NewLine, expectedRevision ?? currentRevision ?? string.Empty);
             return new(path, revision, saved);
         }
         catch
@@ -130,7 +130,7 @@ public sealed partial class ConfigurationProfiles(string? rootPath = null, Confi
             return null;
         }
         ValidateSecretReferences(previous);
-        return SecureConfigurationFiles.WriteAtomic(path, JsonSerializer.Serialize(previous, AgentClientConfiguration.JsonOptions) + Environment.NewLine, expectedRevision);
+        return SecureConfigurationFiles.WriteAtomic(path, JsonSerializer.Serialize(previous, AgentClientConfiguration.JsonTypeInfo) + Environment.NewLine, expectedRevision);
     }
 
     internal static void ValidateSecretReferences(AgentClientConfiguration configuration)

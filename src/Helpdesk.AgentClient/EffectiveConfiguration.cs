@@ -271,10 +271,10 @@ public static partial class AgentClientConfigurationResolver
     private static bool HasPersistentSecret(AgentClientConfiguration value) => !string.IsNullOrWhiteSpace(value.IntegrationCredential) || !string.IsNullOrWhiteSpace(value.IntegrationCredentialFile) || !string.IsNullOrWhiteSpace(value.AuthentikAppPassword) || !string.IsNullOrWhiteSpace(value.AuthentikAppPasswordFile);
     private static Dictionary<string, string?> ToDictionary(AgentClientConfiguration value)
     {
-        using var document = JsonDocument.Parse(JsonSerializer.Serialize(value, AgentClientConfiguration.JsonOptions));
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(value, AgentClientConfiguration.JsonTypeInfo));
         return document.RootElement.EnumerateObject().Where(property => Keys.Any(item => string.Equals(item.Key, property.Name, StringComparison.OrdinalIgnoreCase)))
             .ToDictionary(property => property.Name, property => property.Value.GetString(), StringComparer.OrdinalIgnoreCase);
     }
     private static AgentClientConfiguration FromDictionary(Dictionary<string, string?> value)
-        => JsonSerializer.Deserialize<AgentClientConfiguration>(JsonSerializer.Serialize(value), AgentClientConfiguration.JsonOptions)!;
+        => JsonSerializer.Deserialize(JsonSerializer.Serialize(value, AgentClientJsonContext.Default.StringSettings), AgentClientConfiguration.JsonTypeInfo)!;
 }

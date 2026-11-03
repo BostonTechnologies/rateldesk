@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using Microsoft.Extensions.Configuration;
 
 namespace Helpdesk.AgentClient;
@@ -41,6 +42,7 @@ public sealed record AgentClientConfiguration(
     public const string DefaultScope = "openid profile email";
     public static AgentClientConfiguration Empty { get; } = new(null, null, null, null, null, null, null);
     public static JsonSerializerOptions JsonOptions { get; } = new(JsonSerializerDefaults.Web) { WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull, UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow };
+    public static JsonTypeInfo<AgentClientConfiguration> JsonTypeInfo => AgentClientJsonContext.Default.AgentClientConfiguration;
 
     public AgentClientConfiguration Merge(AgentClientConfiguration next) => this with
     {
@@ -123,7 +125,7 @@ public sealed class AgentClientConfigurationStore(string? path = null)
         try
         {
             var json = SecureConfigurationFiles.ReadText(Path);
-            var loaded = JsonSerializer.Deserialize<AgentClientConfiguration>(json, AgentClientConfiguration.JsonOptions) ?? throw new AgentClientValidationException("The selected configuration must contain an object.");
+            var loaded = JsonSerializer.Deserialize(json, AgentClientConfiguration.JsonTypeInfo) ?? throw new AgentClientValidationException("The selected configuration must contain an object.");
             string? Reference(string? value) => string.IsNullOrWhiteSpace(value) || System.IO.Path.IsPathRooted(value)
                 ? value : System.IO.Path.GetFullPath(value, System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(Path))!);
             return loaded with { IntegrationCredentialFile = Reference(loaded.IntegrationCredentialFile), AuthentikAppPasswordFile = Reference(loaded.AuthentikAppPasswordFile) };
@@ -136,13 +138,13 @@ public sealed class AgentClientConfigurationStore(string? path = null)
         ConfigurationProfiles.ValidateSecretReferences(configuration);
         if (hasLoaded && !AgentClientConfigurationValidator.SameTargetOrEmpty(LoadExistingTarget(), configuration.ApiBaseUrl) && HasCredential(configuration))
             throw new AgentClientValidationException("Changing the target of a credential-bearing profile requires reauthorization.");
-        loadedRevision = SecureConfigurationFiles.WriteAtomic(Path, JsonSerializer.Serialize(configuration, AgentClientConfiguration.JsonOptions) + Environment.NewLine, hasLoaded ? loadedRevision ?? string.Empty : null);
+        loadedRevision = SecureConfigurationFiles.WriteAtomic(Path, JsonSerializer.Serialize(configuration, AgentClientConfiguration.JsonTypeInfo) + Environment.NewLine, hasLoaded ? loadedRevision ?? string.Empty : null);
         hasLoaded = true;
     }
     private string? LoadExistingTarget()
     {
         if (!File.Exists(Path)) return null;
-        try { return JsonSerializer.Deserialize<AgentClientConfiguration>(SecureConfigurationFiles.ReadText(Path), AgentClientConfiguration.JsonOptions)?.ApiBaseUrl; }
+        try { return JsonSerializer.Deserialize(SecureConfigurationFiles.ReadText(Path), AgentClientConfiguration.JsonTypeInfo)?.ApiBaseUrl; }
         catch (JsonException) { throw new AgentClientValidationException("The existing configuration contains invalid JSON."); }
     }
     private static bool HasCredential(AgentClientConfiguration value) => !string.IsNullOrEmpty(value.IntegrationCredential) || !string.IsNullOrEmpty(value.IntegrationCredentialFile) || !string.IsNullOrEmpty(value.AuthentikAppPassword) || !string.IsNullOrEmpty(value.AuthentikAppPasswordFile);
