@@ -151,7 +151,8 @@ def make_package(target: str, publish: Path, work: Path, evidence: Path, metadat
     shutil.copytree(ROOT / "tools/mcp", package, dirs_exist_ok=True,
                     ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     shutil.copy2(ROOT / "LICENSE", package / "LICENSE")
-    documentation = run([sys.executable, "tools/release/package-documentation.py", str(package)],
+    documentation = run([sys.executable, "tools/release/package-documentation.py", str(package),
+                         "--source-revision", metadata["sourceRevision"]],
                         evidence / f"{target}-documentation.log", timeout=120)
     if not completed_ok(documentation):
         return {"status": "FAILED", "documentation": documentation}
@@ -251,7 +252,7 @@ def main() -> int:
         write_json(assets / "release-manifest.json", {"version": metadata["version"],
                    "sourceRevision": source, "assets": hashes, "supportedRids": ["linux-x64"]})
         (assets / "SHA256SUMS").write_text("".join(f"{digest}  {name}\n" for name, digest in sorted(hashes.items())))
-        smoke = run(["bash", "tools/release/test-executable-archives.sh", str(assets), "linux-x64"],
+        smoke = run(["bash", "tools/release/test-executable-archives.sh", str(assets), "linux-x64", "--validate-docs"],
                     evidence / "archive-smoke.log", timeout=180)
         report["archiveSmoke"] = smoke
         report["runtimeAcceptance"] = "SMOKE_PASSED" if completed_ok(smoke) else "SMOKE_FAILED"

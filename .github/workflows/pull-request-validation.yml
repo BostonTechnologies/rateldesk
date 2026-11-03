@@ -60,6 +60,8 @@ jobs:
 
       - name: Verify release helper integrity without publication
         run: |
+          python3 tools/release/test-package-documentation.py
+          python3 tools/release/test-package-source-links.py
           python3 tools/release/test-create-prerelease-tag.py
           python3 tools/release/test-validate-stable-promotion.py
           tools/release/test-promote-stable-images.sh
@@ -483,7 +485,7 @@ jobs:
       - name: Execute extracted Linux x64 archives
         env:
           RATELDESK_ARCHIVE_PTY_ACCEPTANCE: 'true'
-        run: tools/release/test-executable-archives.sh release-assets linux-x64
+        run: tools/release/test-executable-archives.sh release-assets linux-x64 --validate-docs
 
       - name: Upload release rehearsal assets
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -525,7 +527,7 @@ jobs:
 
       - name: Extract and execute matching release archives
         shell: bash
-        run: tools/release/test-executable-archives.sh release-assets "${{ matrix.rid }}"
+        run: tools/release/test-executable-archives.sh release-assets "${{ matrix.rid }}" --validate-docs
 
   compose:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance }}
