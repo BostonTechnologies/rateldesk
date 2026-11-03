@@ -10,6 +10,40 @@ export function watchPopover(root, dotnet, kind) {
     const options = { capture: true, signal: controller.signal };
     const current = () => root.querySelector(`[data-chat-popover="${kind}"]`);
     const trigger = () => root.querySelector(`[data-chat-popover-trigger="${kind}"]`);
+    let scheduled, observedPanel;
+    const position = () => {
+        const panel = current(), button = trigger();
+        if (observedPanel !== panel) {
+            if (observedPanel) resized.unobserve(observedPanel);
+            observedPanel = panel;
+            if (panel) resized.observe(panel);
+        }
+        if (!panel || !button || !button.getClientRects().length) return;
+        if (!panel.matches(':popover-open')) panel.showPopover();
+        const viewport = window.visualViewport;
+        const left = viewport?.offsetLeft || 0, top = viewport?.offsetTop || 0;
+        const width = viewport?.width || innerWidth, height = viewport?.height || innerHeight;
+        const gap = 8;
+        Object.assign(panel.style, { position: 'fixed', inset: 'auto', margin: '0',
+            maxWidth: `${Math.max(0, width - 2 * gap)}px`, maxHeight: `${Math.max(0, height - 2 * gap)}px` });
+        const anchor = button.getBoundingClientRect(), bounds = panel.getBoundingClientRect();
+        const below = top + height - anchor.bottom - gap;
+        const above = anchor.top - top - gap;
+        const y = bounds.height <= below || below >= above ? anchor.bottom + gap : anchor.top - bounds.height - gap;
+        panel.style.left = `${Math.max(left + gap, Math.min(anchor.right - bounds.width, left + width - bounds.width - gap))}px`;
+        panel.style.top = `${Math.max(top + gap, Math.min(y, top + height - bounds.height - gap))}px`;
+    };
+    const schedule = () => { cancelAnimationFrame(scheduled); scheduled = requestAnimationFrame(position); };
+    const observer = new MutationObserver(schedule);
+    observer.observe(root, { childList: true, subtree: true });
+    const resized = new ResizeObserver(schedule);
+    resized.observe(root);
+    window.addEventListener('resize', schedule, options);
+    document.addEventListener('scroll', schedule, options);
+    window.visualViewport?.addEventListener('resize', schedule, options);
+    window.visualViewport?.addEventListener('scroll', schedule, options);
+    controller.signal.addEventListener('abort', () => { observer.disconnect(); resized.disconnect(); cancelAnimationFrame(scheduled); });
+    schedule();
     const outside = event => {
         const panel = current();
         if (panel && !panel.contains(event.target) && !trigger()?.contains(event.target)) dotnet.invokeMethodAsync('ClosePopoverAsync');

@@ -196,6 +196,7 @@ public sealed class AiInvestigationsWorkspaceTests
             var query = QueryHelpers.ParseQuery(request.RequestUri.Query);
             if (request.Method == HttpMethod.Get)
             {
+                if (path.EndsWith("/connection", StringComparison.Ordinal)) return new(HttpStatusCode.ServiceUnavailable);
                 if (path == "/api/v1/organizations") return new(HttpStatusCode.Forbidden);
                 if (path == "/api/v1/ai/ops/organizations" && FailOrganizations) return new(HttpStatusCode.ServiceUnavailable);
                 if (path == "/api/v1/ai/ops/organizations")

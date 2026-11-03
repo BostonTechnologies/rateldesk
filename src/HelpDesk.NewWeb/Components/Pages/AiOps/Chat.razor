@@ -55,7 +55,7 @@
             @if (selected is { } savedChat)
             {
                 <section class="chat-selected" aria-label="Organization conversation workspace">
-                    <AiAssistantChat @key="savedChat.ConversationId" OrganizationId="@savedChat.OrganizationId" SelectedConversationId="savedChat.ConversationId" Workspace="true" Title="@savedChat.Title" Identity="@OrganizationName(savedChat.OrganizationId)" Archive="ArchiveAsync" StateChanged="@(state => StateChanged(savedChat.ConversationId, state))">
+                    <AiAssistantChat @key="savedChat.ConversationId" OrganizationId="@savedChat.OrganizationId" SelectedConversationId="savedChat.ConversationId" Workspace="true" ShowConnectionStatus="false" Title="@savedChat.Title" Identity="@OrganizationName(savedChat.OrganizationId)" Archive="ArchiveAsync" StateChanged="@(state => StateChanged(savedChat.ConversationId, state))">
                         <SavedContext><details><summary>Saved organization guidance</summary><pre>@savedChat.GuidanceSnapshot</pre></details></SavedContext>
                     </AiAssistantChat>
                 </section>

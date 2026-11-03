@@ -1,68 +1,53 @@
 using System.Text.Json;
 using Helpdesk.Application.AiAssistant.Chat;
+using Helpdesk.Shared.AiAssistant.Chat;
 
 namespace Helpdesk.Tests.Infrastructure.AiAssistant;
 
 public sealed class ChatTraceSafetyTests
 {
-    [Fact]
-    public void Malformed_failure_code_is_omitted_without_manufacturing_a_replacement_code()
-    {
-        var details = ChatTraceSafety.Extract(JsonSerializer.SerializeToElement(new { toolFailureCode = "bad code with private detail" }));
-        Assert.Null(details.FailureCode); Assert.True(details.Redacted);
-    }
-
     [Theory]
-    [InlineData("{\"command\":\"curl --password PRIVATE_VALUE https://example.com\"}")]
-    [InlineData("{\"command\":\"curl <user-option> user:PRIVATE_VALUE https://example.com\"}")]
-    [InlineData("{\"api__key\":\"PRIVATE_VALUE\"}")]
-    [InlineData("{\"pass-word\":\"PRIVATE_VALUE\"}")]
-    [InlineData("{\"env\":{\"VALUE\":\"PRIVATE_VALUE\"}}")]
-    public void Credential_flags_and_normalized_secret_keys_are_removed_before_storage(string payload)
+    [InlineData("Plain text tool result\nSecond line 😀")]
+    [InlineData("# Skill instructions\nUse `example` and inspect the result.")]
+    [InlineData("{broken JSON remains inspectable")]
+    [InlineData("{\"Name\":\"linux-admin\",\"_rationale\":\"Review token usage and authentication\"}")]
+    [InlineData("{\"nested\":\"{\\\"name\\\":\\\"example\\\"}\"}")]
+    [InlineData("<script>alert('inert')</script>")]
+    [InlineData("")]
+    public void Received_payloads_survive_extraction_and_durable_serialization_exactly(string payload)
     {
-        // Build the synthetic auth option at runtime so the fixture is not itself a credential-bearing command.
-        payload = payload.Replace("<user-option>", string.Concat('-', 'u'), StringComparison.Ordinal);
-        var details = ChatTraceSafety.Extract(JsonSerializer.SerializeToElement(new { argumentsJson = payload }));
-        Assert.True(details.Redacted);
-        Assert.DoesNotContain("PRIVATE_VALUE", JsonSerializer.Serialize(details));
-    }
-
-    [Fact]
-    public void Structured_payload_is_redacted_before_durable_serialization_and_keeps_source_time()
-    {
-        var frame = JsonSerializer.SerializeToElement(new { timestampMs = 1793606400000L,
-            argumentsJson = """{"query":"safe","nested":{"api_key":"PRIVATE_A","authorization":"PRIVATE_B"},"command":"token=PRIVATE_C"}""",
-            result = """{"ok":false,"password":"PRIVATE_D","text":"Bearer PRIVATE_E","url":"https://person:PRIVATE_F@example.com/"}""", toolFailureCode = "ToolDenied" });
+        var frame = JsonSerializer.SerializeToElement(new { argumentsJson = payload, result = payload,
+            toolName = "provider/skill_load", toolFailureCode = "Actual reported failure detail", timestampMs = 1793606400000L });
         var details = ChatTraceSafety.Extract(frame);
-        var stored = JsonSerializer.Serialize(details);
-        Assert.DoesNotContain("PRIVATE_", stored);
-        Assert.Contains("safe", stored);
-        Assert.True(details.Redacted);
-        Assert.Equal(DateTimeOffset.FromUnixTimeMilliseconds(1793606400000L), details.SourceTimestampUtc);
-        Assert.Equal("ToolDenied", details.FailureCode);
-    }
-
-    [Theory]
-    [InlineData("not JSON containing an unlabelled credential")]
-    [InlineData("{broken")]
-    [InlineData("{\"nested\":\"{\\\"password\\\":\\\"PRIVATE\\\"}\"}")]
-    public void Unstructured_or_nested_encoded_payloads_fail_closed(string payload)
-    {
-        var details = ChatTraceSafety.Extract(JsonSerializer.SerializeToElement(new { result = payload, timestampMs = "malformed" }));
-        Assert.True(details.Redacted);
-        Assert.DoesNotContain("PRIVATE", details.Result);
-        Assert.Null(details.SourceTimestampUtc);
+        var reloaded = JsonSerializer.Deserialize<ChatTraceDetails>(JsonSerializer.Serialize(details))!;
+        Assert.Equal(payload, reloaded.Arguments);
+        Assert.Equal(payload, reloaded.Result);
+        Assert.Equal("provider/skill_load", reloaded.ToolName);
+        Assert.Equal("Actual reported failure detail", reloaded.FailureCode);
+        Assert.Equal(DateTimeOffset.FromUnixTimeMilliseconds(1793606400000L), reloaded.SourceTimestampUtc);
+        Assert.False(reloaded.Redacted);
+        Assert.False(reloaded.Truncated);
+        Assert.Equal(2, reloaded.Version);
     }
 
     [Fact]
-    public void Oversized_and_deep_payloads_are_bounded_without_raw_fallback()
+    public void Large_and_deep_results_are_retained_without_format_or_size_based_omission()
     {
-        var large = ChatTraceSafety.Extract(JsonSerializer.SerializeToElement(new { argumentsJson = new string('s', 40000) }));
-        Assert.True(large.Truncated);
-        Assert.True(large.Arguments!.Length < 100);
-        var deep = ChatTraceSafety.Extract(JsonSerializer.SerializeToElement(new { result = new string('[', 20) + "0" + new string(']', 20) }));
-        Assert.True(deep.Redacted);
-        Assert.True(deep.Result!.Length < 100);
+        var payload = new string('[', 40) + JsonSerializer.Serialize(new string('s', 200000) + "😀") + new string(']', 40);
+        var details = ChatTraceSafety.Extract(JsonSerializer.SerializeToElement(new { result = payload }));
+        Assert.Equal(payload, details.Result);
+        Assert.False(details.Truncated);
+        Assert.False(details.Redacted);
+    }
+
+    [Fact]
+    public void Absent_payloads_remain_absent_and_malformed_source_time_is_not_invented()
+    {
+        var details = ChatTraceSafety.Extract(JsonSerializer.SerializeToElement(new { timestampMs = "malformed" }));
+        Assert.Null(details.Arguments);
+        Assert.Null(details.Result);
+        Assert.Null(details.ToolName);
+        Assert.Null(details.SourceTimestampUtc);
     }
 
     [Fact]

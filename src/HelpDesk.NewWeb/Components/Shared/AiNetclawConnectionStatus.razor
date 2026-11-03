@@ -10,7 +10,7 @@
             aria-label="Netclaw connection status" aria-expanded="@open.ToString().ToLowerInvariant()" @onclick="ToggleDetails">@StatusText</button>
     @if (open)
     {
-        <span class="netclaw-connection-details" role="dialog" aria-label="Netclaw connection details" data-chat-popover="connection">
+        <span class="netclaw-connection-details" popover="manual" role="dialog" aria-label="Netclaw connection details" data-chat-popover="connection" @onmouseenter="ShowDetails" @onmouseleave="HideDetails">
             <strong>Netclaw@(string.IsNullOrWhiteSpace(OrganizationName) ? "" : $" · {OrganizationName}")</strong>
             @if (status is { } current)
             {
@@ -79,10 +79,11 @@
         await previous.CancelAsync(); await previousPolling; previous.Dispose();
         if (disposed || selection != scope || ct.IsCancellationRequested) return;
         await RefreshAsync(scope, ct);
-        if (!disposed && selection == scope && !ct.IsCancellationRequested) polling = PollAsync(scope, ct);
+        if (!disposed && selection == scope && !ct.IsCancellationRequested && scope.ApiRoute.Length > 0) polling = PollAsync(scope, ct);
     }
     private async Task RefreshAsync((string Route, Guid? Conversation) scope, CancellationToken ct)
     {
+        if (scope.Route.Length == 0) return;
         ChatConnectionStatus? observed;
         try
         {

@@ -7,6 +7,7 @@
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IJSRuntime JS
 @inject ILogger<AiAssistantChat> Logger
+@inject IDialogService Dialogs
 
 @if (capabilities is { Enabled: false })
 {
@@ -20,6 +21,10 @@ else
 <header class="conversation-header">
     <div class="conversation-identity"><span class="conversation-avatar"><MudIcon Icon="@Icons.Material.Outlined.AutoAwesome" Size="Size.Small" /></span><div><h2>@Title</h2><small>@(string.IsNullOrWhiteSpace(Identity) ? StateLabel(state) : $"{Identity} · {StateLabel(state)}")</small></div></div>
     <div class="conversation-actions">
+        @if (state == ChatState.Processing)
+        {
+            <MudTooltip Text="Stop waiting"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Outlined.StopCircle" aria-label="Stop waiting" Disabled="@(busy || capabilities?.CanWrite == false || UnresolvedMessageId is null)" OnClick="StopWaitingAsync" /></MudTooltip>
+        }
         @if (state != ChatState.Archived && (Archive.HasDelegate || OrganizationId is null && InvestigationId is null))
         {
             <MudTooltip Text="Archive conversation"><MudIconButton Icon="@Icons.Material.Outlined.Archive" Size="Size.Small" aria-label="Archive conversation" Disabled="@(busy || capabilities?.CanWrite == false || state != ChatState.Idle || conversation == Guid.Empty)" OnClick="ArchiveCurrentAsync" /></MudTooltip>
@@ -29,7 +34,7 @@ else
             <MudTooltip Text="Chat display settings"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Outlined.Settings" aria-label="Chat display settings" aria-expanded="@settingsOpen.ToString().ToLowerInvariant()" data-chat-popover-trigger="settings" OnClick="@(() => settingsOpen = !settingsOpen)" /></MudTooltip>
             @if (settingsOpen)
             {
-                <div class="chat-display-settings" role="dialog" aria-label="Chat display settings" data-chat-popover="settings">
+                <div class="chat-display-settings" popover="manual" role="dialog" aria-label="Chat display settings" data-chat-popover="settings">
                     <strong>Chat display settings</strong>
                     <label><input type="checkbox" checked="@preferences.Compact" @onchange="e => SavePreferenceAsync(() => preferences.Compact = e.Value is true)" />Compact tool rows</label>
                     <label><input type="checkbox" checked="@preferences.ShowTimestamps" @onchange="e => SavePreferenceAsync(() => preferences.ShowTimestamps = e.Value is true)" />Timestamps</label>
@@ -43,12 +48,12 @@ else
                 </div>
             }
         </div>
+        @if (conversation != Guid.Empty && (ShowConnectionStatus || fullscreen))
+        {
+            <AiNetclawConnectionStatus ApiRoute="@Route" OrganizationName="@Identity" ConversationId="conversation" />
+        }
     </div>
 </header>
-@if (OrganizationId is null && conversation != Guid.Empty)
-    {
-        <div class="conversation-connection"><AiNetclawConnectionStatus ApiRoute="@Route" OrganizationName="@Identity" ConversationId="conversation" /></div>
-    }
 <div class="ai-chat-content"><div class="ai-chat-scroll">
     @if (OrganizationId is null && SavedContext is not null) { <div class="conversation-context">@SavedContext</div> }
     @if (connectionStatus != "Connected" && state != ChatState.Archived)
@@ -80,12 +85,6 @@ else
         <MudCheckBox T="bool" @bind-Value="acknowledgeAbandon" Disabled="busy" Label="I understand the old turn may still execute. Archive this transcript without retrying it. Remote side effects may already have occurred." />
         <MudButton Color="Color.Warning" Disabled="@(busy || !acknowledgeAbandon || UnresolvedMessageId is null)" OnClick="AbandonAsync">Abandon unresolved turn and archive</MudButton>
         }
-    }
-    @if (state == ChatState.Processing)
-    {
-        <MudAlert Severity="Severity.Warning">The remote assistant may still be processing. Stopping locally never resends this request.</MudAlert>
-        <MudCheckBox T="bool" @bind-Value="acknowledgeStopWaiting" Disabled="@(busy || capabilities?.CanWrite == false)" Label="The remote assistant may still be processing. RatelDesk will stop waiting locally and will not resend this request automatically." />
-        <MudButton Color="Color.Warning" Disabled="@(busy || capabilities?.CanWrite == false || !acknowledgeStopWaiting || UnresolvedMessageId is null)" OnClick="StopWaitingAsync">Stop waiting</MudButton>
     }
     @if (error is not null) { <MudAlert Severity="Severity.Warning">@error</MudAlert> }
     <div class="@(Workspace ? "ai-chat-transcript" : null)" role="@(Workspace ? "log" : null)" aria-label="@(Workspace ? "Saved conversation" : null)">
@@ -133,6 +132,7 @@ else
     [Parameter] public EventCallback Archive { get; set; }
     [Parameter] public Guid? InvestigationId { get; set; }
     [Parameter] public bool Workspace { get; set; }
+    [Parameter] public bool ShowConnectionStatus { get; set; } = true;
     [Parameter] public EventCallback<ChatState> StateChanged { get; set; }
     [Parameter] public string TicketId { get; set; } = string.Empty;
     [Parameter] public string TicketType { get; set; } = "incidents";
@@ -151,7 +151,7 @@ else
     private ChatCapabilities? capabilities;
     private long cursor;
     private bool busy;
-    private bool acknowledgeAbandon, acknowledgeStopWaiting, hasOlderHistory;
+    private bool acknowledgeAbandon, hasOlderHistory;
     private Guid resolutionId = Guid.NewGuid();
     private ElementReference root;
     private IJSObjectReference? module;
@@ -237,7 +237,7 @@ else
             stream = Task.CompletedTask;
             if (disposed) return;
             connectionStatus = "Connecting"; error = null;
-            events.Clear(); draft = ""; cursor = 0; acknowledgeAbandon = false; acknowledgeStopWaiting = false;
+            events.Clear(); draft = ""; cursor = 0; acknowledgeAbandon = false;
             resolutionId = Guid.NewGuid(); messageId = Guid.NewGuid(); message = ""; submittedMessage = null;
             using var api = Api;
             var snapshot = await api.GetFromJsonAsync<ChatSnapshot>(id == Guid.Empty ? Route : $"{Route}?conversationId={id}", cancellation.Token);
@@ -395,6 +395,11 @@ else
     private async Task StopWaitingAsync()
     {
         if (UnresolvedMessageId is not { } expectedMessage) return;
+        var expectedConversation = conversation;
+        if (await Dialogs.ShowMessageBoxAsync("Stop waiting?",
+            "The remote assistant may still be processing. RatelDesk will stop waiting locally and will not resend this request automatically.",
+            yesText: "Stop waiting", cancelText: "Keep waiting") != true) return;
+        if (disposed || state != ChatState.Processing || conversation != expectedConversation || UnresolvedMessageId != expectedMessage) return;
         busy = true; error = null;
         try
         {

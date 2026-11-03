@@ -84,7 +84,7 @@ for (const mode of ['empty', 'processing', 'approval', 'failed', 'archived']) {
       await expect(page.getByTestId('ai-assistant-activity').getByRole('button').first()).toHaveAttribute('aria-expanded', 'true');
     if (mode === 'processing') {
       await expect(page.getByRole('button', { name: 'Stop waiting' })).toBeVisible();
-      await expect(page.getByText('will not resend this request automatically', { exact: false })).toBeVisible();
+      await expect(page.getByText('will not resend this request automatically', { exact: false })).toHaveCount(0);
     }
     if (mode === 'approval') {
       const activity = page.getByTestId('ai-assistant-activity');
@@ -148,8 +148,15 @@ test('dark desktop approval callout remains visually distinct', async ({ page, r
 test('stop waiting shows authoritative uncertain-delivery recovery controls', async ({ page, request }) => {
   await request.get('http://127.0.0.1:18299/fixture/reset?mode=processing');
   await openChat(page);
-  await page.getByRole('checkbox', { name: 'The remote assistant may still be processing. RatelDesk will stop waiting locally and will not resend this request automatically.' }).check();
-  const stopWaiting = page.getByRole('button', { name: 'Stop waiting' });
+  await expect(page.getByText('The remote assistant may still be processing.', { exact: false })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Stop waiting', exact: true }).click();
+  const confirmation = page.getByRole('dialog').filter({ hasText: 'Stop waiting?' });
+  await expect(confirmation).toContainText('will not resend this request automatically');
+  await confirmation.getByRole('button', { name: 'Keep waiting' }).click();
+  await expect(confirmation).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Check saved session' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Stop waiting', exact: true }).click();
+  const stopWaiting = page.getByRole('dialog').getByRole('button', { name: 'Stop waiting', exact: true });
   await expect(stopWaiting).toBeEnabled();
   await stopWaiting.click();
   await expect(page.getByText('Delivery or completion could not be confirmed.', { exact: false })).toBeVisible();

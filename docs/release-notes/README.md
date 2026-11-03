@@ -1,5 +1,10 @@
 # Release notes
 
+## 0.1.3-beta.3
+
+[Full tool payloads and compact AI workspaces](0.1.3-beta.3.md) correct the
+beta.2 trace, connection popup, tool alignment and investigation layout feedback.
+
 ## 0.1.3-beta.2
 
 [Immediate Chat and NetRatel workspace parity](0.1.3-beta.2.md) covers the

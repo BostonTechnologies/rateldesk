@@ -41,7 +41,7 @@ public static partial class ChatActivitySafety
         {
             using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 16 });
             if (document.RootElement.ValueKind != JsonValueKind.Object) return null;
-            var matches = document.RootElement.EnumerateObject().Where(x => x.NameEquals("name")).ToArray();
+            var matches = document.RootElement.EnumerateObject().Where(x => string.Equals(x.Name, "name", StringComparison.OrdinalIgnoreCase)).ToArray();
             if (matches.Length != 1 || matches[0].Value.ValueKind != JsonValueKind.String) return null;
             var name = SafeName(matches[0].Value.GetString());
             return !allowCanonical && name?.Contains('/') == true ? null : name;

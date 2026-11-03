@@ -8,12 +8,8 @@
 
 <PageTitle>AI investigations</PageTitle>
 <main class="ai-ops" data-testid="ai-investigations">
-    <header class="ai-heading">
-        <p class="ai-eyebrow">AI OPERATIONS</p>
+    <header class="ai-toolbar">
         <h1>Investigations</h1>
-        <p>Bring the right tickets together and work through the evidence with your AI assistant.</p>
-    </header>
-    <div class="ai-toolbar">
         <label>Organization
             <select value="@organization" @onchange="OrganizationChanged" disabled="@busy">
                 <option value="">All organizations</option>
@@ -22,11 +18,12 @@
         </label>
         <button type="button" @onclick="Refresh" disabled="@busy">Refresh</button>
         <button type="button" class="ai-primary" @onclick="StartCreate" disabled="@(busy || organizations.Count == 0)">New investigation</button>
-    </div>
+        <div class="ai-toolbar-connection"><AiNetclawConnectionStatus ApiRoute="@ConnectionRoute" OrganizationName="@(selected is { } current ? OrganizationName(current.OrganizationId) : OrganizationName(organization))" ConversationId="selected?.Id" /></div>
+    </header>
     @if (error is not null) { <div class="ai-notice" role="alert">@error</div> }
     @if (busy) { <p class="ai-loading" role="status">Updating investigation workspace…</p> }
     <div class="ai-metrics" aria-label="Status in recent results">
-        <div><span>Active in recent results</span><strong>@(listAvailable ? investigations.Count(x => x.State == ChatState.Processing).ToString() : "—")</strong></div>
+        <div><span>Active</span><strong>@(listAvailable ? investigations.Count(x => x.State == ChatState.Processing).ToString() : "—")</strong></div>
         <div><span>Waiting for your decision</span><strong>@(listAvailable ? investigations.Count(x => x.State == ChatState.AwaitingApproval).ToString() : "—")</strong></div>
         <div><span>Needs recovery</span><strong>@(listAvailable ? investigations.Count(x => x.State == ChatState.DeliveryUnknown).ToString() : "—")</strong></div>
     </div>
@@ -119,7 +116,7 @@
             }
             else if (selected is { } investigation)
             {
-                <AiAssistantChat @key="investigation.Id" TicketId="@investigation.TicketId" TicketType="@investigation.TicketType" InvestigationId="investigation.Id" Workspace="true"
+                <AiAssistantChat @key="investigation.Id" TicketId="@investigation.TicketId" TicketType="@investigation.TicketType" InvestigationId="investigation.Id" Workspace="true" ShowConnectionStatus="false"
                     Title="@investigation.Title" Identity="@OrganizationName(investigation.OrganizationId)" Archive="Archive" StateChanged="@(state => ChatStateChanged(investigation.Id, state))">
                     <SavedContext><details class="ai-snapshot"><summary>Saved guidance and ticket context</summary><pre>@investigation.ContextSnapshot</pre></details></SavedContext>
                 </AiAssistantChat>
@@ -157,6 +154,8 @@
         "archived" => x.State == ChatState.Archived,
         _ => true
     });
+    private string ConnectionRoute => selected is { } current ? $"api/v1/{current.TicketType}/{current.TicketId}/ai-assistant/chat"
+        : organization.Length > 0 ? $"api/v1/ai/chat/organizations/{Uri.EscapeDataString(organization)}" : "";
     private string OrganizationName(string id) => organizations.FirstOrDefault(x => x.Id == id)?.Name ?? id;
     private string InvestigationUrl(Guid id) => $"/ai/ops?id={id}" + (search.Length > 0 ? $"&q={Uri.EscapeDataString(search)}" : "");
     private static string StateLabel(ChatState state) => state switch { ChatState.Idle => "Ready", ChatState.Processing => "Investigating", ChatState.AwaitingApproval => "Waiting for approval", ChatState.DeliveryUnknown => "Outcome unconfirmed", ChatState.Archived => "Archived", _ => state.ToString() };
