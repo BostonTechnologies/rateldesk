@@ -170,7 +170,7 @@ jobs:
         run: (cd release-assets && sha256sum --check SHA256SUMS)
 
       - name: Execute extracted Linux x64 archives
-        run: tools/release/test-executable-archives.sh release-assets linux-x64
+        run: tools/release/test-executable-archives.sh release-assets linux-x64 --validate-docs
 
       - name: Test release asset upload semantics
         run: tools/release/test-publish-release-assets.sh
@@ -243,7 +243,7 @@ jobs:
 
       - name: Extract and execute matching release archives
         shell: bash
-        run: tools/release/test-executable-archives.sh release-assets "${{ matrix.rid }}"
+        run: tools/release/test-executable-archives.sh release-assets "${{ matrix.rid }}" --validate-docs
 
   publish-web:
     name: Publish Web image
