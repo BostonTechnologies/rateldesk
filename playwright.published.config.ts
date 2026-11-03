@@ -20,6 +20,7 @@ export default defineConfig(selected, {
     if (!server) throw new Error('Owning suite has no fixture servers');
     if (server.command.includes('HelpDesk.NewWeb.dll') || server.command.startsWith('dotnet run')) {
       return { ...server, command: 'node tools/ci/run-published-web.mjs', cwd: '.', reuseExistingServer: false,
+        gracefulShutdown: { signal: 'SIGTERM', timeout: 15000 },
         env: { ...server.env, HELPDESK_PUBLISHED_WEB_ENV: JSON.stringify(server.env ?? {}) } };
     }
     // The login API fixture normally publishes its host-side Web copy first.
