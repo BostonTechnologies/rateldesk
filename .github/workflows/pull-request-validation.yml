@@ -60,6 +60,7 @@ jobs:
 
       - name: Verify release helper integrity without publication
         run: |
+          python3 tools/release/test-package-documentation.py
           python3 tools/release/test-create-prerelease-tag.py
           python3 tools/release/test-validate-stable-promotion.py
           tools/release/test-promote-stable-images.sh

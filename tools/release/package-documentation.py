@@ -6,6 +6,30 @@ import argparse
 import shutil
 
 
+def package_client_helpers(repository: Path, destination: Path) -> None:
+    helpers = repository / "tools/mcp"
+    # Keep one complete implementation beside the native executable. Its
+    # __file__-relative imports, release metadata and resume paths stay intact.
+    shutil.copytree(helpers, destination, dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    aliases = destination / "tools/mcp"
+    aliases.mkdir(parents=True, exist_ok=True)
+    for source in helpers.glob("*.py"):
+        alias = aliases / source.name
+        # Preserve imported-module globals as well as command-line execution.
+        # The root implementation never points back to these forwarding files.
+        alias.write_text(
+            '#!/usr/bin/env python3\n'
+            '"""Load the archive-root helper and its colocated dependencies."""\n'
+            'from pathlib import Path as _Path\n'
+            f'__file__ = str(_Path(__file__).resolve().parents[2] / {source.name!r})\n'
+            'exec(compile(_Path(__file__).read_bytes(), __file__, "exec"), globals())\n',
+            encoding="utf-8")
+        shutil.copymode(source, alias)
+    for source in helpers.glob("*.sh"):
+        shutil.copy2(source, aliases / source.name)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("destination", type=Path)
@@ -30,8 +54,7 @@ def main() -> None:
         example.write_text(example.read_text().replace("](../../../docs/", "](../../docs/"), encoding="utf-8")
     else:
         shutil.copytree(repository / "docker", destination / "docker", dirs_exist_ok=True)
-        shutil.copytree(repository / "tools/mcp", destination / "tools/mcp", dirs_exist_ok=True,
-                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        package_client_helpers(repository, destination)
 
 
 if __name__ == "__main__":

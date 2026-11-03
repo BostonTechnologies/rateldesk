@@ -31,8 +31,6 @@ package_tool() {
     -p:Version="$version" -p:SourceRevisionId="$source_revision"
   mkdir -p "$package_directory"
   cp -a "$publish_directory/." "$package_directory/"
-  cp -a "$repository_root/tools/mcp/." "$package_directory/"
-  find "$package_directory" -type d -name __pycache__ -prune -exec rm -rf {} +
   cp "$repository_root/LICENSE" "$package_directory/LICENSE"
   python3 "$repository_root/tools/release/package-documentation.py" "$package_directory"
   cat > "$package_directory/README.txt" <<EOF

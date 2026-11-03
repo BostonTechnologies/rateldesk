@@ -81,6 +81,28 @@ for name in ['cli', 'mcp']:
         raise SystemExit('The extracted apphost version/source does not match the package manifest.')
 print('Archive exact version/source identities passed for ' + rid)
 environment = {key: value for key, value in os.environ.items() if not key.startswith('RATELDESK_')}
+environment['PYTHONDONTWRITEBYTECODE'] = '1'
+# Both documented helper locations must work after extraction, including the
+# source-review import of vendored YAML. Help/argument rejection never uses Docker.
+for tool in [cli, mcp]:
+    root = Path(tool).parent
+    for helper in ['setup-http-mcp.py', 'source_review.py']:
+        for argument, expected_exit in [('--help', 0), ('--unsupported-archive-test-option', 2)]:
+            results = [subprocess.run([sys.executable, str(directory / helper), argument],
+                                      cwd=temporary, env=environment, capture_output=True,
+                                      text=True, timeout=15)
+                       for directory in [root, root / 'tools/mcp']]
+            if any(result.returncode != expected_exit for result in results):
+                raise SystemExit('An archived Python helper failed its portable entrypoint probe.')
+            if (results[0].stdout, results[0].stderr) != (results[1].stdout, results[1].stderr):
+                raise SystemExit('Root and nested archived helpers changed output/exit behavior.')
+            if argument == '--help' and (results[0].stderr or 'usage:' not in results[0].stdout):
+                raise SystemExit('An archived helper did not return ordinary help without side effects.')
+    if rid.startswith('linux-'):
+        for directory in [root, root / 'tools/mcp']:
+            if not os.access(directory / 'setup-http-mcp.sh', os.X_OK):
+                raise SystemExit('An archived shell helper is not executable.')
+print('Archive root/nested helper and vendored YAML imports passed for ' + rid)
 for tool in [cli, mcp]:
     result = subprocess.run([tool, 'setup'], env=environment, capture_output=True, text=True, timeout=15)
     if result.returncode != 78 or result.stdout or 'requires a TTY' not in result.stderr:
