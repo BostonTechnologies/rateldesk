@@ -25,6 +25,37 @@ batch = module("tested_client_batch", "client-batch.py")
 discovery = module("tested_client_discovery", "client-discovery.py")
 
 
+class ArchiveShellTests(unittest.TestCase):
+    def test_exact_native_shell_path_survives_spaces_and_keeps_all_archive_gates(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            shell = root / "Git Bash/bin/bash.exe"
+            shell.parent.mkdir(parents=True)
+            shell.write_bytes(b"synthetic executable path fixture")
+            archives = root / "measured archives"
+            command = batch.archive_smoke_command(shell, archives, "win-x64")
+            self.assertEqual(str(shell), command[0])
+            self.assertEqual(["tools/release/test-executable-archives.sh", archives.as_posix(),
+                              "win-x64", "--validate-docs"], command[1:])
+
+    def test_bare_or_missing_shell_cannot_fall_back_to_a_different_path_executable(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            for shell in (Path("bash"), root / "missing-bash.exe"):
+                with self.subTest(shell=shell), self.assertRaisesRegex(batch.BatchFailure, "absolute Bash"):
+                    batch.archive_smoke_command(shell, root / "archives", "win-x64")
+
+    def test_native_command_dispatches_with_explicit_shell_and_preserves_failure_exit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            shell = root / "Git Bash/bash.exe"
+            arguments = ["client-batch.py", "run", "--output", str(root / "out"),
+                         "--rid", "win-x64", "--sdk", "10.0.403", "--bash", str(shell)]
+            with mock.patch.object(sys, "argv", arguments), mock.patch.object(batch, "execute_batch", return_value=1) as execute:
+                self.assertEqual(1, batch.main())
+                execute.assert_called_once_with(root / "out", "win-x64", "10.0.403", shell)
+
+
 class ReceiptTests(unittest.TestCase):
     def fixture(self, root):
         original = {"schemaVersion": 1, "originalSourceRevision": batch.ORIGINAL_REVISION, "sdk": "10.0.403", "files": []}

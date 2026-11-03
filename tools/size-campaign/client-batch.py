@@ -313,7 +313,15 @@ def package(root: Path, publish: Path, work: Path, evidence: Path, target: str, 
     return archive, app
 
 
-def execute_batch(output: Path, rid: str, sdk: str) -> int:
+def archive_smoke_command(archive_shell: Path, archives: Path, rid: str) -> list[str]:
+    # On Windows, PATH can select System32's WSL bash instead of the Git Bash
+    # already running the workflow. Require that exact shell's native path.
+    if not archive_shell.is_absolute() or not archive_shell.is_file():
+        raise BatchFailure("Archive acceptance requires an existing absolute Bash executable path")
+    return [str(archive_shell), "tools/release/test-executable-archives.sh", archives.as_posix(), rid, "--validate-docs"]
+
+
+def execute_batch(output: Path, rid: str, sdk: str, archive_shell: Path) -> int:
     evidence, work = output / "evidence", output / "work"
     if output.exists():
         raise BatchFailure("Use a fresh batch output directory")
@@ -329,6 +337,8 @@ def execute_batch(output: Path, rid: str, sdk: str) -> int:
     def save():
         write_json(report_path, report)
     try:
+        archive_smoke_command(archive_shell, evidence / "control/archives", rid)
+        report["archiveShell"] = str(archive_shell)
         if native_rid() != rid:
             raise BatchFailure("Selected RID does not match the native execution host")
         active_sdk = subprocess.check_output(["dotnet", "--version"], cwd=ROOT, text=True).strip()
@@ -412,7 +422,7 @@ def execute_batch(output: Path, rid: str, sdk: str) -> int:
                     (side_evidence / "archives/SHA256SUMS").write_text("".join(f"{digest}  {name}\n" for name, digest in sorted(hashes.items())))
                     environment = os.environ.copy()
                     environment["RATELDESK_ARCHIVE_PTY_ACCEPTANCE"] = "true" if rid.startswith("linux-") else "false"
-                    command(["bash", "tools/release/test-executable-archives.sh", (side_evidence / "archives").as_posix(), rid, "--validate-docs"],
+                    command(archive_smoke_command(archive_shell, side_evidence / "archives", rid),
                             side_evidence / "archive-smoke.log", 600, environment)
                     snapshots[side] = discovery.capture_discovery(extracted["stdio"], side_evidence / "discovery", tripwire["origin"])
                     if tripwire["requests"]:
@@ -462,11 +472,12 @@ def main() -> int:
     native.add_argument("--output", type=Path, required=True)
     native.add_argument("--rid", choices=("linux-x64", "linux-arm64", "win-x64"), required=True)
     native.add_argument("--sdk", required=True)
+    native.add_argument("--bash", type=Path, required=True, help="Absolute native path of the workflow's active Bash executable")
     args = parser.parse_args()
     try:
         if args.command == "prepare":
             return prepare(args.output.resolve())
-        return execute_batch(args.output.resolve(), args.rid, args.sdk)
+        return execute_batch(args.output.resolve(), args.rid, args.sdk, args.bash)
     except Exception as error:
         print("Client batch failed: " + str(error), file=sys.stderr)
         if args.command == "prepare":
