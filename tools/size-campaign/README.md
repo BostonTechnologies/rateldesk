@@ -8,6 +8,28 @@ These tools inspect pinned release assets/images and create temporary publish
 experiments. They do not publish releases, push images or deploy applications.
 The ordinary release workflow and production project settings are unchanged.
 
+## Final native acceptance
+
+`size-final-acceptance.yml` rebuilds the seven staging archives and reuses all
+three native archive lanes, including the runtime-free fixtures. Its native
+amd64/ARM64 jobs inventory each API/Web/HTTP image and compare portable-symbol experiments using common source, version and timestamp.
+The PNG-alias experiment was rejected after native asset requests returned HTTP500;
+both regular PNG files remain (see `web-png-alias-rejection-20261103.json`).
+Both OCI and Docker exports normalize timestamps. The build stage deliberately
+runs without its layer cache so verbose compiler paths retain direct SDK evidence.
+
+The selected images execute existing browser suites with synthetic APIs, actual
+published Graph assemblies on the API image CLR, both database providers, gateway
+authentication, synthetic HTTPS OIDC/Authentik-mode JWT validation with a separate
+downstream identity, and the extracted deployment lifecycle. Every image fixture
+retains its measured/executed config identity. The OIDC fixture is not a live
+third-party tenant test. Portable-symbol research retains PDBs inside its images;
+measurement does not adopt that profile. Existing MCP9005 logging deprecation is
+recorded explicitly, preserving the logging feature without a suppression.
+
+Run the workflow on the final reviewed source. It creates only disposable local
+fixtures and artifacts, without release publication, registry pushes or deployments.
+
 ## Read-only inventory
 
 Use Python 3, GitHub CLI and the repository's existing authorized connection.

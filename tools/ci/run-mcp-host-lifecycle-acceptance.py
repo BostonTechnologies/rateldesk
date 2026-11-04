@@ -374,6 +374,16 @@ class Fixture:
             return None  # The owning ASP.NET health endpoint returns plain text.
         return json.loads(content) if content else None
 
+    def wait_api_ready(self):
+        deadline = time.monotonic() + 150
+        while time.monotonic() < deadline:
+            try:
+                self.request("/health/ready")
+                return
+            except (OSError, RuntimeError, urllib.error.URLError):
+                time.sleep(1)
+        raise RuntimeError("Disposable API readiness timeout")
+
     def prepare(self):
         for image in (self.args.api_image, self.args.web_image, self.args.mcp_image):
             checked(["docker", "image", "inspect", image])
@@ -461,15 +471,7 @@ class Fixture:
             self.reproduce_old_collision(model)
         self.initialize()
         checked([*self.compose, "up", "--pull", "never", "-d"], timeout=180)
-        deadline = time.monotonic() + 150
-        while time.monotonic() < deadline:
-            try:
-                self.request("/health/ready")
-                break
-            except (OSError, RuntimeError, urllib.error.URLError):
-                time.sleep(1)
-        else:
-            raise RuntimeError("Disposable API readiness timeout")
+        self.wait_api_ready()
         self.request("/api/v1/local-auth/login", {"email": self.email, "password": self.password, "rememberMe": False}, expected=(204,))
         account = self.request("/api/v1/auth/me")
         self.organization = account["primaryOrganizationId"]
@@ -808,7 +810,7 @@ class Fixture:
         self.complete_console_client(identifier)
         checked([*applied, "down"], timeout=180)  # Deliberately preserve data/stores.
         checked([*applied, "up", "--pull", "never", "-d"], timeout=180)
-        time.sleep(5)
+        self.wait_api_ready()
         identifier = checked([*applied, "ps", "--quiet", "mcp-http"]).decode().strip()
         before_verification = {item["id"] for item in self.request("/api/v1/integration-credentials/")}
         verify = self.terminal(self.resume_command[1:], executable=self.resume_command[0])

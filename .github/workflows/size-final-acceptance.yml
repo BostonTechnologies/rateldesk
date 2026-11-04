@@ -1,0 +1,75 @@
+name: Final artifact size acceptance
+
+on:
+  push:
+    branches: ['campaign/rd-size-host-final', 'campaign/rd-size-host-final-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: size-final-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  archives:
+    uses: ./.github/workflows/size-packaging-acceptance.yml
+  hosts:
+    name: Final native images and extracted lifecycle (${{ matrix.architecture }})
+    needs: archives
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 110
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {architecture: amd64, runner: ubuntu-24.04}
+          - {architecture: arm64, runner: ubuntu-24.04-arm}
+    steps:
+      - name: Check out the exact combined source and control history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Download the same seven verified archives
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: size-packaging-archives
+          path: release-assets
+      - name: Set up repository SDK for owning browser fixtures
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          dotnet-version: '10.0.403'
+      - name: Set up Node and native Chromium
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install pinned browser dependencies
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Validate published browser fixture composition before image builds
+        env:
+          HELPDESK_PUBLISHED_WEB_IMAGE: rateldesk-config-validation
+        run: |
+          for suite in login ai assignee email filters details operations admin pending integrations; do
+            HELPDESK_PUBLISHED_SUITE="$suite" npx playwright test --config playwright.published.config.ts --list
+          done
+      - name: Set up native Buildx without emulation
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Verify existing OCI and image evidence boundaries
+        run: python3 -m unittest discover -s tools/size-campaign -p 'test_api_rid_acceptance.py'
+      - name: Measure every image and execute owning native gates
+        run: >-
+          python3 tools/size-campaign/host-final-acceptance.py
+          --architecture '${{ matrix.architecture }}' --archives "$GITHUB_WORKSPACE/release-assets"
+          --output "$RUNNER_TEMP/rd-final-${{ matrix.architecture }}"
+      - name: Retain full reports, inventories, browser receipts and lifecycle outcomes
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rd-final-${{ matrix.architecture }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/rd-final-${{ matrix.architecture }}/evidence
+          if-no-files-found: error
+          retention-days: 30

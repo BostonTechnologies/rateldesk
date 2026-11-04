@@ -8,6 +8,8 @@ const newWebCommand = process.env.HELPDESK_AI_ASSISTANT_CONFIGURATION === 'Relea
 export default defineConfig(base, {
   testMatch: ['**/ai-assistant-chat.spec.ts', '**/netclaw-presentation.spec.ts', '**/ai-parity.spec.ts', '**/ai-ux-corrections.spec.ts'],
   testIgnore: [],
+  // The four files reset the same synthetic conversations and stream counters.
+  workers: 1,
   retries: 0,
   use: { ...base.use, baseURL: 'https://127.0.0.1:5158', ignoreHTTPSErrors: true },
   webServer: [

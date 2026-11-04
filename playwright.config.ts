@@ -1,8 +1,11 @@
 import { defineConfig } from '@playwright/test';
 
+// All AI conversation suites use the dedicated synthetic API and Web fixture.
+const aiFixtureSpecs = ['**/ai-assistant-chat.spec.ts', '**/netclaw-presentation.spec.ts',
+  '**/ai-parity.spec.ts', '**/ai-ux-corrections.spec.ts'];
 const testIgnore = process.env.HELPDESK_E2E_RUN_SETUP_WIZARD === 'true'
-  ? ['**/ai-assistant-chat.spec.ts', '**/netclaw-presentation.spec.ts']
-  : ['**/ai-assistant-chat.spec.ts', '**/netclaw-presentation.spec.ts', '**/setup.spec.ts',
+  ? aiFixtureSpecs
+  : [...aiFixtureSpecs, '**/setup.spec.ts',
     ...(process.env.HELPDESK_E2E_MAILBOX_LIFECYCLE === 'true' ? [] : [
       '**/mailbox-lifecycle.spec.ts', '**/mailbox-activation-lifecycle.spec.ts',
       '**/mailbox-pop-lifecycle.spec.ts', '**/mailbox-forwarding-lifecycle.spec.ts',

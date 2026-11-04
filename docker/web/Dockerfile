@@ -4,6 +4,8 @@ WORKDIR /app
 ENV ASPNETCORE_URLS=http://+:8111
 # Enable full globalization support (ICU) for culture-sensitive components
 RUN apk add --no-cache icu-libs
+# Keep the common ICU layer shared with HTTP MCP; ticket filters also need IANA zones.
+RUN apk add --no-cache tzdata
 ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=0
 EXPOSE 8111 8111
 
