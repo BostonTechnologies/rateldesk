@@ -16,7 +16,7 @@
 .ai-metrics > div { display: flex; align-items: center; gap: .65rem; border: 1px solid var(--mud-palette-divider); border-radius: 6px; padding: .4rem .65rem; background: var(--mud-palette-surface); }
 .ai-metrics span { font-size: .75rem; color: var(--mud-palette-text-secondary); }
 .ai-metrics strong { font-size: .85rem; line-height: 1; font-weight: 600; }
-.ai-workspace { display: grid; flex: 1; min-height: 0; grid-template-columns: minmax(220px, 270px) minmax(0, 1fr); align-items: stretch; border: 1px solid var(--mud-palette-divider); border-radius: 10px; overflow: hidden; background: var(--mud-palette-surface); }
+.ai-workspace { display: grid; flex: 1; min-height: 0; grid-template-columns: minmax(220px, 270px) minmax(0, 1fr); gap: 1px; align-items: stretch; border: 1px solid var(--mud-palette-divider); border-radius: 10px; overflow: hidden; background: var(--mud-palette-surface); }
 .ai-investigation-list, .ai-conversation { min-width: 0; min-height: 0; background: var(--mud-palette-surface); }
 .ai-investigation-list { display: flex; flex-direction: column; gap: .85rem; padding: .85rem; border-right: 1px solid var(--mud-palette-divider); background: var(--mud-palette-background); overflow: auto; }
 .ai-conversation { overflow: auto; }
