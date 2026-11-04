@@ -49,6 +49,13 @@ jobs:
         run: |
           npm ci
           npx playwright install --with-deps chromium
+      - name: Validate published browser fixture composition before image builds
+        env:
+          HELPDESK_PUBLISHED_WEB_IMAGE: rateldesk-config-validation
+        run: |
+          for suite in login ai assignee email filters details operations admin pending integrations; do
+            HELPDESK_PUBLISHED_SUITE="$suite" npx playwright test --config playwright.published.config.ts --list
+          done
       - name: Set up native Buildx without emulation
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Verify existing OCI and image evidence boundaries

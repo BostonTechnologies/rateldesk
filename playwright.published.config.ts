@@ -15,7 +15,10 @@ const suite = process.env.HELPDESK_PUBLISHED_SUITE as keyof typeof suites;
 if (!suite || !suites[suite] || !process.env.HELPDESK_PUBLISHED_WEB_IMAGE) throw new Error('Select an owning suite and an explicit published Web image');
 const selected = suites[suite];
 const servers = Array.isArray(selected.webServer) ? selected.webServer : [selected.webServer];
-export default defineConfig(selected, {
+// Pass one combined object: defineConfig's multi-argument form concatenates
+// webServer arrays and would start both source and published fixture servers.
+const published = defineConfig({
+  ...selected,
   webServer: servers.map(server => {
     if (!server) throw new Error('Owning suite has no fixture servers');
     if (server.command.includes('HelpDesk.NewWeb.dll') || server.command.startsWith('dotnet run')) {
@@ -31,3 +34,8 @@ export default defineConfig(selected, {
     return { ...server, reuseExistingServer: false };
   })
 });
+const publishedServers = Array.isArray(published.webServer) ? published.webServer : [published.webServer];
+const urls = publishedServers.map(server => server?.url);
+if (urls.some(url => !url) || new Set(urls).size !== urls.length)
+  throw new Error('Published browser fixtures must have exactly one owner per server URL');
+export default published;
