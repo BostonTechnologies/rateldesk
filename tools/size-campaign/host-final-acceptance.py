@@ -249,7 +249,11 @@ def run(args):
                         executedConfigDigest=report["images"]["web"]["configDigest"])
             report["cases"].append(case)
             write_json(receipt_path, report)
-            successful(case)
+            if case["status"] != "PASS":
+                # Keep the failed case in the final all-PASS gate, while running
+                # the other owning fixtures to retain their independent results.
+                print("Browser suite failed: " + suite + "; continuing remaining owning gates", file=sys.stderr, flush=True)
+                continue
             stats = json.loads(result_json.read_text())["stats"]
             require(stats["expected"] > 0 and stats["unexpected"] == 0, "Browser suite has no passing assertions or unexpected failures")
             case["browserStats"] = stats
