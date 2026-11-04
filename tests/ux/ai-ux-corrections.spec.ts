@@ -1,5 +1,6 @@
 import { chromium, expect, test, type Locator, type Page } from '@playwright/test';
 import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { assertNoHorizontalOverflow } from './auth';
 
@@ -136,7 +137,7 @@ for (const route of routes.slice(0, 2)) {
 test('investigation popups remain contained at native browser zoom 200 percent', async ({ request, baseURL }, info) => {
   await request.get(`${fixture}/fixture/reset?mode=completed`);
   await request.get(`${fixture}/fixture/connection?mode=connected`);
-  const profile = await mkdtemp(path.resolve('work/ai-zoom-'));
+  const profile = await mkdtemp(path.join(tmpdir(), 'rateldesk-ai-zoom-'));
   const extension = path.resolve('tests/ux/native-zoom-extension');
   const context = await chromium.launchPersistentContext(profile, {
     channel: 'chromium', headless: true, ignoreHTTPSErrors: true, viewport: { width: 1912, height: 914 },
