@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Keep public consent diagnostics useful without disclosing private subprocess output."""
+"""Verify host readiness and bounded public consent diagnostics."""
 from contextlib import redirect_stdout
 import importlib.util
 import io
@@ -9,7 +9,7 @@ import re
 import subprocess
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 SPEC = importlib.util.spec_from_file_location("host_lifecycle", Path(__file__).with_name("run-mcp-host-lifecycle-acceptance.py"))
@@ -20,6 +20,23 @@ SPEC.loader.exec_module(lifecycle)
 def diagnostic_record(value):
     return ("Disposable browser consent did not complete: " + json.dumps(value) +
             "; no credential or page content was recorded.\n").encode()
+
+
+class HostReadinessTests(unittest.TestCase):
+    def test_restart_requires_healthy_api_after_connection_reset_and_http_503(self):
+        fixture = SimpleNamespace(request=Mock(side_effect=[ConnectionResetError(), RuntimeError("HTTP 503"), None]))
+        with patch.object(lifecycle.time, "monotonic", side_effect=[0, 0, 1, 2]), patch.object(lifecycle.time, "sleep") as pause:
+            lifecycle.Fixture.wait_api_ready(fixture)
+        self.assertEqual(3, fixture.request.call_count)
+        self.assertTrue(all(call.args == ("/health/ready",) for call in fixture.request.call_args_list))
+        self.assertEqual(2, pause.call_count)
+
+    def test_permanently_unready_api_fails_without_proceeding(self):
+        fixture = SimpleNamespace(request=Mock(side_effect=ConnectionResetError()))
+        with patch.object(lifecycle.time, "monotonic", side_effect=[0, 0, 151]), patch.object(lifecycle.time, "sleep"):
+            with self.assertRaisesRegex(RuntimeError, "Disposable API readiness timeout"):
+                lifecycle.Fixture.wait_api_ready(fixture)
+        fixture.request.assert_called_once_with("/health/ready")
 
 
 class BrowserConsentDiagnosticsTests(unittest.TestCase):
