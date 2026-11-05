@@ -21,6 +21,9 @@ const tracePayloads = {
   discoveryArguments: '{"query":"synthetic tools"}',
   discoveryResult: JSON.stringify({ tools: Array.from({ length: 300 }, (_, i) => ({ name: `example_tool_${i}`, description: 'Synthetic discovery result retained in full' })) })
 };
+const diskTable = '| Host | Total | Free | Sample time (UTC) |\n| :--- | ---: | ---: | :---: |\n| node-01 | 39.2 GiB | **17.8 GiB** | `16:40:36` |\n| node-02-with-a-long-synthetic-host-name.example.test | 128 GiB | | `a\\|b` |';
+const emptyTable = 'Source | Rows\n--- | ---:\nEmpty synthetic dataset | 0';
+const tableReply = `# Capacity report\n\n${diskTable}\n\nOnly the selected table is copied.\n\n${emptyTable}\n\nRaw output stays inert: <img src=x onerror=alert(1)>\n\n\`\`\`markdown\n| Example |\n| --- |\n| fenced table |\n\`\`\``;
 function event(type, text, extra = {}) {
   const value = { Id: crypto.randomUUID(), ConversationId: activeConversation, Sequence: events.length + 1,
     Type: type, Text: text, CreatedUtc: new Date().toISOString(), ...extra };
@@ -50,7 +53,7 @@ function reset(mode = 'completed') {
   }
   if (mode === 'approval') event('approval_request', 'Allow this tool operation?', { CallId: 'approval-1', OptionsJson: JSON.stringify([{ Key: 'approve_once', Label: 'Allow once' }, { Key: 'deny', Label: 'Deny' }]) });
   if (!['processing', 'approval', 'recovery'].includes(mode)) {
-    event('assistant', 'The integration is responding normally.\n\n• Ticket context reached the harness.\n• Tool activity was recorded safely.\n\nNo production changes were made.');
+    event('assistant', mode === 'tables' ? tableReply : 'The integration is responding normally.\n\n• Ticket context reached the harness.\n• Tool activity was recorded safely.\n\nNo production changes were made.');
     event('turn_completed', 'Turn completed.');
   }
 }
@@ -68,6 +71,7 @@ http.createServer(async (req, res) => {
   let chatPath = url.pathname;
   const reply = value => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(value)); };
   if (url.pathname === '/fixture/trace-payloads') return reply(tracePayloads);
+  if (url.pathname === '/fixture/table-payloads') return reply({ diskTable, emptyTable, tableReply });
   if (url.pathname === '/fixture/chat-counts') return reply({ streamOpens, sends, recoveries, starts, startAttempts });
   if (url.pathname === '/fixture/release-start') { for (const release of heldStarts.splice(0)) release(); return reply({ ok: true }); }
   if (url.pathname === '/fixture/connection') { connectionMode = url.searchParams.get('mode') || 'verified'; return reply({ mode: connectionMode }); }
@@ -133,11 +137,13 @@ http.createServer(async (req, res) => {
   }
   if (url.pathname === '/fixture/reset') { reset(url.searchParams.get('mode')); loseStartResponse = url.searchParams.get('loseStartResponse') === 'true'; holdStartResponse = url.searchParams.get('holdStartResponse') === 'true'; return reply({ ok: true }); }
   if (url.pathname === '/fixture/draft') {
-    for (const stream of streams) stream.write(`event: text-delta\ndata: ${JSON.stringify({ ConversationId: conversation, Text: 'Streaming response', AfterSequence: events.length })}\n\n`);
+    const table = url.searchParams.get('table');
+    const text = table === 'partial' ? '| Host | Total | Free | Sample time (UTC) |\n| :--- | ---:' : table === 'complete' ? tableReply : 'Streaming response';
+    for (const stream of streams) stream.write(`event: text-delta\ndata: ${JSON.stringify({ ConversationId: conversation, Text: text, AfterSequence: events.length })}\n\n`);
     return reply({ ok: true });
   }
   if (url.pathname === '/fixture/complete') {
-    event('assistant', 'Canonical response'); event('turn_completed', 'Turn completed.'); state = 0;
+    event('assistant', url.searchParams.get('table') === 'true' ? tableReply : 'Canonical response'); event('turn_completed', 'Turn completed.'); state = 0;
     for (const stream of streams) stream.write('event: state\ndata: 0\n\n');
     return reply({ ok: true });
   }

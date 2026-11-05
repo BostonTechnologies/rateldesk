@@ -1,36 +1,117 @@
-@using System.Net
 @using System.Text.RegularExpressions
+@inject IJSRuntime JS
 
 <div class="chat-markdown">
-@foreach (var block in Text.Replace("\r\n", "\n").Split("```" ).Select((text, index) => (text, index)))
+@foreach (var block in blocks)
 {
-    @if (block.index % 2 == 1)
+    @if (block.Kind == MarkdownBlockKind.Code)
     {
-        var newline = block.text.IndexOf('\n');
-        <AiAssistantCode Text="@(newline >= 0 ? block.text[(newline + 1)..] : block.text)" Label="Code" />
+        <AiAssistantCode Text="@block.Text" Label="Code" />
     }
-    else
+    else if (block.Table is { } table)
     {
-        @foreach (var line in block.text.Split('\n'))
-        {
-            @if (line.StartsWith("### ")) { <h4>@Inline(line[4..])</h4> }
-            else if (line.StartsWith("## ")) { <h3>@Inline(line[3..])</h3> }
-            else if (line.StartsWith("# ")) { <h2>@Inline(line[2..])</h2> }
-            else if (line.StartsWith("- ") || line.StartsWith("* ")) { <p>• @Inline(line[2..])</p> }
-            else if (line.Length == 0) { <br /> }
-            else { <p>@Inline(line)</p> }
-        }
+        <div class="chat-table-block">
+            <div class="chat-table-toolbar">
+                <span>Table</span>
+                <span role="status" aria-live="polite">@(ReferenceEquals(copiedTable, block) ? copyStatus : null)</span>
+                <button type="button" @onclick="() => CopyTableAsync(block)" title="Copy table as Markdown">Copy table</button>
+            </div>
+            <div class="chat-table-scroll" role="region" aria-label="Markdown table" tabindex="0">
+                <table>
+                    <thead><tr>
+                        @for (var column = 0; column < table.Headers.Length; column++)
+                        {
+                            <th scope="col" style="text-align: @table.Alignments[column]">@Inline(table.Headers[column])</th>
+                        }
+                    </tr></thead>
+                    <tbody>
+                        @foreach (var row in table.Rows)
+                        {
+                            <tr>
+                                @for (var column = 0; column < table.Headers.Length; column++)
+                                {
+                                    <td style="text-align: @table.Alignments[column]">@Inline(column < row.Length ? row[column] : "")</td>
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            @if (ReferenceEquals(copiedTable, block) && copyFailed)
+            {
+                <label class="chat-table-manual-copy">Table Markdown for manual copying
+                    <textarea readonly aria-label="Table Markdown for manual copying" rows="5">@block.Text</textarea>
+                </label>
+            }
+        </div>
     }
+    else if (block.Kind == MarkdownBlockKind.Heading)
+    {
+        @if (block.HeadingLevel == 1) { <h2>@Inline(block.Text)</h2> }
+        else if (block.HeadingLevel == 2) { <h3>@Inline(block.Text)</h3> }
+        else { <h4>@Inline(block.Text)</h4> }
+    }
+    else if (block.Kind == MarkdownBlockKind.Bullet) { <p>• @Inline(block.Text)</p> }
+    else if (block.Kind == MarkdownBlockKind.Break) { <br /> }
+    else { <p>@Inline(block.Text)</p> }
 }
 </div>
+
 @code {
     [Parameter] public string Text { get; set; } = "";
-    // Encode all source text first. Only these fixed, inert formatting tags are introduced.
-    private static MarkupString Inline(string text)
+    private string? parsedText, copyStatus;
+    private MarkdownBlock? copiedTable;
+    private bool copyFailed;
+    private IReadOnlyList<MarkdownBlock> blocks = [];
+    private static readonly Regex InlineTokens = new(@"(`[^`\n]{1,2048}`|\*\*[^*\n]{1,2048}\*\*)",
+        RegexOptions.CultureInvariant | RegexOptions.NonBacktracking, TimeSpan.FromMilliseconds(50));
+
+    protected override void OnParametersSet()
     {
-        var encoded = WebUtility.HtmlEncode(text);
-        encoded = Regex.Replace(encoded, @"`([^`\n]{1,2048})`", "<code>$1</code>", RegexOptions.None, TimeSpan.FromMilliseconds(50));
-        encoded = Regex.Replace(encoded, @"\*\*([^*\n]{1,2048})\*\*", "<strong>$1</strong>", RegexOptions.None, TimeSpan.FromMilliseconds(50));
-        return new(encoded);
+        if (parsedText == Text) return;
+        parsedText = Text;
+        copiedTable = null;
+        copyStatus = null;
+        copyFailed = false;
+        blocks = AiAssistantMarkdownParser.Parse(Text);
+    }
+
+    // AddContent encodes every model-supplied fragment, including content inside inline formatting.
+    private static RenderFragment Inline(string text) => builder =>
+    {
+        Match[] matches;
+        try { matches = InlineTokens.Matches(text).Cast<Match>().ToArray(); }
+        catch (RegexMatchTimeoutException) { builder.AddContent(0, text); return; }
+        var position = 0;
+        foreach (var match in matches)
+        {
+            builder.AddContent(0, text[position..match.Index]);
+            var code = match.Value[0] == '`';
+            builder.OpenElement(1, code ? "code" : "strong");
+            builder.AddContent(2, code ? match.Value[1..^1] : match.Value[2..^2]);
+            builder.CloseElement();
+            position = match.Index + match.Length;
+        }
+        builder.AddContent(3, text[position..]);
+    };
+
+    private async Task CopyTableAsync(MarkdownBlock table)
+    {
+        var revision = parsedText;
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", table.Text);
+            if (parsedText != revision) return;
+            copiedTable = table;
+            copyFailed = false;
+            copyStatus = "Table copied as Markdown.";
+        }
+        catch (JSException)
+        {
+            if (parsedText != revision) return;
+            copiedTable = table;
+            copyFailed = true;
+            copyStatus = "Copy failed. Select the Markdown below and copy it manually.";
+        }
     }
 }

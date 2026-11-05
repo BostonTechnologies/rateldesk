@@ -112,7 +112,7 @@ else
             }
         </section>
     }
-    @if (draft.Length > 0) { <MudText Style="white-space: pre-wrap">@draft</MudText> }
+    @if (draft.Length > 0) { <div class="pa-3" data-testid="ai-assistant-draft"><AiAssistantMarkdown Text="@draft" /></div> }
     </div>
     </div>
     <div class="@(Workspace ? "ai-chat-composer" : null)">
