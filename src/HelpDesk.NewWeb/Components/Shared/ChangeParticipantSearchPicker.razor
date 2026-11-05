@@ -1,5 +1,7 @@
 @using Helpdesk.Shared.DTOs.Change
 @using System.Text.Json
+@using Polly.CircuitBreaker
+@using Polly.Timeout
 @implements IDisposable
 @inject IHttpClientFactory HttpClientFactory
 
@@ -82,7 +84,7 @@
             }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException) { if (!token.IsCancellationRequested) hydrationError = true; }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException or TimeoutRejectedException or BrokenCircuitException) { if (!token.IsCancellationRequested) hydrationError = true; }
     }
     private async Task Choose(ChangeParticipantUserDto? item)
     {

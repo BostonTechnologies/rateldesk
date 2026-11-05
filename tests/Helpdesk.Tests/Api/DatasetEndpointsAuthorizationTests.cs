@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Claims;
+using System.Text.Json;
 using System.Text.Encodings.Web;
 using Helpdesk.API.Background;
 using Helpdesk.API.Endpoints.Resources;
@@ -76,6 +77,37 @@ public sealed class DatasetEndpointsAuthorizationTests
         Assert.True(result.ConfigurationSaved);
         Assert.Contains("schedule could not be reconciled", result.Message);
         Assert.DoesNotContain("provider-secret", result.Message);
+    }
+
+    [Fact]
+    public async Task Schema_updates_enforce_stored_scope_and_return_field_validation_without_mutation()
+    {
+        using var harness = await DatasetEndpointsHarness.CreateAsync("ClientAdmin");
+        var service = harness.Services.GetRequiredService<FakeDataManagementService>();
+        var own = await harness.Client.PutAsJsonAsync("/api/v1/resources/datasets/alpha-custom",
+            new UpdateDatasetDefinitionDto { Name = "Edited catalog", SourceType = DatasetSourceType.Custom });
+        Assert.Equal(HttpStatusCode.OK, own.StatusCode);
+        Assert.Equal("Edited catalog", (await own.Content.ReadFromJsonAsync<DatasetDefinitionDto>())!.Name);
+        foreach (var datasetId in new[] { "other-custom", "alpha-graph-users" })
+        {
+            var denied = await harness.Client.PutAsJsonAsync($"/api/v1/resources/datasets/{datasetId}",
+                new UpdateDatasetDefinitionDto { Name = "Denied edit" });
+            Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        }
+        var deniedSource = await harness.Client.PutAsJsonAsync("/api/v1/resources/datasets/alpha-custom",
+            new UpdateDatasetDefinitionDto { SourceType = DatasetSourceType.GraphUsers });
+        Assert.Equal(HttpStatusCode.Forbidden, deniedSource.StatusCode);
+        Assert.Equal(1, service.DefinitionUpdates);
+
+        service.RejectSchemaUpdates = true;
+        var invalid = await harness.Client.PutAsJsonAsync("/api/v1/resources/datasets/alpha-custom",
+            new UpdateDatasetDefinitionDto { Name = "Rejected draft", KeyColumn = "missing", Columns = [new() { Name = "id" }, new() { Name = "ID" }] });
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+        var body = await invalid.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Field names must be unique.", body.GetProperty("errors").GetProperty("Columns[1].Name")[0].GetString());
+        Assert.True(body.GetProperty("errors").TryGetProperty("KeyColumn", out _));
+        Assert.Equal(2, service.DefinitionUpdates);
+        Assert.Equal("Edited catalog", (await service.GetDatasetAsync("alpha-custom"))!.Name);
     }
 
     [Fact]
@@ -426,6 +458,8 @@ public sealed class DatasetEndpointsAuthorizationTests
         public int GraphTests { get; private set; }
         public int GraphImports { get; private set; }
         public int GraphReconciliations { get; private set; }
+        public int DefinitionUpdates { get; private set; }
+        public bool RejectSchemaUpdates { get; set; }
 
         public Task<GraphConnectionTestResultDto> TestGraphConnectionAsync(GraphConnectionTestRequestDto dto, CancellationToken cancellationToken = default)
         {
@@ -479,6 +513,13 @@ public sealed class DatasetEndpointsAuthorizationTests
 
         public Task<DatasetDefinitionDto?> UpdateDatasetAsync(string datasetId, UpdateDatasetDefinitionDto dto, CancellationToken cancellationToken = default)
         {
+            DefinitionUpdates++;
+            if (RejectSchemaUpdates)
+                throw new DatasetDefinitionValidationException(new Dictionary<string, string[]>
+                {
+                    ["Columns[1].Name"] = ["Field names must be unique."],
+                    ["KeyColumn"] = ["Choose a key field in this schema."]
+                });
             if (!_datasets.TryGetValue(datasetId, out var dataset))
             {
                 return Task.FromResult<DatasetDefinitionDto?>(null);

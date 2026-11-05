@@ -1299,10 +1299,11 @@ h1[tabindex="-1"]:focus
    narrow table trigger has enough room for MudPopover's horizontal flip. */
 .assignee-popup { z-index: 1601 !important; }
 .ticket-state-overlay { z-index: calc(var(--mud-zindex-appbar) + 1) !important; }
-.ticket-state-popover { z-index: calc(var(--mud-zindex-appbar) + 2) !important; width: 340px; max-width: calc(100vw - 24px); max-height: min(560px, 80vh); overflow-y: auto; overflow-x: hidden; }
+.ticket-state-popover { z-index: calc(var(--mud-zindex-appbar) + 2) !important; width: 340px; max-width: calc(100vw - 24px) !important; max-height: min(560px, 80vh); overflow-y: auto !important; overflow-x: hidden; }
 .ticket-state-popover .state-popup-current { opacity: 1 !important; color: var(--mud-palette-text-primary) !important; }
 @media (max-width: 600px) {
     .assignee-popup { left: 12px !important; width: calc(100vw - 24px) !important; min-width: 0 !important; }
+    .ticket-state-popover { left: 12px !important; }
 }
 
 /* MudPopover renders its portal outside CSS isolation. Bound the email preview

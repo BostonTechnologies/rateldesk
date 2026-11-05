@@ -61,7 +61,7 @@
 <section @ref="resultsRegion" tabindex="-1" aria-label="Ticket results">
 <MudTable T="TTicket"
           @ref="_table"
-          ServerData="ServerData"
+          ServerData="LoadTableData"
           CurrentPage="InitialPage" RowsPerPage="PageSize"
           Dense="true"
           Hover="true"
@@ -190,6 +190,8 @@
     private readonly HashSet<string> deniedStateWrites = new(StringComparer.Ordinal);
     private bool disposed;
     private MudTable<TTicket>? _table;
+    private IReadOnlyList<TTicket> serverItems = [];
+    private int loadVersion;
     private ElementReference resultsRegion;
     private TicketState _bulkState = TicketState.New;
     private string? _bulkAssigneeId;
@@ -225,12 +227,20 @@
         return _table?.ReloadServerData() ?? Task.CompletedTask;
     }
 
+    private async Task<TableData<TTicket>> LoadTableData(TableState state, CancellationToken cancellationToken)
+    {
+        var version = ++loadVersion;
+        var data = await ServerData(state, cancellationToken);
+        if (!disposed && version == loadVersion) serverItems = data.Items?.ToArray() ?? [];
+        return data;
+    }
+
     public async Task ReloadAfterStateChange(string id)
     {
         if (disposed || _table is null) return;
         await _table.ReloadServerData();
         if (disposed) return;
-        var visibleItems = _table.FilteredItems.ToDictionary(item => GetStringValue(item, "Id"), StringComparer.Ordinal);
+        var visibleItems = serverItems.ToDictionary(item => GetStringValue(item, "Id"), StringComparer.Ordinal);
         var refreshedSelection = SelectedItems
             .Where(item => GetStringValue(item, "Id") != id || visibleItems.ContainsKey(id))
             .Select(item => visibleItems.GetValueOrDefault(GetStringValue(item, "Id"), item)).ToHashSet();
@@ -238,7 +248,7 @@
         if (disposed) return;
         var lastPage = Math.Max(0, (_table.GetFilteredItemsCount() - 1) / _table.RowsPerPage);
         if (_table.CurrentPage > lastPage) _table.NavigateTo(lastPage);
-        if (!_table.FilteredItems.Any(item => GetStringValue(item, "Id") == id)) await resultsRegion.FocusAsync();
+        if (!visibleItems.ContainsKey(id)) await resultsRegion.FocusAsync();
     }
 
     private async Task HandleSelectedItemsChanged(HashSet<TTicket> selectedItems)

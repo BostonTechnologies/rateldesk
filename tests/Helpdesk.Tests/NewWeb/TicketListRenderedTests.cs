@@ -7,10 +7,14 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 using MudBlazor.Services;
 using MudBlazor;
+using NSubstitute;
 using Polly.CircuitBreaker;
 using Polly.Timeout;
 using Helpdesk.Shared.DTOs.Change;
+using Helpdesk.Shared.DTOs.Incident;
 using Helpdesk.Shared.Models;
+using TicketTable = NewWeb::HelpDesk.NewWeb.Components.Shared.TicketTable<Helpdesk.Shared.DTOs.Incident.IncidentDto>;
+using StatePopup = NewWeb::HelpDesk.NewWeb.Components.Shared.StatePopup;
 using TicketStatePicker = NewWeb::HelpDesk.NewWeb.Components.Shared.TicketStatePicker;
 using ChangeLifecycleStatePicker = NewWeb::HelpDesk.NewWeb.Components.Shared.ChangeLifecycleStatePicker;
 using IncidentList = NewWeb::HelpDesk.NewWeb.Components.Pages.Incidents.IncidentList;
@@ -21,6 +25,65 @@ namespace Helpdesk.Tests.NewWeb;
 
 public sealed class TicketListRenderedTests
 {
+    [Fact]
+    public async Task Native_state_trigger_intercepts_activation_only_when_editable_and_cleans_up()
+    {
+        using var api = new PopupApi();
+        await using var context = PopupContext(api);
+        var keys = Substitute.For<IKeyInterceptorService>();
+        context.Services.AddSingleton(keys);
+        var popup = context.Render<StatePopup>(parameters => parameters.Add(value => value.CanEdit, false));
+        Assert.Empty(keys.ReceivedCalls());
+        popup.Render(parameters => parameters.Add(value => value.CanEdit, true));
+        var subscription = Assert.Single(keys.ReceivedCalls(), call => call.GetMethodInfo().Name == "SubscribeAsync");
+        var id = Assert.IsType<string>(subscription.GetArguments()[0]);
+        var options = Assert.IsType<KeyInterceptorOptions>(subscription.GetArguments()[1]);
+        Assert.Equal("state-trigger", options.TargetClass);
+        Assert.Equal(new[] { "Enter", " " }, options.Keys.Select(key => key.Key));
+        Assert.All(options.Keys, key => { Assert.Equal("any", key.PreventDown); Assert.Equal("none", key.StopDown); });
+        popup.Render(parameters => parameters.Add(value => value.CanEdit, false));
+        popup.Render(parameters => parameters.Add(value => value.CanEdit, true));
+        Assert.Single(keys.ReceivedCalls(), call => call.GetMethodInfo().Name == "SubscribeAsync");
+        await popup.InvokeAsync(() => popup.Instance.DisposeAsync().AsTask());
+        await keys.Received(1).UnsubscribeAsync(id);
+    }
+
+    [Fact]
+    public async Task State_reload_reconciles_selection_from_server_results_after_cached_rows()
+    {
+        using var api = new PopupApi();
+        await using var context = PopupContext(api);
+        var completed = new IncidentDto { Id = "completed", TrackingId = "SYN-COMPLETE", State = TicketState.New };
+        var retained = new IncidentDto { Id = "retained", TrackingId = "SYN-RETAIN", State = TicketState.New };
+        var offPage = new IncidentDto { Id = "off-page", TrackingId = "SYN-OFFPAGE", State = TicketState.New };
+        var selected = new HashSet<IncidentDto> { completed, retained, offPage };
+        var response = new TaskCompletionSource<TableData<IncidentDto>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var loads = 0;
+        var table = context.Render<TicketTable>(parameters => parameters
+            .Add(value => value.TicketType, "incidents")
+            .Add(value => value.EnableSelection, true)
+            .Add(value => value.SelectedItems, selected)
+            .Add(value => value.SelectedItemsChanged, items => selected = items)
+            .Add(value => value.ServerData, (_, _) => ++loads == 1
+                ? Task.FromResult(new TableData<IncidentDto> { Items = [completed, retained], TotalItems = 3 })
+                : response.Task));
+        table.WaitForAssertion(() => Assert.Contains("SYN-COMPLETE", table.Markup));
+        var mudTable = table.FindComponent<MudTable<IncidentDto>>();
+        await table.InvokeAsync(() => Assert.Contains(completed, mudTable.Instance.FilteredItems));
+        var reloading = table.InvokeAsync(() => table.Instance.ReloadAfterStateChange(completed.Id));
+        table.WaitForAssertion(() => Assert.Equal(2, loads));
+        // The loading render still exposes the previous rows. Reconciliation
+        // must use the completed server response even if this cache is warm.
+        await table.InvokeAsync(() => Assert.Contains(completed, mudTable.Instance.FilteredItems));
+        var refreshedRetained = new IncidentDto { Id = retained.Id, TrackingId = retained.TrackingId, State = TicketState.OnHold };
+        response.SetResult(new TableData<IncidentDto> { Items = [refreshedRetained], TotalItems = 2 });
+        await reloading;
+        table.WaitForAssertion(() => Assert.DoesNotContain("SYN-COMPLETE", table.Markup));
+        Assert.DoesNotContain(selected, item => item.Id == completed.Id);
+        Assert.Same(refreshedRetained, selected.Single(item => item.Id == retained.Id));
+        Assert.Contains(offPage, selected);
+    }
+
     [Theory]
     [InlineData("incidents", typeof(IncidentList))]
     [InlineData("requests", typeof(RequestList))]

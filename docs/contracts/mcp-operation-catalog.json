@@ -1,7 +1,7 @@
 {
-  "schemaHash": "9d417c46c52d4b337de2d2cdb98d63af7f20ce205cfca32dc127607bd3865797",
-  "catalogRevision": "2026-10-29.beta14-contracts-v26",
-  "catalogHash": "3e0d1fd20a95cabd5195f65afc7fdf4d2c37effe7d16c47f87fd914a3d56798e",
+  "schemaHash": "b0e3d444c9cc1834f2ad8320998fc7afd3a3ef3ae341a0b46a9803d73cea0f7a",
+  "catalogRevision": "2026-11-05.beta4-contracts-v27",
+  "catalogHash": "b76fb254fae699512c524e942d5791d22f77c6ebe0c1c8b5b038efc237023a44",
   "operationCount": 390,
   "operations": [
     {
@@ -27247,6 +27247,16 @@
             "type": "object",
             "additionalProperties": false,
             "properties": {
+              "requestId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "not": {
+                  "const": "00000000-0000-0000-0000-000000000000"
+                }
+              },
               "organizationId": {
                 "type": "string",
                 "maxLength": 262144,
@@ -54438,6 +54448,16 @@
                     "type": "object",
                     "additionalProperties": false,
                     "properties": {
+                      "requestId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "uuid",
+                        "not": {
+                          "const": "00000000-0000-0000-0000-000000000000"
+                        }
+                      },
                       "organizationId": {
                         "type": "string",
                         "maxLength": 262144,

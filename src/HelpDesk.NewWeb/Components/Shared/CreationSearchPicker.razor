@@ -2,6 +2,8 @@
 @implements IDisposable
 @using System.Text.Json
 @using System.Runtime.CompilerServices
+@using Polly.CircuitBreaker
+@using Polly.Timeout
 @inject IHttpClientFactory HttpClientFactory
 
 <div class="creation-search-picker">
@@ -9,6 +11,7 @@
                      Value="selected" ValueChanged="Choose" SearchFunc="Search" ToStringFunc="@(item => item is null ? "" : ItemLabel(item))"
                      Variant="Variant.Outlined" Margin="@Margin" Dense="true" Required="@Required"
                      Disabled="@(Disabled || string.IsNullOrWhiteSpace(LookupUrl) || (LockWhenSingle && totalEligible == 1 && selected is not null))"
+                     ReadOnly="choosing"
                      Clearable="@(!LockWhenSingle || totalEligible != 1)" ResetValueOnEmptyText="true"
                      CoerceValue="false" DebounceInterval="250" MinCharacters="0" MaxItems="50"
                      Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Search" ShowProgressIndicator="true"
@@ -68,6 +71,8 @@
     private long searchVersion;
     private long fetchVersion;
     private long scopeVersion;
+    private long choiceVersion;
+    private bool choosing;
     private sealed record ItemScope(long Version);
     private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
     private string Feedback => loading ? $"Loading {Kind}…" : failed ? $"Could not load {Kind}. Use Retry below."
@@ -82,6 +87,8 @@
             scopeCancellation = new();
             scope = LookupUrl;
             scopeVersion++;
+            choiceVersion++;
+            choosing = false;
             initialized = false;
             selected = null;
             labels.Clear();
@@ -151,7 +158,7 @@
             return new(items, result.TotalEligible, result.HasMore);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { return null; }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException)
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException or TimeoutRejectedException or BrokenCircuitException)
         {
             if (!disposed && !ct.IsCancellationRequested && scope == expectedScope && version == fetchVersion) failed = true;
             return null;
@@ -178,19 +185,39 @@
     }
     private async Task Choose(TItem? item)
     {
-        if (Disabled || disposed) return;
+        if (Disabled || disposed || choosing) return;
         // A refresh can replace the cached object for an ID while its visible option
         // is being clicked. Accept every item obtained in this scope, while rejecting
         // objects belonging to a previous organization/module, even if their IDs match.
         if (item is not null && (!itemScopes.TryGetValue(item, out var origin) || origin.Version != scopeVersion)) return;
-        var expectedScope = scope;
-        selected = item;
-        if (item is not null) labels[ItemId(item)] = item;
-        await SelectionChanged.InvokeAsync(item);
-        if (ClearAfterSelection && item is not null && autocomplete is not null && expectedScope == scope && !disposed)
+        var expectedScope = scopeVersion;
+        var operation = ++choiceVersion;
+        var clear = ClearAfterSelection && item is not null;
+        try
         {
-            selected = null;
-            await autocomplete.ClearAsync();
+            selected = item;
+            if (item is not null) labels[ItemId(item)] = item;
+            if (clear)
+            {
+                // Keep focus while preventing a new query from being erased by the
+                // asynchronous clear that completes this multi-selection.
+                choosing = true;
+                await InvokeAsync(StateHasChanged);
+            }
+            await SelectionChanged.InvokeAsync(item);
+            if (clear && autocomplete is not null && expectedScope == scopeVersion && operation == choiceVersion && !disposed)
+            {
+                selected = null;
+                await autocomplete.ClearAsync();
+            }
+        }
+        finally
+        {
+            if (clear && expectedScope == scopeVersion && operation == choiceVersion && !disposed)
+            {
+                choosing = false;
+                await InvokeAsync(StateHasChanged);
+            }
         }
     }
     private async Task Retry()
@@ -205,7 +232,10 @@
     }
     public void Dispose()
     {
+        if (disposed) return;
         disposed = true;
+        choiceVersion++;
+        choosing = false;
         scopeCancellation.Cancel();
         scopeCancellation.Dispose();
     }

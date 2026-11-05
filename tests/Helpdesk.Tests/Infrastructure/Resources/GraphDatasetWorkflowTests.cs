@@ -29,7 +29,7 @@ using Testcontainers.PostgreSql;
 
 namespace Helpdesk.Tests.Infrastructure.Resources;
 
-public sealed class GraphDatasetWorkflowTests
+public sealed partial class GraphDatasetWorkflowTests
 {
     [Fact]
     public async Task Registered_connection_test_reads_once_and_exposes_throttling_under_real_service_defaults()
@@ -537,12 +537,13 @@ public sealed class GraphDatasetWorkflowTests
             else options.UseNpgsql(connectionString);
             return new(options.Options, new Tenant(), new HttpContextAccessor());
         }
-        public DataManagementService Service(HelpdeskDbContext db, IMemoryCache cache, IHttpClientFactory? configuredClients = null)
+        public DataManagementService Service(HelpdeskDbContext db, IMemoryCache cache, IHttpClientFactory? configuredClients = null,
+            ISecretProtector? secretProtector = null)
         {
             var clients = configuredClients ?? Substitute.For<IHttpClientFactory>();
             if (configuredClients is null)
                 clients.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient(Provider, disposeHandler: false));
-            return new(db, cache, protector, clients, NullLogger<DataManagementService>.Instance, Credentials);
+            return new(db, cache, secretProtector ?? protector, clients, NullLogger<DataManagementService>.Instance, Credentials);
         }
         public async Task SeedSettingsAsync(HelpdeskDbContext db)
         {
@@ -591,6 +592,7 @@ public sealed class GraphDatasetWorkflowTests
         public bool FailOnImportsOnly { get; set; }
         public bool Empty { get; set; }
         public string? Payload { get; set; }
+        public Exception? ReadException { get; set; }
         public bool HoldImports { get; set; }
         public bool CancelImports { get; set; }
         public TaskCompletionSource ImportEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -601,6 +603,7 @@ public sealed class GraphDatasetWorkflowTests
             Requests.Add(uri);
             Assert.Equal("graph.microsoft.com", uri.Host);
             Assert.Equal("fixture-access-token", request.Headers.Authorization?.Parameter);
+            if (ReadException is { } failure) throw failure;
             if (CancelImports && !uri.Query.Contains("$top=1", StringComparison.Ordinal))
                 throw new OperationCanceledException();
             if (HoldImports && !uri.Query.Contains("$top=1", StringComparison.Ordinal))
@@ -619,16 +622,19 @@ public sealed class GraphDatasetWorkflowTests
     private sealed class FixtureCredentials : IGraphDatasetCredentialFactory
     {
         public bool Reject { get; set; }
+        public Exception? Failure { get; set; }
         public TokenCredential Create(string tenantId, string clientId, string clientSecret)
         {
             Assert.Equal("fixture-secret", clientSecret);
-            return new FixtureToken(Reject);
+            return new FixtureToken(Reject, Failure);
         }
     }
-    private sealed class FixtureToken(bool reject) : TokenCredential
+    private sealed class FixtureToken(bool reject, Exception? failure = null) : TokenCredential
     {
         public override AccessToken GetToken(TokenRequestContext requestContext, CancellationToken cancellationToken)
-            => reject ? throw new AuthenticationFailedException("provider-secret authentication failure") : new("fixture-access-token", DateTimeOffset.UtcNow.AddHours(1));
+            => failure is not null ? throw failure
+                : reject ? throw new AuthenticationFailedException("provider-secret authentication failure")
+                : new("fixture-access-token", DateTimeOffset.UtcNow.AddHours(1));
         public override ValueTask<AccessToken> GetTokenAsync(TokenRequestContext requestContext, CancellationToken cancellationToken)
             => ValueTask.FromResult(GetToken(requestContext, cancellationToken));
     }

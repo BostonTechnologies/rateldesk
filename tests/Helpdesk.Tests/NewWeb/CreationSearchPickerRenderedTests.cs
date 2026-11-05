@@ -8,8 +8,11 @@ using Microsoft.Extensions.DependencyInjection;
 using MudBlazor;
 using MudBlazor.Services;
 using NSubstitute;
+using Polly.CircuitBreaker;
+using Polly.Timeout;
 using OrganizationPicker = NewWeb::HelpDesk.NewWeb.Components.Shared.OrganizationSearchPicker;
 using ParticipantPicker = NewWeb::HelpDesk.NewWeb.Components.Shared.ChangeParticipantSearchPicker;
+using MultiPicker = NewWeb::HelpDesk.NewWeb.Components.Shared.CreationSearchPicker<Helpdesk.Shared.DTOs.Organization.OrganizationDto>;
 
 namespace Helpdesk.Tests.NewWeb;
 
@@ -120,18 +123,117 @@ public sealed class CreationSearchPickerRenderedTests
         Assert.Equal(new[] { "candidate" }, selections);
     }
 
-    [Fact]
-    public async Task Failed_initial_load_is_retryable_and_does_not_become_a_successful_empty_population()
+    [Theory]
+    [InlineData("http")]
+    [InlineData("timeout")]
+    [InlineData("circuit")]
+    public async Task Failed_initial_load_is_retryable_and_does_not_become_a_successful_empty_population(string failure)
     {
         await using var context = Context(out var api);
         var selections = new List<string?>();
         var picker = context.Render<OrganizationPicker>(p => p.Add(x => x.SelectionChanged, item => selections.Add(item?.Id)));
-        await picker.InvokeAsync(() => api.Calls[0].Response.SetResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)));
+        await picker.InvokeAsync(() =>
+        {
+            if (failure == "http") api.Calls[0].Response.SetResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+            else api.Calls[0].Response.SetException(ResilienceFailure(failure == "circuit"));
+        });
         picker.WaitForAssertion(() => Assert.Contains("Could not load organizations.", picker.Markup));
         Assert.DoesNotContain("No eligible organizations.", picker.Markup);
         picker.FindAll("button").Single(button => button.TextContent.Contains("Retry organization")).Click();
         await picker.InvokeAsync(() => api.Calls[1].Response.SetResult(Page("recovered", "Recovered organization", 1)));
         picker.WaitForAssertion(() => Assert.Equal("recovered", Assert.Single(selections)));
+    }
+
+    [Fact]
+    public async Task Multi_selection_serializes_clearing_and_late_callbacks_cannot_unlock_another_scope_or_erase_its_query()
+    {
+        await using var context = Context(out var api);
+        var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var disposalEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var disposalRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var choices = new List<string?>();
+        async Task Choose(OrganizationDto? item)
+        {
+            choices.Add(item?.Id);
+            if (choices.Count == 1) { firstEntered.SetResult(); await firstRelease.Task; }
+            else if (choices.Count == 2) { secondEntered.SetResult(); await secondRelease.Task; }
+            else if (choices.Count == 4) { disposalEntered.SetResult(); await disposalRelease.Task; }
+        }
+        const string firstUrl = "api/v1/ticketing/organizations/search?module=change";
+        var picker = context.Render<MultiPicker>(p => p.Add(x => x.LookupUrl, firstUrl)
+            .Add(x => x.ItemId, item => item.Id).Add(x => x.ItemLabel, item => item.Name)
+            .Add(x => x.ClearAfterSelection, true).Add(x => x.SelectionChanged, Choose));
+        await picker.InvokeAsync(() => api.Calls[0].Response.SetResult(Page("first", "First choice", 2)));
+        picker.WaitForAssertion(() => Assert.DoesNotContain("Loading choices", picker.Markup));
+        async Task<OrganizationDto> Candidate(MudAutocomplete<OrganizationDto> autocomplete, string term, string id)
+        {
+            IEnumerable<OrganizationDto>? items = null;
+            var search = picker.InvokeAsync(async () => items = await (autocomplete.SearchFunc?.Invoke(term, CancellationToken.None)
+                ?? throw new InvalidOperationException("A search task is required.")));
+            var request = await api.WaitForCallAsync("q=" + term);
+            request.Response.SetResult(Page(id, id + " choice", 2));
+            await search;
+            return Assert.Single(items!);
+        }
+        var firstAutocomplete = picker.FindComponent<MudAutocomplete<OrganizationDto>>().Instance;
+        var first = await Candidate(firstAutocomplete, "first", "first");
+        var firstSelection = picker.InvokeAsync(() => firstAutocomplete.ValueChanged.InvokeAsync(first));
+        await firstEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(picker.Find("input").HasAttribute("readonly"));
+
+        picker.Render(p => p.Add(x => x.LookupUrl, "api/v1/ticketing/organizations/search?module=request"));
+        var middleScope = await api.WaitForCallAsync("module=request");
+        await picker.InvokeAsync(() => middleScope.Response.SetResult(Page("middle", "Middle scope", 2)));
+        picker.Render(p => p.Add(x => x.LookupUrl, firstUrl));
+        var returnedScope = await api.WaitForCallAsync("module=change&q=&", 1);
+        await picker.InvokeAsync(() => returnedScope.Response.SetResult(Page("second", "Current scope", 2)));
+        picker.WaitForAssertion(() => Assert.False(picker.Find("input").HasAttribute("readonly")));
+        var currentAutocomplete = picker.FindComponent<MudAutocomplete<OrganizationDto>>().Instance;
+        var second = await Candidate(currentAutocomplete, "second", "second");
+        var secondSelection = picker.InvokeAsync(() => currentAutocomplete.ValueChanged.InvokeAsync(second));
+        await secondEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        firstRelease.SetResult();
+        await firstSelection;
+        Assert.True(picker.Find("input").HasAttribute("readonly"));
+
+        secondRelease.SetException(new InvalidOperationException("Draft callback rejected."));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => secondSelection);
+        picker.WaitForAssertion(() => Assert.False(picker.Find("input").HasAttribute("readonly")));
+        await picker.InvokeAsync(() => currentAutocomplete.ValueChanged.InvokeAsync(second));
+        Assert.Equal(new[] { "first", "second", "second" }, choices);
+        Assert.Equal("", picker.Find("input").GetAttribute("value") ?? "");
+        var disposingSelection = picker.InvokeAsync(() => currentAutocomplete.ValueChanged.InvokeAsync(second));
+        await disposalEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        picker.Instance.Dispose();
+        disposalRelease.SetResult();
+        await disposingSelection;
+        Assert.Equal(new[] { "first", "second", "second", "second" }, choices);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Approver_label_resilience_failures_preserve_selected_ids_and_retry_without_emitting_a_draft_change(bool circuit)
+    {
+        await using var context = Context(out var api);
+        var changes = new List<HashSet<string>>();
+        var picker = context.Render<ParticipantPicker>(p => p.Add(x => x.OrganizationId, "org").Add(x => x.Multiple, true)
+            .Add(x => x.SelectedIds, new[] { "selected" }).Add(x => x.SelectedIdsChanged, ids => changes.Add(ids)));
+        var hydration = await api.WaitForCallAsync("id=selected");
+        await picker.InvokeAsync(() => hydration.Response.SetException(ResilienceFailure(circuit)));
+        foreach (var call in api.Calls.Where(call => !call.Url.Contains("id=selected", StringComparison.Ordinal)))
+            await picker.InvokeAsync(() => call.Response.TrySetResult(Participants("suggestion")));
+        picker.WaitForAssertion(() => Assert.Contains("Some selected approvers could not be loaded.", picker.Markup));
+        Assert.Equal("selected", picker.Find(".mud-chip").GetAttribute("title"));
+        picker.FindAll("button").Single(button => button.TextContent.Contains("Retry approver labels", StringComparison.Ordinal)).Click();
+        var retry = await api.WaitForCallAsync("id=selected", 1);
+        await picker.InvokeAsync(() => retry.Response.SetResult(Participants("selected")));
+        picker.WaitForAssertion(() => Assert.Contains("selected@example.test", picker.Markup));
+        Assert.DoesNotContain("Some selected approvers could not be loaded.", picker.Markup);
+        Assert.Empty(changes);
     }
 
     [Fact]
@@ -160,6 +262,8 @@ public sealed class CreationSearchPickerRenderedTests
     { Content = JsonContent.Create(new CreationLookupResult<OrganizationDto>([new() { Id = id, Name = name }], total, false)) };
     private static HttpResponseMessage Participants(string id) => new(HttpStatusCode.OK)
     { Content = JsonContent.Create(new CreationLookupResult<Helpdesk.Shared.DTOs.Change.ChangeParticipantUserDto>([new(id, "Duplicate", id + "@example.test", "Customer", "org")], 55, true)) };
+    private static Exception ResilienceFailure(bool circuit) => circuit
+        ? new BrokenCircuitException("Synthetic open circuit.") : new TimeoutRejectedException("Synthetic request deadline.");
     private static BunitContext Context(out DeferredApi api)
     {
         var context = new BunitContext();
@@ -178,14 +282,14 @@ public sealed class CreationSearchPickerRenderedTests
         private TaskCompletionSource callCreated = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public IReadOnlyList<LookupCall> Calls { get { lock (gate) return calls.ToArray(); } }
 
-        public async Task<LookupCall> WaitForCallAsync(string urlPart)
+        public async Task<LookupCall> WaitForCallAsync(string urlPart, int skip = 0)
         {
             while (true)
             {
                 Task nextCall;
                 lock (gate)
                 {
-                    var match = calls.FirstOrDefault(call => call.Url.Contains(urlPart, StringComparison.Ordinal));
+                    var match = calls.Where(call => call.Url.Contains(urlPart, StringComparison.Ordinal)).Skip(skip).FirstOrDefault();
                     if (match is not null) return match;
                     nextCall = callCreated.Task;
                 }

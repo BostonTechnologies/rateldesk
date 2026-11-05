@@ -1,6 +1,7 @@
-@implements IDisposable
+@implements IAsyncDisposable
+@inject IKeyInterceptorService KeyInterceptor
 
-<div class="state-picker" @onclick:stopPropagation="true" @onkeydown:stopPropagation="true">
+<div id="@keyScopeId" class="state-picker" @onclick:stopPropagation="true" @onkeydown:stopPropagation="true">
     @if (!CanEdit)
     {
         <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color">@Label</MudChip>
@@ -10,7 +11,7 @@
         <MudMenu @ref="menu" Dense="true" AnchorOrigin="Origin.BottomLeft" TransformOrigin="Origin.TopLeft"
                  OpenChanged="OpenChanged" PopoverClass="ticket-state-popover" Modal="true">
             <ActivatorContent Context="activation">
-                <button @ref="trigger" type="button" class="state-trigger" style="@ColorStyle" disabled="@Busy"
+                <button @ref="trigger" type="button" class="state-trigger" style="@ColorStyle" disabled="@(Busy || !keysReady)"
                         aria-label="@($"Update {Kind} state: {Label}")" aria-haspopup="menu" aria-expanded="@(open ? "true" : "false")"
                         @onclick="args => Toggle(activation, args)" @onkeydown="args => TriggerKeyDown(activation, args)">
                     <span>@Label</span>
@@ -80,8 +81,26 @@
 
     private MudMenu? menu;
     private ElementReference trigger;
-    private bool open, applying, disposed;
+    private readonly string keyScopeId = $"state-picker-{Guid.NewGuid():N}";
+    private bool open, applying, disposed, keysSubscribed, keysReady;
     private string ColorStyle => $"--state-color: var(--mud-palette-{(Color == Color.Default ? "text-primary" : Color.ToString().ToLowerInvariant())})";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (disposed || !CanEdit || keysSubscribed) return;
+        keysSubscribed = true;
+        // MudMenu owns keyboard opening and focus. Suppress the native button's
+        // additional click so one Enter/Space cannot toggle the menu twice.
+        await KeyInterceptor.SubscribeAsync(keyScopeId, new KeyInterceptorOptions("state-trigger",
+            [new("Enter", preventDown: "any"), new(" ", preventDown: "any", preventUp: "any")]),
+            keyDown: (Action<KeyboardEventArgs>?)null);
+        if (disposed) await KeyInterceptor.UnsubscribeAsync(keyScopeId);
+        else
+        {
+            keysReady = true;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
 
     private async Task OpenChanged(bool value)
     {
@@ -92,7 +111,10 @@
     }
     private async Task Toggle(MenuContext activation, MouseEventArgs args)
     {
-        if (Busy || applying) return;
+        if (disposed || !CanEdit || Busy || applying || !keysReady) return;
+        try { await trigger.FocusAsync(preventScroll: true); }
+        catch (JSException) when (disposed || !CanEdit) { return; }
+        if (disposed || !CanEdit || Busy || applying) return;
         await activation.ToggleAsync(args);
     }
 
@@ -100,7 +122,7 @@
 
     private async Task TriggerKeyDown(MenuContext activation, KeyboardEventArgs args)
     {
-        if (args.Key is "ArrowDown" or "ArrowUp" && !open && !Busy)
+        if (args.Key is "ArrowDown" or "ArrowUp" && !open && !Busy && keysReady)
         {
             await activation.OpenAsync(args);
         }
@@ -121,5 +143,10 @@
         finally { applying = false; }
     }
 
-    public void Dispose() => disposed = true;
+    public async ValueTask DisposeAsync()
+    {
+        if (disposed) return;
+        disposed = true;
+        if (keysSubscribed) await KeyInterceptor.UnsubscribeAsync(keyScopeId);
+    }
 }

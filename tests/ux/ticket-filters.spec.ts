@@ -154,6 +154,7 @@ for (const module of ['incidents','requests','changes']) {
  test(`${module} state destination is reachable and applied with only the keyboard`,async({page,request})=>{
   await page.goto('/'+module);await expect(page.getByText('1-25 of 60')).toBeVisible();
   const trigger=page.locator('tbody tr').first().locator('button.state-trigger');
+  await expect(trigger).toBeEnabled();
   await trigger.focus();await page.keyboard.press('ArrowDown');
   const first=page.getByRole('menuitem',{name:module==='changes'?'Submit':'Waiting Reply',exact:true});
   await expect(first).toBeFocused();
@@ -169,6 +170,17 @@ for (const module of ['incidents','requests','changes']) {
   const trigger=row.locator('button.state-trigger');
   const original=page.url();
   await expect(trigger).toBeEnabled();
+  await page.evaluate(()=>{
+   const events={keys:[] as {key:string;prevented:boolean}[],clicks:[] as number[]};
+   (window as any).__stateActivationEvents=events;
+   window.addEventListener('keydown',event=>{if((event.key==='Enter'||event.key===' ')&&(event.target as Element).closest('button.state-trigger')) events.keys.push({key:event.key,prevented:event.defaultPrevented});});
+   window.addEventListener('click',event=>{if((event.target as Element).closest('button.state-trigger')) events.clicks.push(event.detail);});
+  });
+  // Assistive-technology clicks remain valid; keyboard opening must not also
+  // dispatch the native button click and toggle the newly opened menu closed.
+  await trigger.evaluate(element=>(element as HTMLButtonElement).click());
+  await expect(page.getByText(module==='changes'?'Current: Draft':'Current: New',{exact:true})).toBeVisible();
+  await page.keyboard.press('Escape');await expect(trigger).toBeFocused();
   await trigger.focus();await page.keyboard.press('Enter');
   await expect(page.getByText(module==='changes'?'Current: Draft':'Current: New',{exact:true})).toBeVisible();
   await expect(page.getByRole('menuitem',{name:module==='changes'?'Submit':'In Progress',exact:true})).toBeVisible();
@@ -180,6 +192,7 @@ for (const module of ['incidents','requests','changes']) {
   expect(page.url()).toBe(original);
   await page.keyboard.press('Space');
   await expect(page.getByRole('menuitem',{name:module==='changes'?'Submit':'Waiting Reply',exact:true})).toBeFocused();
+  expect(await page.evaluate(()=>(window as any).__stateActivationEvents)).toEqual({keys:[{key:'Enter',prevented:true},{key:' ',prevented:true}],clicks:[0]});
   await page.keyboard.press('Escape');
   await expect(trigger).toHaveAttribute('aria-expanded','false');
   await expect(trigger).toBeFocused();

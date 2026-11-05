@@ -141,15 +141,36 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // conversation CRUD/admission/interaction/recovery and SSE operations.
         // Immediate Chat adds atomic first-send and two scoped, read-only native
         // connection observation operations. These do not expand the MCP inventory.
+        // Beta.4 UX adds three scoped creation searches, lifecycle capabilities,
+        // creation reconciliation and four tested Graph import/status operations.
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(462, operationCount);
+        Assert.Equal(471, operationCount);
 #else
-        Assert.Equal(461, operationCount);
+        Assert.Equal(470, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
+        foreach (var (path, method, operationId, tag) in new[]
+        {
+            ("/api/v1/ticketing/organizations/search", "get", "SearchCreationOrganizations", "Ticket Lookups"),
+            ("/api/v1/ticketing/customers/search", "get", "SearchCreationCustomers", "Ticket Lookups"),
+            ("/api/v1/ticketing/change-participants/search", "get", "SearchCreationChangeParticipants", "Ticket Lookups"),
+            ("/api/v1/changes/{id}/lifecycle-options", "get", "GetChangeLifecycleOptions", "Changes"),
+            ("/api/v1/resources/datasets/create-requests/{requestId}", "get", "ReconcileDatasetCreation", "Resources"),
+            ("/api/v1/resources/datasets/graph-settings/test", "post", "TestGraphDatasetConnection", "Resources"),
+            ("/api/v1/resources/datasets/graph-settings/import", "post", "SaveAndImportGraphDatasets", "Resources"),
+            ("/api/v1/resources/datasets/graph-settings/{organizationId}/import-status", "get", "GetGraphDatasetImportStatus", "Resources"),
+            ("/api/v1/resources/datasets/graph-settings/{organizationId}/import-status/{requestId}/reconcile", "post", "ReconcileInterruptedGraphDatasetImport", "Resources")
+        })
+        {
+            Assert.True(paths.TryGetProperty(path, out var route), $"Missing documented operation: {method.ToUpperInvariant()} {path}");
+            Assert.True(route.TryGetProperty(method, out var operation));
+            Assert.Equal(operationId, operation.GetProperty("operationId").GetString());
+            Assert.Equal([tag], operation.GetProperty("tags").EnumerateArray().Select(value => value.GetString()).OfType<string>().ToArray());
+            Assert.Equal(["IntegrationCredential", "JwtBearer", "LocalSession", "McpExecution"], SecuritySchemes(document, path, method));
+        }
         foreach (var (path, operationId, tag) in new[]
         {
             ("/api/v1/changes/{id}/state", "UpdateChangeTicketState", "Changes"),

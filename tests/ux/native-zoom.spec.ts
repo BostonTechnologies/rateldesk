@@ -206,6 +206,7 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
         }
         if (suite === 'ticket-filters') {
           const trigger = page.locator('tbody tr').first().locator('button.state-trigger');
+          await expect(trigger).toBeEnabled();
           await trigger.scrollIntoViewIfNeeded();
           await trigger.focus();
           await page.keyboard.press('Enter');

@@ -262,7 +262,13 @@ test('change participant searches keep duplicate-label approver chips and reset 
   await expect(requester).toHaveValue(/remote-participant@example.test/);
   const approvers = dialog.getByRole('combobox', { name: 'Approvers', exact: true });
   await approvers.fill('Duplicate'); await page.getByRole('option', { name: /one@example.test/ }).click();
-  await approvers.fill('Duplicate'); await page.getByRole('option', { name: /two@example.test/ }).click();
+  await expect(approvers).toBeEditable();
+  await expect(approvers).toBeFocused();
+  await page.keyboard.type('Duplicate');
+  await expect(page.getByRole('option', { name: /two@example.test/ })).toBeVisible();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByRole('option', { name: /two@example.test/ })).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('Enter');
   const selected = dialog.getByLabel('Selected approvers', { exact: true });
   await expect(selected).toContainText('one@example.test'); await expect(selected).toContainText('two@example.test');
   await approvers.fill('no match');
