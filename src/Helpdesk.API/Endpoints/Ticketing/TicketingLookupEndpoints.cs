@@ -20,6 +20,7 @@ public static class TicketingLookupEndpoints
             .RequireAuthorization();
 
         group.MapAssigneeSearchEndpoints();
+        group.MapCreationLookupEndpoints();
         group.MapTicketFilterEndpoints();
 
         group.MapGet("/organizations", async (

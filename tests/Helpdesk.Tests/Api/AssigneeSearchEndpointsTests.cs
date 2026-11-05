@@ -243,6 +243,7 @@ public sealed class AssigneeSearchEndpointsTests
             var app = builder.Build();
             app.UseAuthentication(); app.UseAuthorization();
             app.MapTicketingLookupEndpoints(); app.MapIncidentEndpoints(); app.MapRequestEndpoints(); app.MapChangeEndpoints(); app.MapSystemTokenEndpoints(); app.MapGlobalSearchLookupEndpoints();
+            Helpdesk.API.Endpoints.Organization.OrganizationChangeParticipantEndpoints.MapOrganizationChangeParticipantEndpoints(app);
             await app.StartAsync();
             var client = app.GetTestClient();
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "admin");
@@ -283,10 +284,11 @@ public sealed class AssigneeSearchEndpointsTests
         {
             var kind = Request.Headers.Authorization.ToString().Split(' ').Last();
             var claims = new List<Claim> { new(ClaimTypes.Name, "Operator"), new("allowed_organization_id", "org") };
-            foreach (var module in kind == "request-only" ? new[] { "Request" } : new[] { "Incident", "Request", "Change" })
-                claims.Add(new Claim(ClaimTypes.Role, module + (kind is "reader" or "request-only" ? ".Read" : kind == "own" ? ".User" : ".Write")));
-            if (kind == "own") claims.Add(new Claim("customer_id", "contact"));
+            foreach (var module in kind == "data-manager" ? Array.Empty<string>() : kind == "request-only" ? new[] { "Request" } : kind == "change-user" ? new[] { "Change" } : new[] { "Incident", "Request", "Change" })
+                claims.Add(new Claim(ClaimTypes.Role, module + (kind is "reader" or "request-only" ? ".Read" : kind is "own" or "change-user" ? ".User" : ".Write")));
+            if (kind is "own" or "change-user") claims.Add(new Claim("customer_id", "contact"));
             if (kind == "admin") claims.Add(new Claim(ClaimTypes.Role, "HelpdeskAdmin"));
+            if (kind == "data-manager") claims.Add(new Claim(ClaimTypes.Role, "DataManagement.Admin"));
             return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(new ClaimsIdentity(claims, Scheme.Name)), Scheme.Name)));
         }
     }

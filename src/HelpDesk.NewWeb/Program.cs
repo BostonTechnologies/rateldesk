@@ -268,6 +268,8 @@ var helpdeskApiClient = builder.Services.AddHttpClient("HelpdeskApi", client =>
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false })
     .AddHttpMessageHandler<TokenAuthorizationHandler>();
 
+builder.Services.AddHelpdeskCommandsClient(apiBaseUri);
+
 // Chat commands carry stable operation IDs and require an explicit operator retry.
 var chatCommandsClient = builder.Services.AddHttpClient("HelpdeskChatCommands", client =>
 {

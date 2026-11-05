@@ -78,10 +78,32 @@ public static class DatasetEndpoints
                 return Results.Forbid();
             }
 
-            var created = await dataManagementService.CreateDatasetAsync(dto, token);
-            return Results.Created($"/api/v1/resources/datasets/{created.Id}", created);
+            try
+            {
+                var created = await dataManagementService.CreateDatasetAsync(dto, token);
+                return Results.Created($"/api/v1/resources/datasets/{created.Id}", created);
+            }
+            catch (DatasetDefinitionValidationException error)
+            {
+                return Results.ValidationProblem(error.Errors.ToDictionary(value => value.Key, value => value.Value));
+            }
+            catch (DatasetWriteConflictException error)
+            {
+                return Results.Conflict(new { code = "dataset_changed", message = error.Message });
+            }
         })
         .WithName("CreateDataset");
+
+        admin.MapGet("/create-requests/{requestId:guid}", async (
+            Guid requestId, [FromQuery] string organizationId, ClaimsPrincipal user,
+            [FromServices] ICurrentUserAccessService accessService,
+            [FromServices] IDatasetCreateReconciliation reconciliation, CancellationToken token) =>
+        {
+            var access = await accessService.ResolveAsync(user, token);
+            if (!CanAccessOrganization(access, organizationId)) return Results.Forbid();
+            var created = await reconciliation.GetCreateResultAsync(organizationId, requestId, token);
+            return created is null ? Results.NotFound() : Results.Ok(created);
+        }).WithName("ReconcileDatasetCreation");
 
         admin.MapPut("/{datasetId}", async (
             string datasetId,
@@ -106,8 +128,15 @@ public static class DatasetEndpoints
                 return Results.Forbid();
             }
 
-            var updated = await dataManagementService.UpdateDatasetAsync(datasetId, dto, token);
-            return updated is null ? Results.NotFound() : Results.Ok(updated);
+            try
+            {
+                var updated = await dataManagementService.UpdateDatasetAsync(datasetId, dto, token);
+                return updated is null ? Results.NotFound() : Results.Ok(updated);
+            }
+            catch (DatasetDefinitionValidationException error)
+            {
+                return Results.ValidationProblem(error.Errors.ToDictionary(value => value.Key, value => value.Value));
+            }
         })
         .WithName("UpdateDataset");
 
@@ -287,6 +316,68 @@ public static class DatasetEndpoints
             return Results.Ok(settings);
         })
         .WithName("GetGraphDatasetSettings");
+
+        admin.MapPost("/graph-settings/test", async (
+            [FromBody] GraphConnectionTestRequestDto dto, ClaimsPrincipal user,
+            [FromServices] ICurrentUserAccessService accessService,
+            [FromServices] IGraphDatasetWorkflowService workflow, CancellationToken token) =>
+        {
+            var access = await accessService.ResolveAsync(user, token);
+            if (!CanAccessOrganization(access, dto.OrganizationId)) return Results.Forbid();
+            return Results.Ok(await workflow.TestGraphConnectionAsync(dto, token));
+        }).WithName("TestGraphDatasetConnection");
+
+        admin.MapPost("/graph-settings/import", async (
+            [FromBody] GraphDatasetImportRequestDto dto, ClaimsPrincipal user,
+            [FromServices] ICurrentUserAccessService accessService,
+            [FromServices] IGraphDatasetWorkflowService workflow,
+            [FromServices] IGraphDatasetSyncScheduleService schedules, CancellationToken token) =>
+        {
+            var access = await accessService.ResolveAsync(user, token);
+            if (dto.Connection is null) return Results.BadRequest(new { message = "A connection is required." });
+            if (!CanAccessOrganization(access, dto.Connection.OrganizationId)) return Results.Forbid();
+            try
+            {
+                var result = await workflow.SaveAndImportGraphAsync(dto, token);
+                if (result.ConfigurationSaved)
+                {
+                    try { await schedules.ReconcileAsync(dto.Connection.OrganizationId, CancellationToken.None); }
+                    catch (Exception)
+                    {
+                        result.Message = $"{result.Message} The saved import result is retained, but the recurring schedule could not be reconciled. Open Schedule to inspect and retry that separate operation.";
+                    }
+                }
+                return Results.Ok(result);
+            }
+            catch (ArgumentException error) { return Results.BadRequest(new { message = error.Message }); }
+            catch (DatasetWriteConflictException error) { return Results.Conflict(new { code = "import_running", message = error.Message }); }
+            catch (SecretReentryRequiredException) { return Results.Conflict(new { code = "graph_secret_reentry", message = "Re-enter the client secret and test again before importing." }); }
+        }).WithName("SaveAndImportGraphDatasets");
+
+        admin.MapGet("/graph-settings/{organizationId}/import-status", async (
+            string organizationId, [FromQuery] Guid? requestId, ClaimsPrincipal user,
+            [FromServices] ICurrentUserAccessService accessService,
+            [FromServices] IGraphDatasetWorkflowService workflow, CancellationToken token) =>
+        {
+            var access = await accessService.ResolveAsync(user, token);
+            if (!CanAccessOrganization(access, organizationId)) return Results.Forbid();
+            var status = requestId is { } id
+                ? await workflow.GetGraphImportRequestStatusAsync(organizationId, id, token)
+                : await workflow.GetGraphImportStatusAsync(organizationId, token);
+            return status is null ? Results.NotFound() : Results.Ok(status);
+        }).WithName("GetGraphDatasetImportStatus");
+
+        admin.MapPost("/graph-settings/{organizationId}/import-status/{requestId:guid}/reconcile", async (
+            string organizationId, Guid requestId, ClaimsPrincipal user,
+            [FromServices] ICurrentUserAccessService accessService,
+            [FromServices] IGraphDatasetWorkflowService workflow, CancellationToken token) =>
+        {
+            var access = await accessService.ResolveAsync(user, token);
+            if (!CanAccessOrganization(access, organizationId)) return Results.Forbid();
+            try { return Results.Ok(await workflow.ReconcileInterruptedGraphImportAsync(organizationId, requestId, token)); }
+            catch (ArgumentException error) { return Results.BadRequest(new { message = error.Message }); }
+            catch (DatasetWriteConflictException error) { return Results.Conflict(new { code = "import_running", message = error.Message }); }
+        }).WithName("ReconcileInterruptedGraphDatasetImport");
 
         admin.MapPut("/graph-settings", async (
             [FromBody] TenantGraphDatasetSettingsDto dto,

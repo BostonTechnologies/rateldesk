@@ -477,6 +477,54 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.ToTable("NetclawConnectivitySettings", (string)null);
                 });
 
+            modelBuilder.Entity("Helpdesk.Infrastructure.Persistence.Entities.GraphDatasetImportRun", b =>
+                {
+                    b.Property<string>("OrganizationId")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ActiveOrganizationId")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("ConfigurationSaved")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ConnectionFingerprint")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Message")
+                        .HasColumnType("text");
+
+                    b.Property<string>("SourceResultsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("StartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("StartedAtUtcTicks")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("OrganizationId", "RequestId");
+
+                    b.HasIndex("ActiveOrganizationId")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId", "StartedAtUtcTicks");
+
+                    b.ToTable("GraphDatasetImportRuns", (string)null);
+                });
+
             modelBuilder.Entity("Helpdesk.Infrastructure.Persistence.Entities.NotificationEntity", b =>
                 {
                     b.Property<Guid>("Id")

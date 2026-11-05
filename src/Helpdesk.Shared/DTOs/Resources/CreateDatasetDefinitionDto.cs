@@ -5,6 +5,9 @@ namespace Helpdesk.Shared.DTOs.Resources;
 
 public class CreateDatasetDefinitionDto
 {
+    /// <summary>Optional stable identifier for an explicit creation attempt and its retries.</summary>
+    public Guid? RequestId { get; set; }
+
     [Required]
     public string OrganizationId { get; set; } = string.Empty;
 
