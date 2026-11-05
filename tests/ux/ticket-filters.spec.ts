@@ -145,7 +145,7 @@ for (const module of ['incidents','requests','changes']) {
   await expect(page.locator('.ticket-state-popover.mud-popover-open .state-popup-choice')).toHaveCount(0);
   await page.keyboard.press('Escape');await expect(trigger).toBeFocused();
   await page.getByRole('textbox',{name:'Search tickets'}).fill('Synthetic');
-  await expect(page).toHaveURL(/q=Synthetic/);await expect(trigger).toHaveAttribute('aria-expanded','false');
+  await expect(page).toHaveURL(url=>url.searchParams.get('search')==='Synthetic');await expect(trigger).toHaveAttribute('aria-expanded','false');
   await trigger.click();await expect(page.getByRole('alert').filter({hasText:'Reload this page to refresh access'})).toBeVisible();
   await expect(page.locator('.ticket-state-popover.mud-popover-open .state-popup-choice')).toHaveCount(0);
   const state=await(await request.get(fixture+'/state')).json();expect(state.mutations).toHaveLength(1);expect(state.details).toHaveLength(1);

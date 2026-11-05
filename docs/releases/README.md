@@ -1,5 +1,21 @@
 # Releases
 
+## 0.1.3-beta.4 candidate — guided UX workspaces
+
+[Candidate notes](../release-notes/0.1.3-beta.4.md) cover searchable creation,
+permission-aware state popups, separate custom/Graph workspaces, guided dataset
+creation/import and shared saved/live AI Markdown tables. The
+[implementation record](../implementation/0.1.3-beta.4-ux.md) separates synthetic
+acceptance, hosted CI and public distribution evidence.
+
+Allocate only after checking both accepted tags, drafts/public releases and all
+three registry families. Root `Directory.Build.props` owns `0.1.3-beta.4`.
+After one reviewed normal merge and successful exact-current-main checks,
+dispatch `release.yml` from main with `tag=v0.1.3-beta.4` and the full verified
+`source_revision`. Verify the complete existing draft, then explicitly publish
+that draft as a prerelease with `latest=false`. Verify anonymous downloads,
+checksums and pulls afterwards; preserve stable `latest` and beta.3 artifacts.
+
 ## 0.1.3-beta.3 candidate — AI workspace corrections
 
 [Candidate notes](../release-notes/0.1.3-beta.3.md) cover actual received tool

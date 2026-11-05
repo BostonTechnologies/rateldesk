@@ -287,7 +287,6 @@ jobs:
           --output=artifacts/e2e/workspace-${{ matrix.suite }}/test-results
 
       - name: Verify native Chromium zoom at 200 percent
-        if: matrix.suite != 'assignee'
         env:
           HELPDESK_NATIVE_ZOOM_SUITE: ${{ matrix.suite }}
         run: >-

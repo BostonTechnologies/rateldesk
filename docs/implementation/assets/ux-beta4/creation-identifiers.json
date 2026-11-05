@@ -1,0 +1,8 @@
+{
+  "source": "Synthetic loopback browser fixture; provider authorization is covered separately",
+  "organizationId": "late-org",
+  "customerId": "late-customer",
+  "title": "Saved searchable creation evidence",
+  "explicitCreates": 1,
+  "reloadedRowVisible": true
+}
