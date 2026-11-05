@@ -1,111 +1,157 @@
+@using System.Net
+@using System.Text.Json
+@using Polly.Timeout
+@using Polly.CircuitBreaker
 @using Helpdesk.Shared.DTOs.Change
-@using Helpdesk.Shared.Models
+@implements IDisposable
 @inject IHttpClientFactory HttpClientFactory
 @inject ISnackbar Snackbar
 
-<div @onclick:stopPropagation="true">
-    <MudMenu Dense="true" Disabled="@(AvailableTransitions.Count == 0)"
-             AnchorOrigin="Origin.CenterCenter"
-             TransformOrigin="Origin.CenterCenter">
-        <ActivatorContent>
-            <MudTooltip Text="Update change status">
-                <MudChip T="string"
-                         Class="cursor-pointer"
-                         Size="Size.Small"
-                         Variant="Variant.Filled"
-                         Color="@GetLifecycleColor(LifecycleState)">
-                    @GetLifecycleLabel(LifecycleState)
-                </MudChip>
-            </MudTooltip>
-        </ActivatorContent>
-        <ChildContent>
-            @if (AvailableTransitions.Count == 0)
-            {
-                <MudMenuItem Disabled="true">No table actions</MudMenuItem>
-            }
-            else
-            {
-                @foreach (var state in AvailableTransitions)
-                {
-                    <MudMenuItem OnClick="@(async () => await UpdateLifecycle(state))">
-                        @GetLifecycleActionLabel(LifecycleState, state)
-                    </MudMenuItem>
-                }
-            }
-        </ChildContent>
-    </MudMenu>
-</div>
+<StatePopup @key="scope" Kind="change" Label="@GetLifecycleLabel(LifecycleState)" TrackingId="@(TrackingId ?? ChangeId)"
+            Color="@GetLifecycleColor(LifecycleState)" CanEdit="CanOpen" Busy="pending" Loading="loading" Error="@error"
+            Guidance="@guidance" DetailUrl="@($"/changes/{Uri.EscapeDataString(ChangeId)}")" Choices="choices"
+            Opening="LoadOptions" Apply="UpdateLifecycle" Reload="ReloadCurrent" />
 
 @code {
     [Parameter] public bool CanWrite { get; set; }
     [Parameter] public bool CanApprove { get; set; }
     [Parameter] public string ChangeId { get; set; } = string.Empty;
+    [Parameter] public string? TrackingId { get; set; }
     [Parameter] public ChangeLifecycleState LifecycleState { get; set; }
     [Parameter] public EventCallback<ChangeDto> ChangeUpdated { get; set; }
 
     private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
+    private HttpClient Commands => HttpClientFactory.CreateClient(HelpdeskCommandHttpClients.CommandsClientName);
+    private (string Id, bool Write, bool Approve) scope;
+    private CancellationTokenSource cancellation = new();
+    private IReadOnlyList<StatePopupChoice> choices = [];
+    private bool pending, loading, disposed;
+    private string? error, guidance;
+    private bool CanOpen => !string.IsNullOrWhiteSpace(ChangeId) &&
+        LifecycleState is not (ChangeLifecycleState.ImplementedSuccess or ChangeLifecycleState.ImplementedBackedOut) &&
+        (CanWrite || CanApprove && LifecycleState == ChangeLifecycleState.PendingApproval);
 
-    private IReadOnlyList<ChangeLifecycleState> AvailableTransitions => Transitions.Where(state => state == ChangeLifecycleState.ApprovedForImplementation ? CanApprove : CanWrite).ToList();
-    private IReadOnlyList<ChangeLifecycleState> Transitions => LifecycleState switch
+    protected override void OnParametersSet()
     {
-        ChangeLifecycleState.Draft => [ChangeLifecycleState.Submitted],
-        ChangeLifecycleState.PendingApproval => [ChangeLifecycleState.Draft, ChangeLifecycleState.ApprovedForImplementation],
-        ChangeLifecycleState.ApprovedForImplementation =>
-        [
-            ChangeLifecycleState.ImplementationInProgress,
-            ChangeLifecycleState.ImplementedSuccess,
-            ChangeLifecycleState.ImplementedBackedOut
-        ],
-        ChangeLifecycleState.ImplementationInProgress =>
-        [
-            ChangeLifecycleState.ImplementedSuccess,
-            ChangeLifecycleState.ImplementedBackedOut
-        ],
-        _ => []
-    };
+        var next = (ChangeId, CanWrite, CanApprove);
+        if (next == scope) return;
+        cancellation.Cancel(); cancellation.Dispose(); cancellation = new();
+        scope = next;
+        pending = loading = false;
+        error = guidance = null;
+        choices = [];
+    }
 
-    private async Task UpdateLifecycle(ChangeLifecycleState newState)
+    private async Task LoadOptions()
     {
-        if (string.IsNullOrWhiteSpace(ChangeId) || !AvailableTransitions.Contains(newState))
-        {
-            return;
-        }
-
+        if (pending || loading || !CanOpen) return;
+        var origin = scope;
+        var token = cancellation.Token;
+        loading = true;
+        error = null;
+        choices = [];
         try
         {
-            var response = await Api.PostAsJsonAsync(
-                $"api/v1/changes/{ChangeId}/lifecycle",
-                new { LifecycleState = newState });
-
-            if (!response.IsSuccessStatusCode)
+            var options = await Api.GetFromJsonAsync<ChangeLifecycleOptionsDto>($"api/v1/changes/{Uri.EscapeDataString(origin.Id)}/lifecycle-options", token);
+            if (!Current(origin, token)) return;
+            if (options?.Id != origin.Id)
             {
-                Snackbar.Add($"Change status update failed: {await response.Content.ReadAsStringAsync()}", Severity.Error);
+                error = "Permitted actions could not be confirmed. Reload current state.";
                 return;
             }
-
-            var updated = await response.Content.ReadFromJsonAsync<ChangeDto>();
-            if (updated is not null)
-            {
-                LifecycleState = updated.LifecycleState;
-                await ChangeUpdated.InvokeAsync(updated);
-                Snackbar.Add($"Change status updated to {GetLifecycleLabel(updated.LifecycleState)}", Severity.Success);
-            }
+            LifecycleState = options.LifecycleState;
+            guidance = options.Guidance;
+            choices = options.Choices.Select(option => new StatePopupChoice((int)option.State,
+                option.State == ChangeLifecycleState.Submitted ? "Submit" : GetLifecycleLabel(option.State), option.UnavailableReason)).ToArray();
         }
-        catch (Exception ex)
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException or TimeoutRejectedException or BrokenCircuitException)
         {
-            Snackbar.Add($"Change status update failed: {ex.Message}", Severity.Error);
+            if (Current(origin, token)) error = "Permitted actions could not be loaded. Reload current state or open the change details.";
+        }
+        finally { if (Current(origin, token)) loading = false; }
+    }
+
+    private async Task<bool> UpdateLifecycle(int value)
+    {
+        var newState = (ChangeLifecycleState)value;
+        if (pending || loading || newState == LifecycleState || !choices.Any(option => option.Value == value && option.UnavailableReason is null)) return false;
+        var origin = scope;
+        var token = cancellation.Token;
+        pending = true;
+        error = null;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            using var response = await Commands.PostAsJsonAsync($"api/v1/changes/{Uri.EscapeDataString(origin.Id)}/lifecycle", new { LifecycleState = newState }, token);
+            if (!Current(origin, token)) return false;
+            if (!response.IsSuccessStatusCode)
+            {
+                error = response.StatusCode switch
+                {
+                    HttpStatusCode.Forbidden => "You no longer have permission for this action. Reload current state.",
+                    HttpStatusCode.Conflict => "This change was updated during your action. Reload current state before trying again.",
+                    HttpStatusCode.BadRequest => "The lifecycle action is no longer available. Reload current state or open details to review approvals and template requirements.",
+                    _ => "The lifecycle update could not be confirmed. Reload current state before trying again."
+                };
+                choices = [];
+                return false;
+            }
+            var updated = await response.Content.ReadFromJsonAsync<ChangeDto>(token);
+            if (!Current(origin, token)) return false;
+            if (updated?.Id != origin.Id || !Enum.IsDefined(updated.LifecycleState))
+            {
+                error = "The saved lifecycle could not be confirmed. Reload current state before trying again.";
+                choices = [];
+                return false;
+            }
+            LifecycleState = updated.LifecycleState;
+            await ChangeUpdated.InvokeAsync(updated);
+            if (!disposed) Snackbar.Add($"Change status updated to {GetLifecycleLabel(updated.LifecycleState)}.{(updated.State == TicketState.Resolved ? " Find implemented changes using History." : "")}", Severity.Success);
+            return true;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException or TimeoutRejectedException or BrokenCircuitException)
+        {
+            if (Current(origin, token)) { error = "The save result could not be confirmed. Reload current state before trying again."; choices = []; }
+            return false;
+        }
+        finally
+        {
+            if (Current(origin, token))
+            {
+                pending = false;
+                await InvokeAsync(StateHasChanged);
+            }
         }
     }
 
-    private static string GetLifecycleActionLabel(ChangeLifecycleState currentState, ChangeLifecycleState targetState) =>
-        currentState == ChangeLifecycleState.Draft && targetState == ChangeLifecycleState.Submitted
-            ? "Submit"
-            : GetLifecycleLabel(targetState);
+    private async Task ReloadCurrent()
+    {
+        if (pending || loading) return;
+        var origin = scope;
+        var token = cancellation.Token;
+        loading = true;
+        try
+        {
+            var updated = await Api.GetFromJsonAsync<ChangeDto>($"api/v1/changes/{Uri.EscapeDataString(origin.Id)}", token);
+            if (!Current(origin, token)) return;
+            if (updated?.Id != origin.Id) { error = "Current change could not be loaded. Reopen its details."; return; }
+            LifecycleState = updated.LifecycleState;
+            error = null;
+            await ChangeUpdated.InvokeAsync(updated);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException or TimeoutRejectedException or BrokenCircuitException)
+        {
+            if (Current(origin, token)) error = "Current change could not be loaded. Reopen its details or try again.";
+        }
+        finally { if (Current(origin, token)) loading = false; }
+        if (Current(origin, token)) await LoadOptions();
+    }
+
+    private bool Current((string Id, bool Write, bool Approve) origin, CancellationToken token) => !disposed && !token.IsCancellationRequested && scope == origin;
+    public void Dispose() { disposed = true; cancellation.Cancel(); cancellation.Dispose(); }
 
     private static string GetLifecycleLabel(ChangeLifecycleState state) => state switch
     {
-        ChangeLifecycleState.Draft => "Draft",
-        ChangeLifecycleState.Submitted => "Submitted",
         ChangeLifecycleState.PendingApproval => "Pending Approval",
         ChangeLifecycleState.ApprovedForImplementation => "Approved For Implementation",
         ChangeLifecycleState.ImplementationInProgress => "Implementation In Progress",

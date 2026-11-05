@@ -6,9 +6,20 @@ const users = Array.from({ length: 25 }, (_, i) => ({ id: `user-${i}`, name: `Al
 users.push({ id: 'late', name: 'Zulu Surname', email: 'late@example.test', role: 'Technician', organizationId: 'provider' },
   { id: 'duplicate-1', name: 'Duplicate Name', email: 'one@example.test', organizationId: 'org-1' },
   { id: 'duplicate-2', name: 'Duplicate Name', email: 'two@example.test', organizationId: 'org-1' });
-let tickets, searches, completedQueries, saves, fault, reader;
+const organizations = [
+  ...Array.from({ length: 55 }, (_, i) => ({ id: `choice-${i}`, name: `Alpha organization ${String(i).padStart(2, '0')}`, isEnabled: true })),
+  { id: 'org-1', name: 'Customer organization', isEnabled: true },
+  { id: 'org-2', name: 'Second organization', isEnabled: true },
+  { id: 'late-org', name: 'Zulu Partner with a long organization label for regional operations', isEnabled: true }
+];
+const initialCustomers = Array.from({ length: 55 }, (_, i) => ({ id: `customer-${i}`, name: `Alpha customer ${String(i).padStart(2, '0')}`, email: `customer${i}@example.test`, isEnabled: true }));
+initialCustomers.push({ id: 'late-customer', name: 'Zulu Customer', email: 'remote-customer@example.test', isEnabled: true });
+const participants = [...users.filter(user => user.organizationId === 'org-1'),
+  { id: 'late-participant', name: 'Zulu Participant', email: 'remote-participant@example.test', role: 'Customer', organizationId: 'org-1' }];
+let tickets, searches, completedQueries, creationSearches, completedCreationQueries, customers, customerCreates, saves, fault, reader;
 function reset() {
-  searches = []; completedQueries = []; saves = []; fault = ''; reader = false;
+  customers = initialCustomers.map(customer => ({ ...customer })); customerCreates = [];
+  searches = []; completedQueries = []; creationSearches = []; completedCreationQueries = []; saves = []; fault = ''; reader = false;
   tickets = Object.fromEntries(['incidents', 'requests', 'changes'].map(module => [module, {
     id: `${module}-1`, subject: 'Picker incident', title: `Picker ${module}`, description: 'Fixture ticket',
     trackingId: 'UX-146', organizationId: 'org-1', state: 0, priority: 1, lifecycleState: 0,
@@ -24,7 +35,7 @@ http.createServer(async (req, res) => {
   const body = async () => { let value = ''; for await (const part of req) value += part; return value ? JSON.parse(value) : {}; };
   if (url.pathname === '/fixture/health') return reply({ ok: true });
   if (url.pathname === '/fixture/reset') { reset(); return reply({ ok: true }); }
-  if (url.pathname === '/fixture/state') return reply({ searches, completedQueries, saves, tickets });
+  if (url.pathname === '/fixture/state') return reply({ searches, completedQueries, creationSearches, completedCreationQueries, customerCreates, saves, tickets });
   if (url.pathname === '/fixture/fault') { fault = url.searchParams.get('mode') ?? ''; reader = fault === 'reader'; return reply({ ok: true }); }
   if (url.pathname.endsWith('/system/token')) {
     const encode = value => Buffer.from(JSON.stringify(value)).toString('base64url');
@@ -38,6 +49,28 @@ http.createServer(async (req, res) => {
     roleBundles: reader ? ['Incident.Read', 'Request.Read', 'Change.Read'] : ['HelpdeskAdmin'], permissions: [], allowedOrganizationIds: ['org-1'], managedOrganizationIds: [] });
   }
   if (url.pathname === '/api/v1/branding') return reply({ applicationName: 'RatelDesk', faviconUrl: '/favicon.ico' });
+  if (['/api/v1/ticketing/organizations/search', '/api/v1/ticketing/customers/search', '/api/v1/ticketing/change-participants/search'].includes(url.pathname)) {
+    const q = (url.searchParams.get('q') ?? '').trim().toLowerCase();
+    const organizationId = url.searchParams.get('organizationId');
+    creationSearches.push({ path: url.pathname, q, module: url.searchParams.get('module'), organizationId });
+    // Remain unavailable through the configured GET retries. The browser test
+    // explicitly repairs this service before exercising the operator's Retry.
+    if (fault === 'creation-lookup') return reply({ error: 'Synthetic directory unavailable' }, 503);
+    let eligible = url.pathname.includes('/organizations/') ? organizations : url.pathname.includes('/customers/')
+      ? customers.map(customer => ({ ...customer, organizationId })) : participants.map(person => ({ ...person, organizationId }));
+    if (organizationId === 'org-2') eligible = eligible.map(item => ({ ...item, id: 'second-' + item.id, name: 'Second ' + item.name, email: 'second-' + item.email }));
+    if (fault === 'empty-creation') eligible = [];
+    const id = url.searchParams.get('id');
+    const matches = eligible.filter(item => id ? item.id === id : `${item.name} ${item.email ?? ''}`.toLowerCase().includes(q));
+    if (q === 'slow') return setTimeout(() => { completedCreationQueries.push(q); reply({ items: eligible.slice(0, 1), totalEligible: eligible.length, hasMore: false }); }, 1000);
+    return reply({ items: matches.slice(0, 20), totalEligible: eligible.length, hasMore: matches.length > 20 });
+  }
+  if (url.pathname === '/api/v1/customers' && req.method === 'POST') {
+    const draft = await body();
+    const created = { ...draft, id: 'created-customer', isEnabled: true };
+    customerCreates.push(created); customers.push(created);
+    return reply(created);
+  }
   if (url.pathname === '/api/v1/ticketing/assignees/search') {
     const q = (url.searchParams.get('q') ?? '').trim().toLowerCase();
     searches.push({ q, module: url.searchParams.get('module'), organizationId: url.searchParams.get('organizationId') });
@@ -60,6 +93,12 @@ http.createServer(async (req, res) => {
   if (match) {
     const [, module, action] = match;
     const ticket = tickets[module];
+    if (!action && req.method === 'POST') {
+      const create = await body();
+      saves.push({ module, kind: 'create', ...create });
+      Object.assign(ticket, create);
+      return reply(ticket);
+    }
     if (!action && req.method === 'GET') return reply({ items: [ticket], totalCount: 1 });
     if (req.method === 'PUT' || (req.method === 'POST' && (action === 'bulk/assign' || action?.endsWith('/assignee')))) {
       const update = await body();

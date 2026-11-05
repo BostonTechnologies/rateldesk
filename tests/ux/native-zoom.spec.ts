@@ -9,10 +9,11 @@ const routes: Record<string, string[]> = {
   details: ['/incidents/incidents-1', '/requests/requests-1', '/changes/changes-1'],
   email: ['/incidents'],
   'ticket-filters': ['/incidents', '/requests', '/changes'],
+  assignee: ['/incidents', '/requests', '/changes'],
   operations: ['/self-service', '/ops/slas', '/ops/workflows', '/ops/hangfire'],
   'pending-mail': ['/admin/pending-emails']
 };
-const ports: Record<string, number> = { admin: 18500, integrations: 18505, details: 18600, email: 18304, 'ticket-filters': 18330, operations: 18400, 'pending-mail': 18700 };
+const ports: Record<string, number> = { admin: 18500, integrations: 18505, details: 18600, email: 18304, 'ticket-filters': 18330, operations: 18400, 'pending-mail': 18700, assignee: 18300 };
 async function settleFiniteAnimations(page: Page) {
   await page.evaluate(async () => {
     await document.fonts.ready;
@@ -40,7 +41,9 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
       args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`]
     });
     context.setDefaultTimeout(15_000);
-    await context.tracing.start({ screenshots: true, snapshots: true, sources: false });
+    // Admin enters a transient Graph secret before capturing safe Test access evidence.
+    const captureTrace = suite !== 'admin';
+    if (captureTrace) await context.tracing.start({ screenshots: true, snapshots: true, sources: false });
     try {
       await expect.poll(() => context.serviceWorkers().length, {
         message: 'The isolated native zoom extension service worker must become available before opening the application.'
@@ -135,6 +138,87 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
           const state = await (await request.get('http://127.0.0.1:18700/fixture/state')).json();
           expect(state.actions).toEqual([]); expect(state.retries).toEqual([]); expect(state.submissions).toEqual([]);
         }
+        if (suite === 'assignee') {
+          await page.getByRole('button', { name: 'Create', exact: true }).click();
+          const create = page.getByRole('dialog').first();
+          const organization = create.getByRole('combobox', { name: /^Organization\*?$/ });
+          await organization.fill('Partner');
+          const option = page.getByRole('option', { name: /Zulu Partner/ });
+          await expect(option).toBeVisible();
+          const popupBounds = await option.boundingBox();
+          expect(popupBounds!.x).toBeGreaterThanOrEqual(0);
+          expect(popupBounds!.x + popupBounds!.width).toBeLessThanOrEqual(width / 2 + 1);
+          expect(popupBounds!.y).toBeGreaterThanOrEqual(0);
+          expect(popupBounds!.y + popupBounds!.height).toBeLessThanOrEqual(501);
+          await option.click();
+          const participant = create.getByRole('combobox', { name: route === '/changes' ? /^Requested for\*?$/ : /^User the ticket is for\*?$/ });
+          await participant.fill('remote-');
+          await expect(page.getByRole('option', { name: /Zulu (Participant|Customer)/ })).toBeVisible();
+          await participant.press('Escape');
+          if (route === '/changes') {
+            const approvers = create.getByRole('combobox', { name: 'Approvers', exact: true });
+            await approvers.fill('Duplicate');
+            await page.getByRole('option', { name: /one@example.test/ }).click();
+            await expect(create.getByLabel('Selected approvers', { exact: true })).toContainText('one@example.test');
+          }
+          const cancel = create.getByRole('button', { name: 'Cancel', exact: true });
+          await cancel.scrollIntoViewIfNeeded();
+          await expect(cancel).toBeVisible();
+          const state = await (await request.get('http://127.0.0.1:18300/fixture/state')).json();
+          expect(state.saves).toEqual([]);
+        }
+        if (suite === 'admin' && route === '/admin/resources/data-management') {
+          await page.getByRole('button', { name: 'New dataset', exact: true }).click();
+          const dataset = page.getByRole('dialog', { name: 'New custom dataset', exact: true });
+          await dataset.getByRole('textbox', { name: /^Dataset name\*?$/ }).fill('Synthetic native zoom draft');
+          await dataset.getByRole('button', { name: 'Continue', exact: true }).click();
+          await expect(dataset.getByRole('heading', { name: 'Design schema', exact: true })).toBeVisible();
+          await expect(dataset.getByRole('button', { name: 'Continue', exact: true })).toBeInViewport();
+          const datasetBounds = await dataset.boundingBox();
+          expect(datasetBounds!.x).toBeGreaterThanOrEqual(0); expect(datasetBounds!.y).toBeGreaterThanOrEqual(0);
+          expect(datasetBounds!.x + datasetBounds!.width).toBeLessThanOrEqual(width / 2 + 1);
+          expect(datasetBounds!.y + datasetBounds!.height).toBeLessThanOrEqual(501);
+          await settleFiniteAnimations(page);
+          const datasetCapture = await context.newCDPSession(page);
+          try {
+            const capture = await datasetCapture.send('Page.captureScreenshot', { format: 'png', fromSurface: true, captureBeyondViewport: false });
+            await writeFile(info.outputPath(`dataset-wizard-${theme}-${width}-native-200.png`), Buffer.from(capture.data, 'base64'));
+          } finally { await datasetCapture.detach(); }
+          await dataset.getByRole('button', { name: 'Cancel', exact: true }).click();
+          await page.getByRole('dialog').filter({ has: page.getByText('Discard dataset draft?', { exact: true }) }).getByRole('button', { name: 'Discard', exact: true }).click();
+          await page.getByRole('button', { name: 'Set up Microsoft Graph', exact: true }).click();
+          const graph = page.getByRole('dialog', { name: 'Microsoft Graph setup', exact: true });
+          await graph.getByRole('textbox', { name: /^Tenant ID\*?$/ }).fill('synthetic-tenant');
+          await graph.getByRole('textbox', { name: /^Application \/ client ID\*?$/ }).fill('synthetic-client');
+          await graph.getByLabel('Client secret', { exact: true }).fill('synthetic-draft-only');
+          await graph.getByRole('button', { name: 'Continue', exact: true }).click();
+          await graph.getByRole('checkbox', { name: 'Users', exact: true }).check();
+          await graph.getByRole('button', { name: 'Continue', exact: true }).click();
+          await graph.getByRole('button', { name: 'Test connection', exact: true }).click();
+          await expect(graph.getByText(/Authentication: Passed/)).toBeVisible();
+          await expect(graph.getByRole('button', { name: 'Continue', exact: true })).toBeInViewport();
+          const graphBounds = await graph.boundingBox();
+          expect(graphBounds!.x).toBeGreaterThanOrEqual(0); expect(graphBounds!.y).toBeGreaterThanOrEqual(0);
+          expect(graphBounds!.x + graphBounds!.width).toBeLessThanOrEqual(width / 2 + 1);
+          expect(graphBounds!.y + graphBounds!.height).toBeLessThanOrEqual(501);
+          const state = await (await request.get('http://127.0.0.1:18500/fixture/state')).json();
+          expect(state.saves).toEqual([]); expect(state.graphTests).toHaveLength(1);
+        }
+        if (suite === 'ticket-filters') {
+          const trigger = page.locator('tbody tr').first().locator('button.state-trigger');
+          await trigger.scrollIntoViewIfNeeded();
+          await trigger.focus();
+          await page.keyboard.press('Enter');
+          const popup = page.locator('.ticket-state-popover.mud-popover-open');
+          await expect(popup).toBeVisible();
+          await expect(popup.getByText(route === '/changes' ? 'Current: Draft' : 'Current: New', { exact: true })).toBeVisible();
+          const bounds = await popup.boundingBox();
+          expect(bounds!.x).toBeGreaterThanOrEqual(0);
+          expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width / 2 + 1);
+          expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(501);
+          const state = await (await request.get('http://127.0.0.1:18330/fixture/state')).json();
+          expect(state.mutations).toEqual([]);
+        }
         if (suite === 'email') {
           await page.getByRole('button', { name: 'Preview: Synthetic service notice' }).focus();
           const preview = page.getByRole('dialog', { name: 'Email preview' });
@@ -172,9 +256,16 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
         await writeFile(info.outputPath(`${routeFileName}-${theme}-${width}-native-200.png`), screenshot);
         await info.attach(`${route}-native-zoom`, { body: JSON.stringify({ zoom, physicalWidth: width, layoutWidth: await page.evaluate(() => innerWidth), theme,
           capture: 'physical viewport without CSS clip', captureWidth, captureHeight }), contentType: 'application/json' });
+        if (suite === 'admin' && route === '/admin/resources/data-management') {
+          const graph = page.getByRole('dialog', { name: 'Microsoft Graph setup', exact: true });
+          await graph.getByRole('button', { name: 'Cancel', exact: true }).click();
+          await page.getByRole('dialog').filter({ has: page.getByText('Discard Graph draft?', { exact: true }) })
+            .getByRole('button', { name: 'Discard', exact: true }).click();
+          await expect(graph).toBeHidden();
+        }
       }
     } finally {
-      await context.tracing.stop({ path: info.outputPath('native-zoom-trace.zip') });
+      if (captureTrace) await context.tracing.stop({ path: info.outputPath('native-zoom-trace.zip') });
       await context.close();
       await rm(profile, { recursive: true, force: true });
     }

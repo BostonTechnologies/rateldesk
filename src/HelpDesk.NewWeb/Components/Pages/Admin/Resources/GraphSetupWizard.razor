@@ -1,0 +1,273 @@
+@implements IDisposable
+@using Helpdesk.Shared.DTOs.Resources
+@using Helpdesk.Shared.Enums
+@inject IResourceDatasetService DatasetService
+@inject IDialogService DialogService
+
+<NavigationLock ConfirmExternalNavigation="@(saving || draftDirty)" OnBeforeInternalNavigation="ConfirmNavigationAsync" />
+
+<MudDialog Class="data-wizard-dialog" AriaLabel="@(SaveWithoutImport ? "Edit Graph connection" : "Microsoft Graph setup")">
+    <TitleContent>
+        <MudText Typo="Typo.h6">@(SaveWithoutImport ? "Edit Graph connection" : "Microsoft Graph setup")</MudText>
+        <div class="data-wizard-context">Organization: <strong>@OrganizationName</strong></div>
+        <ol class="data-wizard-steps" aria-label="Graph setup steps">
+            @for (var index = 0; index < steps.Length; index++) { var position = index; <li aria-current="@(step == position ? "step" : null)" class="@(step == position ? "active" : null)"><span>@(position + 1)</span>@steps[position]</li> }
+        </ol>
+    </TitleContent>
+    <DialogContent>
+
+        @if (message is not null) { <MudAlert Severity="@(uncertain ? Severity.Warning : Severity.Error)" Class="mb-3">@message</MudAlert> }
+        @if (importStatus is not null)
+        {
+            <MudAlert Severity="@(IsSuccessful(importStatus.Status) ? Severity.Success : Severity.Warning)">
+                Configuration @(importStatus.ConfigurationSaved ? "saved" : "not confirmed saved"). Import: @importStatus.Status.
+                @importStatus.Message
+            </MudAlert>
+            <MudSimpleTable Class="mt-3" Dense="true"><thead><tr><th>Source</th><th>Import result</th><th>Rows</th><th>Completed (UTC)</th></tr></thead><tbody>
+                @foreach (var source in importStatus.Sources) { <tr><td>@SourceName(source.SourceType)</td><td>@source.Status @source.Message</td><td>@(source.RowCount?.ToString() ?? "Unknown")</td><td>@(source.CompletedAtUtc?.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") ?? "Pending")</td></tr> }
+            </tbody></MudSimpleTable>
+            <MudText Typo="Typo.body2" Class="mt-3">Imported sources keep their committed results if another source fails. Closing this dialog does not cancel server work. Recurring scheduling is optional in Built-in integrations.</MudText>
+        }
+        else
+        {
+            <fieldset class="data-wizard-fields" disabled="@(saving || uncertain)">
+                @if (step == 0)
+                {
+                    <MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-3">Connection</MudText>
+                    <MudTextField T="string" Value="@draft.TenantId" ValueChanged="TenantChanged" Label="Tenant ID" Variant="Variant.Outlined" Required="true" Error="@(validation && string.IsNullOrWhiteSpace(draft.TenantId))" ErrorText="Enter the Microsoft Entra tenant ID." AutoFocus="true" />
+                    <MudTextField T="string" Value="@draft.ClientId" ValueChanged="ClientChanged" Label="Application / client ID" Variant="Variant.Outlined" Required="true" Error="@(validation && string.IsNullOrWhiteSpace(draft.ClientId))" ErrorText="Enter the application / client ID." Class="mt-3" />
+                    @if (hasStoredSecret) { <MudCheckBox T="bool" Value="useStoredSecret" ValueChanged="StoredSecretChanged" Label="Use configured secret for this organization" Class="mt-2" /> }
+                    <MudTextField T="string" Value="@draft.ClientSecret" ValueChanged="SecretChanged" Label="Client secret" InputType="InputType.Password" Variant="Variant.Outlined" Class="mt-3" Disabled="useStoredSecret" Error="@(validation && !useStoredSecret && string.IsNullOrWhiteSpace(draft.ClientSecret))" ErrorText="Enter a secret or use the configured secret." HelperText="@(useStoredSecret ? "The configured secret is never returned to the browser." : "Draft credentials stay transient until an explicit save.")" />
+                }
+                else if (step == 1)
+                {
+                    <MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-3">Choose datasets</MudText>
+                    <MudText Typo="Typo.body2">Choose the sources this application may read. At least one source is required for import.</MudText>
+                    @foreach (var source in sources)
+                    {
+                        <div class="graph-source-choice"><MudCheckBox T="bool" Value="Selected(source)" ValueChanged="@(value => SourceChanged(source, value))" Label="@SourceName(source)" /><MudText Typo="Typo.caption">@SourceDescription(source)</MudText></div>
+                    }
+                    @if (validation && !SelectedSources.Any() && !SaveWithoutImport) { <MudAlert Severity="Severity.Error">Choose at least one dataset.</MudAlert> }
+                }
+                else if (step == 2)
+                {
+                    <MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-3">Test access</MudText>
+                    <MudText Typo="Typo.body2">This bounded check authenticates and reads a small sample from each selected source. It does not save settings, import rows, create keys, change sync timestamps or schedule jobs.</MudText>
+                    <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="TestAsync" Disabled="testing" Class="mt-3">@(testing ? "Testing connection…" : "Test connection")</MudButton>
+                    @if (testResult is not null)
+                    {
+                        <MudAlert Severity="@(testResult.AuthenticationSucceeded ? Severity.Success : Severity.Error)" Class="mt-3">Authentication: @(testResult.AuthenticationSucceeded ? "Passed" : "Failed"). @testResult.Message</MudAlert>
+                        <MudList T="string" Dense="true" aria-label="Source access results">@foreach (var source in testResult.Sources) { <MudListItem T="string"><strong>@SourceName(source.SourceType)</strong>: @(source.Succeeded ? "Read access passed" : "Read access failed") — @source.Message</MudListItem> }</MudList>
+                        @if (!CanImport) { <MudText Typo="Typo.body2">Fix the connection or choose different datasets, then run a new test before importing.</MudText> }
+                    }
+                }
+                else
+                {
+                    <MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-3">Review &amp; import</MudText>
+                    <dl class="data-wizard-summary"><dt>Organization</dt><dd>@OrganizationName</dd><dt>Tenant</dt><dd>@draft.TenantId</dd><dt>Application</dt><dd>@draft.ClientId</dd><dt>Sources</dt><dd>@string.Join(", ", SelectedSources.Select(SourceName))</dd><dt>Schedule</dt><dd>@(Settings.BackgroundSyncEnabled ? $"Preserve existing UTC schedule: {Settings.BackgroundSyncCronExpression}" : "No recurring schedule will be enabled")</dd></dl>
+                    <MudAlert Severity="Severity.Warning">Import reads every supported page, updates matching stable keys, and removes records absent from each selected source (DeleteMissing). An empty source therefore leaves zero rows.</MudAlert>
+                    @if (!SaveWithoutImport)
+                    {
+                        <MudText Typo="Typo.body2" Class="mt-3">Save and import is enabled only for the connection, credential revision and sources that passed the current test. Server authorization is checked again.</MudText>
+                        @if (!CanImport) { <MudAlert Severity="Severity.Info" Class="mt-3">A current successful access test is required. Go back to Test access.</MudAlert> }
+                    }
+                    @if (SaveWithoutImport) { <MudAlert Severity="Severity.Info" Class="mt-3">This explicit edit saves configuration only. It does not import rows or change the existing recurring schedule.</MudAlert> }
+                }
+            </fieldset>
+        }
+        @if (testing || saving) { <MudProgressLinear Indeterminate="true" Class="mt-3" aria-label="@(testing ? "Testing Graph access" : "Importing Graph datasets")" /> }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="CloseAsync" Disabled="saving">@(importStatus is null ? "Cancel" : "Done")</MudButton>
+        <MudSpacer />
+        @if (uncertain || importStatus is not null && importStatus.CompletedAtUtc is null)
+        {
+            <MudButton Variant="Variant.Outlined" OnClick="ReconcileAsync" Disabled="saving">Check import status</MudButton>
+            @if (importStatus?.CanReconcile == true) { <MudButton OnClick="ReconcileInterruptedAsync" Disabled="saving">Reconcile interrupted import</MudButton> }
+        }
+        else if (importStatus is not null)
+        {
+            @if (!importStatus.ConfigurationSaved || !IsSuccessful(importStatus.Status)) { <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="RetryFailedAsync">@(importStatus.ConfigurationSaved ? "Retest selected sources" : "Return to draft")</MudButton> }
+        }
+        else
+        {
+            <MudButton OnClick="Back" Disabled="@(saving || testing || step == 0)">Back</MudButton>
+            @if (step < 3) { <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Continue" Disabled="@(saving || testing || step == 2 && !CanImport && !SaveWithoutImport)">Continue</MudButton> }
+            else if (SaveWithoutImport) { <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveOnlyAsync" Disabled="saving">Save connection only</MudButton> }
+            else { <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ImportAsync" Disabled="@(saving || !CanImport)">Save and import</MudButton> }
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+    [Parameter, EditorRequired] public TenantGraphDatasetSettingsDto Settings { get; set; } = new();
+    [Parameter] public string OrganizationName { get; set; } = string.Empty;
+    [Parameter] public bool SaveWithoutImport { get; set; }
+    [Parameter] public GraphDatasetImportStatusDto? InitialImportStatus { get; set; }
+    [Parameter] public bool ViewResults { get; set; }
+    private static readonly string[] steps = ["Connection", "Choose datasets", "Test access", "Review & import"];
+    private static readonly DatasetSourceType[] sources = [DatasetSourceType.GraphUsers, DatasetSourceType.GraphDevices, DatasetSourceType.GraphGroups, DatasetSourceType.GraphSharePointSites];
+    private GraphConnectionTestRequestDto draft = new();
+    private GraphConnectionTestResultDto? testResult;
+    private GraphDatasetImportStatusDto? importStatus;
+    private Guid requestId = Guid.NewGuid();
+    private CancellationTokenSource? testCancellation;
+    private int step, revision, testedRevision = -1;
+    private int renderedHeaderStep = -1;
+    private bool initialized, hasStoredSecret, useStoredSecret, validation, testing, saving, uncertain, disposed, saved, draftDirty;
+    private string? message;
+    private IEnumerable<DatasetSourceType> SelectedSources => sources.Where(Selected);
+    private bool CanImport => !uncertain && testedRevision == revision && testResult is { AuthenticationSucceeded: true, TestToken.Length: > 0 } && SelectedSources.Any() && SelectedSources.All(type => testResult.Sources.Any(x => x.SourceType == type && x.Succeeded));
+
+    protected override void OnParametersSet()
+    {
+        if (initialized) return;
+        initialized = true; hasStoredSecret = Settings.HasStoredSecret; useStoredSecret = hasStoredSecret;
+        draft = new() { OrganizationId = Settings.OrganizationId, TenantId = Settings.TenantId, ClientId = Settings.ClientId, EnableUsers = Settings.EnableUsers, EnableDevices = Settings.EnableDevices, EnableGroups = Settings.EnableGroups, EnableSharePointSites = Settings.EnableSharePointSites, UseStoredSecret = useStoredSecret };
+        if (!SaveWithoutImport && InitialImportStatus is { } recorded && (ViewResults || recorded.CompletedAtUtc is null || recorded.CanReconcile))
+        {
+            importStatus = recorded; requestId = recorded.RequestId; saved = recorded.ConfigurationSaved;
+            uncertain = recorded.CompletedAtUtc is null;
+        }
+    }
+    private void InvalidateTest() { revision++; draftDirty = true; testedRevision = -1; testResult = null; message = null; testCancellation?.Cancel(); }
+    private void TenantChanged(string value) { draft.TenantId = value; InvalidateTest(); }
+    private void ClientChanged(string value) { draft.ClientId = value; InvalidateTest(); }
+    private void SecretChanged(string value) { draft.ClientSecret = value; InvalidateTest(); }
+    private void StoredSecretChanged(bool value) { useStoredSecret = value; draft.UseStoredSecret = value; if (value) draft.ClientSecret = null; InvalidateTest(); }
+    private bool Selected(DatasetSourceType source) => source switch { DatasetSourceType.GraphUsers => draft.EnableUsers, DatasetSourceType.GraphDevices => draft.EnableDevices, DatasetSourceType.GraphGroups => draft.EnableGroups, DatasetSourceType.GraphSharePointSites => draft.EnableSharePointSites, _ => false };
+    private void SourceChanged(DatasetSourceType source, bool value)
+    {
+        switch (source) { case DatasetSourceType.GraphUsers: draft.EnableUsers = value; break; case DatasetSourceType.GraphDevices: draft.EnableDevices = value; break; case DatasetSourceType.GraphGroups: draft.EnableGroups = value; break; case DatasetSourceType.GraphSharePointSites: draft.EnableSharePointSites = value; break; }
+        InvalidateTest();
+    }
+    private bool ConnectionValid => !string.IsNullOrWhiteSpace(draft.TenantId) && !string.IsNullOrWhiteSpace(draft.ClientId) && (useStoredSecret && hasStoredSecret || !string.IsNullOrWhiteSpace(draft.ClientSecret));
+    private void Back() { if (!saving && !testing && step > 0) { step--; validation = false; } }
+    private void Continue()
+    {
+        validation = true;
+        if (step == 0 && !ConnectionValid || step == 1 && !SelectedSources.Any() && !SaveWithoutImport || step == 2 && !CanImport && !SaveWithoutImport) return;
+        step++; validation = false;
+    }
+    private async Task TestAsync()
+    {
+        if (testing || saving || !ConnectionValid || !SelectedSources.Any()) return;
+        testCancellation?.Dispose(); testCancellation = new();
+        var cancellation = testCancellation; var currentRevision = revision;
+        testing = true; message = null; testResult = null; testedRevision = -1;
+        try
+        {
+            var result = await DatasetService.TestGraphConnectionAsync(draft, cancellation.Token);
+            if (disposed || currentRevision != revision || cancellation.IsCancellationRequested) return;
+            testResult = result; testedRevision = currentRevision;
+        }
+        catch (OperationCanceledException) { if (!disposed && currentRevision == revision) message = "The access test timed out. Your connection draft is retained; retry the test."; }
+        catch (HttpRequestException) { if (!disposed && currentRevision == revision) message = "The access test could not finish. Your draft is retained. Check the connection and retry."; }
+        finally { if (ReferenceEquals(testCancellation, cancellation)) testing = false; }
+    }
+    private async Task ImportAsync()
+    {
+        if (saving || !CanImport || disposed) return;
+        saving = true; message = null;
+        try
+        {
+            importStatus = await DatasetService.SaveAndImportGraphAsync(new() { RequestId = requestId, Connection = draft, TestToken = testResult!.TestToken!, PreserveExistingSchedule = true });
+            if (disposed) return;
+            saved = importStatus.ConfigurationSaved;
+            if (saved) { draftDirty = false; draft.ClientSecret = null; hasStoredSecret = true; useStoredSecret = true; draft.UseStoredSecret = true; }
+            uncertain = importStatus.CompletedAtUtc is null;
+        }
+        catch (HttpRequestException) { uncertain = true; message = "Import completion is uncertain. Check the recorded import status before retrying. Closing this dialog does not cancel server work."; }
+        finally { saving = false; }
+    }
+    private async Task ReconcileAsync()
+    {
+        if (saving || disposed) return;
+        saving = true;
+        try
+        {
+            var status = await DatasetService.GetGraphImportRequestStatusAsync(Settings.OrganizationId, requestId);
+            if (disposed) return;
+            if (status is null) { uncertain = false; InvalidateTest(); message = "No import is recorded. Run a fresh access test before retrying."; step = 2; return; }
+            if (status.RequestId != requestId) { message = "The recorded run belongs to a different request. Its result does not confirm this import; check again before retrying."; return; }
+            importStatus = status; saved = status.ConfigurationSaved; uncertain = status.CompletedAtUtc is null;
+            if (saved) { draftDirty = false; draft.ClientSecret = null; }
+            message = uncertain ? "The recorded import is still pending. Check again before starting another import." : null;
+        }
+        catch (HttpRequestException) { message = "Import status is unavailable. Check again before starting another import."; }
+        finally { saving = false; }
+    }
+    private async Task ReconcileInterruptedAsync()
+    {
+        if (saving || importStatus?.CanReconcile != true) return;
+        saving = true;
+        try
+        {
+            importStatus = await DatasetService.ReconcileInterruptedGraphImportAsync(Settings.OrganizationId, importStatus.RequestId);
+            uncertain = importStatus.CompletedAtUtc is null;
+            message = "The interrupted run was reconciled without importing. Inspect source data, then explicitly retest and review before a new import.";
+        }
+        catch (HttpRequestException) { message = "The interrupted run could not be reconciled yet. Refresh its status before retrying."; }
+        finally { saving = false; }
+    }
+    private async Task RetryFailedAsync()
+    {
+        if (importStatus is null || saving) return;
+        saving = true;
+        try
+        {
+            var persisted = await DatasetService.GetGraphSettingsAsync(Settings.OrganizationId);
+            if (persisted is not null)
+            {
+                hasStoredSecret = persisted.HasStoredSecret; useStoredSecret = hasStoredSecret; draft.UseStoredSecret = useStoredSecret;
+                draft.ClientSecret = null; draft.TenantId = persisted.TenantId; draft.ClientId = persisted.ClientId;
+                draft.EnableUsers = persisted.EnableUsers; draft.EnableDevices = persisted.EnableDevices; draft.EnableGroups = persisted.EnableGroups; draft.EnableSharePointSites = persisted.EnableSharePointSites;
+            }
+            else if (useStoredSecret) { hasStoredSecret = false; useStoredSecret = false; draft.UseStoredSecret = false; }
+            importStatus = null; requestId = Guid.NewGuid(); uncertain = false; step = persisted is null ? 0 : 1; InvalidateTest();
+            message = persisted is null ? "No saved connection was found. Your original draft is retained; correct it and run a fresh access test." : "Review and retest the saved selected sources. Their enabled state and existing recurring schedule are preserved.";
+        }
+        catch (HttpRequestException) { message = "The saved connection could not be loaded. Your draft and recorded result are retained; retry loading before importing."; }
+        finally { saving = false; }
+    }
+    private async Task SaveOnlyAsync()
+    {
+        if (saving || !ConnectionValid || disposed) return;
+        saving = true; message = null;
+        try
+        {
+            var settings = System.Text.Json.JsonSerializer.Deserialize<TenantGraphDatasetSettingsDto>(System.Text.Json.JsonSerializer.Serialize(Settings))!;
+            settings.TenantId = draft.TenantId; settings.ClientId = draft.ClientId; settings.ClientSecret = useStoredSecret ? null : draft.ClientSecret;
+            settings.EnableUsers = draft.EnableUsers; settings.EnableDevices = draft.EnableDevices; settings.EnableGroups = draft.EnableGroups; settings.EnableSharePointSites = draft.EnableSharePointSites;
+            var result = await DatasetService.SaveGraphSettingsAsync(settings);
+            if (result is null) { message = "The save was not confirmed. Reload the actual saved connection before retrying; your draft is retained."; return; }
+            draft.ClientSecret = null; saved = true; draftDirty = false; Dialog.Close(DialogResult.Ok(true));
+        }
+        catch (HttpRequestException) { message = "The save result is uncertain. Reopen the actual saved connection before saving again."; }
+        finally { saving = false; }
+    }
+    private async Task CloseAsync()
+    {
+        if (saving) return;
+        if (draftDirty && (!saved || importStatus is null) && await DialogService.ShowMessageBoxAsync("Discard Graph draft?", "Unsaved connection values and access-test results will be cleared. Any import already started continues on the server.", yesText: "Discard", cancelText: "Keep editing") != true) return;
+        draft.ClientSecret = null; testResult = null; testCancellation?.Cancel();
+        Dialog.Close(DialogResult.Ok(saved));
+    }
+    private async Task ConfirmNavigationAsync(Microsoft.AspNetCore.Components.Routing.LocationChangingContext context)
+    {
+        if (saving) { context.PreventNavigation(); return; }
+        if (!draftDirty) return;
+        if (await DialogService.ShowMessageBoxAsync("Discard Graph draft?", "Unsaved credentials and test evidence will be cleared. Server imports already started continue and can be reconciled when you reopen this organization.", yesText: "Discard", cancelText: "Keep editing") != true) context.PreventNavigation();
+    }
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (renderedHeaderStep == step) return;
+        renderedHeaderStep = step;
+        Dialog.StateHasChanged();
+    }
+    private static bool IsSuccessful(string status) => status.Equals("Succeeded", StringComparison.OrdinalIgnoreCase) || status.Equals("Success", StringComparison.OrdinalIgnoreCase);
+    public static string SourceName(DatasetSourceType source) => source switch { DatasetSourceType.GraphUsers => "Users", DatasetSourceType.GraphDevices => "Computers/devices", DatasetSourceType.GraphGroups => "Groups", DatasetSourceType.GraphSharePointSites => "SharePoint sites", _ => source.ToString() };
+    private static string SourceDescription(DatasetSourceType source) => source switch { DatasetSourceType.GraphUsers => "Directory users and profile fields.", DatasetSourceType.GraphDevices => "Registered directory devices and operating systems.", DatasetSourceType.GraphGroups => "Directory groups and membership metadata.", DatasetSourceType.GraphSharePointSites => "Discoverable SharePoint sites.", _ => string.Empty };
+    public void Dispose() { disposed = true; draft.ClientSecret = null; testResult = null; testCancellation?.Cancel(); testCancellation?.Dispose(); }
+}

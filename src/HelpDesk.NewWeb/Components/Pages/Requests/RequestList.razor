@@ -43,6 +43,7 @@
                  @ref="_table"
                  TicketType="requests"
                  CanEditItem="@(item => accessProfile?.CanManageRequest(item.OrganizationId) == true)"
+                 IsStateWriteDenied="@(id => deniedStateWrites.Contains(id))" StateWriteDenied="RememberStateWriteDenial"
                  EnableSelection="@CanWriteAny"
                  ServerData="LoadServerData"
                  SelectedItems="_selected"
@@ -96,6 +97,8 @@
 
 @code {
     private CurrentUserAccessProfile? accessProfile;
+    private readonly HashSet<string> deniedStateWrites = new(StringComparer.Ordinal);
+    private void RememberStateWriteDenial(string id) { if (!disposed) deniedStateWrites.Add(id); }
     private bool CanWriteAny => accessProfile?.HasPermission(HelpdeskPermissions.RequestWrite) == true || accessProfile?.HasPermission(HelpdeskPermissions.RequestManager) == true;
     private bool CanCreate => CanWriteAny || accessProfile?.HasPermission(HelpdeskPermissions.RequestUser) == true;
     private TicketListState filters = new();

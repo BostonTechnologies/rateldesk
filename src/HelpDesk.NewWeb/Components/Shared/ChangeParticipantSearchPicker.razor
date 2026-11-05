@@ -1,0 +1,105 @@
+@using Helpdesk.Shared.DTOs.Change
+@using System.Text.Json
+@implements IDisposable
+@inject IHttpClientFactory HttpClientFactory
+
+@if (Multiple)
+{
+    <div class="d-flex flex-wrap gap-1" aria-label="Selected approvers">
+        @foreach (var id in SelectedIds)
+        {
+            <MudChip T="string" Value="@id" OnClose="@(() => Remove(id))" Disabled="Disabled"
+                     title="@id" Style="max-width:100%;height:auto;white-space:normal">
+                @(names.TryGetValue(id, out var candidate) ? Format(candidate) : "Selected approver")
+            </MudChip>
+        }
+    </div>
+}
+<CreationSearchPicker TItem="ChangeParticipantUserDto" LookupUrl="@LookupUrl" Value="@(Multiple ? null : Value)"
+                      ItemId="@(item => item.Id)" ItemLabel="Format" Label="@Label" Kind="participants"
+                      Placeholder="@(string.IsNullOrWhiteSpace(OrganizationId) ? "Select an organization first" : "Search name or email")"
+                      Required="@(!Multiple && Required)" Disabled="@(Disabled || string.IsNullOrWhiteSpace(OrganizationId))"
+                      SelectionChanged="Choose" ClearAfterSelection="@Multiple">
+    <ItemTemplate Context="participant">
+        <span class="d-flex flex-column py-1">
+            <span class="mud-typography mud-typography-body2" style="overflow-wrap:anywhere">@participant.Name</span>
+            <span class="mud-typography mud-typography-caption">@participant.Email · @participant.Role</span>
+        </span>
+    </ItemTemplate>
+</CreationSearchPicker>
+@if (hydrationError)
+{
+    <MudText Typo="Typo.caption" Color="Color.Error">Some selected approvers could not be loaded. Their selections are preserved.</MudText>
+    <MudButton Size="Size.Small" OnClick="Hydrate">Retry approver labels</MudButton>
+}
+
+@code {
+    [Parameter] public string? OrganizationId { get; set; }
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+    [Parameter] public bool Multiple { get; set; }
+    [Parameter] public IReadOnlyCollection<string> SelectedIds { get; set; } = Array.Empty<string>();
+    [Parameter] public EventCallback<HashSet<string>> SelectedIdsChanged { get; set; }
+    [Parameter] public string Label { get; set; } = "Requested for";
+    [Parameter] public bool Required { get; set; } = true;
+    [Parameter] public bool Disabled { get; set; }
+    private readonly Dictionary<string, ChangeParticipantUserDto> names = new(StringComparer.Ordinal);
+    private CancellationTokenSource scopeCancellation = new();
+    private string? scope;
+    private bool hydrationError;
+    private string LookupUrl => string.IsNullOrWhiteSpace(OrganizationId) ? "" :
+        $"api/v1/ticketing/change-participants/search?organizationId={Uri.EscapeDataString(OrganizationId)}";
+    private static string Format(ChangeParticipantUserDto item) => string.IsNullOrWhiteSpace(item.Email)
+        ? $"{item.Name} · {item.Role}" : $"{item.Name} ({item.Email}) · {item.Role}";
+    protected override async Task OnParametersSetAsync()
+    {
+        if (scope != OrganizationId)
+        {
+            scopeCancellation.Cancel();
+            scopeCancellation.Dispose();
+            scopeCancellation = new();
+            scope = OrganizationId;
+            names.Clear();
+            hydrationError = false;
+        }
+        if (Multiple) await Hydrate();
+    }
+    private async Task Hydrate()
+    {
+        if (string.IsNullOrWhiteSpace(OrganizationId)) return;
+        var token = scopeCancellation.Token;
+        hydrationError = false;
+        try
+        {
+            foreach (var id in SelectedIds.Where(id => !names.ContainsKey(id)).ToArray())
+            {
+                var result = await HttpClientFactory.CreateClient("HelpdeskApi").GetFromJsonAsync<CreationLookupResult<ChangeParticipantUserDto>>(
+                    $"{LookupUrl}&id={Uri.EscapeDataString(id)}", token);
+                if (token.IsCancellationRequested) return;
+                var candidate = result?.Items.FirstOrDefault(item => item.Id == id);
+                if (candidate is not null) names[id] = candidate;
+                else hydrationError = true;
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException) { if (!token.IsCancellationRequested) hydrationError = true; }
+    }
+    private async Task Choose(ChangeParticipantUserDto? item)
+    {
+        if (Disabled) return;
+        if (!Multiple) { await ValueChanged.InvokeAsync(item?.Id); return; }
+        if (item is null) return;
+        names[item.Id] = item;
+        var ids = SelectedIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        ids.Add(item.Id);
+        await SelectedIdsChanged.InvokeAsync(ids);
+    }
+    private Task Remove(string id)
+    {
+        if (Disabled) return Task.CompletedTask;
+        var ids = SelectedIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        ids.Remove(id);
+        return SelectedIdsChanged.InvokeAsync(ids);
+    }
+    public void Dispose() { scopeCancellation.Cancel(); scopeCancellation.Dispose(); }
+}

@@ -1,16 +1,16 @@
 @using Helpdesk.Shared.DTOs.Resources
 
-<MudDialog>
+<MudDialog AriaLabel="Recurring Graph import">
     <TitleContent>
-        <MudText Typo="Typo.h6">Graph Sync Schedule</MudText>
+        <MudText Typo="Typo.h6">Recurring Graph import</MudText>
     </TitleContent>
     <DialogContent>
         <MudStack Spacing="2">
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
-                Hangfire is the preferred recurring sync mechanism for Graph datasets. Tenant schedule settings are saved here; the global runtime is managed from the Hangfire Ops page. Cron uses UTC.
+                Scheduling is optional. Save an explicit schedule for this organization's selected Graph sources. Cron expressions use UTC; enabling a schedule does not import immediately.
             </MudAlert>
 
-            <MudSwitch @bind-Value="model.BackgroundSyncEnabled" Label="Enable Hangfire background sync" />
+            <MudSwitch @bind-Value="model.BackgroundSyncEnabled" Label="Enable recurring import" />
 
             <MudTextField @bind-Value="model.BackgroundSyncCronExpression"
                           Label="Cron Expression"
@@ -20,16 +20,16 @@
             @if (!HangfireEnabled)
             {
                 <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">
-                    Hangfire runtime is currently disabled. Save is still useful because the tenant cron stays in the database, but recurring jobs will not register until ops enables the global runtime from Hangfire Ops.
+                    The recurring-job runtime is unavailable. The schedule can be saved, but it will not run until an administrator enables the runtime.
                 </MudAlert>
             }
 
-            <MudText Typo="Typo.caption">
+            <MudExpansionPanels Elevation="0"><MudExpansionPanel Text="Runtime details"><MudText Typo="Typo.caption">
                 Global runtime source: @RuntimeSource
             </MudText>
             <MudText Typo="Typo.caption">
                 Storage provider: @StorageProvider
-            </MudText>
+            </MudText></MudExpansionPanel></MudExpansionPanels>
         </MudStack>
     </DialogContent>
     <DialogActions>

@@ -1,0 +1,125 @@
+@implements IDisposable
+
+<div class="state-picker" @onclick:stopPropagation="true" @onkeydown:stopPropagation="true">
+    @if (!CanEdit)
+    {
+        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color">@Label</MudChip>
+    }
+    else
+    {
+        <MudMenu @ref="menu" Dense="true" AnchorOrigin="Origin.BottomLeft" TransformOrigin="Origin.TopLeft"
+                 OpenChanged="OpenChanged" PopoverClass="ticket-state-popover" Modal="true">
+            <ActivatorContent Context="activation">
+                <button @ref="trigger" type="button" class="state-trigger" style="@ColorStyle" disabled="@Busy"
+                        aria-label="@($"Update {Kind} state: {Label}")" aria-haspopup="menu" aria-expanded="@(open ? "true" : "false")"
+                        @onclick="args => Toggle(activation, args)" @onkeydown="args => TriggerKeyDown(activation, args)">
+                    <span>@Label</span>
+                    @if (Busy) { <MudProgressCircular Size="Size.Small" Indeterminate="true" /> }
+                    else { <MudIcon Icon="@Icons.Material.Filled.ExpandMore" Size="Size.Small" /> }
+                </button>
+            </ActivatorContent>
+            <ChildContent>
+                <div class="state-popup-heading"><strong>Update @Kind state</strong><span>@TrackingId</span></div>
+                <div role="menuitem" aria-disabled="true" class="mud-menu-item mud-menu-item-dense state-popup-current">
+                    <MudIcon Icon="@Icons.Material.Filled.Check" Size="Size.Small" Class="mud-menu-item-icon" />
+                    <span>Current: @Label</span>
+                </div>
+                @if (Loading)
+                {
+                    <div class="state-popup-feedback" role="status"><MudProgressCircular Size="Size.Small" Indeterminate="true" /> Loading permitted actions…</div>
+                }
+                else
+                {
+                    @foreach (var option in Choices)
+                    {
+                        @if (option.UnavailableReason is not null)
+                        {
+                            <div role="menuitem" aria-disabled="true" class="mud-menu-item mud-disabled mud-menu-item-dense">
+                                <span><span class="state-popup-choice">@option.Label</span><small class="state-popup-reason">@option.UnavailableReason</small></span>
+                            </div>
+                        }
+                        else
+                        {
+                            <MudMenuItem Disabled="Busy" AutoClose="false" OnClick="() => Choose(option)">
+                                <span class="state-popup-choice">@option.Label</span>
+                            </MudMenuItem>
+                        }
+                    }
+                }
+                @if (!string.IsNullOrWhiteSpace(Guidance)) { <p class="state-popup-feedback">@Guidance</p> }
+                @if (!string.IsNullOrWhiteSpace(Error))
+                {
+                    <div class="state-popup-error" role="alert">@Error</div>
+                    <MudMenuItem AutoClose="false" Disabled="@(Busy || Loading)" OnClick="Reload">Reload current state</MudMenuItem>
+                }
+                @if (!Loading && (Choices.Count > 0 || !string.IsNullOrWhiteSpace(Error)) && !string.IsNullOrWhiteSpace(DetailUrl))
+                {
+                    <MudMenuItem Href="@DetailUrl">Open details and approvals</MudMenuItem>
+                }
+            </ChildContent>
+        </MudMenu>
+        <MudOverlay Visible="open" Modal="true" Class="ticket-state-overlay mud-skip-overlay-section" OnClick="Dismiss" />
+    }
+</div>
+
+@code {
+    [Parameter] public string Kind { get; set; } = "ticket";
+    [Parameter] public string Label { get; set; } = "";
+    [Parameter] public string? TrackingId { get; set; }
+    [Parameter] public Color Color { get; set; }
+    [Parameter] public bool CanEdit { get; set; }
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public string? Error { get; set; }
+    [Parameter] public string? Guidance { get; set; }
+    [Parameter] public string? DetailUrl { get; set; }
+    [Parameter] public IReadOnlyList<StatePopupChoice> Choices { get; set; } = [];
+    [Parameter] public EventCallback Opening { get; set; }
+    [Parameter] public EventCallback Reload { get; set; }
+    [Parameter] public Func<int, Task<bool>>? Apply { get; set; }
+
+    private MudMenu? menu;
+    private ElementReference trigger;
+    private bool open, applying, disposed;
+    private string ColorStyle => $"--state-color: var(--mud-palette-{(Color == Color.Default ? "text-primary" : Color.ToString().ToLowerInvariant())})";
+
+    private async Task OpenChanged(bool value)
+    {
+        var closing = open && !value;
+        open = value;
+        if (value && !disposed) await Opening.InvokeAsync();
+        if (closing && !disposed && CanEdit) await trigger.FocusAsync();
+    }
+    private async Task Toggle(MenuContext activation, MouseEventArgs args)
+    {
+        if (Busy || applying) return;
+        await activation.ToggleAsync(args);
+    }
+
+    private Task Dismiss() => menu?.CloseMenuAsync() ?? Task.CompletedTask;
+
+    private async Task TriggerKeyDown(MenuContext activation, KeyboardEventArgs args)
+    {
+        if (args.Key is "ArrowDown" or "ArrowUp" && !open && !Busy)
+        {
+            await activation.OpenAsync(args);
+        }
+        else if (args.Key == "Escape") await activation.CloseAsync();
+    }
+
+    private async Task Choose(StatePopupChoice option)
+    {
+        if (Busy || Loading || applying || option.UnavailableReason is not null || Apply is null) return;
+        applying = true;
+        try
+        {
+            if (await Apply(option.Value) && !disposed && CanEdit && menu is not null)
+            {
+                await menu.CloseMenuAsync();
+            }
+        }
+        finally { applying = false; }
+    }
+
+    public void Dispose() => disposed = true;
+}

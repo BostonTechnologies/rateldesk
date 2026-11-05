@@ -1,0 +1,73 @@
+@using Helpdesk.Shared.DTOs.Resources
+@using Helpdesk.Shared.Enums
+
+<div class="dataset-schema-designer">
+    <MudText Typo="Typo.body2" Class="mb-2">Choose one stable key and one display field. Renaming a selected field keeps its role; removing it requires a new selection.</MudText>
+    @foreach (var issue in Errors.Where(x => x.Key is "Columns" or "KeyColumn" or "DisplayColumn"))
+    {
+        <MudAlert Severity="Severity.Error" Dense="true" Class="mb-2">@issue.Value</MudAlert>
+    }
+    <MudTable Items="Columns" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Class="dataset-schema-grid">
+        <HeaderContent><MudTh>Field name</MudTh><MudTh>Type</MudTh><MudTh>Key</MudTh><MudTh>Display</MudTh><MudTh>Searchable</MudTh><MudTh>Order / remove</MudTh></HeaderContent>
+        <RowTemplate>
+            @{ var index = Columns.IndexOf(context); }
+            <MudTd DataLabel="Field name"><MudTextField @ref="nameInputs[index]" T="string" Value="@context.Name" ValueChanged="@(value => RenameAsync(context, value))" Immediate="true" Margin="Margin.Dense" Variant="Variant.Outlined" aria-label="Column name" Error="@Errors.ContainsKey($"Columns[{index}].Name")" ErrorText="@Error($"Columns[{index}].Name")" Disabled="Disabled" /></MudTd>
+            <MudTd DataLabel="Type"><MudSelect @ref="typeInputs[index]" T="DatasetColumnDataType" Value="context.DataType" ValueChanged="@(value => SetTypeAsync(context, value))" Margin="Margin.Dense" Variant="Variant.Outlined" aria-label="Column data type" Error="@Errors.ContainsKey($"Columns[{index}].DataType")" ErrorText="@Error($"Columns[{index}].DataType")" Disabled="Disabled">
+                @foreach (var type in Enum.GetValues<DatasetColumnDataType>()) { <MudSelectItem T="DatasetColumnDataType" Value="type">@type</MudSelectItem> }
+            </MudSelect></MudTd>
+            <MudTd DataLabel="Key"><input @ref="keyInputs[index]" class="data-schema-role" type="radio" name="@keyGroup" checked="@context.IsKey" @onchange="@(() => ChooseAsync(context, true, true))" aria-label="@($"Use {context.Name} as key column")" aria-invalid="@Errors.ContainsKey("KeyColumn")" disabled="@Disabled" /></MudTd>
+            <MudTd DataLabel="Display"><input @ref="displayInputs[index]" class="data-schema-role" type="radio" name="@displayGroup" checked="@context.IsDisplay" @onchange="@(() => ChooseAsync(context, true, false))" aria-label="@($"Use {context.Name} as display column")" aria-invalid="@Errors.ContainsKey("DisplayColumn")" disabled="@Disabled" /></MudTd>
+            <MudTd DataLabel="Searchable"><MudCheckBox T="bool" Value="context.IsSearchable" ValueChanged="@(value => SearchableAsync(context, value))" aria-label="@($"Search {context.Name} column")" Dense="true" Disabled="Disabled" /></MudTd>
+            <MudTd DataLabel="Order / remove"><MudStack Row="true" Spacing="0">
+                <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small" aria-label="@($"Move {context.Name} up")" Disabled="@(Disabled || index == 0)" OnClick="@(() => MoveAsync(context, -1))" />
+                <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small" aria-label="@($"Move {context.Name} down")" Disabled="@(Disabled || index == Columns.Count - 1)" OnClick="@(() => MoveAsync(context, 1))" />
+                <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Size="Size.Small" aria-label="@($"Remove column {context.Name}")" Disabled="Disabled" OnClick="@(() => RemoveAsync(context))" />
+            </MudStack></MudTd>
+        </RowTemplate>
+    </MudTable>
+    <MudButton StartIcon="@Icons.Material.Filled.Add" Variant="Variant.Outlined" OnClick="AddAsync" Disabled="Disabled" Class="mt-3">Add field</MudButton>
+    <MudText Typo="Typo.caption" Class="d-block mt-3">Preview: @string.Join(" · ", Columns.Select(x => $"{x.Name} ({x.DataType})"))</MudText>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public List<DatasetColumnDto> Columns { get; set; } = [];
+    [Parameter] public IReadOnlyDictionary<string, string> Errors { get; set; } = new Dictionary<string, string>();
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback Changed { get; set; }
+    private readonly Dictionary<int, MudTextField<string>> nameInputs = [];
+    private readonly Dictionary<int, MudSelect<DatasetColumnDataType>> typeInputs = [];
+    private readonly Dictionary<int, ElementReference> keyInputs = [], displayInputs = [];
+    private readonly string keyGroup = $"dataset-key-{Guid.NewGuid():N}", displayGroup = $"dataset-display-{Guid.NewGuid():N}";
+    public async Task FocusFirstInvalidAsync()
+    {
+        for (var index = 0; index < Columns.Count; index++)
+        {
+            if (Errors.ContainsKey($"Columns[{index}].Name") && nameInputs.TryGetValue(index, out var name)) { await name.FocusAsync(); return; }
+            if (Errors.ContainsKey($"Columns[{index}].DataType") && typeInputs.TryGetValue(index, out var type)) { await type.FocusAsync(); return; }
+        }
+        if (Errors.ContainsKey("KeyColumn") && keyInputs.TryGetValue(0, out var key)) await key.FocusAsync();
+        else if (Errors.ContainsKey("DisplayColumn") && displayInputs.TryGetValue(0, out var display)) await display.FocusAsync();
+    }
+    private string? Error(string key) => Errors.GetValueOrDefault(key);
+    private async Task RenameAsync(DatasetColumnDto field, string value) { field.Name = value; await Changed.InvokeAsync(); }
+    private async Task SetTypeAsync(DatasetColumnDto field, DatasetColumnDataType value) { field.DataType = value; await Changed.InvokeAsync(); }
+    private async Task SearchableAsync(DatasetColumnDto field, bool value) { field.IsSearchable = value; await Changed.InvokeAsync(); }
+    private async Task ChooseAsync(DatasetColumnDto field, bool value, bool key)
+    {
+        foreach (var column in Columns)
+        {
+            if (key) column.IsKey = value && ReferenceEquals(column, field);
+            else column.IsDisplay = value && ReferenceEquals(column, field);
+        }
+        await Changed.InvokeAsync();
+    }
+    private async Task AddAsync() { Columns.Add(new() { Name = $"field{Columns.Count + 1}", SortOrder = Columns.Count }); await Changed.InvokeAsync(); }
+    private async Task RemoveAsync(DatasetColumnDto field) { Columns.Remove(field); Reorder(); await Changed.InvokeAsync(); }
+    private async Task MoveAsync(DatasetColumnDto field, int direction)
+    {
+        var from = Columns.IndexOf(field); var to = from + direction;
+        if (from < 0 || to < 0 || to >= Columns.Count) return;
+        Columns.RemoveAt(from); Columns.Insert(to, field); Reorder(); await Changed.InvokeAsync();
+    }
+    private void Reorder() { for (var index = 0; index < Columns.Count; index++) Columns[index].SortOrder = index; }
+}

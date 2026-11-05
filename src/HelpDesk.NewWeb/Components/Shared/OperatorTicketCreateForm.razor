@@ -42,20 +42,9 @@
                         <MudGrid Spacing="2">
                             <MudItem xs="12" md="6">
                                 <MudStack Spacing="2">
-                                    <MudSelect T="string"
-                                               Label="Organization"
-                                               Variant="Variant.Outlined"
-                                               Dense="true"
-                                               Margin="Margin.Dense"
-                                               Value="@model.OrganizationId"
-                                               ValueChanged="OnOrganizationChanged"
-                                               Disabled="@(organizations.Count <= 1)"
-                                               Required="true">
-                                        @foreach (var organization in organizations)
-                                        {
-                                            <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
-                                        }
-                                    </MudSelect>
+                                    <OrganizationSearchPicker Module="@Module" Value="@model.OrganizationId"
+                                                              SelectionChanged="OnOrganizationSelected" LockWhenSingle="true"
+                                                              Disabled="isSubmitting" />
 
                                     <CustomerRequesterPicker Module="@Module" OrganizationId="@model.OrganizationId"
                                                              CustomerId="@model.CustomerId"
@@ -135,24 +124,19 @@
         try
         {
             profile = CurrentUserAccessProfile.FromClaims((await AccessAuthenticationState.GetAuthenticationStateAsync()).User);
-            var accessTask = HelpdeskApi.GetFromJsonAsync<CurrentUserAccessDto>("api/v1/auth/me");
-            var organizationsTask = HelpdeskApi.GetFromJsonAsync<List<OrganizationDto>>($"api/v1/ticketing/organizations?module={Module}");
-
-            access = await accessTask;
-            organizations = (await organizationsTask ?? new())
-                .Where(x => x.IsEnabled)
-                .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            if (organizations.Count == 1)
-            {
-                await OnOrganizationChanged(organizations[0].Id);
-            }
+            access = await HelpdeskApi.GetFromJsonAsync<CurrentUserAccessDto>("api/v1/auth/me");
         }
         catch
         {
             Snackbar.Add("Unable to load organizations or users right now.", Severity.Warning);
         }
+    }
+
+    private Task OnOrganizationSelected(OrganizationDto? organization)
+    {
+        if (model.OrganizationId == organization?.Id) return Task.CompletedTask;
+        organizations = organization is null ? new() : new() { organization };
+        return OnOrganizationChanged(organization?.Id);
     }
 
     private Task OnOrganizationChanged(string? value)

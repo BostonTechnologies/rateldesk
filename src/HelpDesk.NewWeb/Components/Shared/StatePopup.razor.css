@@ -1,0 +1,11 @@
+.state-picker { display: inline-flex; max-width: 100%; }
+.state-trigger { display: inline-flex; align-items: center; justify-content: center; gap: 3px; max-width: 100%; min-height: 26px; padding: 2px 7px 2px 10px; border: 1px solid color-mix(in srgb, var(--state-color) 55%, transparent); border-radius: 16px; color: var(--state-color); background: color-mix(in srgb, var(--state-color) 6%, var(--mud-palette-surface)); font: inherit; font-size: .75rem; line-height: 1.4; cursor: pointer; }
+.state-trigger:hover { background: color-mix(in srgb, var(--state-color) 13%, var(--mud-palette-surface)); }
+.state-trigger:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 3px; }
+.state-trigger:disabled { cursor: progress; opacity: .7; }
+.state-trigger ::deep .mud-icon-root { width: 16px; height: 16px; }
+.state-popup-heading { display: flex; flex-direction: column; gap: 3px; padding: 10px 16px; border-bottom: 1px solid var(--mud-palette-divider); color: var(--mud-palette-text-primary); overflow-wrap: anywhere; }
+.state-popup-heading span, .state-popup-feedback, .state-popup-reason { color: var(--mud-palette-text-secondary); font-size: .75rem; }
+.state-popup-feedback { margin: 0; padding: 10px 16px; white-space: normal; line-height: 1.5; }
+.state-popup-choice, .state-popup-reason { display: block; white-space: normal; }
+.state-popup-error { padding: 10px 16px; color: var(--mud-palette-error); font-size: .8rem; white-space: normal; }

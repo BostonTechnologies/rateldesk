@@ -1,0 +1,72 @@
+@implements IDisposable
+@using Helpdesk.Shared.DTOs.Resources
+@inject IResourceDatasetService DatasetService
+@inject IJSRuntime JS
+@inject IDialogService DialogService
+
+<MudDialog AriaLabel="Create ingestion API key">
+    <TitleContent><MudText Typo="Typo.h6">Create ingestion API key</MudText></TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="mb-3">@DatasetName · @OrganizationName</MudText>
+        @if (secret is null)
+        {
+            <MudTextField T="string" @bind-Value="name" Label="API key name" Required="true" RequiredError="Enter a name for this integration." Error="nameError" ErrorText="Enter a name for this integration." Variant="Variant.Outlined" Disabled="pending" AutoFocus="true" />
+            <MudText Typo="Typo.body2" Class="mt-2">This key can ingest rows only into this dataset. Creating it is optional.</MudText>
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Success">Key created. Copy this secret now; it cannot be shown again.</MudAlert>
+            <MudTextField T="string" Value="@secret" Label="One-time API key" ReadOnly="true" Variant="Variant.Outlined" Class="mt-3" />
+            <MudButton StartIcon="@Icons.Material.Filled.ContentCopy" OnClick="CopyAsync" Class="mt-2">Copy API key</MudButton>
+            <div role="status" aria-live="polite">@copyStatus</div>
+        }
+        @if (error is not null) { <MudAlert Severity="Severity.Error" Class="mt-3">@error</MudAlert> }
+        @if (pending) { <MudProgressLinear Indeterminate="true" Class="mt-3" /> }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="CloseAsync" Disabled="pending">@(secret is null ? "Cancel" : "Done")</MudButton>
+        @if (secret is null) { <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="CreateAsync" Disabled="@(pending || creationUncertain)">Create key</MudButton> }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+    [Parameter, EditorRequired] public string DatasetId { get; set; } = string.Empty;
+    [Parameter] public string DatasetName { get; set; } = string.Empty;
+    [Parameter] public string OrganizationName { get; set; } = string.Empty;
+    private string name = string.Empty;
+    private string? secret, error, copyStatus;
+    private bool pending, nameError, disposed, created, creationUncertain;
+
+    private async Task CreateAsync()
+    {
+        if (pending || disposed || created || creationUncertain) return;
+        nameError = string.IsNullOrWhiteSpace(name);
+        if (nameError) return;
+        pending = true; error = null;
+        try
+        {
+            var result = await DatasetService.CreateCredentialAsync(DatasetId, new() { Name = name.Trim() });
+            if (disposed) return;
+            if (result is null) { creationUncertain = true; error = "A key was not confirmed. Close this dialog and check key metadata before creating another key."; }
+            else { secret = result.PlainTextKey; created = true; name = string.Empty; }
+        }
+        catch (HttpRequestException) { creationUncertain = true; error = "The result is uncertain. Close this dialog and check the key metadata before creating another key."; }
+        catch (OperationCanceledException) { creationUncertain = true; error = "The key request timed out. Close this dialog and check the key metadata before creating another key."; }
+        finally { pending = false; }
+    }
+    private async Task CopyAsync()
+    {
+        if (secret is null) return;
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", secret); copyStatus = "API key copied."; }
+        catch (JSException) { copyStatus = "Clipboard unavailable. Select the one-time API key and copy it manually."; }
+    }
+    private async Task CloseAsync()
+    {
+        if (pending) return;
+        if (!created && name.Length > 0 && await DialogService.ShowMessageBoxAsync("Discard key name?", creationUncertain ? "Creation was not confirmed. Check key metadata after closing; a key may have been created." : "No key has been created.", yesText: "Discard", cancelText: "Keep editing") != true) return;
+        secret = null;
+        Dialog.Close(DialogResult.Ok(created));
+    }
+    public void Dispose() { disposed = true; secret = null; name = string.Empty; }
+}
