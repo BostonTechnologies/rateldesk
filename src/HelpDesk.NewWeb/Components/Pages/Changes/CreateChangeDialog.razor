@@ -74,19 +74,8 @@
                                             <ChangeFieldHelp Label="Organization"
                                                              TooltipText="Select the organization this change is being performed for."
                                                              ExampleText="Example: 'Acme Manufacturing' or 'Internal IT Shared Services'" />
-                                            <MudSelect T="string"
-                                                       Label="Organization"
-                                                       Dense="true"
-                                                       Margin="Margin.Dense"
-                                                       Variant="Variant.Outlined"
-                                                       Value="@model.OrganizationId"
-                                                       ValueChanged="OnOrganizationChanged"
-                                                       Required="true">
-                                                @foreach (var organization in organizations)
-                                                {
-                                                    <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
-                                                }
-                                            </MudSelect>
+                                            <OrganizationSearchPicker Module="change" Value="@model.OrganizationId"
+                                                                      SelectionChanged="OnOrganizationSelected" Disabled="isSubmitting" />
                                         </MudItem>
 
                                         <MudItem xs="12" sm="6">
@@ -111,19 +100,8 @@
                                             <ChangeFieldHelp Label="Requested for"
                                                              TooltipText="The person who requested the change"
                                                              ExampleText="Select one user from the organization this change is for." />
-                                            <MudSelect T="string"
-                                                       Label="Requested for"
-                                                       Dense="true"
-                                                       Margin="Margin.Dense"
-                                                       Variant="Variant.Outlined"
-                                                       @bind-Value="model.RequestedForUserId"
-                                                       Required="true"
-                                                       Disabled="@participantsLoading">
-                                                @foreach (var user in requestedForUsers)
-                                                {
-                                                    <MudSelectItem T="string" Value="@user.Id">@FormatUser(user)</MudSelectItem>
-                                                }
-                                            </MudSelect>
+                                            <ChangeParticipantSearchPicker OrganizationId="@model.OrganizationId"
+                                                                           @bind-Value="model.RequestedForUserId" Disabled="isSubmitting" />
                                         </MudItem>
 
                                         <MudItem xs="12" sm="6">
@@ -132,7 +110,7 @@
                                                              ExampleText="Select one user from the organization that manages IT for this organization." />
                                             <AssigneeSelector Module="change" OrganizationId="@model.OrganizationId"
                                                               Value="@model.ImplementorUserId" Label="Implementor" AllowUnassigned="false"
-                                                              Busy="participantsLoading" SelectionChanged="@(user => model.ImplementorUserId = user?.Id)" />
+                                                              Busy="isSubmitting" SelectionChanged="@(user => model.ImplementorUserId = user?.Id)" />
                                         </MudItem>
                                         <MudItem xs="12">
                                             <ServiceCategoryPicker RequestedType="TicketCategoryType.Change" OrganizationId="@model.OrganizationId"
@@ -144,21 +122,9 @@
                                             <ChangeFieldHelp Label="Approvers"
                                                              TooltipText="Who needs to approve this change"
                                                              ExampleText="Optional. Select one or more approvers from the organization this change is for." />
-                                            <MudSelect T="string"
-                                                       Label="Approvers"
-                                                       Dense="true"
-                                                       Margin="Margin.Dense"
-                                                       Variant="Variant.Outlined"
-                                                       MultiSelection="true"
-                                                       MultiSelectionTextFunc="GetApproverMultiSelectionText"
-                                                       SelectedValues="@selectedApproverIds"
-                                                       SelectedValuesChanged="OnApproversChanged"
-                                                       Disabled="@participantsLoading">
-                                                @foreach (var user in approverUsers)
-                                                {
-                                                    <MudSelectItem T="string" Value="@user.Id">@FormatUser(user)</MudSelectItem>
-                                                }
-                                            </MudSelect>
+                                            <ChangeParticipantSearchPicker OrganizationId="@model.OrganizationId" Label="Approvers"
+                                                                           Multiple="true" Required="false" SelectedIds="selectedApproverIds"
+                                                                           SelectedIdsChanged="OnApproversChanged" Disabled="isSubmitting" />
                                         </MudItem>
                                     </MudGrid>
                                 </MudItem>
@@ -242,6 +208,7 @@
                    Variant="Variant.Filled"
                    Color="Color.Primary"
                    OnClick="Submit"
+                   Disabled="isSubmitting"
                    Class="px-8">Create</MudButton>
     </DialogActions>
 </MudDialog>
@@ -257,32 +224,13 @@
     {
         ChangeType = "Standard"
     };
-    private List<OrganizationDto> organizations = new();
-    private List<ChangeParticipantUserDto> requestedForUsers = new();
-    private List<ChangeParticipantUserDto> approverUsers = new();
     private HashSet<string> selectedApproverIds = new(StringComparer.OrdinalIgnoreCase);
     private List<string> templateErrors = new();
     private DateTime? implementationStartDate;
     private TimeSpan? implementationStartTime;
     private DateTime? implementationEndDate;
     private TimeSpan? implementationEndTime;
-    private bool participantsLoading;
-
-    protected override async Task OnInitializedAsync()
-    {
-        try
-        {
-            organizations = (await HelpdeskApi.GetFromJsonAsync<List<OrganizationDto>>("api/v1/ticketing/organizations?module=change") ?? new())
-                .Where(x => x.IsEnabled)
-                .OrderBy(x => x.Name)
-                .ToList();
-        }
-        catch (Exception ex)
-        {
-            await ErrorLogger.LogAsync(ex, nameof(CreateChangeDialog));
-            Snackbar.Add("Unable to load organizations right now.", Severity.Warning);
-        }
-    }
+    private bool isSubmitting;
 
     private Task OnChangeTypeChanged(string value)
     {
@@ -291,45 +239,19 @@
         return Task.CompletedTask;
     }
 
-    private async Task OnOrganizationChanged(string? value)
+    private Task OnOrganizationSelected(OrganizationDto? organization)
     {
-        model.OrganizationId = string.IsNullOrWhiteSpace(value) ? null : value;
+        if (model.OrganizationId == organization?.Id) return Task.CompletedTask;
+        model.OrganizationId = organization?.Id;
         model.RequestedForUserId = null;
         model.CategoryIds = new();
         model.ImplementorUserId = null;
-        model.ApproverUserIds = new List<string>();
-        selectedApproverIds.Clear();
-        requestedForUsers.Clear();
-        approverUsers.Clear();
-
-        if (!string.IsNullOrWhiteSpace(model.OrganizationId))
-        {
-            await LoadParticipantsAsync(model.OrganizationId);
-        }
+        model.ApproverUserIds = new();
+        selectedApproverIds = new(StringComparer.OrdinalIgnoreCase);
+        return Task.CompletedTask;
     }
 
-    private async Task LoadParticipantsAsync(string organizationId)
-    {
-        participantsLoading = true;
-        try
-        {
-            var participants = await HelpdeskApi.GetFromJsonAsync<ChangeParticipantsDto>(
-                $"api/v1/organizations/{Uri.EscapeDataString(organizationId)}/change-participants?includeImplementors=false");
-            requestedForUsers = participants?.RequestedForUsers ?? new();
-            approverUsers = participants?.ApproverUsers ?? new();
-        }
-        catch (Exception ex)
-        {
-            await ErrorLogger.LogAsync(ex, nameof(CreateChangeDialog));
-            Snackbar.Add("Unable to load change participant users right now.", Severity.Warning);
-        }
-        finally
-        {
-            participantsLoading = false;
-        }
-    }
-
-    private Task OnApproversChanged(IEnumerable<string>? values)
+    private Task OnApproversChanged(HashSet<string>? values)
     {
         selectedApproverIds = values?.ToHashSet(StringComparer.OrdinalIgnoreCase) ?? new(StringComparer.OrdinalIgnoreCase);
         model.ApproverUserIds = selectedApproverIds.ToList();
@@ -368,6 +290,7 @@
 
     private async Task Submit()
     {
+        if (isSubmitting) return;
         await form.ValidateAsync();
         if (!form.IsValid)
         {
@@ -408,6 +331,7 @@
             return;
         }
 
+        isSubmitting = true;
         try
         {
             var response = await HelpdeskApi.PostAsJsonAsync("api/v1/changes", model);
@@ -441,6 +365,7 @@
             Snackbar.Add("Unexpected error", Severity.Error);
             await ErrorLogger.LogAsync(ex, nameof(CreateChangeDialog));
         }
+        finally { isSubmitting = false; }
     }
 
     private static async Task<List<string>> ReadErrorsAsync(HttpResponseMessage response)
@@ -466,28 +391,6 @@
         }
 
         return date.Value.Date.Add(time.Value);
-    }
-
-    private static string FormatUser(ChangeParticipantUserDto user) =>
-        string.IsNullOrWhiteSpace(user.Email) ? user.Name : $"{user.Name} ({user.Email})";
-
-    private string GetApproverMultiSelectionText(IReadOnlyList<string> selectedValues)
-    {
-        var selected = selectedValues ?? Array.Empty<string>();
-        if (selected.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        var labels = selected
-            .Select(id => approverUsers.FirstOrDefault(user => string.Equals(user.Id, id, StringComparison.OrdinalIgnoreCase)))
-            .Where(user => user is not null)
-            .Select(user => FormatUser(user!))
-            .ToList();
-
-        return labels.Count == 0
-            ? $"{selected.Count} selected"
-            : string.Join(", ", labels);
     }
 
     private sealed class TemplateErrorResponseDto

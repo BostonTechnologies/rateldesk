@@ -21,13 +21,13 @@ using Npgsql;
 
 namespace Helpdesk.Infrastructure.Resources;
 
-public sealed class DataManagementService(
+public sealed partial class DataManagementService(
     Persistence.HelpdeskDbContext db,
     IMemoryCache cache,
     ISecretProtector protector,
     IHttpClientFactory httpClientFactory,
     ILogger<DataManagementService> logger,
-    IGraphDatasetCredentialFactory? graphCredentials = null) : IDataManagementService, IOperatorDatasetWriter
+    IGraphDatasetCredentialFactory? graphCredentials = null) : IDataManagementService, IOperatorDatasetWriter, IGraphDatasetWorkflowService, IDatasetCreateReconciliation
 {
     private const string BoundLabelKey = "_boundLabels";
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -74,7 +74,26 @@ public sealed class DataManagementService(
 
     public async Task<DatasetDefinitionDto> CreateDatasetAsync(CreateDatasetDefinitionDto dto, CancellationToken cancellationToken = default)
     {
+        dto.Columns ??= [];
+        // Existing clients may omit the schema to request the supported id/name defaults.
+        // Guided drafts carry RequestId and validate their explicit schema instead.
+        var columnsForValidation = dto.Columns.Count == 0 && dto.RequestId is null
+            ? NormalizeColumns(dto.Columns, dto.KeyColumn, dto.DisplayColumn, dto.SearchColumns)
+            : dto.Columns;
+        ValidateDefinition(dto.Name, dto.SourceType, columnsForValidation, dto.KeyColumn, dto.DisplayColumn, dto.SearchColumns);
         var normalizedColumns = NormalizeColumns(dto.Columns, dto.KeyColumn, dto.DisplayColumn, dto.SearchColumns);
+        var creationSearchColumns = CreationSearchColumns(dto, normalizedColumns);
+        foreach (var column in normalizedColumns)
+            column.IsSearchable = creationSearchColumns.Contains(column.Name, StringComparer.OrdinalIgnoreCase);
+        var retry = await FindCreationRetryAsync(dto, normalizedColumns, cancellationToken);
+        if (retry is not null) return retry;
+        var slug = Slugify(dto.Name);
+        if (await _db.DatasetDefinitions.AnyAsync(x => x.OrganizationId == dto.OrganizationId.Trim() && x.Slug == slug, cancellationToken))
+        {
+            retry = await FindCreationRetryAsync(dto, normalizedColumns, cancellationToken);
+            if (retry is not null) return retry;
+            throw new DatasetDefinitionValidationException(new Dictionary<string, string[]> { ["Name"] = ["A dataset with this name already exists in this organization."] });
+        }
         var definition = new DatasetDefinition
         {
             OrganizationId = dto.OrganizationId.Trim(),
@@ -83,12 +102,13 @@ public sealed class DataManagementService(
             SourceType = dto.SourceType,
             KeyColumn = ResolveKeyColumn(dto.KeyColumn, normalizedColumns),
             DisplayColumn = ResolveDisplayColumn(dto.DisplayColumn, normalizedColumns),
-            SearchColumns = ResolveSearchColumns(dto.SearchColumns, normalizedColumns),
+            SearchColumns = creationSearchColumns,
             IsBuiltIn = dto.SourceType != DatasetSourceType.Custom,
             IsActive = dto.IsActive,
             CreatedAtUtc = DateTimeOffset.UtcNow,
             UpdatedAtUtc = DateTimeOffset.UtcNow
         };
+        if (dto.RequestId is { } requestId) definition.Id = CreationDatasetId(definition.OrganizationId, requestId);
 
         _db.DatasetDefinitions.Add(definition);
         foreach (var column in normalizedColumns)
@@ -105,7 +125,17 @@ public sealed class DataManagementService(
             });
         }
 
-        await _db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException error) when (IsDatasetWriteConflict(error))
+        {
+            _db.ChangeTracker.Clear();
+            var concurrent = await FindCreationRetryAsync(dto, normalizedColumns, cancellationToken);
+            if (concurrent is not null) return concurrent;
+            throw new DatasetWriteConflictException("The dataset list changed during creation. Reload the saved datasets before retrying.");
+        }
         InvalidateDatasetCache(definition.OrganizationId, definition.Id);
         return (await GetDatasetAsync(definition.Id, cancellationToken))!;
     }
@@ -116,6 +146,16 @@ public sealed class DataManagementService(
         if (definition is null)
         {
             return null;
+        }
+
+        var validationColumns = dto.Columns ?? MapDatasetDto(definition, await GetDatasetColumnsCachedAsync(datasetId, cancellationToken)).Columns;
+        ValidateDefinition(dto.Name ?? definition.Name, dto.SourceType ?? definition.SourceType, validationColumns,
+            dto.KeyColumn ?? definition.KeyColumn, dto.DisplayColumn ?? definition.DisplayColumn, dto.SearchColumns ?? definition.SearchColumns);
+        if (dto.Name is { } updatedName)
+        {
+            var updatedSlug = Slugify(updatedName);
+            if (await _db.DatasetDefinitions.AnyAsync(value => value.OrganizationId == definition.OrganizationId && value.Id != datasetId && value.Slug == updatedSlug, cancellationToken))
+                throw new DatasetDefinitionValidationException(new Dictionary<string, string[]> { ["Name"] = ["A dataset with this name already exists in this organization."] });
         }
 
         if (!string.IsNullOrWhiteSpace(dto.Name))
@@ -710,14 +750,16 @@ public sealed class DataManagementService(
             DeleteMissing = true,
             Rows = rows.Select(row =>
             {
-                var keyValue = row[dataset.KeyColumn]?.GetValue<string?>() ?? string.Empty;
+                if (row[dataset.KeyColumn] is not JsonValue key || !key.TryGetValue<string>(out var keyValue) ||
+                    string.IsNullOrWhiteSpace(keyValue))
+                    throw new JsonException("Microsoft Graph returned a row without a valid stable key; existing rows were retained.");
                 return new UpsertDatasetRowDto
                 {
                     ExternalKey = keyValue,
                     Data = row,
                     SourceUpdatedAtUtc = DateTimeOffset.UtcNow
                 };
-            }).Where(x => !string.IsNullOrWhiteSpace(x.ExternalKey)).ToList()
+            }).ToList()
         };
 
         await EnsureBuiltInCredentialAsync(dataset.Id, cancellationToken);
@@ -768,20 +810,17 @@ public sealed class DataManagementService(
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, nextUrl);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-            var response = await client.SendAsync(request, cancellationToken);
+            using var response = await client.SendAsync(request, cancellationToken);
             response.EnsureSuccessStatusCode();
 
             var payload = await response.Content.ReadAsStringAsync(cancellationToken);
-            var root = JsonNode.Parse(payload)?.AsObject() ?? new JsonObject();
-            if (root["value"] is JsonArray valueArray)
+            if (JsonNode.Parse(payload) is not JsonObject root || root["value"] is not JsonArray valueArray)
+                throw new JsonException("Microsoft Graph returned a malformed dataset page; existing rows were retained.");
+            foreach (var item in valueArray)
             {
-                foreach (var item in valueArray)
-                {
-                    if (item is JsonObject obj)
-                    {
-                        results.Add(obj);
-                    }
-                }
+                if (item is not JsonObject obj)
+                    throw new JsonException("Microsoft Graph returned a malformed dataset row; existing rows were retained.");
+                results.Add(obj);
             }
 
             nextUrl = root["@odata.nextLink"]?.GetValue<string?>();
@@ -903,13 +942,13 @@ public sealed class DataManagementService(
     private static DatasetOptionDto MapOptionDto(DatasetRow row, DatasetDefinition definition)
     {
         var data = JsonNode.Parse(row.DataJson.RootElement.GetRawText())?.AsObject() ?? new JsonObject();
-        var label = data[definition.DisplayColumn]?.GetValue<string?>()
-                    ?? data[definition.KeyColumn]?.GetValue<string?>()
+        var label = GetScalarText(data[definition.DisplayColumn])
+                    ?? GetScalarText(data[definition.KeyColumn])
                     ?? row.ExternalKey;
 
         var previewParts = definition.SearchColumns
             .Where(x => !string.Equals(x, definition.DisplayColumn, StringComparison.OrdinalIgnoreCase))
-            .Select(x => data[x]?.GetValue<string?>())
+            .Select(x => GetScalarText(data[x]))
             .Where(x => !string.IsNullOrWhiteSpace(x))
             .Take(2)
             .ToList();
@@ -942,6 +981,7 @@ public sealed class DataManagementService(
             OrganizationId = settings.OrganizationId,
             TenantId = settings.TenantId,
             ClientId = settings.ClientId,
+            HasStoredSecret = !string.IsNullOrWhiteSpace(settings.ClientSecretProtected),
             EnableUsers = settings.EnableUsers,
             EnableDevices = settings.EnableDevices,
             EnableGroups = settings.EnableGroups,
@@ -992,13 +1032,15 @@ public sealed class DataManagementService(
 
     private static string ResolveKeyColumn(string? keyColumn, IReadOnlyList<DatasetColumnDto> columns)
     {
-        return columns.FirstOrDefault(x => string.Equals(x.Name, keyColumn, StringComparison.OrdinalIgnoreCase) || x.IsKey)?.Name
+        return columns.FirstOrDefault(x => string.Equals(x.Name, keyColumn, StringComparison.OrdinalIgnoreCase))?.Name
+               ?? columns.FirstOrDefault(x => x.IsKey)?.Name
                ?? columns[0].Name;
     }
 
     private static string ResolveDisplayColumn(string? displayColumn, IReadOnlyList<DatasetColumnDto> columns)
     {
-        return columns.FirstOrDefault(x => string.Equals(x.Name, displayColumn, StringComparison.OrdinalIgnoreCase) || x.IsDisplay)?.Name
+        return columns.FirstOrDefault(x => string.Equals(x.Name, displayColumn, StringComparison.OrdinalIgnoreCase))?.Name
+               ?? columns.FirstOrDefault(x => x.IsDisplay)?.Name
                ?? columns[0].Name;
     }
 
@@ -1055,20 +1097,32 @@ public sealed class DataManagementService(
     private static string BuildSearchText(JsonObject data, DatasetDefinition dataset)
     {
         var parts = dataset.SearchColumns
-            .Select(x => data[x]?.GetValue<string?>())
+            .Select(x => GetScalarText(data[x]))
             .Where(x => !string.IsNullOrWhiteSpace(x))
             .Select(x => x!.Trim().ToLowerInvariant())
             .ToList();
 
         if (parts.Count == 0)
         {
-            parts = data.Select(x => x.Value?.GetValue<string?>())
+            parts = data.Select(x => GetScalarText(x.Value))
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .Select(x => x!.Trim().ToLowerInvariant())
                 .ToList();
         }
 
         return string.Join(" ", parts);
+    }
+
+    private static string? GetScalarText(JsonNode? node)
+    {
+        if (node is not JsonValue scalar) return null;
+        if (scalar.TryGetValue<string>(out var text)) return text;
+        return scalar.GetValueKind() switch
+        {
+            JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False => scalar.ToJsonString(JsonOptions),
+            JsonValueKind.String => JsonSerializer.Deserialize<string>(scalar.ToJsonString(JsonOptions), JsonOptions),
+            _ => null
+        };
     }
 
     private static string HashKey(string value)

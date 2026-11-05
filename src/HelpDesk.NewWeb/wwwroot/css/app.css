@@ -1298,8 +1298,12 @@ h1[tabindex="-1"]:focus
 /* Keep the wide assignee chooser within the viewport when neither side of a
    narrow table trigger has enough room for MudPopover's horizontal flip. */
 .assignee-popup { z-index: 1601 !important; }
+.ticket-state-overlay { z-index: calc(var(--mud-zindex-appbar) + 1) !important; }
+.ticket-state-popover { z-index: calc(var(--mud-zindex-appbar) + 2) !important; width: 340px; max-width: calc(100vw - 24px) !important; max-height: min(560px, 80vh); overflow-y: auto !important; overflow-x: hidden; }
+.ticket-state-popover .state-popup-current { opacity: 1 !important; color: var(--mud-palette-text-primary) !important; }
 @media (max-width: 600px) {
     .assignee-popup { left: 12px !important; width: calc(100vw - 24px) !important; min-width: 0 !important; }
+    .ticket-state-popover { left: 12px !important; }
 }
 
 /* MudPopover renders its portal outside CSS isolation. Bound the email preview
@@ -1334,3 +1338,33 @@ body.chat-conversation-maximised .mud-popover-open { z-index: 1450 !important; }
 
 /* The AI investigation workspace uses the space below the shared application bar. */
 .helpdesk-main-content:has(> .ai-ops) { height: 100dvh; display: flex; flex-direction: column; padding-bottom: 14px !important; }
+
+/* Dialogs render in MudBlazor's portal, outside the page's CSS isolation. */
+.data-wizard-dialog { width: min(1100px, calc(100vw - 40px)); max-width: 1100px !important; max-height: calc(100dvh - 40px); display: flex; flex-direction: column; }
+.data-wizard-dialog .mud-dialog-title { flex: 0 0 auto; padding-bottom: 0; }
+.data-wizard-dialog .mud-dialog-content { overflow: auto; min-height: 0; overscroll-behavior: contain; }
+.data-wizard-dialog .mud-dialog-actions { flex: 0 0 auto; flex-wrap: wrap; gap: .4rem; border-top: 1px solid var(--mud-palette-divider); padding: 1rem 1.5rem; background: var(--mud-palette-surface); }
+.data-wizard-context { margin: .4rem 0; color: var(--mud-palette-text-secondary); font-size: .85rem; overflow-wrap: anywhere; }
+.data-wizard-steps { display: flex; gap: .6rem; padding: .8rem 0; margin: 0; list-style: none; flex-wrap: wrap; }
+.data-wizard-steps li { display: flex; align-items: center; gap: .4rem; color: var(--mud-palette-text-secondary); font-size: .82rem; }
+.data-wizard-steps li span { display: inline-flex; align-items: center; justify-content: center; width: 1.6rem; height: 1.6rem; border: 1px solid var(--mud-palette-divider); border-radius: 50%; flex-shrink: 0; }
+.data-wizard-steps li.active { color: var(--mud-palette-text-primary); font-weight: 650; }
+.data-wizard-steps li.active span { color: var(--mud-palette-primary-text); background: var(--mud-palette-primary); border-color: var(--mud-palette-primary); }
+.data-wizard-fields { border: 0; margin: 0; padding: 0; min-width: 0; }
+.data-wizard-summary { display: grid; grid-template-columns: minmax(5rem, 9rem) minmax(0, 1fr); gap: .5rem 1rem; margin-bottom: 1rem; }
+.data-wizard-summary dt { color: var(--mud-palette-text-secondary); }
+.data-wizard-summary dd { margin: 0; overflow-wrap: anywhere; }
+.data-wizard-dialog .mud-table-container { max-width: 100%; }
+.data-wizard-dialog .mud-typography, .data-wizard-dialog td { overflow-wrap: anywhere; }
+.data-wizard-dialog .graph-source-choice { padding-block: .5rem; border-bottom: 1px solid var(--mud-palette-divider); }
+.data-wizard-dialog .graph-source-choice > .mud-typography { padding-left: .7rem; }
+.data-schema-role { accent-color: var(--mud-palette-primary); width: 1.2rem; height: 1.2rem; cursor: pointer; }
+.data-schema-role:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 3px; }
+@media (max-width: 600px) {
+    .data-wizard-dialog { position: fixed; inset: 0; width: 100% !important; max-width: 100% !important; max-height: 100dvh; height: 100dvh; margin: 0 !important; border-radius: 0; }
+    .data-wizard-dialog .mud-dialog-title, .data-wizard-dialog .mud-dialog-content { padding-inline: 1rem; }
+    .data-wizard-dialog .mud-dialog-actions { padding: .7rem 1rem; }
+    .data-wizard-steps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .4rem; }
+    .data-wizard-steps li { font-size: .75rem; }
+    .data-wizard-summary { grid-template-columns: minmax(4rem, 6rem) minmax(0, 1fr); }
+}

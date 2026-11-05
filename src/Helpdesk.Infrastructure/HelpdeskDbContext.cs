@@ -113,6 +113,7 @@ public class HelpdeskDbContext(
     public DbSet<DatasetRow> DatasetRows => Set<DatasetRow>();
     public DbSet<DatasetIngestCredential> DatasetIngestCredentials => Set<DatasetIngestCredential>();
     public DbSet<TenantGraphDatasetSettings> TenantGraphDatasetSettings => Set<TenantGraphDatasetSettings>();
+    public DbSet<GraphDatasetImportRun> GraphDatasetImportRuns => Set<GraphDatasetImportRun>();
     public DbSet<HangfireRuntimeSettings> HangfireRuntimeSettings => Set<HangfireRuntimeSettings>();
     public DbSet<AiAssistantWebhookConfiguration> AiAssistantWebhookConfigurations => Set<AiAssistantWebhookConfiguration>();
     public DbSet<AiInvestigationInvocation> AiInvestigationInvocations => Set<AiInvestigationInvocation>();
@@ -132,6 +133,7 @@ public class HelpdeskDbContext(
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        if (Database.IsSqlite()) SqliteUnicodeSearch.Configure(modelBuilder);
         modelBuilder.ConfigureServiceIdentityModel();
         modelBuilder.ConfigurePairingModel();
         modelBuilder.Entity<IncidentReceiverSource>(entity =>
@@ -494,6 +496,14 @@ public class HelpdeskDbContext(
         {
             entity.ToTable("TenantGraphDatasetSettings");
             entity.HasKey(x => x.OrganizationId);
+        });
+
+        modelBuilder.Entity<GraphDatasetImportRun>(entity =>
+        {
+            entity.ToTable("GraphDatasetImportRuns");
+            entity.HasKey(x => new { x.OrganizationId, x.RequestId });
+            entity.HasIndex(x => x.ActiveOrganizationId).IsUnique();
+            entity.HasIndex(x => new { x.OrganizationId, x.StartedAtUtcTicks });
         });
 
         modelBuilder.Entity<SupportGroup>(entity =>

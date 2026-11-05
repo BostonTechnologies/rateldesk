@@ -75,6 +75,70 @@ public sealed class ChangeStateAndAuthorityHttpTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task Lifecycle_options_are_scoped_read_only_and_share_authoritative_guards(bool postgres)
+    {
+        await using var h = await CreateAsync(postgres);
+        await SeedChangesAsync(h);
+        await GrantChangeWriterAsync(h);
+        var before = await SnapshotAsync(h);
+        using var draft = await BoundedAsync(h, HttpMethod.Get, "/api/v1/changes/draft/lifecycle-options");
+        Assert.Equal(HttpStatusCode.OK, draft.StatusCode);
+        var draftOptions = await draft.Content.ReadFromJsonAsync<ChangeLifecycleOptionsDto>();
+        Assert.Equal(ChangeLifecycleState.Submitted, Assert.Single(draftOptions!.Choices).State);
+        Assert.Null(draftOptions.Choices[0].UnavailableReason);
+        using var writerPending = await BoundedAsync(h, HttpMethod.Get, "/api/v1/changes/pending/lifecycle-options");
+        var writerChoices = (await writerPending.Content.ReadFromJsonAsync<ChangeLifecycleOptionsDto>())!.Choices;
+        Assert.Equal(ChangeLifecycleState.Draft, Assert.Single(writerChoices).State);
+        using var adminPending = await h.AdminAsync(HttpMethod.Get, "/api/v1/changes/pending/lifecycle-options");
+        var adminChoices = (await adminPending.Content.ReadFromJsonAsync<ChangeLifecycleOptionsDto>())!.Choices;
+        Assert.Contains(adminChoices, option => option.State == ChangeLifecycleState.ApprovedForImplementation && option.UnavailableReason!.Contains("Outstanding approvals"));
+        using var incomplete = await h.AdminAsync(HttpMethod.Get, "/api/v1/changes/incomplete/lifecycle-options");
+        var blockedChoices = (await incomplete.Content.ReadFromJsonAsync<ChangeLifecycleOptionsDto>())!.Choices;
+        Assert.Equal(2, blockedChoices.Count);
+        Assert.All(blockedChoices, option => Assert.Contains("template", option.UnavailableReason!));
+        using var terminal = await h.AdminAsync(HttpMethod.Get, "/api/v1/changes/implemented/lifecycle-options");
+        Assert.Empty((await terminal.Content.ReadFromJsonAsync<ChangeLifecycleOptionsDto>())!.Choices);
+        using var foreign = await BoundedAsync(h, HttpMethod.Get, "/api/v1/changes/foreign/lifecycle-options");
+        Assert.Equal(HttpStatusCode.NotFound, foreign.StatusCode);
+        Assert.Equal(before, await SnapshotAsync(h));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Submit_command_returns_saved_lifecycle_for_writer_complete_and_incomplete_templates(bool postgres)
+    {
+        await using var h = await CreateAsync(postgres);
+        await SeedChangesAsync(h);
+        await GrantChangeWriterAsync(h);
+        var beforeSubmission = await SnapshotAsync(h);
+        await h.EditAsync(async db =>
+        {
+            var template = (await db.Changes.SingleAsync(change => change.Id == "draft")).ChangeTemplateJson;
+            db.Changes.AddRange(
+                new Change { Id = "incomplete-draft", TrackingId = "CHG-INCOMPLETE", Title = "Incomplete draft", OrganizationId = h.OrganizationId, CustomerId = h.CustomerId, ChangeType = "Standard", LifecycleState = ChangeLifecycleState.Draft, ImplementorUserId = "support-user" },
+                new Change { Id = "automatic-draft", TrackingId = "CHG-AUTOMATIC", Title = "Complete administrator draft", OrganizationId = h.OrganizationId, CustomerId = h.CustomerId, ChangeType = "Standard", LifecycleState = ChangeLifecycleState.Draft, ChangeTemplateJson = template, ImplementorUserId = "support-user" });
+        });
+        using var writerSubmit = await BoundedAsync(h, HttpMethod.Post, "/api/v1/changes/draft/lifecycle", new { LifecycleState = ChangeLifecycleState.Submitted });
+        Assert.Equal(HttpStatusCode.OK, writerSubmit.StatusCode);
+        Assert.Equal(ChangeLifecycleState.PendingApproval, (await writerSubmit.Content.ReadFromJsonAsync<ChangeDto>())!.LifecycleState);
+        using var incompleteSubmit = await BoundedAsync(h, HttpMethod.Post, "/api/v1/changes/incomplete-draft/lifecycle", new { LifecycleState = ChangeLifecycleState.Submitted });
+        Assert.Equal(HttpStatusCode.OK, incompleteSubmit.StatusCode);
+        Assert.Equal(ChangeLifecycleState.Draft, (await incompleteSubmit.Content.ReadFromJsonAsync<ChangeDto>())!.LifecycleState);
+        using var adminSubmit = await h.AdminAsync(HttpMethod.Post, "/api/v1/changes/automatic-draft/lifecycle", new { LifecycleState = ChangeLifecycleState.Submitted });
+        Assert.Equal(HttpStatusCode.OK, adminSubmit.StatusCode);
+        Assert.Equal(ChangeLifecycleState.ApprovedForImplementation, (await adminSubmit.Content.ReadFromJsonAsync<ChangeDto>())!.LifecycleState);
+        foreach (var (id, expected) in new[] { ("draft", ChangeLifecycleState.PendingApproval), ("incomplete-draft", ChangeLifecycleState.Draft), ("automatic-draft", ChangeLifecycleState.ApprovedForImplementation) })
+        {
+            using var readback = await BoundedAsync(h, HttpMethod.Get, $"/api/v1/changes/{id}");
+            Assert.Equal(expected, (await readback.Content.ReadFromJsonAsync<ChangeDto>())!.LifecycleState);
+        }
+        Assert.True((await SnapshotAsync(h)).Outbox > beforeSubmission.Outbox);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task Change_approval_template_editlock_and_atomic_bulk_rules_survive_state_support(bool postgres)
     {
         await using var h = await CreateAsync(postgres);
@@ -292,7 +356,7 @@ public sealed class ChangeStateAndAuthorityHttpTests
     private static async Task SeedChangesAsync(IncidentReceiverTests.Harness h) => await h.EditAsync(db =>
     {
         db.Organizations.Add(new Organization { Id = "foreign-org", Name = "Foreign" });
-        foreach (var name in new[] { "ChangeImplementationInProgress", "ChangeImplemented" })
+        foreach (var name in new[] { "ChangeSubmitted", "ChangeApprovalRequired", "ChangeImplementationInProgress", "ChangeImplemented" })
             db.EmailTemplates.Add(new EmailTemplate { Name = name, Subject = "Synthetic change {{TicketRef}}", HtmlContent = "<p>Synthetic change lifecycle notification.</p>" });
         var template = JsonSerializer.Serialize(new ChangeTemplateDto { IsPreApproved = true, ExistingRunbookReference = "SOP-SYNTHETIC", ScopeOfChange = "Owned test", AffectedSystems = ["Test service"], ImplementationSteps = ["Apply"], ValidationSteps = ["Verify"], RollbackPlan = "Restore" });
         foreach (var (id, lifecycle, state) in new[] { ("draft", ChangeLifecycleState.Draft, TicketState.New), ("approved", ChangeLifecycleState.ApprovedForImplementation, TicketState.New), ("pending", ChangeLifecycleState.PendingApproval, TicketState.New), ("implemented", ChangeLifecycleState.ImplementedSuccess, TicketState.Resolved), ("incomplete", ChangeLifecycleState.ImplementationInProgress, TicketState.InProgress) })

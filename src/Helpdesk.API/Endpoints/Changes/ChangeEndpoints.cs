@@ -996,6 +996,45 @@ public static partial class ChangeEndpoints
         .WithDescription("Assigns the selected changes to the specified team member.")
         .WithTags("Changes");
 
+        group.MapGet("/{id}/lifecycle-options", async (
+            [FromRoute] string id,
+            ClaimsPrincipal user,
+            [FromServices] ICurrentUserAccessService accessService,
+            [FromServices] HelpdeskDbContext db,
+            [FromServices] IChangeTemplateService changeTemplateService,
+            CancellationToken token) =>
+        {
+            var authorization = await AuthorizeChangeAsync(id, user, accessService, db, requireManager: false, token);
+            if (authorization.Failure is not null) return authorization.Failure;
+            var change = await db.Changes.AsNoTracking().FirstOrDefaultAsync(candidate => candidate.Id == id, token);
+            if (change is null) return Results.NotFound();
+            var current = EffectiveLifecycleState(change);
+            var access = authorization.Access!;
+            var template = changeTemplateService.DeserializeTemplate(change.ChangeTemplateJson);
+            var validation = changeTemplateService.ValidateTemplate(change.ChangeType, template);
+            var hasPendingApprovals = await db.ChangeApprovals.AsNoTracking()
+                .AnyAsync(approval => approval.ChangeId == id && approval.Status == ChangeApprovalStatus.Pending, token);
+            var choices = Enum.GetValues<ChangeLifecycleState>()
+                .Where(target => target != current && ValidateQuickLifecycleTransition(current, target) is null)
+                .Where(target => target == ChangeLifecycleState.ApprovedForImplementation
+                    ? access.CanApproveChange(change.OrganizationId) : access.CanManageChange(change.OrganizationId))
+                .Select(target => new ChangeLifecycleOptionDto(target,
+                    target == ChangeLifecycleState.ApprovedForImplementation && hasPendingApprovals
+                        ? "Outstanding approvals must be completed in the change details."
+                        : IsImplementedLifecycleState(target) && !validation.IsComplete
+                            ? "Complete the change template in the details before implementing."
+                            : null))
+                .ToArray();
+            var guidance = current == ChangeLifecycleState.Draft
+                ? "Submit evaluates the saved template and approvals. The change may remain Draft until its template is complete."
+                : IsImplementedLifecycleState(current)
+                    ? "Implemented changes have no quick lifecycle actions."
+                    : choices.Length == 0 ? "No lifecycle actions are available with your current permissions." : null;
+            return Results.Ok(new ChangeLifecycleOptionsDto(change.Id, current, choices, guidance));
+        })
+        .WithName("GetChangeLifecycleOptions")
+        .WithSummary("Gets current, permitted quick lifecycle actions without changing the change");
+
         group.MapPost("/{id}/lifecycle", async (
             [FromRoute] string id,
             [FromBody] QuickChangeLifecycleRequest req,

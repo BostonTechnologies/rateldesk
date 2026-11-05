@@ -6,6 +6,7 @@ public class TenantGraphDatasetSettingsDto
     public string? TenantId { get; set; }
     public string? ClientId { get; set; }
     public string? ClientSecret { get; set; }
+    public bool HasStoredSecret { get; set; }
     public bool EnableUsers { get; set; }
     public bool EnableDevices { get; set; }
     public bool EnableGroups { get; set; }

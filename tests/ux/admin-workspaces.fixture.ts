@@ -1,6 +1,8 @@
 import { expect, test, Page } from '@playwright/test';
 const fixture = 'http://127.0.0.1:18500/fixture';
 const baseline = process.env.HELPDESK_ADMIN_BASELINE === 'true';
+// Explicit evidence screenshots below use synthetic non-secret states. Automatic failure captures must never include one-time ingestion keys.
+test.use({screenshot:'off',trace:'off'});
 const routes = [
  ['roles', '/admin/roles', 'Roles & Permissions', '.role-workspace'],
  ['datasets', '/admin/resources/data-management', 'Data Management', '.data-management-page'],
@@ -16,8 +18,16 @@ async function reload(page: Page) {
  await page.reload();
  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true', { timeout: 20_000 });
 }
+async function settleEvidence(page: Page) {
+ await page.evaluate(async()=>{await document.fonts.ready;});
+ await expect.poll(()=>page.evaluate(()=>document.getAnimations().filter(animation=>
+  animation.playState!=='finished'&&animation.playState!=='idle'&&Number.isFinite(animation.effect?.getComputedTiming().endTime)
+ ).length)).toBe(0);
+ await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
+}
 async function select(page: Page, label: string, name: string) {
- await page.getByRole('combobox', { name: label, exact: true }).click();
+ const selector=page.getByRole('combobox',{name:new RegExp(`^${label}[*]?$`)});
+ if(await selector.evaluate(element=>element.tagName==='INPUT'))await selector.fill(name);else await selector.click();
  await page.getByRole('option', { name, exact: true }).click();
 }
 test.beforeEach(async ({ page, request }) => {
@@ -65,9 +75,9 @@ test.describe('focused admin tasks', () => {
     if (path.endsWith('/data-management') && (await tabs.nth(index).innerText()).trim().toLowerCase() === 'schema') {
      await expect(page.getByRole('textbox', { name: 'Column name', exact: true }).first()).toBeVisible();
      await expect(page.getByRole('combobox', { name: 'Column data type', exact: true }).first()).toBeVisible();
-     await expect(page.getByRole('checkbox', { name: 'Use as key column', exact: true }).first()).toBeVisible();
-     await expect(page.getByRole('checkbox', { name: 'Use as display column', exact: true }).first()).toBeVisible();
-     await expect(page.getByRole('checkbox', { name: 'Search this column', exact: true }).first()).toBeVisible();
+     await expect(page.getByRole('radio', { name: 'Use id as key column', exact: true }).first()).toBeVisible();
+     await expect(page.getByRole('radio', { name: 'Use name as display column', exact: true }).first()).toBeVisible();
+     await expect(page.getByRole('checkbox', { name: 'Search name column', exact: true }).first()).toBeVisible();
      await expect(page.getByRole('button', { name: 'Remove column id', exact: true })).toBeVisible();
      await page.screenshot({ path: info.outputPath('after-dataset-schema-light-320.png'), fullPage: true });
     }
@@ -147,7 +157,7 @@ test.describe('focused admin tasks', () => {
   await expect(page.getByRole('textbox', { name: 'Dataset Name' })).toHaveValue('Draft inventory');
   await select(page, 'Organization', 'Birch Tenant');
   await page.getByRole('button', { name: 'Keep editing', exact: true }).click();
-  await expect(page.getByRole('combobox', { name: 'Organization', exact: true })).toContainText('Atlas Tenant');
+  await expect(page.getByRole('combobox', { name: /^Organization\*?$/ })).toHaveValue('Atlas Tenant');
   await expect(page.getByRole('textbox', { name: 'Dataset Name' })).toHaveValue('Draft inventory');
   await select(page, 'Organization', 'Birch Tenant');
   await page.getByRole('button', { name: 'Discard', exact: true }).click();
@@ -169,46 +179,38 @@ test.describe('focused admin tasks', () => {
  });
  test('dataset save reloads the existing schema and retains both saved columns', async ({ page, request }) => {
   await open(page, '/admin/resources/data-management');
-  await page.getByRole('tab', { name: 'Ingest API', exact: true }).click();
-  await page.getByRole('textbox', { name: 'API key name', exact: true }).fill('unfinished-key');
   await page.getByRole('tab', { name: 'Schema', exact: true }).click();
   await page.getByRole('textbox', { name: 'Dataset Name' }).fill('Saved inventory');
   await page.getByRole('button', { name: 'Save Dataset', exact: true }).click();
   await expect(page.getByText('Dataset saved.', { exact: true })).toBeVisible();
-  await page.getByRole('tab', { name: 'Ingest API', exact: true }).click();
-  await expect(page.getByRole('textbox', { name: 'API key name', exact: true })).toHaveValue('unfinished-key');
-  await page.getByRole('textbox', { name: 'API key name', exact: true }).fill('');
-  await page.getByRole('tab', { name: 'Rows', exact: true }).click();
+  await page.getByRole('tab', { name: 'API access', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Create ingestion API key', exact: true })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: /^API key name\*?$/ })).toHaveCount(0);
   await reload(page); await page.getByRole('tab', { name: 'Schema', exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'Dataset Name' })).toHaveValue('Saved inventory');
   const state = await (await request.get(`${fixture}/state`)).json();
   expect(state.saves).toHaveLength(1); expect(state.saves[0].payload.columns.map(x => x.name)).toEqual(['id', 'name']);
  });
- test('dataset deletion preserves unrelated Graph draft and sync preserves API key draft', async ({ page, request }) => {
+ test('built-in setup and cancelled Graph draft remain separate from custom schema editing', async ({ page, request }) => {
   await open(page, '/admin/resources/data-management');
-  await page.getByRole('tab', { name: 'Graph sync', exact: true }).click();
-  await page.getByText('Connector settings', { exact: true }).click();
-  await page.getByRole('textbox', { name: 'Client Id', exact: true }).fill('unsaved-connector');
+  await expect(page.getByRole('heading', { name: 'Custom datasets', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Built-in integrations', exact: true })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Graph sync', exact: true })).toHaveCount(0);
+  await page.getByRole('button',{name:'Set up Microsoft Graph',exact:true}).click();
+  const wizard=page.getByRole('dialog',{name:'Microsoft Graph setup',exact:true});
+  await wizard.getByRole('textbox',{name:/^Application \/ client ID\*?$/}).fill('unsaved-connector');
+  await wizard.getByRole('button',{name:'Cancel',exact:true}).click();
+  await page.getByRole('dialog').filter({has:page.getByText('Discard Graph draft?',{exact:true})}).getByRole('button',{name:'Discard',exact:true}).click();
+  await expect(wizard).toBeHidden();
   await page.getByRole('tab', { name: 'Schema', exact: true }).click();
   await page.getByRole('button', { name: 'Delete', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(page.getByText('Dataset deleted.', { exact: true })).toBeVisible();
-  await page.getByRole('tab', { name: 'Graph sync', exact: true }).click();
-  await expect(page.getByRole('textbox', { name: 'Client Id', exact: true })).toHaveValue('unsaved-connector');
-  await page.getByRole('button', { name: 'Revert settings', exact: true }).click();
-  await request.get(`${fixture}/reset`); await reload(page);
-  await page.getByRole('tab', { name: 'Graph sync', exact: true }).click();
-  await page.getByText('Connector settings', { exact: true }).click();
-  await page.getByLabel('Users', { exact: true }).check();
-  await page.getByRole('button', { name: 'Save Graph Settings', exact: true }).click();
-  await expect(page.getByText('Graph settings saved.', { exact: true })).toBeVisible();
-  await page.getByRole('tab', { name: 'Ingest API', exact: true }).click();
-  await page.getByRole('textbox', { name: 'API key name', exact: true }).fill('unsaved-key');
-  await page.getByRole('tab', { name: 'Graph sync', exact: true }).click();
-  await page.getByRole('button', { name: 'Sync Built-Ins', exact: true }).click();
-  await expect(page.getByText('Synced 1 built-in datasets.', { exact: true })).toBeVisible();
-  await page.getByRole('tab', { name: 'Ingest API', exact: true }).click();
-  await expect(page.getByRole('textbox', { name: 'API key name', exact: true })).toHaveValue('unsaved-key');
+  await page.getByRole('button',{name:'Set up Microsoft Graph',exact:true}).click();
+  await expect(wizard.getByRole('textbox',{name:/^Application \/ client ID\*?$/})).toHaveValue('');
+  await wizard.getByRole('button',{name:'Cancel',exact:true}).click();
+  const state=await(await request.get(`${fixture}/state`)).json();
+  expect(state.saves.map(item=>item.method)).toEqual(['DELETE']);expect(state.graphTests).toEqual([]);
  });
  test('late SLA response remains bound to the previous tenant', async ({ page, request }) => {
   await request.get(`${fixture}/fault?mode=slow-tenant`);
@@ -280,8 +282,10 @@ test.describe('focused admin tasks', () => {
   await expect(page.getByRole('option', { name: 'DataManagement.Admin', exact: true })).toHaveCount(0);
   await page.keyboard.press('Escape'); await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await open(page, 'https://127.0.0.1:5181/admin/resources/data-management');
-  await expect(page.locator('.data-management-rail').getByText('Atlas Tenant', { exact: true })).toBeVisible();
-  await expect(page.getByRole('combobox', { name: 'Organization', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('combobox', { name: /^Organization\*?$/ })).toHaveValue('Atlas Tenant');
+  await page.getByRole('combobox', { name: /^Organization\*?$/ }).fill('Birch');
+  await expect(page.getByRole('option',{name:'Birch Tenant',exact:true})).toHaveCount(0);
+  await page.keyboard.press('Escape');
   await expect(page.getByText('Birch Tenant', { exact: true })).toHaveCount(0);
   for (const [, path, , selector] of routes.filter(([name]) => name === 'routing' || name === 'sla')) {
    await page.goto(`https://127.0.0.1:5181${path}`);
@@ -293,4 +297,265 @@ test.describe('focused admin tasks', () => {
    await expect(page.locator(selector)).toHaveCount(0);
   }
  });
+});
+
+const datasetWizard = (page: Page) => page.getByRole('dialog', { name: /^(New custom dataset|Dataset created)$/ });
+const graphWizard = (page: Page) => page.getByRole('dialog', { name: 'Microsoft Graph setup', exact: true });
+async function beginDataset(page: Page, name: string) {
+ await page.getByRole('button', { name: 'New dataset', exact: true }).click();
+ const wizard=datasetWizard(page);
+ await expect(wizard).toBeVisible();
+ await wizard.getByRole('textbox',{name:/^Dataset name\*?$/}).fill(name);
+ await wizard.getByRole('button',{name:'Continue',exact:true}).click();
+ await expect(wizard.getByRole('heading',{name:'Design schema',exact:true})).toBeVisible();
+ return wizard;
+}
+async function graphToTest(page: Page, selected: string[] = ['Users']) {
+ await page.getByRole('button',{name:/^(Set up Microsoft Graph|Manage connection)$/}).click();
+ const wizard=graphWizard(page);
+ await expect(wizard).toBeVisible();
+ const tenant=wizard.getByRole('textbox',{name:/^Tenant ID\*?$/});
+ if(!await tenant.inputValue()) {
+  await tenant.fill('synthetic-tenant');
+  await wizard.getByRole('textbox',{name:/^Application \/ client ID\*?$/}).fill('synthetic-client');
+  await wizard.getByLabel('Client secret',{exact:true}).fill('synthetic-draft-only');
+ }
+ await wizard.getByRole('button',{name:'Continue',exact:true}).click();
+ for(const source of ['Users','Computers/devices','Groups','SharePoint sites']) {
+  const checkbox=wizard.getByRole('checkbox',{name:source,exact:true});
+  if(selected.includes(source))await checkbox.check();else await checkbox.uncheck();
+ }
+ await wizard.getByRole('button',{name:'Continue',exact:true}).click();
+ await expect(wizard.getByRole('heading',{name:'Test access',exact:true})).toBeVisible();
+ return wizard;
+}
+
+test.describe('guided datasets and Graph integrations',()=>{
+ test.skip(baseline,'Baseline is captured as before evidence only.');
+ test('organization context searches beyond the first page and source catalog exists before import',async({page,request})=>{
+  await request.get(`${fixture}/fault?mode=many-organizations`);await open(page,'/admin/resources/data-management');
+  await expect(page.locator('.graph-source-card')).toHaveCount(4);
+  for(const source of ['Users','Computers/devices','Groups','SharePoint sites'])await expect(page.locator('.graph-source-card').filter({has:page.getByText(source,{exact:true})})).toContainText('Not imported');
+  const organization=page.getByRole('combobox',{name:/^Organization\*?$/});
+  await organization.fill('oRgAnIzAtIoN 39');
+  await page.getByRole('option',{name:'Synthetic organization 39',exact:true}).click();
+  await expect(organization).toHaveValue('Synthetic organization 39');
+  await expect(page.getByText('No custom datasets yet. Create a dataset to define its schema.')).toBeVisible();
+  await expect(page.getByText('Choose a dataset',{exact:true})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'New dataset',exact:true})).toHaveCount(0);
+  const state=await(await request.get(`${fixture}/state`)).json();expect(state.saves).toEqual([]);
+  expect(state.reads.some(item=>item.path==='/api/v1/ticketing/organizations/search'&&item.query.includes('module=data-management'))).toBeTruthy();
+ });
+ test('zero-row built-ins stay visible and an unavailable count is never shown as zero',async({page,request})=>{
+  test.setTimeout(120_000);
+  await request.get(`${fixture}/fault?mode=built-in-zero`);await open(page,'/admin/resources/data-management');
+  await expect(page.locator('.graph-source-card')).toHaveCount(4);
+  await expect(page.locator('.graph-source-card').getByText('0 row(s)',{exact:true})).toHaveCount(4);
+  await request.get(`${fixture}/reset`);await request.get(`${fixture}/fault?mode=unknown-graph-count`);await reload(page);
+  // Each source read exhausts the configured GET retries before the page can report an unavailable count.
+  await expect(page.locator('.graph-source-card').getByText('Row count unavailable',{exact:true})).toHaveCount(4,{timeout:90_000});
+  await expect(page.locator('.graph-source-card').getByText('0 row(s)',{exact:true})).toHaveCount(0);
+ });
+ test('dataset wizard validates fields, preserves Back, and Cancel creates no definition or key',async({page,request})=>{
+  await open(page,'/admin/resources/data-management');await page.getByRole('button',{name:'New dataset',exact:true}).click();
+  const wizard=datasetWizard(page);
+  await wizard.getByRole('button',{name:'Continue',exact:true}).click();
+  await expect(wizard.getByText('Enter a dataset name.',{exact:true})).toBeVisible();
+  await wizard.getByRole('textbox',{name:/^Dataset name\*?$/}).fill('Retained draft');
+  await wizard.getByRole('button',{name:'Continue',exact:true}).click();
+  await wizard.getByRole('textbox',{name:'Column name',exact:true}).nth(1).fill('ID');
+  await wizard.getByRole('button',{name:'Continue',exact:true}).click();
+  await expect(wizard.getByText('Field names must be unique, ignoring case.',{exact:true})).toBeVisible();
+  await expect(wizard.getByRole('textbox',{name:'Column name',exact:true}).nth(1)).toBeFocused();
+  await wizard.getByRole('textbox',{name:'Column name',exact:true}).nth(1).fill('name');
+  await wizard.getByRole('button',{name:'Continue',exact:true}).click();
+  await expect(wizard.getByRole('heading',{name:'Review & create',exact:true})).toBeVisible();
+  await wizard.getByRole('button',{name:'Back',exact:true}).click();await wizard.getByRole('button',{name:'Back',exact:true}).click();
+  await expect(wizard.getByRole('textbox',{name:/^Dataset name\*?$/})).toHaveValue('Retained draft');
+  await wizard.getByRole('button',{name:'Cancel',exact:true}).click();
+  await page.getByRole('dialog').filter({has:page.getByText('Discard dataset draft?',{exact:true})}).getByRole('button',{name:'Keep editing',exact:true}).click();
+  await expect(wizard.getByRole('textbox',{name:/^Dataset name\*?$/})).toHaveValue('Retained draft');
+  await wizard.getByRole('button',{name:'Cancel',exact:true}).click();
+  await page.getByRole('dialog').filter({has:page.getByText('Discard dataset draft?',{exact:true})}).getByRole('button',{name:'Discard',exact:true}).click();
+  await expect(wizard).toBeHidden();
+  const state=await(await request.get(`${fixture}/state`)).json();expect(state.saves).toEqual([]);expect(state.datasets).toHaveLength(2);expect(state.credentials).toEqual({});
+ });
+ test('custom dataset schema saves exactly once and skipping a key is complete',async({page,request})=>{
+  await open(page,'/admin/resources/data-management');const wizard=await beginDataset(page,'Synthetic measurements');
+  await wizard.getByRole('button',{name:'Add field',exact:true}).click();
+  await wizard.getByRole('textbox',{name:'Column name',exact:true}).last().fill('capacity');
+  await wizard.getByRole('combobox',{name:'Column data type',exact:true}).last().click();await page.getByRole('option',{name:'Number',exact:true}).click();
+  await wizard.getByRole('button',{name:'Move capacity up',exact:true}).click();
+  await wizard.getByRole('button',{name:'Continue',exact:true}).click();
+  await request.get(`${fixture}/fault?mode=create-slow`);
+  await wizard.getByRole('button',{name:'Create dataset',exact:true}).dblclick();
+  await expect(wizard.getByText('Skipping key creation is a complete successful setup.',{exact:true})).toBeVisible();
+  await wizard.getByRole('button',{name:'View dataset',exact:true}).click();
+  await expect(page.getByText('Synthetic measurements',{exact:true}).first()).toBeVisible();
+  const state=await(await request.get(`${fixture}/state`)).json();const creates=state.saves.filter(item=>item.path==='/api/v1/resources/datasets');
+  expect(creates).toHaveLength(1);expect(state.datasets.filter(item=>item.name==='Synthetic measurements')).toHaveLength(1);expect(state.credentials).toEqual({});
+  expect(creates[0].payload.columns.map(item=>item.name)).toEqual(['id','capacity','name']);
+  expect(creates[0].payload.columns.find(item=>item.name==='capacity').dataType).toBe(1);
+  expect(creates[0].payload.keyColumn).toBe('id');expect(creates[0].payload.displayColumn).toBe('name');
+ });
+ test('dataset server validation retains draft and a lost create response reconciles without duplicate save',async({page,request})=>{
+  await open(page,'/admin/resources/data-management');let wizard=await beginDataset(page,'Conflicting dataset');
+  await wizard.getByRole('button',{name:'Continue',exact:true}).click();await request.get(`${fixture}/fault?mode=create-validation`);
+  await wizard.getByRole('button',{name:'Create dataset',exact:true}).click();
+  await expect(wizard.getByText('A dataset with this name already exists.',{exact:true})).toBeVisible();
+  await expect(wizard.getByRole('textbox',{name:/^Dataset name\*?$/})).toHaveValue('Conflicting dataset');
+  await wizard.getByRole('textbox',{name:/^Dataset name\*?$/}).fill('Reconciled dataset');
+  await wizard.getByRole('button',{name:'Continue',exact:true}).click();await wizard.getByRole('button',{name:'Continue',exact:true}).click();
+  await request.get(`${fixture}/fault?mode=create-lost`);await wizard.getByRole('button',{name:'Retry create',exact:true}).click();
+  await expect(wizard.getByRole('button',{name:'Check creation status',exact:true})).toBeVisible();
+  await expect(wizard.getByRole('button',{name:'Retry create',exact:true})).toBeDisabled();
+  await wizard.getByRole('button',{name:'Check creation status',exact:true}).click();
+  await expect(wizard.getByText('Skipping key creation is a complete successful setup.',{exact:true})).toBeVisible();
+  await wizard.getByRole('button',{name:'Done',exact:true}).click();
+  const state=await(await request.get(`${fixture}/state`)).json();expect(state.datasets.filter(item=>item.name==='Reconciled dataset')).toHaveLength(1);expect(state.credentials).toEqual({});
+  expect(state.attempts.filter(item=>item.path==='/api/v1/resources/datasets')).toHaveLength(2);
+  expect(state.saves.filter(item=>item.path==='/api/v1/resources/datasets')).toHaveLength(1);
+ });
+ test('Graph failed authentication keeps the draft and source-denied access blocks import until a fresh passing test',async({page,request})=>{
+  await open(page,'/admin/resources/data-management');const wizard=await graphToTest(page,['Users','Groups']);
+  await expect(wizard.getByRole('button',{name:'Continue',exact:true})).toBeDisabled();
+  await request.get(`${fixture}/fault?mode=graph-test-invalid`);await wizard.getByRole('button',{name:'Test connection',exact:true}).click();
+  await expect(wizard.getByText(/Authentication: Failed/)).toBeVisible();
+  await expect(wizard.getByRole('button',{name:'Continue',exact:true})).toBeDisabled();
+  let state=await(await request.get(`${fixture}/state`)).json();expect(state.saves).toEqual([]);expect(state.datasets).toHaveLength(2);expect(state.graph['org-1'].hasStoredSecret).toBe(false);
+  await wizard.getByRole('button',{name:'Back',exact:true}).click();await wizard.getByRole('button',{name:'Back',exact:true}).click();
+  await expect(wizard.getByRole('textbox',{name:/^Application \/ client ID\*?$/})).toHaveValue('synthetic-client');
+  await wizard.getByRole('textbox',{name:/^Application \/ client ID\*?$/}).fill('corrected-client');
+  await wizard.getByRole('button',{name:'Continue',exact:true}).click();await wizard.getByRole('button',{name:'Continue',exact:true}).click();
+  await request.get(`${fixture}/fault?mode=graph-test-denied`);await wizard.getByRole('button',{name:'Test connection',exact:true}).click();
+  await expect(wizard.getByText(/Read permission is missing/)).toBeVisible();await expect(wizard.getByRole('button',{name:'Continue',exact:true})).toBeDisabled();
+  await wizard.getByRole('button',{name:'Back',exact:true}).click();await wizard.getByRole('checkbox',{name:'Groups',exact:true}).uncheck();await wizard.getByRole('button',{name:'Continue',exact:true}).click();
+  await expect(wizard.getByText(/Authentication: Passed/)).toHaveCount(0);await expect(wizard.getByRole('button',{name:'Continue',exact:true})).toBeDisabled();
+  await wizard.getByRole('button',{name:'Test connection',exact:true}).click();await expect(wizard.getByRole('button',{name:'Continue',exact:true})).toBeEnabled();
+  state=await(await request.get(`${fixture}/state`)).json();expect(state.graphTests).toHaveLength(3);expect(state.saves).toEqual([]);expect(state.importStatuses).toEqual({});expect(state.credentials).toEqual({});
+ });
+ test('Graph explicit import shows partial outcomes, preserves saved configuration and can reopen safely',async({page,request})=>{
+  await open(page,'/admin/resources/data-management');const wizard=await graphToTest(page,['Users','Groups']);
+  await wizard.getByRole('button',{name:'Test connection',exact:true}).click();await wizard.getByRole('button',{name:'Continue',exact:true}).click();
+  await expect(wizard.getByText(/removes records absent from each selected source/)).toBeVisible();
+  expect((await(await request.get(`${fixture}/state`)).json()).saves).toEqual([]);
+  await request.get(`${fixture}/fault?mode=graph-import-partial`);await wizard.getByRole('button',{name:'Save and import',exact:true}).click();
+  await expect(wizard.getByText(/Configuration saved\. Import: PartiallySucceeded/)).toBeVisible();
+  await expect(wizard.getByRole('row').filter({has:page.getByRole('cell',{name:'Users',exact:true})})).toContainText('Succeeded');
+  await expect(wizard.getByRole('row').filter({has:page.getByRole('cell',{name:'Groups',exact:true})})).toContainText('Failed');
+  await wizard.getByRole('button',{name:'Done',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Manage connection',exact:true})).toBeVisible();
+  await reload(page);await expect(page.getByText(/Run PartiallySucceeded/)).toBeVisible();
+  await page.getByRole('button',{name:'Manage connection',exact:true}).click();
+  await expect(wizard.getByRole('textbox',{name:/^Tenant ID\*?$/})).toHaveValue('synthetic-tenant');
+  await expect(wizard.getByRole('checkbox',{name:'Use configured secret for this organization',exact:true})).toBeChecked();
+  await expect(wizard.getByLabel('Client secret',{exact:true})).toBeDisabled();
+  const state=await(await request.get(`${fixture}/state`)).json();expect(state.saves.filter(item=>item.path.endsWith('/import'))).toHaveLength(1);
+  expect(state.graph['org-1'].backgroundSyncEnabled).toBe(false);expect(state.graph['org-1'].clientSecret).toBeNull();
+ });
+ test('Graph uncertain import reads persisted result before retry and retains existing UTC schedule',async({page,request})=>{
+  await request.get(`${fixture}/fault?mode=graph-existing`);await open(page,'/admin/resources/data-management');
+  await page.getByRole('button',{name:'Schedule',exact:true}).click();
+  const schedule=page.getByRole('dialog',{name:'Recurring Graph import',exact:true});
+  await expect(schedule.getByRole('switch',{name:'Enable recurring import',exact:true})).toBeChecked();
+  await expect(schedule.getByRole('textbox',{name:'Cron Expression',exact:true})).toHaveValue('0 2 * * *');
+  await expect(schedule.getByText(/Cron expressions use UTC/)).toBeVisible();
+  await schedule.getByRole('textbox',{name:'Cron Expression',exact:true}).fill('0 5 * * *');
+  await schedule.getByRole('button',{name:'Cancel',exact:true}).click();
+  expect((await(await request.get(`${fixture}/state`)).json()).saves).toEqual([]);
+  const wizard=await graphToTest(page,['Users','Computers/devices']);
+  await wizard.getByRole('button',{name:'Test connection',exact:true}).click();await wizard.getByRole('button',{name:'Continue',exact:true}).click();
+  await expect(wizard.getByText('Preserve existing UTC schedule: 0 2 * * *',{exact:true})).toBeVisible();
+  await request.get(`${fixture}/fault?mode=graph-import-lost`);await wizard.getByRole('button',{name:'Save and import',exact:true}).click();
+  await expect(wizard.getByText(/Import completion is uncertain/)).toBeVisible();
+  await expect(wizard.getByRole('button',{name:'Save and import',exact:true})).toHaveCount(0);
+  await wizard.getByRole('button',{name:'Check import status',exact:true}).click();
+  await expect(wizard.getByText(/Configuration saved\. Import: Succeeded/)).toBeVisible();
+  await wizard.getByRole('button',{name:'Done',exact:true}).click();
+  await expect(page.locator('.graph-source-card').filter({has:page.getByText('Computers/devices',{exact:true})})).toContainText('0 row(s)');
+  const state=await(await request.get(`${fixture}/state`)).json();expect(state.saves.filter(item=>item.path.endsWith('/import'))).toHaveLength(1);expect(state.graph['org-1'].backgroundSyncEnabled).toBe(true);expect(state.graph['org-1'].backgroundSyncCronExpression).toBe('0 2 * * *');
+ });
+});
+
+test.describe('optional ingestion key lifecycle',()=>{
+ test.skip(baseline,'Baseline is captured as before evidence only.');
+ // A one-time synthetic key is deliberately visible here. Never capture secret-bearing screenshots or traces, including failure artifacts.
+ test.use({permissions:['clipboard-read','clipboard-write']});
+ test('failed post-key metadata refresh leaves the page usable and reload confirms one key',async({page,request})=>{
+  test.setTimeout(90_000);
+  await open(page,'/admin/resources/data-management');await page.getByRole('tab',{name:'API access',exact:true}).click();
+  await page.getByRole('button',{name:'Create ingestion API key',exact:true}).click();
+  const key=page.getByRole('dialog',{name:'Create ingestion API key',exact:true});
+  await key.getByRole('textbox',{name:/^API key name\*?$/}).fill('Metadata readback producer');
+  await key.getByRole('button',{name:'Create key',exact:true}).click();
+  await expect(key.getByRole('textbox',{name:'One-time API key',exact:true})).toBeVisible();
+  await request.get(`${fixture}/fault?mode=credentials-read-failure`);await key.getByRole('button',{name:'Done',exact:true}).click();
+  await expect(key).toBeHidden();
+  await expect(page.getByRole('alert').filter({hasText:/key metadata.*(could not|unavailable)|could not.*key metadata/i})).toBeVisible({timeout:30_000});
+  await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
+  await expect(page.getByRole('button',{name:'Create ingestion API key',exact:true})).toBeEnabled();
+  await expect(page.getByRole('textbox',{name:'One-time API key',exact:true})).toHaveCount(0);
+  await request.get(`${fixture}/fault?mode=`);await reload(page);await page.getByRole('tab',{name:'API access',exact:true}).click();
+  await expect(page.getByText('Metadata readback producer',{exact:true})).toBeVisible();
+  const state=await(await request.get(`${fixture}/state`)).json();expect(state.credentials['dataset-1']).toHaveLength(1);
+  expect(state.saves.filter(item=>item.path.endsWith('/credentials'))).toHaveLength(1);expect(state.datasets).toHaveLength(2);
+ });
+ test('failed optional key creation retains the saved dataset and requires metadata readback',async({page,request})=>{
+  await open(page,'/admin/resources/data-management');const wizard=await beginDataset(page,'Dataset without confirmed key');
+  await wizard.getByRole('button',{name:'Continue',exact:true}).click();await wizard.getByRole('button',{name:'Create dataset',exact:true}).click();
+  await wizard.getByRole('button',{name:'Create ingestion API key',exact:true}).click();
+  const key=page.getByRole('dialog',{name:'Create ingestion API key',exact:true});
+  await key.getByRole('textbox',{name:/^API key name\*?$/}).fill('Unconfirmed producer');
+  await request.get(`${fixture}/fault?mode=save`);await key.getByRole('button',{name:'Create key',exact:true}).click();
+  await expect(key.getByText(/check (the )?key metadata before creating another key/)).toBeVisible();
+  await expect(key.getByRole('button',{name:'Create key',exact:true})).toBeDisabled();
+  await expect(key.getByRole('textbox',{name:/^API key name\*?$/})).toHaveValue('Unconfirmed producer');
+  await key.getByRole('button',{name:'Cancel',exact:true}).click();
+  await page.getByRole('dialog').filter({has:page.getByText('Discard key name?',{exact:true})}).getByRole('button',{name:'Discard',exact:true}).click();
+  await wizard.getByRole('button',{name:'View dataset',exact:true}).click();await page.getByRole('tab',{name:'API access',exact:true}).click();
+  await expect(page.getByText('Dataset without confirmed key',{exact:true}).first()).toBeVisible();
+  await expect(page.getByText('Unconfirmed producer',{exact:true})).toHaveCount(0);
+  const state=await(await request.get(`${fixture}/state`)).json();expect(state.datasets.filter(item=>item.name==='Dataset without confirmed key')).toHaveLength(1);
+  expect(state.saves.filter(item=>item.path==='/api/v1/resources/datasets')).toHaveLength(1);expect(state.attempts.filter(item=>item.path.endsWith('/credentials'))).toHaveLength(1);expect(state.credentials).toEqual({});
+  expect(state.reads.some(item=>item.path.endsWith('/credentials'))).toBeTruthy();
+ });
+ test('optional named key copies once, clears on close, lists metadata and requires confirmed revoke',async({page,request})=>{
+  await open(page,'/admin/resources/data-management');const wizard=await beginDataset(page,'Keyed dataset');
+  await wizard.getByRole('button',{name:'Continue',exact:true}).click();await wizard.getByRole('button',{name:'Create dataset',exact:true}).click();
+  await wizard.getByRole('button',{name:'Create ingestion API key',exact:true}).click();
+  const key=page.getByRole('dialog',{name:'Create ingestion API key',exact:true});
+  await key.getByRole('button',{name:'Create key',exact:true}).click();await expect(key.getByText('Enter a name for this integration.',{exact:true})).toBeVisible();
+  await key.getByRole('textbox',{name:/^API key name\*?$/}).fill('Synthetic inventory producer');await key.getByRole('button',{name:'Create key',exact:true}).click();
+  await expect(key.getByRole('textbox',{name:'One-time API key',exact:true})).toHaveValue('synthetic-one-time-dataset-key');
+  await key.getByRole('button',{name:'Copy API key',exact:true}).focus();await page.keyboard.press('Enter');await expect(key.getByRole('status')).toHaveText('API key copied.');
+  expect(await page.evaluate(()=>navigator.clipboard.readText())).toBe('synthetic-one-time-dataset-key');
+  await key.getByRole('button',{name:'Done',exact:true}).click();await wizard.getByRole('button',{name:'View dataset',exact:true}).click();
+  await expect(page.getByRole('textbox',{name:'One-time API key',exact:true})).toHaveCount(0);
+  await page.getByRole('tab',{name:'API access',exact:true}).click();await expect(page.getByText('Synthetic inventory producer',{exact:true})).toBeVisible();
+  await expect(page.getByText('synthetic-one-time-dataset-key',{exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'Revoke',exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:'Cancel',exact:true}).click();
+  let state=await(await request.get(`${fixture}/state`)).json();expect(state.saves.filter(item=>item.method==='DELETE')).toHaveLength(0);
+  await page.getByRole('button',{name:'Revoke',exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:'Revoke',exact:true}).click();
+  await expect(page.getByText(/Revoked · Created/)).toBeVisible();
+  await select(page,'Organization','Birch Tenant');await expect(page.getByText('Synthetic inventory producer',{exact:true})).toHaveCount(0);
+  state=await(await request.get(`${fixture}/state`)).json();expect(state.saves.filter(item=>item.path.endsWith('/credentials'))).toHaveLength(1);expect(JSON.stringify(state)).not.toContain('synthetic-one-time-dataset-key');
+ });
+});
+
+for(const theme of ['light','dark'])for(const width of [320,1440])test(`guided wizard responsive evidence ${width}px ${theme}`,async({page,request},info)=>{
+ test.skip(baseline,'Baseline is captured as before evidence only.');
+ await page.addInitScript(value=>localStorage.setItem('helpdesk.theme.preference',value),theme);await page.setViewportSize({width,height:900});await open(page,'/admin/resources/data-management');
+ const wizard=await beginDataset(page,'Synthetic responsive schema');
+ await expect(wizard.getByRole('button',{name:'Continue',exact:true})).toBeInViewport();
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBeTruthy();
+ await settleEvidence(page);
+ await wizard.screenshot({path:info.outputPath(`dataset-wizard-${width}-${theme}.png`)});
+ await wizard.getByRole('button',{name:'Cancel',exact:true}).click();await page.getByRole('dialog').filter({has:page.getByText('Discard dataset draft?',{exact:true})}).getByRole('button',{name:'Discard',exact:true}).click();
+ const graph=await graphToTest(page,['Users','Computers/devices','Groups','SharePoint sites']);await graph.getByRole('button',{name:'Test connection',exact:true}).click();
+ await expect(graph.getByText(/Authentication: Passed/)).toBeVisible();
+ await expect(graph.getByRole('button',{name:'Continue',exact:true})).toBeInViewport();
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBeTruthy();
+ await settleEvidence(page);
+ await graph.screenshot({path:info.outputPath(`graph-wizard-${width}-${theme}.png`)});
+ expect((await(await request.get(`${fixture}/state`)).json()).saves).toEqual([]);
 });

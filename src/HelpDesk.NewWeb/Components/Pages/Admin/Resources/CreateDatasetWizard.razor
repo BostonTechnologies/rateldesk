@@ -1,0 +1,176 @@
+@implements IDisposable
+@using HelpDesk.NewWeb.Models.Resources
+@using Helpdesk.Shared.DTOs.Resources
+@inject IResourceDatasetService DatasetService
+@inject IDialogService DialogService
+
+<NavigationLock ConfirmExternalNavigation="@(pending || created is null && (draft.Name.Length > 0 || step > 0))" OnBeforeInternalNavigation="ConfirmNavigationAsync" />
+
+<MudDialog Class="data-wizard-dialog" AriaLabel="@(created is null ? "New custom dataset" : "Dataset created")">
+    <TitleContent>
+        <MudText Typo="Typo.h6">@(created is null ? "New custom dataset" : "Dataset created")</MudText>
+        <div class="data-wizard-context">Organization: <strong>@OrganizationName</strong></div>
+        @if (created is null)
+        {
+            <ol class="data-wizard-steps" aria-label="Dataset creation steps">
+                @for (var index = 0; index < steps.Length; index++) { var position = index; <li aria-current="@(step == position ? "step" : null)" class="@(step == position ? "active" : null)"><span>@(position + 1)</span>@steps[position]</li> }
+            </ol>
+        }
+    </TitleContent>
+    <DialogContent>
+        @if (created is null)
+        {
+            @if (message is not null) { <MudAlert Severity="Severity.Error" Class="mb-3">@message</MudAlert> }
+            <fieldset disabled="@(pending || uncertain)" class="data-wizard-fields">
+                @if (step == 0)
+                {
+                    <MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-3">Dataset details</MudText>
+                    <MudTextField @ref="nameInput" T="string" @bind-Value="draft.Name" Label="Dataset name" Variant="Variant.Outlined" Required="true" Error="@errors.ContainsKey("Name")" ErrorText="@Error("Name")" AutoFocus="true" />
+                    <MudSwitch T="bool" @bind-Value="draft.IsActive" Label="Active" Color="Color.Primary" />
+                    <MudText Typo="Typo.body2">A dataset stores structured rows for this organization. No dataset or API key is created until you choose Create dataset.</MudText>
+                }
+                else if (step == 1)
+                {
+                    <MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-3">Design schema</MudText>
+                    <DatasetSchemaDesigner @ref="schemaDesigner" Columns="draft.Columns" Errors="errors" Changed="SchemaChanged" Disabled="pending" />
+                }
+                else
+                {
+                    <MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-3">Review &amp; create</MudText>
+                    <dl class="data-wizard-summary"><dt>Organization</dt><dd>@OrganizationName</dd><dt>Name</dt><dd>@draft.Name</dd><dt>Status</dt><dd>@(draft.IsActive ? "Active" : "Disabled")</dd><dt>Key</dt><dd>@draft.Columns.FirstOrDefault(x => x.IsKey)?.Name</dd><dt>Display</dt><dd>@draft.Columns.FirstOrDefault(x => x.IsDisplay)?.Name</dd></dl>
+                    <MudSimpleTable Dense="true"><thead><tr><th>Field</th><th>Type</th><th>Searchable</th></tr></thead><tbody>@foreach (var field in draft.Columns) { <tr><td>@field.Name</td><td>@field.DataType</td><td>@(field.IsSearchable ? "Yes" : "No")</td></tr> }</tbody></MudSimpleTable>
+                    <MudAlert Severity="Severity.Info" Class="mt-3">API key creation is a separate, optional step after the dataset is saved.</MudAlert>
+                }
+            </fieldset>
+            @if (uncertain) { <MudButton OnClick="ReconcileAsync" Variant="Variant.Outlined" Class="mt-3" Disabled="pending">Check creation status</MudButton> }
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Success">@created.Name is ready. You can view its rows now or optionally create a named ingestion key.</MudAlert>
+            <MudText Typo="Typo.body2" Class="mt-3">Skipping key creation is a complete successful setup.</MudText>
+        }
+        @if (pending) { <MudProgressLinear Indeterminate="true" Class="mt-3" aria-label="Saving dataset" /> }
+    </DialogContent>
+    <DialogActions>
+        @if (created is null)
+        {
+            <MudButton OnClick="CancelAsync" Disabled="pending">Cancel</MudButton>
+            <MudSpacer />
+            <MudButton OnClick="Back" Disabled="@(pending || uncertain || step == 0)">Back</MudButton>
+            @if (step < 2) { <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Continue" Disabled="@(pending || uncertain)">Continue</MudButton> }
+            else { <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateAsync" Disabled="@(pending || uncertain)">@(attempted ? "Retry create" : "Create dataset")</MudButton> }
+        }
+        else
+        {
+            <MudButton OnClick="Finish">Done</MudButton><MudButton Variant="Variant.Outlined" OnClick="CreateKeyAsync">Create ingestion API key</MudButton><MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Finish">View dataset</MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+    [Parameter, EditorRequired] public string OrganizationId { get; set; } = string.Empty;
+    [Parameter] public string OrganizationName { get; set; } = string.Empty;
+    private static readonly string[] steps = ["Details", "Schema", "Review & create"];
+    private readonly DatasetSchemaDraft draft = new();
+    private readonly Guid requestId = Guid.NewGuid();
+    private Dictionary<string, string> errors = [];
+    private MudTextField<string>? nameInput;
+    private DatasetSchemaDesigner? schemaDesigner;
+    private DatasetDefinitionDto? created;
+    private int step;
+    private bool pending, uncertain, attempted, disposed;
+    private bool focusValidation;
+    private (int Step, bool Created)? renderedHeader;
+    private string? message;
+    private string? Error(string key) => errors.GetValueOrDefault(key);
+    private void Back() { if (!pending && !uncertain && step > 0) { step--; message = null; } }
+    private void SchemaChanged() { if (errors.Count > 0) errors = DatasetSchemaDraft.ValidateColumns(draft.Columns); }
+    private void Continue()
+    {
+        errors = step == 0 ? ValidateDetails() : DatasetSchemaDraft.ValidateColumns(draft.Columns);
+        if (errors.Count > 0)
+        {
+            focusValidation = true;
+            return;
+        }
+        step++; message = null;
+    }
+    private Dictionary<string, string> ValidateDetails() => string.IsNullOrWhiteSpace(draft.Name) ? new() { ["Name"] = "Enter a dataset name." } : [];
+    private async Task CreateAsync()
+    {
+        if (pending || uncertain || created is not null || disposed) return;
+        errors = ValidateDetails();
+        foreach (var error in DatasetSchemaDraft.ValidateColumns(draft.Columns)) errors[error.Key] = error.Value;
+        if (errors.Count > 0) { step = errors.ContainsKey("Name") ? 0 : 1; focusValidation = true; return; }
+        pending = true; attempted = true; message = null;
+        try
+        {
+            var request = draft.ToCreateRequest(OrganizationId);
+            request.RequestId = requestId;
+            var result = await DatasetService.CreateWithResultAsync(request);
+            if (disposed) return;
+            created = result.Dataset; uncertain = result.IsUncertain;
+            if (created is null)
+            {
+                message = result.Message ?? "The dataset could not be saved. Your draft is retained.";
+                errors = result.Errors.ToDictionary(x => x.Key, x => string.Join(" ", x.Value));
+                if (!uncertain && errors.Count > 0) { step = errors.ContainsKey("Name") ? 0 : 1; focusValidation = true; }
+            }
+        }
+        catch (HttpRequestException) { uncertain = true; message = "The save result is uncertain. Check creation status before retrying; the same request identity prevents duplicate datasets."; }
+        finally { pending = false; }
+    }
+    private async Task ReconcileAsync()
+    {
+        if (pending || disposed) return;
+        pending = true;
+        try
+        {
+            created = await DatasetService.GetCreateResultAsync(OrganizationId, requestId);
+            if (disposed) return;
+            uncertain = false;
+            message = created is null ? "No dataset is recorded for this request. You can retry the retained draft safely." : null;
+        }
+        catch (HttpRequestException) { message = "Creation status is still unavailable. Keep this draft and check again before retrying."; }
+        finally { pending = false; }
+    }
+    private async Task CreateKeyAsync()
+    {
+        if (created is null) return;
+        var dialog = await DialogService.ShowAsync<DatasetIngestionKeyDialog>("Create ingestion API key", new DialogParameters
+        {
+            [nameof(DatasetIngestionKeyDialog.DatasetId)] = created.Id,
+            [nameof(DatasetIngestionKeyDialog.DatasetName)] = created.Name,
+            [nameof(DatasetIngestionKeyDialog.OrganizationName)] = OrganizationName
+        }, new() { FullWidth = true, MaxWidth = MaxWidth.Small, BackdropClick = false, CloseOnEscapeKey = false });
+        await dialog.Result;
+    }
+    private void Finish() { if (created is not null) Dialog.Close(DialogResult.Ok(created)); }
+    private async Task CancelAsync()
+    {
+        if (pending) return;
+        if ((draft.Name.Length > 0 || step > 0 || attempted) && await DialogService.ShowMessageBoxAsync("Discard dataset draft?", uncertain ? "Creation may still have completed. Check the dataset list before starting another draft." : "No dataset or key is created by cancelling this draft.", yesText: "Discard", cancelText: "Keep editing") != true) return;
+        Dialog.Cancel();
+    }
+    private async Task ConfirmNavigationAsync(Microsoft.AspNetCore.Components.Routing.LocationChangingContext context)
+    {
+        if (pending) { context.PreventNavigation(); return; }
+        if (created is not null || draft.Name.Length == 0 && step == 0) return;
+        if (await DialogService.ShowMessageBoxAsync("Discard dataset draft?", "Unsaved fields will be cleared. Reconcile any uncertain creation before starting another draft.", yesText: "Discard", cancelText: "Keep editing") != true) context.PreventNavigation();
+    }
+    public void Dispose() { disposed = true; }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var header = (step, created is not null);
+        if (renderedHeader != header)
+        {
+            renderedHeader = header;
+            Dialog.StateHasChanged();
+        }
+        if (!focusValidation) return;
+        focusValidation = false;
+        if (step == 0 && nameInput is not null) await nameInput.FocusAsync();
+        else if (step == 1 && schemaDesigner is not null) await schemaDesigner.FocusFirstInvalidAsync();
+    }
+}

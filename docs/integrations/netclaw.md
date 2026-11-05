@@ -250,6 +250,15 @@ layout; open nested dialogs/popovers take Escape first. Drafts, tool expansion,
 history and the active stream remain mounted. Archived and read-only transcripts
 can also be maximised. Markdown headings, lists, emphasis, inline code and fenced
 code render inertly; Copy uses the exact displayed code or recorded tool payload.
+Saved replies and live drafts share this presentation in Chat, Investigations
+and ticket assistants. Markdown pipe tables preserve column alignment and inline
+formatting, while incomplete streamed syntax remains readable until a valid table
+arrives. Fenced table examples stay code and model-supplied HTML stays inert text.
+Each table has a keyboard-focusable horizontal scroll region and **Copy table**
+copies only that table as Markdown with normalized line endings. Success or failure
+appears beside the action; denied clipboard access offers the exact Markdown for
+manual copying. Wide tables remain contained in light/dark, fullscreen and narrow
+views. Completing a stream replaces its draft with the saved reply.
 
 Tool rows show provider/name, started/result-received/reported-failure status
 and UTC time. Expand a call for its recorded arguments, result, failure code and

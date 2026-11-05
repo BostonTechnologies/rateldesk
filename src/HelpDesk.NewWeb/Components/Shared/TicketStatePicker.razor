@@ -1,78 +1,137 @@
-@using Helpdesk.Shared.Models
+@using System.Net
+@using System.Text.Json
+@using Polly.Timeout
+@using Polly.CircuitBreaker
+@implements IDisposable
 @inject IHttpClientFactory HttpClientFactory
 @inject ISnackbar Snackbar
 
-<div @onclick:stopPropagation="true">
-    <MudMenu Dense="true"
-             AnchorOrigin="Origin.CenterCenter"
-             TransformOrigin="Origin.CenterCenter">
-        <ActivatorContent>
-            <MudTooltip Text="Update state">
-                <MudChip T="string"
-                         Class="cursor-pointer"
-                         Size="Size.Small"
-                         Variant="Variant.Outlined"
-                         Color="@GetStateColor(State)">
-                    @GetStateLabel(State)
-                </MudChip>
-            </MudTooltip>
-        </ActivatorContent>
-        <ChildContent>
-            @foreach (var state in Enum.GetValues<TicketState>())
-            {
-                <MudMenuItem Disabled="@(state == State)"
-                             OnClick="@(async () => await UpdateState(state))">
-                    @GetStateLabel(state)
-                </MudMenuItem>
-            }
-        </ChildContent>
-    </MudMenu>
-</div>
+<StatePopup @key="scope" Kind="ticket" Label="@GetStateLabel(State)" TrackingId="@(TrackingId ?? TicketId)" Color="@GetStateColor(State)"
+            CanEdit="@(TicketType is "incidents" or "requests")" Busy="pending" Loading="loading" Error="@error"
+            Choices="choices" Apply="UpdateState" Reload="ReloadCurrent" />
 
 @code {
     [Parameter] public string TicketId { get; set; } = string.Empty;
+    [Parameter] public string? TrackingId { get; set; }
     [Parameter] public string TicketType { get; set; } = string.Empty;
     [Parameter] public TicketState State { get; set; }
     [Parameter] public EventCallback<TicketState> StateChanged { get; set; }
+    [Parameter] public bool KnownWriteDenied { get; set; }
+    [Parameter] public EventCallback WriteDenied { get; set; }
 
     private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
+    private HttpClient Commands => HttpClientFactory.CreateClient(HelpdeskCommandHttpClients.CommandsClientName);
+    private (string Id, string Type) scope;
+    private CancellationTokenSource cancellation = new();
+    private bool pending, loading, disposed, writeDenied;
+    private const string WriteDeniedMessage = "You no longer have permission to update this ticket. Reload this page to refresh access.";
+    private string? error;
+    private IReadOnlyList<StatePopupChoice> choices => error is null && !writeDenied ? Enum.GetValues<TicketState>()
+        .Where(state => state != State).Select(state => new StatePopupChoice((int)state, GetStateLabel(state))).ToArray() : [];
 
-    private async Task UpdateState(TicketState newState)
+    protected override void OnParametersSet()
     {
-        if (newState == State || string.IsNullOrWhiteSpace(TicketId) || string.IsNullOrWhiteSpace(TicketType))
-        {
-            return;
-        }
+        var next = (TicketId, TicketType);
+        if (next == scope) { writeDenied |= KnownWriteDenied; return; }
+        cancellation.Cancel(); cancellation.Dispose(); cancellation = new();
+        scope = next;
+        pending = loading = false;
+        writeDenied = KnownWriteDenied;
+        error = writeDenied ? WriteDeniedMessage : null;
+    }
 
+    private async Task<bool> UpdateState(int value)
+    {
+        var newState = (TicketState)value;
+        if (pending || loading || writeDenied || error is not null || !Enum.IsDefined(newState) || newState == State || string.IsNullOrWhiteSpace(TicketId) || TicketType is not ("incidents" or "requests")) return false;
+        var origin = scope;
+        var token = cancellation.Token;
+        pending = true;
+        error = null;
+        await InvokeAsync(StateHasChanged);
         try
         {
-            var response = await Api.PostAsJsonAsync(
-                $"api/v1/{TicketType}/{TicketId}/state",
-                new { NewState = newState });
-
+            using var response = await Commands.PostAsJsonAsync($"api/v1/{origin.Type}/{Uri.EscapeDataString(origin.Id)}/state", new { NewState = newState }, token);
+            if (!Current(origin, token)) return false;
             if (!response.IsSuccessStatusCode)
             {
-                Snackbar.Add($"State update failed: {await response.Content.ReadAsStringAsync()}", Severity.Error);
-                return;
+                error = response.StatusCode switch
+                {
+                    HttpStatusCode.Forbidden => WriteDeniedMessage,
+                    HttpStatusCode.Conflict => "This ticket changed while you were editing. Reload current state before trying again.",
+                    _ => "State could not be updated. Reload current state before trying again."
+                };
+                if (response.StatusCode == HttpStatusCode.Forbidden)
+                {
+                    writeDenied = true;
+                    await WriteDenied.InvokeAsync();
+                }
+                return false;
             }
-
-            State = newState;
-            await StateChanged.InvokeAsync(newState);
-            Snackbar.Add($"State updated to {GetStateLabel(newState)}", Severity.Success);
+            var updated = await response.Content.ReadFromJsonAsync<StateResponse>(token);
+            if (!Current(origin, token)) return false;
+            if (updated?.Id != origin.Id || !Enum.IsDefined(updated.State))
+            {
+                error = "The saved state could not be confirmed. Reload current state before trying again.";
+                return false;
+            }
+            State = updated.State;
+            await StateChanged.InvokeAsync(updated.State);
+            if (!disposed) Snackbar.Add($"State updated to {GetStateLabel(updated.State)}.{(updated.State == TicketState.Resolved ? " Find resolved tickets using History." : "")}", Severity.Success);
+            return true;
         }
-        catch (Exception ex)
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException or TimeoutRejectedException or BrokenCircuitException)
         {
-            Snackbar.Add($"State update failed: {ex.Message}", Severity.Error);
+            if (Current(origin, token)) error = "The save result could not be confirmed. Reload current state before trying again.";
+            return false;
+        }
+        finally
+        {
+            if (Current(origin, token))
+            {
+                pending = false;
+                await InvokeAsync(StateHasChanged);
+            }
         }
     }
+
+    private async Task ReloadCurrent()
+    {
+        if (pending || loading) return;
+        var origin = scope;
+        var token = cancellation.Token;
+        loading = true;
+        try
+        {
+            var updated = await Api.GetFromJsonAsync<StateResponse>($"api/v1/{origin.Type}/{Uri.EscapeDataString(origin.Id)}", token);
+            if (!Current(origin, token)) return;
+            if (updated?.Id != origin.Id || !Enum.IsDefined(updated.State))
+            {
+                error = "Current state is unavailable. Reopen this ticket to reload it.";
+                return;
+            }
+            State = updated.State;
+            error = writeDenied ? WriteDeniedMessage : null;
+            await StateChanged.InvokeAsync(updated.State);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException or TimeoutRejectedException or BrokenCircuitException)
+        {
+            if (Current(origin, token)) error = "Current state could not be loaded. Reopen this ticket or try again.";
+        }
+        finally { if (Current(origin, token)) loading = false; }
+    }
+
+    private bool Current((string Id, string Type) origin, CancellationToken token) => !disposed && !token.IsCancellationRequested && scope == origin;
+    public void Dispose() { disposed = true; cancellation.Cancel(); cancellation.Dispose(); }
+    private sealed record StateResponse(string Id, TicketState State);
 
     private static string GetStateLabel(TicketState state) => state switch
     {
         TicketState.WaitingReply => "Waiting Reply",
         TicketState.Replied => "Replied",
         TicketState.InProgress => "In Progress",
+        TicketState.PendingApproval => "Pending Approval",
         TicketState.OnHold => "On Hold",
-        TicketState.Resolved => "Resolved",
         _ => state.ToString()
     };
 

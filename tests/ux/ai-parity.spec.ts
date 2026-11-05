@@ -126,6 +126,109 @@ test(`general chat ${theme} ${width}px starts immediately and names itself on fi
 });
 }
 
+for (const route of [...routes, '/incidents/ux-chat']) {
+  for (const [theme, width] of [['light', 1440], ['dark', 1440], ['light', 390], ['dark', 390]] as const) {
+    test(`${route.split('?')[0]} ${theme} ${width}px saved tables stay readable and copy independently`, async ({ page, context, request }, info) => {
+      await request.get(`${fixture}/fixture/reset?mode=tables`);
+      const payloads = await (await request.get(`${fixture}/fixture/table-payloads`)).json();
+      await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+      await page.addInitScript(value => localStorage.setItem('helpdesk.theme.preference', value), theme);
+      await page.setViewportSize({ width, height: 950 });
+      await page.goto('/auth/development'); await page.goto(route);
+      if (route.startsWith('/incidents')) await page.getByRole('tab', { name: 'AI Assistant', exact: true }).click();
+      const response = page.getByTestId('ai-assistant-response');
+      await expect(response.getByRole('table')).toHaveCount(2);
+      await expect(page.locator('html')).toHaveAttribute('data-helpdesk-theme', theme);
+      await expect(response.getByRole('table').first().getByRole('columnheader')).toHaveText(['Host', 'Total', 'Free', 'Sample time (UTC)']);
+      await expect(response.locator('td strong')).toHaveText('17.8 GiB');
+      await expect(response.locator('td code').last()).toHaveText('a|b');
+      const color = await response.locator('.chat-markdown').evaluate(el => getComputedStyle(el).color);
+      await expect(response.locator('th').first()).toHaveCSS('color', color);
+      await expect(response.locator('td').first()).toHaveCSS('color', color);
+      await expect(response.locator('img, script')).toHaveCount(0);
+      await assertNoHorizontalOverflow(page);
+
+      for (const fullscreen of [false, true]) {
+        if (fullscreen) await page.getByRole('button', { name: 'Maximise conversation' }).click();
+        const first = response.locator('.chat-table-block').first();
+        const scroll = first.getByRole('region', { name: 'Markdown table', exact: true });
+        await scroll.scrollIntoViewIfNeeded();
+        await scroll.focus();
+        await expect(scroll).toBeFocused();
+        if (width < 760) {
+          expect(await scroll.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true);
+          await page.keyboard.press('ArrowRight');
+          await expect.poll(() => scroll.evaluate(el => el.scrollLeft)).toBeGreaterThan(0);
+          await scroll.evaluate(el => { el.scrollLeft = 0; });
+          await expect.poll(() => scroll.evaluate(el => el.scrollLeft)).toBe(0);
+        }
+        const copy = first.getByRole('button', { name: 'Copy table', exact: true });
+        await copy.focus(); await copy.press('Enter');
+        await expect(first.getByRole('status')).toHaveText('Table copied as Markdown.');
+        await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(payloads.diskTable);
+        await first.screenshot({ path: info.outputPath(fullscreen ? 'table-fullscreen.png' : 'table-normal.png') });
+        await page.screenshot({ path: info.outputPath(fullscreen ? 'table-fullscreen-workspace.png' : 'table-normal-workspace.png') });
+        await response.getByRole('button', { name: 'Copy table', exact: true }).nth(1).click();
+        await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(payloads.emptyTable);
+        await assertNoHorizontalOverflow(page);
+      }
+      await response.getByRole('button', { name: 'Copy Code', exact: true }).click();
+      await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('| Example |\n| --- |\n| fenced table |\n');
+      await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
+      await page.reload();
+      if (route.startsWith('/incidents')) await page.getByRole('tab', { name: 'AI Assistant', exact: true }).click();
+      await expect(response.getByRole('table')).toHaveCount(2);
+      expect((await (await request.get(`${fixture}/fixture/chat-counts`)).json()).sends).toBe(0);
+    });
+  }
+}
+
+for (const route of routes) {
+  test(`${route.split('?')[0]} partial streamed tables become one saved answer without losing content`, async ({ page, context, request }) => {
+    await request.get(`${fixture}/fixture/reset?mode=processing`);
+    const payloads = await (await request.get(`${fixture}/fixture/table-payloads`)).json();
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await page.goto('/auth/development'); await page.goto(route);
+    await expect.poll(async () => (await (await request.get(`${fixture}/fixture/chat-counts`)).json()).streamOpens).toBeGreaterThan(0);
+    await request.get(`${fixture}/fixture/draft?table=partial`);
+    const draft = page.getByTestId('ai-assistant-draft');
+    await expect(draft).toContainText('| Host | Total | Free | Sample time (UTC) |');
+    await expect(draft.getByRole('table')).toHaveCount(0);
+    await request.get(`${fixture}/fixture/draft?table=complete`);
+    await expect(draft.getByRole('table')).toHaveCount(2);
+    await page.getByRole('button', { name: 'Maximise conversation' }).click();
+    await expect(draft.getByRole('table')).toHaveCount(2);
+    await request.get(`${fixture}/fixture/complete?table=true`);
+    await expect(draft).toHaveCount(0);
+    const response = page.getByTestId('ai-assistant-response');
+    await expect(response).toHaveCount(1);
+    await expect(response.getByRole('table')).toHaveCount(2);
+    await expect(response.locator('.chat-table-block').first()).toContainText('node-02-with-a-long-synthetic-host-name.example.test');
+    await expect(page.getByRole('textbox', { name: 'Message Netclaw' })).toBeEnabled();
+    await page.reload();
+    await expect(response.getByRole('table')).toHaveCount(2);
+    await expect(response.getByRole('heading', { name: 'Capacity report', exact: true })).toHaveCount(1);
+    await response.getByRole('button', { name: 'Copy table', exact: true }).first().click();
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(payloads.diskTable);
+    await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
+  });
+
+  test(`${route.split('?')[0]} clipboard denial offers exact manual table Markdown`, async ({ page, request }) => {
+    await request.get(`${fixture}/fixture/reset?mode=tables`);
+    const payloads = await (await request.get(`${fixture}/fixture/table-payloads`)).json();
+    await page.goto('/auth/development'); await page.goto(route);
+    await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', {
+      configurable: true, value: { writeText: () => Promise.reject(new DOMException('Synthetic clipboard denied', 'NotAllowedError')) }
+    }));
+    const first = page.getByTestId('ai-assistant-response').locator('.chat-table-block').first();
+    await first.getByRole('button', { name: 'Copy table', exact: true }).click();
+    await expect(first.getByRole('status')).toHaveText('Copy failed. Select the Markdown below and copy it manually.');
+    await expect(first.getByRole('textbox', { name: 'Table Markdown for manual copying' })).toHaveValue(payloads.diskTable);
+    await expect(first.getByRole('table')).toBeVisible();
+    await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
+  });
+}
+
 test('uncertain first-send response retries the same conversation and message', async ({ page, request }) => {
   await request.get(`${fixture}/fixture/reset?mode=empty&loseStartResponse=true`);
   await page.goto('/auth/development'); await page.goto('/ai/chat?organizationId=org');

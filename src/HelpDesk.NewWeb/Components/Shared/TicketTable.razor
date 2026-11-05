@@ -1,4 +1,5 @@
 @typeparam TTicket
+@implements IDisposable
 @using System.Collections.Concurrent
 @using System.Reflection
 @using Helpdesk.Shared.DTOs.User
@@ -57,9 +58,10 @@
     </MudPaper>
 }
 
+<section @ref="resultsRegion" tabindex="-1" aria-label="Ticket results">
 <MudTable T="TTicket"
           @ref="_table"
-          ServerData="ServerData"
+          ServerData="LoadTableData"
           CurrentPage="InitialPage" RowsPerPage="PageSize"
           Dense="true"
           Hover="true"
@@ -153,6 +155,7 @@
         <MudTablePager PageSizeOptions="new int[] { 25, 50, 100 }" />
     </PagerContent>
 </MudTable>
+</section>
 
 @code {
     [Parameter] public int InitialPage { get; set; }
@@ -173,7 +176,9 @@
     [Parameter] public EventCallback<string> BulkActionRequested { get; set; }
     [Parameter] public bool EnableSelection { get; set; }
     [Parameter] public Func<TTicket, bool>? CanEditItem { get; set; }
-    private bool CanEditSelection => SelectedItems.Count > 0 && SelectedItems.All(item => CanEditItem?.Invoke(item) == true);
+    [Parameter] public Func<string, bool>? IsStateWriteDenied { get; set; }
+    [Parameter] public EventCallback<string> StateWriteDenied { get; set; }
+    private bool CanEditSelection => SelectedItems.Count > 0 && SelectedItems.All(item => CanEditItem?.Invoke(item) == true && !StateWriteWasDenied(GetStringValue(item, "Id")));
     [Parameter] public bool EnableBulkState { get; set; } = true;
 
     public TicketState SelectedBulkState => _bulkState;
@@ -182,7 +187,12 @@
     private static readonly ConcurrentDictionary<string, PropertyInfo?> PropertyCache = new(StringComparer.Ordinal);
 
     private readonly List<UserDto> _teamMembers = new();
+    private readonly HashSet<string> deniedStateWrites = new(StringComparer.Ordinal);
+    private bool disposed;
     private MudTable<TTicket>? _table;
+    private IReadOnlyList<TTicket> serverItems = [];
+    private int loadVersion;
+    private ElementReference resultsRegion;
     private TicketState _bulkState = TicketState.New;
     private string? _bulkAssigneeId;
     private bool _bulkChoiceMade;
@@ -199,6 +209,14 @@
     private string? _bulkAction;
 
     private int SelectedCount => SelectedItems?.Count ?? 0;
+    private bool StateWriteWasDenied(string id) => deniedStateWrites.Contains(id) || IsStateWriteDenied?.Invoke(id) == true;
+    private async Task RememberStateWriteDenial(string id, string ticketType)
+    {
+        if (disposed || ticketType != TicketType) return;
+        deniedStateWrites.Add(id);
+        await StateWriteDenied.InvokeAsync(id);
+    }
+    public void Dispose() => disposed = true;
     private bool HasCustomerOrgName => ResolveProperty("CustomerOrgName") is not null;
     private bool HasCustomerUser => ResolveProperty("CustomerId") is not null
         || ResolveProperty("CustomerName") is not null
@@ -207,6 +225,30 @@
     public Task ReloadServerData()
     {
         return _table?.ReloadServerData() ?? Task.CompletedTask;
+    }
+
+    private async Task<TableData<TTicket>> LoadTableData(TableState state, CancellationToken cancellationToken)
+    {
+        var version = ++loadVersion;
+        var data = await ServerData(state, cancellationToken);
+        if (!disposed && version == loadVersion) serverItems = data.Items?.ToArray() ?? [];
+        return data;
+    }
+
+    public async Task ReloadAfterStateChange(string id)
+    {
+        if (disposed || _table is null) return;
+        await _table.ReloadServerData();
+        if (disposed) return;
+        var visibleItems = serverItems.ToDictionary(item => GetStringValue(item, "Id"), StringComparer.Ordinal);
+        var refreshedSelection = SelectedItems
+            .Where(item => GetStringValue(item, "Id") != id || visibleItems.ContainsKey(id))
+            .Select(item => visibleItems.GetValueOrDefault(GetStringValue(item, "Id"), item)).ToHashSet();
+        await HandleSelectedItemsChanged(refreshedSelection);
+        if (disposed) return;
+        var lastPage = Math.Max(0, (_table.GetFilteredItemsCount() - 1) / _table.RowsPerPage);
+        if (_table.CurrentPage > lastPage) _table.NavigateTo(lastPage);
+        if (!visibleItems.ContainsKey(id)) await resultsRegion.FocusAsync();
     }
 
     private async Task HandleSelectedItemsChanged(HashSet<TTicket> selectedItems)
@@ -365,6 +407,7 @@
     private RenderFragment RenderDefaultState(TTicket ticket) => builder =>
     {
         var ticketId = GetStringValue(ticket, "Id");
+        var ticketType = TicketType;
         if (CanEditItem?.Invoke(ticket) != true || string.IsNullOrWhiteSpace(ticketId) || string.IsNullOrWhiteSpace(TicketType))
         {
             builder.OpenComponent<MudChip<string>>(0);
@@ -378,14 +421,18 @@
         }
 
         builder.OpenComponent<TicketStatePicker>(6);
+        builder.SetKey(ticketId);
         builder.AddAttribute(7, nameof(TicketStatePicker.TicketId), ticketId);
         builder.AddAttribute(8, nameof(TicketStatePicker.TicketType), TicketType);
         builder.AddAttribute(9, nameof(TicketStatePicker.State), GetState(ticket));
         builder.AddAttribute(10, nameof(TicketStatePicker.StateChanged), EventCallback.Factory.Create<TicketState>(this, async newState =>
         {
             SetPropertyValue(ticket, "State", newState);
-            await ReloadServerData();
+            await ReloadAfterStateChange(ticketId);
         }));
+        builder.AddAttribute(11, nameof(TicketStatePicker.TrackingId), GetStringValue(ticket, "TrackingId"));
+        builder.AddAttribute(12, nameof(TicketStatePicker.KnownWriteDenied), StateWriteWasDenied(ticketId));
+        builder.AddAttribute(13, nameof(TicketStatePicker.WriteDenied), EventCallback.Factory.Create(this, () => RememberStateWriteDenial(ticketId, ticketType)));
         builder.CloseComponent();
     };
 

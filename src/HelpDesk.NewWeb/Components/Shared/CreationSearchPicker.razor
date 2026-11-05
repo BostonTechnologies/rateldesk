@@ -1,0 +1,242 @@
+@typeparam TItem where TItem : class
+@implements IDisposable
+@using System.Text.Json
+@using System.Runtime.CompilerServices
+@using Polly.CircuitBreaker
+@using Polly.Timeout
+@inject IHttpClientFactory HttpClientFactory
+
+<div class="creation-search-picker">
+    <MudAutocomplete T="TItem" @key="LookupUrl" @ref="autocomplete" Label="@Label" Placeholder="@Placeholder"
+                     Value="selected" ValueChanged="Choose" SearchFunc="Search" ToStringFunc="@(item => item is null ? "" : ItemLabel(item))"
+                     Variant="Variant.Outlined" Margin="@Margin" Dense="true" Required="@Required"
+                     Disabled="@(Disabled || string.IsNullOrWhiteSpace(LookupUrl) || (LockWhenSingle && totalEligible == 1 && selected is not null))"
+                     ReadOnly="choosing"
+                     Clearable="@(!LockWhenSingle || totalEligible != 1)" ResetValueOnEmptyText="true"
+                     CoerceValue="false" DebounceInterval="250" MinCharacters="0" MaxItems="50"
+                     Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Search" ShowProgressIndicator="true"
+                     TextChanged="OnTextChanged">
+        <ItemTemplate Context="item">
+            @if (ItemTemplate is not null) { @ItemTemplate(item) }
+            else { <span style="overflow-wrap:anywhere">@ItemLabel(item)</span> }
+            @if (labels.Values.Count(candidate => ItemLabel(candidate) == ItemLabel(item)) > 1)
+            {
+                <span class="d-block mud-typography mud-typography-caption" style="overflow-wrap:anywhere">Reference: @ItemId(item)</span>
+            }
+        </ItemTemplate>
+        <NoItemsTemplate><MudText Typo="Typo.body2" Class="px-3 py-2">@Feedback</MudText></NoItemsTemplate>
+        <AfterItemsTemplate>
+            @if (hasMore) { <MudText Typo="Typo.caption" Class="px-3 py-2">More @Kind are available. Refine your search.</MudText> }
+        </AfterItemsTemplate>
+    </MudAutocomplete>
+    <div role="status" aria-live="polite">
+        @if (loading) { <MudText Typo="Typo.caption">Loading @Kind…</MudText> }
+        @if (failed)
+        {
+            <MudText Typo="Typo.caption" Color="Color.Error">Could not load @Kind.</MudText>
+            <MudButton Size="Size.Small" OnClick="Retry">Retry @Label.ToLowerInvariant()</MudButton>
+        }
+        else if (!loading && totalEligible == 0) { <MudText Typo="Typo.caption">No eligible @Kind.</MudText> }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string LookupUrl { get; set; } = "";
+    [Parameter, EditorRequired] public Func<TItem, string> ItemId { get; set; } = default!;
+    [Parameter, EditorRequired] public Func<TItem, string> ItemLabel { get; set; } = default!;
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public string Label { get; set; } = "Selection";
+    [Parameter] public string Kind { get; set; } = "choices";
+    [Parameter] public string Placeholder { get; set; } = "Search";
+    [Parameter] public Margin Margin { get; set; } = Margin.Dense;
+    [Parameter] public bool Required { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public bool AutoSelectSingle { get; set; }
+    [Parameter] public bool LockWhenSingle { get; set; }
+    [Parameter] public bool ClearAfterSelection { get; set; }
+    [Parameter] public RenderFragment<TItem>? ItemTemplate { get; set; }
+    [Parameter] public EventCallback<TItem?> SelectionChanged { get; set; }
+    [Parameter] public EventCallback<TItem?> SelectedItemLoaded { get; set; }
+    [Parameter] public EventCallback<string> SearchTextChanged { get; set; }
+
+    private MudAutocomplete<TItem>? autocomplete;
+    private readonly Dictionary<string, TItem> labels = new(StringComparer.Ordinal);
+    private readonly ConditionalWeakTable<TItem, ItemScope> itemScopes = new();
+    private CancellationTokenSource scopeCancellation = new();
+    private string? scope;
+    private string query = "";
+    private TItem? selected;
+    private int? totalEligible;
+    private bool loading, failed, hasMore, disposed, initialized;
+    private long searchVersion;
+    private long fetchVersion;
+    private long scopeVersion;
+    private long choiceVersion;
+    private bool choosing;
+    private sealed record ItemScope(long Version);
+    private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
+    private string Feedback => loading ? $"Loading {Kind}…" : failed ? $"Could not load {Kind}. Use Retry below."
+        : totalEligible == 0 ? $"No eligible {Kind}." : $"No matching {Kind}.";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (scope != LookupUrl)
+        {
+            scopeCancellation.Cancel();
+            scopeCancellation.Dispose();
+            scopeCancellation = new();
+            scope = LookupUrl;
+            scopeVersion++;
+            choiceVersion++;
+            choosing = false;
+            initialized = false;
+            selected = null;
+            labels.Clear();
+            totalEligible = null;
+            loading = failed = hasMore = false;
+            query = "";
+            searchVersion++;
+        }
+        if (string.IsNullOrWhiteSpace(LookupUrl)) return;
+        if (!initialized)
+        {
+            initialized = true;
+            var initial = await Fetch("", null, scopeCancellation.Token);
+            if (initial is null) return;
+            if (AutoSelectSingle && initial.TotalEligible == 1 && string.IsNullOrWhiteSpace(Value) && initial.Items.Count == 1)
+            {
+                selected = initial.Items[0];
+                await SelectionChanged.InvokeAsync(selected);
+                await SelectedItemLoaded.InvokeAsync(selected);
+                return;
+            }
+        }
+        if (string.IsNullOrWhiteSpace(Value)) { selected = null; return; }
+        if (selected is not null && ItemId(selected) == Value) return;
+        var expectedId = Value;
+        var token = scopeCancellation.Token;
+        if (!labels.TryGetValue(expectedId, out var item))
+        {
+            var result = await Fetch("", expectedId, token);
+            if (result is null) return;
+            item = result?.Items.FirstOrDefault(candidate => ItemId(candidate) == expectedId);
+        }
+        if (disposed || token.IsCancellationRequested || Value != expectedId) return;
+        selected = item;
+        await SelectedItemLoaded.InvokeAsync(item);
+        if (item is null && !failed) await SelectionChanged.InvokeAsync(null);
+    }
+
+    private async Task<CreationLookupResult<TItem>?> Fetch(string text, string? id, CancellationToken token)
+    {
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(token, scopeCancellation.Token);
+        var ct = cancellation.Token;
+        var expectedScope = scope;
+        var version = ++fetchVersion;
+        loading = true;
+        failed = false;
+        try
+        {
+            var result = await Api.GetFromJsonAsync<CreationLookupResult<TItem>>(
+                $"{LookupUrl}&q={Uri.EscapeDataString(text)}&limit=20{(id is null ? "" : "&id=" + Uri.EscapeDataString(id))}", ct);
+            if (disposed || ct.IsCancellationRequested || scope != expectedScope || version != fetchVersion) return null;
+            if (result is null) throw new JsonException("The lookup response was empty.");
+            var items = new List<TItem>(result.Items.Count);
+            foreach (var item in result.Items)
+            {
+                var choiceId = ItemId(item);
+                // MudAutocomplete keys menu nodes by item identity. Keep an unchanged
+                // option mounted through repeated searches so a refresh between pointer
+                // down and click cannot discard that click. Changed display data stays fresh.
+                var choice = labels.TryGetValue(choiceId, out var cached) && ItemLabel(cached) == ItemLabel(item) ? cached : item;
+                labels[choiceId] = choice;
+                itemScopes.AddOrUpdate(choice, new(scopeVersion));
+                items.Add(choice);
+            }
+            totalEligible = result.TotalEligible;
+            hasMore = result.HasMore;
+            return new(items, result.TotalEligible, result.HasMore);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { return null; }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException or TimeoutRejectedException or BrokenCircuitException)
+        {
+            if (!disposed && !ct.IsCancellationRequested && scope == expectedScope && version == fetchVersion) failed = true;
+            return null;
+        }
+        finally { if (!disposed && scope == expectedScope && version == fetchVersion) loading = false; }
+    }
+
+    private async Task<IEnumerable<TItem>> Search(string text, CancellationToken token)
+    {
+        var version = ++searchVersion;
+        var term = text ?? "";
+        // Reopening an existing selection should offer the directory, rather than
+        // search a composed display label that is not an individual name/email.
+        if (selected is not null && term == ItemLabel(selected)) term = "";
+        var result = await Fetch(term, null, token);
+        if (disposed || token.IsCancellationRequested || version != searchVersion) return Array.Empty<TItem>();
+        await InvokeAsync(StateHasChanged);
+        return result?.Items ?? [];
+    }
+    private Task OnTextChanged(string text)
+    {
+        query = text ?? "";
+        return SearchTextChanged.InvokeAsync(query);
+    }
+    private async Task Choose(TItem? item)
+    {
+        if (Disabled || disposed || choosing) return;
+        // A refresh can replace the cached object for an ID while its visible option
+        // is being clicked. Accept every item obtained in this scope, while rejecting
+        // objects belonging to a previous organization/module, even if their IDs match.
+        if (item is not null && (!itemScopes.TryGetValue(item, out var origin) || origin.Version != scopeVersion)) return;
+        var expectedScope = scopeVersion;
+        var operation = ++choiceVersion;
+        var clear = ClearAfterSelection && item is not null;
+        try
+        {
+            selected = item;
+            if (item is not null) labels[ItemId(item)] = item;
+            if (clear)
+            {
+                // Keep focus while preventing a new query from being erased by the
+                // asynchronous clear that completes this multi-selection.
+                choosing = true;
+                await InvokeAsync(StateHasChanged);
+            }
+            await SelectionChanged.InvokeAsync(item);
+            if (clear && autocomplete is not null && expectedScope == scopeVersion && operation == choiceVersion && !disposed)
+            {
+                selected = null;
+                await autocomplete.ClearAsync();
+            }
+        }
+        finally
+        {
+            if (clear && expectedScope == scopeVersion && operation == choiceVersion && !disposed)
+            {
+                choosing = false;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+    }
+    private async Task Retry()
+    {
+        if (!initialized || totalEligible is null || selected is null && !string.IsNullOrWhiteSpace(Value))
+        {
+            initialized = false;
+            await OnParametersSetAsync();
+        }
+        else await Fetch(query, null, scopeCancellation.Token);
+        if (autocomplete is not null && !failed) await autocomplete.OpenMenuAsync();
+    }
+    public void Dispose()
+    {
+        if (disposed) return;
+        disposed = true;
+        choiceVersion++;
+        choosing = false;
+        scopeCancellation.Cancel();
+        scopeCancellation.Dispose();
+    }
+}

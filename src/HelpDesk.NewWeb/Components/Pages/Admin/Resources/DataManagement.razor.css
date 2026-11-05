@@ -85,3 +85,12 @@
 .data-management-page ::deep .data-management-rows-table th,
 .data-management-page ::deep .data-management-rows-table td { white-space: nowrap; }
 .data-management-page ::deep .data-management-json { white-space: pre-wrap; overflow-wrap: anywhere; }
+.data-management-context { max-width: 32rem; }
+.data-management-builtins { border-block: 1px solid var(--mud-palette-divider); padding-block: 1rem; }
+.data-management-source-catalog { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: .8rem; margin-top: 1rem; }
+.data-management-page ::deep .graph-source-card { min-width: 0; }
+.data-management-page ::deep .dataset-schema-grid .mud-input-control { min-width: 7rem; }
+@media (max-width: 600px) {
+    .data-management-page ::deep .data-management-rail, .data-management-page ::deep .data-management-workspace { min-height: 0; padding-inline: 0 !important; }
+    .data-management-page ::deep .data-management-source-catalog { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

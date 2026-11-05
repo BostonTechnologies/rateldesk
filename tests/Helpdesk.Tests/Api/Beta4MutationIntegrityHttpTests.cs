@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Helpdesk.API.Endpoints.Requests;
 using Helpdesk.Application.Events;
 using Helpdesk.Application.RequestTasks;
 using Helpdesk.Infrastructure.Email;
@@ -73,6 +74,9 @@ public sealed class Beta4MutationIntegrityHttpTests
         {
             using var quick = await h.AdminAsync(HttpMethod.Post, "/api/v1/incidents/incident-one/state", new { newState = state });
             Assert.Equal(HttpStatusCode.OK, quick.StatusCode);
+            var confirmed = await quick.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal("incident-one", confirmed.GetProperty("id").GetString());
+            Assert.Equal((int)state, confirmed.GetProperty("state").GetInt32());
             await AssertIncidentStateAsync(h, "incident-one", state);
             var committed = await SnapshotAsync(h);
             using var repeated = await h.AdminAsync(HttpMethod.Post, "/api/v1/incidents/incident-one/state", new { newState = state });
@@ -96,6 +100,53 @@ public sealed class Beta4MutationIntegrityHttpTests
         h.Authorize(deniedRequest);
         using var denied = await h.Client.SendAsync(deniedRequest);
         Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        Assert.Equal(before, await SnapshotAsync(h));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Request_quick_state_returns_committed_value_and_preserves_noop_validation_and_scope(bool postgres)
+    {
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres,
+            configureServices: services => services.AddAuthorization(options =>
+            {
+                options.AddPolicy("RequestAccess", policy => policy.RequireAuthenticatedUser());
+                options.AddPolicy("RequestManager", policy => policy.RequireAuthenticatedUser());
+            }), configureApp: app => app.MapRequestEndpoints());
+        await h.EditAsync(db =>
+        {
+            db.Organizations.Add(new Organization { Id = "foreign-request-organization", Name = "Foreign request organization" });
+            db.Requests.AddRange(
+                new Request { Id = "quick-request", TrackingId = "REQ-QUICK", Title = "Synthetic request", OrganizationId = h.OrganizationId, CustomerId = h.CustomerId, State = TicketState.New },
+                new Request { Id = "foreign-quick-request", TrackingId = "REQ-FOREIGN", Title = "Foreign request", OrganizationId = "foreign-request-organization", State = TicketState.New });
+            return Task.CompletedTask;
+        });
+        foreach (var state in new[] { TicketState.InProgress, TicketState.Resolved, TicketState.OnHold })
+        {
+            using var update = await h.AdminAsync(HttpMethod.Post, "/api/v1/requests/quick-request/state", new { newState = state });
+            Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+            var confirmed = await update.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal("quick-request", confirmed.GetProperty("id").GetString());
+            Assert.Equal((int)state, confirmed.GetProperty("state").GetInt32());
+            await using (var scope = h.App.Services.CreateAsyncScope())
+            {
+                var saved = await scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>().Requests.AsNoTracking().SingleAsync(request => request.Id == "quick-request");
+                Assert.Equal(state, saved.State);
+                Assert.Equal(state == TicketState.Resolved, saved.ClosedAt.HasValue);
+            }
+            var committed = await SnapshotAsync(h);
+            using var repeated = await h.AdminAsync(HttpMethod.Post, "/api/v1/requests/quick-request/state", new { newState = state });
+            Assert.Equal(HttpStatusCode.OK, repeated.StatusCode);
+            Assert.Equal(committed, await SnapshotAsync(h));
+        }
+        var before = await SnapshotAsync(h);
+        using var invalid = await h.AdminAsync(HttpMethod.Post, "/api/v1/requests/quick-request/state", new { newState = 999 });
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+        using var foreignRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/requests/foreign-quick-request/state") { Content = JsonContent.Create(new { newState = TicketState.Resolved }) };
+        h.Authorize(foreignRequest);
+        using var foreign = await h.Client.SendAsync(foreignRequest);
+        Assert.Equal(HttpStatusCode.Forbidden, foreign.StatusCode);
         Assert.Equal(before, await SnapshotAsync(h));
     }
 

@@ -7,10 +7,11 @@ credential requirements, authority, identifiers and prerequisites. The API
 resolves live access; discovery does not grant permission. These MCP contracts
 apply to stdio and HTTP transports against the same product version; the
 [CLI guide](../integrations/cli-stdio.md) describes command-line syntax.
-The current catalog revision `2026-10-25.beta11-contracts-v25` contains 390
-operations on 37 tools. The [inventory delta](mcp-operation-inventory-delta.json)
+The current catalog revision `2026-11-05.beta4-contracts-v27` contains 390
+operations on 37 tools. The retained [inventory delta](mcp-operation-inventory-delta-beta13.json)
 compares the complete [beta.10 source catalog](mcp-operation-catalog-beta10.json)
-with beta.11: all 389 prior operation contracts remain unchanged, and
+with beta.11 at revision `2026-10-25.beta11-contracts-v25`: all 389 prior
+operation contracts were preserved, and
 `helpdesk_email_settings.delete_rule` adds confirmed administrator deletion
 while preserving delivery and rule audit history. The
 [retained beta.8 mapping](mcp-operation-inventory-delta-beta8.json) records the
@@ -125,6 +126,15 @@ Explicit nullable replacement fields can therefore reset instance branding
 without an omitted field silently clearing it. For example, an empty required
 `smtpPassword` preserves the saved sender credential under the canonical API
 contract. Typed dataset content allows bounded user-defined JSON columns.
+
+`helpdesk_datasets.create` accepts optional nullable UUID
+`request.body.requestId`. Reuse a nonempty value only with the same organization
+and creation draft: a retry returns the saved dataset, while a changed draft
+reports conflict. Supplying the ID requires an explicit valid schema. Omitting
+it preserves legacy creation behavior, including the default schema when columns
+are omitted. The required organization/name fields and the catalog's 390
+operations on 37 tools remain unchanged; the current catalog hashes include the
+additive request field.
 
 `helpdesk_datasets.upsert_rows` requires an explicit `deleteMissing`. Use `false`
 for a batch that changes only the submitted case-insensitive external keys. Use

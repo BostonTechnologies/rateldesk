@@ -135,7 +135,7 @@ for (const route of routes.slice(0, 2)) {
 }
 
 test('investigation popups remain contained at native browser zoom 200 percent', async ({ request, baseURL }, info) => {
-  await request.get(`${fixture}/fixture/reset?mode=completed`);
+  await request.get(`${fixture}/fixture/reset?mode=tables`);
   await request.get(`${fixture}/fixture/connection?mode=connected`);
   const profile = await mkdtemp(path.join(tmpdir(), 'rateldesk-ai-zoom-'));
   const extension = path.resolve('tests/ux/native-zoom-extension');
@@ -165,6 +165,16 @@ test('investigation popups remain contained at native browser zoom 200 percent',
     await page.getByRole('button', { name: 'Netclaw connection status' }).click();
     await contained(page.getByRole('dialog', { name: 'Netclaw connection details' }));
     await page.screenshot({ path: info.outputPath('native-zoom-200.png'), fullPage: true });
+    await assertNoHorizontalOverflow(page);
+    await page.keyboard.press('Escape');
+    const table = page.getByRole('region', { name: 'Markdown table', exact: true }).first();
+    await table.scrollIntoViewIfNeeded();
+    await table.focus();
+    await expect(table).toBeFocused();
+    await table.screenshot({ path: info.outputPath('table-native-zoom-200.png') });
+    await page.getByRole('button', { name: 'Maximise conversation' }).click();
+    await table.scrollIntoViewIfNeeded();
+    await expect(page.getByRole('dialog', { name: 'Conversation', exact: true }).getByRole('table')).toHaveCount(2);
     await assertNoHorizontalOverflow(page);
   } finally { await context.close(); await rm(profile, { recursive: true, force: true }); }
 });

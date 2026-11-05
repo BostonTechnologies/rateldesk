@@ -1,5 +1,11 @@
 # Release notes
 
+## 0.1.3-beta.4
+
+[Searchable creation, state popups, guided Data Management and AI tables](0.1.3-beta.4.md)
+cover the five UX work items in delivery #345, retaining the accepted main
+distribution and Web timezone repairs.
+
 ## 0.1.3-beta.3
 
 [Full tool payloads and compact AI workspaces](0.1.3-beta.3.md) correct the

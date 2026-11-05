@@ -1,31 +1,57 @@
 // Synthetic transport for the actual Blazor list. Provider/authorization tests own SQL evidence.
 import http from 'node:http';
-let queries = [], details = [], fault = '';
-const rows = Array.from({length: 65}, (_, i) => ({ id: `row-${i}`, title: `Synthetic ticket ${i}`, subject: `Synthetic ticket ${i}`,
+let queries = [], details = [], mutations = [], fault = '', permissionMode = 'admin';
+const createRows = () => Array.from({length: 65}, (_, i) => ({ id: `row-${i}`, title: `Synthetic ticket ${i}`, subject: `Synthetic ticket ${i}`,
   trackingId: `SYN-${String(i).padStart(3, '0')}`, description: 'Synthetic fixture', organizationId: i % 2 ? 'org-b' : 'org-a',
   customerOrgName: i % 2 ? 'Beta customer' : 'Alpha customer', customerId: 'contact', customerName: 'Contact', customerEmail: 'contact@example.test',
   requestedForUserId: 'contact', requestedForUserName: 'Contact', requestedForUserEmail: 'contact@example.test',
   state: i < 60 ? 0 : 6, lifecycleState: i < 60 ? 0 : 5, priority: i % 2 ? 0 : 2,
-  assignedToId: null, implementorUserId: null, categoryIds: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-10-15T00:00:00Z' }));
+  assignedToId: null, implementorUserId: null, categoryIds: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-10-15T00:00:00Z', isTemplateComplete: true, hasPendingApprovals: false }));
+let rows = createRows();
 const options = { customer: [{id:'org-a',label:'Alpha customer'}, {id:'org-b',label:'Beta customer'}], for: [{id:'contact',label:'Contact (contact@example.test)'}], assignee: [{id:'staff',label:'Synthetic technician'}] };
 http.createServer(async (req,res) => {
  const url = new URL(req.url, 'http://127.0.0.1'); const q = url.searchParams;
  const reply = (body,status=200) => {res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(body));};
  if (url.pathname === '/fixture/health') return reply({ok:true});
- if (url.pathname === '/fixture/reset') { queries=[];details=[];fault='';return reply({ok:true}); }
- if (url.pathname === '/fixture/state') return reply({queries,details});
+ if (url.pathname === '/fixture/reset') { queries=[];details=[];mutations=[];fault='';permissionMode='admin';rows=createRows();return reply({ok:true}); }
+ if (url.pathname === '/fixture/state') return reply({queries,details,mutations,rows});
+ if (url.pathname === '/fixture/permissions') { permissionMode=q.get('mode')??'admin';return reply({ok:true}); }
+ if (url.pathname === '/fixture/row') { const row=rows.find(item=>item.id===q.get('id')); if(!row)return reply({},404); if(q.has('lifecycle'))row.lifecycleState=Number(q.get('lifecycle')); if(q.has('state'))row.state=Number(q.get('state')); if(q.has('pending'))row.hasPendingApprovals=q.get('pending')==='true'; if(q.has('template'))row.isTemplateComplete=q.get('template')==='true'; return reply(row); }
  if (url.pathname === '/fixture/fault') { fault=q.get('mode');return reply({ok:true}); }
  if (url.pathname.endsWith('/system/token')) {
   const enc=v=>Buffer.from(JSON.stringify(v)).toString('base64url');
-  const roles=req.headers['x-system-secret']==='filter-reader'?['Incident.Read','Request.Read','Change.Read']:['HelpdeskAdmin'];
+  const roles=req.headers['x-system-secret']==='filter-reader'||permissionMode==='reader'?['Incident.Read','Request.Read','Change.Read']:['HelpdeskAdmin'];
   return reply({token:`${enc({alg:'none'})}.${enc({sub:'filter-operator',auth_mode:'development',preferred_username:'Synthetic operator',roles,allowed_organization_id:['org-a','org-b'],exp:Math.floor(Date.now()/1000)+3600})}.fixture`});
  }
- if(url.pathname==='/api/v1/auth/me') return reply({isAuthenticated:true,name:'Synthetic operator',email:'Synthetic operator',userId:'filter-operator',customerId:null,primaryOrganizationId:null,primaryOrganizationName:null,isHelpdeskAdmin:true,roleBundles:['HelpdeskAdmin'],permissions:[],allowedOrganizationIds:['org-a','org-b'],managedOrganizationIds:[]});
+ if(url.pathname==='/api/v1/auth/me') return reply({isAuthenticated:true,name:'Synthetic operator',email:'Synthetic operator',userId:'filter-operator',customerId:null,primaryOrganizationId:null,primaryOrganizationName:null,isHelpdeskAdmin:permissionMode!=='reader',roleBundles:permissionMode==='reader'?[]:['HelpdeskAdmin'],permissions:permissionMode==='reader'?['Incident.Read','Request.Read','Change.Read']:[],allowedOrganizationIds:['org-a','org-b'],managedOrganizationIds:[]});
  if(url.pathname==='/api/v1/branding') return reply({applicationName:'RatelDesk'});
  if(url.pathname==='/api/v1/ticketing/filter-options') return reply({items:(options[q.get('dimension')]??[]).filter(o=>(!q.has('selectedId')||q.getAll('selectedId').includes(o.id))&&o.label.toLowerCase().includes((q.get('q')??'').toLowerCase())),hasMore:false});
  if(url.pathname.endsWith('/assignees/current')) return reply(null);
  if(url.pathname==='/api/v1/ticketing/organizations') return reply(options.customer.map(o=>({id:o.id,name:o.label,state:0})));
  if(url.pathname.endsWith('/change-participants')) return reply({organizationId:'org-b',requestedForUsers:[],approverUsers:[],implementorUsers:[]});
+ const lifecycleOptions=url.pathname.match(/^\/api\/v1\/changes\/(row-\d+)\/lifecycle-options$/);
+ if(lifecycleOptions) {
+  const row=rows.find(item=>item.id===lifecycleOptions[1]);if(!row)return reply({},404);
+  const choices={0:[1],2:[0,3],3:[4,5,6],4:[5,6]}[row.lifecycleState]??[];
+  return reply({id:row.id,lifecycleState:row.lifecycleState,choices:choices.map(state=>({state,unavailableReason:state===3&&row.hasPendingApprovals?'Outstanding approvals must be completed in the change details.':[5,6].includes(state)&&!row.isTemplateComplete?'Complete the change template in the details before implementing.':null})),guidance:row.lifecycleState===0?'Submit evaluates the saved template and approvals. The change may remain Draft until its template is complete.':null});
+ }
+ const mutation=url.pathname.match(/^\/api\/v1\/(incidents|requests|changes)\/(row-\d+)\/(state|lifecycle)$/);
+ if(mutation&&req.method==='POST') {
+  const row=rows.find(item=>item.id===mutation[2]);if(!row)return reply({},404);
+  let raw='';for await(const chunk of req)raw+=chunk;
+  const body=JSON.parse(raw);mutations.push({path:url.pathname,body});
+  if(permissionMode==='reader')return reply({error:'Synthetic write permission revoked'},403);
+  if(fault==='state-conflict'){fault='';return reply({error:'Synthetic concurrent edit'},409);}
+  if(fault==='state-slow'){fault='';await new Promise(resolve=>setTimeout(resolve,800));}
+  const lost=fault==='state-lost';if(lost)fault='';
+  if(mutation[3]==='lifecycle') {
+   const requested=body.lifecycleState??body.LifecycleState;
+   row.lifecycleState=requested===1?(row.isTemplateComplete?2:0):requested;
+   if([5,6].includes(row.lifecycleState))row.state=6;
+   return reply(lost?{error:'Synthetic lost lifecycle response after commit'}:row,lost?503:200);
+  }
+  row.state=body.newState??body.NewState;return reply(lost?{error:'Synthetic lost state response after commit'}:{id:row.id,state:row.state},lost?503:200);
+ }
  const detail=url.pathname.match(/^\/api\/v1\/(incidents|requests|changes)\/(row-\d+)$/);
  if(detail) {
   const row=rows.find(r=>r.id===detail[2]);

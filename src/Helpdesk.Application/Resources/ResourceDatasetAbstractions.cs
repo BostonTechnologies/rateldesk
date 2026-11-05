@@ -33,6 +33,27 @@ public interface IOperatorDatasetWriter
 /// <summary>The dataset changed during a write; inspect current rows before submitting another update.</summary>
 public sealed class DatasetWriteConflictException(string message) : Exception(message);
 
+public sealed class DatasetDefinitionValidationException(IReadOnlyDictionary<string, string[]> errors)
+    : ArgumentException("Correct the dataset fields and try again.")
+{
+    public IReadOnlyDictionary<string, string[]> Errors { get; } = errors;
+}
+
+/// <summary>Additive operations for guided Graph setup and durable import reconciliation.</summary>
+public interface IGraphDatasetWorkflowService
+{
+    Task<GraphConnectionTestResultDto> TestGraphConnectionAsync(GraphConnectionTestRequestDto dto, CancellationToken cancellationToken = default);
+    Task<GraphDatasetImportStatusDto> SaveAndImportGraphAsync(GraphDatasetImportRequestDto dto, CancellationToken cancellationToken = default);
+    Task<GraphDatasetImportStatusDto?> GetGraphImportStatusAsync(string organizationId, CancellationToken cancellationToken = default);
+    Task<GraphDatasetImportStatusDto?> GetGraphImportRequestStatusAsync(string organizationId, Guid requestId, CancellationToken cancellationToken = default);
+    Task<GraphDatasetImportStatusDto> ReconcileInterruptedGraphImportAsync(string organizationId, Guid requestId, CancellationToken cancellationToken = default);
+}
+
+public interface IDatasetCreateReconciliation
+{
+    Task<DatasetDefinitionDto?> GetCreateResultAsync(string organizationId, Guid requestId, CancellationToken cancellationToken = default);
+}
+
 public interface IRequestFormDatasetBindingValidator
 {
     Task<string?> ValidateAsync(string organizationId, IReadOnlyCollection<FormField> fields, CancellationToken cancellationToken = default);

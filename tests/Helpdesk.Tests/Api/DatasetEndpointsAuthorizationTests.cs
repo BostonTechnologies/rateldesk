@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Claims;
+using System.Text.Json;
 using System.Text.Encodings.Web;
 using Helpdesk.API.Background;
 using Helpdesk.API.Endpoints.Resources;
@@ -23,6 +24,92 @@ namespace Helpdesk.Tests.Api;
 
 public sealed class DatasetEndpointsAuthorizationTests
 {
+    [Theory]
+    [InlineData("ClientAdmin", "org-alpha", true)]
+    [InlineData("ClientAdmin", "org-other", false)]
+    [InlineData("Mixed", "org-alpha", true)]
+    [InlineData("Mixed", "org-other", false)]
+    [InlineData("Admin", "org-other", true)]
+    [InlineData("SelfService", "org-alpha", false)]
+    public async Task Guided_graph_operations_enforce_the_same_organization_authority(string actor, string organizationId, bool allowed)
+    {
+        using var harness = await DatasetEndpointsHarness.CreateAsync(actor);
+        var requestId = Guid.NewGuid();
+        var draft = new GraphConnectionTestRequestDto { OrganizationId = organizationId, TenantId = "synthetic-tenant", ClientId = "synthetic-client", UseStoredSecret = true, EnableUsers = true };
+        var test = await harness.Client.PostAsJsonAsync("/api/v1/resources/datasets/graph-settings/test", draft);
+        var import = await harness.Client.PostAsJsonAsync("/api/v1/resources/datasets/graph-settings/import",
+            new GraphDatasetImportRequestDto { RequestId = requestId, Connection = draft, TestToken = "synthetic-proof" });
+        var status = await harness.Client.GetAsync($"/api/v1/resources/datasets/graph-settings/{organizationId}/import-status");
+        var reconcile = await harness.Client.PostAsync($"/api/v1/resources/datasets/graph-settings/{organizationId}/import-status/{requestId:D}/reconcile", null);
+        Assert.All(new[] { test, import, status, reconcile }, response => Assert.Equal(allowed ? HttpStatusCode.OK : HttpStatusCode.Forbidden, response.StatusCode));
+        var service = harness.Services.GetRequiredService<FakeDataManagementService>();
+        Assert.Equal(allowed ? 1 : 0, service.GraphTests);
+        Assert.Equal(allowed ? 1 : 0, service.GraphImports);
+        Assert.Equal(allowed ? 1 : 0, service.GraphReconciliations);
+        Assert.Equal(allowed ? 1 : 0, harness.Services.GetRequiredService<NoopGraphDatasetSyncScheduleService>().Reconciliations);
+    }
+
+    [Fact]
+    public async Task Connection_testing_does_not_save_settings_or_reconcile_schedules()
+    {
+        using var harness = await DatasetEndpointsHarness.CreateAsync("ClientAdmin");
+        var response = await harness.Client.PostAsJsonAsync("/api/v1/resources/datasets/graph-settings/test",
+            new GraphConnectionTestRequestDto { OrganizationId = "org-alpha", TenantId = "draft-tenant", ClientId = "draft-client", ClientSecret = "synthetic-draft-secret", EnableGroups = true });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var settings = await harness.Client.GetFromJsonAsync<TenantGraphDatasetSettingsDto>("/api/v1/resources/datasets/graph-settings?organizationId=org-alpha");
+        Assert.Null(settings!.TenantId);
+        Assert.False(settings.EnableGroups);
+        Assert.Equal(0, harness.Services.GetRequiredService<FakeDataManagementService>().GraphImports);
+        Assert.Equal(0, harness.Services.GetRequiredService<NoopGraphDatasetSyncScheduleService>().Reconciliations);
+    }
+    [Fact]
+    public async Task Schedule_reconciliation_failure_does_not_misreport_a_completed_import_or_leak_exception_text()
+    {
+        using var harness = await DatasetEndpointsHarness.CreateAsync("ClientAdmin");
+        harness.Services.GetRequiredService<NoopGraphDatasetSyncScheduleService>().FailReconciliation = true;
+        var response = await harness.Client.PostAsJsonAsync("/api/v1/resources/datasets/graph-settings/import", new GraphDatasetImportRequestDto
+        {
+            RequestId = Guid.NewGuid(), TestToken = "synthetic-proof", Connection = new() { OrganizationId = "org-alpha", EnableUsers = true }
+        });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var result = await response.Content.ReadFromJsonAsync<GraphDatasetImportStatusDto>();
+        Assert.Equal("Succeeded", result!.Status);
+        Assert.True(result.ConfigurationSaved);
+        Assert.Contains("schedule could not be reconciled", result.Message);
+        Assert.DoesNotContain("provider-secret", result.Message);
+    }
+
+    [Fact]
+    public async Task Schema_updates_enforce_stored_scope_and_return_field_validation_without_mutation()
+    {
+        using var harness = await DatasetEndpointsHarness.CreateAsync("ClientAdmin");
+        var service = harness.Services.GetRequiredService<FakeDataManagementService>();
+        var own = await harness.Client.PutAsJsonAsync("/api/v1/resources/datasets/alpha-custom",
+            new UpdateDatasetDefinitionDto { Name = "Edited catalog", SourceType = DatasetSourceType.Custom });
+        Assert.Equal(HttpStatusCode.OK, own.StatusCode);
+        Assert.Equal("Edited catalog", (await own.Content.ReadFromJsonAsync<DatasetDefinitionDto>())!.Name);
+        foreach (var datasetId in new[] { "other-custom", "alpha-graph-users" })
+        {
+            var denied = await harness.Client.PutAsJsonAsync($"/api/v1/resources/datasets/{datasetId}",
+                new UpdateDatasetDefinitionDto { Name = "Denied edit" });
+            Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        }
+        var deniedSource = await harness.Client.PutAsJsonAsync("/api/v1/resources/datasets/alpha-custom",
+            new UpdateDatasetDefinitionDto { SourceType = DatasetSourceType.GraphUsers });
+        Assert.Equal(HttpStatusCode.Forbidden, deniedSource.StatusCode);
+        Assert.Equal(1, service.DefinitionUpdates);
+
+        service.RejectSchemaUpdates = true;
+        var invalid = await harness.Client.PutAsJsonAsync("/api/v1/resources/datasets/alpha-custom",
+            new UpdateDatasetDefinitionDto { Name = "Rejected draft", KeyColumn = "missing", Columns = [new() { Name = "id" }, new() { Name = "ID" }] });
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+        var body = await invalid.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Field names must be unique.", body.GetProperty("errors").GetProperty("Columns[1].Name")[0].GetString());
+        Assert.True(body.GetProperty("errors").TryGetProperty("KeyColumn", out _));
+        Assert.Equal(2, service.DefinitionUpdates);
+        Assert.Equal("Edited catalog", (await service.GetDatasetAsync("alpha-custom"))!.Name);
+    }
+
     [Fact]
     public async Task ClientAdmin_CanCreateAndListCustomDatasetsForOwnTenant()
     {
@@ -204,8 +291,11 @@ public sealed class DatasetEndpointsAuthorizationTests
             builder.Services.AddSingleton<FakeDataManagementService>();
             builder.Services.AddSingleton<IDataManagementService>(provider => provider.GetRequiredService<FakeDataManagementService>());
             builder.Services.AddSingleton<IOperatorDatasetWriter>(provider => provider.GetRequiredService<FakeDataManagementService>());
+            builder.Services.AddSingleton<IGraphDatasetWorkflowService>(provider => provider.GetRequiredService<FakeDataManagementService>());
+            builder.Services.AddSingleton<IDatasetCreateReconciliation>(provider => provider.GetRequiredService<FakeDataManagementService>());
             builder.Services.AddSingleton<ICurrentUserAccessService, TestCurrentUserAccessService>();
-            builder.Services.AddSingleton<IGraphDatasetSyncScheduleService, NoopGraphDatasetSyncScheduleService>();
+            builder.Services.AddSingleton<NoopGraphDatasetSyncScheduleService>();
+            builder.Services.AddSingleton<IGraphDatasetSyncScheduleService>(provider => provider.GetRequiredService<NoopGraphDatasetSyncScheduleService>());
             builder.Services.AddSingleton<ITenantContext>(new TestTenantContext("org-alpha", "self-service", false));
             builder.Services.AddAuthentication(options =>
             {
@@ -343,7 +433,14 @@ public sealed class DatasetEndpointsAuthorizationTests
 
     private sealed class NoopGraphDatasetSyncScheduleService : IGraphDatasetSyncScheduleService
     {
-        public Task ReconcileAsync(string organizationId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public int Reconciliations { get; private set; }
+        public bool FailReconciliation { get; set; }
+        public Task ReconcileAsync(string organizationId, CancellationToken cancellationToken = default)
+        {
+            Reconciliations++;
+            if (FailReconciliation) throw new InvalidOperationException("provider-secret must stay private");
+            return Task.CompletedTask;
+        }
         public Task ReconcileAllAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task ApplyDiagnosticsAsync(TenantGraphDatasetSettingsDto dto, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
@@ -355,9 +452,36 @@ public sealed class DatasetEndpointsAuthorizationTests
         public bool IsHelpdeskAdmin { get; } = isHelpdeskAdmin;
     }
 
-    private sealed class FakeDataManagementService : IDataManagementService, IOperatorDatasetWriter
+    private sealed class FakeDataManagementService : IDataManagementService, IOperatorDatasetWriter, IGraphDatasetWorkflowService, IDatasetCreateReconciliation
     {
         public int OperatorWrites { get; private set; }
+        public int GraphTests { get; private set; }
+        public int GraphImports { get; private set; }
+        public int GraphReconciliations { get; private set; }
+        public int DefinitionUpdates { get; private set; }
+        public bool RejectSchemaUpdates { get; set; }
+
+        public Task<GraphConnectionTestResultDto> TestGraphConnectionAsync(GraphConnectionTestRequestDto dto, CancellationToken cancellationToken = default)
+        {
+            GraphTests++;
+            return Task.FromResult(new GraphConnectionTestResultDto { AuthenticationSucceeded = true, Outcome = GraphAccessOutcome.Succeeded, TestToken = "synthetic-proof" });
+        }
+        public Task<GraphDatasetImportStatusDto> SaveAndImportGraphAsync(GraphDatasetImportRequestDto dto, CancellationToken cancellationToken = default)
+        {
+            GraphImports++;
+            return Task.FromResult(new GraphDatasetImportStatusDto { OrganizationId = dto.Connection.OrganizationId, RequestId = dto.RequestId, Status = "Succeeded", ConfigurationSaved = true });
+        }
+        public Task<GraphDatasetImportStatusDto?> GetGraphImportStatusAsync(string organizationId, CancellationToken cancellationToken = default)
+            => Task.FromResult<GraphDatasetImportStatusDto?>(new() { OrganizationId = organizationId, Status = "Succeeded" });
+        public Task<GraphDatasetImportStatusDto?> GetGraphImportRequestStatusAsync(string organizationId, Guid requestId, CancellationToken cancellationToken = default)
+            => Task.FromResult<GraphDatasetImportStatusDto?>(new() { OrganizationId = organizationId, RequestId = requestId, Status = "Succeeded" });
+        public Task<GraphDatasetImportStatusDto> ReconcileInterruptedGraphImportAsync(string organizationId, Guid requestId, CancellationToken cancellationToken = default)
+        {
+            GraphReconciliations++;
+            return Task.FromResult(new GraphDatasetImportStatusDto { OrganizationId = organizationId, RequestId = requestId, Status = "Interrupted" });
+        }
+        public Task<DatasetDefinitionDto?> GetCreateResultAsync(string organizationId, Guid requestId, CancellationToken cancellationToken = default)
+            => Task.FromResult<DatasetDefinitionDto?>(null);
 
         private readonly Dictionary<string, DatasetDefinitionDto> _datasets = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -389,6 +513,13 @@ public sealed class DatasetEndpointsAuthorizationTests
 
         public Task<DatasetDefinitionDto?> UpdateDatasetAsync(string datasetId, UpdateDatasetDefinitionDto dto, CancellationToken cancellationToken = default)
         {
+            DefinitionUpdates++;
+            if (RejectSchemaUpdates)
+                throw new DatasetDefinitionValidationException(new Dictionary<string, string[]>
+                {
+                    ["Columns[1].Name"] = ["Field names must be unique."],
+                    ["KeyColumn"] = ["Choose a key field in this schema."]
+                });
             if (!_datasets.TryGetValue(datasetId, out var dataset))
             {
                 return Task.FromResult<DatasetDefinitionDto?>(null);

@@ -4,14 +4,33 @@ The administration pages keep organization or tenant context visible while you w
 
 ## Data Management
 
-Open `/admin/resources/data-management` with an administrator or authorized Data Management role. Select the organization and dataset in the rail, then choose a task:
+Open `/admin/resources/data-management` with HelpdeskAdmin or the organization-scoped `DataManagement.Admin` permission. The searchable **Organization** control searches the permitted Data Management population. The page separates **Custom datasets** from **Built-in integrations**; their actions and credentials have different scopes.
 
-- **Rows** searches and pages through existing rows. **View Raw** reveals one row's payload. Searching does not modify rows.
-- **Schema** edits a custom dataset's name, columns, key, display/search columns and active state. Use **Save Dataset** or **Revert**. Column removal changes the schema; **Delete** removes the selected dataset after confirmation of its organization and total row count.
-- **Ingest API** creates and revokes credentials for the selected custom dataset. A new key is displayed once. **Ingest script examples** provides the existing schema-specific Bash/curl and PowerShell samples.
-- **Graph sync** manages the organization connector, enabled source types and schedule. Open **Connector settings** to edit credentials, then save. **Sync Built-Ins** explicitly runs ingestion using saved settings. **Sync status and schedule details** shows source timestamps, last result, runtime/schedule registration, queue and next-run information. Administrator job links retain their existing destinations.
+### Custom datasets
 
-No sync runs simply because you visit a tab. API ingestion remains a separate existing operation; this workspace does not provide file import/export or a new cleanup/history job system.
+Choose **New dataset** for the large **Details → Schema → Review & create** dialog. The organization stays pinned while the dialog is open. Enter a name, then design fields with the supported Text, Number, Boolean and DateTime types. Choose exactly one key and one display field, enable search for suitable fields, and use the arrows to order them. Names must be unique without regard to case. Renaming a field keeps its key/display role; removing a selected field requires choosing a replacement.
+
+Back retains the draft. Continue and Cancel create nothing. **Create dataset** is the explicit save. Failed saves retain the draft and show validation feedback. If completion is uncertain, choose **Check creation status** before retrying; the retained request identity prevents duplicate datasets. After success, **Create ingestion API key** is optional. **View dataset** or **Done** completes creation without a key.
+
+The selected dataset has a separate detail workspace:
+
+- **Rows** searches and pages through existing rows. **View Raw** reveals one row's payload. Empty data, unmatched searches and failed row loads have separate feedback; a failed search can be retried without changing it.
+- **Schema** edits the existing definition, including its name, fields, key, display/search choices and active state. Use **Save Dataset** or **Revert**. **Delete** confirms the organization and total row count before deleting the dataset. Schema editing retains the dataset identity and existing rows.
+- **API access** lists key metadata, including active/revoked status, created time and last use. **Create ingestion API key** opens a focused named-key dialog. Copy the one-time secret into your own secret store; closing the dialog clears it from the page. Existing secrets cannot be read back. Revocation requires confirmation. **Ingest script examples** retains schema-specific curl and PowerShell examples with placeholders and copy actions, plus the plain-text editor fallback.
+
+### Built-in integrations
+
+The Microsoft Graph catalog always shows Users, Computers/devices, Groups and SharePoint sites, including sources that have never been imported and datasets with zero rows. An unavailable count is shown as unknown rather than zero. **View data** reuses the row browser with managed schema information; custom key creation is unavailable for these sources.
+
+Choose **Set up Microsoft Graph**, **Manage connection** or **Import now** for **Connection → Choose datasets → Test access → Review & import**. Enter the Entra tenant/application identifiers and a new secret, or explicitly use the existing configured secret for this organization. Stored secrets are never returned to the browser. Draft credentials remain transient until an explicit save.
+
+**Test connection** authenticates and makes bounded sample reads for each selected source. It does not save settings, create datasets or keys, import rows, update sync timestamps, register schedules or enqueue jobs. Authentication and each source's access result appear separately. Changing the connection, credential or source selection invalidates the test. Correct failures and run a fresh test before importing.
+
+**Save and import** is enabled only after the current connection and every selected source pass. The final action saves configuration and starts the existing paginated import. It upserts stable keys and removes rows missing from each selected source (`DeleteMissing`), so importing a genuinely empty source leaves zero rows. Review this replacement behavior before saving. Configuration saved and import completed are reported separately; per-source outcomes retain successful updates if another source fails.
+
+If the response is lost, use **View import results** or reopen the connection to check the recorded run before retrying. Closing a dialog does not cancel server work. A long-interrupted run offers **Reconcile interrupted import** after the server's recovery boundary; reconciliation records the available results without importing. Inspect the source data, then explicitly retest/review a new import. **Retest selected sources** preserves the saved enabled-source selection and recurring schedule.
+
+**Schedule** opens the optional recurring import settings. Cron expressions use UTC. First-run setup does not enable a schedule, and connection edits preserve an existing schedule. A saved schedule and an available runtime are separate states. **Advanced diagnostics** contains runtime registration, queue/job identifiers and privileged Hangfire links, plus **Edit connection without importing** for an explicit configuration-only save.
 
 ## Support Routing
 

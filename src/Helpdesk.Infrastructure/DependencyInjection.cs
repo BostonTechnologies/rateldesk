@@ -220,6 +220,21 @@ public static class DependencyInjection
         services.AddScoped<DataManagementService>();
         services.AddScoped<IDataManagementService>(provider => provider.GetRequiredService<DataManagementService>());
         services.AddScoped<IOperatorDatasetWriter>(provider => provider.GetRequiredService<DataManagementService>());
+        services.AddScoped<IGraphDatasetWorkflowService>(provider => provider.GetRequiredService<DataManagementService>());
+        services.AddScoped<IDatasetCreateReconciliation>(provider => provider.GetRequiredService<DataManagementService>());
+        services.AddHttpClient(DataManagementService.GraphConnectionTestClientName)
+            .ConfigureAdditionalHttpMessageHandlers((handlers, _) =>
+            {
+                // A connection test is one bounded sample per source. Inherited retries or
+                // a previous circuit result must not obscure its actual access outcome.
+                for (var index = handlers.Count - 1; index >= 0; index--)
+                {
+                    if (handlers[index] is not ResilienceHandler) continue;
+                    var handler = handlers[index];
+                    handlers.RemoveAt(index);
+                    handler.Dispose();
+                }
+            });
         services.AddScoped<IRequestFormDatasetBindingValidator, RequestFormDatasetBindingValidator>();
         services.AddScoped<ISelfServiceDatasetBindingResolver, SelfServiceDatasetBindingResolver>();
         services.AddScoped<ISlaReportingQueryService, SlaReportingQueryService>();

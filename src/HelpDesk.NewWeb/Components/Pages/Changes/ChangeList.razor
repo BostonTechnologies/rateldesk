@@ -75,7 +75,7 @@
 @code {
     private CurrentUserAccessProfile? accessProfile;
     private bool CanWriteAny => accessProfile?.HasPermission(HelpdeskPermissions.ChangeWrite) == true || accessProfile?.HasPermission(HelpdeskPermissions.ChangeManager) == true;
-    private bool CanCreate => CanWriteAny || accessProfile?.HasPermission(HelpdeskPermissions.ChangeUser) == true;
+    private bool CanCreate => CanWriteAny;
     private TicketListState filters = new();
     private string? appliedUrl, queryError;
     private int tableKey, generation;
@@ -180,6 +180,7 @@
     private RenderFragment RenderLifecycleState(ChangeDto change) => builder =>
     {
         builder.OpenComponent<ChangeLifecycleStatePicker>(0);
+        builder.SetKey(change.Id);
         builder.AddAttribute(1, nameof(ChangeLifecycleStatePicker.ChangeId), change.Id);
         builder.AddAttribute(4, nameof(ChangeLifecycleStatePicker.CanWrite), accessProfile?.CanManageChange(change.OrganizationId) == true);
         builder.AddAttribute(5, nameof(ChangeLifecycleStatePicker.CanApprove), accessProfile?.CanApproveChange(change.OrganizationId) == true);
@@ -189,8 +190,9 @@
             change.State = updated.State;
             change.LifecycleState = updated.LifecycleState;
             change.UpdatedAt = updated.UpdatedAt;
-            await Reload();
+            if (_table is not null) await _table.ReloadAfterStateChange(change.Id);
         }));
+        builder.AddAttribute(6, nameof(ChangeLifecycleStatePicker.TrackingId), change.TrackingId);
         builder.CloseComponent();
     };
 
