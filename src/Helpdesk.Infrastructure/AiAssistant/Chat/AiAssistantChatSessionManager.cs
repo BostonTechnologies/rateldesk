@@ -208,10 +208,12 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
                 await RecordRecoveryResultAsync(conversation, current.ActiveMessageId, attached.ReconciliationConfirmed);
                 return;
             }
-            owner = await GetAsync(conversation, ct, forceReconnect: true);
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30), timeProvider ?? TimeProvider.System);
+            using var attempt = CancellationTokenSource.CreateLinkedTokenSource(ct, stopping, deadline.Token);
+            owner = await GetAsync(conversation, attempt.Token, forceReconnect: true);
             // EnsureSession acknowledgement and SessionJoined output are separate
             // messages. Return only after the history outcome has been committed.
-            await owner.Joined.Task.WaitAsync(TimeSpan.FromSeconds(30), ct);
+            await owner.Joined.Task.WaitAsync(attempt.Token);
         }
         catch (ChatConflictException) when (!ct.IsCancellationRequested && !stopping.IsCancellationRequested)
         {

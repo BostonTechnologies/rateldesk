@@ -101,6 +101,54 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
         finally { await isolated.DisposeAsync(); }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_stalled_recovery_connection_terminates_on_deadline_or_caller_cancellation_without_resending(bool cancelCaller)
+    {
+        var clock = new DeadlineTimeProvider();
+        await using var run = await Run.CreateAsync(fixture, clock);
+        await run.SendAsync();
+        await using (var db = fixture.Context())
+        {
+            var current = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == run.Conversation);
+            current.State = ChatState.DeliveryUnknown;
+            await db.SaveChangesAsync();
+        }
+        await run.Manager.RetireAsync(run.Conversation, default);
+        var stalled = new ControlledClient { ConnectGate = new(TaskCreationOptions.RunContinuationsAsynchronously) };
+        run.Factory.Next = stalled;
+        using var caller = new CancellationTokenSource();
+        using var testBudget = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var recovery = run.Manager.ReconcileAsync(run.Conversation, caller.Token);
+        await stalled.ConnectStarted.Task.WaitAsync(testBudget.Token);
+        if (cancelCaller)
+        {
+            caller.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => recovery.WaitAsync(testBudget.Token));
+        }
+        else
+        {
+            var (callback, state) = await clock.Deadline.Task.WaitAsync(testBudget.Token);
+            callback(state);
+            await recovery.WaitAsync(testBudget.Token);
+        }
+        Assert.True(stalled.Disposed);
+        Assert.Empty(stalled.Sent);
+        Assert.Single(run.Client.Sent);
+        await using (var db = fixture.Context())
+        {
+            var current = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == run.Conversation);
+            Assert.Equal(ChatState.DeliveryUnknown, current.State);
+            Assert.Equal(run.Request.ClientMessageId, current.ActiveMessageId);
+            if (!cancelCaller) Assert.NotNull(current.RecoveryLastAttemptUtc);
+        }
+        run.Factory.Next = new ControlledClient();
+        await run.Manager.ReconcileAsync(run.Conversation, testBudget.Token);
+        Assert.Empty(run.Factory.Next.Sent);
+        Assert.Empty(run.Factory.Next.Responses);
+    }
+
     [Fact]
     public async Task FinalApprovalRenewsProviderProcessingLease()
     {
@@ -992,6 +1040,17 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
             if (FailResponse) throw new IOException("Decision acknowledgement lost");
         }
         public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
+    }
+
+    private sealed class DeadlineTimeProvider : TimeProvider
+    {
+        public TaskCompletionSource<(TimerCallback Callback, object? State)> Deadline { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            Assert.Equal(TimeSpan.FromSeconds(30), dueTime);
+            Deadline.TrySetResult((callback, state));
+            return Substitute.For<ITimer>();
+        }
     }
 
     private sealed class MutableTimeProvider(DateTimeOffset now) : TimeProvider
