@@ -1,5 +1,12 @@
 # Release notes
 
+## 0.1.3-beta.5
+
+[Long-running chat observation and shared keyboard repairs](0.1.3-beta.5.md)
+keep quiet connected turns attached, bound failed recovery checks and preserve
+the final typed characters. Native long-running and restart acceptance remain
+separate; #351/#308 are not closed by this beta.
+
 ## 0.1.3-beta.4
 
 [Searchable creation, state popups, guided Data Management and AI tables](0.1.3-beta.4.md)

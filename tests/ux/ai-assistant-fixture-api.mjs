@@ -3,7 +3,7 @@
 import http from 'node:http';
 const conversation = '11111111-1111-4111-8111-111111111111';
 const actor = 'c0c48409df3ca07e12725a961d4152790fd135c2384a3e3a522282e2bd847178';
-let events = [], state = 0;
+let events = [], state = 0, recoveryResult = null;
 let streamOpens = 0, sends = 0, recoveries = 0;
 let starts = 0, startAttempts = 0, activeConversation = conversation, loseStartResponse = false, connectionMode = 'verified';
 let holdStartResponse = false;
@@ -34,7 +34,8 @@ function event(type, text, extra = {}) {
 function reset(mode = 'completed') {
   activeConversation = conversation; starts = startAttempts = 0; loseStartResponse = false; startRequests.clear(); connectionMode = 'verified';
   generalChats.clear(); generalChats.set(conversation, generalRow()); streamOpens = sends = recoveries = 0;
-  events = []; state = mode === 'processing' ? 1 : mode === 'approval' ? 2 : mode === 'archived' ? 4 : mode === 'recovery' ? 3 : 0;
+  events = []; state = ['processing', 'quiet'].includes(mode) ? 1 : mode === 'approval' ? 2 : mode === 'archived' ? 4 : mode === 'recovery' ? 3 : 0;
+  recoveryResult = null;
   event('created', 'Conversation created.');
   if (mode === 'empty') return;
   event('operator', 'Investigate the Helpdesk integration and explain the result.', { CreatedByUserId: actor, ClientMessageId: crypto.randomUUID() });
@@ -52,7 +53,11 @@ function reset(mode = 'completed') {
         ...(mode === 'payloads' && i < 2 ? { Details: { Version: 2, ToolName: metadata.Details.ToolName, SourceTimestampUtc: '2026-11-03T08:00:01Z', Result: i === 0 ? tracePayloads.skillResult : tracePayloads.discoveryResult } } : {}) }) });
   }
   if (mode === 'approval') event('approval_request', 'Allow this tool operation?', { CallId: 'approval-1', OptionsJson: JSON.stringify([{ Key: 'approve_once', Label: 'Allow once' }, { Key: 'deny', Label: 'Deny' }]) });
-  if (!['processing', 'approval', 'recovery'].includes(mode)) {
+  if (mode === 'quiet') {
+    recoveryResult = 'Waiting for NetClaw with no recent model or tool output. RatelDesk keeps observing the original request. An available connection does not prove completion.';
+    event('observation_waiting', recoveryResult);
+  }
+  if (!['processing', 'quiet', 'approval', 'recovery'].includes(mode)) {
     event('assistant', mode === 'tables' ? tableReply : 'The integration is responding normally.\n\n• Ticket context reached the harness.\n• Tool activity was recorded safely.\n\nNo production changes were made.');
     event('turn_completed', 'Turn completed.');
   }
@@ -116,7 +121,7 @@ http.createServer(async (req, res) => {
     }
     if (suffix === '/archive' || suffix === '/abandon') { state = 4; event('archived', 'Archived synthetic conversation.'); for (const stream of streams) stream.write('event: state\ndata: 4\n\n'); return reply({}); }
     chatPath = `/chat${suffix}`;
-    if (suffix === '') return reply({ conversationId: url.searchParams.get('conversationId'), state, lastSequence: events.length, events });
+    if (suffix === '') return reply({ conversationId: url.searchParams.get('conversationId'), state, lastSequence: events.length, events, recoveryResult });
   }
   if (chatPath.endsWith('/chat/reconcile')) {
     recoveries++;
@@ -240,7 +245,7 @@ http.createServer(async (req, res) => {
     for (const stream of streams) stream.write('event: state\ndata: 1\n\n');
     return reply({ accepted: true });
   }
-  if (chatPath.endsWith('/chat')) return reply({ conversationId: conversation, state, lastSequence: events.length, events });
+  if (chatPath.endsWith('/chat')) return reply({ conversationId: conversation, state, lastSequence: events.length, events, recoveryResult });
   if (url.pathname === '/api/v1/incidents/ux-chat') return reply({ id: 'ux-chat', subject: 'AiAssistant UX fixture', trackingId: 'UX-799', state: 0, priority: 1, categoryIds: [] });
   if (url.pathname.endsWith('/count')) return reply(0);
   if (url.pathname.includes('summary')) return reply({});

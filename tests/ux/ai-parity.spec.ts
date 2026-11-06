@@ -107,10 +107,11 @@ test(`general chat ${theme} ${width}px starts immediately and names itself on fi
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: info.outputPath('welcome.png'), fullPage: true });
   await input.fill('Help review the request queue');
-  await input.press('Enter');
+  await input.press('Alt+Enter');
+  await expect(input).toHaveValue('Help review the request queue\n');
   expect((await (await request.get(`${fixture}/fixture/chat-counts`)).json()).sends).toBe(0);
   await input.fill('Help review the request queue');
-  await input.press('Control+Enter');
+  await input.press('Enter');
   await expect(page.getByRole('heading', { name: 'Help review the request queue', exact: true })).toBeVisible();
   await expect(page).toHaveURL(/conversationId=/);
   await expect(input).toBeEnabled();

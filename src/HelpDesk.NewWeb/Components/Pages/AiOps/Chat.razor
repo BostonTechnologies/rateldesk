@@ -89,7 +89,7 @@
                     </div>
                     @if (capabilities?.Enabled == true)
                     {
-                        <div class="chat-composer-area"><AiAssistantComposer @ref="composer" @bind-Value="message" Send="SendFirstAsync" Disabled="@(!CanStart || busy)" ReadOnly="@(pendingStart is not null)" Identity="@OrganizationName(organization)" SubmitWithModifier="true" ShowAttachmentNotice="false" SendLabel="@(pendingStart is null ? "Send" : "Retry message")" /></div>
+                        <div class="chat-composer-area"><AiAssistantComposer @ref="composer" @bind-Value="message" Send="SendFirstAsync" Disabled="@(!CanStart || busy)" ReadOnly="@(pendingStart is not null)" Identity="@OrganizationName(organization)" ShowAttachmentNotice="false" SendLabel="@(pendingStart is null ? "Send" : "Retry message")" /></div>
                     }
                 </section>
             }

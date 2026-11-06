@@ -1,5 +1,21 @@
 # Releases
 
+## 0.1.3-beta.5 candidate — durable chat observation
+
+[Candidate notes](../release-notes/0.1.3-beta.5.md) cover quiet-turn retention,
+bounded reconnect checks and Enter/Alt+Enter across the shared composers. The
+[implementation record](../implementation/0.1.3-beta.5-durable-chat.md) identifies
+the historical exact-turn protocol gap and pending native acceptance. Delivery
+against #351/#308 remains PARTIAL; publication does not establish deployment.
+
+Tags, draft/public releases and all three anonymous registry manifests were
+checked before assigning root `Directory.Build.props` to `0.1.3-beta.5`.
+Use the reviewed merge, exact-current-main checks and existing `release.yml`
+with `tag=v0.1.3-beta.5` and its full verified `source_revision`. Publish the
+complete verified draft as a prerelease with `latest=false`, then verify
+anonymous downloads, checksums and image pulls. Preserve earlier beta assets
+and the stable image channel.
+
 ## 0.1.3-beta.4 candidate — guided UX workspaces
 
 [Candidate notes](../release-notes/0.1.3-beta.4.md) cover searchable creation,

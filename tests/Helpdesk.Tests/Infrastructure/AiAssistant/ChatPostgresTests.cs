@@ -71,7 +71,7 @@ public sealed class ChatPostgresTests(ChatPostgresFixture fixture) : IClassFixtu
         };
 
     [Fact]
-    public async Task StaleProcessingBecomesDeliveryUnknownAndRetiresLateOutputOwner()
+    public async Task DisconnectedProcessingBecomesDeliveryUnknownAndRetiresLateOutputOwner()
     {
         var clock = new MutableTimeProvider(new DateTimeOffset(2026, 9, 10, 12, 0, 0, TimeSpan.Zero));
         await using var services = new ServiceCollection()
@@ -94,6 +94,7 @@ public sealed class ChatPostgresTests(ChatPostgresFixture fixture) : IClassFixtu
             await using (var db = fixture.Context())
                 await fixture.Store(db, timeProvider: clock).AcceptMessageAsync("incidents", ticket, request, "operator", default);
             await manager.SendAsync(conversation, request.ClientMessageId, request.Text, default);
+            client.Connected = false;
             clock.Advance(TimeSpan.FromMinutes(6));
             await manager.SweepStaleProcessingAsync(default);
             long uncertainSequence;
@@ -400,7 +401,8 @@ public sealed class ChatPostgresTests(ChatPostgresFixture fixture) : IClassFixtu
         private Func<JsonElement, Task>? output;
         public bool FailSend { get; init; } = true;
         public bool Disposed { get; private set; }
-        public bool IsConnected => !Disposed;
+        public bool Connected { get; set; } = true;
+        public bool IsConnected => Connected && !Disposed;
         public int SendCount { get; private set; }
         public string SentText { get; private set; } = string.Empty;
         public Task<SessionEnsureResult> ConnectAsync(string? sessionId, Func<JsonElement, Task> output, CancellationToken ct)
