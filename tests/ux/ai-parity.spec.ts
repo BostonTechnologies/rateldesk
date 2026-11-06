@@ -160,7 +160,8 @@ for (const route of [...routes, '/incidents/ux-chat']) {
           expect(await scroll.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true);
           await page.keyboard.press('ArrowRight');
           await expect.poll(() => scroll.evaluate(el => el.scrollLeft)).toBeGreaterThan(0);
-          await scroll.evaluate(el => { el.scrollLeft = 0; });
+          // Cancel the keyboard's smooth scroll before resetting the screenshot position.
+          await scroll.evaluate(el => el.scrollTo({ left: 0, behavior: 'instant' }));
           await expect.poll(() => scroll.evaluate(el => el.scrollLeft)).toBe(0);
         }
         const copy = first.getByRole('button', { name: 'Copy table', exact: true });
