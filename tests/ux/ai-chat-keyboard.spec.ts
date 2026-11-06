@@ -48,3 +48,33 @@ test('coarse pointer with physical keys, IME, repetition, and whitespace never c
     await expect.poll(async () => (await (await request.get(`${fixture}/fixture/chat-counts`)).json()).sends).toBe(1);
   } finally { await context.close(); }
 });
+
+test('fullscreen deferred focus preserves a composer that the operator already focused', async ({ page, request }) => {
+  await request.get(`${fixture}/fixture/reset?mode=completed`);
+  await page.goto('/auth/development');
+  await page.goto(`/ai/chat?organizationId=org&conversationId=${id}`);
+  const input = page.getByRole('textbox', { name: 'Message Netclaw' });
+  await expect(input).toBeEnabled();
+  // Hold application animation callbacks so typing reliably wins the fullscreen focus race.
+  await page.evaluate(() => {
+    const target = window as typeof window & { releaseChatFrames?: () => void; waitForChatFrame?: () => Promise<void> };
+    const original = window.requestAnimationFrame.bind(window);
+    const pending: Array<() => void> = [];
+    window.requestAnimationFrame = callback => original(time => pending.push(() => callback(time)));
+    target.waitForChatFrame = () => new Promise(resolve => original(() => resolve()));
+    target.releaseChatFrames = () => {
+      window.requestAnimationFrame = original;
+      pending.splice(0).forEach(callback => callback());
+    };
+  });
+  await page.getByRole('button', { name: 'Maximise conversation' }).click();
+  await expect(page.locator('body')).toHaveClass(/chat-conversation-maximised/);
+  await page.evaluate(() => (window as typeof window & { waitForChatFrame: () => Promise<void> }).waitForChatFrame());
+  await input.fill('Keep the caret here');
+  await expect(input).toBeFocused();
+  await page.evaluate(() => (window as typeof window & { releaseChatFrames: () => void }).releaseChatFrames());
+  await expect(input).toBeFocused();
+  await input.press('Alt+Enter');
+  await expect(input).toHaveValue('Keep the caret here\n');
+  expect((await (await request.get(`${fixture}/fixture/chat-counts`)).json()).sends).toBe(0);
+});
