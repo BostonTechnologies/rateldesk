@@ -166,6 +166,40 @@ test('stop waiting shows authoritative uncertain-delivery recovery controls', as
   await expect(page.getByRole('button', { name: 'Stop waiting' })).toHaveCount(0);
 });
 
+for (const route of ['/incidents/ux-chat', '/ai/chat?organizationId=org&conversationId=11111111-1111-4111-8111-111111111111', '/ai/ops?id=11111111-1111-4111-8111-111111111111']) {
+  test(`${route.split('?')[0]} quiet status survives fullscreen, navigation and refresh before one final reply`, async ({ page, request }) => {
+    // Synthetic saved state exercises real rendering/replay; it is not native long-running acceptance.
+    await request.get('http://127.0.0.1:18299/fixture/reset?mode=quiet');
+    async function open() {
+      await page.goto(route);
+      if (route.startsWith('/incidents/')) await page.getByRole('tab', { name: 'AI Assistant', exact: true }).click();
+      await expect(page.getByTestId('chat-observation-status')).toContainText('keeps observing the original request');
+    }
+    await open();
+    const status = page.getByTestId('chat-observation-status');
+    await expect(status).toContainText('Elapsed:');
+    await expect(status).toContainText('Last saved remote activity:');
+    await expect(page.getByRole('textbox', { name: 'Message Netclaw' })).toBeDisabled();
+    await page.getByRole('button', { name: 'Maximise conversation' }).click();
+    await expect(status).toContainText('does not prove completion');
+    await page.getByRole('button', { name: 'Restore conversation' }).click();
+    await page.goto('/ai/chat');
+    await open();
+    await page.reload();
+    if (route.startsWith('/incidents/')) await page.getByRole('tab', { name: 'AI Assistant', exact: true }).click();
+    await expect(status).toContainText('keeps observing the original request');
+    await request.get('http://127.0.0.1:18299/fixture/complete');
+    await expect(page.getByTestId('ai-assistant-response')).toContainText('Canonical response');
+    await request.get('http://127.0.0.1:18299/fixture/replay');
+    await expect(page.getByTestId('ai-assistant-response')).toHaveCount(1);
+    await expect(status).toHaveCount(0);
+    await expect(page.getByRole('textbox', { name: 'Message Netclaw' })).toBeEnabled();
+    const counts = await (await request.get('http://127.0.0.1:18299/fixture/chat-counts')).json();
+    expect(counts.sends).toBe(0);
+    expect(counts.recoveries).toBe(0);
+  });
+}
+
 test('desktop Enter admission lock, Shift+Enter and IME', async ({ page, request }) => {
   await request.get('http://127.0.0.1:18299/fixture/reset?mode=empty');
   await openChat(page);

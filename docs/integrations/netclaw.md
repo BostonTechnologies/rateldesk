@@ -226,7 +226,9 @@ cards fill in a suggested prompt without sending it. There is no title form or
 Save chat step: the first explicit send creates the conversation, derives its
 title and pins the actual default/optional guidance revisions together with the
 message. An invalid first message leaves no empty conversation behind. Use
-Ctrl / ⌘ + Enter to send; Enter adds a new line. **New chat** starts another blank
+Enter to send; Alt+Enter adds a new line at the caret or replaces the selection.
+IME confirmation and repeated keydown events do not send. Shift+Enter and
+Ctrl / ⌘ + Enter retain their newline/send aliases. **New chat** starts another blank
 composer when needed; it does not create a ticket or contact the daemon.
 An uncertain response retains the original conversation/message IDs for an
 explicit retry. Organization changes discard the old draft and fence late responses.
@@ -292,6 +294,29 @@ the transcript scrolls within its pane and the composer remains reachable. While
 turn is working, **Stop waiting** is a compact header action. Its warning and
 confirmation appear only when invoked; cancelling keeps the current turn attached.
 
+Quiet processing does not establish failure. `Netclaw__TurnInactivityTimeout`
+(five minutes by default) now marks a connected, still-owned turn as waiting,
+without detaching it or changing its original message/session. The transcript
+persists a waiting notice and a resumed notice when output returns. The shared
+status shows elapsed time and the last saved remote activity; browser refresh,
+navigation and fullscreen replay the received transcript. Thinking/delta traffic
+can renew observation without producing a saved transcript entry. The status
+does not use connectivity as proof of execution or completion.
+
+After a real connection loss, output-buffer overflow, uncertain send/approval or
+API restart, the existing uncertainty fence remains. Automatic saved-session
+checks use at most six attempts per API process and unresolved conversation,
+with delays of 15, 30, 60, 120, 240 and 300 seconds after consecutive attempts
+finish, so a slow failed check does not consume its own backoff.
+Each connection/join check has a 30-second deadline and respects caller/shutdown
+cancellation, including a connection whose acknowledgement never arrives.
+The background loop starts at most one check per sweep. A joined, connected
+observation is retained without repeated reconnects. When checks fail, recovery
+shows the next check time or that automatic checks have paused. **Check saved
+session** explicitly resets that check budget. Neither path sends the original
+request or repeats an approval. Restarting the API resets the in-memory budget;
+the original durable turn and its uncertainty do not reset.
+
 **Check saved session** never resends a message or approval. Recovery shows its
 last attempt and result. Confirmed admission is separate from completion: the
 inspected Netclaw join contract provides recent role/content history and a turn
@@ -306,6 +331,13 @@ and [SignalR delivery](https://github.com/netclaw-dev/netclaw/blob/fd887a692fd2f
 These upstream sources do not establish a deployed daemon's version or replay
 capability; that acceptance must use a disposable, supported daemon. Repeated
 checks keep a useful attached stream and avoid duplicate transcript notices.
+Inspection of current upstream `78e4e384e4e47a836b1f260263f58cc8877b37a6`
+retained the same historical limitation: live completion has a turn number and
+outcome, while join history does not bind a terminal outcome to the original
+client message. An uninterrupted owned stream can save its later final answer;
+reattachment after an uncertainty boundary cannot safely make the same claim.
+The [beta.5 evidence and remaining acceptance gates](../implementation/0.1.3-beta.5-durable-chat.md)
+keep these cases separate.
 
 For a permanently uncertain turn, acknowledge that remote work may have executed
 or may still run, then select **Abandon unresolved turn and archive**. This preserves

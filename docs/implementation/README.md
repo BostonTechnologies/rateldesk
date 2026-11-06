@@ -3,6 +3,7 @@
 These documents retain dated plans, source pins and evidence. Current operator
 guidance is linked from the [documentation index](../README.md).
 
+- [0.1.3-beta.5 durable chat repair and acceptance limits](0.1.3-beta.5-durable-chat.md)
 - [0.1.3-beta.4 UX implementation and delivery evidence](0.1.3-beta.4-ux.md)
 - [Artifact size, trimming and Native AOT campaign](size-campaign-20261103.md)
 - [Artifact size campaign: Codex Cloud handoff — 3 November 2026](size-campaign-codex-cloud-handoff-20261103.md)

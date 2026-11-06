@@ -86,6 +86,21 @@ else
         <MudButton Color="Color.Warning" Disabled="@(busy || !acknowledgeAbandon || UnresolvedMessageId is null)" OnClick="AbandonAsync">Abandon unresolved turn and archive</MudButton>
         }
     }
+    @if (state is ChatState.Processing or ChatState.AwaitingApproval)
+    {
+        <div role="status" data-testid="chat-observation-status" class="pa-3">
+            <strong>@(state == ChatState.AwaitingApproval ? "Waiting for your decision" : "Awaiting NetClaw")</strong>
+            <p>@(recoveryResult ?? "RatelDesk keeps observing this request. A connection does not prove that the task is complete.")</p>
+            @if (events.LastOrDefault(item => item.Type == "operator") is { } activeInput)
+            {
+                <small>Elapsed: @TimeSpan.FromTicks(Math.Max(0, (DateTimeOffset.UtcNow - activeInput.CreatedUtc).Ticks)).ToString("g")</small>
+            }
+            @if (events.LastOrDefault(item => item.Type is "assistant" or "tool_call" or "tool_result" or "usage" or "approval_request" or "error") is { } activity)
+            {
+                <small> · Last saved remote activity: @activity.CreatedUtc.UtcDateTime.ToString("u")</small>
+            }
+        </div>
+    }
     @if (error is not null) { <MudAlert Severity="Severity.Warning">@error</MudAlert> }
     <div class="@(Workspace ? "ai-chat-transcript" : null)" role="@(Workspace ? "log" : null)" aria-label="@(Workspace ? "Saved conversation" : null)">
     @if (Workspace && events.All(x => x.Type != "operator") && conversation != Guid.Empty && state == ChatState.Idle)
@@ -116,7 +131,7 @@ else
     </div>
     </div>
     <div class="@(Workspace ? "ai-chat-composer" : null)">
-    <AiAssistantComposer @bind-Value="message" Send="SendAsync" Identity="@Identity" SubmitWithModifier="Workspace" ShowAttachmentNotice="@(OrganizationId is null)" Disabled="@(busy || capabilities?.CanWrite == false || state != ChatState.Idle || conversation == Guid.Empty)" />
+    <AiAssistantComposer @bind-Value="message" Send="SendAsync" Identity="@Identity" ShowAttachmentNotice="@(OrganizationId is null)" Disabled="@(busy || capabilities?.CanWrite == false || state != ChatState.Idle || conversation == Guid.Empty)" />
     </div>
 </div>
 </div>

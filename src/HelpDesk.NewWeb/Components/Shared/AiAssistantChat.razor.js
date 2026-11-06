@@ -87,7 +87,11 @@ export function maximise(root, dotnet) {
     };
     document.addEventListener('keydown', saved.handler);
     active.set(root, saved);
-    requestAnimationFrame(() => root.querySelector('[aria-label="Restore conversation"]')?.focus());
+    requestAnimationFrame(() => {
+        // Preserve a composer or dialog the operator focused before this frame ran.
+        if (active.get(root) !== saved || root.contains(document.activeElement) || nestedOpen()) return;
+        root.querySelector('[aria-label="Restore conversation"]')?.focus({ preventScroll: true });
+    });
 }
 export function restore(root) {
     const saved = active.get(root); if (!saved) return;

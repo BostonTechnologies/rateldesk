@@ -20,6 +20,144 @@ namespace Helpdesk.Tests.Infrastructure.AiAssistant;
 
 public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : IClassFixture<ChatPostgresFixture>
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Quiet_connected_turn_keeps_original_identity_and_receives_late_terminal_output(bool failed)
+    {
+        var clock = new MutableTimeProvider(new DateTimeOffset(2026, 11, 6, 8, 0, 0, TimeSpan.Zero));
+        await using var run = await Run.CreateAsync(fixture, clock);
+        await run.SendAsync();
+        clock.Advance(TimeSpan.FromMinutes(6));
+        await run.Manager.SweepStaleProcessingAsync(default);
+        await run.Manager.SweepStaleProcessingAsync(default);
+        await using (var db = fixture.Context())
+        {
+            var current = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == run.Conversation);
+            Assert.Equal(ChatState.Processing, current.State);
+            Assert.Equal(run.Request.ClientMessageId, current.ActiveMessageId);
+            Assert.Equal(run.Client.SessionId, current.AiAssistantSessionId);
+            Assert.Equal(clock.GetUtcNow().AddMinutes(-6), current.LastTransportActivityAtUtc);
+            Assert.Single(await db.Set<AiAssistantChatEvent>().Where(x => x.ConversationId == run.Conversation && x.Type == "observation_waiting").ToListAsync());
+        }
+        Assert.False(run.Client.Disposed);
+        clock.Advance(TimeSpan.FromMinutes(40));
+        await run.Manager.SweepStaleProcessingAsync(default);
+        await run.Client.EmitAsync(new { type = "text_delta", sessionId = run.Client.SessionId, text = "Late live output" });
+        var delta = await run.WaitForDeltaAsync("Late live output");
+        await using (var db = fixture.Context())
+        {
+            var resumed = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == run.Conversation);
+            Assert.Equal(resumed.LastSequence, delta.AfterSequence);
+            Assert.Equal(ChatState.Processing, resumed.State);
+        }
+        if (failed) await run.Client.EmitAsync(new { type = "error", sessionId = run.Client.SessionId });
+        await run.Client.EmitAsync(new { type = "text", sessionId = run.Client.SessionId, text = failed ? "The read-only task could not finish." : "Read-only report complete." });
+        await run.Client.EmitAsync(new { type = "turn_completed", sessionId = run.Client.SessionId, turnOutcome = failed ? "failed" : "completed" });
+        var events = await run.WaitForAsync(items => items.Any(x => x.Type == "turn_completed"));
+        Assert.Single(events, item => item.Type == "operator" && item.ClientMessageId == run.Request.ClientMessageId);
+        Assert.Single(events, item => item.Type == "assistant");
+        Assert.Single(events, item => item.Type == "turn_completed");
+        Assert.Contains(events, item => item.Type == "observation_resumed");
+        Assert.Equal(events.Count, events.Select(item => item.Sequence).Distinct().Count());
+        Assert.Single(run.Client.Sent);
+        await using var check = fixture.Context();
+        Assert.Equal(ChatState.Idle, (await check.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == run.Conversation)).State);
+    }
+
+    [Fact]
+    public async Task Automatic_recovery_has_backoff_a_finite_budget_and_explicit_manual_reset_without_resends()
+    {
+        var isolated = new ChatPostgresFixture();
+        await isolated.InitializeAsync();
+        try
+        {
+            var clock = new MutableTimeProvider(new DateTimeOffset(2026, 11, 6, 8, 0, 0, TimeSpan.Zero));
+            await using var run = await Run.CreateAsync(isolated, clock);
+            await run.SendAsync();
+            await using (var db = isolated.Context())
+            {
+                var current = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == run.Conversation);
+                current.State = ChatState.DeliveryUnknown;
+                await db.SaveChangesAsync();
+            }
+            await run.Manager.RetireAsync(run.Conversation, default);
+            // A failed check itself consumes time; its backoff starts when it finishes.
+            run.Factory.Next = new ControlledClient { FailConnect = true, OnConnect = () => clock.Advance(TimeSpan.FromSeconds(30)) };
+            var initial = run.Factory.Creations;
+            for (var attempt = 0; attempt < 6; attempt++)
+            {
+                await run.Manager.ReconcilePendingAsync(default);
+                var count = run.Factory.Creations;
+                await run.Manager.ReconcilePendingAsync(default);
+                Assert.Equal(count, run.Factory.Creations);
+                clock.Advance(TimeSpan.FromMinutes(6));
+            }
+            Assert.Equal(initial + 6, run.Factory.Creations);
+            await run.Manager.ReconcilePendingAsync(default);
+            Assert.Equal(initial + 6, run.Factory.Creations);
+            await using (var db = isolated.Context())
+            {
+                var current = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == run.Conversation);
+                Assert.Contains("paused after six", current.RecoveryResult);
+                Assert.Equal(run.Request.ClientMessageId, current.ActiveMessageId);
+            }
+            await run.Manager.ReconcileAsync(run.Conversation, default);
+            Assert.Equal(initial + 7, run.Factory.Creations);
+            Assert.Single(run.Client.Sent);
+            Assert.Empty(run.Factory.Next.Sent);
+        }
+        finally { await isolated.DisposeAsync(); }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_stalled_recovery_connection_terminates_on_deadline_or_caller_cancellation_without_resending(bool cancelCaller)
+    {
+        var clock = new DeadlineTimeProvider();
+        await using var run = await Run.CreateAsync(fixture, clock);
+        await run.SendAsync();
+        await using (var db = fixture.Context())
+        {
+            var current = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == run.Conversation);
+            current.State = ChatState.DeliveryUnknown;
+            await db.SaveChangesAsync();
+        }
+        await run.Manager.RetireAsync(run.Conversation, default);
+        var stalled = new ControlledClient { ConnectGate = new(TaskCreationOptions.RunContinuationsAsynchronously) };
+        run.Factory.Next = stalled;
+        using var caller = new CancellationTokenSource();
+        using var testBudget = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var recovery = run.Manager.ReconcileAsync(run.Conversation, caller.Token);
+        await stalled.ConnectStarted.Task.WaitAsync(testBudget.Token);
+        if (cancelCaller)
+        {
+            caller.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => recovery.WaitAsync(testBudget.Token));
+        }
+        else
+        {
+            var (callback, state) = await clock.Deadline.Task.WaitAsync(testBudget.Token);
+            callback(state);
+            await recovery.WaitAsync(testBudget.Token);
+        }
+        Assert.True(stalled.Disposed);
+        Assert.Empty(stalled.Sent);
+        Assert.Single(run.Client.Sent);
+        await using (var db = fixture.Context())
+        {
+            var current = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == run.Conversation);
+            Assert.Equal(ChatState.DeliveryUnknown, current.State);
+            Assert.Equal(run.Request.ClientMessageId, current.ActiveMessageId);
+            if (!cancelCaller) Assert.NotNull(current.RecoveryLastAttemptUtc);
+        }
+        run.Factory.Next = new ControlledClient();
+        await run.Manager.ReconcileAsync(run.Conversation, testBudget.Token);
+        Assert.Empty(run.Factory.Next.Sent);
+        Assert.Empty(run.Factory.Next.Responses);
+    }
+
     [Fact]
     public async Task FinalApprovalRenewsProviderProcessingLease()
     {
@@ -47,7 +185,9 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
         await AssertStateAsync(ChatState.Processing);
         clock.Advance(TimeSpan.FromSeconds(2));
         await run.Manager.SweepStaleProcessingAsync(default);
-        await AssertStateAsync(ChatState.DeliveryUnknown);
+        await AssertStateAsync(ChatState.Processing);
+        Assert.False(run.Client.Disposed);
+        await run.WaitForAsync(events => events.Any(item => item.Type == "observation_waiting"));
 
         async Task AssertStateAsync(ChatState expected)
         {
@@ -853,11 +993,13 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
 
     private sealed class ControlledFactory : IAiAssistantChatClientFactory, IAiAssistantChatRuntimeClientFactory
     {
+        public int Creations { get; private set; }
         public ControlledClient Next { get; set; } = new();
         public List<AiAssistantChatRuntimeSnapshot> Snapshots { get; } = [];
-        public IAiAssistantChatClient Create() => Next;
+        public IAiAssistantChatClient Create() { Creations++; return Next; }
         public IAiAssistantChatClient Create(AiAssistantChatRuntimeSnapshot snapshot)
         {
+            Creations++;
             Snapshots.Add(snapshot);
             return Next;
         }
@@ -876,6 +1018,7 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
         public bool FailResponse { get; set; }
         public string? TextOnResponse { get; set; }
         public bool FailConnect { get; init; }
+        public Action? OnConnect { get; init; }
         public TaskCompletionSource? ConnectGate { get; set; }
         public TaskCompletionSource ConnectStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool Disposed { get; private set; }
@@ -888,9 +1031,10 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
             RequestedSessionId = sessionId;
             SessionId = sessionId ?? SessionId;
             ConnectStarted.TrySetResult();
+            OnConnect?.Invoke();
             if (ConnectGate is not null) await ConnectGate.Task.WaitAsync(ct);
             if (FailConnect) throw new IOException("PRIVATE_PROVIDER_DETAIL");
-            if (RecentMessages is { } history) await EmitAsync(new { type = "session_joined", sessionId = SessionId, recentMessages = history });
+            await EmitAsync(new { type = "session_joined", sessionId = SessionId, recentMessages = RecentMessages ?? JsonSerializer.SerializeToElement(Array.Empty<object>()) });
             return new(SessionId, sessionId is null);
         }
         public Task EmitAsync(object value) => output!(JsonSerializer.SerializeToElement(value));
@@ -907,6 +1051,17 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
             if (FailResponse) throw new IOException("Decision acknowledgement lost");
         }
         public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
+    }
+
+    private sealed class DeadlineTimeProvider : TimeProvider
+    {
+        public TaskCompletionSource<(TimerCallback Callback, object? State)> Deadline { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            Assert.Equal(TimeSpan.FromSeconds(30), dueTime);
+            Deadline.TrySetResult((callback, state));
+            return Substitute.For<ITimer>();
+        }
     }
 
     private sealed class MutableTimeProvider(DateTimeOffset now) : TimeProvider

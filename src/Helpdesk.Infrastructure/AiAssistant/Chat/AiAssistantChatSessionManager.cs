@@ -24,6 +24,9 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
     private readonly ConcurrentDictionary<Guid, Owner> owners = new();
     private readonly SemaphoreSlim acquisition = new(1);
     private readonly SemaphoreSlim ownership = new(1);
+    private readonly ConcurrentDictionary<Guid, RecoveryAttempt> recoveryAttempts = new();
+    private sealed record RecoveryAttempt(int Count, DateTimeOffset NextUtc);
+    private const int AutomaticRecoveryLimit = 6;
     private readonly IAiAssistantChatRuntimeState runtime = runtimeState ?? new AiAssistantChatRuntimeState(settings);
     private CancellationToken stopping;
     private NpgsqlConnection? singleOwner;
@@ -67,6 +70,7 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
         public volatile bool Overflowed;
         public volatile bool Retired;
         public volatile bool ReconciliationConfirmed;
+        public Guid? QuietMessageId;
         private long lastObservedUtcTicks;
         private long lastCheckpointUtcTicks;
         public DateTimeOffset AuthenticatedAtUtc { get; set; }
@@ -180,6 +184,12 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
 
     public async Task ReconcileAsync(Guid conversation, CancellationToken ct)
     {
+        recoveryAttempts.TryRemove(conversation, out _);
+        await ReconcileCoreAsync(conversation, ct);
+    }
+
+    private async Task ReconcileCoreAsync(Guid conversation, CancellationToken ct)
+    {
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
         var current = await db.Set<AiAssistantChatConversation>().AsNoTracking().SingleAsync(x => x.Id == conversation, ct);
@@ -198,10 +208,12 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
                 await RecordRecoveryResultAsync(conversation, current.ActiveMessageId, attached.ReconciliationConfirmed);
                 return;
             }
-            owner = await GetAsync(conversation, ct, forceReconnect: true);
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30), timeProvider ?? TimeProvider.System);
+            using var attempt = CancellationTokenSource.CreateLinkedTokenSource(ct, stopping, deadline.Token);
+            owner = await GetAsync(conversation, attempt.Token, forceReconnect: true);
             // EnsureSession acknowledgement and SessionJoined output are separate
             // messages. Return only after the history outcome has been committed.
-            await owner.Joined.Task.WaitAsync(TimeSpan.FromSeconds(30), ct);
+            await owner.Joined.Task.WaitAsync(attempt.Token);
         }
         catch (ChatConflictException) when (!ct.IsCancellationRequested && !stopping.IsCancellationRequested)
         {
@@ -217,7 +229,7 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
     }
 
     private static string RecoveryResult(bool admitted) => admitted
-        ? "Admission confirmed; outcome unknown. The supported saved-history contract supplies no exact-message terminal outcome or approval replay guarantee. Connected transport does not mean completion. No message was resent. Keep this transcript or acknowledge possible remote execution and archive it before starting separately."
+        ? "Admission confirmed; outcome unknown. This view remains attached to the original saved session. Its history supplies no exact-message terminal outcome or approval replay guarantee. Connected transport does not mean completion. No message was resent. You can check again later or explicitly abandon this unresolved turn."
         : "Session resumed, but history does not prove this exact message was admitted. Outcome remains unknown; no message was resent. Check later or acknowledge possible remote execution and archive this transcript.";
 
     private async Task RecordRecoveryResultAsync(Guid id, Guid? messageId, bool admitted)
@@ -227,6 +239,7 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
         await using var tx = await db.Database.BeginTransactionAsync(stopping);
         var current = await db.Set<AiAssistantChatConversation>().FromSqlInterpolated($"SELECT * FROM \"AiAssistantChatConversations\" WHERE \"Id\" = {id} FOR UPDATE").SingleAsync(stopping);
         if (current.State != ChatState.DeliveryUnknown || current.ActiveMessageId != messageId) return;
+        current.RecoveryLastAttemptUtc = Now;
         current.RecoveryResult = RecoveryResult(admitted);
         await db.SaveChangesAsync(stopping);
         await tx.CommitAsync(stopping);
@@ -242,6 +255,7 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
             await using var tx = await db.Database.BeginTransactionAsync(ct);
             var current = await db.Set<AiAssistantChatConversation>().FromSqlInterpolated($"SELECT * FROM \"AiAssistantChatConversations\" WHERE \"Id\" = {id} FOR UPDATE").SingleAsync(ct);
             if (current.State != ChatState.DeliveryUnknown || current.ActiveMessageId != messageId) return;
+            current.RecoveryLastAttemptUtc = Now;
             current.RecoveryResult = "Saved session is unavailable. No message was resent. Try again later, or acknowledge possible remote execution and archive this transcript.";
             if (!await db.Set<AiAssistantChatEvent>().AnyAsync(x => x.ConversationId == id && x.Type == "recovery_inconclusive" && x.Sequence > db.Set<AiAssistantChatEvent>().Where(e => e.ConversationId == id && e.Type == "operator").Max(e => e.Sequence), ct))
                 AiAssistantChatStore.Append(db, current, "recovery_inconclusive", current.RecoveryResult);
@@ -460,10 +474,17 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
         var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var conversation = await db.Set<AiAssistantChatConversation>().FromSqlInterpolated($"SELECT * FROM \"AiAssistantChatConversations\" WHERE \"Id\" = {id} FOR UPDATE").SingleAsync(ct);
-        if (!owner.Retired && conversation.State == ChatState.Processing)
+        if (!owner.Retired && conversation.State == ChatState.Processing
+            && owners.TryGetValue(id, out var activeOwner) && ReferenceEquals(owner, activeOwner)
+            && conversation.AiAssistantSessionId == owner.SessionId
+            && conversation.ProviderProfileFingerprint == owner.ProfileFingerprint)
         {
+            ClearQuietObservation(db, conversation, owner);
             AiAssistantChatStore.RecordTransportActivity(conversation, Now);
             await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+            owner.AdvanceSequence(conversation.LastSequence);
+            return;
         }
         await tx.CommitAsync(ct);
     }
@@ -495,6 +516,13 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
                 var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
                 await using var tx = await db.Database.BeginTransactionAsync(stopping);
                 var conversation = await db.Set<AiAssistantChatConversation>().FromSqlInterpolated($"SELECT * FROM \"AiAssistantChatConversations\" WHERE \"Id\" = {id} FOR UPDATE").SingleAsync(stopping);
+                if (owner.Retired || !owners.TryGetValue(id, out var activeOwner) || !ReferenceEquals(owner, activeOwner)
+                    || conversation.AiAssistantSessionId != owner.SessionId
+                    || conversation.ProviderProfileFingerprint != owner.ProfileFingerprint)
+                {
+                    await tx.CommitAsync(stopping);
+                    continue;
+                }
                 if (conversation.State == ChatState.Archived)
                 {
                     if (type == "session_joined") owner.Joined.TrySetResult();
@@ -512,8 +540,11 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
                     await tx.CommitAsync(stopping);
                     continue;
                 }
-                if (conversation.State != ChatState.DeliveryUnknown)
+                if (conversation.State != ChatState.DeliveryUnknown && type != "session_joined")
+                {
+                    ClearQuietObservation(db, conversation, owner);
                     AiAssistantChatStore.RecordTransportActivity(conversation, Now);
+                }
                 if (type == "text")
                 {
                     AiAssistantChatStore.Append(db, conversation, "assistant", Value(output, "text") ?? owner.Draft.ToString(), atUtc: Now);
@@ -522,7 +553,8 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
                 {
                     if (owner.Draft.Length > 0) AiAssistantChatStore.Append(db, conversation, "assistant", owner.Draft.ToString());
                     conversation.State = ChatState.Idle;
-                    AiAssistantChatStore.Append(db, conversation, "turn_completed", "Turn completed.", atUtc: Now);
+                    AiAssistantChatStore.Append(db, conversation, "turn_completed",
+                        Value(output, "turnOutcome") == "failed" ? "Turn ended with an error." : "Turn completed.", atUtc: Now);
                 }
                 else if (type == "tool_interaction" && ChatTraceSafety.CallId(Value(output, "callId")) is { } callId)
                 {
@@ -567,6 +599,7 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
                 {
                     var admissionConfirmed = ProvesAdmission(output, conversation);
                     owner.ReconciliationConfirmed = admissionConfirmed;
+                    conversation.RecoveryLastAttemptUtc = Now;
                     conversation.RecoveryResult = RecoveryResult(admissionConfirmed);
                     var resultType = admissionConfirmed ? "recovery_admission_confirmed" : "recovery_inconclusive";
                     var operatorSequence = await db.Set<AiAssistantChatEvent>().Where(x => x.ConversationId == id && x.Type == "operator" && x.ClientMessageId == conversation.ActiveMessageId).Select(x => x.Sequence).SingleAsync(stopping);
@@ -787,16 +820,35 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
             finally { ownership.Release(); }
             if (releaseAfterGate)
                 await ReleaseOwnershipAsync(stoppingToken);
-            await using var recoveryScope = scopes.CreateAsyncScope();
-            var recoveryDb = recoveryScope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
-            var unresolved = await recoveryDb.Set<AiAssistantChatConversation>().Where(x => x.State == ChatState.DeliveryUnknown && x.AiAssistantSessionId != null).Select(x => x.Id).ToListAsync(stoppingToken);
-            foreach (var id in unresolved)
-            {
-                try { var owner = await GetAsync(id, stoppingToken); Interlocked.Decrement(ref owner.Uses); }
-                catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
-                { logger.LogWarning("Chat resume unavailable for {ConversationId}: {ExceptionType}", id, ex.GetType().Name); }
-            }
+            await ReconcilePendingAsync(stoppingToken);
         }
+    }
+
+    internal async Task ReconcilePendingAsync(CancellationToken ct)
+    {
+        await using var scope = scopes.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+        var unresolved = await db.Set<AiAssistantChatConversation>()
+            .Where(x => x.State == ChatState.DeliveryUnknown && x.AiAssistantSessionId != null)
+            .OrderBy(x => x.RecoveryLastAttemptUtc ?? x.LastActivityUtc).Select(x => x.Id).ToListAsync(ct);
+        foreach (var id in unresolved)
+        {
+            if (owners.TryGetValue(id, out var attached) && !attached.Retired && !attached.Consumer.IsCompleted
+                && attached.Client.IsConnected && attached.Joined.Task.IsCompletedSuccessfully) continue;
+            if (recoveryAttempts.TryGetValue(id, out var previous) && (previous.Count >= AutomaticRecoveryLimit || previous.NextUtc > Now)) continue;
+            var count = (previous?.Count ?? 0) + 1;
+            var inFlight = new RecoveryAttempt(count, DateTimeOffset.MaxValue);
+            recoveryAttempts[id] = inFlight;
+            try { await ReconcileCoreAsync(id, ct); }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            { logger.LogWarning("Chat resume unavailable for {ConversationId}: {ExceptionType}", id, ex.GetType().Name); }
+            var attempt = inFlight with { NextUtc = Now.AddSeconds(Math.Min(300, 15 * (1 << (count - 1)))) };
+            // Backoff starts after the check ends. A manual check may have reset its budget meanwhile.
+            if (recoveryAttempts.TryUpdate(id, attempt, inFlight))
+                await RecordAutomaticRecoveryAsync(id, attempt, ct);
+            break; // One bounded attempt per sweep keeps database ownership checks responsive.
+        }
+        foreach (var id in recoveryAttempts.Keys.Except(unresolved)) recoveryAttempts.TryRemove(id, out _);
     }
 
     internal async Task SweepStaleProcessingAsync(CancellationToken ct)
@@ -821,6 +873,25 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
                     && (current.LastTransportActivityAtUtc is null || current.LastTransportActivityAtUtc < cutoff)
                     && (!owners.TryGetValue(id, out var currentOwner) || !currentOwner.WasObservedSince(cutoff)))
                 {
+                    var observation = ObserveConnection(id);
+                    if (current.ActiveMessageId.HasValue && observation is { State: ChatTransportConnectionState.Connected }
+                        && observation.SessionId == current.AiAssistantSessionId
+                        && current.ProviderProfileFingerprint == runtime.Current.ProfileFingerprint
+                        && owners.TryGetValue(id, out var live))
+                    {
+                        var announce = live.QuietMessageId != current.ActiveMessageId || current.RecoveryResult is null;
+                        if (announce)
+                        {
+                            live.QuietMessageId = current.ActiveMessageId;
+                            current.RecoveryResult = "Waiting for NetClaw with no recent model or tool output. RatelDesk keeps observing the original request. An available connection does not prove completion.";
+                            AiAssistantChatStore.Append(updateDb, current, "observation_waiting", current.RecoveryResult, atUtc: Now);
+                            await updateDb.SaveChangesAsync(ct);
+                        }
+                        await tx.CommitAsync(ct);
+                        live.AdvanceSequence(current.LastSequence);
+                        if (announce) feed.Publish(new(id, null));
+                        continue;
+                    }
                     current.State = ChatState.DeliveryUnknown;
                     AiAssistantChatStore.Append(updateDb, current, "delivery_unknown", "The remote assistant stopped reporting activity. Delivery could not be confirmed; the message will not be resent automatically.", atUtc: Now);
                     await updateDb.SaveChangesAsync(ct);
@@ -832,6 +903,30 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
             feed.Publish(new(id, null));
             await RetireAsync(id, ct);
         }
+    }
+
+    private async Task RecordAutomaticRecoveryAsync(Guid id, RecoveryAttempt attempt, CancellationToken ct)
+    {
+        if (ObserveConnection(id) is { State: ChatTransportConnectionState.Connected }) return;
+        await using var scope = scopes.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var current = await db.Set<AiAssistantChatConversation>().FromSqlInterpolated($"SELECT * FROM \"AiAssistantChatConversations\" WHERE \"Id\" = {id} FOR UPDATE").SingleAsync(ct);
+        if (current.State != ChatState.DeliveryUnknown) return;
+        current.RecoveryResult = attempt.Count >= AutomaticRecoveryLimit
+            ? "Automatic checks paused after six unsuccessful attempts. Check the saved session to try again. The original request was not resent; its remote outcome remains unknown."
+            : $"Saved session is unavailable. Next automatic check is due at {attempt.NextUtc:O}. No request or approval was resent. You can also check the saved session manually.";
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        feed.Publish(new(id, null));
+    }
+
+    private void ClearQuietObservation(HelpdeskDbContext db, AiAssistantChatConversation conversation, Owner owner)
+    {
+        if (owner.QuietMessageId is null) return;
+        owner.QuietMessageId = null;
+        conversation.RecoveryResult = null;
+        AiAssistantChatStore.Append(db, conversation, "observation_resumed", "NetClaw output resumed for the original request.", atUtc: Now);
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)
