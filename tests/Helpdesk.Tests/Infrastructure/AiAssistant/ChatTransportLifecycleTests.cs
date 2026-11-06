@@ -43,6 +43,14 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
         Assert.False(run.Client.Disposed);
         clock.Advance(TimeSpan.FromMinutes(40));
         await run.Manager.SweepStaleProcessingAsync(default);
+        await run.Client.EmitAsync(new { type = "text_delta", sessionId = run.Client.SessionId, text = "Late live output" });
+        var delta = await run.WaitForDeltaAsync("Late live output");
+        await using (var db = fixture.Context())
+        {
+            var resumed = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == run.Conversation);
+            Assert.Equal(resumed.LastSequence, delta.AfterSequence);
+            Assert.Equal(ChatState.Processing, resumed.State);
+        }
         if (failed) await run.Client.EmitAsync(new { type = "error", sessionId = run.Client.SessionId });
         await run.Client.EmitAsync(new { type = "text", sessionId = run.Client.SessionId, text = failed ? "The read-only task could not finish." : "Read-only report complete." });
         await run.Client.EmitAsync(new { type = "turn_completed", sessionId = run.Client.SessionId, turnOutcome = failed ? "failed" : "completed" });

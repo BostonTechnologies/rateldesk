@@ -474,11 +474,17 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
         var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var conversation = await db.Set<AiAssistantChatConversation>().FromSqlInterpolated($"SELECT * FROM \"AiAssistantChatConversations\" WHERE \"Id\" = {id} FOR UPDATE").SingleAsync(ct);
-        if (!owner.Retired && conversation.State == ChatState.Processing)
+        if (!owner.Retired && conversation.State == ChatState.Processing
+            && owners.TryGetValue(id, out var activeOwner) && ReferenceEquals(owner, activeOwner)
+            && conversation.AiAssistantSessionId == owner.SessionId
+            && conversation.ProviderProfileFingerprint == owner.ProfileFingerprint)
         {
             ClearQuietObservation(db, conversation, owner);
             AiAssistantChatStore.RecordTransportActivity(conversation, Now);
             await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+            owner.AdvanceSequence(conversation.LastSequence);
+            return;
         }
         await tx.CommitAsync(ct);
     }
@@ -882,6 +888,7 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
                             await updateDb.SaveChangesAsync(ct);
                         }
                         await tx.CommitAsync(ct);
+                        live.AdvanceSequence(current.LastSequence);
                         if (announce) feed.Publish(new(id, null));
                         continue;
                     }
