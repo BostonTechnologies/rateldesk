@@ -74,7 +74,8 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
                 await db.SaveChangesAsync();
             }
             await run.Manager.RetireAsync(run.Conversation, default);
-            run.Factory.Next = new ControlledClient { FailConnect = true };
+            // A failed check itself consumes time; its backoff starts when it finishes.
+            run.Factory.Next = new ControlledClient { FailConnect = true, OnConnect = () => clock.Advance(TimeSpan.FromSeconds(30)) };
             var initial = run.Factory.Creations;
             for (var attempt = 0; attempt < 6; attempt++)
             {
@@ -1009,6 +1010,7 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
         public bool FailResponse { get; set; }
         public string? TextOnResponse { get; set; }
         public bool FailConnect { get; init; }
+        public Action? OnConnect { get; init; }
         public TaskCompletionSource? ConnectGate { get; set; }
         public TaskCompletionSource ConnectStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool Disposed { get; private set; }
@@ -1021,6 +1023,7 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
             RequestedSessionId = sessionId;
             SessionId = sessionId ?? SessionId;
             ConnectStarted.TrySetResult();
+            OnConnect?.Invoke();
             if (ConnectGate is not null) await ConnectGate.Task.WaitAsync(ct);
             if (FailConnect) throw new IOException("PRIVATE_PROVIDER_DETAIL");
             await EmitAsync(new { type = "session_joined", sessionId = SessionId, recentMessages = RecentMessages ?? JsonSerializer.SerializeToElement(Array.Empty<object>()) });

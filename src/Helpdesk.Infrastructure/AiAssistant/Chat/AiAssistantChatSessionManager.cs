@@ -831,12 +831,15 @@ public sealed class AiAssistantChatSessionManager(IServiceScopeFactory scopes, I
                 && attached.Client.IsConnected && attached.Joined.Task.IsCompletedSuccessfully) continue;
             if (recoveryAttempts.TryGetValue(id, out var previous) && (previous.Count >= AutomaticRecoveryLimit || previous.NextUtc > Now)) continue;
             var count = (previous?.Count ?? 0) + 1;
-            var attempt = new RecoveryAttempt(count, Now.AddSeconds(Math.Min(300, 15 * (1 << (count - 1)))));
-            recoveryAttempts[id] = attempt;
+            var inFlight = new RecoveryAttempt(count, DateTimeOffset.MaxValue);
+            recoveryAttempts[id] = inFlight;
             try { await ReconcileCoreAsync(id, ct); }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             { logger.LogWarning("Chat resume unavailable for {ConversationId}: {ExceptionType}", id, ex.GetType().Name); }
-            await RecordAutomaticRecoveryAsync(id, attempt, ct);
+            var attempt = inFlight with { NextUtc = Now.AddSeconds(Math.Min(300, 15 * (1 << (count - 1)))) };
+            // Backoff starts after the check ends. A manual check may have reset its budget meanwhile.
+            if (recoveryAttempts.TryUpdate(id, attempt, inFlight))
+                await RecordAutomaticRecoveryAsync(id, attempt, ct);
             break; // One bounded attempt per sweep keeps database ownership checks responsive.
         }
         foreach (var id in recoveryAttempts.Keys.Except(unresolved)) recoveryAttempts.TryRemove(id, out _);

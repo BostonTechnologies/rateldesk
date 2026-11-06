@@ -306,7 +306,8 @@ does not use connectivity as proof of execution or completion.
 After a real connection loss, output-buffer overflow, uncertain send/approval or
 API restart, the existing uncertainty fence remains. Automatic saved-session
 checks use at most six attempts per API process and unresolved conversation,
-with delays of 15, 30, 60, 120, 240 and 300 seconds after consecutive attempts.
+with delays of 15, 30, 60, 120, 240 and 300 seconds after consecutive attempts
+finish, so a slow failed check does not consume its own backoff.
 Each connection/join check has a 30-second deadline and respects caller/shutdown
 cancellation, including a connection whose acknowledgement never arrives.
 The background loop starts at most one check per sweep. A joined, connected
