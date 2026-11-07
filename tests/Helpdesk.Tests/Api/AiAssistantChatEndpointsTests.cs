@@ -162,8 +162,9 @@ public sealed class AiAssistantChatEndpointsTests(ChatPostgresFixture database, 
     public async Task DurableSseResumesAcrossClientAndApiRestartWithoutReplayingDeltas()
     {
         var (ticket, conversation) = await database.CreateAsync();
+        var messageId = Guid.NewGuid();
         await using (var db = database.Context())
-            await database.Store(db).AcceptMessageAsync("incidents", ticket, new(conversation, Guid.NewGuid(), "Durable operator"), "operator", default);
+            await database.Store(db).AcceptMessageAsync("incidents", ticket, new(conversation, messageId, "Durable operator"), "operator", default);
         long cursor;
         await using (var first = new ChatApi(database))
         {
@@ -172,7 +173,7 @@ public sealed class AiAssistantChatEndpointsTests(ChatPostgresFixture database, 
             var initial = await stream.ReadThroughStateAsync();
             Assert.Equal(new[] { "1", "2" }, initial.Where(x => x.Kind == "chat").Select(x => x.Id));
             cursor = long.Parse(initial.Last(x => x.Kind == "chat").Id!);
-            first.Services.GetRequiredService<IChatLiveFeed>().Publish(new(conversation, "transient-only", cursor));
+            first.Services.GetRequiredService<IChatLiveFeed>().Publish(new(conversation, "transient-only", cursor, messageId));
             var live = await stream.ReadThroughStateAsync();
             var delta = Assert.Single(live, x => x.Kind == "text-delta");
             Assert.Null(delta.Id);
@@ -189,6 +190,53 @@ public sealed class AiAssistantChatEndpointsTests(ChatPostgresFixture database, 
         }
         await using var caughtUp = await SseConnection.OpenAsync(resumedClient, $"{Route(ticket)}/stream?conversationId={conversation}&cursor={cursor}");
         Assert.DoesNotContain(await caughtUp.ReadThroughStateAsync(), x => x.Kind is "chat" or "text-delta");
+    }
+
+    [Fact]
+    public async Task Pending_child_sse_stream_admits_only_original_request_drafts_then_replays_final_durable_events()
+    {
+        var (ticket, conversation) = await database.CreateAsync();
+        var messageId = Guid.NewGuid();
+        long boundary;
+        await using (var db = database.Context())
+        {
+            await database.Store(db).AcceptMessageAsync("incidents", ticket, new(conversation, messageId, "One delegated request"), "operator", default);
+            var current = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == conversation);
+            current.State = ChatState.WaitingForChildren;
+            AiAssistantChatStore.Append(db, current, "assistant", "Child report pending.");
+            AiAssistantChatStore.Append(db, current, "turn_completed", "Parent turn complete; child pending.");
+            db.Set<AiAssistantChatEvent>().Local.Single(x => x.ConversationId == conversation && x.Sequence == current.LastSequence)
+                .MetadataJson = JsonSerializer.Serialize(new ChatTurnCompletion(messageId, 1, "completed", false, ["synthetic-child"]));
+            await db.SaveChangesAsync();
+            boundary = current.LastSequence;
+        }
+        await using var host = new ChatApi(database);
+        using var client = host.Client();
+        await using var stream = await SseConnection.OpenAsync(client, $"{Route(ticket)}/stream?conversationId={conversation}&cursor={boundary}");
+        await stream.ReadThroughStateAsync();
+        var feed = host.Services.GetRequiredService<IChatLiveFeed>();
+        feed.Publish(new(conversation, "wrong-admission", boundary, Guid.NewGuid()));
+        feed.Publish(new(conversation, "original-child-draft", boundary, messageId));
+        var live = await stream.ReadThroughStateAsync();
+        var delta = Assert.Single(live, x => x.Kind == "text-delta");
+        Assert.Contains("original-child-draft", delta.Data);
+        Assert.DoesNotContain(live, x => x.Data.Contains("wrong-admission"));
+        await using (var db = database.Context())
+        {
+            var current = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == conversation);
+            AiAssistantChatStore.Append(db, current, "assistant", "Final child report.");
+            AiAssistantChatStore.Append(db, current, "turn_completed", "Native turn complete.");
+            db.Set<AiAssistantChatEvent>().Local.Single(x => x.ConversationId == conversation && x.Sequence == current.LastSequence)
+                .MetadataJson = JsonSerializer.Serialize(new ChatTurnCompletion(messageId, 2, "completed", false, []));
+            current.State = ChatState.Idle;
+            await db.SaveChangesAsync();
+        }
+        feed.Publish(new(conversation, null));
+        var final = await stream.ReadThroughStateAsync();
+        Assert.Equal(2, final.Count(x => x.Kind == "chat"));
+        Assert.Contains(final, x => x.Data.Contains("Final child report."));
+        await using var resumed = await SseConnection.OpenAsync(client, $"{Route(ticket)}/stream?conversationId={conversation}&cursor={boundary}");
+        Assert.Equal(2, (await resumed.ReadThroughStateAsync()).Count(x => x.Kind == "chat"));
     }
 
     [Fact]

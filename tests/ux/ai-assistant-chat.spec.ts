@@ -166,6 +166,84 @@ test('stop waiting shows authoritative uncertain-delivery recovery controls', as
   await expect(page.getByRole('button', { name: 'Stop waiting' })).toHaveCount(0);
 });
 
+for (const [mode, notice] of [
+  ['children-failed', 'Assistant turn failed.'],
+  ['children-quiet', 'Assistant deliberately ended this turn without a reply.']
+] as const) {
+  test(`${mode} native completion keeps its visible outcome and pending children through reload`, async ({ page, request }) => {
+    await request.get(`http://127.0.0.1:18299/fixture/reset?mode=${mode}`);
+    await openChat(page);
+    await expect(page.getByTestId('ai-assistant-turn-outcome')).toHaveText(notice);
+    await expect(page.getByTestId('ai-assistant-response')).toHaveCount(0);
+    await expect(page.getByTestId('chat-observation-status')).toContainText('Waiting for delegated follow-ups');
+    await page.reload();
+    await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+    await page.getByRole('tab', { name: 'AI Assistant', exact: true }).click();
+    await expect(page.getByTestId('ai-assistant-turn-outcome')).toHaveText(notice);
+    await expect(page.getByRole('textbox', { name: 'Message Netclaw' })).toBeDisabled();
+  });
+}
+
+for (const route of ['/incidents/ux-chat', '/ai/chat?organizationId=org&conversationId=11111111-1111-4111-8111-111111111111', '/ai/ops?id=11111111-1111-4111-8111-111111111111']) {
+  test(`${route.split('?')[0]} delegated follow-ups remain in one transcript through navigation and duplicate SSE`, async ({ page, request }, testInfo) => {
+    // Real NewWeb and SSE with synthetic durable events. Native transport is
+    // covered separately by the explicit AiAssistantChatSmoke continuation mode.
+    await request.get('http://127.0.0.1:18299/fixture/reset?mode=children');
+    async function open() {
+      await page.goto(route);
+      await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+      if (route.startsWith('/incidents/')) await page.getByRole('tab', { name: 'AI Assistant', exact: true }).click();
+      await expect(page.getByTestId('chat-observation-status')).toContainText('Waiting for delegated follow-ups');
+      if (route.startsWith('/ai/chat')) {
+        const history = page.getByRole('navigation', { name: 'Saved conversations' }).getByRole('link').first();
+        await expect(history).toContainText('Waiting for delegated follow-ups');
+        await expect(history.locator('.chat-state-dot')).toHaveClass(/active/);
+      }
+      if (route.startsWith('/ai/ops')) {
+        await expect(page.locator('.ai-metrics > div').first().locator('strong')).toHaveText('1');
+        await page.getByRole('combobox', { name: /^Status/ }).selectOption('active');
+        await expect(page.locator('.ai-investigation')).toHaveCount(1);
+        await expect(page.locator('.ai-investigation .ai-state')).toHaveText('Waiting for delegated follow-ups');
+        await expect(page.locator('.ai-investigation .ai-state')).toHaveClass(/is-active/);
+      }
+    }
+    await open();
+    await expect(page.getByTestId('ai-assistant-turn')).toHaveCount(1);
+    await expect(page.getByTestId('ai-assistant-response')).toHaveCount(1);
+    await expect(page.getByRole('textbox', { name: 'Message Netclaw' })).toBeDisabled();
+    await page.getByRole('button', { name: 'Maximise conversation' }).click();
+    await request.get('http://127.0.0.1:18299/fixture/child-followup');
+    await expect(page.getByTestId('ai-assistant-response')).toHaveCount(2);
+    await expect(page.getByTestId('ai-assistant-response').last()).toContainText('Repeated valid delegated report.');
+    await request.get('http://127.0.0.1:18299/fixture/replay');
+    await expect(page.getByTestId('ai-assistant-response')).toHaveCount(2);
+    await page.getByRole('button', { name: 'Restore conversation' }).click();
+    await page.goto('/ai/chat');
+    await open();
+    await page.reload();
+    await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+    if (route.startsWith('/incidents/')) await page.getByRole('tab', { name: 'AI Assistant', exact: true }).click();
+    await expect(page.getByTestId('ai-assistant-response')).toHaveCount(2);
+    await request.get('http://127.0.0.1:18299/fixture/child-followup?final=true');
+    await expect(page.getByTestId('ai-assistant-response')).toHaveCount(3);
+    await expect(page.getByTestId('ai-assistant-turn')).toHaveCount(1);
+    await expect(page.getByTestId('chat-observation-status')).toHaveCount(0);
+    await expect(page.getByRole('textbox', { name: 'Message Netclaw' })).toBeEnabled();
+    if (route.startsWith('/ai/chat'))
+      await expect(page.getByRole('navigation', { name: 'Saved conversations' }).getByRole('link').first()).toContainText('Ready');
+    if (route.startsWith('/ai/ops'))
+      await expect(page.locator('.ai-metrics > div').first().locator('strong')).toHaveText('0');
+    await request.get('http://127.0.0.1:18299/fixture/replay');
+    await expect(page.getByTestId('ai-assistant-response')).toHaveCount(3);
+    await expect(page.getByTestId('ai-assistant-response').filter({ hasText: 'Repeated valid delegated report.' })).toHaveCount(2);
+    await page.screenshot({ path: testInfo.outputPath('delegated-followups.png'), fullPage: true });
+    await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
+    const counts = await (await request.get('http://127.0.0.1:18299/fixture/chat-counts')).json();
+    expect(counts.sends).toBe(0);
+    expect(counts.recoveries).toBe(0);
+  });
+}
+
 for (const route of ['/incidents/ux-chat', '/ai/chat?organizationId=org&conversationId=11111111-1111-4111-8111-111111111111', '/ai/ops?id=11111111-1111-4111-8111-111111111111']) {
   test(`${route.split('?')[0]} quiet status survives fullscreen, navigation and refresh before one final reply`, async ({ page, request }) => {
     // Synthetic saved state exercises real rendering/replay; it is not native long-running acceptance.

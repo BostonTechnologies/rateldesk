@@ -13,10 +13,10 @@
                 <span>Approval required</span>
             </span>
         }
-        @if (!Turn.Completed && State == ChatState.Processing)
+        @if (!Turn.Completed && State is ChatState.Processing or ChatState.WaitingForChildren)
         {
             <MudProgressCircular Indeterminate="true" Size="Size.Small" />
-            <span>Working…</span>
+            <span>@(State == ChatState.WaitingForChildren ? "Waiting for delegated follow-ups…" : "Working…")</span>
         }
     </button>
     @foreach (var operation in Turn.Operations)
@@ -25,6 +25,13 @@
     }
     @if (expanded || HasPendingApproval || Turn.HasError)
     {
+        @foreach (var completion in Turn.NativeTurns.Where(x => x.QuietEnd || x.TurnOutcome is "failed" or "skipped"))
+        {
+            <div class="activity-interaction" role="status" data-testid="ai-assistant-turn-outcome">
+                <MudText>@(completion.TurnOutcome == "failed" ? "Assistant turn failed."
+                    : completion.QuietEnd ? "Assistant deliberately ended this turn without a reply." : "Assistant skipped this turn.")</MudText>
+            </div>
+        }
         @foreach (var item in Turn.Activity)
         {
             if (item.Type == "usage" && !Preferences.ShowUsage || item.Type == "processing_state" && !Preferences.ShowProcessing
@@ -71,7 +78,8 @@
     protected override void OnParametersSet()
     {
         if (!initialized || completed != Turn.Completed) expanded = Turn.InitiallyExpanded;
-        if (Turn.HasError || (Turn.HasPendingApproval && State != ChatState.Archived)) expanded = true;
+        if (Turn.HasError || Turn.NativeTurns.Any(x => x.QuietEnd || x.TurnOutcome == "skipped")
+            || (Turn.HasPendingApproval && State != ChatState.Archived)) expanded = true;
         completed = Turn.Completed; initialized = true;
     }
     private void Toggle() => expanded = !expanded;

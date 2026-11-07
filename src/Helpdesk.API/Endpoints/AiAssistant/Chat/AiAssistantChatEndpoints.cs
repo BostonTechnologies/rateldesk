@@ -203,7 +203,8 @@ public static partial class AiAssistantChatEndpoints
                     position = item.Sequence;
                 }
                 while (reader.TryRead(out var delta))
-                    if (delta.Text is not null && delta.AfterSequence == position && snapshot.State is ChatState.Processing or ChatState.AwaitingApproval)
+                    if (delta.Text is not null && delta.AfterSequence == position && delta.OperatorMessageId == snapshot.ActiveMessageId
+                        && snapshot.State is ChatState.Processing or ChatState.AwaitingApproval or ChatState.WaitingForChildren)
                         await context.Response.WriteAsync($"event: text-delta\ndata: {JsonSerializer.Serialize(delta)}\n\n", ct);
                 await context.Response.WriteAsync($"event: state\ndata: {JsonSerializer.Serialize(snapshot.State)}\n\n", ct);
                 await context.Response.WriteAsync($"event: recovery\ndata: {JsonSerializer.Serialize(snapshot with { Events = Array.Empty<AiAssistantChatEvent>() })}\n\n", ct);

@@ -23,7 +23,7 @@
     @if (error is not null) { <div class="ai-notice" role="alert">@error</div> }
     @if (busy) { <p class="ai-loading" role="status">Updating investigation workspace…</p> }
     <div class="ai-metrics" aria-label="Status in recent results">
-        <div><span>Active</span><strong>@(listAvailable ? investigations.Count(x => x.State == ChatState.Processing).ToString() : "—")</strong></div>
+        <div><span>Active</span><strong>@(listAvailable ? investigations.Count(x => x.State is ChatState.Processing or ChatState.WaitingForChildren).ToString() : "—")</strong></div>
         <div><span>Waiting for your decision</span><strong>@(listAvailable ? investigations.Count(x => x.State == ChatState.AwaitingApproval).ToString() : "—")</strong></div>
         <div><span>Needs recovery</span><strong>@(listAvailable ? investigations.Count(x => x.State == ChatState.DeliveryUnknown).ToString() : "—")</strong></div>
     </div>
@@ -147,7 +147,7 @@
     private readonly HashSet<Guid> promptIds = [];
     private IEnumerable<AiInvestigationDto> FilteredInvestigations => investigations.Where(x => statusFilter switch
     {
-        "active" => x.State == ChatState.Processing,
+        "active" => x.State is ChatState.Processing or ChatState.WaitingForChildren,
         "idle" => x.State == ChatState.Idle,
         "approval" => x.State == ChatState.AwaitingApproval,
         "recovery" => x.State == ChatState.DeliveryUnknown,
@@ -158,8 +158,8 @@
         : organization.Length > 0 ? $"api/v1/ai/chat/organizations/{Uri.EscapeDataString(organization)}" : "";
     private string OrganizationName(string id) => organizations.FirstOrDefault(x => x.Id == id)?.Name ?? id;
     private string InvestigationUrl(Guid id) => $"/ai/ops?id={id}" + (search.Length > 0 ? $"&q={Uri.EscapeDataString(search)}" : "");
-    private static string StateLabel(ChatState state) => state switch { ChatState.Idle => "Ready", ChatState.Processing => "Investigating", ChatState.AwaitingApproval => "Waiting for approval", ChatState.DeliveryUnknown => "Outcome unconfirmed", ChatState.Archived => "Archived", _ => state.ToString() };
-    private static string StateClass(ChatState state) => state switch { ChatState.Processing => "is-active", ChatState.AwaitingApproval or ChatState.DeliveryUnknown => "needs-attention", _ => "" };
+    private static string StateLabel(ChatState state) => state switch { ChatState.Idle => "Ready", ChatState.Processing => "Investigating", ChatState.WaitingForChildren => "Waiting for delegated follow-ups", ChatState.AwaitingApproval => "Waiting for approval", ChatState.DeliveryUnknown => "Outcome unconfirmed", ChatState.Archived => "Archived", _ => state.ToString() };
+    private static string StateClass(ChatState state) => state switch { ChatState.Processing or ChatState.WaitingForChildren => "is-active", ChatState.AwaitingApproval or ChatState.DeliveryUnknown => "needs-attention", _ => "" };
 
     protected override async Task OnParametersSetAsync()
     {

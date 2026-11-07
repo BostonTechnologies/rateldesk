@@ -303,6 +303,53 @@ navigation and fullscreen replay the received transcript. Thinking/delta traffic
 can renew observation without producing a saved transcript entry. The status
 does not use connectivity as proof of execution or completion.
 
+### Delegated child follow-ups
+
+With Netclaw 0.28.1, the first parent `turn_completed` can report
+`openChildRunIds`. RatelDesk keeps that admitted request and its receiving
+subscription while **Waiting for delegated follow-ups** appears in ticket and
+organization chat. Later native replies, tool activity and turn boundaries are
+saved under the original operator request without another message. Navigation,
+refresh and fullscreen rebuild that received transcript; duplicate SSE delivery
+does not duplicate replies. The same text in two native turns remains two replies.
+
+A child is open until its result has had the follow-up parent turn, including a
+physically finished child whose notice is queued. Only a later nonfailed
+completion with an explicitly empty array clears the pending chain. Failed
+turns retain their failure and unresolved children; `quietEnd` records a
+deliberate no-reply outcome and does not clear children. Missing/null child
+snapshots mean unknown capability: legacy ordinary chats still end after their
+first parent completion, while an already pending chain remains pending until
+an authoritative clear snapshot or its observation deadline.
+
+New operator messages and archive actions are rejected while the chain is
+pending, so unnumbered text/tool frames cannot be attributed to a newer request.
+Offered child approvals retain their call IDs and permitted choices across parent
+completion and require an operator decision. Completion metadata stores the
+original admission, native ordinal, reported and still-unresolved child IDs and
+outcome. Continuation events do not reuse the uniquely indexed admission ID.
+Native completion ordinals reject repeated terminal frames; replies are never
+deduplicated by text.
+
+Failed, skipped and deliberate no-reply native turns retain visible outcome
+notices even when no separate error or tool frame was emitted.
+
+Observation is finite: at most 128 distinct unresolved child IDs, 128 characters
+per ID, a 256-frame bounded owner queue, the configured connection capacity
+(25 by default), and a one-hour child-observation deadline measured from the
+original admission. Pending child work survives ordinary idle aging (15 minutes
+by default), including while awaiting approval. At expiry, transport loss,
+buffer/capacity exhaustion or API restart, the durable transcript records
+uncertainty and retains the last child snapshots. **Stop waiting** ends only
+local observation. No child, original task, mutation or approval is replayed or
+automatically cancelled. Failed or unknown snapshots cannot extend the deadline.
+
+These connected-path guarantees do not add authoritative replay for outcomes
+missed during a real interruption. The broader [#308](https://github.com/BostonTechnologies/RatelDesk/issues/308)
+and [#351](https://github.com/BostonTechnologies/RatelDesk/issues/351) limitations
+below remain separate. Acceptance uses disposable data and distinguishes
+deterministic protocol/browser fixtures from the actual supported native daemon.
+
 After a real connection loss, output-buffer overflow, uncertain send/approval or
 API restart, the existing uncertainty fence remains. Automatic saved-session
 checks use at most six attempts per API process and unresolved conversation,

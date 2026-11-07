@@ -10,6 +10,55 @@ namespace Helpdesk.Tests.Infrastructure.AiAssistant;
 public sealed class ChatPresentationTests
 {
     [Fact]
+    public void Child_followups_keep_native_boundaries_and_equal_replies_in_the_original_operator_turn()
+    {
+        var input = E(1, "operator");
+        input.ClientMessageId = Guid.NewGuid();
+        var first = Completion(3, input, 1, ["child-a", "child-b"]);
+        var middle = Completion(5, input, 2, ["child-b"]);
+        var final = Completion(7, input, 3, []);
+        var events = new[] { input, E(2, "assistant"), first, E(4, "assistant"), middle, E(6, "assistant"), final };
+        var pending = Assert.Single(AiAssistantChatPresentation.Build(events.Take(5)));
+        Assert.False(pending.Completed);
+        Assert.Equal(2, pending.Responses.Count);
+        var reloaded = Assert.Single(AiAssistantChatPresentation.Build(events.Reverse().Concat(events)));
+        Assert.True(reloaded.Completed);
+        Assert.Equal(3, reloaded.Responses.Count);
+        Assert.Equal(new[] { 1, 2, 3 }, reloaded.NativeTurns.Select(x => x.TurnNumber!.Value));
+    }
+
+    [Fact]
+    public void Parent_completion_does_not_close_an_actionable_child_approval()
+    {
+        var input = E(1, "operator");
+        input.ClientMessageId = Guid.NewGuid();
+        var turn = Assert.Single(AiAssistantChatPresentation.Build([
+            input, E(2, "approval_request", "child-consent"), Completion(3, input, 1, ["child-a"]) ]));
+        Assert.False(turn.Completed);
+        Assert.True(turn.HasPendingApproval);
+        Assert.True(turn.InitiallyExpanded);
+    }
+
+    [Fact]
+    public void Native_failure_is_preserved_even_without_an_error_frame()
+    {
+        var input = E(1, "operator");
+        input.ClientMessageId = Guid.NewGuid();
+        var failed = Completion(2, input, 1, ["child-a"], "failed");
+        var turn = Assert.Single(AiAssistantChatPresentation.Build([input, failed]));
+        Assert.True(turn.HasError);
+        Assert.False(turn.Completed);
+        Assert.True(turn.InitiallyExpanded);
+    }
+
+    private static AiAssistantChatEvent Completion(long sequence, AiAssistantChatEvent input, int ordinal, string[] children, string outcome = "completed")
+    {
+        var completed = E(sequence, "turn_completed");
+        completed.MetadataJson = JsonSerializer.Serialize(new ChatTurnCompletion(input.ClientMessageId!.Value, ordinal, outcome, false, children));
+        return completed;
+    }
+
+    [Fact]
     public void Sequence_boundaries_pair_calls_and_ignore_duplicate_replay()
     {
         var events = new[] { E(1, "created"), E(2, "operator"), E(3, "tool_call", "a"), E(4, "tool_result", "a"),

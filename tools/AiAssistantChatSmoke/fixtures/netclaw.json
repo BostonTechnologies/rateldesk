@@ -1,0 +1,50 @@
+{
+  "configVersion": 1,
+  "Daemon": {
+    "Host": "127.0.0.1",
+    "Port": 19599,
+    "ExposureMode": "local",
+    "DisableSelfUpdate": true
+  },
+  "Providers": {
+    "fixture": {
+      "Type": "openai-compatible",
+      "Endpoint": "http://127.0.0.1:19598/v1",
+      "AuthMethod": "None"
+    }
+  },
+  "Models": {
+    "Definitions": {
+      "fixture-main": {
+        "Provider": "fixture",
+        "ModelId": "synthetic-native-acceptance",
+        "ContextWindow": 32768,
+        "InputModalities": "Text",
+        "OutputModalities": "Text"
+      }
+    },
+    "Roles": {
+      "Main": "fixture-main",
+      "Fallback": "fixture-main",
+      "Compaction": "fixture-main"
+    }
+  },
+  "Memory": {
+    "Enabled": false,
+    "Embeddings": {
+      "Enabled": false,
+      "AutoDownload": false
+    }
+  },
+  "SkillSync": {
+    "Enabled": false
+  },
+  "Logging": {
+    "LogLevel": "Warning"
+  },
+  "Security": {
+    "DeploymentPosture": "team",
+    "ShellExecutionMode": "off",
+    "StrictDefaults": true
+  }
+}

@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Encodings.Web;
+using System.Threading.Channels;
 using Helpdesk.Application.AiAssistant.Chat;
 using Helpdesk.Infrastructure.AiAssistant.Chat;
 using Helpdesk.Infrastructure.Persistence.Connectivity;
@@ -26,6 +27,54 @@ namespace Helpdesk.Tests.Infrastructure.AiAssistant;
 
 public sealed class SignalRChatClientIntegrationTests
 {
+    [Fact]
+    public async Task Authenticated_native_wire_fixture_keeps_subscription_and_completion_fields_across_parent_turns()
+    {
+        var calls = new ConcurrentQueue<HubCall>();
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing" });
+        builder.WebHost.ConfigureKestrel(options => options.Listen(IPAddress.Loopback, 0));
+        builder.Services.AddSingleton(calls);
+        builder.Services.AddSignalR();
+        builder.Services.AddAuthentication("Device")
+            .AddScheme<AuthenticationSchemeOptions, DeviceTokenAuthenticationHandler>("Device", _ => { });
+        builder.Services.AddAuthorization();
+        await using var app = builder.Build();
+        app.UseAuthentication();
+        app.UseAuthorization();
+        app.MapHub<AuthenticatedChatHub>("/hub/session").RequireAuthorization();
+        await app.StartAsync();
+        try
+        {
+            var address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
+            var runtime = new AiAssistantChatRuntimeState(Options.Create(new AiAssistantChatOptions
+            {
+                Enabled = true, Endpoint = new Uri(new Uri(address), "/hub/session").ToString(),
+                DeviceToken = "test-device-token", AllowPrivateHttp = true
+            }));
+            await using var client = new AiAssistantChatClientFactory(runtime).Create();
+            var outputs = Channel.CreateUnbounded<JsonElement>();
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            var session = await client.ConnectAsync(null, output => { outputs.Writer.TryWrite(output.Clone()); return Task.CompletedTask; }, deadline.Token);
+            await client.SendAsync(session.SessionId, "native-child-chain", deadline.Token);
+            Assert.Equal("text", (await outputs.Reader.ReadAsync(deadline.Token)).GetProperty("type").GetString());
+            var parent = await outputs.Reader.ReadAsync(deadline.Token);
+            Assert.Equal(1, parent.GetProperty("turnNumber").GetInt32());
+            Assert.Single(parent.GetProperty("openChildRunIds").EnumerateArray());
+            Assert.False(parent.GetProperty("quietEnd").GetBoolean());
+            Assert.True(client.IsConnected);
+            var hub = app.Services.GetRequiredService<IHubContext<AuthenticatedChatHub>>();
+            await hub.Clients.All.SendAsync("ReceiveOutput", new { type = "text", sessionId = session.SessionId, text = "Final child report." }, deadline.Token);
+            await hub.Clients.All.SendAsync("ReceiveOutput", new { type = "turn_completed", sessionId = session.SessionId,
+                turnNumber = 2, turnOutcome = "completed", quietEnd = false, openChildRunIds = Array.Empty<string>() }, deadline.Token);
+            Assert.Equal("Final child report.", (await outputs.Reader.ReadAsync(deadline.Token)).GetProperty("text").GetString());
+            var final = await outputs.Reader.ReadAsync(deadline.Token);
+            Assert.Equal(2, final.GetProperty("turnNumber").GetInt32());
+            Assert.Empty(final.GetProperty("openChildRunIds").EnumerateArray());
+            Assert.Single(calls, x => x.Method == "SendMessage");
+        }
+        finally { await app.StopAsync(); }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -416,10 +465,15 @@ public sealed class SignalRChatClientIntegrationTests
             return Task.FromResult(new SessionEnsureResult("server-session", sessionId is null));
         }
 
-        public Task SendMessage(string sessionId, string text)
+        public async Task SendMessage(string sessionId, string text)
         {
             calls.Enqueue(new("SendMessage", Context.User?.Identity?.Name ?? string.Empty, [sessionId, text]));
-            return Task.CompletedTask;
+            if (text == "native-child-chain")
+            {
+                await Clients.Caller.SendAsync("ReceiveOutput", new { type = "text", sessionId, text = "Child pending." });
+                await Clients.Caller.SendAsync("ReceiveOutput", new { type = "turn_completed", sessionId,
+                    turnNumber = 1, turnOutcome = "completed", quietEnd = false, openChildRunIds = new[] { "synthetic-child" } });
+            }
         }
 
         public Task RespondToInteraction(string sessionId, string callId, string key)

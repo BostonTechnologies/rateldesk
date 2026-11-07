@@ -1,6 +1,6 @@
 namespace Helpdesk.Shared.AiAssistant.Chat;
 
-public enum ChatState { Idle, Processing, AwaitingApproval, DeliveryUnknown, Archived }
+public enum ChatState { Idle, Processing, AwaitingApproval, DeliveryUnknown, Archived, WaitingForChildren }
 public enum ChatConversationScope { Ticket, Organization }
 
 public sealed class AiAssistantChatConversation
@@ -55,7 +55,14 @@ public sealed record ChatMessageRequest(Guid ConversationId, Guid ClientMessageI
 public sealed record ChatApprovalRequest(Guid ConversationId, string SelectedKey);
 public sealed record ChatNewRequest(Guid ConversationId);
 public sealed record ChatSnapshot(Guid ConversationId, ChatState State, long LastSequence, IReadOnlyList<AiAssistantChatEvent> Events,
-    DateTimeOffset? RecoveryLastAttemptUtc = null, string? RecoveryResult = null);
+    DateTimeOffset? RecoveryLastAttemptUtc = null, string? RecoveryResult = null, ChatTurnCompletion? Continuation = null,
+    Guid? ActiveMessageId = null);
+// Association lives in event metadata, not ClientMessageId: that column identifies
+// an admission exactly once through its unique (conversation, message) index.
+public sealed record ChatTurnCompletion(Guid OperatorMessageId, int? TurnNumber, string? TurnOutcome,
+    bool QuietEnd, string[]? OpenChildRunIds, DateTimeOffset? ObservationExpiresAtUtc = null, int Version = 1,
+    bool ChildSnapshotKnown = true, string[]? PendingChildRunIds = null);
+public sealed record ChatOutputAssociation(Guid OperatorMessageId, int? AfterNativeTurnNumber);
 public sealed record ChatOption(string Key, string Label);
 public sealed record ChatActivityMetadata(string DisplayName, string ToolKind, string? ProviderName,
     string? SkillName, long? DurationMs, string Outcome,
@@ -63,7 +70,7 @@ public sealed record ChatActivityMetadata(string DisplayName, string ToolKind, s
 public sealed record ChatTraceDetails(int Version = 1, DateTimeOffset? SourceTimestampUtc = null,
     string? Arguments = null, string? Result = null, string? FailureCode = null,
     bool Redacted = false, bool Truncated = false, string? Measures = null, string? ToolName = null);
-public sealed record ChatDelta(Guid ConversationId, string? Text, long AfterSequence = 0);
+public sealed record ChatDelta(Guid ConversationId, string? Text, long AfterSequence = 0, Guid? OperatorMessageId = null);
 public sealed record ChatAbandonRequest(Guid ConversationId, Guid ResolutionId, Guid ExpectedMessageId, bool AcknowledgePossibleDelivery);
 public sealed record ChatStopWaitingRequest(Guid ConversationId, Guid ExpectedMessageId);
 public sealed record ChatConversationSummary(Guid ConversationId, ChatState State, DateTimeOffset LastActivityUtc, string CreatedByUserId,
