@@ -1,0 +1,252 @@
+{
+  "baseline": "ee7067d12dafb22de81b70a58f61b211b9e37226",
+  "synthetic": true,
+  "date": "2026-11-07",
+  "browser": "Debian Chromium 151.0.7922.173",
+  "geometry": {
+    "1440x900": {
+      "dialog": {
+        "top": 27,
+        "bottom": 873,
+        "width": 1376
+      },
+      "nav": {
+        "width": 334,
+        "right": 386
+      },
+      "editor": {
+        "left": 402,
+        "top": 146,
+        "width": 986
+      },
+      "save": {
+        "top": 826.5,
+        "bottom": 863
+      },
+      "scroll": 1376,
+      "client": 1376
+    },
+    "1366x768": {
+      "dialog": {
+        "top": 23.046875,
+        "bottom": 744.953125,
+        "width": 1302
+      },
+      "nav": {
+        "width": 315.5,
+        "right": 367.5
+      },
+      "editor": {
+        "left": 383.5,
+        "top": 142.046875,
+        "width": 930.5
+      },
+      "save": {
+        "top": 698.453125,
+        "bottom": 734.953125
+      },
+      "scroll": 1302,
+      "client": 1302
+    },
+    "1280x720": {
+      "dialog": {
+        "top": 21.59375,
+        "bottom": 698.390625,
+        "width": 1216
+      },
+      "nav": {
+        "width": 294,
+        "right": 346
+      },
+      "editor": {
+        "left": 362,
+        "top": 140.59375,
+        "width": 866
+      },
+      "save": {
+        "top": 651.890625,
+        "bottom": 688.390625
+      },
+      "scroll": 1216,
+      "client": 1216
+    },
+    "390x844": {
+      "dialog": {
+        "top": 10,
+        "bottom": 834,
+        "width": 370
+      },
+      "nav": {
+        "width": 0,
+        "right": 0
+      },
+      "editor": {
+        "left": 22,
+        "top": 120,
+        "width": 346
+      },
+      "save": {
+        "top": 789.5,
+        "bottom": 826
+      },
+      "scroll": 370,
+      "client": 370
+    }
+  },
+  "browserTests": [
+    {
+      "name": "synthetic before and after geometry evidence",
+      "status": "passed"
+    },
+    {
+      "name": "task selection, tab drafts, keyboard order and save/reload retain stable identities",
+      "status": "passed"
+    },
+    {
+      "name": "whole-draft validation activates hidden setup and task errors, and cancel discards",
+      "status": "passed"
+    },
+    {
+      "name": "a binding failure keeps the draft and retry updates the same saved form",
+      "status": "passed"
+    },
+    {
+      "name": "many and empty forms keep reachable controls with enlarged text and dark theme",
+      "status": "passed"
+    },
+    {
+      "name": "dragging the navigator while editing keeps selection, unsaved values and dependency identity",
+      "status": "passed"
+    },
+    {
+      "name": "validation focuses approval, dependency and numeric actions on previously hidden tasks",
+      "status": "passed"
+    }
+  ],
+  "screenshots": {
+    "after-1280x720.png": "b35c265a0a42693d0ed8aec35b8f0828bb836f6aa35d4d066e350147241687ef",
+    "after-1366x768.png": "63a9a459386d3e2ba0654e18a06e6ce60d94128145142847500834547c942262",
+    "after-1440x900.png": "cdaca4d6cf8d54449f9613f35a523a3239f665acd524bf886b1cc65b8eafb99b",
+    "after-390x844.png": "726c65322dfdcf214930deb598144ef8185f3a446b3164de027781a92afc59b1",
+    "after-dark-1280-native-200.png": "7e7ea0e2e4d4a3c399d2d183396e25928b9b0110991e8970beb852293266abbf",
+    "after-dark-1920-native-200.png": "ecbaa21fa7347bf088d1956322e276894970a44a674f831eabf256273f35032e",
+    "after-light-1280-native-200.png": "2f219bc12dbf80d19018ee5b89fbfd9ac6e486e19257989f0fd57e002c892cf8",
+    "after-light-1920-native-200.png": "8a39acb4f21c9b1283453e9fcb0963064f219ecacf0c4bcc05224b02bab8a583",
+    "after-many-dark-enlarged-1280x720.png": "0a8e66e08c5df3bac7d12e285132eddb2997f1dd3553f2d49194f4428019d08c",
+    "before-1280x720.png": "c94ecb9df46567798a41cff4b97b3f37542472a462f793b48bc26c26e29ce91a",
+    "before-1366x768.png": "ab88c1a045a9c1cba8ffbe92c142fc527d74d730f8dcf26f4353b4709cc59cb4",
+    "before-1440x900.png": "6e341dc34f7489d8a8940539a4a6697ba9320b13aeebab6e53cf6830c81e0b34",
+    "before-390x844.png": "629efc4a8f57bb2bf720a2862da671a1e6b1a3f1e216800095b4121e6d755f5c"
+  },
+  "nativeZoomBrowser": "Playwright Chrome for Testing 156.0.8078.4",
+  "nativeZoomTests": [
+    {
+      "name": "request-editor light native browser zoom 200 percent at 1280px",
+      "status": "passed"
+    },
+    {
+      "name": "request-editor light native browser zoom 200 percent at 1920px",
+      "status": "passed"
+    },
+    {
+      "name": "request-editor dark native browser zoom 200 percent at 1280px",
+      "status": "passed"
+    },
+    {
+      "name": "request-editor dark native browser zoom 200 percent at 1920px",
+      "status": "passed"
+    }
+  ],
+  "nativeZoomGeometry": [
+    {
+      "zoom": 2,
+      "physicalWidth": 1280,
+      "layoutWidth": 640,
+      "theme": "light",
+      "capture": "physical viewport without CSS clip",
+      "captureWidth": 1280,
+      "captureHeight": 1000
+    },
+    {
+      "zoom": 2,
+      "physicalWidth": 1920,
+      "layoutWidth": 960,
+      "theme": "light",
+      "capture": "physical viewport without CSS clip",
+      "captureWidth": 1920,
+      "captureHeight": 1000
+    },
+    {
+      "zoom": 2,
+      "physicalWidth": 1280,
+      "layoutWidth": 640,
+      "theme": "dark",
+      "capture": "physical viewport without CSS clip",
+      "captureWidth": 1280,
+      "captureHeight": 1000
+    },
+    {
+      "zoom": 2,
+      "physicalWidth": 1920,
+      "layoutWidth": 960,
+      "theme": "dark",
+      "capture": "physical viewport without CSS clip",
+      "captureWidth": 1920,
+      "captureHeight": 1000
+    }
+  ],
+  "sourceSha256": {
+    "src/HelpDesk.NewWeb/Components/Pages/Admin/Requests/RequestFormBuilder.razor": "966655e86c4705a9890af3ee431ad04277a0ff535a3ca734b40d9266d5a28c4b",
+    "src/HelpDesk.NewWeb/Components/Pages/Admin/Requests/ServiceExplorer.razor": "7e01c3279c28919d483146f9fb6806d8fce2e1c359b3575a2c292b99f6b3450e",
+    "tests/ux/request-editor.spec.ts": "e4d0cb590416f5cd95f341df2281dece64c9ce00ce52965aab348a779bbec567",
+    "tests/ux/request-editor-fixture-api.mjs": "c7aaebcc38109ac4539e14422adcc375ce4a94f1d692c8947cb979444ff87fd8",
+    "playwright.request-editor.config.ts": "afb291d565d26271cbdcd4c21b02d6487d036c260766ddc830f4d096dfd6891b",
+    "playwright.native-zoom.config.ts": "964225df099e6abcc764cf07db3e29fcdc67fe0dc076621ca96eb3f58c94676c",
+    "tests/ux/native-zoom.spec.ts": "30c73d547c4a4a67d54726f64207f4b754322c019698f918f89d827dfebf65c6",
+    "tests/Helpdesk.Tests/NewWeb/AutomationConnectionSelectionRenderedTests.cs": "1476582d36b61221ccb19c1e95d5de2cd0e481d1230a83268351f166f891f68b",
+    "tests/Helpdesk.Tests/NewWeb/ServiceBrowserRenderedTests.cs": "a7569f8016a17faa3a229fa3402e1437cbb2fb42c85a7015d8d37bce0907801a"
+  },
+  "focusedTests": {
+    "passed": 36,
+    "failed": 0,
+    "skipped": 0,
+    "coverage": "OpenCover",
+    "methods": {
+      "DuplicateSelectedTask": {
+        "cyclomaticComplexity": 8,
+        "sequenceCoverage": 80.35,
+        "branchCoverage": 50.0
+      },
+      "DeleteSelectedTask": {
+        "cyclomaticComplexity": 8,
+        "sequenceCoverage": 90.0,
+        "branchCoverage": 75.0
+      },
+      "ReorderTask": {
+        "cyclomaticComplexity": 4,
+        "sequenceCoverage": 100.0,
+        "branchCoverage": 50.0
+      },
+      "ShowTaskError": {
+        "cyclomaticComplexity": 6,
+        "sequenceCoverage": 100.0,
+        "branchCoverage": 66.66
+      },
+      "IsTaskConfigurationValid": {
+        "cyclomaticComplexity": 52,
+        "sequenceCoverage": 100.0,
+        "branchCoverage": 94.23
+      },
+      "FindCircularDependencyTask": {
+        "cyclomaticComplexity": 4,
+        "sequenceCoverage": 100.0,
+        "branchCoverage": 100.0
+      },
+      "HasCycle": {
+        "cyclomaticComplexity": 10,
+        "sequenceCoverage": 85.0,
+        "branchCoverage": 70.0
+      }
+    }
+  }
+}

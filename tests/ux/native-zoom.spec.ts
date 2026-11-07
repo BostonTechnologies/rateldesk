@@ -11,9 +11,10 @@ const routes: Record<string, string[]> = {
   'ticket-filters': ['/incidents', '/requests', '/changes'],
   assignee: ['/incidents', '/requests', '/changes'],
   operations: ['/self-service', '/ops/slas', '/ops/workflows', '/ops/hangfire'],
-  'pending-mail': ['/admin/pending-emails']
+  'pending-mail': ['/admin/pending-emails'],
+  'request-editor': ['/admin/requests/services/service-1']
 };
-const ports: Record<string, number> = { admin: 18500, integrations: 18505, details: 18600, email: 18304, 'ticket-filters': 18330, operations: 18400, 'pending-mail': 18700, assignee: 18300 };
+const ports: Record<string, number> = { admin: 18500, integrations: 18505, details: 18600, email: 18304, 'ticket-filters': 18330, operations: 18400, 'pending-mail': 18700, assignee: 18300, 'request-editor': 18530 };
 async function settleFiniteAnimations(page: Page) {
   await page.evaluate(async () => {
     await document.fonts.ready;
@@ -83,6 +84,29 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
         }
         if (suite === 'integrations')
           await expect(page.getByText('Netclaw settings could not be loaded.', { exact: true })).not.toBeVisible();
+        if (suite === 'request-editor') {
+          await page.getByRole('button', { name: 'Edit Example access request', exact: true }).click();
+          const editor = page.locator('.request-form-builder-dialog');
+          await expect(editor).toBeVisible();
+          await expect(editor.getByRole('tab', { name: 'Workflow (3)' })).toHaveAttribute('aria-selected', 'true');
+          if (width / 2 <= 760) await editor.locator('[data-task-id]').first().click();
+          await expect(editor.getByRole('textbox', { name: /^Task Name\*?$/ })).toHaveValue('Prepare access — synthetic automation');
+          await expect(editor.getByTestId('task-automation')).toBeVisible();
+          await expect(editor.getByRole('button', { name: 'Save', exact: true })).toBeInViewport();
+          await expect(editor.getByRole('button', { name: 'Cancel', exact: true })).toBeInViewport();
+          const bounds = await editor.boundingBox();
+          expect(bounds!.x).toBeGreaterThanOrEqual(0); expect(bounds!.y).toBeGreaterThanOrEqual(0);
+          expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width / 2 + 1);
+          expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(501);
+          expect(await editor.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(2);
+          for (const tab of ['Form fields (2)', 'Form setup', 'Workflow (3)']) {
+            const section = editor.getByRole('tab', { name: tab, exact: true });
+            await section.focus(); await page.keyboard.press('Enter');
+            await expect(section).toHaveAttribute('aria-selected', 'true');
+          }
+          const state = await (await request.get('http://127.0.0.1:18530/fixture/state')).json();
+          expect(state.saves).toEqual([]);
+        }
         if (suite === 'integrations' && route.includes('tab=connections')) {
           await page.getByRole('tab', { name: 'System connections', exact: true }).click();
           const panel = page.getByTestId('system-connections-panel');

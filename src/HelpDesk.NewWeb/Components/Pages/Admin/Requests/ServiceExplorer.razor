@@ -128,6 +128,7 @@
 
                                 <MudTooltip Text="Edit">
                                     <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                                   aria-label="@($"Edit {item.Name}")"
                                                    OnClick="@(() => EditItem(item))" />
                                 </MudTooltip>
 
@@ -391,7 +392,7 @@
         if (existingRequestForm is not null)
             parameters.Add(nameof(RequestFormBuilder.RequestFormId), existingRequestForm.Id);
 
-        var options = new DialogOptions { MaxWidth = MaxWidth.False, FullWidth = true };
+        var options = new DialogOptions { MaxWidth = MaxWidth.False, FullWidth = true, BackdropClick = false, CloseOnEscapeKey = false };
         var dialog = await DialogService.ShowAsync<RequestFormBuilder>("Request Form Builder", parameters, options);
         var result = await dialog.Result;
         if (!result.Canceled) { Snackbar.Add("Form saved.", Severity.Success); await LoadData(); }

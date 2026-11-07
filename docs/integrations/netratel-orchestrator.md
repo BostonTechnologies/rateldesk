@@ -32,3 +32,30 @@ partial identities remain denied.
 Upgrade both products and pair afresh. Previous manual/deployment NetRatel
 connection profiles are retired; the new pairing model is the sole setup path.
 The independent Netclaw integration and API/MCP credentials are unchanged.
+
+## Edit request workflows
+
+Open **Administration → Automation → Service Explorer**, open a service, and edit
+its request form. The editor starts on **Workflow**. Select a task in the ordered
+navigator to edit its details, automation connection/target/mappings, or local
+**Advanced workflow** settings. On a narrow screen, select a task and use
+**Back to tasks** to return to the list. The task editor and navigator each own
+one scroll area; Save and Cancel stay outside them.
+
+Use the drag handle or **Move task up/down** buttons to reorder tasks. Their IDs,
+dependency references, mappings and unsaved edits remain associated with the same
+task. Add and Duplicate select the new task; Delete selects a neighboring task.
+**Preview workflow** only renders the configured graph and does not run automation.
+
+**Form fields** and **Form setup** edit the same draft. Switching tabs does not
+save or reset it. Save validates every task and field, including inactive tabs,
+and opens the relevant section/task with focus on the control that needs action.
+Existing connection/organization eligibility and target validation still apply.
+Cancel asks before discarding changed drafts; clicking the backdrop or pressing
+Escape does not dismiss the editor.
+
+If the form saves but automation binding synchronization fails, the editor remains
+open with a stage-specific error. Review the bindings and choose Save again. The
+retry updates the same saved form instead of creating another form or binding.
+The earlier form save has already happened; canceling the remaining draft does
+not roll that server-side save back.
