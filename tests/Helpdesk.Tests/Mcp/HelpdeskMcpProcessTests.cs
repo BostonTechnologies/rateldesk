@@ -10,6 +10,52 @@ namespace Helpdesk.Tests.Mcp;
 public sealed class HelpdeskMcpProcessTests
 {
     [Theory]
+    [InlineData(null, false)]
+    [InlineData("Information", true)]
+    [InlineData("Debug", true)]
+    public async Task Diagnostic_policy_preserves_stdio_initialize_stdout_at_default_and_verbose_levels(string? minimum, bool expectStartupDiagnostic)
+    {
+        var configurationPath = Path.Combine(Path.GetTempPath(), $"helpdesk-mcp-logging-{Guid.NewGuid():N}.json");
+        new AgentClientConfigurationStore(configurationPath).Save(StdioHost.Configuration("https://api.example"));
+        var start = StdioHost.StartInfo("logging-test", "https://api.example", configurationPath);
+        start.Environment.Remove("RatelDesk__Logging__MinimumLevel");
+        if (minimum is not null)
+            start.Environment["RatelDesk__Logging__MinimumLevel"] = minimum;
+        await using var host = new StdioHost(Process.Start(start)!, configurationPath);
+        await host.InitializeAsync();
+
+        var (stdout, stderr) = await host.StopAndReadDiagnosticsAsync();
+
+        Assert.Equal(string.Empty, stdout);
+        Assert.Equal(expectStartupDiagnostic, stderr.Contains("Helpdesk MCP target validated", StringComparison.Ordinal));
+        Assert.DoesNotContain("not-a-real-secret", stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Invalid_logging_policy_exits_78_with_empty_stdout_and_safe_stderr()
+    {
+        var configurationPath = Path.Combine(Path.GetTempPath(), $"helpdesk-mcp-logging-invalid-{Guid.NewGuid():N}.json");
+        try
+        {
+            new AgentClientConfigurationStore(configurationPath).Save(StdioHost.Configuration("https://api.example"));
+            var start = StdioHost.StartInfo("logging-test", "https://api.example", configurationPath);
+            start.Environment["RatelDesk__Logging__MinimumLevel"] = "synthetic-invalid-secret";
+            using var process = Process.Start(start)!;
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            var stderr = process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));
+            Assert.Equal(78, process.ExitCode);
+            Assert.Equal(string.Empty, await stdout);
+            Assert.Contains("invalid RatelDesk:Logging policy", await stderr, StringComparison.Ordinal);
+            Assert.DoesNotContain("synthetic-invalid-secret", await stderr, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(configurationPath);
+        }
+    }
+
+    [Theory]
     [InlineData("helpdesk://capabilities")]
     [InlineData("helpdesk://config/redacted")]
     [InlineData("helpdesk://server/status")]
@@ -127,6 +173,8 @@ public sealed class HelpdeskMcpProcessTests
     private sealed class StdioHost(Process process, string configurationPath) : IAsyncDisposable
     {
         private readonly Process _process = process;
+        private readonly Task<string> _diagnostics = process.StandardError.ReadToEndAsync();
+        private bool _stopped;
 
         public string ConfigurationPath { get; } = configurationPath;
 
@@ -191,9 +239,19 @@ public sealed class HelpdeskMcpProcessTests
             return JsonDocument.Parse(line!);
         }
 
-        public async ValueTask DisposeAsync()
+        public async Task<(string Stdout, string Stderr)> StopAndReadDiagnosticsAsync()
         {
             _process.StandardInput.Close();
+            _stopped = true;
+            var stdout = _process.StandardOutput.ReadToEndAsync();
+            await _process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            return (await stdout, await _diagnostics);
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            if (!_stopped)
+                _process.StandardInput.Close();
             try
             {
                 await _process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));

@@ -10,6 +10,7 @@
 @inject NavigationManager NavManager
 @inject IHttpClientFactory HttpClientFactory
 @inject ISnackbar Snackbar
+@inject ILogger<Home> Logger
 
 <PageTitle>Home</PageTitle>
 
@@ -334,7 +335,7 @@ else
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error loading dashboard: {ex.Message}");
+            Logger.LogWarning("Dashboard data could not be loaded ({ExceptionType}).", ex.GetType().Name);
             summary ??= new AdminDashboardDto();
             recentIncidents ??= new List<IncidentDto>();
             recentRequests ??= new List<RequestDto>();
@@ -351,7 +352,7 @@ else
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error loading recent changes: {ex.Message}");
+            Logger.LogWarning("Recent changes could not be loaded ({ExceptionType}).", ex.GetType().Name);
             Snackbar.Add("Recent changes could not be loaded right now.", Severity.Warning);
             return new List<ChangeDto>();
         }

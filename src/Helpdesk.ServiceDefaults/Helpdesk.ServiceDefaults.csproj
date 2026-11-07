@@ -8,6 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Helpdesk.AgentClient\Helpdesk.AgentClient.csproj" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
 
     <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="10.11.0" />

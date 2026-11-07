@@ -8,6 +8,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Helpdesk.Setup;
+using Helpdesk.AgentClient.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Helpdesk.Mcp;
 
@@ -33,6 +35,7 @@ public static class Program
             var builder = Host.CreateApplicationBuilder(args);
             builder.Logging.ClearProviders();
             builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);
+            builder.Services.AddRatelDeskLoggingPolicy(builder.Configuration);
             var resolution = AgentClientConfigurationResolver.ResolveEffective(ConfigurationSurface.Mcp, configurationPath, configuration: builder.Configuration);
             var configuration = resolution.Configuration;
             var target = HelpdeskMcpTarget.Resolve(configuration, configurationPath,
@@ -63,6 +66,11 @@ public static class Program
         catch (AgentClientValidationException exception)
         {
             await Console.Error.WriteLineAsync($"Helpdesk MCP startup validation failed: {exception.Message}");
+            return 78;
+        }
+        catch (OptionsValidationException)
+        {
+            await Console.Error.WriteLineAsync("Helpdesk MCP startup validation failed: invalid RatelDesk:Logging policy. Use named levels Trace, Debug, Information, Warning, Error, Critical or None and bounded category overrides.");
             return 78;
         }
     }

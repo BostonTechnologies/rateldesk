@@ -1,11 +1,19 @@
 using Microsoft.Extensions.Configuration;
+using Helpdesk.AgentClient.Logging;
 
 var builder = DistributedApplication.CreateBuilder(args);
+builder.Services.AddRatelDeskLoggingPolicy(builder.Configuration);
 
 var api = builder.AddProject<Projects.Helpdesk_API>("helpdesk-api");
 var web = builder.AddProject<Projects.HelpDesk_NewWeb>("helpdesk-newweb")
     .WithReference(api)
     .WaitFor(api);
+
+foreach (var setting in builder.Configuration.GetSection("RatelDesk:Logging").AsEnumerable().Where(setting => setting.Value is not null))
+{
+    api.WithEnvironment(setting.Key.Replace(":", "__"), setting.Value!);
+    web.WithEnvironment(setting.Key.Replace(":", "__"), setting.Value!);
+}
 
 if (builder.Configuration["ApiBaseUrl"] is { Length: > 0 } customApi)
     web.WithEnvironment("ApiBaseUrl", customApi);
@@ -49,6 +57,8 @@ if (builder.Configuration.GetValue<bool>("WebGateway:Mcp:Enabled"))
         .WithEnvironment("Helpdesk__Mcp__PublicResourceUri", resource)
         .WithEnvironment("Helpdesk__Mcp__AllowedOrigins__0", new Uri(origin).GetLeftPart(UriPartial.Authority))
         .WithEnvironment("Helpdesk__Mcp__Instance", instance);
+    foreach (var setting in builder.Configuration.GetSection("RatelDesk:Logging").AsEnumerable().Where(setting => setting.Value is not null))
+        mcp.WithEnvironment(setting.Key.Replace(":", "__"), setting.Value!);
 
     if (expectedTarget is not null)
         mcp.WithEnvironment("Helpdesk__Mcp__ExpectedApiBaseUrl", expectedTarget);
