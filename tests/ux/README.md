@@ -64,3 +64,27 @@ complete-dataset searches, URL restoration, cancellation and failures. API
 predicate, bounds, authorization and SQLite/PostgreSQL evidence lives in
 `TicketListFiltersTests`; timezone/DST and query roundtrips live in
 `TicketListStateTests`.
+
+## Request service editor
+
+Build `src/HelpDesk.NewWeb` with the pinned SDK, then run
+`npx playwright test --config playwright.request-editor.config.ts`. For a Release
+build set `HELPDESK_EDITOR_CONFIGURATION=Release`. This dedicated loopback fixture
+uses synthetic organizations, tasks and read-only automation catalog entries;
+it never dispatches work to a real provider. It checks visible pane geometry at
+1440×900, 1366×768, 1280×720 and 390×844, task selection and drag/keyboard ordering,
+draft retention across tabs, validation focus, save/reload, partial-save retry,
+empty/many tasks, enlarged text and dark-theme screenshots. The existing optional
+workspace UX acceptance matrix includes this suite.
+
+For actual browser zoom acceptance, run
+`HELPDESK_NATIVE_ZOOM_SUITE=request-editor npx playwright test --config playwright.native-zoom.config.ts`.
+The shared extension sets Chromium to 200% zoom and opens the editor in light and
+dark themes at physical widths of 1280 and 1920 pixels. It verifies the responsive
+editor, keyboard tabs and reachable Save/Cancel controls without saving the form.
+
+Set `HELPDESK_EDITOR_BASELINE=true` and `HELPDESK_EDITOR_WEB_CWD` to an unchanged
+built Web checkout to capture synthetic before screenshots with the same fixture.
+That capture is separate from the full changed-source acceptance run. Screenshots
+and browser geometry assertions establish UI behavior; provider HTTP tests retain
+responsibility for authorization and SQLite/PostgreSQL persistence.

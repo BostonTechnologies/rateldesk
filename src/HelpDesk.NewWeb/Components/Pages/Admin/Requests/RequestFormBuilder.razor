@@ -15,302 +15,162 @@
 
 <MudDialog Class="request-form-builder-dialog">
     <TitleContent>
-        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="request-form-builder-title">
-            <MudStack Spacing="0">
-                <MudText Typo="Typo.h5">@(_isNew ? "New Request Form" : "Edit Request Form")</MudText>
-                <MudText Typo="Typo.body2" Class="request-form-builder-subtitle">
-                    Shape intake fields, workflow tasks, and External orchestration automation bindings in one pass.
-                </MudText>
-            </MudStack>
-        </MudStack>
-    </TitleContent>
-
-    <DialogContent>
-        <div class="mb-3" aria-live="polite" data-testid="request-form-summary">
-            <MudChip T="string" Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small">
-                @($"{FormFields.Count} field{(FormFields.Count == 1 ? string.Empty : "s")} · {Tasks.Count} task{(Tasks.Count == 1 ? string.Empty : "s")}")
-            </MudChip>
+        <div class="request-form-builder-title">
+            <MudText Typo="Typo.h6" Class="request-form-title-text" Title="@model.Title">@(string.IsNullOrWhiteSpace(model.Title) ? "New request form" : model.Title)</MudText>
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="@(model.ReleaseStatus == RequestFormReleaseStatus.Production ? Color.Success : Color.Default)">@(model.ReleaseStatus == RequestFormReleaseStatus.Production ? "Production" : "In testing")</MudChip>
+            <MudText Typo="Typo.caption" aria-live="polite">@(IsDirty ? "Unsaved changes" : "Request form")</MudText>
         </div>
+    </TitleContent>
+    <DialogContent>
         <MudForm @ref="form" Class="request-form-builder-form">
-            <MudGrid Spacing="3" Class="request-form-builder-grid">
-                <MudItem xs="12" lg="4">
-                    <MudPaper Outlined="true" Class="pa-4 request-form-side-panel">
-                        <MudStack Spacing="2">
-                            <MudText Typo="Typo.subtitle1">Form Setup</MudText>
-
-                            <MudTextField @bind-Value="model.Title"
-                                          Label="Form Title"
-                                          Required="true"
-                                          Variant="Variant.Outlined"
-                                          Margin="Margin.Dense" />
-
-                            <MudTextField @bind-Value="model.Description"
-                                          Label="Description"
-                                          Variant="Variant.Outlined"
-                                          Margin="Margin.Dense"
-                                          Lines="3" />
-
-                            <MudSelect T="RequestFormReleaseStatus"
-                                       @bind-Value="model.ReleaseStatus"
-                                       Label="Self-Service Release Status"
-                                       Variant="Variant.Outlined"
-                                       Margin="Margin.Dense">
-                                <MudSelectItem T="RequestFormReleaseStatus" Value="@RequestFormReleaseStatus.InTesting">In Testing</MudSelectItem>
-                                <MudSelectItem T="RequestFormReleaseStatus" Value="@RequestFormReleaseStatus.Production">Production</MudSelectItem>
-                            </MudSelect>
-
-                            <MudSelect T="string"
-                                       Value="model.OrganizationId"
-                                       ValueChanged="OnOrganizationChanged"
-                                       Label="Primary Organization"
-                                       Variant="Variant.Outlined"
-                                       Margin="Margin.Dense"
-                                       Clearable="true"
-                                       HelperText="Automation uses a saved system connection for this primary organization.">
-                                @foreach (var organization in organizations.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
-                                {
-                                    <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
-                                }
-                            </MudSelect>
-
-                            @if (SelectedOrganization is not null)
-                            {
-                                <MudAlert Severity="@(AutomationConnectionChoices.Count > 0 ? Severity.Info : Severity.Warning)"
-                                          Variant="Variant.Outlined"
-                                          Dense="true">
-                                    @if (AutomationConnectionChoices.Count > 0)
-                                    {
-                                        <span>@AutomationConnectionChoices.Count saved automation connection(s) are available for this organization. Select and verify a connection on each automation task.</span>
-                                    }
-                                    else
-                                    {
-                                        <span>No connected automation mapping is available for this organization. Configure its mapping in System connections.</span>
-                                    }
-                                </MudAlert>
-                            }
-
-                            <MudDivider />
-
-                            <MudStack Row="true" Spacing="1" Class="request-form-stat-row">
-                                <MudPaper Outlined="true" Class="pa-3 request-form-stat-card">
-                                    <MudText Typo="Typo.caption">Fields</MudText>
-                                    <MudText Typo="Typo.h6">@FormFields.Count</MudText>
-                                </MudPaper>
-                                <MudPaper Outlined="true" Class="pa-3 request-form-stat-card">
-                                    <MudText Typo="Typo.caption">Tasks</MudText>
-                                    <MudText Typo="Typo.h6">@Tasks.Count</MudText>
-                                </MudPaper>
-                                <MudPaper Outlined="true" Class="pa-3 request-form-stat-card">
-                                    <MudText Typo="Typo.caption">Automation</MudText>
-                                    <MudText Typo="Typo.h6">@Tasks.Count(x => string.Equals(x.Type, "automation", StringComparison.OrdinalIgnoreCase))</MudText>
-                                </MudPaper>
-                            </MudStack>
-
-                        </MudStack>
-                    </MudPaper>
-                </MudItem>
-
-                <MudItem xs="12" lg="8">
-                    <MudPaper Outlined="true" Class="pa-4 request-form-fields-panel">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
-                            <MudStack Spacing="0">
-                                <MudText Typo="Typo.subtitle1">Fields</MudText>
-                                <MudText Typo="Typo.body2" Class="request-form-builder-subtitle">
-                                    Define the request payload captured from the form.
-                                </MudText>
-                            </MudStack>
-                            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" OnClick="AddField">Add Field</MudButton>
-                        </MudStack>
-
-                        @if (!FormFields.Any())
+            <nav class="request-form-tabs" role="tablist" aria-label="Request form sections">
+                @for (var index = 0; index < WorkspaceTabs.Length; index++)
+                {
+                    var tab = index;
+                    <button type="button" id="@($"request-form-tab-{tab}")" role="tab" aria-selected="@((activeWorkspaceTab == tab).ToString().ToLowerInvariant())"
+                            aria-controls="@($"request-form-panel-{tab}")" tabindex="@(activeWorkspaceTab == tab ? 0 : -1)" @ref="workspaceTabElements[tab]" @onkeydown="@((KeyboardEventArgs args) => OnWorkspaceTabKeyDown(args, tab))" class="@(activeWorkspaceTab == tab ? "request-form-tab request-form-tab-active" : "request-form-tab")"
+                            @onclick="@(() => SetWorkspaceTab(tab))">@(tab == 0 ? $"Workflow ({Tasks.Count})" : tab == 1 ? $"Form fields ({FormFields.Count})" : "Form setup")</button>
+                }
+            </nav>
+            <div id="request-form-panel-0" role="tabpanel" aria-labelledby="request-form-tab-0" hidden="@(activeWorkspaceTab != 0)"
+                 class="@(showMobileTaskEditor ? "request-form-workflow show-task-editor" : "request-form-workflow")" data-testid="request-workflow">
+                <aside class="request-form-task-list-panel" aria-label="Ordered workflow tasks">
+                    <div class="request-form-pane-toolbar">
+                        <MudText Typo="Typo.subtitle2">Tasks</MudText>
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Add" OnClick="AddTask">Add task</MudButton>
+                    </div>
+                    <div class="request-form-task-list">
+                        <MudDropContainer T="RequestTaskTemplateModel" @key="taskDropRenderVersion" @ref="taskDropContainer" Items="@Tasks"
+                                          ItemsSelector="@((task, zone) => zone == TaskDropZoneId)" ItemDropped="OnTaskDropped"
+                                          ApplyDropClassesOnDragStarted="true" Class="request-form-task-list-inner">
+                            <ChildContent><MudDropZone T="RequestTaskTemplateModel" Identifier="@TaskDropZoneId" AllowReorder="true" Class="request-form-task-drop-zone" /></ChildContent>
+                            <ItemRenderer Context="task">
+                                <button type="button" @key="task.Id" data-task-id="@task.Id" aria-pressed="@((selectedTask?.Id == task.Id).ToString().ToLowerInvariant())"
+                                        class="@(selectedTask?.Id == task.Id ? "request-form-task-item request-form-task-item-active" : "request-form-task-item")"
+                                        @onclick="@(() => SelectTask(task.Id))">
+                                    <MudIcon Icon="@Icons.Material.Filled.DragIndicator" Size="Size.Small" Class="request-form-task-drag-handle" />
+                                    <span class="request-form-task-label"><strong>@task.Order. @(string.IsNullOrWhiteSpace(task.Name) ? "Unnamed task" : task.Name)</strong><span>@task.Type</span></span>
+                                    @if (invalidTaskId == task.Id) { <MudIcon Icon="@Icons.Material.Filled.ErrorOutline" Size="Size.Small" Color="Color.Error" /> }
+                                </button>
+                            </ItemRenderer>
+                        </MudDropContainer>
+                        @if (!Tasks.Any()) { <MudText Typo="Typo.body2" Class="pa-3">No workflow tasks yet. Add a task to start.</MudText> }
+                    </div>
+                    <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Visibility" OnClick="ToggleWorkflowPreview" Disabled="@(!Tasks.Any())">@(_showWorkflowPreview ? "Hide preview" : "Preview workflow")</MudButton>
+                </aside>
+                <section class="request-form-task-config-panel" aria-label="Selected task editor" data-testid="selected-task-editor">
+                    <div class="request-form-pane-toolbar">
+                        <MudButton Class="request-form-back-to-tasks" Size="Size.Small" StartIcon="@Icons.Material.Filled.ArrowBack" OnClick="@(() => showMobileTaskEditor = false)">Back to tasks</MudButton>
+                        @if (selectedTask is not null)
                         {
-                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mb-2">
-                                No fields yet. Click <b>Add Field</b> to start.
-                            </MudAlert>
+                            <MudText Typo="Typo.subtitle2" Class="request-form-selected-title" Title="@selectedTask.Name">@selectedTask.Name</MudText>
+                            <div class="request-form-task-actions">
+                                <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small" aria-label="Move task up" OnClick="MoveTaskUp" Disabled="@(!CanMoveSelectedTaskUp)" />
+                                <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small" aria-label="Move task down" OnClick="MoveTaskDown" Disabled="@(!CanMoveSelectedTaskDown)" />
+                                <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Size="Size.Small" aria-label="Duplicate task" OnClick="DuplicateSelectedTask" />
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" aria-label="Delete task" Color="Color.Error" OnClick="DeleteSelectedTask" />
+                            </div>
                         }
-
-                        <MudTable Items="FormFields" Hover="true" Dense="true" Breakpoint="Breakpoint.Sm">
-                            <HeaderContent>
-                                <MudTh>Label</MudTh>
-                                <MudTh>Type</MudTh>
-                                <MudTh>Required</MudTh>
-                                <MudTh>Data Binding</MudTh>
-                                <MudTh>Predefined</MudTh>
-                                <MudTh Style="width: 1%;"></MudTh>
-                            </HeaderContent>
-                            <RowTemplate>
-                                <MudTd>
-                                    <MudTextField @bind-Value="context.Label" Margin="Margin.Dense" Immediate="true" />
-                                </MudTd>
-                                <MudTd>
-                                    <MudSelect T="string" Value="context.Type" ValueChanged="@((string value) => OnFieldTypeChanged(context, value))" Margin="Margin.Dense" Dense="true">
-                                        @foreach (var t in FieldTypes)
-                                        {
-                                            <MudSelectItem Value="@t.Value">@t.Label</MudSelectItem>
-                                        }
-                                    </MudSelect>
-                                </MudTd>
-                                <MudTd>
-                                    <MudSwitch @bind-Value="context.Required" Color="Color.Primary" />
-                                </MudTd>
-                                <MudTd>
-                                    <MudStack Spacing="1">
-                                        <MudSelect T="string"
-                                                   Value="context.DataBinding?.DatasetId"
-                                                   ValueChanged="@((string? value) => OnFieldDatasetChanged(context, value))"
-                                                   Margin="Margin.Dense"
-                                                   Dense="true"
-                                                   Clearable="true"
-                                                   Disabled="@(!IsHelpdeskDataField(context))">
-                                            @foreach (var dataset in availableDatasets)
-                                            {
-                                                <MudSelectItem T="string" Value="@dataset.Id">@dataset.Name</MudSelectItem>
-                                            }
-                                        </MudSelect>
-                                        @if (context.DataBinding is not null && IsHelpdeskDataField(context))
-                                        {
-                                            <MudTextField T="string"
-                                                          Value="context.DataBinding.Placeholder"
-                                                          ValueChanged="@((string? value) => OnFieldBindingPlaceholderChanged(context, value))"
-                                                          Margin="Margin.Dense"
-                                                          Dense="true"
-                                                          Placeholder="Search placeholder" />
-                                        }
-                                    </MudStack>
-                                </MudTd>
-                                <MudTd>
-                                    <MudTooltip Text="@GetPredefinedOptionsTooltip(context)">
-                                        <MudIconButton Icon="@Icons.Material.Filled.Edit"
-                                                       Color="@(IsPredefinedField(context) ? Color.Primary : Color.Default)"
-                                                       Disabled="@(!IsPredefinedField(context))"
-                                                       OnClick="@(() => OpenPredefinedOptionsDialogAsync(context))" />
-                                    </MudTooltip>
-                                </MudTd>
-                                <MudTd>
-                                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(() => RemoveField(context))" />
-                                </MudTd>
-                            </RowTemplate>
-                        </MudTable>
-                    </MudPaper>
-                </MudItem>
-
-                <MudItem xs="12">
-                    <MudPaper Outlined="true" Class="pa-4 request-form-main-panel">
+                    </div>
+                    <div class="request-form-task-editor-content" @key="selectedTask?.Id">
                         @if (selectedTask is null)
                         {
-                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2 request-form-section-header">
-                                <MudStack Spacing="0">
-                                    <MudText Typo="Typo.subtitle1">Task Editor</MudText>
-                                    <MudText Typo="Typo.body2" Class="request-form-builder-subtitle">
-                                        Configure workflow tasks, details, and automation mapping.
-                                    </MudText>
-                                </MudStack>
-                                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" OnClick="AddTask">Add Task</MudButton>
-                            </MudStack>
-                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
-                                Add a task to start configuring workflow behavior.
-                            </MudAlert>
+                            <MudText Typo="Typo.body2" Class="pa-4">Select or add a task to configure its workflow.</MudText>
                         }
                         else
                         {
-                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2 request-form-section-header">
-                                <MudStack Spacing="0">
-                                    <MudText Typo="Typo.subtitle1">Task Editor</MudText>
-                                    <MudText Typo="Typo.body2" Class="request-form-builder-subtitle">
-                                        Configure execution, routing, and payload mapping for the selected step.
-                                    </MudText>
-                                </MudStack>
-                                <MudChip T="string"
-                                         Variant="Variant.Filled"
-                                         Color="@GetTaskTypeColor(selectedTask.Type)">
-                                    @selectedTask.Type
-                                </MudChip>
-                            </MudStack>
+                            @if (!string.IsNullOrWhiteSpace(validationError) && invalidTaskId == selectedTask.Id)
+                            { <MudAlert Severity="Severity.Error" Dense="true" Class="mb-2" role="alert">@validationError</MudAlert> }
+                            <MudStack Spacing="1">
+                                        <MudText Typo="Typo.subtitle2">Task details</MudText>
 
-                            <div class="request-form-task-editor-grid">
-                                <div class="request-form-task-list-panel">
-                                    <MudStack Spacing="1" Class="request-form-editor-column">
-                                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                            <MudText Typo="Typo.subtitle2">Tasks</MudText>
-                                            <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Add" OnClick="AddTask">Add Task</MudButton>
-                                        </MudStack>
+                                        <MudTextField @ref="taskNameInput" @bind-Value="selectedTask.Name" @bind-Value:after="@(() => RequestTaskDropContainerRefresh())" Immediate="true" Label="Task Name" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" />
+                                        <MudTextField @bind-Value="selectedTask.Description" Label="Task Description" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" />
 
-                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="request-form-task-actions">
-                                            <MudButton Variant="Variant.Text"
-                                                       Size="Size.Small"
-                                                       StartIcon="@Icons.Material.Filled.Visibility"
-                                                       OnClick="@ToggleWorkflowPreview"
-                                                       Disabled="@(!Tasks.Any())">
-                                                @(_showWorkflowPreview ? "Hide Preview" : "Preview")
-                                            </MudButton>
-                                            <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.ContentCopy" OnClick="DuplicateSelectedTask">Duplicate</MudButton>
-                                            <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.ArrowUpward" OnClick="MoveTaskUp" Disabled="@(!CanMoveSelectedTaskUp)">Up</MudButton>
-                                            <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.ArrowDownward" OnClick="MoveTaskDown" Disabled="@(!CanMoveSelectedTaskDown)">Down</MudButton>
-                                            <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="DeleteSelectedTask">Delete</MudButton>
-                                        </MudStack>
+                                        <MudGrid Spacing="1">
+                                            <MudItem xs="12" sm="6">
+                                                <MudSelect T="string" Value="selectedTask.Type" ValueChanged="OnSelectedTaskTypeChanged" Label="Task Type" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true">
+                                                    <MudSelectItem T="string" Value="@("manual")">Manual</MudSelectItem>
+                                                    <MudSelectItem T="string" Value="@("automation")">Automation</MudSelectItem>
+                                                    <MudSelectItem T="string" Value="@("approval")">Get Approval</MudSelectItem>
+                                                </MudSelect>
+                                            </MudItem>
+                                            <MudItem xs="12" sm="6" Class="d-flex align-center">
+                                                <MudSwitch @bind-Value="selectedTask.AutoStart" Color="Color.Primary" Label="Auto Start" Size="Size.Small" Class="mt-1" />
+                                            </MudItem>
+                                        </MudGrid>
 
-                                        <MudPaper Outlined="true" Class="request-form-task-list">
-                                            <MudDropContainer T="RequestTaskTemplateModel"
-                                                              @key="taskDropRenderVersion"
-                                                              @ref="taskDropContainer"
-                                                              Items="@Tasks"
-                                                              ItemsSelector="@((task, zone) => zone == TaskDropZoneId)"
-                                                              ItemDropped="OnTaskDropped"
-                                                              ApplyDropClassesOnDragStarted="true"
-                                                              Class="request-form-task-list-inner">
-                                                <ChildContent>
-                                                    <MudDropZone T="RequestTaskTemplateModel"
-                                                                 Identifier="@TaskDropZoneId"
-                                                                 AllowReorder="true"
-                                                                 Class="request-form-task-drop-zone" />
-                                                </ChildContent>
-                                                <ItemRenderer Context="task">
-                                                    @{
-                                                        var active = selectedTask?.Id == task.Id;
-                                                    }
-                                                    <div class="@(active ? "request-form-task-item request-form-task-item-active" : "request-form-task-item")"
-                                                         @key="task.Id"
-                                                         @onclick="@(() => SelectTask(task.Id))">
-                                                        <MudStack Spacing="1">
-                                                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                                                                    <MudTooltip Text="Drag to reorder">
-                                                                        <MudIcon Icon="@Icons.Material.Filled.DragIndicator"
-                                                                                 Size="Size.Small"
-                                                                                 Class="request-form-task-drag-handle" />
-                                                                    </MudTooltip>
-                                                                    <MudText Typo="Typo.body2"><b>@task.Order.</b> @task.Name</MudText>
-                                                                </MudStack>
-                                                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                                                                    <MudChip T="string"
-                                                                             Size="Size.Small"
-                                                                             Color="@GetTaskTypeColor(task.Type)">
-                                                                        @task.Type
-                                                                    </MudChip>
-                                                                    <span @onclick:stopPropagation="true">
-                                                                        <MudTooltip Text="Toggle automation configuration">
-                                                                            <MudIconButton Icon="@(IsTaskAutomationExpanded(task.Id) ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
-                                                                                           Size="Size.Small"
-                                                                                           Variant="Variant.Outlined"
-                                                                                           OnClick="@(() => ToggleTaskAutomationConfiguration(task.Id))" />
-                                                                        </MudTooltip>
-                                                                    </span>
-                                                                </MudStack>
-                                                            </MudStack>
-                                                            @if (!string.IsNullOrWhiteSpace(task.Description))
-                                                            {
-                                                                <MudText Typo="Typo.caption">@task.Description</MudText>
-                                                            }
-                                                        </MudStack>
-                                                    </div>
-                                                </ItemRenderer>
-                                            </MudDropContainer>
-                                            @if (selectedTask is not null && IsTaskAutomationExpanded(selectedTask.Id))
+                                        @if (selectedTask.Type == "manual")
+                                        {
+                                            <MudDivider Class="my-2" />
+                                            <MudText Typo="Typo.subtitle2">Manual Configuration</MudText>
+
+                                            <MudSelect T="string" @bind-Value="selectedTask.DefaultAssigneeId" Label="Default Assignee" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Clearable="true">
+                                                @foreach (var user in users)
+                                                {
+                                                    <MudSelectItem Value="@user.Id">@user.Name (@user.Email)</MudSelectItem>
+                                                }
+                                            </MudSelect>
+
+                                            <MudTextField @bind-Value="selectedTask.TeamOrRole" Label="Team/Role (optional)" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" />
+                                        }
+                                        else if (selectedTask.Type == "approval")
+                                        {
+                                            <MudDivider Class="my-2" />
+                                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                                <MudText Typo="Typo.subtitle2">Approval Configuration</MudText>
+                                                <MudButton Variant="Variant.Outlined"
+                                                           Size="Size.Small"
+                                                           StartIcon="@Icons.Material.Filled.PersonSearch"
+                                                           @ref="approvalBrowseButton" OnClick="OpenApprovalApproverDialogAsync">
+                                                    Browse
+                                                </MudButton>
+                                            </MudStack>
+
+                                            <MudSelect T="int?"
+                                                       @bind-Value="selectedTask.ApprovalAllowedDays"
+                                                       Label="Approval time allowed"
+                                                       Variant="Variant.Outlined"
+                                                       Margin="Margin.Dense"
+                                                       Dense="true">
+                                                @foreach (var day in Enumerable.Range(1, 14))
+                                                {
+                                                    <MudSelectItem T="int?" Value="@day">@($"{day} day{(day == 1 ? string.Empty : "s")}")</MudSelectItem>
+                                                }
+                                            </MudSelect>
+
+                                            @if (selectedTask.ApprovalApprovers.Count == 0)
                                             {
-                                                <div class="request-form-step-automation-panel" @onclick:stopPropagation="true">
+                                                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">
+                                                    Select at least one approver.
+                                                </MudAlert>
+                                            }
+                                            else
+                                            {
+                                                <MudStack Row="true" Spacing="1" Class="flex-wrap">
+                                                    @foreach (var approver in selectedTask.ApprovalApprovers)
+                                                    {
+                                                        <MudChip T="string"
+                                                                 Size="Size.Small"
+                                                                 Color="Color.Info"
+                                                                 Variant="Variant.Outlined"
+                                                                 OnClose="@(() => RemoveApprovalApprover(approver))">
+                                                            @($"{approver.Name} ({approver.Email})")
+                                                        </MudChip>
+                                                    }
+                                                </MudStack>
+                                            }
+                                        }
+
+                                        <MudDivider Class="my-2" />
+
+
+                                            @if (selectedTask.Type == "automation")
+                                            {
+                                                <div class="request-form-step-automation-panel" data-testid="task-automation" @onclick:stopPropagation="true">
                                                     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="request-form-section-header">
                                                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                                                            <MudText Typo="Typo.subtitle2">Automation Configuration</MudText>
+                                                            <MudText Typo="Typo.subtitle2">Automation</MudText>
                                                             <MudTooltip Text="Automation targets must belong to the peer tenant on the selected saved system connection.">
                                                                 <MudIconButton Icon="@Icons.Material.Filled.Info"
                                                                                Size="Size.Small"
@@ -339,7 +199,7 @@
                                                     }
                                                     else
                                                     {
-                                                        <MudSelect T="Guid?" Value="@(SelectedBinding?.SystemConnectionId ?? SelectedAutomationConnection?.ConnectionId)"
+                                                        <MudSelect @ref="automationConnectionInput" T="Guid?" Value="@(SelectedBinding?.SystemConnectionId ?? SelectedAutomationConnection?.ConnectionId)"
                                                                    ValueChanged="OnAutomationConnectionChangedAsync" Label="Automation system connection"
                                                                    Variant="Variant.Outlined" Margin="Margin.Dense"
                                                                    HelperText="Choose the saved connection for this task and organization.">
@@ -403,7 +263,7 @@
                                                                        Size="Size.Small"
                                                                        StartIcon="@Icons.Material.Filled.LibraryBooks"
                                                                        Disabled="@(orchestrationCatalogLoading || !CanCreateTenantScopedOrchestrationTarget || !FilteredOrchestrationRequestDefinitions.Any())"
-                                                                       OnClick="OpenOrchestrationScriptLibraryDialogAsync">
+                                                                       @ref="automationBrowseButton" OnClick="OpenOrchestrationScriptLibraryDialogAsync">
                                                                 Browse Library
                                                             </MudButton>
                                                             <MudTooltip Text="Clear selected External orchestration target">
@@ -452,7 +312,7 @@
 
                                                         <MudGrid Spacing="1">
                                                             <MudItem xs="12" sm="6">
-                                                                <MudNumericField T="int?"
+                                                                <MudNumericField @ref="expectedRuntimeInput" T="int?"
                                                                                  Value="@SelectedExpectedRuntimeMinutes"
                                                                                  ValueChanged="OnSelectedExpectedRuntimeMinutesChanged"
                                                                                  Label="Expected Runtime (minutes)"
@@ -463,7 +323,7 @@
                                                                                  Min="1" />
                                                             </MudItem>
                                                             <MudItem xs="12" sm="6">
-                                                                <MudNumericField T="int?"
+                                                                <MudNumericField @ref="graceRuntimeInput" T="int?"
                                                                                  Value="@SelectedGraceRuntimeMinutes"
                                                                                  ValueChanged="OnSelectedGraceRuntimeMinutesChanged"
                                                                                  Label="Grace Runtime (minutes)"
@@ -648,98 +508,10 @@
                                                 </div>
                                             }
 
-                                        </MudPaper>
-                                    </MudStack>
-                                </div>
-
-                                <div class="request-form-task-config-panel">
-                                    <MudStack Spacing="1" Class="request-form-editor-column">
-                                        <MudText Typo="Typo.subtitle2">Task Details</MudText>
-
-                                        <MudTextField @bind-Value="selectedTask.Name" Label="Task Name" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" />
-                                        <MudTextField @bind-Value="selectedTask.Description" Label="Task Description" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" />
-
-                                        <MudGrid Spacing="1">
-                                            <MudItem xs="12" sm="6">
-                                                <MudSelect T="string" Value="selectedTask.Type" ValueChanged="OnSelectedTaskTypeChanged" Label="Task Type" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true">
-                                                    <MudSelectItem T="string" Value="@("manual")">Manual</MudSelectItem>
-                                                    <MudSelectItem T="string" Value="@("automation")">Automation</MudSelectItem>
-                                                    <MudSelectItem T="string" Value="@("approval")">Get Approval</MudSelectItem>
-                                                </MudSelect>
-                                            </MudItem>
-                                            <MudItem xs="12" sm="6" Class="d-flex align-center">
-                                                <MudSwitch @bind-Value="selectedTask.AutoStart" Color="Color.Primary" Label="Auto Start" Size="Size.Small" Class="mt-1" />
-                                            </MudItem>
-                                        </MudGrid>
-
-                                        @if (selectedTask.Type == "manual")
-                                        {
-                                            <MudDivider Class="my-2" />
-                                            <MudText Typo="Typo.subtitle2">Manual Configuration</MudText>
-
-                                            <MudSelect T="string" @bind-Value="selectedTask.DefaultAssigneeId" Label="Default Assignee" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Clearable="true">
-                                                @foreach (var user in users)
-                                                {
-                                                    <MudSelectItem Value="@user.Id">@user.Name (@user.Email)</MudSelectItem>
-                                                }
-                                            </MudSelect>
-
-                                            <MudTextField @bind-Value="selectedTask.TeamOrRole" Label="Team/Role (optional)" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" />
-                                        }
-                                        else if (selectedTask.Type == "approval")
-                                        {
-                                            <MudDivider Class="my-2" />
-                                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                                <MudText Typo="Typo.subtitle2">Approval Configuration</MudText>
-                                                <MudButton Variant="Variant.Outlined"
-                                                           Size="Size.Small"
-                                                           StartIcon="@Icons.Material.Filled.PersonSearch"
-                                                           OnClick="OpenApprovalApproverDialogAsync">
-                                                    Browse
-                                                </MudButton>
-                                            </MudStack>
-
-                                            <MudSelect T="int?"
-                                                       @bind-Value="selectedTask.ApprovalAllowedDays"
-                                                       Label="Approval time allowed"
-                                                       Variant="Variant.Outlined"
-                                                       Margin="Margin.Dense"
-                                                       Dense="true">
-                                                @foreach (var day in Enumerable.Range(1, 14))
-                                                {
-                                                    <MudSelectItem T="int?" Value="@day">@($"{day} day{(day == 1 ? string.Empty : "s")}")</MudSelectItem>
-                                                }
-                                            </MudSelect>
-
-                                            @if (selectedTask.ApprovalApprovers.Count == 0)
-                                            {
-                                                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">
-                                                    Select at least one approver.
-                                                </MudAlert>
-                                            }
-                                            else
-                                            {
-                                                <MudStack Row="true" Spacing="1" Class="flex-wrap">
-                                                    @foreach (var approver in selectedTask.ApprovalApprovers)
-                                                    {
-                                                        <MudChip T="string"
-                                                                 Size="Size.Small"
-                                                                 Color="Color.Info"
-                                                                 Variant="Variant.Outlined"
-                                                                 OnClose="@(() => RemoveApprovalApprover(approver))">
-                                                            @($"{approver.Name} ({approver.Email})")
-                                                        </MudChip>
-                                                    }
-                                                </MudStack>
-                                            }
-                                        }
-
-                                        <MudDivider Class="my-2" />
-
                                         <MudExpansionPanels Class="request-form-advanced-panel" Dense="true">
-                                            <MudExpansionPanel Text="Advanced Workflow Settings">
+                                            <MudExpansionPanel Text="Advanced workflow" @bind-Expanded="advancedExpanded">
                                                 <MudText Typo="Typo.subtitle2" Class="mb-1">Dependencies</MudText>
-                                                <MudSelect T="Guid"
+                                                <MudSelect @ref="dependenciesInput" T="Guid"
                                                            Label="Depends On"
                                                            MultiSelection="true"
                                                            Dense="true"
@@ -766,16 +538,16 @@
 
                                                 <MudGrid Spacing="1">
                                                     <MudItem xs="12" sm="6">
-                                                        <MudNumericField T="int?"
+                                                        <MudNumericField @ref="taskSlaInput" T="int?"
                                                                          @bind-Value="selectedTask.TaskSlaMinutes"
-                                                                         Label="Task SLA (minutes)"
+                                                                         Label="Task SLA (minutes)" Min="0"
                                                                          Variant="Variant.Outlined"
                                                                          Margin="Margin.Dense" />
                                                     </MudItem>
                                                     <MudItem xs="12" sm="6">
-                                                        <MudNumericField T="int?"
+                                                        <MudNumericField @ref="escalationInput" T="int?"
                                                                          @bind-Value="selectedTask.EscalateAfterMinutes"
-                                                                         Label="Escalate After (minutes)"
+                                                                         Label="Escalate After (minutes)" Min="0"
                                                                          Variant="Variant.Outlined"
                                                                          Margin="Margin.Dense" />
                                                     </MudItem>
@@ -784,7 +556,7 @@
                                                 <MudText Typo="Typo.subtitle2" Class="mt-2">Escalation Target</MudText>
                                                 <MudGrid Spacing="1">
                                                     <MudItem xs="12" sm="6">
-                                                        <MudSelect T="string"
+                                                        <MudSelect @ref="escalationUserInput" T="string"
                                                                    Label="Escalation User"
                                                                    Variant="Variant.Outlined"
                                                                    Margin="Margin.Dense"
@@ -825,15 +597,8 @@
                                             </MudExpansionPanel>
                                         </MudExpansionPanels>
 
-                                    </MudStack>
-                                </div>
-                            </div>
+                            </MudStack>
                         }
-                    </MudPaper>
-                </MudItem>
-
-            </MudGrid>
-
             @if (_showWorkflowPreview)
             {
                 <MudPaper Outlined="true" Class="pa-3 mt-3 request-form-preview-panel">
@@ -861,128 +626,204 @@
                     }
                 </MudPaper>
             }
+
+                    </div>
+                </section>
+            </div>
+            <section id="request-form-panel-1" role="tabpanel" aria-labelledby="request-form-tab-1" hidden="@(activeWorkspaceTab != 1)" class="request-form-tab-content" data-testid="request-form-fields">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
+                            <MudStack Spacing="0">
+                                <MudText Typo="Typo.subtitle1">Form fields</MudText>
+                                <MudText Typo="Typo.body2" Class="request-form-builder-subtitle">
+                                    Define the request payload captured from the form.
+                                </MudText>
+                            </MudStack>
+                            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" OnClick="AddField">Add Field</MudButton>
+                        </MudStack>
+
+                        @if (!FormFields.Any())
+                        {
+                            <MudText Typo="Typo.body2" Class="mb-2">No form fields yet. Add a field to start.</MudText>
+                        }
+
+                        <MudTable Items="FormFields" Hover="true" Dense="true" Breakpoint="Breakpoint.Sm">
+                            <HeaderContent>
+                                <MudTh>Label</MudTh>
+                                <MudTh>Type</MudTh>
+                                <MudTh>Required</MudTh>
+                                <MudTh>Data Binding</MudTh>
+                                <MudTh>Predefined</MudTh>
+                                <MudTh Style="width: 1%;"></MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Label">
+                                    <MudTextField @ref="fieldLabelInputs[context]" @bind-Value="context.Label" Label="Field label" Required="true" Margin="Margin.Dense" Immediate="true" />
+                                </MudTd>
+                                <MudTd>
+                                    <MudSelect T="string" Label="Field type" Value="context.Type" ValueChanged="@((string value) => OnFieldTypeChanged(context, value))" Margin="Margin.Dense" Dense="true">
+                                        @foreach (var t in FieldTypes)
+                                        {
+                                            <MudSelectItem Value="@t.Value">@t.Label</MudSelectItem>
+                                        }
+                                    </MudSelect>
+                                </MudTd>
+                                <MudTd>
+                                    <MudSwitch @bind-Value="context.Required" Color="Color.Primary" aria-label="Field required" />
+                                </MudTd>
+                                <MudTd>
+                                    <MudStack Spacing="1">
+                                        <MudSelect T="string"
+                                                   Label="Dataset binding" Value="context.DataBinding?.DatasetId"
+                                                   ValueChanged="@((string? value) => OnFieldDatasetChanged(context, value))"
+                                                   Margin="Margin.Dense"
+                                                   Dense="true"
+                                                   Clearable="true"
+                                                   Disabled="@(!IsHelpdeskDataField(context))">
+                                            @foreach (var dataset in availableDatasets)
+                                            {
+                                                <MudSelectItem T="string" Value="@dataset.Id">@dataset.Name</MudSelectItem>
+                                            }
+                                        </MudSelect>
+                                        @if (context.DataBinding is not null && IsHelpdeskDataField(context))
+                                        {
+                                            <MudTextField T="string"
+                                                          Value="context.DataBinding.Placeholder"
+                                                          ValueChanged="@((string? value) => OnFieldBindingPlaceholderChanged(context, value))"
+                                                          Margin="Margin.Dense"
+                                                          Dense="true"
+                                                          Placeholder="Search placeholder" />
+                                        }
+                                    </MudStack>
+                                </MudTd>
+                                <MudTd>
+                                    <MudTooltip Text="@GetPredefinedOptionsTooltip(context)">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                                       Color="@(IsPredefinedField(context) ? Color.Primary : Color.Default)"
+                                                       Disabled="@(!IsPredefinedField(context))"
+                                                       OnClick="@(() => OpenPredefinedOptionsDialogAsync(context))" />
+                                    </MudTooltip>
+                                </MudTd>
+                                <MudTd>
+                                    <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small" aria-label="Move field up" Disabled="@(FormFields.IndexOf(context) == 0)" OnClick="@(() => MoveField(context, -1))" />
+                                    <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small" aria-label="Move field down" Disabled="@(FormFields.IndexOf(context) == FormFields.Count - 1)" OnClick="@(() => MoveField(context, 1))" />
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" aria-label="Delete field" OnClick="@(() => RemoveField(context))" />
+                                </MudTd>
+                            </RowTemplate>
+                        </MudTable>
+
+            </section>
+            <section id="request-form-panel-2" role="tabpanel" aria-labelledby="request-form-tab-2" hidden="@(activeWorkspaceTab != 2)" class="request-form-tab-content request-form-setup" data-testid="request-form-setup">
+                <MudStack Spacing="2">
+                            <MudTextField @ref="formTitleInput" @bind-Value="model.Title" Immediate="true"
+                                          Label="Form Title"
+                                          Required="true"
+                                          Variant="Variant.Outlined"
+                                          Margin="Margin.Dense" />
+
+                            <MudTextField @bind-Value="model.Description"
+                                          Label="Description"
+                                          Variant="Variant.Outlined"
+                                          Margin="Margin.Dense"
+                                          Lines="3" />
+
+                            <MudSelect T="RequestFormReleaseStatus"
+                                       @bind-Value="model.ReleaseStatus"
+                                       Label="Self-Service Release Status"
+                                       Variant="Variant.Outlined"
+                                       Margin="Margin.Dense">
+                                <MudSelectItem T="RequestFormReleaseStatus" Value="@RequestFormReleaseStatus.InTesting">In Testing</MudSelectItem>
+                                <MudSelectItem T="RequestFormReleaseStatus" Value="@RequestFormReleaseStatus.Production">Production</MudSelectItem>
+                            </MudSelect>
+
+                            <MudSelect T="string"
+                                       Value="model.OrganizationId"
+                                       ValueChanged="OnOrganizationChanged"
+                                       Label="Primary Organization"
+                                       Variant="Variant.Outlined"
+                                       Margin="Margin.Dense"
+                                       Clearable="true"
+                                       HelperText="Automation uses a saved system connection for this primary organization.">
+                                @foreach (var organization in organizations.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
+                                {
+                                    <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
+                                }
+                            </MudSelect>
+
+                            @if (SelectedOrganization is not null)
+                            {
+                                <MudText Typo="Typo.caption" Class="request-form-builder-subtitle">
+                                    @AutomationConnectionChoices.Count saved automation connection(s) available. Configure connections on each automation task.
+                                </MudText>
+                            }
+
+
+                </MudStack>
+            </section>
         </MudForm>
     </DialogContent>
-
     <DialogActions>
-        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@saving" OnClick="Save">Save</MudButton>
+        <MudText Typo="Typo.caption" Class="request-form-save-state" role="status">@(saveError ?? validationError ?? (saving ? "Saving…" : IsDirty ? "Changes are kept across tabs until you save." : string.Empty))</MudText>
+        <MudButton Variant="Variant.Text" Disabled="@saving" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@saving" OnClick="Save">@(saving ? "Saving…" : "Save")</MudButton>
     </DialogActions>
 </MudDialog>
 
 <style>
-    .request-form-builder-dialog {
-        width: min(1560px, 96vw);
-    }
-
-    .request-form-builder-title {
-        width: 100%;
-        gap: 1rem;
-    }
-
-    .request-form-builder-subtitle {
-        color: var(--mud-palette-text-secondary);
-    }
-
-    .request-form-builder-form {
-        padding-top: 0.25rem;
-    }
-
-    .request-form-stat-row {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        width: 100%;
-    }
-
-    .request-form-stat-card {
-        min-width: 0;
-    }
-
-    .request-form-task-actions {
-        flex-wrap: wrap;
-    }
-
-    .request-form-task-editor-grid {
-        display: grid;
-        grid-template-columns: minmax(0, 7fr) minmax(320px, 3fr);
-        gap: 1rem;
-        align-items: start;
-    }
-
-    .request-form-task-list-panel,
-    .request-form-task-config-panel,
-    .request-form-editor-column {
-        min-width: 0;
-    }
-
-    .request-form-step-automation-panel {
-        display: grid;
-        gap: 0.5rem;
-        margin-top: 0.75rem;
-        padding-top: 0.75rem;
-        border-top: 1px solid var(--mud-palette-lines-default);
-        background: var(--mud-palette-surface);
-    }
-
-    .request-form-info-icon {
-        padding: 0.15rem;
-    }
-
-    .request-form-script-picker {
-        flex-wrap: wrap;
-    }
-
-    .request-form-script-picker .mud-input-control {
-        flex: 1 1 280px;
-        min-width: min(100%, 280px);
-    }
-
-    .request-form-section-header,
-    .request-form-chip-row {
-        flex-wrap: wrap;
-        gap: 0.5rem;
-    }
-
-    .request-form-task-list {
-        max-height: 560px;
-        overflow-y: auto;
-    }
-
-    .request-form-task-list-inner {
-        padding: 0.5rem;
-    }
-
-    .request-form-task-drop-zone {
-        min-height: 4rem;
-    }
-
-    .request-form-task-item {
-        cursor: pointer;
-        margin-bottom: 0.45rem;
-        padding: 0.8rem 0.9rem;
-        border: 1px solid var(--mud-palette-lines-default);
-        background: var(--mud-palette-surface);
-    }
-
-    .request-form-task-drag-handle {
-        color: var(--mud-palette-text-secondary);
-        cursor: grab;
-    }
-
-    .request-form-task-item-active {
-        border-color: var(--mud-palette-primary);
-        background: var(--mud-palette-action-default-hover);
-    }
-
-    @@media (max-width: 1199px) {
-        .request-form-task-editor-grid {
-            grid-template-columns: minmax(0, 1fr);
-        }
-
-        .request-form-task-list {
-            max-height: 320px;
-        }
-    }
+.request-form-builder-dialog { width: min(1500px, 96vw); height: min(900px, 94dvh); max-height: 94dvh; display:flex; flex-direction:column; }
+.request-form-builder-dialog .mud-dialog-title { flex:none; padding:14px 20px 8px; }
+.request-form-builder-dialog .mud-dialog-content { padding:0 20px; overflow:hidden; display:flex; flex:1; min-height:0; }
+.request-form-builder-dialog .mud-dialog-actions { padding:10px 20px; flex:none; gap:8px; border-top:1px solid var(--mud-palette-lines-default); }
+.request-form-builder-title { display:flex; align-items:center; gap:12px; min-width:0; flex-wrap:wrap; }
+.request-form-title-text { min-width:0; overflow-wrap:anywhere; max-width:70%; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.request-form-builder-subtitle { color:var(--mud-palette-text-secondary); }
+.request-form-builder-form { display:flex; flex-direction:column; min-height:0; min-width:0; width:100%; }
+.request-form-tabs { min-width:0; display:flex; flex:none; border-bottom:1px solid var(--mud-palette-lines-default); gap:4px; }
+.request-form-tab { border:0; border-bottom:3px solid transparent; background:transparent; color:var(--mud-palette-text-secondary); font:inherit; padding:12px 16px; cursor:pointer; white-space:nowrap; }
+.request-form-tab-active { border-bottom-color:var(--mud-palette-primary); color:var(--mud-palette-primary); }
+.request-form-tab:focus-visible, .request-form-task-item:focus-visible { outline:2px solid var(--mud-palette-primary); outline-offset:-2px; }
+.request-form-workflow { display:grid; grid-template-columns:clamp(280px,25%,340px) minmax(0,1fr); flex:1; min-height:0; min-width:0; gap:16px; padding-top:12px; }
+.request-form-builder-dialog [hidden] { display:none !important; }
+.request-form-task-list-panel, .request-form-task-config-panel { display:flex; flex-direction:column; min-width:0; min-height:0; }
+.request-form-task-list-panel { border-right:1px solid var(--mud-palette-lines-default); padding-right:12px; }
+.request-form-pane-toolbar { display:flex; align-items:center; justify-content:space-between; gap:8px; flex:none; min-height:40px; padding-bottom:8px; }
+.request-form-task-list, .request-form-task-editor-content, .request-form-tab-content { overflow:auto; min-height:0; min-width:0; overscroll-behavior:contain; scrollbar-gutter:stable; }
+.request-form-task-list { flex:1; }
+.request-form-task-editor-content { padding:2px 4px 16px 0; flex:1; }
+.request-form-task-drop-zone { min-height:40px; }
+.request-form-task-item { display:flex; align-items:center; width:100%; text-align:left; gap:8px; border:1px solid var(--mud-palette-lines-default); border-radius:var(--mud-default-borderradius); background:var(--mud-palette-surface); color:var(--mud-palette-text-primary); font:inherit; padding:10px 8px; margin-bottom:6px; cursor:pointer; }
+.request-form-task-item-active { border-color:var(--mud-palette-primary); background:var(--mud-palette-action-default-hover); }
+.request-form-task-drag-handle { flex:none; color:var(--mud-palette-text-secondary); cursor:grab; }
+.request-form-task-label { display:flex; flex-direction:column; flex:1; min-width:0; overflow-wrap:anywhere; }
+.request-form-task-label strong { font-size:.875rem; font-weight:500; }
+.request-form-task-label > span { font-size:.75rem; color:var(--mud-palette-text-secondary); }
+.request-form-selected-title { min-width:0; overflow-wrap:anywhere; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.request-form-task-actions { display:flex; flex:none; }
+.request-form-back-to-tasks { display:none; }
+.request-form-step-automation-panel { display:grid; gap:8px; padding-top:12px; border-top:1px solid var(--mud-palette-lines-default); margin-top:8px; min-width:0; }
+.request-form-script-picker, .request-form-section-header, .request-form-chip-row { flex-wrap:wrap; gap:8px; }
+.request-form-script-picker .mud-input-control { flex:1 1 240px; min-width:0; }
+.request-form-info-icon { padding:2px; }
+.request-form-tab-content { flex:1; padding:16px 0; }
+.request-form-setup > .mud-stack { max-width:760px; }
+.request-form-save-state { flex:1; min-width:0; color:var(--mud-palette-text-secondary); overflow-wrap:anywhere; }
+@@media (max-width: 760px) {
+ .request-form-builder-dialog { width:100vw; height:100dvh; max-height:100dvh; margin:0; border-radius:0; }
+ .request-form-builder-dialog .mud-dialog-title { padding:10px 12px 6px; }
+ .request-form-builder-dialog .mud-dialog-content { padding:0 12px; }
+ .request-form-builder-dialog .mud-dialog-actions { padding:8px 12px; flex-wrap:wrap; }
+ .request-form-title-text { max-width:100%; font-size:1rem; }
+ .request-form-builder-title { gap:4px 8px; }
+ .request-form-tabs { gap:0; }
+ .request-form-tab { flex:1; min-width:0; padding:12px 4px; font-size:.875rem; white-space:normal; overflow-wrap:anywhere; }
+ .request-form-workflow { grid-template-columns:minmax(0,1fr); gap:0; }
+ .request-form-task-list-panel { border-right:0; padding-right:0; }
+ .request-form-workflow .request-form-task-config-panel { display:none; }
+ .request-form-workflow.show-task-editor .request-form-task-list-panel { display:none; }
+ .request-form-workflow.show-task-editor .request-form-task-config-panel { display:flex; }
+ .request-form-back-to-tasks { display:inline-flex; }
+ .request-form-pane-toolbar { flex-wrap:wrap; }
+ .request-form-save-state { flex-basis:100%; }
+}
 </style>
 
 @code {
@@ -997,6 +838,53 @@
     private List<RequestTaskTemplateModel> Tasks = new();
     private RequestTaskTemplateModel? selectedTask;
     private bool saving;
+    private static readonly string[] WorkspaceTabs = ["Workflow", "Form fields", "Form setup"];
+    private int activeWorkspaceTab;
+    private readonly ElementReference[] workspaceTabElements = new ElementReference[3];
+    private int? pendingTabFocus;
+    private bool showMobileTaskEditor;
+    private bool advancedExpanded;
+    private Guid? invalidTaskId;
+    private string? validationError;
+    private string? saveError;
+    private string? pendingFocus;
+    private FormField? invalidField;
+    private MudTextField<string>? formTitleInput;
+    private MudTextField<string>? taskNameInput;
+    private MudSelect<Guid?>? automationConnectionInput;
+    private MudNumericField<int?>? escalationInput;
+    private MudNumericField<int?>? taskSlaInput;
+    private MudNumericField<int?>? expectedRuntimeInput;
+    private MudNumericField<int?>? graceRuntimeInput;
+    private MudSelect<Guid>? dependenciesInput;
+    private MudSelect<string>? escalationUserInput;
+    private MudButton? approvalBrowseButton;
+    private MudButton? automationBrowseButton;
+    private readonly Dictionary<FormField, MudTextField<string>> fieldLabelInputs = new();
+    private string? initialDraftFingerprint;
+    private string? renderedDialogState;
+    private bool IsDirty => initialDraftFingerprint is not null && initialDraftFingerprint != DraftFingerprint();
+    private string DraftFingerprint() => JsonSerializer.Serialize(new
+    {
+        model, FormFields, Tasks, organizations = selectedOrgIds.OrderBy(x => x),
+        bindings = automationBindings.OrderBy(x => x.Key).Select(x => new { x.Key, x.Value })
+    }, JsonOptions);
+    private void SetWorkspaceTab(int tab) => activeWorkspaceTab = Math.Clamp(tab, 0, WorkspaceTabs.Length - 1);
+    private void OnWorkspaceTabKeyDown(KeyboardEventArgs args, int tab)
+    {
+        var target = args.Key switch
+        {
+            "ArrowRight" => (tab + 1) % WorkspaceTabs.Length,
+            "ArrowLeft" => (tab + WorkspaceTabs.Length - 1) % WorkspaceTabs.Length,
+            "Home" => 0,
+            "End" => WorkspaceTabs.Length - 1,
+            _ => -1
+        };
+        if (target < 0) return;
+        SetWorkspaceTab(target);
+        pendingTabFocus = target;
+    }
+
     private bool _isNew => string.IsNullOrWhiteSpace(RequestFormId);
     private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
 
@@ -1055,7 +943,6 @@
         }
     }
     private bool _showWorkflowPreview;
-    private Guid? expandedAutomationTaskId;
     private MudDropContainer<RequestTaskTemplateModel>? taskDropContainer;
     private bool refreshTaskDropContainerAfterRender;
     private int taskDropRenderVersion;
@@ -1161,10 +1048,38 @@
             }
         }
         await ReloadAutomationConnectionsAsync();
+        initialDraftFingerprint = DraftFingerprint();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        // MudDialog renders title/actions through its container. Refresh those
+        // fragments when draft or save state changes as well as the content pane.
+        var dialogState = $"{model.Title}|{model.ReleaseStatus}|{IsDirty}|{saving}|{validationError}|{saveError}";
+        if (renderedDialogState != dialogState)
+        {
+            renderedDialogState = dialogState;
+            MudDialog?.StateHasChanged();
+        }
+        if (pendingTabFocus is { } tabIndex)
+        {
+            pendingTabFocus = null;
+            await workspaceTabElements[tabIndex].FocusAsync();
+        }
+        var focus = pendingFocus;
+        pendingFocus = null;
+        if (focus == "title" && formTitleInput is not null) await formTitleInput.FocusAsync();
+        else if (focus == "field" && invalidField is not null && fieldLabelInputs.TryGetValue(invalidField, out var field)) await field.FocusAsync();
+        else if (focus == "connection" && automationConnectionInput is not null) await automationConnectionInput.FocusAsync();
+        else if (focus == "dependencies" && dependenciesInput is not null) await dependenciesInput.FocusAsync();
+        else if (focus == "escalation-user" && escalationUserInput is not null) await escalationUserInput.FocusAsync();
+        else if (focus == "sla" && taskSlaInput is not null) await taskSlaInput.FocusAsync();
+        else if (focus == "runtime" && expectedRuntimeInput is not null) await expectedRuntimeInput.FocusAsync();
+        else if (focus == "grace" && graceRuntimeInput is not null) await graceRuntimeInput.FocusAsync();
+        else if (focus == "approval" && approvalBrowseButton is not null) await approvalBrowseButton.FocusAsync();
+        else if (focus == "target" && automationBrowseButton is not null) await automationBrowseButton.FocusAsync();
+        else if (focus == "escalation" && escalationInput is not null) await escalationInput.FocusAsync();
+        else if (focus == "task" && taskNameInput is not null) await taskNameInput.FocusAsync();
         if (selectedTask?.Type == "automation" && loadedOrchestrationSelection != OrchestrationSelectionKey)
         {
             await LoadOrchestrationCatalogAsync();
@@ -1248,7 +1163,19 @@
         => FormFields.Add(new FormField { Label = "New Field", Type = "text", Required = false });
 
     private void RemoveField(FormField f)
-        => FormFields.Remove(f);
+    {
+        FormFields.Remove(f);
+        fieldLabelInputs.Remove(f);
+    }
+
+    private void MoveField(FormField field, int offset)
+    {
+        var index = FormFields.IndexOf(field);
+        var destination = index + offset;
+        if (index < 0 || destination < 0 || destination >= FormFields.Count) return;
+        FormFields.RemoveAt(index);
+        FormFields.Insert(destination, field);
+    }
 
     private void AddTask()
     {
@@ -1267,7 +1194,8 @@
         ordered.Add(task);
         Tasks = RequestFormTaskEditorState.NormalizeTaskOrder(ordered);
         selectedTask = Tasks.FirstOrDefault(x => x.Id == task.Id);
-        expandedAutomationTaskId = null;
+        showMobileTaskEditor = true;
+        activeWorkspaceTab = 0;
         SeedNewOrchestrationRequestDefinitionDefaults();
         RequestTaskDropContainerRefresh(rebuild: true);
     }
@@ -1291,31 +1219,15 @@
             selectedTask.ApprovalAllowedDays ??= 7;
             selectedTask.ApprovalApprovers ??= new List<RequestTaskApprovalApproverModel>();
         }
-        if (!string.Equals(selectedTask.Type, "automation", StringComparison.OrdinalIgnoreCase))
-        {
-            expandedAutomationTaskId = null;
-        }
         RequestTaskDropContainerRefresh();
     }
 
-    private bool IsTaskAutomationExpanded(Guid taskId) => expandedAutomationTaskId == taskId;
+    private void ToggleTaskAutomationConfiguration(Guid taskId) => SelectTask(taskId);
 
-    private void ToggleTaskAutomationConfiguration(Guid taskId)
+    private void SelectTask(Guid id)
     {
-        var wasExpanded = expandedAutomationTaskId == taskId;
-        SelectTask(taskId, preserveExpansionForToggle: true);
-        expandedAutomationTaskId = wasExpanded ? null : taskId;
-        RequestTaskDropContainerRefresh();
-    }
-
-    private void SelectTask(Guid id, bool preserveExpansionForToggle = false)
-    {
-        var previousSelectedId = selectedTask?.Id;
         selectedTask = Tasks.FirstOrDefault(x => x.Id == id);
-        if (!preserveExpansionForToggle && previousSelectedId != id)
-        {
-            expandedAutomationTaskId = null;
-        }
+        showMobileTaskEditor = selectedTask is not null;
         ClearSelectedBindingDriftPreview();
         SeedNewOrchestrationRequestDefinitionDefaults();
         RequestTaskDropContainerRefresh();
@@ -1346,6 +1258,9 @@
             EscalationUserId = selectedTask.EscalationUserId,
             EscalationRole = selectedTask.EscalationRole,
             IsCritical = selectedTask.IsCritical,
+            MaxRetries = selectedTask.MaxRetries,
+            RetryDelayMinutes = selectedTask.RetryDelayMinutes,
+            FailurePolicy = selectedTask.FailurePolicy,
             ExpectedRuntimeMinutes = selectedTask.ExpectedRuntimeMinutes,
             GraceRuntimeMinutes = selectedTask.GraceRuntimeMinutes,
             ApprovalAllowedDays = selectedTask.ApprovalAllowedDays,
@@ -1370,22 +1285,13 @@
             automationBindings[clone.Id] = binding.CloneForTask();
         }
 
-        var ordered = Tasks.OrderBy(x => x.Order).ToList();
-        var index = ordered.FindIndex(x => x.Id == selectedTask.Id);
-        if (index < 0)
-        {
-            ordered.Add(clone);
-        }
-        else
-        {
-            ordered.Insert(index + 1, clone);
-        }
-
-        Tasks = RequestFormTaskEditorState.NormalizeTaskOrder(ordered);
+        var index = Tasks.OrderBy(x => x.Order).ToList().FindIndex(x => x.Id == selectedTask.Id);
+        clone.Order = Tasks.Count + 1;
+        Tasks = RequestFormTaskEditorState.MoveTaskToIndex(Tasks.Append(clone), clone.Id, index < 0 ? Tasks.Count : index + 1);
         selectedTask = Tasks.FirstOrDefault(x => x.Id == clone.Id);
+        showMobileTaskEditor = true;
         ClearSelectedBindingDriftPreview();
         SeedNewOrchestrationRequestDefinitionDefaults();
-        expandedAutomationTaskId = null;
         RequestTaskDropContainerRefresh(rebuild: true);
     }
 
@@ -1397,19 +1303,17 @@
         }
 
         var selectedId = selectedTask.Id;
+        var selectedIndex = Tasks.OrderBy(x => x.Order).ToList().FindIndex(x => x.Id == selectedId);
         var remainingTasks = Tasks.Where(x => x.Id != selectedId).ToList();
         automationBindings.Remove(selectedId);
         payloadMappingDrafts.Remove(selectedId);
-        if (expandedAutomationTaskId == selectedId)
-        {
-            expandedAutomationTaskId = null;
-        }
         foreach (var task in remainingTasks)
         {
             task.DependsOn.RemoveAll(x => x == selectedId);
         }
         Tasks = RequestFormTaskEditorState.NormalizeTaskOrder(remainingTasks);
-        selectedTask = Tasks.FirstOrDefault();
+        selectedTask = Tasks.Count == 0 ? null : Tasks[Math.Min(selectedIndex, Tasks.Count - 1)];
+        showMobileTaskEditor = selectedTask is not null;
         ClearSelectedBindingDriftPreview();
         SeedNewOrchestrationRequestDefinitionDefaults();
         RequestTaskDropContainerRefresh(rebuild: true);
@@ -1729,54 +1633,56 @@
         return names.Count == 0 ? "None" : string.Join(", ", names);
     }
 
+    private bool ShowTaskError(RequestTaskTemplateModel task, string message, string focus = "task", bool advanced = false)
+    {
+        SelectTask(task.Id);
+        activeWorkspaceTab = 0;
+        invalidTaskId = task.Id;
+        validationError = message;
+        pendingFocus = focus == "binding" ? CanCreateTenantScopedOrchestrationTarget && FilteredOrchestrationRequestDefinitions.Any() ? "target" : "connection" : focus;
+        advancedExpanded = advanced;
+        Snackbar.Add(message, Severity.Error);
+        return false;
+    }
+
     private bool IsTaskConfigurationValid()
     {
-        foreach (var task in Tasks)
+        foreach (var task in Tasks.OrderBy(x => x.Order))
         {
             if (string.IsNullOrWhiteSpace(task.Name))
-            {
-                Snackbar.Add("Every task must have a name.", Severity.Error);
-                return false;
-            }
+                return ShowTaskError(task, "Every task must have a name.");
 
             if (string.Equals(task.Type, "automation", StringComparison.OrdinalIgnoreCase))
             {
                 var binding = GetBindingModel(task, createIfMissing: false);
-                var hasBinding = binding is not null
-                    && !string.IsNullOrWhiteSpace(binding.OrchestrationRequestDefinitionId);
-                if (!hasBinding)
-                {
-                    Snackbar.Add($"Automation task '{task.Name}' requires an External orchestration binding.", Severity.Error);
-                    return false;
-                }
-                if (binding!.Enabled && (binding.SystemConnectionId is null || AutomationConnectionSelection.Resolve(AutomationConnectionChoices, binding.SystemConnectionId) is null))
-                {
-                    Snackbar.Add($"Automation task '{task.Name}' requires a current saved connection for this organization.", Severity.Error);
-                    return false;
-                }
+                if (binding is null || string.IsNullOrWhiteSpace(binding.OrchestrationRequestDefinitionId))
+                    return ShowTaskError(task, $"Automation task '{task.Name}' requires an External orchestration binding.", "binding");
+                if (binding.Enabled && (binding.SystemConnectionId is null || AutomationConnectionSelection.Resolve(AutomationConnectionChoices, binding.SystemConnectionId) is null))
+                    return ShowTaskError(task, $"Automation task '{task.Name}' requires a current saved connection for this organization.", "connection");
             }
 
-            if (task.EscalateAfterMinutes.HasValue
-                && task.TaskSlaMinutes.HasValue
-                && task.EscalateAfterMinutes.Value > task.TaskSlaMinutes.Value)
-            {
-                Snackbar.Add($"Task '{task.Name}' has invalid SLA settings. Escalation threshold cannot exceed task SLA.", Severity.Error);
-                return false;
-            }
+            if (string.Equals(task.Type, "approval", StringComparison.OrdinalIgnoreCase) && task.ApprovalApprovers.Count == 0)
+                return ShowTaskError(task, $"Approval task '{task.Name}' requires at least one approver.", "approval");
 
-            if (!string.IsNullOrWhiteSpace(task.EscalationUserId)
-                && !string.IsNullOrWhiteSpace(task.EscalationRole))
-            {
-                Snackbar.Add($"Task '{task.Name}' can only target one escalation target (user OR role).", Severity.Error);
-                return false;
-            }
+            if (string.Equals(task.Type, "automation", StringComparison.OrdinalIgnoreCase) && task.ExpectedRuntimeMinutes is < 1)
+                return ShowTaskError(task, $"Task '{task.Name}' expected runtime must be at least one minute.", "runtime");
+            if (string.Equals(task.Type, "automation", StringComparison.OrdinalIgnoreCase) && task.GraceRuntimeMinutes is < 0)
+                return ShowTaskError(task, $"Task '{task.Name}' grace runtime cannot be negative.", "grace");
+            if (task.TaskSlaMinutes is < 0)
+                return ShowTaskError(task, $"Task '{task.Name}' SLA cannot be negative.", "sla", advanced: true);
+            if (task.EscalateAfterMinutes is < 0)
+                return ShowTaskError(task, $"Task '{task.Name}' escalation threshold cannot be negative.", "escalation", advanced: true);
+
+            if (task.EscalateAfterMinutes.HasValue && task.TaskSlaMinutes.HasValue && task.EscalateAfterMinutes.Value > task.TaskSlaMinutes.Value)
+                return ShowTaskError(task, $"Task '{task.Name}' has invalid SLA settings. Escalation threshold cannot exceed task SLA.", "escalation", advanced: true);
+
+            if (!string.IsNullOrWhiteSpace(task.EscalationUserId) && !string.IsNullOrWhiteSpace(task.EscalationRole))
+                return ShowTaskError(task, $"Task '{task.Name}' can only target one escalation target (user OR role).", "escalation-user", advanced: true);
         }
 
-        if (HasCircularDependencies())
-        {
-            Snackbar.Add("Circular dependency detected.", Severity.Error);
-            return false;
-        }
+        var circularTask = FindCircularDependencyTask();
+        if (circularTask is not null)
+            return ShowTaskError(circularTask, "Circular dependency detected. Remove a dependency to break the cycle.", "dependencies", advanced: true);
 
         return true;
     }
@@ -1797,7 +1703,7 @@
         _ = InvokeAsync(StateHasChanged);
     }
 
-    private bool HasCircularDependencies()
+    private RequestTaskTemplateModel? FindCircularDependencyTask()
     {
         var graph = Tasks.ToDictionary(
             x => x.Id,
@@ -1806,21 +1712,18 @@
 
         foreach (var node in graph.Keys)
         {
-            if (HasCycle(node, graph, states))
-            {
-                return true;
-            }
+            if (HasCycle(node, graph, states, out var cycleNode))
+                return Tasks.First(x => x.Id == cycleNode);
         }
 
-        return false;
+        return null;
     }
 
-    private static bool HasCycle(Guid node, IReadOnlyDictionary<Guid, List<Guid>> graph, IDictionary<Guid, VisitState> states)
+    private static bool HasCycle(Guid node, IReadOnlyDictionary<Guid, List<Guid>> graph, IDictionary<Guid, VisitState> states, out Guid cycleNode)
     {
+        cycleNode = node;
         if (states.TryGetValue(node, out var state))
-        {
             return state == VisitState.Visiting;
-        }
 
         states[node] = VisitState.Visiting;
 
@@ -1833,7 +1736,7 @@
                     continue;
                 }
 
-                if (HasCycle(dep, graph, states))
+                if (HasCycle(dep, graph, states, out cycleNode))
                 {
                     return true;
                 }
@@ -2001,16 +1904,27 @@
 
     private async Task Save()
     {
+        validationError = null;
+        saveError = null;
+        invalidTaskId = null;
+        if (string.IsNullOrWhiteSpace(model.Title))
+        {
+            activeWorkspaceTab = 2;
+            validationError = "A form title is required.";
+            pendingFocus = "title";
+            return;
+        }
+        invalidField = FormFields.FirstOrDefault(x => string.IsNullOrWhiteSpace(x.Label));
+        if (invalidField is not null)
+        {
+            activeWorkspaceTab = 1;
+            validationError = "Every form field must have a label.";
+            pendingFocus = "field";
+            return;
+        }
+        if (!IsTaskConfigurationValid()) return;
         await form.ValidateAsync();
-        if (!form.IsValid)
-        {
-            return;
-        }
-
-        if (!IsTaskConfigurationValid())
-        {
-            return;
-        }
+        if (!form.IsValid) return;
 
         saving = true;
 
@@ -2099,14 +2013,16 @@
         }
         else
         {
-                Snackbar.Add($"Save failed: {(int)resp.StatusCode} {await resp.Content.ReadAsStringAsync()}", Severity.Error);
+                saveError = $"Save failed: {(int)resp.StatusCode} {await resp.Content.ReadAsStringAsync()}";
+                Snackbar.Add(saveError, Severity.Error);
             }
         }
         catch (Exception ex)
         {
-            Snackbar.Add(formSaved
+            saveError = formSaved
                 ? $"The form was saved, but automation bindings were not fully saved. {ex.Message} Review the bindings before submitting requests."
-                : $"Save failed: {ex.Message}", Severity.Error);
+                : $"Save failed: {ex.Message}";
+            Snackbar.Add(saveError, Severity.Error);
         }
         finally
         {
@@ -2114,7 +2030,12 @@
         }
     }
 
-    private void Cancel() => MudDialog.Cancel();
+    private async Task Cancel()
+    {
+        if (saving) return;
+        if (IsDirty && await DialogService.ShowMessageBoxAsync("Discard request form changes?", "Your unsaved changes will be lost.", yesText: "Discard", cancelText: "Keep editing") != true) return;
+        MudDialog.Cancel();
+    }
 
     private async Task OnOrganizationChanged(string? organizationId)
     {

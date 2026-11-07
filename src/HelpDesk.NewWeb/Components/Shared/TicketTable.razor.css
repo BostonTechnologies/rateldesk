@@ -33,6 +33,64 @@
     height: 40px;
 }
 
+/* Bound both rendering paths before a customer name can set the table's
+   intrinsic width. Keep the complete value readable instead of clamping it. */
+::deep .ticket-for-column {
+    width: clamp(10rem, 12vw, 16rem);
+    max-width: 16rem;
+    min-width: 0;
+}
+
+.ticket-for-content {
+    width: clamp(10rem, 12vw, 16rem);
+    max-width: 100%;
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.ticket-for-content ::deep > *,
+.ticket-for-content ::deep .mud-tooltip-root {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.ticket-for-content ::deep .mud-chip {
+    max-width: 100%;
+    min-width: 0;
+    height: auto;
+    min-height: 24px;
+    padding-block: 3px;
+    white-space: normal;
+}
+
+.ticket-for-content ::deep .mud-chip-content {
+    display: block;
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+@media (min-width: 1280.01px) {
+    ::deep .ticket-subject-column {
+        min-width: 10rem;
+    }
+}
+
+@media (max-width: 1280px) {
+    /* Match MudBlazor's inclusive Md breakpoint and preserve its DataLabels. */
+    ::deep .ticket-for-column {
+        width: auto;
+        max-width: none;
+    }
+
+    .ticket-for-content {
+        flex: 0 1 17rem;
+        width: 100%;
+        max-width: calc(100% - 3rem);
+    }
+}
+
 @media (max-width: 800px) {
     .helpdesk-bulk-selection-count,
     .helpdesk-bulk-state-picker,

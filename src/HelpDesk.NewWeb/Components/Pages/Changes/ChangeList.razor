@@ -153,7 +153,7 @@
 
     private static RenderFragment RenderRequestedFor(ChangeDto change) => builder =>
     {
-        var display = FormatShortPerson(change.RequestedForUserName, change.RequestedForUserEmail, change.RequestedForUserId);
+        var display = FirstNonEmpty(change.RequestedForUserName, change.RequestedForUserEmail, change.RequestedForUserId) ?? string.Empty;
         var tooltip = FormatPerson(change.RequestedForUserName, change.RequestedForUserEmail, change.RequestedForUserId);
         builder.OpenComponent<MudTooltip>(0);
         builder.AddAttribute(1, nameof(MudTooltip.Text), tooltip);
@@ -204,14 +204,6 @@
         }
 
         return FirstNonEmpty(name, email, fallbackId) ?? string.Empty;
-    }
-
-    private static string FormatShortPerson(string? name, string? email, string? fallbackId)
-    {
-        var value = FirstNonEmpty(name, email, fallbackId) ?? string.Empty;
-        return value.Contains('@', StringComparison.Ordinal)
-            ? value.Split('@')[0]
-            : value;
     }
 
     private static string? FirstNonEmpty(params string?[] values) =>

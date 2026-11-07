@@ -14,6 +14,7 @@ using Helpdesk.Shared.Pairing;
 using Microsoft.Extensions.DependencyInjection;
 using MudBlazor;
 using MudBlazor.Services;
+using MudBlazor.Extensions;
 using NSubstitute;
 using Builder = NewWeb::HelpDesk.NewWeb.Components.Pages.Admin.Requests.RequestFormBuilder;
 using CreateTarget = NewWeb::HelpDesk.NewWeb.Components.Pages.Admin.Requests.CreateOrchestrationAutomationTargetDialog;
@@ -185,6 +186,153 @@ public sealed class AutomationConnectionSelectionRenderedTests
         Assert.Equal(1, api.FormUpdates);
     }
 
+    [Fact]
+    public async Task Workflow_is_default_and_selection_shows_automation_in_the_adjacent_editor()
+    {
+        using var api = new FixtureApi { Rows = [Connection(FirstId)], StoredConnectionId = FirstId };
+        await using var context = Context(api);
+        var page = await RenderAsync(context);
+        page.WaitForAssertion(() => Assert.Equal("true", page.Find("#request-form-tab-0").GetAttribute("aria-selected")));
+        Assert.True(page.Find("#request-form-panel-1").HasAttribute("hidden"));
+        Assert.True(page.Find("#request-form-panel-2").HasAttribute("hidden"));
+        Assert.Single(page.FindAll(".request-form-task-config-panel [data-testid='task-automation']"));
+        Assert.Empty(page.FindAll(".request-form-task-list-panel [data-testid='task-automation']"));
+        Assert.DoesNotContain("Toggle automation configuration", page.Markup);
+        page.Find("#request-form-tab-2").Click();
+        Assert.Equal("true", page.Find("#request-form-tab-2").GetAttribute("aria-selected"));
+        page.FindComponents<MudTextField<string>>().Single(x => x.Instance.Label == "Form Title").Find("input").Input("Changed title");
+        page.Find("#request-form-tab-0").Click();
+        Assert.Equal(TaskId, Field<RequestTaskTemplateModel>(page.Instance, "selectedTask").Id);
+        Assert.Equal("Changed title", page.FindComponents<MudTextField<string>>().Single(x => x.Instance.Label == "Form Title").Instance.GetState(x => x.Value));
+        Assert.True(Property<bool>(page.Instance, "IsDirty"));
+        Assert.Equal(0, api.FormCreates + api.FormUpdates);
+    }
+
+    [Fact]
+    public async Task Hidden_task_validation_selects_the_invalid_task_and_preserves_order_and_dependencies()
+    {
+        var secondId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        using var api = new FixtureApi { Rows = [Connection(FirstId)], StoredConnectionId = FirstId,
+            Schema = JsonSerializer.Serialize(new { fields = Array.Empty<object>(), tasks = new[] {
+                new RequestTaskTemplateModel { Id = TaskId, Name = "First", Type = "manual", Order = 1 },
+                new RequestTaskTemplateModel { Id = secondId, Name = "Second", Type = "manual", Order = 2, DependsOn = [TaskId] }
+            } }) };
+        await using var context = Context(api);
+        var page = await RenderAsync(context);
+        page.WaitForAssertion(() => Assert.Equal(2, page.FindAll("[data-task-id]").Count));
+        page.Find($"[data-task-id='{secondId}']").Click();
+        page.FindComponents<MudTextField<string>>().Single(x => x.Instance.Label == "Task Name").Find("input").Input("Edited second");
+        page.Find("button[aria-label='Move task up']").Click();
+        var tasks = Field<List<RequestTaskTemplateModel>>(page.Instance, "Tasks");
+        Assert.Equal(secondId, tasks[0].Id);
+        Assert.Equal("Edited second", tasks[0].Name);
+        Assert.Equal(new[] { TaskId }, tasks[0].DependsOn);
+        Assert.Equal(secondId, Field<RequestTaskTemplateModel>(page.Instance, "selectedTask").Id);
+        tasks[1].Name = " ";
+        page.Find("#request-form-tab-1").Click();
+        await InvokeAsync(page, "Save");
+        Assert.Equal("true", page.Find("#request-form-tab-0").GetAttribute("aria-selected"));
+        Assert.Equal(TaskId, Field<RequestTaskTemplateModel>(page.Instance, "selectedTask").Id);
+        Assert.Contains("Every task must have a name", page.Find("[role='alert']").TextContent);
+        Assert.Equal(0, api.FormCreates + api.FormUpdates);
+    }
+
+    [Fact]
+    public async Task Duplicate_keeps_the_selected_position_and_delete_selects_the_neighbor()
+    {
+        var secondId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        using var api = new FixtureApi { Rows = [Connection(FirstId)], StoredConnectionId = FirstId,
+            Schema = JsonSerializer.Serialize(new { fields = Array.Empty<object>(), tasks = new[] {
+                new RequestTaskTemplateModel { Id = TaskId, Name = "Zulu", Type = "manual", Order = 1 },
+                new RequestTaskTemplateModel { Id = secondId, Name = "Alpha", Type = "manual", Order = 2, DependsOn = [TaskId] }
+            } }) };
+        await using var context = Context(api);
+        var page = await RenderAsync(context);
+        page.WaitForAssertion(() => Assert.Equal(2, page.FindAll("[data-task-id]").Count));
+        page.Find("button[aria-label='Duplicate task']").Click();
+        var tasks = Field<List<RequestTaskTemplateModel>>(page.Instance, "Tasks");
+        Assert.Equal(TaskId, tasks[0].Id);
+        Assert.Equal("Zulu (Copy)", tasks[1].Name);
+        Assert.NotEqual(TaskId, tasks[1].Id);
+        Assert.Equal(secondId, tasks[2].Id);
+        Assert.Equal(tasks[1].Id, Field<RequestTaskTemplateModel>(page.Instance, "selectedTask").Id);
+        page.Find("button[aria-label='Delete task']").Click();
+        Assert.Equal(secondId, Field<RequestTaskTemplateModel>(page.Instance, "selectedTask").Id);
+        Assert.Equal(new[] { TaskId }, Field<List<RequestTaskTemplateModel>>(page.Instance, "Tasks")[1].DependsOn);
+    }
+
+    [Fact]
+    public async Task Hidden_setup_and_field_errors_activate_their_tab_before_any_save()
+    {
+        using var api = new FixtureApi { Rows = [Connection(FirstId)], StoredConnectionId = FirstId };
+        await using var context = Context(api);
+        var page = await RenderAsync(context);
+        page.WaitForAssertion(() => Assert.True(Property<bool>(page.Instance, "CanCreateTenantScopedOrchestrationTarget")));
+        page.FindComponents<MudTextField<string>>().Single(x => x.Instance.Label == "Form Title").Find("input").Input("");
+        await InvokeAsync(page, "Save");
+        Assert.Equal("true", page.Find("#request-form-tab-2").GetAttribute("aria-selected"));
+        page.FindComponents<MudTextField<string>>().Single(x => x.Instance.Label == "Form Title").Find("input").Input("Restored title");
+        await InvokeAsync(page, "AddField");
+        Field<List<FormField>>(page.Instance, "FormFields")[0].Label = "";
+        await InvokeAsync(page, "Save");
+        Assert.Equal("true", page.Find("#request-form-tab-1").GetAttribute("aria-selected"));
+        Assert.Equal(0, api.FormCreates + api.FormUpdates);
+    }
+
+    [Theory]
+    [InlineData("binding", "requires an External orchestration binding", false)]
+    [InlineData("connection", "requires a current saved connection", false)]
+    [InlineData("approval", "requires at least one approver", false)]
+    [InlineData("runtime", "expected runtime must be at least one minute", false)]
+    [InlineData("grace", "grace runtime cannot be negative", false)]
+    [InlineData("sla", "SLA cannot be negative", true)]
+    [InlineData("escalation", "escalation threshold cannot be negative", true)]
+    [InlineData("escalation-after-sla", "Escalation threshold cannot exceed task SLA", true)]
+    [InlineData("two-escalation-targets", "can only target one escalation target", true)]
+    [InlineData("cycle", "Circular dependency detected", true)]
+    public async Task Save_validates_unselected_task_constraints_before_writing_the_form(string invalidState, string expectedError, bool advanced)
+    {
+        var firstTaskId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        using var api = new FixtureApi { Rows = [Connection(FirstId)], StoredConnectionId = FirstId,
+            Schema = JsonSerializer.Serialize(new { fields = Array.Empty<object>(), tasks = new[] {
+                new RequestTaskTemplateModel { Id = firstTaskId, Name = "Valid first task", Type = "manual", Order = 1 },
+                new RequestTaskTemplateModel { Id = TaskId, Name = "Hidden invalid task", Type = "automation", Order = 2 }
+            } }) };
+        await using var context = Context(api);
+        var page = await RenderAsync(context);
+        page.WaitForAssertion(() => Assert.Equal(2, page.FindAll("[data-task-id]").Count));
+        var task = Field<List<RequestTaskTemplateModel>>(page.Instance, "Tasks").Single(x => x.Id == TaskId);
+        task.Type = invalidState is "binding" or "connection" or "runtime" or "grace" ? "automation" : "manual";
+        switch (invalidState)
+        {
+            case "binding":
+                Field<IDictionary>(page.Instance, "automationBindings").Remove(TaskId);
+                break;
+            case "connection":
+                var binding = Field<IDictionary>(page.Instance, "automationBindings")[TaskId]!;
+                binding.GetType().GetProperty("SystemConnectionId")!.SetValue(binding, SecondId);
+                break;
+            case "approval": task.Type = "approval"; task.ApprovalApprovers.Clear(); break;
+            case "runtime": task.ExpectedRuntimeMinutes = 0; break;
+            case "grace": task.GraceRuntimeMinutes = -1; break;
+            case "sla": task.TaskSlaMinutes = -1; break;
+            case "escalation": task.EscalateAfterMinutes = -1; break;
+            case "escalation-after-sla": task.TaskSlaMinutes = 5; task.EscalateAfterMinutes = 10; break;
+            case "two-escalation-targets": task.EscalationUserId = "synthetic-user"; task.EscalationRole = "synthetic-role"; break;
+            case "cycle": task.DependsOn = [firstTaskId]; Field<List<RequestTaskTemplateModel>>(page.Instance, "Tasks")[0].DependsOn = [TaskId]; break;
+        }
+
+        page.Find("#request-form-tab-1").Click();
+        await InvokeAsync(page, "Save");
+
+        Assert.Equal("true", page.Find("#request-form-tab-0").GetAttribute("aria-selected"));
+        Assert.Equal(invalidState == "cycle" ? firstTaskId : TaskId, Field<RequestTaskTemplateModel>(page.Instance, "selectedTask").Id);
+        Assert.Contains(expectedError, page.Find("[role='alert']").TextContent);
+        Assert.Equal(advanced, Field<bool>(page.Instance, "advancedExpanded"));
+        Assert.Equal(0, api.FormCreates + api.FormUpdates);
+        Assert.Empty(api.Updates);
+    }
+
     private static BunitContext Context(FixtureApi api, IDialogService? dialogs = null)
     {
         var context = new BunitContext();
@@ -228,6 +376,7 @@ public sealed class AutomationConnectionSelectionRenderedTests
         public int FormCreates { get; private set; }
         public int FormUpdates { get; private set; }
         public bool FailBindingUpdates { get; set; }
+        public string? Schema { get; set; }
         public List<string> Paths { get; } = [];
         public List<UpdateAutomationBindingDto> Updates { get; } = [];
         public OrganizationDto Organization { get; } = new() { Id = OrganizationId, Name = "Synthetic organization" };
@@ -250,7 +399,7 @@ public sealed class AutomationConnectionSelectionRenderedTests
                 body = new RequestFormDto { Id = "saved-synthetic-form" };
             }
             else if (path == "/api/v1/request-forms/synthetic-form") body = new RequestFormDto { Id = "synthetic-form", Title = "Synthetic form", OrganizationId = OrganizationId,
-                JsonSchema = JsonSerializer.Serialize(new { fields = Array.Empty<object>(), tasks = new[] { new { id = TaskId, name = "Automate", type = "automation", order = 1 } } }) };
+                JsonSchema = Schema ?? JsonSerializer.Serialize(new { fields = Array.Empty<object>(), tasks = new[] { new { id = TaskId, name = "Automate", type = "automation", order = 1 } } }) };
             else if (path == "/api/v1/admin/system-connections/") body = Rows;
             else if (path == "/api/v1/admin/orchestration/")
             {

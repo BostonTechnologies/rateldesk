@@ -3,11 +3,11 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject ISnackbar Snackbar
 
-<div @onclick:stopPropagation="true">
+<div class="ticket-customer" @onclick:stopPropagation="true">
     @if (!string.IsNullOrWhiteSpace(CustomerId))
     {
         <MudTooltip Text="@DisplayText">
-            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Default">
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Default" Class="ticket-customer-chip">
                 @DisplayText
             </MudChip>
         </MudTooltip>
@@ -44,12 +44,6 @@
         </MudAutocomplete>
     }
 </div>
-
-<style>
-    .ticket-customer-picker {
-        min-width: 180px;
-    }
-</style>
 
 @code {
     [Parameter] public bool ReadOnly { get; set; }

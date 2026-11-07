@@ -1,0 +1,26 @@
+.ticket-customer {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.ticket-customer ::deep .mud-tooltip-root,
+.ticket-customer ::deep .ticket-customer-picker {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.ticket-customer ::deep .ticket-customer-chip {
+    max-width: 100%;
+    min-width: 0;
+    height: auto;
+    min-height: 24px;
+    padding-block: 3px;
+    white-space: normal;
+}
+
+.ticket-customer ::deep .mud-chip-content {
+    display: block;
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
