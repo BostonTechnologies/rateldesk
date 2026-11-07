@@ -109,8 +109,9 @@ the pending-child sweep 28. Their corresponding new-code CRAP scores stay below
 hotspots; their behavior is exercised by the owning suites rather than excluded
 from measurement.
 
-The separate [existing smoke executable](../../tools/AiAssistantChatSmoke/README.md)
-runs the production chat manager/store/client through the **official native
+The separate [native smoke executable and fixtures](https://github.com/BostonTechnologies/RatelDesk/tree/998aa95b8030e1f983baa609cc1767b6ba12ab48/tools/AiAssistantChatSmoke),
+pinned to the source reviewed for this receipt, run the production chat
+manager/store/client through the **official native
 0.28.1 daemon** and a disposable PostgreSQL database. Its checked-in loopback
 OpenAI-compatible model requests the supported `spawn_agent` tool and returns
 deterministic arithmetic. The actual daemon runs the child actor and produces
