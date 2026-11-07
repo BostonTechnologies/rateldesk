@@ -195,17 +195,44 @@
       "captureHeight": 1000
     }
   ],
-  "sourceSha256": {
-    "src/HelpDesk.NewWeb/Components/Pages/Admin/Requests/RequestFormBuilder.razor": "966655e86c4705a9890af3ee431ad04277a0ff535a3ca734b40d9266d5a28c4b",
-    "src/HelpDesk.NewWeb/Components/Pages/Admin/Requests/ServiceExplorer.razor": "7e01c3279c28919d483146f9fb6806d8fce2e1c359b3575a2c292b99f6b3450e",
-    "tests/ux/request-editor.spec.ts": "e4d0cb590416f5cd95f341df2281dece64c9ce00ce52965aab348a779bbec567",
-    "tests/ux/request-editor-fixture-api.mjs": "c7aaebcc38109ac4539e14422adcc375ce4a94f1d692c8947cb979444ff87fd8",
-    "playwright.request-editor.config.ts": "afb291d565d26271cbdcd4c21b02d6487d036c260766ddc830f4d096dfd6891b",
-    "playwright.native-zoom.config.ts": "964225df099e6abcc764cf07db3e29fcdc67fe0dc076621ca96eb3f58c94676c",
-    "tests/ux/native-zoom.spec.ts": "30c73d547c4a4a67d54726f64207f4b754322c019698f918f89d827dfebf65c6",
-    "tests/Helpdesk.Tests/NewWeb/AutomationConnectionSelectionRenderedTests.cs": "1476582d36b61221ccb19c1e95d5de2cd0e481d1230a83268351f166f891f68b",
-    "tests/Helpdesk.Tests/NewWeb/ServiceBrowserRenderedTests.cs": "a7569f8016a17faa3a229fa3402e1437cbb2fb42c85a7015d8d37bce0907801a"
-  },
+  "sourceSha256": [
+    {
+      "path": "src/HelpDesk.NewWeb/Components/Pages/Admin/Requests/RequestFormBuilder.razor",
+      "sha256": "966655e86c4705a9890af3ee431ad04277a0ff535a3ca734b40d9266d5a28c4b"
+    },
+    {
+      "path": "src/HelpDesk.NewWeb/Components/Pages/Admin/Requests/ServiceExplorer.razor",
+      "sha256": "7e01c3279c28919d483146f9fb6806d8fce2e1c359b3575a2c292b99f6b3450e"
+    },
+    {
+      "path": "tests/ux/request-editor.spec.ts",
+      "sha256": "e4d0cb590416f5cd95f341df2281dece64c9ce00ce52965aab348a779bbec567"
+    },
+    {
+      "path": "tests/ux/request-editor-fixture-api.mjs",
+      "sha256": "c7aaebcc38109ac4539e14422adcc375ce4a94f1d692c8947cb979444ff87fd8"
+    },
+    {
+      "path": "playwright.request-editor.config.ts",
+      "sha256": "afb291d565d26271cbdcd4c21b02d6487d036c260766ddc830f4d096dfd6891b"
+    },
+    {
+      "path": "playwright.native-zoom.config.ts",
+      "sha256": "964225df099e6abcc764cf07db3e29fcdc67fe0dc076621ca96eb3f58c94676c"
+    },
+    {
+      "path": "tests/ux/native-zoom.spec.ts",
+      "sha256": "30c73d547c4a4a67d54726f64207f4b754322c019698f918f89d827dfebf65c6"
+    },
+    {
+      "path": "tests/Helpdesk.Tests/NewWeb/AutomationConnectionSelectionRenderedTests.cs",
+      "sha256": "1476582d36b61221ccb19c1e95d5de2cd0e481d1230a83268351f166f891f68b"
+    },
+    {
+      "path": "tests/Helpdesk.Tests/NewWeb/ServiceBrowserRenderedTests.cs",
+      "sha256": "a7569f8016a17faa3a229fa3402e1437cbb2fb42c85a7015d8d37bce0907801a"
+    }
+  ],
   "focusedTests": {
     "passed": 36,
     "failed": 0,
