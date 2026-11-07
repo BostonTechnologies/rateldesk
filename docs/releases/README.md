@@ -1,5 +1,24 @@
 # Releases
 
+## 0.1.3-beta.6 candidate — quiet logging and connected follow-ups
+
+[Release notes and operator checklist](../release-notes/0.1.3-beta.6.md) cover
+Warning diagnostics, bounded Docker logs, native child follow-ups, the task-first
+request service editor and shared requester wrapping. The
+[delivery register](../implementation/2026-11-07-beta-delivery.md) records reviewed
+feature merges, focused acceptance and exact normal CI receipts.
+
+Both accepted tag prefixes, all draft/public releases and the three anonymous
+image families were checked unused before root `Directory.Build.props` was set
+to `0.1.3-beta.6`. After reviewed release preparation and all six successful
+exact-current-main normal jobs, dispatch the existing `release.yml` from `main`
+with `tag=v0.1.3-beta.6` and the full verified `source_revision`. Verify the
+complete draft, explicitly publish as a prerelease with `latest=false`, then
+independently verify public downloads, native archives and both image
+architectures with source labels, digests and SBOM/provenance. Preserve stable
+latest. Source acceptance, public distribution and operator deployment remain
+separate evidence. #308/#351 historical replay limitations remain.
+
 ## 0.1.3-beta.5 candidate — durable chat observation
 
 [Candidate notes](../release-notes/0.1.3-beta.5.md) cover quiet-turn retention,
@@ -553,7 +572,9 @@ checking its actual jobs, inputs and recorded digests.
 `pull-request-validation.yml` automatically runs these checks on PRs to `dev` or
 `main` and pushes to `main`: Public disclosure gate, .NET validation, Incident
 receiver HTTP and provider acceptance, External PostgreSQL Compose configuration,
-and Layout and reference validation. Layout includes offline documentation
+Layout and reference validation, and Offline HTTP MCP campaign harness. Require
+all six applicable normal jobs even though the tag helper currently names five.
+Layout includes offline documentation
 placement/link checks, bounded launcher regressions and source/release MCP
 setup/environment recipe rendering.
 Branch protection settings remain a separate repository configuration; the

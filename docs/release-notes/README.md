@@ -1,5 +1,12 @@
 # Release notes
 
+## 0.1.3-beta.6
+
+[Quiet logging, delegated chat follow-ups and task-first workspaces](0.1.3-beta.6.md)
+cover #355–#358 with focused synthetic/native evidence, exact distribution
+requirements and the operator upgrade/testing checklist. Historical interruption
+replay remains limited; production deployment follows publication.
+
 ## 0.1.3-beta.5
 
 [Long-running chat observation and shared keyboard repairs](0.1.3-beta.5.md)
