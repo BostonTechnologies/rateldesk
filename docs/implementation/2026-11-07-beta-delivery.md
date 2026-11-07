@@ -19,11 +19,11 @@ step. All acceptance data is synthetic and disposable.
 
 | Issue | Branch | PR / merge | Focused evidence |
 | --- | --- | --- | --- |
-| #358 application policy | `fix/358-logging-policy` | Pending integration/review | In progress |
-| #358 deployment retention | `fix/358-docker-retention` | Pending first batch | In progress |
-| #355 native child follow-ups | `fix/355-child-followups` | Pending review | In progress |
-| #357 task-first editor | `fix/357-task-first-editor` | Pending review | In progress |
-| #356 shared For column | `fix/356-for-column` | Pending review | In progress |
+| #358 application policy | `fix/358-logging-policy` | First batch; source review passed | [Policy evidence](358-logging-policy.md); focused final run pending |
+| #358 deployment retention | `fix/358-docker-retention` | First batch; source review passed | [Retention evidence](358-docker-retention.md); 159 focused .NET cases plus actual deployment checks passed |
+| #355 native child follow-ups | `fix/355-child-followups` | Review in progress | Actual Netclaw 0.28.1 ticket/organization connected paths passed; focused browser/provider checks in progress |
+| #357 task-first editor | `fix/357-task-first-editor` | Review in progress | 26 focused rendered cases passed; final browser checks in progress |
+| #356 shared For column | `fix/356-for-column` | Source review passed; UI batch pending | Commit `e435d33d65551d36820a2a8007f73006b3290582`; 23 rendered and 20 browser cases passed |
 
 The first batch is #358. Each batch must have focused verification, actual diff
 review, green current-head ordinary CI and a normal merge, followed by main CI.
@@ -32,8 +32,19 @@ until exact-current-main checks pass.
 
 ## Acceptance and distribution status
 
-Baseline solution build is running. Native-daemon, browser, emitted-log,
-generated/effective deployment and extracted-archive acceptance are pending.
+Baseline solution build passed with 23 preexisting warnings and zero errors.
+Layout, documentation and the offline HTTP MCP campaign harness (51 + 2 cases)
+passed. The combined final-source full solution/provider runs remain mandatory.
+
+An official Netclaw 0.28.1 binary (source `0d86cef`, downloaded archive SHA-256
+`b49776e5551401bbde04e8b58a4dddbf461f8006b581db18aefd384ab369bdcc`)
+ran the actual session/child actors and SignalR transport against a controlled
+loopback model. The production RatelDesk manager, client and PostgreSQL store
+observed one operator input, two replies/native turns, pending then clear child
+snapshots, 13 durable events and zero resends in both scopes. This is actual
+connected-daemon acceptance with a model fixture, separate from mocked transport
+coverage, external-model quality, historical replay and operator deployment.
+
 No new release has been staged or published, and no production deployment has
-been performed. Native model/transport fixtures and actual daemon acceptance
-will be identified separately in the final receipts.
+been performed. Exact-source CI and independent public distribution checks remain
+required after all four changes merge.
