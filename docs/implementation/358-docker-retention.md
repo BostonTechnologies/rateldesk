@@ -35,6 +35,14 @@ was introduced.
 ## Focused evidence — 7 November 2026
 
 - SDK `10.0.400`; Docker Engine `28.4.0` with local `vfs`; Compose `v2.40.3`.
+- Current-source `dotnet test` filtered to `HttpMcpHostingCoordinatorTests` and
+  `HttpMcpEffectiveDeploymentTests` passed all **159** tests, with zero failures
+  and zero skips; the coverage run independently passed the same 159 tests.
+  OpenCover recorded `ComposeOverlay` at 100% sequence/branch coverage with
+  cyclomatic complexity 26. Existing `Create` was 98% sequence / 88.46% branch
+  coverage (complexity 26), so this change adds no untested high-risk branch.
+  Existing Python source/owner regressions also passed: 62 launcher,
+  19 source-review and 13 legacy-recipe tests.
 - `tools/ci/test-mcp-host-recipes.py`: six original hosting contracts and 31 actual
   effective logging contracts. Fifteen supported recipe combinations at defaults
   and at `8m` / `2` / Debug, plus explicit consumer syslog replacement, passed.
@@ -46,6 +54,13 @@ was introduced.
   `528524e8257c` had `max-size=4k`, `max-file=2`. Of 1,000 synthetic lines, Docker
   retained the last 40 (2,239 text bytes), retained line 999, and discarded line 0.
   Both disposable containers were removed. No 1 GB output was generated.
+- A second real Compose acceptance reused the release API recipe's exact
+  uninterpolated logging block with the same harmless synthetic logger. Actual
+  default container `e7e6ee1f064a` had `200m` / `5`; Compose force-recreation with
+  explicit `4k` / `2` inputs produced new container `52a3e01cf8ea` with those
+  HostConfig options. Rollover retained the final 40 records (2,559 text bytes),
+  discarded the initial record and retained the last. The disposable Compose
+  project and network were removed.
 - The exact deployment block of `tools/release/package-assets.sh` was executed in
   isolation with synthetic package version `0.0.0-log-retention`, without mocking
   Docker or reconstructing the packaging recipe. Its real archive was extracted.
