@@ -31,6 +31,20 @@ function event(type, text, extra = {}) {
   for (const stream of streams) stream.write(`id: ${value.Sequence}\nevent: chat\ndata: ${JSON.stringify(value)}\n\n`);
   return value;
 }
+function completeChildTurn(turnNumber, children, outcome = 'completed', quiet = false) {
+  const OperatorMessageId = events.findLast(item => item.Type === 'operator').ClientMessageId;
+  event('turn_completed', 'Native turn completed.', { MetadataJson: JSON.stringify({
+    Version: 1, OperatorMessageId, TurnNumber: turnNumber, TurnOutcome: outcome, QuietEnd: quiet,
+    OpenChildRunIds: children, ChildSnapshotKnown: true,
+    ObservationExpiresAtUtc: new Date(Date.now() + 3600000).toISOString()
+  }) });
+  state = children.length ? 5 : 0;
+  recoveryResult = children.length ? `Waiting for ${children.length} delegated follow-ups on the original request.` : null;
+  for (const stream of streams) {
+    stream.write(`event: state\ndata: ${state}\n\n`);
+    stream.write(`event: recovery\ndata: ${JSON.stringify({ RecoveryResult: recoveryResult, Events: [] })}\n\n`);
+  }
+}
 function reset(mode = 'completed') {
   activeConversation = conversation; starts = startAttempts = 0; loseStartResponse = false; startRequests.clear(); connectionMode = 'verified';
   generalChats.clear(); generalChats.set(conversation, generalRow()); streamOpens = sends = recoveries = 0;
@@ -57,7 +71,10 @@ function reset(mode = 'completed') {
     recoveryResult = 'Waiting for NetClaw with no recent model or tool output. RatelDesk keeps observing the original request. An available connection does not prove completion.';
     event('observation_waiting', recoveryResult);
   }
-  if (!['processing', 'quiet', 'approval', 'recovery'].includes(mode)) {
+  if (['children', 'children-failed', 'children-quiet'].includes(mode)) {
+    if (mode === 'children') event('assistant', 'First parent reply; delegated follow-ups are pending.');
+    completeChildTurn(1, ['synthetic-child-a', 'synthetic-child-b'], mode === 'children-failed' ? 'failed' : 'completed', mode === 'children-quiet');
+  } else if (!['processing', 'quiet', 'approval', 'recovery'].includes(mode)) {
     event('assistant', mode === 'tables' ? tableReply : 'The integration is responding normally.\n\n• Ticket context reached the harness.\n• Tool activity was recorded safely.\n\nNo production changes were made.');
     event('turn_completed', 'Turn completed.');
   }
@@ -150,6 +167,12 @@ http.createServer(async (req, res) => {
   if (url.pathname === '/fixture/complete') {
     event('assistant', url.searchParams.get('table') === 'true' ? tableReply : 'Canonical response'); event('turn_completed', 'Turn completed.'); state = 0;
     for (const stream of streams) stream.write('event: state\ndata: 0\n\n');
+    return reply({ ok: true });
+  }
+  if (url.pathname === '/fixture/child-followup') {
+    const final = url.searchParams.get('final') === 'true';
+    event('assistant', 'Repeated valid delegated report.');
+    completeChildTurn(final ? 3 : 2, final ? [] : ['synthetic-child-b']);
     return reply({ ok: true });
   }
   if (url.pathname === '/fixture/replay') {

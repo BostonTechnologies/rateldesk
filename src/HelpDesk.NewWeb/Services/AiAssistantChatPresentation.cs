@@ -23,8 +23,11 @@ public static class AiAssistantChatPresentation
             if (item.Type == "assistant") current.Responses.Add(item);
             else if (item.Type == "turn_completed")
             {
-                current.Completed = true;
-                current = null;
+                var completion = ReadCompletion(item.MetadataJson);
+                if (completion is not null && completion.OperatorMessageId != current.Operator.ClientMessageId) continue;
+                if (completion is not null) current.NativeTurns.Add(completion);
+                current.Completed = (completion?.PendingChildRunIds ?? completion?.OpenChildRunIds) is not { Length: > 0 } && !current.HasPendingApproval;
+                if (current.Completed) current = null;
             }
             else if (item.Type is "tool_call" or "tool_result")
             {
@@ -42,6 +45,13 @@ public static class AiAssistantChatPresentation
         }
         return turns;
     }
+
+    private static ChatTurnCompletion? ReadCompletion(string? json)
+    {
+        if (json is null || json.Length > 65536) return null;
+        try { return JsonSerializer.Deserialize<ChatTurnCompletion>(json); }
+        catch (JsonException) { return null; }
+    }
 }
 
 public sealed class ChatTurn(AiAssistantChatEvent message)
@@ -50,8 +60,10 @@ public sealed class ChatTurn(AiAssistantChatEvent message)
     public List<AiAssistantChatEvent> Responses { get; } = [];
     public List<ChatOperation> Operations { get; } = [];
     public List<AiAssistantChatEvent> Activity { get; } = [];
+    public List<ChatTurnCompletion> NativeTurns { get; } = [];
     public bool Completed { get; internal set; }
-    public bool HasError => Activity.Any(x => x.Type == "error") || Operations.Any(x => x.Metadata?.Outcome == "failed");
+    public bool HasError => Activity.Any(x => x.Type == "error") || Operations.Any(x => x.Metadata?.Outcome == "failed")
+        || NativeTurns.Any(x => x.TurnOutcome == "failed");
     public bool HasPendingApproval => Activity.Any(x => x.Type == "approval_request"
         && !Activity.Any(answer => answer.Type == "approval_response" && answer.CallId == x.CallId));
     public bool InitiallyExpanded => !Completed || HasError || HasPendingApproval;

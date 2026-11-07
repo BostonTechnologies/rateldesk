@@ -35,8 +35,8 @@ public partial class Chat
     private static string Url(string org, Guid? id = null) => $"/ai/chat?organizationId={Uri.EscapeDataString(org)}" + (id is null ? "" : $"&conversationId={id}");
     private string OrganizationName(string org) => organizations.FirstOrDefault(x => x.Id == org)?.Name ?? org;
     private bool Current(int value) => !disposed && value == generation;
-    private static string StateLabel(ChatState state) => state switch { ChatState.Idle => "Ready", ChatState.Processing => "Working", ChatState.AwaitingApproval => "Needs a decision", ChatState.DeliveryUnknown => "Needs recovery", _ => "Archived" };
-    private static string StateClass(ChatState state) => state switch { ChatState.Processing => "active", ChatState.AwaitingApproval or ChatState.DeliveryUnknown => "attention", _ => "" };
+    private static string StateLabel(ChatState state) => state switch { ChatState.Idle => "Ready", ChatState.Processing => "Working", ChatState.WaitingForChildren => "Waiting for delegated follow-ups", ChatState.AwaitingApproval => "Needs a decision", ChatState.DeliveryUnknown => "Needs recovery", _ => "Archived" };
+    private static string StateClass(ChatState state) => state switch { ChatState.Processing or ChatState.WaitingForChildren => "active", ChatState.AwaitingApproval or ChatState.DeliveryUnknown => "attention", _ => "" };
     private sealed record ChatStarter(string Title, string Description, string Icon, string Prompt);
     private static readonly ChatStarter[] Starters =
     [

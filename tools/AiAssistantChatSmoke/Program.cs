@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using Helpdesk.Infrastructure.AiAssistant.Chat;
+using Microsoft.Extensions.Options;
 
 var options = new AiAssistantChatOptions
 {
@@ -10,12 +11,13 @@ var options = new AiAssistantChatOptions
     AllowPrivateHttp = true
 };
 if (!options.IsValid()) throw new InvalidOperationException("Supply AI_ASSISTANT_CHAT_ENDPOINT and AI_ASSISTANT_CHAT_DEVICE_TOKEN via protected environment injection.");
+if (args.FirstOrDefault() == "continuation") return await ChatContinuationSmoke.RunAsync(options);
 if (args.FirstOrDefault() == "approval") return await ApprovalSmokeAsync(options);
 using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
 var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 var types = new ConcurrentDictionary<string, int>();
 var markerSeen = false;
-await using var client = new AiAssistantSignalRChatClient(options);
+await using var client = new AiAssistantSignalRChatClient(new AiAssistantChatRuntimeState(Options.Create(options)).Current);
 var session = await client.ConnectAsync(null, output =>
 {
     var type = output.GetProperty("type").GetString() ?? "unknown";
@@ -31,7 +33,7 @@ await client.SendAsync(session.SessionId, prompt, timeout.Token);
 await completed.Task.WaitAsync(timeout.Token);
 Console.WriteLine(JsonSerializer.Serialize(new { session.SessionId, session.Created, MarkerSeen = markerSeen, OutputTypes = types }));
 if (!markerSeen || args.FirstOrDefault() == "mcp" && !types.ContainsKey("tool_call")) return 1;
-await using var resumed = new AiAssistantSignalRChatClient(options);
+await using var resumed = new AiAssistantSignalRChatClient(new AiAssistantChatRuntimeState(Options.Create(options)).Current);
 var rejoined = await resumed.ConnectAsync(session.SessionId, _ => Task.CompletedTask, timeout.Token);
 Console.WriteLine(JsonSerializer.Serialize(new { ResumedSameSession = rejoined.SessionId == session.SessionId, rejoined.Created }));
 return rejoined.Created || rejoined.SessionId != session.SessionId ? 1 : 0;
@@ -49,7 +51,7 @@ static async Task<int> ApprovalSmokeAsync(AiAssistantChatOptions options)
         return Task.CompletedTask;
     }
     SessionEnsureResult session;
-    await using (var initial = new AiAssistantSignalRChatClient(options))
+    await using (var initial = new AiAssistantSignalRChatClient(new AiAssistantChatRuntimeState(Options.Create(options)).Current))
     {
         session = await initial.ConnectAsync(null, Observe, timeout.Token);
         await initial.SendAsync(session.SessionId,
@@ -65,7 +67,7 @@ static async Task<int> ApprovalSmokeAsync(AiAssistantChatOptions options)
     var denyOffered = interaction.GetProperty("interactionOptions").EnumerateArray()
         .Any(x => x.GetProperty("key").GetString() == "deny");
     if (!denyOffered) throw new InvalidOperationException("No deny option was offered; parked approval was left unanswered.");
-    await using var resumed = new AiAssistantSignalRChatClient(options);
+    await using var resumed = new AiAssistantSignalRChatClient(new AiAssistantChatRuntimeState(Options.Create(options)).Current);
     var rejoined = await resumed.ConnectAsync(session.SessionId, Observe, timeout.Token);
     if (rejoined.Created || rejoined.SessionId != session.SessionId) return 1;
     await resumed.RespondAsync(session.SessionId, interaction.GetProperty("callId").GetString()!, "deny", timeout.Token);

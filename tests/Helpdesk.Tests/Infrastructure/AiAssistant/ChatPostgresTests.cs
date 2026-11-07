@@ -58,6 +58,43 @@ public sealed class ChatPostgresFixture : IAsyncLifetime
 
 public sealed class ChatPostgresTests(ChatPostgresFixture fixture) : IClassFixture<ChatPostgresFixture>
 {
+    [Fact]
+    public async Task Restart_preserves_pending_child_identity_and_records_uncertainty_without_resending()
+    {
+        var (ticket, conversation) = await fixture.CreateAsync();
+        var request = new ChatMessageRequest(conversation, Guid.NewGuid(), "Harmless delegated investigation");
+        await using (var db = fixture.Context())
+        {
+            await fixture.Store(db).AcceptMessageAsync("incidents", ticket, request, "operator", default);
+            var saved = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == conversation);
+            saved.State = ChatState.WaitingForChildren;
+            AiAssistantChatStore.Append(db, saved, "turn_completed", "Parent completed; child follow-up pending.");
+            db.Set<AiAssistantChatEvent>().Local.Single(x => x.ConversationId == conversation && x.Sequence == saved.LastSequence)
+                .MetadataJson = JsonSerializer.Serialize(new ChatTurnCompletion(request.ClientMessageId, 1, "completed", false,
+                    ["synthetic-child"], DateTimeOffset.UtcNow.AddHours(1)));
+            await db.SaveChangesAsync();
+        }
+        await using var services = new ServiceCollection().AddScoped(_ => fixture.Context()).BuildServiceProvider();
+        var client = new FailingChatClient { FailSend = false };
+        var factory = Substitute.For<IAiAssistantChatClientFactory>();
+        factory.Create().Returns(client);
+        using var manager = new AiAssistantChatSessionManager(services.GetRequiredService<IServiceScopeFactory>(),
+            Options.Create(EnabledTestOptions()), new ChatLiveFeed(), NullLogger<AiAssistantChatSessionManager>.Instance, factory);
+        await manager.StartAsync(default);
+        try
+        {
+            await using var db = fixture.Context();
+            var snapshot = await fixture.Store(db).LoadAsync("incidents", ticket, conversation, 0, "operator", default);
+            Assert.Equal(ChatState.DeliveryUnknown, snapshot.State);
+            Assert.Equal(request.ClientMessageId, snapshot.ActiveMessageId);
+            Assert.Equal(new[] { "synthetic-child" }, snapshot.Continuation!.OpenChildRunIds);
+            Assert.Contains(snapshot.Events, x => x.Type == "transport_restarted" && x.Text.Contains("outcomes remain unknown"));
+            Assert.Single(snapshot.Events, x => x.Type == "operator");
+            Assert.Equal(0, client.SendCount);
+        }
+        finally { await manager.StopAsync(default); }
+    }
+
     private static AiAssistantChatOptions EnabledTestOptions(
         TimeSpan? turnInactivityTimeout = null,
         TimeSpan? activityHeartbeatInterval = null)

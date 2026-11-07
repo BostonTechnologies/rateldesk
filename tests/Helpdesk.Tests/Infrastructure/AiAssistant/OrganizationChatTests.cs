@@ -15,6 +15,29 @@ namespace Helpdesk.Tests.Infrastructure.AiAssistant;
 public sealed class OrganizationChatTests(ChatPostgresFixture fixture) : IClassFixture<ChatPostgresFixture>
 {
     [Fact]
+    public async Task Pending_child_chain_blocks_new_organization_input_but_preserves_original_admission_idempotency_and_scope()
+    {
+        await using var db = fixture.Context();
+        var store = fixture.Store(db);
+        var chat = await store.CreateOrganizationAsync("org", new(Guid.NewGuid(), "Synthetic delegated queue report", []), "operator", default);
+        var request = new ChatMessageRequest(chat.ConversationId, Guid.NewGuid(), "Read-only delegated report");
+        Assert.True(await store.AcceptMessageAsync(ChatScope.Organization("org"), request, "operator", default));
+        var current = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == chat.ConversationId);
+        current.State = ChatState.WaitingForChildren;
+        await db.SaveChangesAsync();
+        Assert.False(await store.AcceptMessageAsync(ChatScope.Organization("org"), request, "operator", default));
+        await Assert.ThrowsAsync<ChatConflictException>(() => store.AcceptMessageAsync(ChatScope.Organization("org"),
+            request with { ClientMessageId = Guid.NewGuid(), Text = "Unrelated newer task" }, "operator", default));
+        await Assert.ThrowsAsync<ChatConflictException>(() => store.ArchiveAsync(ChatScope.Organization("org"), chat.ConversationId, "operator", default));
+        await store.StopWaitingAsync(ChatScope.Organization("org"), new(chat.ConversationId, request.ClientMessageId), "operator", default);
+        var stopped = await store.LoadAsync(ChatScope.Organization("org"), chat.ConversationId, 0, "operator", default);
+        Assert.Equal(ChatState.DeliveryUnknown, stopped.State);
+        Assert.Equal(request.ClientMessageId, stopped.ActiveMessageId);
+        Assert.Single(stopped.Events, x => x.Type == "operator");
+        Assert.Contains(stopped.Events, x => x.Type == "delivery_unknown");
+    }
+
+    [Fact]
     public async Task Organization_message_uses_existing_native_session_manager_without_loading_a_ticket()
     {
         await using var services = new ServiceCollection().AddScoped(_ => fixture.Context())

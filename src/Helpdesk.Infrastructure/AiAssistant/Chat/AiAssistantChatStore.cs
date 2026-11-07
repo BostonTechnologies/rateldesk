@@ -61,7 +61,7 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var conversation = await LockAsync(request.ConversationId, ct);
         Bind(conversation, ticket);
-        if (conversation.State != ChatState.Processing || conversation.ActiveMessageId != request.ExpectedMessageId)
+        if (conversation.State is not (ChatState.Processing or ChatState.WaitingForChildren) || conversation.ActiveMessageId != request.ExpectedMessageId)
             throw new ChatConflictException("The processing turn changed or already completed.");
         conversation.State = ChatState.DeliveryUnknown;
         Append(db, conversation, "delivery_unknown", "Operator stopped waiting locally. The remote assistant may still be processing; this request will not be resent automatically.", actor, atUtc: Now);
@@ -191,7 +191,8 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
         // transaction commits while this immutable event page is being read.
         var head = conversation.LastSequence;
         var events = await db.Set<AiAssistantChatEvent>().AsNoTracking().Where(x => x.ConversationId == conversation.Id && x.Sequence > after && x.Sequence <= head).OrderBy(x => x.Sequence).Take(200).ToListAsync(ct);
-        return new(conversation.Id, conversation.State, conversation.LastSequence, events, conversation.RecoveryLastAttemptUtc, conversation.RecoveryResult);
+        var continuation = await AiAssistantChatSessionManager.LatestCompletionAsync(db, conversation, ct);
+        return new(conversation.Id, conversation.State, conversation.LastSequence, events, conversation.RecoveryLastAttemptUtc, conversation.RecoveryResult, continuation, conversation.ActiveMessageId);
     }
 
     public async Task<bool> AcceptMessageAsync(ChatScope scope, ChatMessageRequest request, string actor, CancellationToken ct)

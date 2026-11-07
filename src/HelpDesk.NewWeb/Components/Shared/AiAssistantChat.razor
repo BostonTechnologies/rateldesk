@@ -21,7 +21,7 @@ else
 <header class="conversation-header">
     <div class="conversation-identity"><span class="conversation-avatar"><MudIcon Icon="@Icons.Material.Outlined.AutoAwesome" Size="Size.Small" /></span><div><h2>@Title</h2><small>@(string.IsNullOrWhiteSpace(Identity) ? StateLabel(state) : $"{Identity} · {StateLabel(state)}")</small></div></div>
     <div class="conversation-actions">
-        @if (state == ChatState.Processing)
+        @if (state is ChatState.Processing or ChatState.WaitingForChildren)
         {
             <MudTooltip Text="Stop waiting"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Outlined.StopCircle" aria-label="Stop waiting" Disabled="@(busy || capabilities?.CanWrite == false || UnresolvedMessageId is null)" OnClick="StopWaitingAsync" /></MudTooltip>
         }
@@ -86,10 +86,10 @@ else
         <MudButton Color="Color.Warning" Disabled="@(busy || !acknowledgeAbandon || UnresolvedMessageId is null)" OnClick="AbandonAsync">Abandon unresolved turn and archive</MudButton>
         }
     }
-    @if (state is ChatState.Processing or ChatState.AwaitingApproval)
+    @if (state is ChatState.Processing or ChatState.AwaitingApproval or ChatState.WaitingForChildren)
     {
         <div role="status" data-testid="chat-observation-status" class="pa-3">
-            <strong>@(state == ChatState.AwaitingApproval ? "Waiting for your decision" : "Awaiting NetClaw")</strong>
+            <strong>@(state == ChatState.AwaitingApproval ? "Waiting for your decision" : state == ChatState.WaitingForChildren ? "Waiting for delegated follow-ups" : "Awaiting NetClaw")</strong>
             <p>@(recoveryResult ?? "RatelDesk keeps observing this request. A connection does not prove that the task is complete.")</p>
             @if (events.LastOrDefault(item => item.Type == "operator") is { } activeInput)
             {
@@ -114,7 +114,8 @@ else
                 <MudText Typo="Typo.caption">@ActorLabel(turn.Operator.CreatedByUserId) · @turn.Operator.CreatedUtc.ToLocalTime().ToString("g")</MudText>
                 <MudText Style="white-space: pre-wrap; overflow-wrap: anywhere">@turn.Operator.Text</MudText>
             </MudPaper>
-            @if (turn.Operations.Count > 0 || !turn.Completed || turn.Activity.Any(VisibleActivity))
+            @if (turn.Operations.Count > 0 || !turn.Completed || turn.HasError || turn.Activity.Any(VisibleActivity)
+                || turn.NativeTurns.Any(x => x.QuietEnd || x.TurnOutcome == "skipped"))
             {
                 <AiAssistantTurnActivity Turn="turn" State="state" Busy="@(busy || capabilities?.CanWrite == false)" Preferences="preferences" Approval="@(answer => ApproveAsync(answer.CallId, answer.Key))" />
             }
@@ -179,7 +180,7 @@ else
     private string? currentActor;
     private ChatIdentitySnapshot? identity;
     private string ActorLabel(string? actor) => actor == currentActor && currentActor is not null ? "You" : "Helpdesk operator";
-    private static string StateLabel(ChatState value) => value switch { ChatState.Idle => "Ready", ChatState.Processing => "Working", ChatState.AwaitingApproval => "Needs a decision", ChatState.DeliveryUnknown => "Needs recovery", _ => "Archived" };
+    private static string StateLabel(ChatState value) => value switch { ChatState.Idle => "Ready", ChatState.Processing => "Working", ChatState.WaitingForChildren => "Waiting for delegated work", ChatState.AwaitingApproval => "Needs a decision", ChatState.DeliveryUnknown => "Needs recovery", _ => "Archived" };
     private bool VisibleActivity(AiAssistantChatEvent item) => item.Type switch
     {
         "usage" => preferences.ShowUsage, "processing_state" => preferences.ShowProcessing,
@@ -414,7 +415,7 @@ else
         if (await Dialogs.ShowMessageBoxAsync("Stop waiting?",
             "The remote assistant may still be processing. RatelDesk will stop waiting locally and will not resend this request automatically.",
             yesText: "Stop waiting", cancelText: "Keep waiting") != true) return;
-        if (disposed || state != ChatState.Processing || conversation != expectedConversation || UnresolvedMessageId != expectedMessage) return;
+        if (disposed || state is not (ChatState.Processing or ChatState.WaitingForChildren) || conversation != expectedConversation || UnresolvedMessageId != expectedMessage) return;
         busy = true; error = null;
         try
         {

@@ -23,6 +23,206 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task Native_child_chain_receives_multiple_followups_under_one_idempotent_admission(bool organization)
+    {
+        await using var run = await Run.CreateAsync(fixture, organization: organization);
+        await run.SendAsync();
+        await run.Client.EmitAsync(new { type = "text", sessionId = run.Client.SessionId, text = "Same valid answer." });
+        await run.Client.CompleteAsync(1, ["child-a", "child-b"]);
+        await run.WaitForAsync(items => items.Count(x => x.Type == "turn_completed") == 1);
+        await using (var db = fixture.Context())
+        {
+            var store = fixture.Store(db);
+            var pending = await store.LoadAsync(run.Scope, run.Conversation, 0, "operator", default);
+            Assert.Equal(ChatState.WaitingForChildren, pending.State);
+            Assert.Equal(run.Request.ClientMessageId, pending.ActiveMessageId);
+            Assert.Equal(new[] { "child-a", "child-b" }, pending.Continuation!.OpenChildRunIds);
+            Assert.False(await store.AcceptMessageAsync(run.Scope, run.Request, "operator", default));
+            await Assert.ThrowsAsync<ChatConflictException>(() => store.AcceptMessageAsync(run.Scope,
+                run.Request with { ClientMessageId = Guid.NewGuid(), Text = "New unrelated task" }, "operator", default));
+        }
+        Assert.False(run.Client.Disposed);
+        // A duplicate native completion is identified by ordinal, not its text.
+        await run.Client.CompleteAsync(1, ["child-a", "child-b"]);
+        await run.Client.EmitAsync(new { type = "text_delta", sessionId = run.Client.SessionId, text = "Continuation draft" });
+        var delta = await run.WaitForDeltaAsync("Continuation draft");
+        Assert.Equal(run.Request.ClientMessageId, delta.OperatorMessageId);
+        await run.Client.EmitAsync(new { type = "text", sessionId = run.Client.SessionId, text = "Same valid answer." });
+        await run.Client.CompleteAsync(2, ["child-b"]);
+        await run.WaitForAsync(items => items.Count(x => x.Type == "turn_completed") == 2);
+        await run.Client.EmitAsync(new { type = "text", sessionId = run.Client.SessionId, text = "Final report." });
+        await run.Client.CompleteAsync(3, []);
+        var events = await run.WaitForAsync(items => items.Count(x => x.Type == "turn_completed") == 3);
+        Assert.Single(events, x => x.Type == "operator");
+        Assert.Equal(3, events.Count(x => x.Type == "assistant"));
+        Assert.Equal(2, events.Count(x => x.Type == "assistant" && x.Text == "Same valid answer."));
+        Assert.All(events.Where(x => x.Type != "operator"), x => Assert.Null(x.ClientMessageId));
+        Assert.Equal(new[] { 1, 2, 3 }, events.Where(x => x.Type == "turn_completed")
+            .Select(x => ChatContinuationSafety.Read(x.MetadataJson)!.TurnNumber!.Value));
+        Assert.Single(run.Client.Sent);
+        await using var check = fixture.Context();
+        var reloaded = await fixture.Store(check).LoadAsync(run.Scope, run.Conversation, 0, "operator", default);
+        Assert.Equal(ChatState.Idle, reloaded.State);
+        Assert.Empty(reloaded.Continuation!.OpenChildRunIds!);
+        Assert.Equal(events.Count, reloaded.Events.Count);
+    }
+
+    [Fact]
+    public async Task Child_approval_remains_actionable_after_parent_completion_without_auto_approval()
+    {
+        await using var run = await Run.CreateAsync(fixture);
+        await run.SendAsync();
+        await run.Client.EmitApprovalAsync("child-call");
+        await run.Client.CompleteAsync(1, ["child-a"]);
+        await run.WaitForAsync(items => items.Any(x => x.Type == "turn_completed"));
+        await using (var db = fixture.Context())
+        {
+            var pending = await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == run.Conversation);
+            Assert.Equal(ChatState.AwaitingApproval, pending.State);
+            Assert.Null((await db.Set<AiAssistantChatInteraction>().SingleAsync(x => x.ConversationId == run.Conversation)).SelectedKey);
+            Assert.Empty(run.Client.Responses);
+            await fixture.Store(db).AcceptApprovalAsync(run.Scope, "child-call", new(run.Conversation, "approve_once"), "approver", default);
+        }
+        await run.Manager.RespondAsync(run.Conversation, "child-call", "approve_once", default);
+        Assert.Equal((run.Client.SessionId, "child-call", "approve_once"), Assert.Single(run.Client.Responses));
+        await run.Client.EmitAsync(new { type = "text", sessionId = run.Client.SessionId, text = "Approved child report." });
+        await run.Client.CompleteAsync(2, []);
+        await run.WaitForAsync(items => items.Count(x => x.Type == "turn_completed") == 2);
+        await using var check = fixture.Context();
+        Assert.Equal(ChatState.Idle, (await check.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == run.Conversation)).State);
+    }
+
+    [Theory]
+    [InlineData("failed", false, ChatState.WaitingForChildren)]
+    [InlineData("completed", true, ChatState.WaitingForChildren)]
+    [InlineData("skipped", true, ChatState.WaitingForChildren)]
+    public async Task Failed_and_quiet_parent_outcomes_do_not_claim_children_finished(string outcome, bool quiet, ChatState expected)
+    {
+        await using var run = await Run.CreateAsync(fixture);
+        await run.SendAsync();
+        await run.Client.CompleteAsync(1, ["child-a"], outcome, quiet);
+        await run.WaitForAsync(items => items.Any(x => x.Type == "turn_completed"));
+        await using var check = fixture.Context();
+        var saved = await fixture.Store(check).LoadAsync(run.Scope, run.Conversation, 0, "operator", default);
+        Assert.Equal(expected, saved.State);
+        Assert.Equal(outcome, saved.Continuation!.TurnOutcome);
+        Assert.Equal(quiet, saved.Continuation.QuietEnd);
+        Assert.Single(saved.Continuation.OpenChildRunIds!);
+    }
+
+    [Fact]
+    public async Task Known_pending_children_cannot_be_cleared_by_a_legacy_unknown_snapshot()
+    {
+        await using var run = await Run.CreateAsync(fixture);
+        await run.SendAsync();
+        await run.Client.CompleteAsync(1, ["child-a"]);
+        await run.WaitForAsync(items => items.Any(x => x.Type == "turn_completed"));
+        await run.Client.CompleteAsync(2, null);
+        await run.WaitForAsync(items => items.Count(x => x.Type == "turn_completed") == 2);
+        await using var check = fixture.Context();
+        var saved = await fixture.Store(check).LoadAsync(run.Scope, run.Conversation, 0, "operator", default);
+        Assert.Equal(ChatState.WaitingForChildren, saved.State);
+        Assert.False(saved.Continuation!.ChildSnapshotKnown);
+        Assert.Null(saved.Continuation.OpenChildRunIds);
+        Assert.Single(saved.Continuation.PendingChildRunIds!);
+    }
+
+    [Fact]
+    public async Task Failed_parent_and_failed_empty_snapshot_retain_original_children_until_a_nonfailed_clear_turn()
+    {
+        await using var run = await Run.CreateAsync(fixture);
+        await run.SendAsync();
+        await run.Client.CompleteAsync(1, ["child-a"], "failed");
+        await run.WaitForAsync(items => items.Count(x => x.Type == "turn_completed") == 1);
+        Assert.False(run.Client.Disposed);
+        await run.Client.CompleteAsync(2, [], "failed");
+        await run.WaitForAsync(items => items.Count(x => x.Type == "turn_completed") == 2);
+        await using (var db = fixture.Context())
+        {
+            var pending = await fixture.Store(db).LoadAsync(run.Scope, run.Conversation, 0, "operator", default);
+            Assert.Equal(ChatState.WaitingForChildren, pending.State);
+            Assert.Equal("failed", pending.Continuation!.TurnOutcome);
+            Assert.Empty(pending.Continuation.OpenChildRunIds!);
+            Assert.Single(pending.Continuation.PendingChildRunIds!);
+        }
+        await run.Client.EmitAsync(new { type = "text", sessionId = run.Client.SessionId, text = "The later child report completed." });
+        await run.Client.CompleteAsync(3, []);
+        await run.WaitForAsync(items => items.Count(x => x.Type == "turn_completed") == 3);
+        await using var check = fixture.Context();
+        var final = await fixture.Store(check).LoadAsync(run.Scope, run.Conversation, 0, "operator", default);
+        Assert.Equal(ChatState.Idle, final.State);
+        Assert.Empty(final.Continuation!.PendingChildRunIds!);
+        Assert.Equal(2, final.Events.Count(x => x.Type == "turn_completed" && ChatContinuationSafety.Read(x.MetadataJson)!.TurnOutcome == "failed"));
+        Assert.Single(run.Client.Sent);
+    }
+
+    [Fact]
+    public async Task Child_observation_survives_idle_aging_but_expires_at_a_finite_durable_deadline()
+    {
+        var clock = new MutableTimeProvider(new DateTimeOffset(2026, 11, 7, 10, 0, 0, TimeSpan.Zero));
+        await using var run = await Run.CreateAsync(fixture, clock);
+        await run.SendAsync();
+        await run.Client.CompleteAsync(1, ["child-a"]);
+        await run.WaitForAsync(items => items.Any(x => x.Type == "turn_completed"));
+        clock.Advance(TimeSpan.FromMinutes(16));
+        await run.Manager.SweepPendingChildrenAsync(default);
+        Assert.False(run.Client.Disposed);
+        await using (var db = fixture.Context())
+            Assert.Equal(ChatState.WaitingForChildren, (await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == run.Conversation)).State);
+        clock.Advance(TimeSpan.FromMinutes(45));
+        await run.Manager.SweepPendingChildrenAsync(default);
+        Assert.True(run.Client.Disposed);
+        await using var check = fixture.Context();
+        var expired = await fixture.Store(check).LoadAsync(run.Scope, run.Conversation, 0, "operator", default);
+        Assert.Equal(ChatState.DeliveryUnknown, expired.State);
+        Assert.Single(expired.Continuation!.OpenChildRunIds!);
+        Assert.Contains(expired.Events, x => x.Type == "delivery_unknown" && x.Text.Contains("one-hour"));
+        Assert.Single(run.Client.Sent);
+    }
+
+    [Fact]
+    public async Task Disconnected_child_chain_reattachment_remains_uncertain_and_expires_without_an_unbounded_owner()
+    {
+        var clock = new MutableTimeProvider(new DateTimeOffset(2026, 11, 7, 10, 0, 0, TimeSpan.Zero));
+        await using var run = await Run.CreateAsync(fixture, clock);
+        await run.SendAsync();
+        await run.Client.CompleteAsync(1, ["child-a"]);
+        await run.WaitForAsync(items => items.Any(x => x.Type == "turn_completed"));
+        await run.Client.EmitAsync(new { type = "transport_closed" });
+        await run.WaitForAsync(items => items.Any(x => x.Type == "delivery_unknown"));
+        await run.Manager.RetireAsync(run.Conversation, default);
+        var reattached = new ControlledClient
+        {
+            RecentMessages = JsonSerializer.SerializeToElement(new[]
+            {
+                new { role = "user", content = $"[helpdesk-chat:{run.Conversation:D}:{run.Request.ClientMessageId:D}]\nOriginal request" }
+            })
+        };
+        run.Factory.Next = reattached;
+        await run.Manager.ReconcileAsync(run.Conversation, default);
+        Assert.False(reattached.Disposed);
+        Assert.Equal(ChatTransportConnectionState.Connected, run.Manager.ObserveConnection(run.Conversation)!.State);
+        clock.Advance(TimeSpan.FromMinutes(61));
+        await run.Manager.SweepPendingChildrenAsync(default);
+        Assert.True(reattached.Disposed);
+        Assert.Null(run.Manager.ObserveConnection(run.Conversation));
+        await using (var check = fixture.Context())
+        {
+            var expired = await fixture.Store(check).LoadAsync(run.Scope, run.Conversation, 0, "operator", default);
+            Assert.Equal(ChatState.DeliveryUnknown, expired.State);
+            Assert.Single(expired.Continuation!.PendingChildRunIds!);
+            Assert.Contains(expired.Events, x => x.Type == "delivery_unknown" && x.Text.Contains("one-hour"));
+        }
+        var creations = run.Factory.Creations;
+        await Assert.ThrowsAsync<ChatConflictException>(() => run.Manager.ReconcileAsync(run.Conversation, default));
+        Assert.Equal(creations, run.Factory.Creations);
+        Assert.Empty(reattached.Sent);
+        Assert.Single(run.Client.Sent);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task Quiet_connected_turn_keeps_original_identity_and_receives_late_terminal_output(bool failed)
     {
         var clock = new MutableTimeProvider(new DateTimeOffset(2026, 11, 6, 8, 0, 0, TimeSpan.Zero));
@@ -903,8 +1103,9 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
         public string Ticket { get; }
         public Guid Conversation { get; }
         public ChatMessageRequest Request { get; }
+        public ChatScope Scope { get; }
 
-        private Run(ChatPostgresFixture fixture, ServiceProvider services, ChatLiveFeed feed, AiAssistantChatSessionManager manager, ControlledFactory factory, string ticket, Guid conversation, TimeProvider? timeProvider)
+        private Run(ChatPostgresFixture fixture, ServiceProvider services, ChatLiveFeed feed, AiAssistantChatSessionManager manager, ControlledFactory factory, string ticket, Guid conversation, TimeProvider? timeProvider, ChatScope? scope)
         {
             this.fixture = fixture;
             this.services = services;
@@ -916,14 +1117,22 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
             Conversation = conversation;
             this.timeProvider = timeProvider;
             Request = new(conversation, Guid.NewGuid(), "Investigate this ticket.");
+            Scope = scope ?? ChatScope.Ticket("incidents", ticket);
             reader = feed.Subscribe(conversation);
         }
 
         public static async Task<Run> CreateAsync(
             ChatPostgresFixture fixture,
             TimeProvider? timeProvider = null,
-            IAiAssistantChatRuntimeState? runtimeState = null)
+            IAiAssistantChatRuntimeState? runtimeState = null,
+            bool organization = false)
         {
+            if (organization)
+            {
+                await using var db = fixture.Context();
+                var created = await fixture.Store(db).CreateOrganizationAsync("org", new(Guid.NewGuid(), "Synthetic child investigation", []), "operator", default);
+                return await AttachAsync(fixture, "org", created.ConversationId, timeProvider, runtimeState, scope: ChatScope.Organization("org"));
+            }
             var (ticket, conversation) = await fixture.CreateAsync();
             return await AttachAsync(fixture, ticket, conversation, timeProvider, runtimeState);
         }
@@ -934,7 +1143,8 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
             Guid conversation,
             TimeProvider? timeProvider = null,
             IAiAssistantChatRuntimeState? runtimeState = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            ChatScope? scope = null)
         {
             var services = new ServiceCollection().AddScoped(_ => fixture.Context())
                 .AddSingleton(Substitute.For<IDomainEventPublisher>())
@@ -950,13 +1160,13 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
                 timeProvider,
                 runtimeState);
             await manager.StartAsync(cancellationToken);
-            return new(fixture, services, feed, manager, factory, ticket, conversation, timeProvider);
+            return new(fixture, services, feed, manager, factory, ticket, conversation, timeProvider, scope);
         }
 
         public async Task SendAsync(CancellationToken cancellationToken = default)
         {
             await using var db = fixture.Context();
-            Assert.True(await fixture.Store(db, timeProvider: timeProvider).AcceptMessageAsync("incidents", Ticket, Request, "operator", cancellationToken));
+            Assert.True(await fixture.Store(db, timeProvider: timeProvider).AcceptMessageAsync(Scope, Request, "operator", cancellationToken));
             await Manager.SendAsync(Conversation, Request.ClientMessageId, Request.Text, cancellationToken);
         }
 
@@ -1038,6 +1248,8 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
             return new(SessionId, sessionId is null);
         }
         public Task EmitAsync(object value) => output!(JsonSerializer.SerializeToElement(value));
+        public Task CompleteAsync(int ordinal, string[]? children, string outcome = "completed", bool quiet = false)
+            => EmitAsync(new { type = "turn_completed", sessionId = SessionId, turnNumber = ordinal, turnOutcome = outcome, quietEnd = quiet, openChildRunIds = children });
         public Task EmitApprovalAsync(string callId) => EmitAsync(new { type = "tool_interaction", sessionId = SessionId, callId, toolName = "safe_tool", interactionOptions = new[] { new { key = "approve_once", label = "RAW_UNTRUSTED_LABEL" }, new { key = "deny", label = "Deny" } } });
         public Task SendAsync(string sessionId, string text, CancellationToken ct)
         {
