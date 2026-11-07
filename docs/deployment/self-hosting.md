@@ -6,6 +6,23 @@ RatelDesk has an ASP.NET Core API and a Blazor web application. The default inst
 
 For built-in roles, scoped custom roles, and the bounded tenant-member delegation workflow, see [Roles and tenant-scoped access](../security/rbac.md).
 
+## 0.1.3-beta.6 operator testing
+
+Use the [beta.6 upgrade and testing checklist](../release-notes/0.1.3-beta.6.md)
+with matching exact API, Web and HTTP MCP versions or recorded immutable digests,
+and matching CLI/stdio archives. Back up the database together with bootstrap
+state, data-protection keys and attachments through the existing deployment owner.
+This beta adds no database migration. Native AI chat keeps its PostgreSQL
+requirement; other supported SQLite workflows remain supported.
+
+Review [diagnostic environment settings](application-logging.md) and
+[Docker retention](#container-log-retention) before applying changes. Container
+environment or log-driver changes require affected-container recreation; restart
+alone keeps the existing Docker configuration. Existing read-only verification
+does not change driver/options. Test delegated ticket/organization replies, the
+request service editor and complete wrapped requester values on disposable data.
+Production deployment and its acceptance follow verified public distribution.
+
 ## Timeline effort after a beta.5 upgrade
 
 Back up the database together with bootstrap state, data-protection keys and
