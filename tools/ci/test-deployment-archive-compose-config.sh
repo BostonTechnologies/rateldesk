@@ -69,3 +69,43 @@ env "${compose_environment[@]}" docker compose \
 env "${authentik_environment[@]}" docker compose \
   -f "$deployment_directory/docker-compose.release.yml" \
   -f "$deployment_directory/docker-compose.mcp.release.yml" config --quiet
+
+test -s "$deployment_directory/docs/deployment/application-logging.md"
+python3 - "$deployment_directory" "$config_file" <<'PY'
+import json, os, pathlib, subprocess, sys
+directory = pathlib.Path(sys.argv[1])
+base = directory / "docker-compose.release.yml"
+recipes = [
+    [base],
+    [base, directory / "docker-compose.mcp.env.release.yml"],
+    [base, directory / "docker-compose.mcp.gateway.release.yml"],
+    [base, directory / "docker-compose.mcp.release.yml"],
+    [directory / "examples/mcp-http/docker-compose.yml"],
+    [directory / "docker-compose.setup.yml"],
+]
+environment = {key: value for key, value in os.environ.items() if not key.startswith("RATELDESK_")}
+environment.update(RATELDESK_VERSION="0.0.0-pr", RATELDESK_MCP_CONFIG_FILE=sys.argv[2],
+    RATELDESK_PUBLIC_ORIGIN="https://desk.example.test", RATELDESK_API_BASE_URL="https://api.example.test/",
+    RATELDESK_MCP_PUBLIC_RESOURCE_URI="https://desk.example.test/mcp",
+    RATELDESK_MCP_ALLOWED_ORIGIN="https://client.example.test", RATELDESK_SETUP_OUTPUT="/tmp",
+    RATELDESK_MCP_AUTHENTIK_AUTHORITY="https://auth.example.test/")
+for files in recipes:
+    command = ["docker", "compose"]
+    for file in files:
+        command.extend(["-f", str(file)])
+    for size, count, minimum in [("200m", "5", "Warning"), ("8m", "2", "Information")]:
+        selected = dict(environment)
+        if size != "200m":
+            selected.update(RATELDESK_DOCKER_LOG_MAX_SIZE=size, RATELDESK_DOCKER_LOG_MAX_FILE=count,
+                            RATELDESK_LOG_MINIMUM_LEVEL=minimum)
+        result = subprocess.run(command + ["config", "--format", "json"], env=selected, capture_output=True,
+                                text=True, check=True, timeout=30)
+        for name, service in json.loads(result.stdout)["services"].items():
+            assert service["logging"] == {"driver": "json-file", "options": {"max-size": size, "max-file": count}}, (files, name)
+            assert all(isinstance(value, str) for value in service["logging"]["options"].values())
+            if name in {"api", "web", "mcp-http"}:
+                assert service["environment"]["RatelDesk__Logging__MinimumLevel"] == minimum
+guide = (directory / "docs/deployment/self-hosting.md").read_text()
+assert "HostConfig" in guide and "active" in guide and "200 MiB" in guide
+print("Deployment archive: 12 effective logging contracts and bundled operator guides passed")
+PY

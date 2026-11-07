@@ -2,10 +2,16 @@ name: rateldesk
 
 services:
   api:
+    logging:
+      driver: json-file
+      options:
+        max-size: "${RATELDESK_DOCKER_LOG_MAX_SIZE:-200m}"
+        max-file: "${RATELDESK_DOCKER_LOG_MAX_FILE:-5}"
     restart: unless-stopped
     image: ghcr.io/bostontechnologies/rateldesk-api:${RATELDESK_VERSION:?Set RATELDESK_VERSION to an exact published RatelDesk version.}
     environment:
       ASPNETCORE_ENVIRONMENT: Production
+      RatelDesk__Logging__MinimumLevel: ${RATELDESK_LOG_MINIMUM_LEVEL:-Warning}
       Authentication__Mode: Local
       Authentication__AllowInsecureLocalhost: "true"
       DataProtection__KeyRingPath: /var/lib/rateldesk/keys
@@ -26,10 +32,16 @@ services:
       retries: 12
 
   web:
+    logging:
+      driver: json-file
+      options:
+        max-size: "${RATELDESK_DOCKER_LOG_MAX_SIZE:-200m}"
+        max-file: "${RATELDESK_DOCKER_LOG_MAX_FILE:-5}"
     restart: unless-stopped
     image: ghcr.io/bostontechnologies/rateldesk-web:${RATELDESK_VERSION:?Set RATELDESK_VERSION to an exact published RatelDesk version.}
     environment:
       ASPNETCORE_ENVIRONMENT: Production
+      RatelDesk__Logging__MinimumLevel: ${RATELDESK_LOG_MINIMUM_LEVEL:-Warning}
       ApiBaseUrl: http://api:8222/
       DataProtection__KeyRingPath: /var/lib/rateldesk/keys
       Authentication__Mode: Local

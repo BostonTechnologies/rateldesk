@@ -91,7 +91,10 @@ public static class HttpMcpEffectiveDeployment
             ? AgentClientConfiguration.Empty with { ApiBaseUrl = settings.ApiBaseUrl, CredentialMode = "gateway" }
             : settings.Outbound is { } outbound ? HttpMcpHostingCoordinator.ContainerOutbound(outbound) : null };
         var legacy = intent == HttpMcpHostIntent.LegacyInitializer;
-        var overlay = HttpMcpHostingCoordinator.ComposeOverlay(settings, legacy);
+        var existingRoles = Services.Append("mcp-config-init")
+            .Where(role => source["services"]?[ServiceName(source, role)] is not null)
+            .ToHashSet(StringComparer.Ordinal);
+        var overlay = HttpMcpHostingCoordinator.ComposeOverlay(settings, legacy, existingRoles);
         if (legacy) PrepareOverlay(overlay, source, settings);
         else PrepareEnvironmentOverlay(overlay, source, settings);
         var migrationDiagnostics = legacy ? PrepareLegacyMigration(overlay, source, settings) : [];

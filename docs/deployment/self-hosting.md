@@ -237,6 +237,67 @@ An API restart is different from a silent live connection: RatelDesk immediately
 
 OpenTelemetry is enabled through standard `OTEL_*` settings. Export to an OTLP endpoint you operate and avoid placing user, ticket, or credential data in telemetry attributes.
 
+Diagnostic logging defaults to **Warning**. The shared validated policy and
+global/category opt-ins are described in [Application logging](application-logging.md).
+For example, `RATELDESK_LOG_MINIMUM_LEVEL=Information` in the Compose interpolation
+environment is explicitly mapped into each application container as
+`RatelDesk__Logging__MinimumLevel`. Setting a value only in a Compose `.env`
+file does not inject arbitrary environment variables into the .NET process.
+Set per-category canonical keys in the service's `environment` mapping and
+recreate that application container. Metrics, traces and durable business/audit
+records are independent of diagnostic verbosity.
+
+### Container log retention
+
+All repository-owned source/release Compose recipes, HTTP MCP examples,
+setup/configuration initializers and bundled infrastructure default to:
+
+```yaml
+logging:
+  driver: json-file
+  options:
+    max-size: "${RATELDESK_DOCKER_LOG_MAX_SIZE:-200m}"
+    max-file: "${RATELDESK_DOCKER_LOG_MAX_FILE:-5}"
+```
+
+The two rendered options are strings. Docker's `m` size suffix uses binary
+megabytes: `200m` is 200 MiB (209,715,200 bytes). Five files includes the active
+file and up to four retained rotated files, so the default combined budget is
+about 1 GB per container (1,000 MiB, approximately 1.05 decimal GB), with small
+record/rotation boundary overhead. Rotation removes the oldest retained file;
+this is not a whole-host quota. Each service and each replica has its own budget.
+The daemon stores JSON records including metadata, so the budget measures stored
+Docker log bytes, rather than application message text alone.
+
+Override `RATELDESK_DOCKER_LOG_MAX_SIZE` and `RATELDESK_DOCKER_LOG_MAX_FILE` in
+the owning Compose interpolation environment, for example `20m` and `3` for a
+smaller disposable deployment. This is separate from application verbosity;
+application Options cannot change an existing container's Docker `HostConfig`.
+No Docker socket is needed by the application.
+
+Logging-driver/options changes require **affected-container recreation**.
+Preserve the original ordered `-f` files, interpolation/secret inputs, project
+and deployment manager. Review that deployment's effective `docker compose
+config` privately, apply through its owner, and use its normal recreate action
+(for directly managed Compose, `up -d --force-recreate --no-deps` followed by
+the selected affected service names). A process restart or `docker restart`
+keeps the old `HostConfig`. Check the result without exposing environment secrets:
+
+```sh
+docker inspect --format '{{json .HostConfig.LogConfig}}' "$CONTAINER"
+```
+
+An existing consumer's explicit logging driver/options remain operator-owned.
+The HTTP MCP existing-deployment verification and environment correction paths
+preserve them, including an absent block that uses daemon defaults. Fresh
+generated exports receive the bounded defaults; adding rotation to an existing
+deployment requires an explicit change to its owning source, normal review/apply,
+recreation and fresh verification. Do not hand-edit approved setup checkpoints.
+When overriding a new bundled recipe with a different driver, replace the
+complete logging block in the operator's last overlay so json-file options are
+not merged into a different driver's settings; supported Compose accepts
+`logging: !override` for this purpose. Preserve that driver's own valid options.
+
 ## Troubleshooting
 
 - Verify the selected database; PostgreSQL additionally needs its required extensions.

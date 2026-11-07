@@ -21,6 +21,14 @@ migration and verification. The [Web gateway guide](../../../docs/deployment/web
 explains the optional single-origin route. Keep runnable recipes here and use
 the canonical guides for shared configuration rules.
 
+These recipes explicitly map `RATELDESK_LOG_MINIMUM_LEVEL` (default `Warning`)
+into the application container. Docker JSON logging separately defaults to
+`RATELDESK_DOCKER_LOG_MAX_SIZE=200m` and `RATELDESK_DOCKER_LOG_MAX_FILE=5`,
+approximately 1 GB combined per container, including the active file. The
+initializer has its own bounded budget. See [logging and retention](../../../docs/mcp-http/deployment.md#logging-and-container-retention)
+for canonical category opt-ins, existing consumer policy preservation and
+required recreation after log-driver/options changes.
+
 Normal adoption and minimal changes retain valid existing protected config-file
 mappings and the four-service topology. The initializer remains an explicitly
 reviewed Advanced alternative with its real extra service count. Do not hand-edit

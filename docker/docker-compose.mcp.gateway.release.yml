@@ -11,6 +11,11 @@ services:
       WebGateway__Mcp__AuthenticationMode: gateway
 
   mcp-config-init:
+    logging:
+      driver: json-file
+      options:
+        max-size: "${RATELDESK_DOCKER_LOG_MAX_SIZE:-200m}"
+        max-file: "${RATELDESK_DOCKER_LOG_MAX_FILE:-5}"
     image: ghcr.io/bostontechnologies/rateldesk-mcp-http:${RATELDESK_VERSION:?Set RATELDESK_VERSION to an exact published version.}
     user: "0:0"
     entrypoint: ["/bin/sh", "-ec"]
@@ -26,11 +31,17 @@ services:
       - mcp-http-config:/run/rateldesk-mcp
 
   mcp-http:
+    logging:
+      driver: json-file
+      options:
+        max-size: "${RATELDESK_DOCKER_LOG_MAX_SIZE:-200m}"
+        max-file: "${RATELDESK_DOCKER_LOG_MAX_FILE:-5}"
     image: ghcr.io/bostontechnologies/rateldesk-mcp-http:${RATELDESK_VERSION:?Set RATELDESK_VERSION to an exact published version.}
     labels:
       com.rateldesk.deployment.manager: release-compose
     environment:
       ASPNETCORE_ENVIRONMENT: Production
+      RatelDesk__Logging__MinimumLevel: ${RATELDESK_LOG_MINIMUM_LEVEL:-Warning}
       RATELDESK_MCP_CONFIG: /run/rateldesk-mcp/config.json
       Helpdesk__Mcp__Instance: ${RATELDESK_MCP_INSTANCE:-local}
       Helpdesk__Mcp__ExpectedApiBaseUrl: http://api:8222/
