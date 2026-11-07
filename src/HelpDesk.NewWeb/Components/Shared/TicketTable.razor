@@ -84,9 +84,9 @@
         }
         @if (HasCustomerUser)
         {
-            <MudTh>For</MudTh>
+            <MudTh Class="ticket-for-column">For</MudTh>
         }
-        <MudTh>Subject</MudTh>
+        <MudTh Class="ticket-subject-column">Subject</MudTh>
         <MudTh>State</MudTh>
         <MudTh>Assignee</MudTh>
         <MudTh>Priority</MudTh>
@@ -101,18 +101,20 @@
         }
         @if (HasCustomerUser)
         {
-            <MudTd DataLabel="For">
-                @if (CustomerTemplate is not null)
-                {
-                    @CustomerTemplate(context)
-                }
-                else
-                {
-                    @RenderDefaultCustomer(context)
-                }
+            <MudTd DataLabel="For" Class="ticket-for-column">
+                <div class="ticket-for-content">
+                    @if (CustomerTemplate is not null)
+                    {
+                        @CustomerTemplate(context)
+                    }
+                    else
+                    {
+                        @RenderDefaultCustomer(context)
+                    }
+                </div>
             </MudTd>
         }
-        <MudTd DataLabel="Subject">
+        <MudTd DataLabel="Subject" Class="ticket-subject-column">
             @if (SubjectTemplate is not null)
             {
                 @SubjectTemplate(context)

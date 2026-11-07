@@ -1,0 +1,142 @@
+[
+  {
+    "width": 1440,
+    "cells": [
+      {
+        "forWidth": 1572.796875,
+        "subject": 94.453125,
+        "chipWidth": 0
+      },
+      {
+        "forWidth": 1572.796875,
+        "subject": 94.453125,
+        "chipWidth": 511.296875
+      },
+      {
+        "forWidth": 1572.796875,
+        "subject": 94.453125,
+        "chipWidth": 1524.796875
+      },
+      {
+        "forWidth": 1572.796875,
+        "subject": 94.453125,
+        "chipWidth": 928.34375
+      },
+      {
+        "forWidth": 1572.796875,
+        "subject": 94.453125,
+        "chipWidth": 354.953125
+      },
+      {
+        "forWidth": 1572.796875,
+        "subject": 94.453125,
+        "chipWidth": 106.109375
+      }
+    ]
+  },
+  {
+    "width": 1366,
+    "cells": [
+      {
+        "forWidth": 1572.796875,
+        "subject": 94.453125,
+        "chipWidth": 0
+      },
+      {
+        "forWidth": 1572.796875,
+        "subject": 94.453125,
+        "chipWidth": 511.296875
+      },
+      {
+        "forWidth": 1572.796875,
+        "subject": 94.453125,
+        "chipWidth": 1524.796875
+      },
+      {
+        "forWidth": 1572.796875,
+        "subject": 94.453125,
+        "chipWidth": 928.34375
+      },
+      {
+        "forWidth": 1572.796875,
+        "subject": 94.453125,
+        "chipWidth": 354.953125
+      },
+      {
+        "forWidth": 1572.796875,
+        "subject": 94.453125,
+        "chipWidth": 106.109375
+      }
+    ]
+  },
+  {
+    "width": 1280,
+    "cells": [
+      {
+        "forWidth": 1602.25,
+        "subject": 1602.25,
+        "chipWidth": 0
+      },
+      {
+        "forWidth": 1602.25,
+        "subject": 1602.25,
+        "chipWidth": 511.296875
+      },
+      {
+        "forWidth": 1602.25,
+        "subject": 1602.25,
+        "chipWidth": 1524.796875
+      },
+      {
+        "forWidth": 1602.25,
+        "subject": 1602.25,
+        "chipWidth": 928.34375
+      },
+      {
+        "forWidth": 1602.25,
+        "subject": 1602.25,
+        "chipWidth": 354.953125
+      },
+      {
+        "forWidth": 1602.25,
+        "subject": 1602.25,
+        "chipWidth": 106.109375
+      }
+    ]
+  },
+  {
+    "width": 390,
+    "cells": [
+      {
+        "forWidth": 1602.25,
+        "subject": 1602.25,
+        "chipWidth": 0
+      },
+      {
+        "forWidth": 1602.25,
+        "subject": 1602.25,
+        "chipWidth": 511.296875
+      },
+      {
+        "forWidth": 1602.25,
+        "subject": 1602.25,
+        "chipWidth": 1524.796875
+      },
+      {
+        "forWidth": 1602.25,
+        "subject": 1602.25,
+        "chipWidth": 928.34375
+      },
+      {
+        "forWidth": 1602.25,
+        "subject": 1602.25,
+        "chipWidth": 354.953125
+      },
+      {
+        "forWidth": 1602.25,
+        "subject": 1602.25,
+        "chipWidth": 106.109375
+      }
+    ]
+  }
+]

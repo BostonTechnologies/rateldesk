@@ -8,6 +8,13 @@ const createRows = () => Array.from({length: 65}, (_, i) => ({ id: `row-${i}`, t
   state: i < 60 ? 0 : 6, lifecycleState: i < 60 ? 0 : 5, priority: i % 2 ? 0 : 2,
   assignedToId: null, implementorUserId: null, categoryIds: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-10-15T00:00:00Z', isTemplateComplete: true, hasPendingApprovals: false }));
 let rows = createRows();
+const layoutCustomers = [
+ {id:'layout-short',name:'Example Person',email:'person@example.test'},
+ {id:'layout-spaced',name:'Example Person — Example Company Regional Recruitment and Customer Services Centre',email:'regional@example.test'},
+ {id:'layout-token',name:'SyntheticUnbrokenCustomerName'.repeat(8),email:'token@example.test'},
+ {id:'layout-email',name:'',email:'synthetic.long.email.fallback.'.repeat(5)+'person@example.test'},
+ {id:'layout-unicode',name:'例示のお客様 — Žluťoučký zákazník — فريق خدمة العملاء الإقليمي',email:'unicode@example.test'}
+];
 const options = { customer: [{id:'org-a',label:'Alpha customer'}, {id:'org-b',label:'Beta customer'}], for: [{id:'contact',label:'Contact (contact@example.test)'}], assignee: [{id:'staff',label:'Synthetic technician'}] };
 http.createServer(async (req,res) => {
  const url = new URL(req.url, 'http://127.0.0.1'); const q = url.searchParams;
@@ -15,6 +22,16 @@ http.createServer(async (req,res) => {
  if (url.pathname === '/fixture/health') return reply({ok:true});
  if (url.pathname === '/fixture/reset') { queries=[];details=[];mutations=[];fault='';permissionMode='admin';rows=createRows();return reply({ok:true}); }
  if (url.pathname === '/fixture/state') return reply({queries,details,mutations,rows});
+ if (url.pathname === '/fixture/customer-layout') {
+  rows.forEach((row,i)=>{
+   const customer=layoutCustomers[i%layoutCustomers.length];
+   Object.assign(row,{customerId:customer.id,customerName:customer.name,customerEmail:customer.email,
+    requestedForUserId:customer.id,requestedForUserName:customer.name,requestedForUserEmail:customer.email});
+  });
+  // One editable blank exercises the picker inside the same constrained cell.
+  Object.assign(rows[0],{customerId:null,customerName:null,customerEmail:null});
+  return reply({customers:layoutCustomers});
+ }
  if (url.pathname === '/fixture/permissions') { permissionMode=q.get('mode')??'admin';return reply({ok:true}); }
  if (url.pathname === '/fixture/row') { const row=rows.find(item=>item.id===q.get('id')); if(!row)return reply({},404); if(q.has('lifecycle'))row.lifecycleState=Number(q.get('lifecycle')); if(q.has('state'))row.state=Number(q.get('state')); if(q.has('pending'))row.hasPendingApprovals=q.get('pending')==='true'; if(q.has('template'))row.isTemplateComplete=q.get('template')==='true'; return reply(row); }
  if (url.pathname === '/fixture/fault') { fault=q.get('mode');return reply({ok:true}); }
@@ -28,6 +45,16 @@ http.createServer(async (req,res) => {
  if(url.pathname==='/api/v1/ticketing/filter-options') return reply({items:(options[q.get('dimension')]??[]).filter(o=>(!q.has('selectedId')||q.getAll('selectedId').includes(o.id))&&o.label.toLowerCase().includes((q.get('q')??'').toLowerCase())),hasMore:false});
  if(url.pathname.endsWith('/assignees/current')) return reply(null);
  if(url.pathname==='/api/v1/ticketing/organizations') return reply(options.customer.map(o=>({id:o.id,name:o.label,state:0})));
+ if(url.pathname==='/api/v1/ticketing/customers') return reply(layoutCustomers.map(customer=>({...customer,organizationId:q.get('organizationId'),isEnabled:true})));
+ const customerMutation=url.pathname.match(/^\/api\/v1\/(incidents|requests)\/(row-\d+)\/customer$/);
+ if(customerMutation&&req.method==='POST') {
+  let raw='';for await(const chunk of req)raw+=chunk;
+  const body=JSON.parse(raw),customer=layoutCustomers.find(item=>item.id===(body.customerId??body.CustomerId));
+  const row=rows.find(item=>item.id===customerMutation[2]);
+  if(!customer||!row)return reply({},404);
+  mutations.push({path:url.pathname,body});Object.assign(row,{customerId:customer.id,customerName:customer.name,customerEmail:customer.email});
+  return reply(row);
+ }
  if(url.pathname.endsWith('/change-participants')) return reply({organizationId:'org-b',requestedForUsers:[],approverUsers:[],implementorUsers:[]});
  const lifecycleOptions=url.pathname.match(/^\/api\/v1\/changes\/(row-\d+)\/lifecycle-options$/);
  if(lifecycleOptions) {

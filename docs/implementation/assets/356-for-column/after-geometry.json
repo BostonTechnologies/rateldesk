@@ -1,0 +1,794 @@
+[
+  {
+    "test": "incidents full customer values wrap within For at 1440px",
+    "status": "passed",
+    "measurements": [
+      {
+        "content": 172.796875,
+        "cell": 212.796875,
+        "overflow": 0,
+        "chip": 0,
+        "chipHeight": 0,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 172.796875,
+        "cell": 212.796875,
+        "overflow": 0,
+        "chip": 164.796875,
+        "chipHeight": 64,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 172.796875,
+        "cell": 212.796875,
+        "overflow": 0,
+        "chip": 164.796875,
+        "chipHeight": 162,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 172.796875,
+        "cell": 212.796875,
+        "overflow": 0,
+        "chip": 164.796875,
+        "chipHeight": 106,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 172.796875,
+        "cell": 212.796875,
+        "overflow": 0,
+        "chip": 164.796875,
+        "chipHeight": 75,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 172.796875,
+        "cell": 212.796875,
+        "overflow": 0,
+        "chip": 106.109375,
+        "chipHeight": 24,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      }
+    ]
+  },
+  {
+    "test": "incidents full customer values wrap within For at 1366px",
+    "status": "passed",
+    "measurements": [
+      {
+        "content": 163.90625,
+        "cell": 203.90625,
+        "overflow": 0,
+        "chip": 0,
+        "chipHeight": 0,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 163.90625,
+        "cell": 203.90625,
+        "overflow": 0,
+        "chip": 155.90625,
+        "chipHeight": 78,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 163.90625,
+        "cell": 203.90625,
+        "overflow": 0,
+        "chip": 155.90625,
+        "chipHeight": 176,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 163.90625,
+        "cell": 203.90625,
+        "overflow": 0,
+        "chip": 155.90625,
+        "chipHeight": 106,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 163.90625,
+        "cell": 203.90625,
+        "overflow": 0,
+        "chip": 155.90625,
+        "chipHeight": 64,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 163.90625,
+        "cell": 203.90625,
+        "overflow": 0,
+        "chip": 106.109375,
+        "chipHeight": 24,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      }
+    ]
+  },
+  {
+    "test": "incidents full customer values wrap within For at 1280px",
+    "status": "passed",
+    "measurements": [
+      {
+        "content": 272,
+        "cell": 912.5625,
+        "overflow": 0,
+        "chip": 0,
+        "chipHeight": 0,
+        "subject": 912.5625,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 272,
+        "cell": 912.5625,
+        "overflow": 0,
+        "chip": 264,
+        "chipHeight": 50,
+        "subject": 912.5625,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 272,
+        "cell": 912.5625,
+        "overflow": 0,
+        "chip": 264,
+        "chipHeight": 106,
+        "subject": 912.5625,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 272,
+        "cell": 912.5625,
+        "overflow": 0,
+        "chip": 264,
+        "chipHeight": 64,
+        "subject": 912.5625,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 272,
+        "cell": 912.5625,
+        "overflow": 0,
+        "chip": 264,
+        "chipHeight": 58,
+        "subject": 912.5625,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 272,
+        "cell": 912.5625,
+        "overflow": 0,
+        "chip": 106.109375,
+        "chipHeight": 24,
+        "subject": 912.5625,
+        "wrap": "anywhere",
+        "label": "For"
+      }
+    ]
+  },
+  {
+    "test": "incidents full customer values wrap within For at 390px",
+    "status": "passed",
+    "measurements": [
+      {
+        "content": 248,
+        "cell": 328,
+        "overflow": 0,
+        "chip": 0,
+        "chipHeight": 0,
+        "subject": 328,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 248,
+        "cell": 328,
+        "overflow": 0,
+        "chip": 240,
+        "chipHeight": 50,
+        "subject": 328,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 248,
+        "cell": 328,
+        "overflow": 0,
+        "chip": 240,
+        "chipHeight": 106,
+        "subject": 328,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 248,
+        "cell": 328,
+        "overflow": 0,
+        "chip": 240,
+        "chipHeight": 78,
+        "subject": 328,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 248,
+        "cell": 328,
+        "overflow": 0,
+        "chip": 240,
+        "chipHeight": 50,
+        "subject": 328,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 248,
+        "cell": 328,
+        "overflow": 0,
+        "chip": 106.109375,
+        "chipHeight": 24,
+        "subject": 328,
+        "wrap": "anywhere",
+        "label": "For"
+      }
+    ]
+  },
+  {
+    "test": "requests full customer values wrap within For at 1440px",
+    "status": "passed",
+    "measurements": [
+      {
+        "content": 172.796875,
+        "cell": 212.796875,
+        "overflow": 0,
+        "chip": 0,
+        "chipHeight": 0,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 172.796875,
+        "cell": 212.796875,
+        "overflow": 0,
+        "chip": 164.796875,
+        "chipHeight": 64,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 172.796875,
+        "cell": 212.796875,
+        "overflow": 0,
+        "chip": 164.796875,
+        "chipHeight": 162,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 172.796875,
+        "cell": 212.796875,
+        "overflow": 0,
+        "chip": 164.796875,
+        "chipHeight": 106,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 172.796875,
+        "cell": 212.796875,
+        "overflow": 0,
+        "chip": 164.796875,
+        "chipHeight": 75,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 172.796875,
+        "cell": 212.796875,
+        "overflow": 0,
+        "chip": 106.109375,
+        "chipHeight": 24,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      }
+    ]
+  },
+  {
+    "test": "requests full customer values wrap within For at 1366px",
+    "status": "passed",
+    "measurements": [
+      {
+        "content": 163.90625,
+        "cell": 203.90625,
+        "overflow": 0,
+        "chip": 0,
+        "chipHeight": 0,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 163.90625,
+        "cell": 203.90625,
+        "overflow": 0,
+        "chip": 155.90625,
+        "chipHeight": 78,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 163.90625,
+        "cell": 203.90625,
+        "overflow": 0,
+        "chip": 155.90625,
+        "chipHeight": 176,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 163.90625,
+        "cell": 203.90625,
+        "overflow": 0,
+        "chip": 155.90625,
+        "chipHeight": 106,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 163.90625,
+        "cell": 203.90625,
+        "overflow": 0,
+        "chip": 155.90625,
+        "chipHeight": 64,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 163.90625,
+        "cell": 203.90625,
+        "overflow": 0,
+        "chip": 106.109375,
+        "chipHeight": 24,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      }
+    ]
+  },
+  {
+    "test": "requests full customer values wrap within For at 1280px",
+    "status": "passed",
+    "measurements": [
+      {
+        "content": 272,
+        "cell": 912.5625,
+        "overflow": 0,
+        "chip": 0,
+        "chipHeight": 0,
+        "subject": 912.5625,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 272,
+        "cell": 912.5625,
+        "overflow": 0,
+        "chip": 264,
+        "chipHeight": 50,
+        "subject": 912.5625,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 272,
+        "cell": 912.5625,
+        "overflow": 0,
+        "chip": 264,
+        "chipHeight": 106,
+        "subject": 912.5625,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 272,
+        "cell": 912.5625,
+        "overflow": 0,
+        "chip": 264,
+        "chipHeight": 64,
+        "subject": 912.5625,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 272,
+        "cell": 912.5625,
+        "overflow": 0,
+        "chip": 264,
+        "chipHeight": 58,
+        "subject": 912.5625,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 272,
+        "cell": 912.5625,
+        "overflow": 0,
+        "chip": 106.109375,
+        "chipHeight": 24,
+        "subject": 912.5625,
+        "wrap": "anywhere",
+        "label": "For"
+      }
+    ]
+  },
+  {
+    "test": "requests full customer values wrap within For at 390px",
+    "status": "passed",
+    "measurements": [
+      {
+        "content": 248,
+        "cell": 328,
+        "overflow": 0,
+        "chip": 0,
+        "chipHeight": 0,
+        "subject": 328,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 248,
+        "cell": 328,
+        "overflow": 0,
+        "chip": 240,
+        "chipHeight": 50,
+        "subject": 328,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 248,
+        "cell": 328,
+        "overflow": 0,
+        "chip": 240,
+        "chipHeight": 106,
+        "subject": 328,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 248,
+        "cell": 328,
+        "overflow": 0,
+        "chip": 240,
+        "chipHeight": 78,
+        "subject": 328,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 248,
+        "cell": 328,
+        "overflow": 0,
+        "chip": 240,
+        "chipHeight": 50,
+        "subject": 328,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 248,
+        "cell": 328,
+        "overflow": 0,
+        "chip": 106.109375,
+        "chipHeight": 24,
+        "subject": 328,
+        "wrap": "anywhere",
+        "label": "For"
+      }
+    ]
+  },
+  {
+    "test": "changes full customer values wrap within For at 1440px",
+    "status": "passed",
+    "measurements": [
+      {
+        "content": 172.796875,
+        "cell": 212.796875,
+        "overflow": 0,
+        "chip": 106.109375,
+        "chipHeight": 24,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 172.796875,
+        "cell": 212.796875,
+        "overflow": 0,
+        "chip": 164.796875,
+        "chipHeight": 64,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 172.796875,
+        "cell": 212.796875,
+        "overflow": 0,
+        "chip": 164.796875,
+        "chipHeight": 162,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 172.796875,
+        "cell": 212.796875,
+        "overflow": 0,
+        "chip": 164.796875,
+        "chipHeight": 106,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 172.796875,
+        "cell": 212.796875,
+        "overflow": 0,
+        "chip": 164.796875,
+        "chipHeight": 75,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 172.796875,
+        "cell": 212.796875,
+        "overflow": 0,
+        "chip": 106.109375,
+        "chipHeight": 24,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      }
+    ]
+  },
+  {
+    "test": "changes full customer values wrap within For at 1366px",
+    "status": "passed",
+    "measurements": [
+      {
+        "content": 163.90625,
+        "cell": 203.90625,
+        "overflow": 0,
+        "chip": 106.109375,
+        "chipHeight": 24,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 163.90625,
+        "cell": 203.90625,
+        "overflow": 0,
+        "chip": 155.90625,
+        "chipHeight": 78,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 163.90625,
+        "cell": 203.90625,
+        "overflow": 0,
+        "chip": 155.90625,
+        "chipHeight": 176,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 163.90625,
+        "cell": 203.90625,
+        "overflow": 0,
+        "chip": 155.90625,
+        "chipHeight": 106,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 163.90625,
+        "cell": 203.90625,
+        "overflow": 0,
+        "chip": 155.90625,
+        "chipHeight": 64,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 163.90625,
+        "cell": 203.90625,
+        "overflow": 0,
+        "chip": 106.109375,
+        "chipHeight": 24,
+        "subject": 160,
+        "wrap": "anywhere",
+        "label": "For"
+      }
+    ]
+  },
+  {
+    "test": "changes full customer values wrap within For at 1280px",
+    "status": "passed",
+    "measurements": [
+      {
+        "content": 272,
+        "cell": 912.5625,
+        "overflow": 0,
+        "chip": 106.109375,
+        "chipHeight": 24,
+        "subject": 912.5625,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 272,
+        "cell": 912.5625,
+        "overflow": 0,
+        "chip": 264,
+        "chipHeight": 50,
+        "subject": 912.5625,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 272,
+        "cell": 912.5625,
+        "overflow": 0,
+        "chip": 264,
+        "chipHeight": 106,
+        "subject": 912.5625,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 272,
+        "cell": 912.5625,
+        "overflow": 0,
+        "chip": 264,
+        "chipHeight": 64,
+        "subject": 912.5625,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 272,
+        "cell": 912.5625,
+        "overflow": 0,
+        "chip": 264,
+        "chipHeight": 58,
+        "subject": 912.5625,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 272,
+        "cell": 912.5625,
+        "overflow": 0,
+        "chip": 106.109375,
+        "chipHeight": 24,
+        "subject": 912.5625,
+        "wrap": "anywhere",
+        "label": "For"
+      }
+    ]
+  },
+  {
+    "test": "changes full customer values wrap within For at 390px",
+    "status": "passed",
+    "measurements": [
+      {
+        "content": 248,
+        "cell": 328,
+        "overflow": 0,
+        "chip": 106.109375,
+        "chipHeight": 24,
+        "subject": 328,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 248,
+        "cell": 328,
+        "overflow": 0,
+        "chip": 240,
+        "chipHeight": 50,
+        "subject": 328,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 248,
+        "cell": 328,
+        "overflow": 0,
+        "chip": 240,
+        "chipHeight": 106,
+        "subject": 328,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 248,
+        "cell": 328,
+        "overflow": 0,
+        "chip": 240,
+        "chipHeight": 78,
+        "subject": 328,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 248,
+        "cell": 328,
+        "overflow": 0,
+        "chip": 240,
+        "chipHeight": 50,
+        "subject": 328,
+        "wrap": "anywhere",
+        "label": "For"
+      },
+      {
+        "content": 248,
+        "cell": 328,
+        "overflow": 0,
+        "chip": 106.109375,
+        "chipHeight": 24,
+        "subject": 328,
+        "wrap": "anywhere",
+        "label": "For"
+      }
+    ]
+  }
+]

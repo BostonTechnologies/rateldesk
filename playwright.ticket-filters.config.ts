@@ -1,7 +1,7 @@
 import { defineConfig } from '@playwright/test';
 import base from './playwright.config';
 export default defineConfig(base, {
- testMatch:['**/ticket-filters.spec.ts'],testIgnore:[],retries:0,expect:{timeout:15000},
+ testMatch:['**/ticket-filters.spec.ts','**/ticket-customer-layout.spec.ts'],testIgnore:[],retries:0,expect:{timeout:15000},
  use:{...base.use,baseURL:'https://127.0.0.1:5200',ignoreHTTPSErrors:true},
  webServer:[
   {command:'node tests/ux/ticket-filter-fixture-api.mjs',url:'http://127.0.0.1:18330/fixture/health',reuseExistingServer:false},
