@@ -131,6 +131,6 @@ credentials, generated native homes and raw sessions are excluded from Git.
 
 Connected receive-path acceptance does not establish authoritative recovery for
 outcomes missed during an actual interruption. Broader
-[#308](https://github.com/BostonTechnologies/rateldesk/issues/308) and
-[#351](https://github.com/BostonTechnologies/rateldesk/issues/351) replay/recovery
+[#308](https://github.com/BostonTechnologies/RatelDesk/issues/308) and
+[#351](https://github.com/BostonTechnologies/RatelDesk/issues/351) replay/recovery
 work remains separate; such interruptions stay truthfully unresolved here.

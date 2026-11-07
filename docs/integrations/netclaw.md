@@ -345,8 +345,8 @@ local observation. No child, original task, mutation or approval is replayed or
 automatically cancelled. Failed or unknown snapshots cannot extend the deadline.
 
 These connected-path guarantees do not add authoritative replay for outcomes
-missed during a real interruption. The broader [#308](https://github.com/BostonTechnologies/rateldesk/issues/308)
-and [#351](https://github.com/BostonTechnologies/rateldesk/issues/351) limitations
+missed during a real interruption. The broader [#308](https://github.com/BostonTechnologies/RatelDesk/issues/308)
+and [#351](https://github.com/BostonTechnologies/RatelDesk/issues/351) limitations
 below remain separate. Acceptance uses disposable data and distinguishes
 deterministic protocol/browser fixtures from the actual supported native daemon.
 
