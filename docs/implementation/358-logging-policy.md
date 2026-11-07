@@ -4,6 +4,7 @@ Scope: source implementation and synthetic acceptance. This document establishes
 no production deployment or public-release receipt.
 
 Reviewed baseline: `ee7067d12dafb22de81b70a58f61b211b9e37226` (published beta.5).
+Implementation: `31b43fa834932543d99455665a703acfd5f397ed`.
 Companion reviewed: NetRatel PR #655, merge
 `ccb7b363a849f308dec418a8732c22a05c3e57f0`. RatelDesk retains its own OTLP-aware
 console selection and keeps headless configuration in `Helpdesk.AgentClient`;
@@ -45,13 +46,23 @@ delivery of that same event.
 | --- | --- |
 | Pinned SDK | .NET SDK 10.0.400 |
 | Initial owning test-project build | Passed, zero errors; existing warnings retained |
-| Emitted-event/global/category/invalid/legacy policy regressions | Running |
-| Early bootstrap OTLP and normal-host consumer regressions | Running |
-| Actual API bootstrap/normal process acceptance | Running |
-| Actual stdio initialize/default/verbose/invalid acceptance | Running |
-| Existing HostTelemetry/AiAgentOps regressions | Running |
+| Emitted-event/global/category/invalid/legacy policy and early OTLP/consumer regressions | 30 passed |
+| Actual API bootstrap/normal process acceptance | 4 passed |
+| Actual stdio initialize/default/verbose/invalid acceptance and existing process regressions | 11 passed |
+| Existing HostTelemetry/AiAgentOps regressions | 6 passed, including real PostgreSQL telemetry |
+| Existing Data Management rendered regressions after removing direct Console writes | 13 passed |
+| Total focused acceptance | 64 passed, zero failed or skipped; 18 seconds |
+| Aspire AppHost build | Passed, zero errors or warnings |
 | Slopwatch | Passed with existing baseline, zero new findings |
 | Documentation links and placement | Passed |
+
+The final owning-project run used the checked-in tests and OpenCover collector.
+The source policy validator has 100% sequence/branch coverage; category resolution
+has 100% sequence/branch coverage; configuration loading has 96.15% sequence and
+95.45% branch coverage. Their complexity/coverage CRAP scores are 14, 12 and 22.03,
+respectively, below the 30 risk threshold. Existing exclusions and the Slopwatch
+baseline remain unchanged. Process fixtures exercise the real stdio and API
+outputs; their child processes are separate from in-process coverage collection.
 
 Docker recipes, generated-new/existing preservation, actual HostConfig recreation
 and extracted deployment archive evidence are recorded in the accompanying
