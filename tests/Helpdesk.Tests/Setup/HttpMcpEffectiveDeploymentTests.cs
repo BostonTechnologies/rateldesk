@@ -23,6 +23,43 @@ public sealed class HttpMcpEffectiveDeploymentTests
         AllowedOrigins = ["https://desk.example.test:8443"]
     };
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("{}")]
+    [InlineData("{\"driver\":\"local\",\"options\":{\"max-size\":\"7m\",\"compress\":\"true\"}}")]
+    [InlineData("{\"driver\":\"syslog\",\"options\":{\"syslog-address\":\"udp://127.0.0.1:514\"}}")]
+    [InlineData("{\"driver\":\"json-file\",\"options\":{\"max-size\":\"3m\",\"max-file\":\"2\",\"labels\":\"owner\"}}")]
+    public void Existing_logging_and_verbosity_survive_verification_and_prepared_environment_changes(string? logging)
+    {
+        using var fixture = new Fixture();
+        var source = FourServiceGateway();
+        foreach (var role in new[] { "api", "web", "mcp-http", "db" })
+        {
+            if (logging is not null) source["services"]![role]!["logging"] = JsonNode.Parse(logging);
+        }
+        Env(source, "mcp-http")["RatelDesk__Logging__MinimumLevel"] = "Debug";
+        fixture.WriteSource(source);
+        fixture.WriteRuntime(source);
+        Environment.SetEnvironmentVariable(HttpMcpEffectiveDeployment.RuntimeSourceVariable, fixture.Runtime);
+        var before = File.ReadAllBytes(fixture.Source);
+
+        var adopted = HttpMcpEffectiveDeployment.AdoptBaseline(Settings);
+        Assert.True(adopted.Valid, HostDeploymentWorkflow.Describe(adopted.Diagnostics));
+        Assert.Empty(adopted.Overlay);
+        Assert.True(JsonNode.DeepEquals(source, adopted.CompleteDeployment));
+
+        var changed = HttpMcpEffectiveDeployment.Create(Settings with { DelegationTimeoutSeconds = 21 });
+        Assert.True(changed.Valid, HostDeploymentWorkflow.Describe(changed.Diagnostics));
+        foreach (var role in new[] { "api", "web", "mcp-http", "db" })
+        {
+            Assert.True(JsonNode.DeepEquals(source["services"]![role]!["logging"], changed.CompleteDeployment["services"]![role]!["logging"]));
+            Assert.Null(changed.Overlay["services"]?[role]?["logging"]);
+        }
+        Assert.Equal("Debug", Env(changed.CompleteDeployment, "mcp-http")["RatelDesk__Logging__MinimumLevel"]!.GetValue<string>());
+        Assert.Equal(before, File.ReadAllBytes(fixture.Source));
+        Assert.False(Directory.Exists(fixture.ExportDirectory));
+    }
+
     [Fact]
     public void Selected_legacy_config_is_removed_from_the_complete_reviewed_document_and_shared_definition_is_retained()
     {

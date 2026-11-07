@@ -3,6 +3,7 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject IJSRuntime JSRuntime
 @inject ISnackbar Snackbar
+@inject ILogger<EmailHtmlEditor> Logger
 
 <div class="email-html-editor">
     <div class="email-html-editor__toolbar">
@@ -145,7 +146,7 @@
         {
             usePlainTextFallback = true;
             Snackbar.Add("Code editor failed to load. Using the plain HTML editor instead.", Severity.Warning);
-            Console.Error.WriteLine($"Email template editor failed to load Monaco assets: {ex.Message}");
+            Logger.LogWarning("Email template editor assets could not be loaded ({ExceptionType}); using the plain HTML editor.", ex.GetType().Name);
         }
 
         StateHasChanged();

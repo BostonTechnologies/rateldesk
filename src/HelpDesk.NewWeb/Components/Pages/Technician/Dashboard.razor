@@ -1,5 +1,6 @@
 @page "/technician/dashboard"
 @inject IHttpClientFactory HttpClientFactory
+@inject ILogger<Dashboard> Logger
 
 @using Helpdesk.Shared.DTOs.Dashboard
 @attribute [Authorize(Roles = "Incident.Manager,Request.Manager,Change.Manager,HelpdeskAdmin")]
@@ -51,7 +52,7 @@ else
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error loading dashboard: {ex.Message}");
+            Logger.LogWarning("Technician dashboard data could not be loaded ({ExceptionType}).", ex.GetType().Name);
         }
     }
 }

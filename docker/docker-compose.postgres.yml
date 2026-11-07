@@ -1,5 +1,10 @@
 services:
   postgres:
+    logging:
+      driver: json-file
+      options:
+        max-size: "${RATELDESK_DOCKER_LOG_MAX_SIZE:-200m}"
+        max-file: "${RATELDESK_DOCKER_LOG_MAX_FILE:-5}"
     image: postgres:16
     environment:
       POSTGRES_DB: ${RATELDESK_POSTGRES_DATABASE:-rateldesk}

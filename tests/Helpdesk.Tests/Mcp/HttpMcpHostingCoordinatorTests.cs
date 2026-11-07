@@ -120,7 +120,7 @@ public sealed class HttpMcpHostingCoordinatorTests
     }
 
     [Fact]
-    public void Default_gateway_overlay_contains_only_configuration_changes_without_new_services_or_serving_mounts()
+    public void New_gateway_export_contains_bounded_logging_without_new_services_or_serving_mounts()
     {
         var overlay = HttpMcpHostingCoordinator.ComposeOverlay(Gateway);
         var services = overlay["services"]!.AsObject();
@@ -129,12 +129,16 @@ public sealed class HttpMcpHostingCoordinatorTests
         Assert.All(services, service =>
         {
             var value = service.Value!.AsObject();
-            Assert.Single(value);
+            Assert.Equal(2, value.Count);
             Assert.NotNull(value["environment"]);
             Assert.Null(value["healthcheck"]);
             Assert.Null(value["volumes"]);
             Assert.Null(value["depends_on"]);
             Assert.Null(value["command"]);
+            Assert.Equal("json-file", value["logging"]!["driver"]!.GetValue<string>());
+            Assert.Equal("${RATELDESK_DOCKER_LOG_MAX_SIZE:-200m}", value["logging"]!["options"]!["max-size"]!.GetValue<string>());
+            Assert.Equal("${RATELDESK_DOCKER_LOG_MAX_FILE:-5}", value["logging"]!["options"]!["max-file"]!.GetValue<string>());
+            Assert.Equal("${RATELDESK_LOG_MINIMUM_LEVEL:-Warning}", value["environment"]!["RatelDesk__Logging__MinimumLevel"]!.GetValue<string>());
         });
         var environment = services["mcp-http"]!["environment"]!.AsObject();
         Assert.Equal("gateway", environment["Helpdesk__Mcp__Outbound__CredentialMode"]!.GetValue<string>());
@@ -143,6 +147,21 @@ public sealed class HttpMcpHostingCoordinatorTests
         Assert.Null(environment["RATELDESK_MCP_CONFIG"]);
         Assert.Null(environment["RATELDESK_MCP_HOST_DIRECTORY"]);
         Assert.Null(environment["RATELDESK_MCP_CLIENT_DIRECTORY"]);
+    }
+
+    [Fact]
+    public void Existing_service_roles_keep_their_consumer_logging_policy_and_new_initializer_gets_defaults()
+    {
+        var overlay = HttpMcpHostingCoordinator.ComposeOverlay(Gateway, legacyInitializer: true,
+            existingServiceRoles: new HashSet<string>(["api", "web", "mcp-http"], StringComparer.Ordinal));
+        foreach (var role in new[] { "api", "web", "mcp-http" })
+        {
+            Assert.Null(overlay["services"]![role]!["logging"]);
+            Assert.Null(overlay["services"]![role]!["environment"]!["RatelDesk__Logging__MinimumLevel"]);
+        }
+        var initializer = overlay["services"]!["mcp-config-init"]!;
+        Assert.Equal("json-file", initializer["logging"]!["driver"]!.GetValue<string>());
+        Assert.Equal("5", initializer["logging"]!["options"]!["max-file"]!.GetValue<string>());
     }
 
     [Theory]

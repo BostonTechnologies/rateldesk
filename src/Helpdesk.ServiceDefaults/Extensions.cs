@@ -3,6 +3,9 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Console;
+using Microsoft.Extensions.Options;
+using Helpdesk.AgentClient.Logging;
 using Microsoft.Extensions.ServiceDiscovery;
 using OpenTelemetry;
 using OpenTelemetry.Logs;
@@ -12,6 +15,7 @@ using OpenTelemetry.Trace;
 using Serilog;
 using Serilog.Enrichers.Span;
 using Serilog.Formatting.Compact;
+using Serilog.Events;
 
 namespace Microsoft.Extensions.Hosting;
 
@@ -51,28 +55,36 @@ public static class Extensions
         return builder;
     }
 
-    public static TBuilder ConfigureOpenTelemetry<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
+    /// <summary>Also used before the API's restricted bootstrap host is constructed.</summary>
+    public static TBuilder AddRatelDeskDiagnosticLogging<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
+        if (builder.Services.Any(service => service.ServiceType == typeof(DiagnosticLoggingRegistration)))
+            return builder;
+        builder.Services.AddRatelDeskLoggingPolicy(builder.Configuration);
+        builder.Services.AddSingleton<DiagnosticLoggingRegistration>();
         var serviceAttributes = ResolveServiceAttributes(builder);
-        var resourceBuilder = CreateResourceBuilder(serviceAttributes);
         var useOtlpExporter = !string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]);
-        var verboseDependencyLogs = bool.TryParse(
-            builder.Configuration["Observability:VerboseDependencyLogs"],
-            out var parsedVerboseDependencyLogs) && parsedVerboseDependencyLogs;
         var consoleLogsEnabled = bool.TryParse(
             builder.Configuration["Observability:ConsoleLogsEnabled"],
             out var parsedConsoleLogsEnabled)
                 ? parsedConsoleLogsEnabled
                 : !useOtlpExporter;
 
-        builder.Services.AddSerilog((_, loggerConfiguration) =>
+        // Serilog owns the console sink. Forwarding to the default Console
+        // provider prints the same event again; retain every other consumer.
+        foreach (var descriptor in builder.Services.Where(service =>
+                     service.ServiceType == typeof(ILoggerProvider) && service.ImplementationType == typeof(ConsoleLoggerProvider)).ToArray())
+            builder.Services.Remove(descriptor);
+
+        builder.Services.AddSerilog((services, loggerConfiguration) =>
         {
+            var policy = services.GetRequiredService<IOptions<RatelDeskLoggingOptions>>().Value;
             loggerConfiguration
-                .MinimumLevel.Information()
-                .MinimumLevel.Override("Microsoft.AspNetCore", Serilog.Events.LogEventLevel.Warning)
-                .MinimumLevel.Override("Microsoft.EntityFrameworkCore.Database.Command", verboseDependencyLogs ? Serilog.Events.LogEventLevel.Information : Serilog.Events.LogEventLevel.Warning)
-                .MinimumLevel.Override("System.Net.Http.HttpClient", verboseDependencyLogs ? Serilog.Events.LogEventLevel.Information : Serilog.Events.LogEventLevel.Warning)
-                .MinimumLevel.Override("Polly", verboseDependencyLogs ? Serilog.Events.LogEventLevel.Information : Serilog.Events.LogEventLevel.Error)
+                .MinimumLevel.Is(ToSerilogLevel(policy.LowestThreshold()))
+                .Filter.ByIncludingOnly(entry => policy.IsEnabled(
+                    entry.Properties.TryGetValue("SourceContext", out var source) && source is ScalarValue { Value: string category }
+                        ? category : null,
+                    ToMicrosoftLevel(entry.Level)))
                 .Enrich.FromLogContext()
                 .Enrich.WithMachineName()
                 .Enrich.WithEnvironmentName()
@@ -91,25 +103,48 @@ public static class Extensions
             }
         }, writeToProviders: true);
 
-        if (!verboseDependencyLogs)
-        {
-            builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Warning);
-            builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
-            builder.Logging.AddFilter("Polly", LogLevel.Error);
-        }
-
+        // Bootstrap can build and return before AddServiceDefaults. Register
+        // its log exporter here as well, especially when OTLP disables console.
         builder.Logging.AddOpenTelemetry(logging =>
         {
             logging.IncludeFormattedMessage = true;
             logging.IncludeScopes = true;
             logging.ParseStateValues = true;
-            logging.SetResourceBuilder(resourceBuilder);
-
+            logging.SetResourceBuilder(CreateResourceBuilder(serviceAttributes));
             if (useOtlpExporter)
-            {
                 logging.AddOtlpExporter();
-            }
         });
+
+        return builder;
+    }
+
+    private sealed class DiagnosticLoggingRegistration;
+
+    private static LogEventLevel ToSerilogLevel(LogLevel level) => level switch
+    {
+        LogLevel.Trace => LogEventLevel.Verbose,
+        LogLevel.Debug => LogEventLevel.Debug,
+        LogLevel.Information => LogEventLevel.Information,
+        LogLevel.Warning => LogEventLevel.Warning,
+        LogLevel.Error => LogEventLevel.Error,
+        _ => LogEventLevel.Fatal
+    };
+
+    private static LogLevel ToMicrosoftLevel(LogEventLevel level) => level switch
+    {
+        LogEventLevel.Verbose => LogLevel.Trace,
+        LogEventLevel.Debug => LogLevel.Debug,
+        LogEventLevel.Information => LogLevel.Information,
+        LogEventLevel.Warning => LogLevel.Warning,
+        LogEventLevel.Error => LogLevel.Error,
+        _ => LogLevel.Critical
+    };
+
+    public static TBuilder ConfigureOpenTelemetry<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
+    {
+        builder.AddRatelDeskDiagnosticLogging();
+        var serviceAttributes = ResolveServiceAttributes(builder);
+        var useOtlpExporter = !string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]);
 
         builder.Services.AddOpenTelemetry()
             .ConfigureResource(resource =>

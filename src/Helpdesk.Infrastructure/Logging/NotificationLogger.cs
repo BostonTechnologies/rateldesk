@@ -2,7 +2,8 @@ using Microsoft.Extensions.Logging;
 
 namespace Helpdesk.Infrastructure.Logging;
 
-internal sealed class NotificationLogger(string categoryName, Action<NotificationLoggerProvider.NotificationLogEntry> enqueue) : ILogger
+internal sealed class NotificationLogger(string categoryName, Action<NotificationLoggerProvider.NotificationLogEntry> enqueue,
+    NotificationLoggerFailureReporter failures) : ILogger
 {
     private readonly string _categoryName = categoryName;
     private readonly Action<NotificationLoggerProvider.NotificationLogEntry> _enqueue = enqueue;
@@ -27,12 +28,12 @@ internal sealed class NotificationLogger(string categoryName, Action<Notificatio
         if (!IsEnabled(logLevel))
             return;
 
-        if (_categoryName.StartsWith("Helpdesk.Infrastructure.Logging", StringComparison.Ordinal))
+        if (_categoryName.StartsWith("Helpdesk.Infrastructure.Logging", StringComparison.Ordinal) ||
+            NotificationLoggerProvider.IsDispatchingNotification)
             return;
 
         try
         {
-            Console.WriteLine($"NotificationLogger.Log called: {_categoryName} {logLevel}");
             var formatted = formatter(state, exception);
             var message = string.IsNullOrWhiteSpace(formatted)
                 ? exception?.Message ?? "Log entry"
@@ -49,9 +50,9 @@ internal sealed class NotificationLogger(string categoryName, Action<Notificatio
                 message,
                 DateTime.UtcNow));
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            Console.WriteLine($"NotificationLogger.Log error: {ex}");
+            failures.Report();
         }
     }
 }

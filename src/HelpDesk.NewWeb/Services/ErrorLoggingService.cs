@@ -9,7 +9,7 @@ public interface IErrorLoggingService
     Task LogAsync(string message, string? stackTrace = null, string? page = null);
 }
 
-public class ErrorLoggingService(HttpClient httpClient) : IErrorLoggingService
+public class ErrorLoggingService(HttpClient httpClient, ILogger<ErrorLoggingService> logger) : IErrorLoggingService
 {
     private readonly HttpClient _httpClient = httpClient;
 
@@ -29,12 +29,12 @@ public class ErrorLoggingService(HttpClient httpClient) : IErrorLoggingService
             var resp = await _httpClient.PostAsJsonAsync("/api/v1/errors", entry);
             if (!resp.IsSuccessStatusCode)
             {
-                Console.WriteLine($"Error logging failed: {resp.StatusCode}");
+                logger.LogWarning("Error record delivery failed with HTTP status {StatusCode}.", (int)resp.StatusCode);
             }
         }
-        catch (Exception e)
+        catch (Exception)
         {
-            Console.WriteLine($"Error logging failed: {e.Message}");
+            logger.LogWarning("Error record delivery failed before a response was received.");
         }
     }
 }

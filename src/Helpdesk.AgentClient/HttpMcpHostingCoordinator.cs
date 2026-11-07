@@ -202,6 +202,7 @@ public static class HttpMcpHostingCoordinator
             "Review docker compose config without logging secrets, then recreate Web/API/MCP explicitly. No API keys or database are mounted into MCP.\n" +
             "Legacy overlays retain direct port 8223 publication. If changing the listener, explicitly replace or remove that optional direct port mapping in your operator overlay; the Web MCP destination and generated healthcheck use the reviewed listener.\n" +
             "Verify configuration, HTTPS reachability, authentication, MCP initialize and a permitted read-only tool separately.\n";
+        apply += "New deployment exports use bounded Docker json-file logging (200m per file, 5 files by default); existing services retain their complete consumer policy. Log-driver/options changes require affected-container recreation, not docker restart. Application Options cannot modify Docker HostConfig. See docs/deployment/self-hosting.md#container-log-retention.\n";
         var content = new[]
         {
             JsonSerializer.Serialize(settings with { Outbound = null }, Json) + "\n",
@@ -240,7 +241,8 @@ public static class HttpMcpHostingCoordinator
     }
 
     /// <summary>Exact reviewed patch, shared by effective preflight and export.</summary>
-    public static System.Text.Json.Nodes.JsonObject ComposeOverlay(HttpMcpHostingSettings settings, bool legacyInitializer = false)
+    public static System.Text.Json.Nodes.JsonObject ComposeOverlay(HttpMcpHostingSettings settings, bool legacyInitializer = false,
+        IReadOnlySet<string>? existingServiceRoles = null)
     {
         var webEnvironment = new Dictionary<string, object?>
         {
@@ -293,6 +295,27 @@ public static class HttpMcpHostingCoordinator
         {
             result["services"]!.AsObject().Remove("mcp-config-init");
             result["services"]!["mcp-http"]!.AsObject().Remove("healthcheck");
+        }
+        foreach (var service in result["services"]!.AsObject())
+        {
+            // A new export owns its defaults. An existing deployment owns its
+            // complete logging policy, including an absent block/daemon default.
+            // Its source-preserving change path must not silently replace it.
+            if (existingServiceRoles?.Contains(service.Key) == true) continue;
+            service.Value!["logging"] = new System.Text.Json.Nodes.JsonObject
+            {
+                ["driver"] = "json-file",
+                ["options"] = new System.Text.Json.Nodes.JsonObject
+                {
+                    // Existing-deployment preflight consumes a fully rendered
+                    // snapshot; newly added services need concrete reviewable
+                    // defaults, not a second interpolation during owner apply.
+                    ["max-size"] = existingServiceRoles is null ? "${RATELDESK_DOCKER_LOG_MAX_SIZE:-200m}" : "200m",
+                    ["max-file"] = existingServiceRoles is null ? "${RATELDESK_DOCKER_LOG_MAX_FILE:-5}" : "5"
+                }
+            };
+            if (service.Value["environment"] is System.Text.Json.Nodes.JsonObject environment)
+                environment["RatelDesk__Logging__MinimumLevel"] = "${RATELDESK_LOG_MINIMUM_LEVEL:-Warning}";
         }
         return result;
     }

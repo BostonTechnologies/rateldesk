@@ -3,6 +3,11 @@ name: rateldesk-mcp-http
 # Connects to an already-running API; it deliberately has no depends_on entry.
 services:
   mcp-config-init:
+    logging:
+      driver: json-file
+      options:
+        max-size: "${RATELDESK_DOCKER_LOG_MAX_SIZE:-200m}"
+        max-file: "${RATELDESK_DOCKER_LOG_MAX_FILE:-5}"
     image: ghcr.io/bostontechnologies/rateldesk-mcp-http:${RATELDESK_VERSION:?Set RATELDESK_VERSION to an exact published RatelDesk version.}
     user: "0:0"
     entrypoint: ["/bin/sh", "-ec"]
@@ -22,9 +27,15 @@ services:
         target: /run/rateldesk-mcp
 
   mcp-http:
+    logging:
+      driver: json-file
+      options:
+        max-size: "${RATELDESK_DOCKER_LOG_MAX_SIZE:-200m}"
+        max-file: "${RATELDESK_DOCKER_LOG_MAX_FILE:-5}"
     image: ghcr.io/bostontechnologies/rateldesk-mcp-http:${RATELDESK_VERSION:?Set RATELDESK_VERSION to an exact published RatelDesk version.}
     environment:
       ASPNETCORE_ENVIRONMENT: Production
+      RatelDesk__Logging__MinimumLevel: ${RATELDESK_LOG_MINIMUM_LEVEL:-Warning}
       RATELDESK_MCP_CONFIG: /run/rateldesk-mcp/config.json
       Helpdesk__Mcp__Instance: ${RATELDESK_MCP_INSTANCE:-example}
       Helpdesk__Mcp__ExpectedApiBaseUrl: ${RATELDESK_API_BASE_URL:?Set the pinned API URL.}

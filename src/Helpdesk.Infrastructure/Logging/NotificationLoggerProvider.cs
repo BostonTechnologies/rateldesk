@@ -10,6 +10,9 @@ namespace Helpdesk.Infrastructure.Logging;
 
 public sealed class NotificationLoggerProvider : ILoggerProvider
 {
+    private static readonly AsyncLocal<bool> DispatchingNotification = new();
+    internal static bool IsDispatchingNotification => DispatchingNotification.Value;
+    private readonly NotificationLoggerFailureReporter _failures = new();
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly string _environmentName;
     private readonly string _serviceName;
@@ -38,14 +41,12 @@ public sealed class NotificationLoggerProvider : ILoggerProvider
             FullMode = BoundedChannelFullMode.DropOldest
         });
 
-        Console.WriteLine("NotificationLoggerProvider background worker started");
         _worker = Task.Run(ProcessQueueAsync);
     }
 
     public ILogger CreateLogger(string categoryName)
     {
-        Console.WriteLine($"NotificationLoggerProvider.CreateLogger: {categoryName}");
-        return _loggers.GetOrAdd(categoryName, name => new NotificationLogger(name, Enqueue));
+        return _loggers.GetOrAdd(categoryName, name => new NotificationLogger(name, Enqueue, _failures));
     }
 
     public void Dispose()
@@ -59,9 +60,9 @@ public sealed class NotificationLoggerProvider : ILoggerProvider
             _queue.Writer.TryComplete();
             _worker.GetAwaiter().GetResult();
         }
-        catch
+        catch (Exception)
         {
-            // Never throw during logger provider disposal.
+            _failures.Report();
         }
         finally
         {
@@ -78,9 +79,9 @@ public sealed class NotificationLoggerProvider : ILoggerProvider
         {
             _queue.Writer.TryWrite(entry);
         }
-        catch
+        catch (Exception)
         {
-            // Swallow to keep logging pipeline safe.
+            _failures.Report();
         }
     }
 
@@ -92,6 +93,7 @@ public sealed class NotificationLoggerProvider : ILoggerProvider
             {
                 try
                 {
+                    DispatchingNotification.Value = true;
                     using var scope = _scopeFactory.CreateScope();
                     var notificationService = scope.ServiceProvider.GetRequiredService<INotificationService>();
 
@@ -106,9 +108,17 @@ public sealed class NotificationLoggerProvider : ILoggerProvider
 
                     await notificationService.CreateNotificationAsync(request, _cts.Token);
                 }
-                catch (Exception ex)
+                catch (OperationCanceledException) when (_cts.IsCancellationRequested)
                 {
-                    Console.WriteLine($"NotificationLoggerProvider worker error: {ex}");
+                    return;
+                }
+                catch (Exception)
+                {
+                    _failures.Report();
+                }
+                finally
+                {
+                    DispatchingNotification.Value = false;
                 }
             }
         }
@@ -116,9 +126,9 @@ public sealed class NotificationLoggerProvider : ILoggerProvider
         {
             // Expected during shutdown.
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            Console.WriteLine($"NotificationLoggerProvider loop terminated: {ex}");
+            _failures.Report();
         }
     }
 

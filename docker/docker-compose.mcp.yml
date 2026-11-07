@@ -11,6 +11,11 @@ services:
       WebGateway__Mcp__AuthenticationMode: authentik
 
   mcp-config-init:
+    logging:
+      driver: json-file
+      options:
+        max-size: "${RATELDESK_DOCKER_LOG_MAX_SIZE:-200m}"
+        max-file: "${RATELDESK_DOCKER_LOG_MAX_FILE:-5}"
     build:
       context: ..
       dockerfile: docker/mcp-http/Dockerfile
@@ -32,11 +37,17 @@ services:
         target: /run/rateldesk-mcp
 
   mcp-http:
+    logging:
+      driver: json-file
+      options:
+        max-size: "${RATELDESK_DOCKER_LOG_MAX_SIZE:-200m}"
+        max-file: "${RATELDESK_DOCKER_LOG_MAX_FILE:-5}"
     build:
       context: ..
       dockerfile: docker/mcp-http/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Production
+      RatelDesk__Logging__MinimumLevel: ${RATELDESK_LOG_MINIMUM_LEVEL:-Warning}
       RATELDESK_MCP_CONFIG: /run/rateldesk-mcp/config.json
       Helpdesk__Mcp__Instance: ${RATELDESK_MCP_INSTANCE:-local}
       Helpdesk__Mcp__ExpectedApiBaseUrl: http://api:8222/

@@ -20,6 +20,7 @@
 @inject IDialogService DialogService
 @inject IJSRuntime JSRuntime
 @inject ISnackbar Snackbar
+@inject ILogger<DataManagement> Logger
 
 <PageTitle>Data Management</PageTitle>
 
@@ -416,7 +417,7 @@
             {
                 usePlainTextFallback = true;
                 Snackbar.Add("Code editor failed to load. Using plain sample viewers instead.", Severity.Warning);
-                Console.Error.WriteLine($"Data Management sample viewer failed to load Monaco assets: {ex.Message}");
+                Logger.LogWarning("Data Management sample viewer assets could not be loaded ({ExceptionType}); using plain sample viewers.", ex.GetType().Name);
             }
 
             StateHasChanged();

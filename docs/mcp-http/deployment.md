@@ -4,6 +4,31 @@ Start with [Set up HTTP MCP](setup.md) for the normal server/client procedure.
 This reference covers alternate execution contexts, explicit configuration,
 deployment ownership, legacy recipes and migration.
 
+## Logging and container retention
+
+HTTP MCP uses the shared [validated application logging policy](../deployment/application-logging.md),
+with Warning by default. The shipped recipes explicitly map
+`RATELDESK_LOG_MINIMUM_LEVEL` to the container's
+`RatelDesk__Logging__MinimumLevel`; category opt-ins belong in the service's
+canonical environment mapping. Console selection remains OTLP-aware. Stdio
+diagnostics use stderr and its stdout remains JSON-RPC-only.
+
+Source/release overlays, standalone examples, configuration initializers,
+setup tooling and fresh generated exports use `json-file` with string options
+`max-size: "${RATELDESK_DOCKER_LOG_MAX_SIZE:-200m}"` and
+`max-file: "${RATELDESK_DOCKER_LOG_MAX_FILE:-5}"`. This is approximately 1 GB
+combined per container, including its active file; every additional service or
+replica has a separate budget. See [Docker units and recreation](../deployment/self-hosting.md#container-log-retention).
+
+**Verify existing deployment** makes no source or Docker changes. Normal MCP
+environment corrections preserve each existing service's complete consumer
+logging policy, including daemon defaults, and never impose json-file options
+on another driver. Fresh services/exports get bounded defaults. To change an
+existing log policy, edit its original owning source, review/apply through the
+same deployment manager, recreate affected containers, then run fresh host
+verification. Restart alone does not update Docker HostConfig. Do not edit
+approved checkpoints or give the application Docker socket access.
+
 ## Deployment-host launcher
 
 Run `tools/mcp/setup-http-mcp.sh` from a source checkout, or

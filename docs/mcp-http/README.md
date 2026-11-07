@@ -16,6 +16,8 @@ share the Web public origin or use an explicitly configured standalone origin.
   external administrator/AI principals and campaign prerequisites.
 - [Deployment reference](deployment.md): alternate terminals, source and
   release Compose, persisted configuration, migration and rotation.
+- [Logging and container retention](deployment.md#logging-and-container-retention):
+  Warning defaults, explicit opt-ins and approximately 1 GB per container.
 - [Troubleshooting and verification](troubleshooting.md): separate routing,
   authentication, initialize and permitted read-only tool checks.
 - [Web gateway](../deployment/web-gateway.md): single-origin route ownership,

@@ -111,6 +111,7 @@ var builder = operatorCommand
             Environment.GetEnvironmentVariable("ASPNETCORE_CONTENTROOT"))
     })
     : WebApplication.CreateBuilder(args);
+builder.AddRatelDeskDiagnosticLogging();
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 var systemTokenSecret = builder.Configuration["SYSTEM_TOKEN_SECRET"] ?? builder.Configuration["SystemTokenSecret"];
 var aiAgentOpsLogBuffer = new AiAgentOpsLogBuffer();
@@ -1007,8 +1008,6 @@ builder.Services.AddScoped<IAuthorizationHandler, IntegrationCredentialManagemen
 builder.Services.AddSingleton<McpExecutionTokenService>();
 
 
-builder.Logging.AddFilter("Microsoft.AspNetCore.Authentication", LogLevel.Debug);
-builder.Logging.AddFilter("Helpdesk", LogLevel.Warning);
 
 builder.Services.AddOpenApi(options =>
 {
