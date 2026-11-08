@@ -110,6 +110,28 @@ public sealed class OidcProvisioningTests
         }
     }
 
+    [Theory]
+    [InlineData("local", HttpStatusCode.Forbidden)]
+    [InlineData("integration", HttpStatusCode.Forbidden)]
+    [InlineData("mcp", HttpStatusCode.Forbidden)]
+    [InlineData("gateway", HttpStatusCode.Forbidden)]
+    [InlineData("service", HttpStatusCode.Forbidden)]
+    [InlineData("machine", HttpStatusCode.Forbidden)]
+    [InlineData("ai_agent", HttpStatusCode.Forbidden)]
+    public async Task Provider_tokens_cannot_create_owners_for_local_or_noninteractive_modes(string mode, HttpStatusCode expected)
+    {
+        // A provider's local-mode claim is not an enabled local account.
+        // Genuine local-account ownership is covered by the management-session tests.
+        using var fixture = new SignedOidcApi("Hybrid");
+        using var client = fixture.Client(fixture.Token(roles: ["external-administrators"], authenticationMode: mode));
+        var response = await client.PostAsync("/api/v1/users/provision", null);
+        Assert.Equal(expected, response.StatusCode);
+        using var scope = fixture.Factory.Services.CreateScope();
+        var identity = scope.ServiceProvider.GetRequiredService<RatelDeskIdentityDbContext>();
+        Assert.Empty(identity.UserLogins);
+        Assert.Empty(identity.Users);
+    }
+
     [Fact]
     public async Task Same_email_with_another_subject_does_not_inherit_the_external_owner()
     {
@@ -211,7 +233,7 @@ internal sealed class SignedOidcApi : IDisposable
         });
     }
 
-    public string Token(string? subject = "subject", string[]? roles = null, string roleClaim = "roles", string? issuer = null, string? audience = null, SecurityKey? key = null, bool expired = false, string? nonce = null, int validForMinutes = 5)
+    public string Token(string? subject = "subject", string[]? roles = null, string roleClaim = "roles", string? issuer = null, string? audience = null, SecurityKey? key = null, bool expired = false, string? nonce = null, int validForMinutes = 5, string? authenticationMode = null)
     {
         var claims = new List<Claim>
         {
@@ -219,6 +241,7 @@ internal sealed class SignedOidcApi : IDisposable
             new("iat", DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture), ClaimValueTypes.Integer64)
         };
         if (subject is not null) claims.Add(new Claim("sub", subject));
+        if (authenticationMode is not null) claims.Add(new Claim("auth_mode", authenticationMode));
         if (nonce is not null) claims.Add(new Claim("nonce", nonce));
         claims.AddRange((roles ?? []).Select(role => new Claim(roleClaim, role)));
         var token = new JwtSecurityToken(issuer ?? Issuer, audience ?? Audience, claims,

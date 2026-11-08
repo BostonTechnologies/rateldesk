@@ -88,7 +88,11 @@ public static class UserEndpoints
                 // An explicitly authorized external instance administrator does not
                 // require a customer-contact link. Other users need an established identity link.
                 var unlinkedAccess = await accessService.ResolveAsync(principal);
-                if (!unlinkedAccess.IsHelpdeskAdmin || string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(subject))
+                if (!unlinkedAccess.IsHelpdeskAdmin) return Results.Forbid();
+                if (principal.HasClaim("auth_mode", "local")) return Results.Ok(ToAccessDto(unlinkedAccess));
+                if (principal.FindFirstValue("auth_mode") is "integration" or "mcp" or "gateway" or "service" or "machine" or "ai_agent" ||
+                    principal.HasClaim("token_use", "rateldesk_service") ||
+                    string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(subject))
                     return Results.Forbid();
                 var account = await Helpdesk.Infrastructure.Identity.OidcApplicationAccount.ProvisionAdministratorAsync(
                     identityDb, issuer, subject, principal.Identity?.Name ?? email, ct);
