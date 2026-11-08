@@ -3,6 +3,7 @@
 These documents retain dated plans, source pins and evidence. Current operator
 guidance is linked from the [documentation index](../README.md).
 
+- [Issues #367–#371 premium workspaces delivery register](367-371-premium-workspaces.md)
 - [7 November 2026 next-beta delivery register](2026-11-07-beta-delivery.md)
 - [Task-first request service editor: #357 implementation and synthetic acceptance](357-task-first-editor.md)
 - [Shared ticket requester containment: #356 browser evidence](356-for-column.md)

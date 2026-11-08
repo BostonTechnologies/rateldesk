@@ -179,3 +179,149 @@ test('200 percent layout retains search, operations and keyboard navigation in b
     await page.evaluate(() => { document.documentElement.style.zoom = ''; });
   }
 });
+
+test('task dashboard starts with all authorized assignments and pages before opting in and out', async ({ page, request }) => {
+  await request.get(`${fixture}/premium`); await ready(page, '/tasks');
+  await expect(page.locator('.task-workspace tbody tr')).toHaveCount(25);
+  let state = await (await request.get(`${fixture}/state`)).json();
+  expect(state.requests.find((x: any) => x.path === '/api/v1/request-tasks').query.assignedToMe).toBe('false');
+  await page.getByRole('button', { name: 'Next page', exact: true }).click();
+  await expect(page.getByRole('link', { name: 'REQ-0025', exact: true })).toBeVisible();
+  await page.getByRole('switch', { name: 'Assigned to me', exact: true }).check();
+  await expect(page.getByRole('link', { name: 'REQ-0000', exact: true })).toBeVisible();
+  state = await (await request.get(`${fixture}/state`)).json();
+  expect(state.requests.filter((x: any) => x.path === '/api/v1/request-tasks').at(-1).query).toMatchObject({ page: '1', assignedToMe: 'true' });
+  await page.getByRole('switch', { name: 'Assigned to me', exact: true }).uncheck();
+  await expect(page.getByRole('link', { name: 'REQ-0001', exact: true })).toBeVisible();
+  expect(await page.getByRole('button', { name: 'Running', exact: true }).count()).toBe(0);
+  await expect(page.getByText('Running', { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Open recovery', exact: true }).first()).toHaveAttribute('href', /notifications/);
+  const firstRow = page.locator('.task-workspace tbody tr').filter({ has: page.getByRole('link', { name: 'REQ-0000', exact: true }) });
+  await firstRow.getByRole('button', { name: 'Start task', exact: true }).evaluate((button: HTMLElement) => { button.click(); button.click(); });
+  await expect.poll(async () => (await (await request.get(`${fixture}/state`)).json()).mutations.filter((x: any) => x.path === '/api/v1/request-tasks/task-0/start').length).toBe(1);
+  await expect(firstRow.getByRole('button', { name: 'Complete task', exact: true })).toBeVisible();
+  await expect(firstRow.locator('input[type=checkbox]')).not.toBeChecked();
+  await firstRow.locator('input[type=checkbox]').check();
+  await expect(page.getByText('1 selected', { exact: true })).toBeVisible();
+  await page.getByRole('switch', { name: 'Assigned to me', exact: true }).check();
+  await expect(page.getByText('1 selected', { exact: true })).toHaveCount(0);
+});
+
+test('rule paging and filtered reordering retain full scope; browsing, clone and toggles make only reviewed mutations', async ({ page, request }) => {
+  await request.get(`${fixture}/premium`); await ready(page, '/admin/email-rules');
+  await expect(page.locator('.email-rules-table tbody tr')).toHaveCount(25);
+  await page.getByRole('button', { name: 'Next page', exact: true }).click();
+  await expect(page.getByText('26-50 of 64', { exact: true })).toBeVisible();
+  expect((await (await request.get(`${fixture}/state`)).json()).mutations).toEqual([]);
+  await page.getByRole('textbox', { name: 'Search rules', exact: true }).fill('Rule 25:');
+  await expect(page.locator('.email-rules-table tbody tr')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Move up', exact: true }).click();
+  await expect.poll(async () => (await (await request.get(`${fixture}/state`)).json()).mutations.length).toBe(1);
+  const reordered = (await (await request.get(`${fixture}/state`)).json()).mutations[0].body.rules;
+  expect(reordered).toHaveLength(60);
+  expect(reordered.find((x: any) => x.id === 'rule-25').priority).toBe(24);
+  expect(reordered.find((x: any) => x.id === 'rule-24').priority).toBe(25);
+  expect(reordered.some((x: any) => Number(x.id.slice(5)) >= 60)).toBe(false);
+  await page.getByRole('button', { name: 'View details', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('Rule 25:');
+  await page.getByRole('dialog').locator('.mud-dialog-actions').getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('button', { name: 'Enable rule', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect((await (await request.get(`${fixture}/state`)).json()).mutations).toHaveLength(1);
+  await page.getByRole('button', { name: 'Clone rule', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Cloned rule name', exact: true }).fill('Synthetic disabled copy');
+  await page.getByRole('button', { name: 'Save disabled copy', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Cloned rule name', exact: true })).toHaveCount(0);
+  const state = await (await request.get(`${fixture}/state`)).json();
+  const copy = state.mutations.find((x: any) => x.path === '/api/v1/inbound-email-rules');
+  expect(copy.body).toMatchObject({ enabled: false, name: 'Synthetic disabled copy', scopeType: 0, tenantId: null, mailboxId: null });
+  expect(copy.body.conditions).toEqual(state.rules.find((x: any) => x.id === 'rule-25').conditions);
+  expect(copy.body.actions).toEqual(state.rules.find((x: any) => x.id === 'rule-25').actions);
+});
+
+test('audit pages the complete history and older failure, aligns all cells, and retains exact diagnostics', async ({ page, request }) => {
+  await request.get(`${fixture}/premium`); await ready(page, '/admin/email-rules');
+  await page.getByRole('tab', { name: 'Audit', exact: true }).click();
+  await expect(page.locator('.email-audit-table tbody tr')).toHaveCount(25);
+  const headers = await page.locator('.email-audit-table thead th').count();
+  for (const row of await page.locator('.email-audit-table tbody tr').all()) expect(await row.locator('td').count()).toBe(headers);
+  await page.getByRole('combobox', { name: 'Outcome', exact: true }).click();
+  await page.getByRole('option', { name: 'Failed', exact: true }).click();
+  await page.getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(page.locator('.email-audit-table tbody tr')).toHaveCount(1);
+  await expect(page.getByText('Unknown rule', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Audit details', exact: true }).click();
+  const details = page.getByRole('region', { name: 'Audit details', exact: true });
+  await expect(details).toContainText('Older synthetic failure outside newest 200');
+  await expect(details).toContainText('message-0@example.test');
+  await expect(details.getByRole('button', { name: 'Copy diagnostics', exact: true })).toBeEnabled();
+  const state = await (await request.get(`${fixture}/state`)).json();
+  expect(state.requests.filter((x: any) => x.path.endsWith('/audit/page')).at(-1).query.status).toBe('Failed');
+});
+
+test('notification arrivals and reconnect retain identities, selection and position; failed receipt does not claim success', async ({ page, request }) => {
+  await request.get(`${fixture}/premium`); await ready(page, '/notifications');
+  await expect(page.locator('.notifications-workspace tbody tr')).toHaveCount(25);
+  await expect(page.getByRole('columnheader', { name: 'Reference', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Next page', exact: true }).click();
+  await expect(page.locator('[data-notification-id]').first()).toHaveAttribute('data-notification-id', '56000000-0000-4000-8000-000000000026');
+  const ids = await page.locator('[data-notification-id]').evaluateAll(rows => rows.map(row => row.getAttribute('data-notification-id')));
+  await page.locator('.notifications-workspace tbody input[type=checkbox]').first().check();
+  const before = await page.locator('.notifications-workspace .mud-table-container').evaluate(el => { el.scrollTop = 120; return el.scrollTop; });
+  await request.get(`${fixture}/arrival?duplicate=true`);
+  await expect(page.getByRole('button', { name: '1 new events · Refresh', exact: true })).toBeVisible();
+  expect(await page.locator('[data-notification-id]').evaluateAll(rows => rows.map(row => row.getAttribute('data-notification-id')))).toEqual(ids);
+  expect(await page.locator('.notifications-workspace .mud-table-container').evaluate(el => el.scrollTop)).toBe(before);
+  await expect(page.getByRole('button', { name: 'Mark Selected Read (1)', exact: true })).toBeEnabled();
+  await request.get(`${fixture}/disconnect`);
+  await expect(page.getByText('Reconnecting', { exact: true })).toBeVisible();
+  await expect(page.getByText('Live', { exact: true })).toBeVisible();
+  expect(await page.locator('[data-notification-id]').evaluateAll(rows => rows.map(row => row.getAttribute('data-notification-id')))).toEqual(ids);
+  await request.get(`${fixture}/fault?category=receipts`);
+  await page.getByRole('button', { name: 'Mark Selected Read (1)', exact: true }).click();
+  // The real named API client retains its default bounded resilience retries on 503.
+  await expect(page.getByText('Read receipts could not be confirmed. Selection is retained; refresh to reconcile.', { exact: true })).toBeVisible({ timeout: 35_000 });
+  expect((await (await request.get(`${fixture}/state`)).json()).receipts).toEqual([]);
+  await expect(page.getByRole('button', { name: 'Mark Selected Read (1)', exact: true })).toBeEnabled();
+  await request.get(`${fixture}/fault`);
+  await page.getByRole('button', { name: 'Mark Selected Read (1)', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Mark Selected Read (0)', exact: true })).toBeDisabled();
+  expect((await (await request.get(`${fixture}/state`)).json()).receipts).toHaveLength(1);
+  await page.getByRole('textbox', { name: 'Search', exact: true }).fill('56000000-0000-4000-8000-000000001001');
+  await expect(page.locator('.notifications-workspace tbody tr')).toHaveCount(1);
+  await expect(page.locator('[data-notification-id]')).toHaveAttribute('data-notification-id', '56000000-0000-4000-8000-000000000001');
+  const readsBeforeDetails = (await (await request.get(`${fixture}/state`)).json()).requests.filter((x: any) => x.path === '/api/v1/notifications').length;
+  await page.getByRole('button', { name: 'Event details', exact: true }).click();
+  await expect(page.getByText('Reference: 56000000-0000-4000-8000-000000001001', { exact: true })).toBeVisible();
+  // Blurring the search must not reload/remount the row between pointer down and click.
+  expect((await (await request.get(`${fixture}/state`)).json()).requests.filter((x: any) => x.path === '/api/v1/notifications')).toHaveLength(readsBeforeDetails);
+});
+
+for (const theme of ['light', 'dark']) for (const [width, height] of [[1440, 900], [1366, 768], [390, 844]]) {
+  test(`premium operations ${theme} ${width}x${height}`, async ({ page, request }, info) => {
+    await request.get(`${fixture}/premium`); await page.setViewportSize({ width, height });
+    await page.evaluate(theme => localStorage.setItem('helpdesk.theme.preference', theme), theme);
+    for (const route of ['/tasks', '/notifications', '/admin/email-rules']) {
+      await ready(page, route);
+      await expect(page.locator('.premium-workspace tbody tr').first()).toBeVisible();
+      if (route === '/admin/email-rules') {
+        await expect(page.locator('.premium-workspace .mud-table-pagination').last()).toBeInViewport();
+        await page.screenshot({ path: info.outputPath(`rules-${theme}-${width}.png`) });
+        await page.getByRole('tab', { name: 'Audit', exact: true }).click();
+      }
+      await expect(page.locator('.premium-workspace .mud-table-pagination').last()).toBeInViewport();
+      await assertNoHorizontalOverflow(page);
+      await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
+      await page.screenshot({ path: info.outputPath(`${route.replaceAll('/', '-')}-${theme}-${width}.png`) });
+    }
+  });
+}
+
+
+test('notification table CSS does not restyle the separate workflow table', async ({ page, request }) => {
+  await request.get(`${fixture}/premium`); await ready(page, '/ops/workflows');
+  const before = await page.locator('.workflow-operations .mud-table-root').evaluate(element => getComputedStyle(element).tableLayout);
+  await ready(page, '/notifications'); await ready(page, '/ops/workflows');
+  const geometry = await page.locator('.workflow-operations .mud-table-root').evaluate(element => ({ layout: getComputedStyle(element).tableLayout, premium: Boolean(element.closest('.premium-workspace')) }));
+  expect(geometry.premium).toBe(false); expect(geometry.layout).toBe(before);
+});

@@ -35,3 +35,10 @@ public sealed record PendingEmailActionRequest(Guid[] Ids, string Action, string
 public sealed record PendingEmailActionResult(Guid Id, string Outcome, string Message);
 public sealed record PendingEmailActionResponse(IReadOnlyList<PendingEmailActionResult> Results);
 public sealed record PendingEmailOrganization(string Id, string Label);
+
+public sealed record PendingEmailSelectionRequest(PendingEmailQuery Query, string Action,
+    bool AllMatching, Guid[] IncludedIds, Guid[] ExcludedIds);
+public sealed record PendingEmailOperationConfirmation(string Reason, bool Confirmed);
+public sealed record PendingEmailOperation(Guid Id, string Action, string Scope, int Total,
+    int Eligible, int Processed, int Completed, int Skipped, int Conflicted, int Failed, bool Confirmed,
+    IReadOnlyList<PendingEmailActionResult> Results);

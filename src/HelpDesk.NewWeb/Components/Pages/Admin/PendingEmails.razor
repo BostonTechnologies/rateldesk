@@ -13,8 +13,8 @@
 @inject IDialogService Dialogs
 @inject NavigationManager Navigation
 
-<MudPaper Class="pa-3 pending-mail">
-    <MudText Typo="Typo.h6">Pending emails</MudText>
+<MudPaper Class="pa-3 pending-mail premium-workspace">
+    <MudText Typo="Typo.h6" HtmlTag="h1">Pending emails</MudText>
     <MudText Typo="Typo.body2">Search queued and failed deliveries. Removing a queue entry preserves ticket history.</MudText>
     <div class="pending-mail-filters">
         <MudTextField T="string" Label="Search ticket or recipient" @bind-Value="search" Variant="Variant.Outlined" Margin="Margin.Dense" />
@@ -25,11 +25,6 @@
                 <MudSelectItem Value="@value.ToString()">@value</MudSelectItem>
             }
         </MudSelect>
-        <MudSelect T="string" Label="Sort" @bind-Value="sort" Variant="Variant.Outlined" Margin="Margin.Dense">
-            <MudSelectItem Value='@("created")'>Created</MudSelectItem><MudSelectItem Value='@("ticket")'>Ticket</MudSelectItem>
-            <MudSelectItem Value='@("recipient")'>Recipient</MudSelectItem><MudSelectItem Value='@("status")'>Status</MudSelectItem>
-        </MudSelect>
-        <MudCheckBox T="bool" @bind-Value="descending" Label="Descending" />
     </div>
     <details class="pending-mail-advanced" open="@(appliedFilters.Keys.Any(x => x is "organization" or "sender" or "recipient" or "reason" or "from" or "to"))">
         <summary>More filters · organization, mailbox, recipient, reason and created time</summary>
@@ -61,44 +56,68 @@
         <MudAlert Severity="Severity.Error" Class="my-2">@error</MudAlert>
     }
     <div class="pending-mail-actions my-2">
-        <MudText Typo="Typo.body2">@(error is null ? $"{total} deliveries · {selected.Count} selected records on this page" : "Delivery count unavailable")</MudText>
-        <MudButton OnClick='() => ActAsync("retry", selected.ToArray())' Disabled="@(Busy || selected.Count == 0)">Retry selected</MudButton>
-        <MudButton OnClick='() => ActAsync("cancel", selected.ToArray())' Disabled="@(Busy || selected.Count == 0)">Cancel selected</MudButton>
-        <MudButton OnClick='() => ActAsync("remove", selected.ToArray())' Disabled="@(Busy || selected.Count == 0)">Remove selected</MudButton>
+        <MudTooltip Text="Selection persists across pages. Changing filters clears selection.">
+            <MudText Typo="Typo.body2">@(error is null ? $"{total} deliveries · {SelectedCount} selected records" : "Delivery count unavailable")</MudText>
+        </MudTooltip>
+        <MudButton OnClick="SelectPage" Disabled="@(Busy || rows.Count == 0)">Select this page</MudButton>
+        <MudButton OnClick="SelectAll" Disabled="@(Busy || total == 0)">@($"Select all {total} matching deliveries")</MudButton>
+        <WorkspaceAction Label="Clear selection" Icon="@Icons.Material.Filled.ClearAll" OnClick="ClearSelection" Disabled="@(Busy || SelectedCount == 0)" />
+        <WorkspaceAction Label="Retry selected" Icon="@Icons.Material.Filled.Replay" OnClick='() => ActAsync("retry", selectedRecords.Values.ToArray())' Disabled="@(Busy || allMatching || selectedRecords.Count is 0 or > 100)" DisabledReason="Retry requires 1–100 explicitly selected deliveries and individual review where required" />
+        <WorkspaceAction Label="Cancel selected" Icon="@Icons.Material.Filled.Block" OnClick='() => BeginBulkAsync("cancel")' Disabled="@(Busy || SelectedCount == 0)" />
+        <WorkspaceAction Label="Remove selected" Icon="@Icons.Material.Outlined.Delete" Color="Color.Error" OnClick='() => BeginBulkAsync("remove")' Disabled="@(Busy || SelectedCount == 0)" />
     </div>
-    <MudText Typo="Typo.caption">Selection applies to explicit records on the current page (maximum 100), and clears when the page or filters change. Retry skips records requiring individual review.</MudText>
-    <MudTable T="PendingEmailRow" Items="rows" Dense="true" Hover="true" Loading="Busy" MultiSelection="true" @bind-SelectedItems="selected" Breakpoint="Breakpoint.Sm">
-        <HeaderContent><MudTh>Created (UTC)</MudTh><MudTh>Ticket</MudTh><MudTh>Recipient / sender</MudTh><MudTh>Status</MudTh><MudTh>Actions</MudTh></HeaderContent>
+    @if (allMatching) { <MudText Typo="Typo.caption">All matching deliveries, with @excluded.Count exclusions. Membership is frozen before confirmation.</MudText> }
+    @if (operation is not null)
+    {
+        <MudPaper Outlined="true" Class="pa-3 my-2" role="status" aria-live="polite">
+            <MudText Typo="Typo.subtitle2">@operation.Action · @operation.Processed / @operation.Total processed</MudText>
+            <MudText Typo="Typo.body2">@operation.Completed completed · @operation.Skipped skipped · @operation.Conflicted conflicted · @operation.Failed failed · @(operation.Total - operation.Processed) remaining</MudText>
+            <MudText Typo="Typo.caption">Operation @operation.Id · recent 100 outcomes; complete results are available through the operation results API.</MudText>
+            @if (operation.Processed < operation.Total)
+            {
+                <MudButton OnClick="ResumeAsync" Disabled="actionBusy">Resume same operation</MudButton>
+                <MudButton OnClick="() => pauseRequested = true" Disabled="@(!actionBusy)">Pause after current batch</MudButton>
+            }
+            <details class="pending-operation-results"><summary>Per-delivery outcomes</summary>
+                @foreach (var result in operation.Results) { <div>@result.Id · @result.Outcome — @result.Message</div> }
+            </details>
+        </MudPaper>
+    }
+    <MudTable T="PendingEmailRow" @ref="table" @key="tableKey" ServerData="LoadTableAsync" Dense="true" Hover="true"
+              CurrentPage="page" CurrentPageChanged="TablePageChanged" RowsPerPage="pageSize" RowsPerPageChanged="TableSizeChanged"
+              FixedHeader="true" FixedFooter="true" Height="clamp(16rem, calc(100dvh - 26rem), 46rem)" Breakpoint="Breakpoint.Sm">
+        <HeaderContent>
+            <MudTh Style="width:48px"><MudCheckBox T="bool?" Value="PageSelection" ValueChanged="TogglePage" TriState="false" Disabled="@(Busy || rows.Count == 0)" aria-label="Select this page" /></MudTh>
+            <MudTh Style="width:140px"><MudTableSortLabel T="PendingEmailRow" SortLabel="created" InitialDirection="@(sort == "created" ? (descending ? SortDirection.Descending : SortDirection.Ascending) : SortDirection.None)">Created (UTC)</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel T="PendingEmailRow" SortLabel="ticket">Ticket</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel T="PendingEmailRow" SortLabel="recipient">Recipient / sender</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel T="PendingEmailRow" SortLabel="status">Status</MudTableSortLabel></MudTh><MudTh Style="width:160px">Actions</MudTh>
+        </HeaderContent>
         <RowTemplate>
+            <MudTd DataLabel="Selection"><MudCheckBox T="bool" Value="IsSelected(context.Id)" ValueChanged="value => SelectRow(context, value)" aria-label="@($"Select {context.TrackingId}")" Disabled="Busy" /></MudTd>
             <MudTd DataLabel="Created (UTC)">@context.CreatedUtc.UtcDateTime.ToString("yyyy-MM-dd HH:mm")</MudTd>
             <MudTd DataLabel="Ticket">
                 <MudLink Href="@($"/{context.TicketType}/{Uri.EscapeDataString(context.TicketId)}")">@context.TrackingId</MudLink>
-                <div>@context.Subject</div><small>@context.OrganizationName</small>
+                <MudTooltip Text="@context.Subject"><span class="workspace-primary">@context.Subject</span></MudTooltip><span class="workspace-secondary">@context.OrganizationName</span>
             </MudTd>
-            <MudTd DataLabel="Recipient / sender">@context.EmailRecipient<div><small>From: @(context.Sender ?? "Review sender binding")</small></div></MudTd>
-            <MudTd DataLabel="Status">@context.EmailStatus<div><small>@context.DeliveryErrorCode</small></div></MudTd>
+            <MudTd DataLabel="Recipient / sender"><MudTooltip Text="@context.EmailRecipient"><span class="workspace-primary">@context.EmailRecipient</span></MudTooltip><MudTooltip Text="@context.Sender"><span class="workspace-secondary">From: @(context.Sender ?? "Review sender binding")</span></MudTooltip></MudTd>
+            <MudTd DataLabel="Status">@context.EmailStatus<MudTooltip Text="@context.DeliveryErrorCode"><span class="workspace-secondary">@HelpDesk.NewWeb.Models.WorkspaceLabels.Readable(context.DeliveryErrorCode)</span></MudTooltip></MudTd>
             <MudTd DataLabel="Actions">
                 <div class="pending-mail-actions">
-                    <MudButton Size="Size.Small" OnClick="() => detail = context">Details</MudButton>
-                    <MudButton Size="Size.Small" Disabled="@(Busy || context.EmailStatus != EmailDeliveryStatus.Failed)" OnClick="() => ReviewAsync(context)">Review / retry</MudButton>
-                    <MudButton Size="Size.Small" Disabled="@(Busy || !context.CanCancel)" OnClick='() => ActAsync("cancel", [context])'>Cancel delivery</MudButton>
-                    <MudButton Size="Size.Small" Disabled="@(Busy || !context.CanRemove)" OnClick='() => ActAsync("remove", [context])'>Remove queue entry</MudButton>
+                    <WorkspaceAction Label="Delivery details" Icon="@Icons.Material.Filled.Visibility" OnClick="() => detail = context" />
+                    <WorkspaceAction Label="Review / retry" Icon="@Icons.Material.Filled.Replay" Disabled="@(Busy || context.EmailStatus != EmailDeliveryStatus.Failed)" DisabledReason="Only failed deliveries can be reviewed for retry" OnClick="() => ReviewAsync(context)" />
+                    <WorkspaceAction Label="Cancel future delivery" Icon="@Icons.Material.Filled.Block" Disabled="@(Busy || !context.CanCancel)" DisabledReason="Submission or recipient outcome requires individual review" OnClick='() => ActAsync("cancel", [context])' />
+                    <WorkspaceAction Label="Remove queue entry" Icon="@Icons.Material.Outlined.Delete" Color="Color.Error" Disabled="@(Busy || !context.CanRemove)" DisabledReason="Submission may be in progress" OnClick='() => ActAsync("remove", [context])' />
                 </div>
             </MudTd>
         </RowTemplate>
         <NoRecordsContent><MudText>@(error is null ? "No deliveries match these filters." : "Delivery list unavailable. Refresh to try again.")</MudText></NoRecordsContent>
+        <PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" /></PagerContent>
     </MudTable>
-    <div class="pending-mail-actions mt-2" aria-label="Delivery pages">
-        <MudButton OnClick="PreviousPage" Disabled="@(Busy || error is not null || page == 0)">Previous</MudButton>
-        <MudText Typo="Typo.body2">@(error is null ? $"Page {page + 1} of {Math.Max(1, (total + pageSize - 1) / pageSize)}" : "Page unavailable")</MudText>
-        <MudButton OnClick="NextPage" Disabled="@(Busy || (page + 1) * pageSize >= total)">Next</MudButton>
-        <MudSelect T="int" Label="Rows per page" Value="pageSize" ValueChanged="PageSizeChanged" Margin="Margin.Dense" Class="pending-mail-page-size" Disabled="Busy">
-            <MudSelectItem Value="25">25</MudSelectItem><MudSelectItem Value="50">50</MudSelectItem><MudSelectItem Value="100">100</MudSelectItem>
-        </MudSelect>
-    </div>
     @if (detail is not null)
     {
-        <MudPaper Outlined="true" Class="pa-3 mt-3" role="region" aria-label="Delivery details">
+        <MudDrawer Open="true" OpenChanged="value => { if (!value) detail = null; }" Anchor="Anchor.Right" Variant="DrawerVariant.Temporary" Width="min(560px, 100vw)">
+        <MudPaper Outlined="true" Class="pa-3" role="region" aria-label="Delivery details">
             <div class="pending-mail-actions"><MudText Typo="Typo.subtitle1">Delivery details · @detail.TrackingId</MudText><MudButton OnClick="() => detail = null">Close details</MudButton></div>
             <MudText Typo="Typo.body2">@detail.MessageText</MudText>
             <dl><dt>Delivery ID</dt><dd>@detail.Id</dd><dt>Queue state / retries</dt><dd>@detail.QueueState / @detail.RetryCount</dd><dt>Reason</dt><dd>@detail.DeliveryErrorCode @detail.DeliveryReviewReason</dd></dl>
@@ -107,10 +126,11 @@
             @if (detail.RecipientOutcomeUnavailable) { <MudAlert Severity="Severity.Warning">Recipient outcomes are unavailable. Verify with the provider before retrying.</MudAlert> }
             <MudText Typo="Typo.caption">Cancellation prevents future submission. Removing an entry hides it from this queue and blocks future dispatch. Neither action recalls previously submitted mail.</MudText>
         </MudPaper>
+        </MudDrawer>
     }
     @if (outcomes.Count > 0)
     {
-        <MudPaper Outlined="true" Class="pa-3 mt-3" role="status" aria-live="polite">
+        <MudPaper Outlined="true" Class="pa-3 mt-3 pending-mail-results" role="status" aria-live="polite">
             <MudText Typo="Typo.subtitle2">Action results (@outcomes.Count selected records)</MudText>
             @foreach (var result in outcomes) { <div>@result</div> }
         </MudPaper>
@@ -119,7 +139,27 @@
 
 @code {
     private List<PendingEmailRow> rows = [];
-    private HashSet<PendingEmailRow> selected = [];
+    private MudTable<PendingEmailRow>? table;
+    private int tableKey;
+    private readonly Dictionary<Guid, PendingEmailRow> selectedRecords = [];
+    private readonly HashSet<Guid> excluded = [];
+    private bool allMatching, pauseRequested, updatingLocation, userTableNavigation;
+    private int matchingTotal;
+    private string? selectionScope;
+    private PendingEmailOperation? operation;
+    private int SelectedCount => allMatching ? Math.Max(0, matchingTotal - excluded.Count) : selectedRecords.Count;
+    private bool IsSelected(Guid id) => allMatching ? !excluded.Contains(id) : selectedRecords.ContainsKey(id);
+    private bool? PageSelection => rows.Count == 0 || rows.All(x => !IsSelected(x.Id)) ? false : rows.All(x => IsSelected(x.Id)) ? true : null;
+    private void SelectRow(PendingEmailRow row, bool value)
+    {
+        if (allMatching) { if (value) excluded.Remove(row.Id); else excluded.Add(row.Id); }
+        else { if (value) selectedRecords[row.Id] = row; else selectedRecords.Remove(row.Id); }
+    }
+    private void SelectPage() { foreach (var row in rows) SelectRow(row, true); }
+    private void TogglePage(bool? value) { foreach (var row in rows) SelectRow(row, value == true); }
+    private void SelectAll() { ClearSelection(); allMatching = true; matchingTotal = total; }
+    private void ClearSelection() { selectedRecords.Clear(); excluded.Clear(); allMatching = false; }
+
     private PendingEmailRow? detail;
     private PendingEmailOrganization? organizationOption;
     private string? search, organization, sender, recipient, reason, from, to, error;
@@ -127,7 +167,6 @@
     private bool descending = true, loading, actionBusy, disposed;
     private bool Busy => loading || actionBusy;
     private int page, pageSize = 25, total, generation;
-    private CancellationTokenSource? requestCancellation;
     private List<string> outcomes = [];
     private Dictionary<string, string> appliedFilters = [];
 
@@ -135,13 +174,22 @@
     {
         Navigation.LocationChanged += LocationChanged;
         ReadLocation();
-        await LoadAsync();
+        if (Guid.TryParse(QueryHelpers.ParseQuery(new Uri(Navigation.Uri).Query).GetValueOrDefault("operation"), out var id))
+        {
+            try { operation = await TimelineClient.GetPendingOperationAsync(id); }
+            catch (HttpRequestException) { error = "Operation unavailable. Verify the operation link and your access."; }
+        }
     }
-    private void LocationChanged(object? sender, LocationChangedEventArgs args) => _ = InvokeAsync(async () =>
+    private void LocationChanged(object? sender, LocationChangedEventArgs args)
     {
-        ReadLocation();
-        await LoadAsync();
-    });
+        if (updatingLocation || disposed) return;
+        _ = InvokeAsync(() =>
+        {
+            ReadLocation();
+            tableKey++;
+            StateHasChanged();
+        });
+    }
     private void ReadLocation()
     {
         var values = QueryHelpers.ParseQuery(new Uri(Navigation.Uri).Query);
@@ -151,25 +199,28 @@
         sort = Read("sort") ?? "created"; descending = Read("descending") != "false";
         page = int.TryParse(Read("page"), out var p) ? Math.Max(0, p) : 0;
         pageSize = int.TryParse(Read("size"), out var size) && size is 25 or 50 or 100 ? size : 25;
+        var scope = System.Text.Json.JsonSerializer.Serialize(new { search, organization, sender, recipient, reason, from, to, status });
+        if (selectionScope != scope) { ClearSelection(); selectionScope = scope; }
         appliedFilters = new Dictionary<string, string>();
         foreach (var key in new[] { "search", "organization", "sender", "recipient", "reason", "from", "to", "status" })
             if (Read(key) is { Length: > 0 } value && value != "active") appliedFilters[key] = $"{key}: {value}";
     }
-    private void Navigate()
+    private void Navigate(bool replace = false)
     {
         var uri = QueryHelpers.AddQueryString("/admin/pending-emails", new Dictionary<string, string?>
         {
             ["search"] = search, ["organization"] = organization, ["sender"] = sender, ["recipient"] = recipient,
             ["reason"] = reason, ["from"] = from, ["to"] = to, ["status"] = status, ["sort"] = sort,
-            ["descending"] = descending ? "true" : "false", ["page"] = page.ToString(), ["size"] = pageSize.ToString()
+            ["descending"] = descending ? "true" : "false", ["page"] = page.ToString(), ["size"] = pageSize.ToString(),
+            ["operation"] = operation?.Id.ToString("D")
         });
-        if (Navigation.ToAbsoluteUri(uri).ToString() == Navigation.Uri) _ = LoadAsync();
-        else Navigation.NavigateTo(uri);
+        if (Navigation.ToAbsoluteUri(uri).Equals(new Uri(Navigation.Uri))) { if (!updatingLocation) _ = LoadAsync(); }
+        else Navigation.NavigateTo(uri, replace: replace);
     }
     private void OrganizationChanged(PendingEmailOrganization? value) { organizationOption = value; organization = value?.Id; }
     private async Task<IEnumerable<PendingEmailOrganization>> SearchOrganizations(string text, CancellationToken ct) =>
         await TimelineClient.SearchPendingOrganizationsAsync(text, ct: ct);
-    private void ApplyFilters() { page = 0; Navigate(); }
+    private void ApplyFilters() { page = 0; ClearSelection(); Navigate(); }
     private void ClearFilters() => Navigation.NavigateTo("/admin/pending-emails");
     private void RemoveFilter(string key)
     {
@@ -177,41 +228,127 @@
             case "recipient": recipient = null; break; case "reason": reason = null; break; case "from": from = null; break; case "to": to = null; break; case "status": status = "active"; break; }
         ApplyFilters();
     }
-    private void PreviousPage() { page--; Navigate(); }
-    private void NextPage() { page++; Navigate(); }
-    private void PageSizeChanged(int value) { pageSize = value; ApplyFilters(); }
+    private void WriteLocation(bool replace = false)
+    {
+        updatingLocation = true;
+        try { Navigate(replace); } finally { updatingLocation = false; }
+    }
+    private void TablePageChanged(int value) { if (page == value) return; page = value; userTableNavigation = true; }
+    private void TableSizeChanged(int value) { if (pageSize == value) return; pageSize = value; page = 0; userTableNavigation = true; }
+    private Task LoadAsync() => table?.ReloadServerData() ?? Task.CompletedTask;
     private static DateTimeOffset? Utc(string? value) => string.IsNullOrWhiteSpace(value) ? null :
         DateTimeOffset.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
-    private async Task LoadAsync()
+    private PendingEmailQuery CurrentQuery() => new(Search: search, OrganizationId: organization, Sender: sender,
+        Recipient: recipient, Reason: reason, From: Utc(from), To: Utc(to),
+        Status: status == "active" ? null : Enum.Parse<EmailDeliveryStatus>(status), Sort: sort,
+        Descending: descending, Page: page, PageSize: pageSize);
+
+    private async Task<TableData<PendingEmailRow>> LoadTableAsync(TableState state, CancellationToken token)
     {
-        if (disposed) return;
-        requestCancellation?.Cancel(); requestCancellation?.Dispose(); requestCancellation = new();
-        var token = requestCancellation.Token; var current = ++generation;
-        loading = true; error = null; selected.Clear(); rows = []; detail = null;
+        var current = ++generation;
+        loading = true; error = null; detail = null;
         try
         {
+            page = state.Page; pageSize = state.PageSize;
+            if (state.SortLabel is { } label && (sort != label || descending != (state.SortDirection != SortDirection.Ascending)))
+            { sort = label; descending = state.SortDirection != SortDirection.Ascending; userTableNavigation = true; }
+            WriteLocation(replace: !userTableNavigation); userTableNavigation = false;
             organizationOption = string.IsNullOrWhiteSpace(organization) ? null :
                 (await TimelineClient.SearchPendingOrganizationsAsync(null, organization, token)).FirstOrDefault();
-            if (current != generation || disposed) return;
             if (organizationOption is not null) appliedFilters["organization"] = $"organization: {organizationOption.Label}";
-            var first = Utc(from); var last = Utc(to);
-            if (first > last) throw new FormatException("Created From must precede To.");
-            var query = new PendingEmailQuery { Search = search, OrganizationId = organization, Sender = sender,
-                Recipient = recipient, Reason = reason, From = first, To = last,
-                Status = status == "active" ? null : Enum.Parse<EmailDeliveryStatus>(status),
-                Sort = sort, Descending = descending, Page = page, PageSize = pageSize };
-            var result = await TimelineClient.SearchPendingAsync(query, token);
-            if (current != generation || disposed) return;
+            var result = await TimelineClient.SearchPendingAsync(CurrentQuery(), token);
+            if (current != generation || disposed) return new() { Items = [], TotalItems = 0 };
             rows = result.Items.ToList(); total = result.Total; page = result.Page;
+            return new() { Items = rows, TotalItems = total };
         }
-        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
         catch (Exception)
         {
-            if (current != generation || disposed) return;
-            rows = []; total = 0; error = "Could not load deliveries. Check the filters and try Refresh.";
+            if (current == generation && !disposed) { rows = []; total = 0; error = "Could not load deliveries. Check the filters and try Refresh."; }
+            return new() { Items = [], TotalItems = 0 };
         }
         finally { if (current == generation && !disposed) { loading = false; await InvokeAsync(StateHasChanged); } }
     }
+
+    private async Task BeginBulkAsync(string action)
+    {
+        if (Busy || SelectedCount == 0) return;
+        actionBusy = true;
+        try
+        {
+            var reviewGeneration = generation;
+            var snapshot = await TimelineClient.ResolvePendingSelectionAsync(new(CurrentQuery(), action,
+                allMatching, selectedRecords.Keys.ToArray(), excluded.ToArray()));
+            var review = await Dialogs.ShowAsync<PendingEmailActionDialog>(action == "cancel" ? "Cancel future delivery" : "Remove queue entries",
+                new DialogParameters
+                {
+                    [nameof(PendingEmailActionDialog.Operation)] = snapshot,
+                    [nameof(PendingEmailActionDialog.Records)] = allMatching ? Array.Empty<PendingEmailRow>() : selectedRecords.Values.Take(100).ToArray(),
+                    [nameof(PendingEmailActionDialog.Explanation)] = new[]
+                    {
+                        $"Scope: {(appliedFilters.Count == 0 ? "All authorized pending and failed deliveries" : string.Join("; ", appliedFilters.Values))}.",
+                        "This fixed selection excludes new arrivals. Changed or ineligible deliveries are reported individually.",
+                        "Ticket and email history is retained. This action does not send mail or recall a previous submission."
+                    },
+                    [nameof(PendingEmailActionDialog.RequireReason)] = true,
+                    [nameof(PendingEmailActionDialog.ConfirmLabel)] = action == "cancel" ? "Cancel deliveries" : "Remove entries"
+                }, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true, CloseOnEscapeKey = true, BackdropClick = true });
+            var result = await review.Result;
+            if (disposed || generation != reviewGeneration || result is not { Canceled: false, Data: string actionReason }) return;
+            operation = snapshot;
+            WriteLocation();
+            await TimelineClient.ConfirmPendingOperationAsync(snapshot.Id, actionReason);
+            operation = await TimelineClient.GetPendingOperationAsync(snapshot.Id);
+            WriteLocation();
+            ClearSelection();
+            await ProcessOperationAsync();
+        }
+        catch (HttpRequestException) { Snackbar.Add("Operation interrupted. Resume the same operation to reconcile committed outcomes.", Severity.Error); }
+        finally { actionBusy = false; if (!disposed) await LoadAsync(); }
+    }
+
+    private async Task ResumeAsync()
+    {
+        if (Busy || operation is null) return;
+        actionBusy = true;
+        try
+        {
+            operation = await TimelineClient.GetPendingOperationAsync(operation.Id);
+            if (!operation.Confirmed)
+            {
+                var reviewedGeneration = generation;
+                var review = await Dialogs.ShowAsync<PendingEmailActionDialog>("Review fixed selection", new DialogParameters
+                {
+                    [nameof(PendingEmailActionDialog.Operation)] = operation,
+                    [nameof(PendingEmailActionDialog.RequireReason)] = true,
+                    [nameof(PendingEmailActionDialog.ConfirmLabel)] = operation.Action == "cancel" ? "Cancel deliveries" : "Remove entries",
+                    [nameof(PendingEmailActionDialog.Explanation)] = new[]
+                    {
+                        $"Original filter scope: {operation.Scope}",
+                        "Membership is fixed. New arrivals and the current page's filters cannot broaden this operation.",
+                        "History is retained. This action does not send mail or recall a prior submission."
+                    }
+                }, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true, CloseOnEscapeKey = true });
+                if (await review.Result is not { Canceled: false, Data: string reason } || reviewedGeneration != generation || disposed) return;
+                await TimelineClient.ConfirmPendingOperationAsync(operation.Id, reason);
+                operation = await TimelineClient.GetPendingOperationAsync(operation.Id);
+            }
+            await ProcessOperationAsync();
+        }
+        catch (HttpRequestException) { Snackbar.Add("Operation interrupted. Committed outcomes are retained; resume the same operation.", Severity.Error); }
+        finally { actionBusy = false; if (!disposed) await LoadAsync(); }
+    }
+
+    private async Task ProcessOperationAsync()
+    {
+        pauseRequested = false;
+        while (operation is { Confirmed: true } && operation.Processed < operation.Total && !disposed && !pauseRequested)
+        {
+            operation = await TimelineClient.ProcessPendingOperationAsync(operation.Id);
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
     private async Task<string?> ConfirmActionAsync(string title, PendingEmailRow[] targets, string[] explanation,
         string confirmLabel, bool requireReason = false, bool requireEvidence = false)
     {
@@ -247,7 +384,7 @@
             outcomes = response.Results.Select(x => $"{labels.GetValueOrDefault(x.Id, "Delivery")} · {x.Id:D}: {x.Outcome} — {x.Message}").ToList();
         }
         catch (Exception) { Snackbar.Add("Queue action failed. Refresh before trying again.", Severity.Error); }
-        finally { actionBusy = false; if (submitted && !disposed) await LoadAsync(); }
+        finally { actionBusy = false; if (submitted && !disposed) { ClearSelection(); await LoadAsync(); } }
     }
     private Task ReviewAsync(PendingEmailRow row)
     {
@@ -275,9 +412,9 @@
             Snackbar.Add("Legacy delivery queued for sender validation.", Severity.Success);
         }
         catch (Exception) { Snackbar.Add("Legacy retry could not be queued. Refresh and review the delivery.", Severity.Error); }
-        finally { actionBusy = false; if (submitted && !disposed) await LoadAsync(); }
+        finally { actionBusy = false; if (submitted && !disposed) { ClearSelection(); await LoadAsync(); } }
     }
-    public void Dispose() { disposed = true; Navigation.LocationChanged -= LocationChanged; requestCancellation?.Cancel(); requestCancellation?.Dispose(); }
+    public void Dispose() { disposed = true; Navigation.LocationChanged -= LocationChanged;  }
     private async Task RetryWithCurrentOutgoingAsync(PendingEmailRow row)
     {
         if (Busy) return;
@@ -319,7 +456,7 @@
             Snackbar.Add("Delivery queued with the confirmed sender revisions.", Severity.Success);
         }
         catch (Exception) { Snackbar.Add("Delivery retry could not be queued. Refresh and review the delivery.", Severity.Error); }
-        finally { actionBusy = false; if (submitted && !disposed) await LoadAsync(); }
+        finally { actionBusy = false; if (submitted && !disposed) { ClearSelection(); await LoadAsync(); } }
     }
 
     private async Task RetryConfirmedUndeliveredAsync(PendingEmailRow row)
@@ -346,7 +483,7 @@
             Snackbar.Add("Delivery queued after confirmed non-delivery.", Severity.Success);
         }
         catch (Exception) { Snackbar.Add("Delivery retry could not be queued. Refresh and review the delivery.", Severity.Error); }
-        finally { actionBusy = false; if (submitted && !disposed) await LoadAsync(); }
+        finally { actionBusy = false; if (submitted && !disposed) { ClearSelection(); await LoadAsync(); } }
     }
 
     private async Task RetryWithCurrentRouteAsync(PendingEmailRow row)
@@ -367,7 +504,7 @@
             await ConfirmCurrentRouteAsync(row, preview, () => submitted = true);
         }
         catch (Exception) { Snackbar.Add("Delivery retry could not be queued. Refresh and review the delivery.", Severity.Error); }
-        finally { actionBusy = false; if (submitted && !disposed) await LoadAsync(); }
+        finally { actionBusy = false; if (submitted && !disposed) { ClearSelection(); await LoadAsync(); } }
     }
 
     private async Task ConfirmCurrentRouteAsync(PendingEmailRow row, MailboxRouteRetryPreview preview, Action submitting)

@@ -143,13 +143,15 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // connection observation operations. These do not expand the MCP inventory.
         // Beta.4 UX adds three scoped creation searches, lifecycle capabilities,
         // creation reconciliation and four tested Graph import/status operations.
+        // 0.1.3-beta.8 adds five actor-bound pending-email operation methods,
+        // full-history audit paging and read-only Change template validation.
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(471, operationCount);
+        Assert.Equal(478, operationCount);
 #else
-        Assert.Equal(470, operationCount);
+        Assert.Equal(477, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         foreach (var (path, method, operationId, tag) in new[]
@@ -375,6 +377,45 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
             .OfType<string>()
             .ToArray();
         Assert.Equal(tagOrder.Order(StringComparer.Ordinal), tagOrder);
+    }
+
+    [Fact]
+    public async Task Premium_workspace_operations_keep_their_documented_tags_and_authority()
+    {
+        using var client = _factory.CreateClient();
+        using var document = JsonDocument.Parse(await client.GetStringAsync("/openapi/v1.json"));
+        var paths = document.RootElement.GetProperty("paths");
+        foreach (var (path, method, tag) in new[]
+        {
+            ("/api/v1/timeline/pending/operations", "post", "Timeline"),
+            ("/api/v1/timeline/pending/operations/{id}", "get", "Timeline"),
+            ("/api/v1/timeline/pending/operations/{id}/results", "get", "Timeline"),
+            ("/api/v1/timeline/pending/operations/{id}/confirm", "post", "Timeline"),
+            ("/api/v1/timeline/pending/operations/{id}/process", "post", "Timeline"),
+            ("/api/v1/inbound-email-rules/audit/page", "get", "Inbound Email Rules"),
+            ("/api/v1/changes/template-validation", "post", "Changes")
+        })
+        {
+            Assert.True(paths.TryGetProperty(path, out var route), $"Missing operation: {method.ToUpperInvariant()} {path}");
+            Assert.True(route.TryGetProperty(method, out var operation));
+            Assert.Contains(operation.GetProperty("tags").EnumerateArray(), item => item.GetString() == tag);
+            Assert.NotEmpty(SecuritySchemes(document, path, method));
+        }
+
+        var endpoints = _factory.Services.GetServices<EndpointDataSource>()
+            .SelectMany(source => source.Endpoints).OfType<RouteEndpoint>().ToList();
+        var pending = endpoints.Where(endpoint => endpoint.RoutePattern.RawText?.StartsWith(
+            "/api/v1/timeline/pending/operations", StringComparison.Ordinal) == true).ToList();
+        Assert.Equal(5, pending.Count);
+        foreach (var endpoint in pending)
+            Assert.Contains(endpoint.Metadata.OfType<IAuthorizeData>(), metadata => metadata.Policy == "HelpdeskAdmin");
+        foreach (var (path, policy) in new[]
+        {
+            ("/api/v1/inbound-email-rules/audit/page", "HelpdeskAdmin"),
+            ("/api/v1/changes/template-validation", "ChangeAccess")
+        })
+            Assert.Contains(endpoints.Single(endpoint => endpoint.RoutePattern.RawText == path)
+                .Metadata.OfType<IAuthorizeData>(), metadata => metadata.Policy == policy);
     }
 
     [Fact]

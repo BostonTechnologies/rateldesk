@@ -126,7 +126,16 @@
             exactMatch = result.Any(x => string.Equals(Normalize(x.Name), Normalize(value), StringComparison.OrdinalIgnoreCase));
             searchComplete = true;
             await InvokeAsync(StateHasChanged);
-            return result.DistinctBy(x => x.Id).ToArray();
+            return result.DistinctBy(x => x.Id).Select(item =>
+            {
+                // Keep an unchanged visible option mounted between pointer-down and
+                // click when a debounced search refreshes the same category.
+                var stable = names.TryGetValue(item.Id, out var cached) && cached.Name == item.Name &&
+                    cached.IsActive == item.IsActive && cached.Type == item.Type && cached.TenantId == item.TenantId
+                    ? cached : item;
+                names[item.Id] = stable;
+                return stable;
+            }).ToArray();
         }
         catch (OperationCanceledException) { return Array.Empty<TicketCategoryDto>(); }
         catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException)

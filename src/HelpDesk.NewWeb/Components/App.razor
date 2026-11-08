@@ -120,6 +120,7 @@
                 }
 
                 element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+                (element.querySelector('input, textarea, button, [tabindex]') ?? element).focus({ preventScroll: true });
                 element.classList.remove('change-template-target-active');
                 void element.offsetWidth;
                 element.classList.add('change-template-target-active');

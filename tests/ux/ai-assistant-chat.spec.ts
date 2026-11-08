@@ -250,6 +250,7 @@ for (const route of ['/incidents/ux-chat', '/ai/chat?organizationId=org&conversa
     await request.get('http://127.0.0.1:18299/fixture/reset?mode=quiet');
     async function open() {
       await page.goto(route);
+      await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
       if (route.startsWith('/incidents/')) await page.getByRole('tab', { name: 'AI Assistant', exact: true }).click();
       await expect(page.getByTestId('chat-observation-status')).toContainText('keeps observing the original request');
     }
@@ -264,6 +265,7 @@ for (const route of ['/incidents/ux-chat', '/ai/chat?organizationId=org&conversa
     await page.goto('/ai/chat');
     await open();
     await page.reload();
+    await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
     if (route.startsWith('/incidents/')) await page.getByRole('tab', { name: 'AI Assistant', exact: true }).click();
     await expect(status).toContainText('keeps observing the original request');
     await request.get('http://127.0.0.1:18299/fixture/complete');

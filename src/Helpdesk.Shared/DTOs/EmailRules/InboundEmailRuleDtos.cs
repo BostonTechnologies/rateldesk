@@ -65,6 +65,20 @@ public sealed record InboundEmailRuleConditionConfig(
     string? MailboxId = null,
     List<string>? Permissions = null);
 
+public sealed record InboundEmailAuditQuery(
+    string? Search = null, string? MessageId = null, string? TicketId = null,
+    string? TenantId = null, Guid? MailboxId = null, string? RuleId = null,
+    InboundEmailProcessingStatus? Status = null, DateTimeOffset? From = null,
+    DateTimeOffset? To = null, string Sort = "created", bool Descending = true,
+    int Page = 0, int PageSize = 25);
+
+public sealed record InboundEmailAuditRow(InboundEmailRuleAuditDto Event,
+    string RuleName, string OrganizationName, string MailboxName,
+    string? TicketTrackingId, string? TicketRoute);
+
+public sealed record InboundEmailAuditPage(IReadOnlyList<InboundEmailAuditRow> Items,
+    int Total, int Page, int PageSize);
+
 public sealed record InboundEmailRuleActionConfig(
     InboundEmailRuleActionType Type,
     string? ActionKey = null);

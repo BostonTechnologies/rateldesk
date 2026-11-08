@@ -1,6 +1,13 @@
 extern alias NewWeb;
 
 using Bunit;
+using System.Net;
+using System.Net.Http.Json;
+using Helpdesk.Shared.DTOs.EmailRules;
+using Helpdesk.Shared.Enums;
+using NSubstitute;
+using EmailRulesPage = NewWeb::HelpDesk.NewWeb.Components.Pages.Admin.EmailRules.EmailRulesAdmin;
+using IRuleClient = NewWeb::HelpDesk.NewWeb.Services.IInboundEmailRuleAdminClient;
 using Bunit.TestDoubles;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components;
@@ -59,17 +66,49 @@ public class EmailRulesAdminUxTests
     }
 
     [Fact]
-    public void Page_UsesTypedClientForOperationalActions()
+    public async Task Audit_renders_aligned_headers_friendly_deleted_labels_details_and_server_status_filter()
     {
-        var source = ReadNewWebSource("Components/Pages/Admin/EmailRules/EmailRulesAdmin.razor");
+        await using var context = NavigationContext("HelpdeskAdmin");
+        var client = Substitute.For<IRuleClient>();
+        var queries = new List<InboundEmailAuditQuery>();
+        var audit = new InboundEmailRuleAuditDto("audit", "exact-message", null, "deleted-org", "deleted-rule",
+            "CreateIncidentForOriginalForwardedSender", true, InboundEmailProcessingStatus.Failed, null,
+            "Complete synthetic failure", DateTimeOffset.UtcNow);
+        client.GetRulesAsync().Returns([]);
+        client.SearchAuditAsync(Arg.Any<InboundEmailAuditQuery>(), Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            var query = call.Arg<InboundEmailAuditQuery>(); queries.Add(query);
+            return new InboundEmailAuditPage([new(audit, "Unknown rule", "Unknown organization", "Default mailbox", null, null)], 305, query.Page, query.PageSize);
+        });
+        context.Services.AddSingleton(client);
+        using var api = new AuditLookupApi();
+        context.Services.AddSingleton<IHttpClientFactory>(api);
+        var popovers = context.Render<MudPopoverProvider>();
+        var page = context.Render<EmailRulesPage>();
+        await page.FindAll("[role=tab]")[1].ClickAsync(new());
+        page.WaitForAssertion(() => Assert.Contains("Unknown rule", page.Markup));
+        Assert.Equal(7, page.FindAll(".email-audit-table thead th").Count);
+        var cells = page.FindAll(".email-audit-table tbody tr").Single().Children;
+        Assert.Equal(7, cells.Length);
+        Assert.Equal("Time", cells[0].GetAttribute("data-label"));
+        Assert.Equal("Organization / mailbox", cells[2].GetAttribute("data-label"));
+        Assert.Equal("Ticket", cells[5].GetAttribute("data-label"));
+        Assert.DoesNotContain("exact-message", page.Find(".email-audit-table").TextContent);
+        page.Find("button[aria-label='Audit details']").Click();
+        Assert.Contains("exact-message", page.Find("[aria-label='Audit details'] .workspace-diagnostics").TextContent);
+        var outcome = page.FindComponents<MudSelect<string>>().Single(x => x.Instance.Label == "Outcome");
+        await outcome.InvokeAsync(() => outcome.Instance.ValueChanged.InvokeAsync("Failed"));
+        page.FindAll("button").Single(x => x.TextContent.Trim() == "Apply").Click();
+        page.WaitForAssertion(() => Assert.Equal(InboundEmailProcessingStatus.Failed, queries.Last().Status));
+        Assert.Equal(25, queries[0].PageSize);
+        Assert.NotEmpty(page.FindAll(".mud-table-pagination"));
+    }
 
-        Assert.Contains("@inject IInboundEmailRuleAdminClient RulesClient", source, StringComparison.Ordinal);
-        Assert.Contains("RulesClient.EnableAsync(rule.Id)", source, StringComparison.Ordinal);
-        Assert.Contains("RulesClient.DisableAsync(rule.Id)", source, StringComparison.Ordinal);
-        Assert.Contains("RulesClient.ReorderAsync(payload)", source, StringComparison.Ordinal);
-        Assert.Contains("RulesClient.GetAuditAsync(auditMessageId, auditTicketId, auditTenantId, MailboxId)", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("PostAsJsonAsync(\"api/v1/inbound-email-rules", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("PutAsJsonAsync(\"api/v1/inbound-email-rules", source, StringComparison.Ordinal);
+    private sealed class AuditLookupApi : HttpMessageHandler, IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new(this) { BaseAddress = new Uri("https://synthetic.example/") };
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(Array.Empty<object>()) });
     }
 
     [Fact]

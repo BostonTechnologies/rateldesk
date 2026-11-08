@@ -63,8 +63,15 @@ if(!baseline){
   await page.getByRole('tab',{name:'Workflow (3)'}).click();await page.getByRole('button',{name:'Save',exact:true}).click();
   await expect(page.getByRole('tab',{name:'Form setup',exact:true})).toHaveAttribute('aria-selected','true');await expect(page.getByRole('textbox',{name:/^Form Title\*?$/})).toBeFocused();
   await page.getByRole('textbox',{name:/^Form Title\*?$/}).fill('Example access request');
-  await page.getByRole('tab',{name:'Workflow (3)'}).click();await page.locator('[data-task-id]').nth(1).click();await page.getByRole('textbox',{name:/^Task Name\*?$/}).fill('');
-  await page.locator('[data-task-id]').first().click();await page.getByRole('tab',{name:'Form fields (2)'}).click();await page.getByRole('button',{name:'Save',exact:true}).click();
+  await page.getByRole('tab',{name:'Workflow (3)'}).click();
+  const secondTask=page.locator('[data-task-id]').nth(1);
+  await secondTask.click();await expect(secondTask).toHaveAttribute('aria-pressed','true');
+  await expect(page.getByRole('textbox',{name:/^Task Name\*?$/})).toHaveValue('Review result');
+  await page.getByRole('textbox',{name:/^Task Name\*?$/}).fill('');
+  await expect(secondTask).toContainText('Unnamed task');
+  await page.locator('[data-task-id]').first().click();
+  await expect(page.locator('[data-task-id]').first()).toHaveAttribute('aria-pressed','true');
+  await page.getByRole('tab',{name:'Form fields (2)'}).click();await page.getByRole('button',{name:'Save',exact:true}).click();
   await expect(page.getByRole('tab',{name:'Workflow (3)'})).toHaveAttribute('aria-selected','true');await expect(page.getByRole('textbox',{name:/^Task Name\*?$/})).toHaveValue('');await expect(page.getByRole('textbox',{name:/^Task Name\*?$/})).toBeFocused();
   await expect(page.locator('.request-form-task-editor-content [role=alert]')).toContainText('Every task must have a name');
   expect((await(await request.get(`${fixture}/state`)).json()).saves).toHaveLength(0);
@@ -92,7 +99,10 @@ if(!baseline){
 if(!baseline){
  test('dragging the navigator while editing keeps selection, unsaved values and dependency identity',async({page,request})=>{
   await openEditor(page);const second='bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';const first='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
-  await page.locator(`[data-task-id='${second}']`).click();await page.getByRole('textbox',{name:/^Task Name\*?$/}).fill('Drag edited review');await page.getByRole('textbox',{name:/^Task Name\*?$/}).blur();
+  await page.locator(`[data-task-id='${second}']`).click();
+  await expect(page.locator(`[data-task-id='${second}']`)).toHaveAttribute('aria-pressed','true');
+  await expect(page.getByRole('textbox',{name:/^Task Name\*?$/})).toHaveValue('Review result');
+  await page.getByRole('textbox',{name:/^Task Name\*?$/}).fill('Drag edited review');await page.getByRole('textbox',{name:/^Task Name\*?$/}).blur();
   await expect(page.locator(`[data-task-id='${second}']`)).toContainText('Drag edited review');
   // Use real mouse input: MudDropZone inserts a drop preview over the target
   // during native dragging, so a locator action would wait for that preview.

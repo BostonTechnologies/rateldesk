@@ -7,6 +7,16 @@ namespace HelpDesk.NewWeb.Services;
 
 public sealed class NotificationStreamService : IAsyncDisposable
 {
+    public event Action<bool>? ConnectionChanged;
+    public bool IsConnected { get; private set; }
+
+    private void SetConnected(bool value)
+    {
+        if (IsConnected == value) return;
+        IsConnected = value;
+        ConnectionChanged?.Invoke(value);
+    }
+
     private const int InitialReconnectDelayMs = 1000;
     private const int MaxReconnectDelayMs = 30000;
 
@@ -124,6 +134,7 @@ public sealed class NotificationStreamService : IAsyncDisposable
             {
                 await ConnectAndStreamAsync(handler, tenantId, category, ct);
                 retryCount = 0;
+                await Task.Delay(InitialReconnectDelayMs, ct);
             }
             catch (OperationCanceledException)
             {
@@ -170,6 +181,7 @@ public sealed class NotificationStreamService : IAsyncDisposable
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         response.EnsureSuccessStatusCode();
 
+        SetConnected(true);
         _logger.LogInformation("Notification stream connected");
 
         try
@@ -214,6 +226,7 @@ public sealed class NotificationStreamService : IAsyncDisposable
         }
         finally
         {
+            SetConnected(false);
             _logger.LogInformation("Notification stream disconnected");
         }
     }

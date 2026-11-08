@@ -1,6 +1,8 @@
 using System.Security.Claims;
 using System.Text.Json;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Email;
+using Helpdesk.Shared.Services;
 using Helpdesk.Shared.DTOs.EmailRules;
 using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
@@ -157,6 +159,17 @@ public static class InboundEmailRuleEndpoints
 
             await db.SaveChangesAsync(ct);
             return Results.Ok(rules.OrderBy(x => x.Priority).Select(ToDto));
+        });
+
+        group.MapGet("/audit/page", async ([AsParameters] InboundEmailAuditQuery query,
+            HttpContext context, [FromServices] HelpdeskDbContext db, CancellationToken ct) =>
+        {
+            try
+            {
+                return Results.Ok(await new InboundEmailAuditQueryService(db).SearchAsync(query,
+                    CurrentUserAccessProfile.FromClaims(context.User), ct));
+            }
+            catch (ArgumentException error) { return Results.BadRequest(new { message = error.Message }); }
         });
 
         group.MapGet("/audit", async (

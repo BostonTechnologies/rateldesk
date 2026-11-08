@@ -277,10 +277,12 @@ test.describe('focused admin tasks', () => {
  test('delegated role editor retains permission ceiling and read-only users cannot enter admin routes', async ({ page }) => {
   await page.goto('https://127.0.0.1:5181/auth/development'); await open(page, 'https://127.0.0.1:5181/admin/roles');
   await page.getByRole('button', { name: 'Create custom role' }).click();
-  await page.getByRole('combobox', { name: 'Permissions', exact: true }).click();
-  await expect(page.getByRole('option', { name: 'HelpdeskAdmin', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('option', { name: 'DataManagement.Admin', exact: true })).toHaveCount(0);
-  await page.keyboard.press('Escape'); await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  const roleEditor=page.locator('.role-editor-dialog');
+  await expect(roleEditor.locator('.permission-choice')).not.toHaveCount(0);
+  await expect(roleEditor.locator('.permission-choice').filter({hasText:'HelpdeskAdmin'})).toHaveCount(0);
+  await expect(roleEditor.locator('.permission-choice').filter({hasText:'DataManagement.Admin'})).toHaveCount(0);
+  await roleEditor.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(roleEditor).toBeHidden();
   await open(page, 'https://127.0.0.1:5181/admin/resources/data-management');
   await expect(page.getByRole('combobox', { name: /^Organization\*?$/ })).toHaveValue('Atlas Tenant');
   await page.getByRole('combobox', { name: /^Organization\*?$/ }).fill('Birch');
@@ -383,6 +385,7 @@ test.describe('guided datasets and Graph integrations',()=>{
  test('custom dataset schema saves exactly once and skipping a key is complete',async({page,request})=>{
   await open(page,'/admin/resources/data-management');const wizard=await beginDataset(page,'Synthetic measurements');
   await wizard.getByRole('button',{name:'Add field',exact:true}).click();
+  await expect(wizard.getByRole('textbox',{name:'Column name',exact:true})).toHaveCount(3);
   await wizard.getByRole('textbox',{name:'Column name',exact:true}).last().fill('capacity');
   await wizard.getByRole('combobox',{name:'Column data type',exact:true}).last().click();await page.getByRole('option',{name:'Number',exact:true}).click();
   await wizard.getByRole('button',{name:'Move capacity up',exact:true}).click();
@@ -534,6 +537,7 @@ test.describe('optional ingestion key lifecycle',()=>{
   await page.getByRole('tab',{name:'API access',exact:true}).click();await expect(page.getByText('Synthetic inventory producer',{exact:true})).toBeVisible();
   await expect(page.getByText('synthetic-one-time-dataset-key',{exact:true})).toHaveCount(0);
   await page.getByRole('button',{name:'Revoke',exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:'Cancel',exact:true}).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   let state=await(await request.get(`${fixture}/state`)).json();expect(state.saves.filter(item=>item.method==='DELETE')).toHaveLength(0);
   await page.getByRole('button',{name:'Revoke',exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:'Revoke',exact:true}).click();
   await expect(page.getByText(/Revoked · Created/)).toBeVisible();

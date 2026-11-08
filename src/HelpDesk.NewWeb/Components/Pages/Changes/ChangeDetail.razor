@@ -50,8 +50,9 @@
         }
         else
         {
+    <div class="change-workspace">
     <MudGrid Spacing="3" AlignItems="AlignItems.Stretch">
-        <MudItem xs="12" md="9" Class="d-flex flex-column">
+        <MudItem xs="12" md="8" Class="d-flex flex-column">
             <HelpDesk.NewWeb.Components.Shared.TicketHeader
                 Title="@change.Title"
                 Description="@change.Description"
@@ -93,7 +94,8 @@
                 <MessagesContent>
                     <MudStack Spacing="2">
                         <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-1">
-                            <MudText Typo="Typo.h6">Change Enablement Template</MudText>
+                            <MudText Typo="Typo.subtitle1">Plan</MudText>
+                            @if (!IsChangeLocked) { <MudButton Size="Size.Small" OnClick="() => editingPlan = !editingPlan">@(editingPlan ? "View record" : "Edit plan")</MudButton> }
                             <MudChip T="string"
                                      Color="@(change.IsTemplateComplete ? Color.Success : Color.Warning)"
                                      Variant="Variant.Outlined"
@@ -109,7 +111,7 @@
                             </MudAlert>
                         }
                         <div class="@(IsChangeLocked || isUpdating ? "change-template-locked" : null)">
-                            <ChangeTemplateEditor ReadOnly="@(IsChangeLocked || isUpdating)" ChangeType="@(change.ChangeType ?? string.Empty)"
+                            <ChangeTemplateEditor ReadOnly="@(IsChangeLocked || isUpdating || !editingPlan)" ChangeType="@(change.ChangeType ?? string.Empty)"
                                                   Model="@(change.ChangeTemplate ??= new ChangeTemplateDto())"
                                                   OnChanged="OnTemplateChanged"
                                                   ValidationErrors="@templateErrors" />
@@ -119,7 +121,7 @@
             </TicketActivityTabs>
         </MudItem>
 
-        <MudItem xs="12" md="3" Class="d-flex flex-column">
+        <MudItem xs="12" md="4" Class="d-flex flex-column">
             <TicketDetailsPanel>
                 <ChildContent>
                         <MudGrid Spacing="2">
@@ -136,6 +138,18 @@
                                     }
                                 </MudSelect>
                             </MudItem>
+                            @if (IsChangeLocked)
+                            {
+                                <MudItem xs="12"><dl class="change-record-metadata">
+                                    <dt>Priority</dt><dd>@change.Priority</dd>
+                                    <dt>Organization</dt><dd>@(change.OrganizationName ?? organizations.FirstOrDefault(x => x.Id == change.OrganizationId)?.Name ?? "Organization details unavailable")</dd>
+                                    <dt>Implementor</dt><dd>@(change.ImplementorUserName ?? change.ImplementorUserEmail ?? "Not provided")</dd>
+                                    <dt>Change type</dt><dd>@change.ChangeType</dd>
+                                    <dt>Implementation window (UTC)</dt><dd>@change.ImplementationStartAt?.ToString("yyyy-MM-dd HH:mm") → @change.ImplementationEndAt?.ToString("yyyy-MM-dd HH:mm")</dd>
+                                </dl></MudItem>
+                            }
+                            else
+                            {
                             <MudItem xs="12" sm="6" md="12" xl="6">
                                 <MudSelect T="TicketPriority" Value="@change.Priority" ValueChanged="OnPriorityChanged"
                                            Dense="true"
@@ -178,7 +192,7 @@
                                 </MudSelect>
                             </MudItem>
                             <MudItem xs="12">
-                                <MudDatePicker Label="Implementation Start Date"
+                                <MudDatePicker Label="Implementation start date (UTC)"
                                                Date="@implementationStartDate"
                                                DateChanged="OnImplementationStartDateChanged"
                                                Variant="Variant.Outlined"
@@ -186,14 +200,14 @@
                                                Disabled="@(isUpdating || IsChangeLocked)" />
                             </MudItem>
                             <MudItem xs="12">
-                                <MudTimePicker Label="Implementation Start Time"
+                                <MudTimePicker Label="Implementation start time (UTC)"
                                                Time="@implementationStartTime"
                                                TimeChanged="OnImplementationStartTimeChanged"
                                                AmPm="false"
                                                Disabled="@(isUpdating || IsChangeLocked)" />
                             </MudItem>
                             <MudItem xs="12">
-                                <MudDatePicker Label="Implementation End Date"
+                                <MudDatePicker Label="Implementation end date (UTC)"
                                                Date="@implementationEndDate"
                                                DateChanged="OnImplementationEndDateChanged"
                                                Variant="Variant.Outlined"
@@ -201,12 +215,13 @@
                                                Disabled="@(isUpdating || IsChangeLocked)" />
                             </MudItem>
                             <MudItem xs="12">
-                                <MudTimePicker Label="Implementation End Time"
+                                <MudTimePicker Label="Implementation end time (UTC)"
                                                Time="@implementationEndTime"
                                                TimeChanged="OnImplementationEndTimeChanged"
                                                AmPm="false"
                                                Disabled="@(isUpdating || IsChangeLocked)" />
                             </MudItem>
+                            }
                             <MudItem xs="12">
                                 <ServiceCategoryPicker RequestedType="TicketCategoryType.Change" OrganizationId="@change.OrganizationId" ScopeKey="@change.Id"
                                     SelectedCategoryIds="@selectedCategoryIds" SelectedCategoryIdsChanged="OnCategorySelectionChanged"
@@ -279,6 +294,7 @@
             </TicketDetailsPanel>
         </MudItem>
     </MudGrid>
+    </div>
         }
     </ChildContent>
     <ErrorContent Context="exception">
@@ -289,6 +305,7 @@
 </ErrorBoundary>
 
 @code {
+    private bool editingPlan;
     private async Task ConfirmNavigation(LocationChangingContext context)
     {
         if (hasChanges && await DialogService.ShowMessageBoxAsync("Unsaved changes", "Leave this ticket and discard unsaved changes?", yesText: "Discard changes", cancelText: "Keep editing") != true)
@@ -951,7 +968,7 @@
             return null;
         }
 
-        return date.Value.Date.Add(time.Value);
+        return DateTime.SpecifyKind(date.Value.Date.Add(time.Value), DateTimeKind.Utc);
     }
 
 }

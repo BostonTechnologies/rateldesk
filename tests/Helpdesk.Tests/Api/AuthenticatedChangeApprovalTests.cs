@@ -376,6 +376,10 @@ public sealed partial class AuthenticatedChangeApprovalTests
                 options.AddInterceptors(commits, new ChangeReadObserver(commits));
             });
             builder.Services.AddScoped(typeof(IRepository<>), typeof(EfRepository<>));
+            builder.Services.AddSingleton(Substitute.For<ITicketSlaInitializer>());
+            var references = Substitute.For<Helpdesk.Application.Services.Tickets.ITicketRefGeneratorService>();
+            references.NextReferenceAsync(Arg.Any<string>()).Returns(call => $"CHG-{Guid.NewGuid():N}");
+            builder.Services.AddSingleton(references);
             var signer = Substitute.For<IPublicTicketLinkSigner>();
             signer.ValidateToken(Arg.Any<string>(), "CHG-OWNER", Arg.Any<string>()).Returns(call => call.ArgAt<string>(0) == "signed:" + call.ArgAt<string>(2));
             builder.Services.AddSingleton(signer);

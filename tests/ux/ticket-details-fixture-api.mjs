@@ -89,6 +89,7 @@ http.createServer(async (req, res) => {
     if (ids) return reply(categories.filter(x => ids.split(',').includes(x.id)));
     const q = url.searchParams.get('search') ?? '';
     categorySearches.push(q);
+    if (fault === 'hold-category-search') { fault = ''; await hold('category-search'); }
     if (q === 'slow') { await new Promise(resolve => setTimeout(resolve, 1000)); return reply([{ id: '79000000-0000-0000-0000-000000000009', name: 'Stale result', isActive: true, type: 0 }]); }
     return reply(categories.filter(x => x.isActive && x.name.toLowerCase().includes(q.toLowerCase())).slice(0, 30));
   }

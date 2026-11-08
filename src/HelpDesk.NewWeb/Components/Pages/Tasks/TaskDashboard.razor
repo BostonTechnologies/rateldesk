@@ -1,3 +1,4 @@
+@using HelpDesk.NewWeb.Models
 @using Helpdesk.Shared.Services
 @page "/tasks"
 @attribute [Authorize(Roles = "Request.Read,Request.Write,Request.Execute,Request.Manager,HelpdeskAdmin")]
@@ -15,12 +16,12 @@
 
 <PageTitle>Tasks</PageTitle>
 
-<MudPaper Class="pa-4">
-    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
-        <MudText Typo="Typo.h5">Tasks</MudText>
+<MudPaper Class="pa-3 premium-workspace task-workspace">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+        <MudText Typo="Typo.h6" HtmlTag="h1">Tasks</MudText>
         <MudSpacer />
         <MudTooltip Text="Historic">
-            <MudIconButton Icon="@Icons.Material.Filled.History"
+            <MudIconButton aria-label="Show historic tasks" Icon="@Icons.Material.Filled.History"
                            Color="@(historicOnly ? Color.Primary : Color.Default)"
                            Variant="@(historicOnly ? Variant.Filled : Variant.Outlined)"
                            OnClick="ToggleHistoric" />
@@ -28,47 +29,28 @@
         <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="Reload">Refresh</MudButton>
     </MudStack>
 
-    <MudGrid Class="mb-2">
-        <MudItem xs="12" md="2">
-            <MudSwitch T="bool" Value="@assignedToMe" ValueChanged="OnAssignedToMeChanged" Color="Color.Primary" Label="Assigned to me" />
-        </MudItem>
-        <MudItem xs="12" md="2">
-            <MudSelect T="RequestTaskStatus?" Value="@statusFilter" ValueChanged="OnStatusChanged" Label="Status" Dense="true" Variant="Variant.Outlined">
-                <MudSelectItem T="RequestTaskStatus?" Value="@((RequestTaskStatus?)null)">All</MudSelectItem>
-                @foreach (var status in Enum.GetValues<RequestTaskStatus>())
-                {
-                    <MudSelectItem T="RequestTaskStatus?" Value="@status">@status</MudSelectItem>
-                }
-            </MudSelect>
-        </MudItem>
-        <MudItem xs="12" md="2">
-            <MudSelect T="RequestTaskType?" Value="@typeFilter" ValueChanged="OnTypeChanged" Label="Type" Dense="true" Variant="Variant.Outlined">
-                <MudSelectItem T="RequestTaskType?" Value="@((RequestTaskType?)null)">All</MudSelectItem>
-                @foreach (var type in Enum.GetValues<RequestTaskType>())
-                {
-                    <MudSelectItem T="RequestTaskType?" Value="@type">@type</MudSelectItem>
-                }
-            </MudSelect>
-        </MudItem>
-        <MudItem xs="12" md="2">
+    <div class="workspace-toolbar">
+        <MudSwitch T="bool" Value="assignedToMe" ValueChanged="OnAssignedToMeChanged" Color="Color.Primary" Label="Assigned to me" />
+        <MudSelect T="RequestTaskStatus?" Value="statusFilter" ValueChanged="OnStatusChanged" Label="Status" Margin="Margin.Dense" Variant="Variant.Outlined">
+            <MudSelectItem T="RequestTaskStatus?" Value="@((RequestTaskStatus?)null)">All</MudSelectItem>
+            @foreach (var status in Enum.GetValues<RequestTaskStatus>()) { <MudSelectItem T="RequestTaskStatus?" Value="status">@WorkspaceLabels.Readable(status.ToString())</MudSelectItem> }
+        </MudSelect>
+        <MudSelect T="RequestTaskType?" Value="typeFilter" ValueChanged="OnTypeChanged" Label="Type" Margin="Margin.Dense" Variant="Variant.Outlined">
+            <MudSelectItem T="RequestTaskType?" Value="@((RequestTaskType?)null)">All</MudSelectItem>
+            @foreach (var type in Enum.GetValues<RequestTaskType>()) { <MudSelectItem T="RequestTaskType?" Value="type">@type</MudSelectItem> }
+        </MudSelect>
+        <MudTextField T="string" Value="@search" ValueChanged="OnSearchChanged" Label="Search tasks" Immediate="true"
+                      OnKeyUp="@(async _ => await DebouncedReload())" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Margin="Margin.Dense" Variant="Variant.Outlined" />
+    </div>
+    <details><summary>Advanced · request and service IDs</summary><MudGrid>        <MudItem xs="12" md="2">
             <MudTextField T="string" Value="@requestIdFilter" ValueChanged="OnRequestIdChanged" Label="Request ID" Dense="true" Variant="Variant.Outlined" />
         </MudItem>
         <MudItem xs="12" md="2">
             <MudTextField T="string" Value="@serviceIdFilter" ValueChanged="OnServiceIdChanged" Label="Service ID" Dense="true" Variant="Variant.Outlined" />
         </MudItem>
-        <MudItem xs="12" md="2">
-            <MudTextField T="string"
-                          Value="@search"
-                          ValueChanged="OnSearchChanged"
-                          Placeholder="Search"
-                          Adornment="Adornment.Start"
-                          Icon="@Icons.Material.Filled.Search"
-                          Immediate="true"
-                          OnKeyUp="@(async _ => await DebouncedReload())"
-                          Dense="true"
-                          Variant="Variant.Outlined" />
-        </MudItem>
-    </MudGrid>
+</MudGrid></details>
+    @if (loadError is not null) { <MudAlert Severity="Severity.Error">@loadError <MudButton OnClick="Reload">Retry</MudButton></MudAlert> }
+
 
     @if (_selected.Count > 0)
     {
@@ -92,77 +74,67 @@
               SelectedItems="_selected"
               SelectedItemsChanged="@(x => _selected = x)"
               Dense="true"
-              Hover="true">
+              Hover="true" RowsPerPage="25" FixedHeader="true" FixedFooter="true"
+              Height="clamp(16rem, calc(100dvh - 23rem), 46rem)" Breakpoint="Breakpoint.Sm">
+        <ColGroup><col style="width:44px" /><col /><col /><col style="width:144px" /><col style="width:128px" /><col style="width:132px" /><col style="width:112px" /></ColGroup>
         <HeaderContent>
-            <MudTh>Tracking ID</MudTh>
-            <MudTh>Request Title</MudTh>
-            <MudTh>Task</MudTh>
-            <MudTh>Type</MudTh>
-            <MudTh>Status</MudTh>
-            <MudTh>Assignee</MudTh>
-            <MudTh>Created</MudTh>
-            <MudTh>Actions</MudTh>
+            <MudTh>Request</MudTh><MudTh>Task</MudTh><MudTh>Status</MudTh><MudTh>Assignee</MudTh><MudTh>Created</MudTh><MudTh>Actions</MudTh>
         </HeaderContent>
         <RowTemplate>
-            <MudTd DataLabel="Tracking ID">
+            <MudTd DataLabel="Request">
                 <MudLink Href="@($"/requests/{context.RequestId}")">@context.RequestTrackingId</MudLink>
+                <MudTooltip Text="@context.RequestTitle"><span class="workspace-secondary">@context.RequestTitle</span></MudTooltip>
             </MudTd>
-            <MudTd DataLabel="Request Title">@context.RequestTitle</MudTd>
-            <MudTd DataLabel="Task">@context.Name</MudTd>
-            <MudTd DataLabel="Type">
-                <MudChip T="string" Size="Size.Small" Color="@(context.Type == RequestTaskType.Automation ? Color.Info : Color.Default)">@context.Type</MudChip>
-                @if (context.Type == RequestTaskType.Automation && context.AutomationBindingSyncState is not null)
-                {
-                    <MudChip T="string" Size="Size.Small" Class="ml-1" Color="@GetBindingStateColor(context.AutomationBindingSyncState.Value)">
-                        @context.AutomationBindingSyncState
-                    </MudChip>
-                }
-                @if (!string.IsNullOrWhiteSpace(context.AutomationBlockReason))
-                {
-                    <MudText Typo="Typo.caption" Class="d-block">@context.AutomationBlockReason</MudText>
-                }
+            <MudTd DataLabel="Task">
+                <MudTooltip Text="@context.Name"><span class="workspace-primary">@context.Name</span></MudTooltip>
+                <div class="workspace-actions">
+                    <span class="workspace-secondary">@context.Type</span>
+                    @if (context.Type == RequestTaskType.Automation && context.AutomationBindingSyncState is { } binding)
+                    {
+                        <MudTooltip Text="@($"Binding: {WorkspaceLabels.Readable(binding.ToString())}")">
+                            <MudIcon Icon="@(binding == AutomationBindingSyncState.InSync ? Icons.Material.Outlined.Link : Icons.Material.Outlined.LinkOff)"
+                                     Size="Size.Small" Color="@(binding == AutomationBindingSyncState.InSync ? Color.Default : GetBindingStateColor(binding))"
+                                     aria-label="@($"Binding: {WorkspaceLabels.Readable(binding.ToString())}")" />
+                        </MudTooltip>
+                    }
+                </div>
+                @if (context.Type == RequestTaskType.Automation && !string.IsNullOrWhiteSpace(context.AutomationBlockReason))
+                { <MudTooltip Text="@context.AutomationBlockReason"><span class="workspace-secondary">@context.AutomationBlockReason</span></MudTooltip> }
             </MudTd>
             <MudTd DataLabel="Status">
-                <MudChip T="string" Size="Size.Small" Color="@GetTaskStatusColor(context.Status)">@context.Status</MudChip>
+                <MudText Typo="Typo.body2" Color="@GetTaskStatusColor(context.Status)">@(context.Type == RequestTaskType.Automation && context.Status == RequestTaskStatus.InProgress ? "Running" : WorkspaceLabels.Readable(context.Status.ToString()))</MudText>
                 @if (context.Type == RequestTaskType.Automation && !string.IsNullOrWhiteSpace(context.LastAutomationStatus))
                 {
-                    <MudText Typo="Typo.caption" Class="d-block">
-                        External orchestration: @(RequiresManualReconciliation(context.LastAutomationStatus) ? "Reconciliation required" : context.LastAutomationStatus)
-                    </MudText>
+                    <MudTooltip Text="@($"External orchestration: {WorkspaceLabels.Readable(context.LastAutomationStatus)}")">
+                        <span class="workspace-secondary">External: @(RequiresManualReconciliation(context.LastAutomationStatus) ? "Reconciliation required" : WorkspaceLabels.Readable(context.LastAutomationStatus))</span>
+                    </MudTooltip>
                 }
             </MudTd>
-            <MudTd DataLabel="Assignee">@GetAssigneeDisplay(context)</MudTd>
-            <MudTd DataLabel="Created">@context.CreatedAt.LocalDateTime.ToString("g")</MudTd>
+            <MudTd DataLabel="Assignee"><MudTooltip Text="@GetAssigneeDisplay(context)"><span class="workspace-primary">@GetAssigneeDisplay(context)</span></MudTooltip></MudTd>
+            <MudTd DataLabel="Created"><span>@context.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd")</span><span class="workspace-secondary">@context.CreatedAt.LocalDateTime.ToString("HH:mm")</span></MudTd>
             <MudTd DataLabel="Actions">
-                <MudStack Row="true" Spacing="1">
+                <div class="workspace-actions" @onclick:stopPropagation="true">
                     @if (context.Status == RequestTaskStatus.Pending)
                     {
-                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="@GetStartDisabled(context)" OnClick="@(async () => await StartTaskAsync(context.Id))">Start</MudButton>
+                        <WorkspaceAction Label="Start task" Icon="@Icons.Material.Filled.PlayArrow" Disabled="@GetStartDisabled(context)" DisabledReason="@(context.AutomationBlockReason ?? "Task permission or readiness is required")" OnClick="() => StartTaskAsync(context.Id)" />
                     }
                     @if (context.Type == RequestTaskType.Manual && context.Status == RequestTaskStatus.InProgress)
                     {
-                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Success" Disabled="@(rowActionBusy || !CanOperate(context))" OnClick="@(async () => await CompleteTaskAsync(context.Id))">Complete</MudButton>
-                    }
-                    @if (context.Type == RequestTaskType.Automation && context.Status == RequestTaskStatus.InProgress)
-                    {
-                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="true">Running</MudButton>
+                        <WorkspaceAction Label="Complete task" Icon="@Icons.Material.Outlined.CheckCircle" Disabled="@(rowActionBusy || !CanOperate(context))" DisabledReason="Task permission is required" OnClick="() => CompleteTaskAsync(context.Id)" />
                     }
                     @if (context.Type == RequestTaskType.Automation && context.Status == RequestTaskStatus.Failed && CanOperate(context) && !RequiresManualReconciliation(context.LastAutomationStatus))
                     {
-                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Warning" Disabled="@(rowActionBusy || !CanOperate(context))" OnClick="@(async () => await RetryTaskAsync(context.Id))">Retry</MudButton>
+                        <WorkspaceAction Label="Retry task" Icon="@Icons.Material.Filled.Replay" Disabled="@(rowActionBusy || !CanOperate(context))" OnClick="() => RetryTaskAsync(context.Id)" />
                     }
                     @if (context.Type == RequestTaskType.Automation && HasAutomationRecoveryContext(context))
                     {
-                        <MudButton Size="Size.Small"
-                                   Variant="Variant.Outlined"
-                                   Color="Color.Info"
-                                   Href="@BuildAutomationRecoveryLink(context)">
-                            Recovery
-                        </MudButton>
+                        <WorkspaceAction Label="Open recovery" Icon="@Icons.Material.Filled.ManageSearch" Href="@BuildAutomationRecoveryLink(context)" />
                     }
-                </MudStack>
+                </div>
             </MudTd>
         </RowTemplate>
+        <NoRecordsContent><MudText>@(loadError is null ? "No tasks match these filters." : "Tasks unavailable. Retry the request.")</MudText></NoRecordsContent>
+        <PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" /></PagerContent>
     </MudTable>
 </MudPaper>
 
@@ -185,7 +157,8 @@
 
     private MudTable<RequestTaskListItemDto>? _table;
     private HashSet<RequestTaskListItemDto> _selected = new();
-    private bool assignedToMe = true;
+    private bool assignedToMe;
+    private string? loadError;
     private RequestTaskStatus? statusFilter;
     private RequestTaskType? typeFilter;
     private string? requestIdFilter;
@@ -215,8 +188,10 @@
 
     private async Task<TableData<RequestTaskListItemDto>> LoadServerData(TableState state, CancellationToken cancellationToken)
     {
+        _selected.Clear();
+        loadError = null;
         var page = state.Page + 1;
-        var pageSize = state.PageSize <= 0 ? 10 : state.PageSize;
+        var pageSize = state.PageSize <= 0 ? 25 : state.PageSize;
         var url = $"api/v1/request-tasks?page={page}&pageSize={pageSize}&assignedToMe={assignedToMe.ToString().ToLowerInvariant()}";
 
         if (historicOnly)
@@ -264,15 +239,18 @@
         }
         catch (HttpRequestException ex)
         {
+            loadError = "Tasks unavailable. Retry the request.";
             Snackbar.Add(ex.StatusCode is null
                 ? "Tasks could not be loaded right now."
                 : $"Tasks could not be loaded right now ({(int)ex.StatusCode}).", Severity.Error);
         }
         catch
         {
-            Snackbar.Add("Tasks could not be loaded right now.", Severity.Error);
+            loadError = "Tasks unavailable. Retry the request.";
+            Snackbar.Add(loadError, Severity.Error);
         }
 
+        await InvokeAsync(StateHasChanged);
         return new TableData<RequestTaskListItemDto>
         {
             Items = new List<RequestTaskListItemDto>(),
@@ -323,6 +301,7 @@
     private Task Reload()
     {
         _selected.Clear();
+        if (_table?.CurrentPage > 0) { _table.NavigateTo(0); return Task.CompletedTask; }
         return _table?.ReloadServerData() ?? Task.CompletedTask;
     }
 
@@ -400,10 +379,11 @@
 
     private async Task ExecuteRowActionAsync(string id, string action, string successMessage)
     {
+        if (rowActionBusy || bulkBusy) return;
         rowActionBusy = true;
         try
         {
-            var response = await HelpdeskApi.PostAsJsonAsync($"/api/v1/request-tasks/{id}/{action}", new { });
+            using var response = await HelpdeskApi.PostAsJsonAsync($"/api/v1/request-tasks/{id}/{action}", new { });
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync();
@@ -414,6 +394,8 @@
             Snackbar.Add(successMessage, Severity.Success);
             await Reload();
         }
+        catch (HttpRequestException) { Snackbar.Add("Task outcome could not be confirmed. Refresh before retrying.", Severity.Warning); }
+        catch (OperationCanceledException) { Snackbar.Add("Task request was interrupted. Refresh to reconcile its outcome.", Severity.Warning); }
         finally
         {
             rowActionBusy = false;
@@ -426,12 +408,12 @@
 
     private async Task ExecuteBulkActionAsync(string endpoint, string successTemplate)
     {
-        if (!CanBulkOperate) return;
+        if (bulkBusy || rowActionBusy || !CanBulkOperate) return;
         bulkBusy = true;
         try
         {
             var ids = _selected.Select(x => x.Id).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            var response = await HelpdeskApi.PostAsJsonAsync(endpoint, new BulkRequestTaskActionDto { Ids = ids });
+            using var response = await HelpdeskApi.PostAsJsonAsync(endpoint, new BulkRequestTaskActionDto { Ids = ids });
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync();
@@ -443,6 +425,8 @@
             Snackbar.Add(string.Format(successTemplate, payload.Updated), Severity.Success);
             await Reload();
         }
+        catch (HttpRequestException) { Snackbar.Add("Task outcomes could not be confirmed. Selection is retained; refresh before retrying.", Severity.Warning); }
+        catch (OperationCanceledException) { Snackbar.Add("Task request was interrupted. Selection is retained; refresh to reconcile.", Severity.Warning); }
         finally
         {
             bulkBusy = false;

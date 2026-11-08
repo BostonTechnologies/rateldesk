@@ -27,35 +27,33 @@
     </MudAlert>
 }
 
-<MudPaper Class="helpdesk-content-surface pa-4" Elevation="0">
-    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4">
-        <MudText Typo="Typo.h4" HtmlTag="h1" Class="helpdesk-page-title">Notifications</MudText>
-        <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+<MudPaper Class="helpdesk-content-surface pa-3 premium-workspace notifications-workspace" Elevation="0">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4 notification-heading">
+        <MudText Typo="Typo.h6" HtmlTag="h1" Class="helpdesk-page-title">Notifications</MudText>
+        <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center" Class="notification-heading-status">
             <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined">@summary.UnreadCount unread / @summary.TotalCount total</MudChip>
             <MudChip T="string"
-                     Color="@(isStreamConnected ? Color.Success : Color.Error)"
+                     Color="@(isStreamConnected ? Color.Default : Color.Warning)"
                      Variant="Variant.Outlined"
                      Size="Size.Small">
-                @(isStreamConnected ? "LIVE" : "DISCONNECTED")
+                @(isStreamConnected ? "Live" : "Reconnecting")
             </MudChip>
         </MudStack>
     </MudStack>
 
-    <MudStack Row="true" Spacing="2" Class="mb-2">
-        <MudChip T="string" Variant="Variant.Outlined">24h Events: @last24hCount</MudChip>
+    <MudStack Row="true" Spacing="2" Class="mb-2 notification-metrics">
+        <MudChip T="string" Variant="Variant.Outlined">24h on this page: @last24hCount</MudChip>
         <MudChip T="string" Color="Color.Error" Variant="Variant.Outlined">Errors: @last24hErrors</MudChip>
         <MudChip T="string" Color="Color.Warning" Variant="Variant.Outlined">Warnings: @last24hWarnings</MudChip>
     </MudStack>
 
     <MudGrid Class="mb-4">
         <MudItem xs="12" md="3">
-            <MudTextField T="string"
-                          @bind-Value="searchTerm"
+            <MudTextField T="string" Variant="Variant.Outlined" Margin="Margin.Dense"
+                          Value="@searchTerm" ValueChanged="OnSearchChanged"
                           Label="Search"
                           Placeholder="Reference, correlation, or text"
-                          Immediate="true"
-                          OnBlur="ReloadTableAsync"
-                          OnKeyUp="@(async _ => await DebouncedReload())" />
+                          Immediate="true" />
         </MudItem>
         <MudItem xs="12" sm="6" md="2">
             <MudSelect T="NotificationSeverity?" Value="selectedSeverity" ValueChanged="OnSeverityChanged" Label="Severity" Clearable="true">
@@ -143,7 +141,7 @@
         <MudItem xs="12" sm="6" md="2">
             <MudButton Variant="Variant.Filled"
                        Color="Color.Primary"
-                       Disabled="@(selectedIds.Count == 0)"
+                       Disabled="@(receiptBusy || selectedIds.Count == 0)"
                        OnClick="BulkMarkReadAsync">
                 Mark Selected Read (@selectedIds.Count)
             </MudButton>
@@ -161,24 +159,31 @@
         }
     </MudGrid>
 
+    @if (tableError is not null) { <MudAlert Severity="Severity.Error">@tableError <MudButton OnClick="RefreshEventsAsync">Retry</MudButton></MudAlert> }
+    @if (newEvents > 0 || streamGap)
+    {
+        <MudButton Class="mb-2" Variant="Variant.Outlined" OnClick="ShowNewEventsAsync">@(newEvents > 0 ? $"{newEvents} new events · Refresh" : (isStreamConnected ? "Connection restored · Refresh to reconcile events" : "Connection interrupted · Refresh to reconcile events"))</MudButton>
+    }
     <MudTable T="NotificationDto"
               @ref="_table"
               ServerData="LoadServerData"
               CurrentPage="currentPage"
               CurrentPageChanged="OnCurrentPageChanged"
-              Dense="true"
+              Dense="true" RowsPerPage="25" FixedHeader="true" FixedFooter="true"
+              Height="clamp(16rem, calc(100dvh - 27rem), 46rem)"
               Hover="true"
               Breakpoint="Breakpoint.Sm"
               Class="helpdesk-table"
               RowClassFunc="GetRowClass"
               OnRowClick="OnRowClicked"
               Loading="tableLoading">
+        <ColGroup><col style="width:44px" /><col style="width:112px" /><col /><col style="width:120px" /><col style="width:128px" /><col style="width:128px" /><col style="width:104px" /><col style="width:192px" /></ColGroup>
         <HeaderContent>
             <MudTh>
                 <div @onclick:stopPropagation="true">
                     <MudCheckBox T="bool"
-                                 Checked="AreAllSelected"
-                                 CheckedChanged="ToggleSelectAll" />
+                                 Value="AreAllSelected" aria-label="Select unread on this page"
+                                 ValueChanged="ToggleSelectAll" />
                 </div>
             </MudTh>
             <MudTh>
@@ -187,7 +192,6 @@
                 </MudTableSortLabel>
             </MudTh>
             <MudTh>Event</MudTh>
-            <MudTh>Reference</MudTh>
             <MudTh>
                 <MudTableSortLabel T="NotificationDto" SortLabel="source">
                     Source
@@ -209,61 +213,55 @@
             <MudTh>Actions</MudTh>
         </HeaderContent>
         <RowTemplate>
-            <MudTd @attributes="GetCellAttributes(context)">
+            <MudTd DataLabel="Selection" @attributes="GetCellAttributes(context)">
                 <div @onclick:stopPropagation="true">
                     <MudCheckBox T="bool"
-                                 Checked="@selectedIds.Contains(context.Id)"
-                                 CheckedChanged="@((bool value) => ToggleSelection(context.Id, value))" />
+                                 Value="@selectedIds.Contains(context.Id)" Disabled="context.IsRead" aria-label="@($"Select {context.Title}")"
+                                 ValueChanged="@((bool value) => ToggleSelection(context.Id, value))" />
                 </div>
             </MudTd>
-            <MudTd>
-                <MudIcon Icon="@GetSeverityIcon(context.Severity)" Color="@GetSeverityColor(context.Severity)" />
+            <MudTd DataLabel="Severity">
+                <MudTooltip Text="@context.Severity.ToString()"><MudIcon Icon="@GetSeverityIcon(context.Severity)" Color="@GetSeverityColor(context.Severity)" aria-label="@context.Severity.ToString()" /></MudTooltip>
             </MudTd>
-            <MudTd>
-                <MudText Class="text-truncate" Style="max-width:260px;">
-                    @context.Title
-                </MudText>
+            <MudTd DataLabel="Event">
+                <MudTooltip Text="@context.Title"><span class="workspace-primary">@WorkspaceLabels.Readable(context.Title)</span></MudTooltip>
+                <span class="workspace-secondary">@EventSummary(context)</span>
             </MudTd>
-            <MudTd>
-                <MudText Class="text-truncate" Style="max-width:220px;">
-                    @(context.Reference ?? "-")
-                </MudText>
-            </MudTd>
-            <MudTd>@(context.Source ?? "-")</MudTd>
-            <MudTd>@(context.Category ?? "-")</MudTd>
-            <MudTd>@context.CreatedUtc.ToLocalTime().ToString("g")</MudTd>
-            <MudTd>
-                <MudChip T="string" Size="Size.Small" Color="@(context.IsRead ? Color.Success : Color.Warning)">
-                    @(context.IsRead ? "Read" : "Unread")
-                </MudChip>
-            </MudTd>
-            <MudTd>
-                <MudStack Row="true" Spacing="1" @onclick:stopPropagation="true">
+            <MudTd DataLabel="Source"><MudTooltip Text="@context.Source"><span class="workspace-primary">@WorkspaceLabels.Source(context.Source)</span></MudTooltip></MudTd>
+            <MudTd DataLabel="Category">@WorkspaceLabels.Readable(context.Category)</MudTd>
+            <MudTd DataLabel="Created">@context.CreatedUtc.ToLocalTime().ToString("g")</MudTd>
+            <MudTd DataLabel="State"><span class="@(context.IsRead ? "workspace-secondary" : "notification-unread")">@(context.IsRead ? "Read" : "● Unread")</span></MudTd>
+            <MudTd DataLabel="Actions">
+                <div class="workspace-actions" @onclick:stopPropagation="true">
                     @if (!context.IsRead)
                     {
-                        <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="() => MarkReadAsync(context)">Mark Read</MudButton>
+                        <WorkspaceAction Label="Mark as read" Icon="@Icons.Material.Filled.MarkEmailRead" Disabled="receiptBusy" OnClick="() => MarkReadAsync(context)" />
                     }
                     @if (!string.IsNullOrWhiteSpace(context.Link))
                     {
-                        <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => OpenLink(context)">Open</MudButton>
+                        <WorkspaceAction Label="Open related item" Icon="@Icons.Material.Filled.OpenInNew" OnClick="() => OpenLink(context)" />
                     }
-                </MudStack>
+                    <WorkspaceAction Label="Event details" Icon="@Icons.Material.Outlined.Info" OnClick="() => OpenEventDetail(context)" />
+                    @if (IsTimelineCandidate(context)) { <WorkspaceAction Label="Correlated timeline" Icon="@Icons.Material.Filled.Timeline" OnClick="() => OpenTimelineAsync(context)" /> }
+                </div>
             </MudTd>
         </RowTemplate>
         <NoRecordsContent>
-            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">No notifications found.</MudAlert>
+            <MudText>@(tableError is null ? "No notifications match these filters." : "Notification list unavailable. Retry the request.")</MudText>
         </NoRecordsContent>
         <PagerContent>
-            <MudTablePager />
+            <MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" />
         </PagerContent>
     </MudTable>
 </MudPaper>
 
-<MudDrawer Anchor="Anchor.Right" Variant="DrawerVariant.Temporary" Width="560px" @bind-Open="drawerOpen">
+@if (drawerOpen)
+{
+<MudDrawer Anchor="Anchor.Right" Variant="DrawerVariant.Temporary" Width="min(560px, 100vw)" @bind-Open="drawerOpen">
     <MudStack Class="pa-4" Spacing="2">
         <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
             <MudText Typo="Typo.h6">@(drawerMode == DrawerMode.Timeline ? "Correlated Timeline" : "Event Detail")</MudText>
-            <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="CloseDrawer" />
+            <MudIconButton aria-label="Close notification details" Icon="@Icons.Material.Filled.Close" OnClick="CloseDrawer" />
         </MudStack>
 
         @if (drawerMode == DrawerMode.Timeline)
@@ -331,6 +329,7 @@
             <MudPaper Class="pa-3">
                 <MudStack Spacing="1">
                     <MudText Typo="Typo.subtitle1">@eventDetail.EventType</MudText>
+                    <MudButton Size="Size.Small" OnClick="CopyDiagnosticsAsync">Copy diagnostics</MudButton>
                     <MudText Typo="Typo.caption" Color="Color.Secondary">@eventDetail.Notification.CreatedUtc.ToLocalTime().ToString("g")</MudText>
                     <MudText Typo="Typo.body2">Severity: @eventDetail.Notification.Severity</MudText>
                     <MudText Typo="Typo.body2">Source: @(eventDetail.Notification.Source ?? "-")</MudText>
@@ -367,23 +366,24 @@
         }
     </MudStack>
 </MudDrawer>
+}
 
 <style>
-    .mud-table {
+    .notifications-workspace .mud-table-root {
         table-layout: fixed;
     }
 
-    .mud-table td {
+    .notifications-workspace .mud-table td {
         word-break: break-word;
     }
 
-    .text-truncate {
+    .notifications-workspace .text-truncate {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
     }
 
-    .notification-row-clickable {
+    .notifications-workspace .notification-row-clickable {
         cursor: pointer;
     }
 
@@ -396,7 +396,7 @@
         width: min(420px, calc(100vw - 32px));
     }
 
-    .notification-row-live {
+    .notifications-workspace .notification-row-live {
         animation: notification-live-fade 2.5s ease-out;
         background-color: rgba(33, 150, 243, 0.12);
     }
@@ -435,7 +435,12 @@
     private TimeSpan? pendingFromTime;
     private TimeSpan? pendingToTime;
     private bool createdPopoverOpen;
-    private const int DefaultPageSize = 20;
+    private const int DefaultPageSize = 25;
+    private int newEvents;
+    private bool streamGap, receiptBusy, disposed;
+    private string? tableError;
+    private readonly HashSet<Guid> seenArrivals = [];
+    private readonly Queue<Guid> arrivalOrder = [];
     private const string SourceApplication = "Application";
     private const string SourceInfrastructure = "Infrastructure";
     private const string SourceApi = "API";
@@ -482,6 +487,7 @@
     protected override void OnInitialized()
     {
         Navigation.LocationChanged += OnLocationChanged;
+        NotificationStream.ConnectionChanged += OnStreamConnectionChanged;
     }
 
     protected override async Task OnInitializedAsync()
@@ -489,7 +495,8 @@
         searchTerm = NormalizeQueryValue(searchTerm);
         selectedSource = NormalizeQueryValue(selectedSource);
         selectedCategory = NormalizeQueryValue(selectedCategory);
-        await RefreshSummaryAsync();
+        try { await RefreshSummaryAsync(); }
+        catch (HttpRequestException) { tableError = "Notification counts unavailable. Refresh to reconcile."; }
     }
 
     private async void OnLocationChanged(object? sender, LocationChangedEventArgs e)
@@ -543,16 +550,18 @@
                 await NotificationStream.StartAsync(
                     async notification =>
                     {
-                        await InvokeAsync(() =>
+                        await InvokeAsync(async () =>
                         {
                             InsertNotification(notification);
+                            try { await RefreshSummaryAsync(); }
+                            catch (HttpRequestException) { tableError = "Notification counts unavailable. Refresh to reconcile."; }
                             StateHasChanged();
                         });
                     },
                     tenantId: null,
                     category: null);
 
-                isStreamConnected = true;
+                isStreamConnected = NotificationStream.IsConnected;
                 await InvokeAsync(StateHasChanged);
             }
             catch
@@ -565,7 +574,7 @@
 
     private async Task<TableData<NotificationDto>> LoadServerData(TableState state, CancellationToken token)
     {
-        tableLoading = true;
+        tableLoading = true; tableError = null;
         var safePageIndex = Math.Max(state.Page, 0);
         currentPage = safePageIndex;
         var page = safePageIndex + 1;
@@ -610,23 +619,33 @@
                 TotalItems = result.TotalCount
             };
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+        catch (Exception)
+        {
+            tableError = "Could not load notifications. Retry the request.";
+            return new() { Items = notifications.ToArray(), TotalItems = summary.TotalCount };
+        }
         finally
         {
             tableLoading = false;
+            await InvokeAsync(StateHasChanged);
         }
     }
 
     private async Task MarkReadAsync(NotificationDto item)
     {
-        if (item.IsRead)
-            return;
-
-        await NotificationClient.MarkReadAsync(item.Id);
-        item.IsRead = true;
-        selectedIds.Remove(item.Id);
-        summary.UnreadCount = Math.Max(summary.UnreadCount - 1, 0);
-        await NotificationEventBus.NotifyReadAsync(1);
-        StateHasChanged();
+        if (item.IsRead || receiptBusy) return;
+        receiptBusy = true;
+        try
+        {
+            await NotificationClient.MarkReadAsync(item.Id);
+            item.IsRead = true;
+            selectedIds.Remove(item.Id);
+            await RefreshSummaryAsync();
+            await NotificationEventBus.NotifyReadAsync(1);
+        }
+        catch (HttpRequestException) { Snackbar.Add("Read receipt could not be confirmed. Refresh to reconcile; selection is retained.", Severity.Error); }
+        finally { receiptBusy = false; }
     }
 
     private async Task OnSeverityChanged(NotificationSeverity? value)
@@ -668,6 +687,7 @@
         if (_table is null)
             return;
 
+        selectedIds.Clear();
         currentPage = 0;
         _table.NavigateTo(0);
         await _table.ReloadServerData();
@@ -679,8 +699,9 @@
         return Task.CompletedTask;
     }
 
-    private async Task DebouncedReload()
+    private async Task OnSearchChanged(string? value)
     {
+        searchTerm = value;
         debounceCts?.Cancel();
         debounceCts = new CancellationTokenSource();
         try
@@ -811,39 +832,52 @@
 
     private void InsertNotification(NotificationDto dto)
     {
-        summary.TotalCount += 1;
-        if (!dto.IsRead)
-            summary.UnreadCount += 1;
+        if (notifications.Any(x => x.Id == dto.Id) || !seenArrivals.Add(dto.Id)) return;
+        arrivalOrder.Enqueue(dto.Id);
+        if (arrivalOrder.Count > 2048) seenArrivals.Remove(arrivalOrder.Dequeue());
+        // Hold the operator's rows, selection, sorting and scroll position until an explicit refresh.
+        if (MatchesCurrentFilters(dto)) newEvents++;
+        if (drawerOpen && drawerMode == DrawerMode.Timeline && MatchesTimelineContext(dto) &&
+            timelineEvents.All(x => x.Notification.Id != dto.Id)) timelineEvents.Add(MapTimelineItem(dto));
+    }
 
-        if (!MatchesCurrentFilters(dto))
-            return;
+    private void OnStreamConnectionChanged(bool connected) => _ = InvokeAsync(() =>
+    {
+        if (disposed) return;
+        if (isStreamConnected && !connected) streamGap = true;
+        isStreamConnected = connected;
+        StateHasChanged();
+    });
 
-        notifications.Insert(0, dto);
-        if (notifications.Count > activePageSize)
-            notifications.RemoveAt(notifications.Count - 1);
+    private async Task RefreshEventsAsync()
+    {
+        if (_table is not null) await _table.ReloadServerData();
+        if (tableError is null) { newEvents = 0; streamGap = false; }
+    }
 
-        Recalculate24hSummary();
+    private async Task ShowNewEventsAsync()
+    {
+        await ReloadTableAsync();
+        if (tableError is null) { newEvents = 0; streamGap = false; }
+    }
 
-        highlightedNotificationIds.Add(dto.Id);
-        _ = Task.Run(async () =>
+    private static string EventSummary(NotificationDto item)
+    {
+        try
         {
-            try
-            {
-                await Task.Delay(TimeSpan.FromSeconds(3));
-                await InvokeAsync(() =>
-                {
-                    highlightedNotificationIds.Remove(dto.Id);
-                    StateHasChanged();
-                });
-            }
-            catch
-            {
-                // Ignore lifecycle race during teardown.
-            }
-        });
+            using var document = JsonDocument.Parse(item.Message);
+            if (document.RootElement.ValueKind == JsonValueKind.Object &&
+                document.RootElement.TryGetProperty("summary", out var summary) && summary.ValueKind == JsonValueKind.String)
+                return summary.GetString() ?? "";
+        }
+        catch (JsonException) { return item.Message; }
+        return "Details available";
+    }
 
-        if (drawerOpen && drawerMode == DrawerMode.Timeline && MatchesTimelineContext(dto))
-            timelineEvents.Add(MapTimelineItem(dto));
+    private async Task CopyDiagnosticsAsync()
+    {
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", JsonSerializer.Serialize(eventDetail?.Notification)); }
+        catch (JSException) { Snackbar.Add("Select and copy the diagnostics; clipboard access is unavailable.", Severity.Info); }
     }
 
     private bool MatchesCurrentFilters(NotificationDto dto)
@@ -1071,14 +1105,7 @@
         highlightedNotificationIds.Add(match.Id);
         showDeepLinkBanner = true;
 
-        if (!match.IsRead)
-        {
-            await NotificationClient.MarkReadAsync(match.Id);
-            match.IsRead = true;
-            selectedIds.Remove(match.Id);
-            summary.UnreadCount = Math.Max(summary.UnreadCount - 1, 0);
-            await NotificationEventBus.NotifyReadAsync(1);
-        }
+        if (!match.IsRead) await MarkReadAsync(match);
 
         if (IsTimelineCandidate(match))
             await OpenTimelineAsync(match);
@@ -1103,22 +1130,24 @@
 
     private async Task BulkMarkReadAsync()
     {
-        if (selectedIds.Count == 0)
-            return;
-
+        if (receiptBusy || selectedIds.Count == 0) return;
+        receiptBusy = true;
         var ids = selectedIds.ToList();
-        selectedIds.Clear();
-
-        var updated = await NotificationClient.MarkReadBulkAsync(ids);
-
-        var idSet = ids.ToHashSet();
-        foreach (var notification in notifications.Where(n => idSet.Contains(n.Id)))
-            notification.IsRead = true;
-
-        summary.UnreadCount = Math.Max(summary.UnreadCount - updated, 0);
-        await NotificationEventBus.NotifyReadAsync(updated);
-
-        StateHasChanged();
+        try
+        {
+            var updated = await NotificationClient.MarkReadBulkAsync(ids);
+            // The endpoint reports an aggregate. Re-read actor-specific receipts rather than
+            // claiming every submitted ID succeeded when only part of the selection changed.
+            await RefreshEventsAsync();
+            if (tableError is null)
+            {
+                selectedIds.ExceptWith(notifications.Where(x => x.IsRead).Select(x => x.Id));
+                if (selectedIds.Count > 0) Snackbar.Add("Some receipts remain unread. Review the retained selection before retrying.", Severity.Warning);
+            }
+            await NotificationEventBus.NotifyReadAsync(updated);
+        }
+        catch (HttpRequestException) { Snackbar.Add("Read receipts could not be confirmed. Selection is retained; refresh to reconcile.", Severity.Error); }
+        finally { receiptBusy = false; }
     }
 
     private static TimelineEventView MapTimelineItem(NotificationDto notification)
@@ -1195,6 +1224,8 @@
 
     public async ValueTask DisposeAsync()
     {
+        disposed = true;
+        NotificationStream.ConnectionChanged -= OnStreamConnectionChanged;
         try
         {
             await NotificationStream.StopAsync();

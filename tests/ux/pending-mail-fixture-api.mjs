@@ -10,10 +10,11 @@ const makeRow = i => ({
   isRetryable: i % 3 !== 0, canCancel: i % 3 !== 0, canRemove: true, queueState: 'Exhausted',
   deliveryErrorCode: i % 3 === 0 ? 'SubmissionOutcomeUnknown' : 'SyntheticRejected', messageText: 'Synthetic delivery needs review.'
 });
-let requests, actions, retries, removed, fail, failActions, actionDelay, data, history;
+let requests, actions, retries, removed, fail, failActions, actionDelay, data, history, operations;
 function reset(scenario) {
-  requests = []; actions = []; retries = []; removed = new Set(); fail = false; failActions = false; actionDelay = 0;
-  data = Array.from({ length: scenario === 'campaign' ? 619 : scenario === 'retries' ? 5 : 1205 }, (_, i) => makeRow(i));
+  operations = new Map(); requests = []; actions = []; retries = []; removed = new Set(); fail = false; failActions = false; actionDelay = 0;
+  data = Array.from({ length: scenario === 'bulk' ? 1113 : scenario === 'campaign' ? 619 : scenario === 'retries' ? 5 : 1205 }, (_, i) => makeRow(i));
+  if (scenario === 'bulk') data.forEach((row, i) => { row.subject = i < 1106 ? 'Disposable bulk delivery' : 'Unrelated control'; row.canCancel = true; row.deliveryErrorCode = 'SyntheticRejected'; });
   if (scenario === 'campaign') data.forEach((row, i) => {
     row.subject = i < 18 ? 'Disposable campaign delivery' : 'Unrelated baseline delivery';
     row.queueState = 'NeedsReview'; row.deliveryErrorCode = 'NoEffectiveMailbox'; row.sender = null;
@@ -32,10 +33,49 @@ http.createServer(async (req, res) => {
   const reply = (value, status = 200) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); };
   if (url.pathname === '/fixture/health') return reply({ ok: true });
   if (url.pathname === '/fixture/reset') { reset(url.searchParams.get('scenario')); return reply({ ok: true }); }
-  if (url.pathname === '/fixture/state') return reply({ requests, actions, retries, data, history, submissions: [] });
+  if (url.pathname === '/fixture/state') return reply({ requests, actions, retries, data, history, submissions: [], operations: [...operations.values()] });
   if (url.pathname === '/fixture/fail') { fail = url.searchParams.get('enabled') === 'true'; return reply({ ok: true }); }
   if (url.pathname === '/fixture/action-options') {
     failActions = url.searchParams.get('fail') === 'true'; actionDelay = Number(url.searchParams.get('delay') ?? 0); return reply({ ok: true });
+  }
+  if (url.pathname === '/fixture/arrival') { const row = makeRow(data.length); row.subject = 'Disposable bulk delivery'; row.canCancel = true; data.push(row); return reply(row); }
+  if (url.pathname === '/fixture/change') { const row = data.find(x => x.id === url.searchParams.get('id')); if (row) { row.emailStatus = 1; row.canCancel = false; } return reply(row); }
+  const matchRows = query => data.filter(x => !removed.has(x.id) &&
+      (query.status == null ? x.emailStatus !== 5 : x.emailStatus === Number(query.status === 'Cancelled' ? 5 : query.status)) &&
+      `${x.trackingId} ${x.subject} ${x.emailRecipient}`.toLowerCase().includes((query.search ?? '').toLowerCase()));
+  const summary = op => ({ id: op.id, action: op.action, scope: JSON.stringify(op.query), total: op.targets.length,
+      eligible: op.targets.filter(x => x.eligible).length, processed: op.results.length,
+      completed: op.results.filter(x => ['Cancelled', 'Removed'].includes(x.outcome)).length,
+      skipped: op.results.filter(x => x.outcome === 'ReviewRequired').length, conflicted: op.results.filter(x => x.outcome === 'Conflict').length,
+      confirmed: Boolean(op.reason), results: op.results.slice(-100) });
+  if (url.pathname === '/api/v1/timeline/pending/operations' && req.method === 'POST') {
+    let text = ''; for await (const chunk of req) text += chunk; const input = JSON.parse(text);
+    const targets = matchRows(input.query).filter(x => (input.allMatching || input.includedIds.includes(x.id)) && !input.excludedIds.includes(x.id))
+      .map(row => ({ id: row.id, snapshot: JSON.stringify(row), eligible: input.action === 'cancel' ? row.canCancel : row.canRemove }));
+    const op = { id: id(50000 + operations.size), action: input.action, query: input.query, targets, results: [], reason: null };
+    operations.set(op.id, op); return reply(summary(op));
+  }
+  const opMatch = url.pathname.match(/^\/api\/v1\/timeline\/pending\/operations\/([^/]+)(?:\/(confirm|process|results))?$/);
+  if (opMatch) {
+    const op = operations.get(opMatch[1]); if (!op) return reply({}, 404);
+    if (opMatch[2] === 'confirm') {
+      let text = ''; for await (const chunk of req) text += chunk; const input = JSON.parse(text);
+      if (!input.confirmed || !input.reason.trim() || input.reason.length > 200) return reply({}, 400);
+      if (!op.reason) { op.reason = input.reason; actions.push({ ids: op.targets.map(x => x.id), action: op.action, reason: op.reason, confirmed: true }); }
+      return reply({});
+    }
+    if (opMatch[2] === 'process') {
+      if (actionDelay) await new Promise(resolve => setTimeout(resolve, actionDelay));
+      if (failActions) return reply({}, 503); if (!op.reason) return reply({}, 400);
+      for (const target of op.targets.slice(op.results.length, op.results.length + 50)) {
+        const row = data.find(x => x.id === target.id);
+        const outcome = JSON.stringify(row) !== target.snapshot ? 'Conflict' : !target.eligible ? 'ReviewRequired' : op.action === 'cancel' ? 'Cancelled' : 'Removed';
+        if (outcome === 'Cancelled') { row.emailStatus = 5; row.canCancel = false; row.queueState = 'Cancelled'; }
+        if (outcome === 'Removed') removed.add(row.id);
+        op.results.push({ id: target.id, outcome, message: 'Synthetic action persisted' });
+      }
+    }
+    return reply(opMatch[2] === 'results' ? op.results.slice(Number(url.searchParams.get('page') ?? 0) * 100, (Number(url.searchParams.get('page') ?? 0) + 1) * 100) : summary(op));
   }
   if (url.pathname.endsWith('/system/token')) {
     const encode = value => Buffer.from(JSON.stringify(value)).toString('base64url');
@@ -49,7 +89,7 @@ http.createServer(async (req, res) => {
     requests.push(Object.fromEntries(url.searchParams));
     if (fail) return reply({}, 503);
     const search = (url.searchParams.get('search') ?? '').toLowerCase();
-    let items = data.filter(x => !removed.has(x.id) && x.emailStatus !== 5 && `${x.trackingId} ${x.subject} ${x.emailRecipient}`.toLowerCase().includes(search));
+    let items = matchRows(Object.fromEntries(url.searchParams));
     const total = items.length, size = Number(url.searchParams.get('pageSize') ?? 25), page = Math.min(Number(url.searchParams.get('page') ?? 0), Math.max(0, Math.ceil(total / size) - 1));
     if (url.searchParams.get('descending')?.toLowerCase() !== 'false') items = items.toReversed();
     return reply({ items: items.slice(page * size, (page + 1) * size), total, page, pageSize: size });

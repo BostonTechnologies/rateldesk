@@ -320,6 +320,140 @@ public sealed class PendingEmailQueueTests
         Assert.Empty(await verify.ActivityLogs.ToListAsync());
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Stable_1106_selection_exclusions_arrivals_conflicts_and_interrupted_resume_retain_history_and_send_nothing(bool postgres)
+    {
+        await using var fixture = await Database.CreateAsync(postgres);
+        var ids = new List<Guid>();
+        await using (var seed = fixture.Open())
+        {
+            seed.Incidents.AddRange(new Incident { Id = "bulk", TrackingId = "INC-BULK", Title = "Bulk synthetic" },
+                new Incident { Id = "control", TrackingId = "INC-CONTROL", Title = "Unrelated control" });
+            for (var i = 0; i < 1113; i++)
+            {
+                var delivery = new TicketTimelineEvent { TicketId = i < 1106 ? "bulk" : "control",
+                    EventType = TimelineEventType.EmailDelivery, EmailStatus = EmailDeliveryStatus.Failed,
+                    CreatedUtc = fixture.Clock.Now.AddMinutes(i), EmailRecipient = $"fixture{i}@example.test",
+                    MessageText = $"Retained history {i}", RetryError = "SyntheticRejected" };
+                seed.Add(delivery); ids.Add(delivery.Id);
+                seed.Add(new MailboxOutboxEffect { DeliveryEventId = delivery.Id, Kind = MailboxEffectKind.Email,
+                    State = MailboxEffectState.NeedsReview, Fence = 7, EffectKey = $"bulk-{i}", Payload = "{}" });
+            }
+            await seed.SaveChangesAsync();
+        }
+        var admin = CurrentUserAccessProfile.FromClaims(new System.Security.Claims.ClaimsPrincipal(
+            new System.Security.Claims.ClaimsIdentity([new(System.Security.Claims.ClaimTypes.Role, "HelpdeskAdmin")], "test")));
+        var exclusions = new[] { ids[10], ids[1000] };
+        PendingEmailOperation op;
+        await using (var review = fixture.Open())
+        {
+            var service = new PendingEmailOperationService(review, fixture.Actions(review), fixture.Clock);
+            op = await service.ResolveAsync(new(new(Search: "INC-BULK", Sort: "created", Descending: false), "cancel", true, [], exclusions), "operator", admin);
+            Assert.Equal(1104, op.Total); Assert.Equal(1104, op.Eligible); Assert.False(op.Confirmed);
+            Assert.Null(await service.GetAsync(op.Id, "other-operator"));
+            await Assert.ThrowsAsync<ArgumentException>(() => service.ProcessAsync(op.Id, "operator", admin));
+            await Assert.ThrowsAsync<ArgumentException>(() => service.ConfirmAsync(op.Id, "operator", new("", true)));
+            Assert.Empty(await review.ActivityLogs.ToListAsync());
+        }
+        await using (var concurrent = fixture.Open())
+        {
+            await concurrent.Set<MailboxOutboxEffect>().Where(x => x.DeliveryEventId == ids[20])
+                .ExecuteUpdateAsync(u => u.SetProperty(x => x.Fence, x => x.Fence + 1));
+            concurrent.Add(new TicketTimelineEvent { TicketId = "bulk", EventType = TimelineEventType.EmailDelivery,
+                EmailStatus = EmailDeliveryStatus.Failed, EmailRecipient = "arrival@example.test", MessageText = "New arrival" });
+            await concurrent.SaveChangesAsync();
+        }
+        await using (var firstBatch = fixture.Open())
+        {
+            var service = new PendingEmailOperationService(firstBatch, fixture.Actions(firstBatch), fixture.Clock);
+            Assert.True(await service.ConfirmAsync(op.Id, "operator", new("Synthetic reviewed cancellation", true)));
+            Assert.True(await service.ConfirmAsync(op.Id, "operator", new("Synthetic reviewed cancellation", true)));
+            op = (await service.ProcessAsync(op.Id, "operator", admin))!;
+            Assert.Equal(50, op.Processed); Assert.Equal(1, op.Conflicted);
+        }
+        await using (var failing = fixture.Open(failAudit: true))
+            await Assert.ThrowsAsync<InvalidOperationException>(() => new PendingEmailOperationService(failing,
+                fixture.Actions(failing), fixture.Clock).ProcessAsync(op.Id, "operator", admin));
+        await using (var resumed = fixture.Open())
+        {
+            var service = new PendingEmailOperationService(resumed, fixture.Actions(resumed), fixture.Clock);
+            Assert.Equal(50, (await service.GetAsync(op.Id, "operator"))!.Processed);
+            while (op.Processed < op.Total) op = (await service.ProcessAsync(op.Id, "operator", admin))!;
+            Assert.Equal(1103, op.Completed); Assert.Equal(1, op.Conflicted); Assert.Equal(0, op.Skipped);
+            Assert.Equal(op.Processed, (await service.ProcessAsync(op.Id, "operator", admin))!.Processed);
+            Assert.Equal(1103, await resumed.ActivityLogs.CountAsync());
+            var removal = await service.ResolveAsync(new(new(Search: "INC-BULK", Status: EmailDeliveryStatus.Cancelled), "remove", true, [], []), "operator", admin);
+            Assert.Equal(1103, removal.Total);
+            Assert.True(await service.ConfirmAsync(removal.Id, "operator", new("Synthetic reviewed removal", true)));
+            while (removal.Processed < removal.Total) removal = (await service.ProcessAsync(removal.Id, "operator", admin))!;
+            Assert.Equal(1103, removal.Completed);
+            Assert.Equal(1114, await resumed.TicketTimelineEvents.CountAsync());
+            Assert.Equal(1103, await resumed.Set<MailboxOutboxEffect>().CountAsync(x => x.State == MailboxEffectState.Removed));
+            Assert.All(await resumed.TicketTimelineEvents.Where(x => exclusions.Contains(x.Id) || x.TicketId == "control" || x.EmailRecipient == "arrival@example.test")
+                .ToListAsync(), x => Assert.Equal(EmailDeliveryStatus.Failed, x.EmailStatus));
+            Assert.All(await resumed.TicketTimelineEvents.Where(x => x.EmailRecipient != "arrival@example.test").ToListAsync(),
+                x => Assert.StartsWith("Retained history", x.MessageText));
+            Assert.Equal(2206, await resumed.ActivityLogs.CountAsync());
+            Assert.DoesNotContain(await resumed.Set<MailboxOutboxEffect>().ToListAsync(), x => x.State is MailboxEffectState.Submitting or MailboxEffectState.Completed);
+        }
+        var transportRequests = 0;
+        var services = new ServiceCollection();
+        services.AddScoped(_ => fixture.Open()); services.AddScoped<IIngressEffectContext, IngressEffectContext>();
+        services.AddSingleton<TimeProvider>(fixture.Clock); services.AddScoped<MailboxOutboxStore>();
+        services.AddScoped<MailboxEmailService>(_ => { Interlocked.Increment(ref transportRequests); throw new InvalidOperationException("No mail may be submitted."); });
+        await using var provider = services.BuildServiceProvider();
+        using var dispatcher = new MailboxOutboxDispatcher(provider.GetRequiredService<IServiceScopeFactory>(), NullLogger<MailboxOutboxDispatcher>.Instance);
+        Assert.Equal(0, await dispatcher.DispatchBatchAsync()); Assert.Equal(0, transportRequests);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Operation_rechecks_authority_and_concurrent_processors_commit_each_target_once(bool postgres)
+    {
+        await using var fixture = await Database.CreateAsync(postgres);
+        var (_, delivery) = await fixture.SeedAsync();
+        await using (var seed = fixture.Open()) { seed.Incidents.Add(new Incident { Id = "ticket-a", OrganizationId = "org-a", TrackingId = "INC-A" }); await seed.SaveChangesAsync(); }
+        var admin = CurrentUserAccessProfile.FromClaims(new System.Security.Claims.ClaimsPrincipal(
+            new System.Security.Claims.ClaimsIdentity([new(System.Security.Claims.ClaimTypes.Role, "HelpdeskAdmin")], "test")));
+        PendingEmailOperation op;
+        await using (var db = fixture.Open())
+        {
+            var service = new PendingEmailOperationService(db, fixture.Actions(db), fixture.Clock);
+            var missingId = Guid.NewGuid();
+            var stale = await service.ResolveAsync(new(new(Search: "No matching synthetic delivery"), "cancel", false,
+                [delivery, missingId], []), "operator", admin);
+            Assert.Equal(2, stale.Total); Assert.Equal(0, stale.Eligible);
+            Assert.True(await service.ConfirmAsync(stale.Id, "operator", new("Synthetic stale explicit selection", true)));
+            var staleResults = (await service.ProcessAsync(stale.Id, "operator", admin))!;
+            Assert.Equal(2, staleResults.Processed); Assert.Equal(1, staleResults.Conflicted); Assert.Equal(1, staleResults.Skipped);
+            Assert.Equal("Unavailable", staleResults.Results.Single(x => x.Id == missingId).Outcome);
+            Assert.Equal("Conflict", staleResults.Results.Single(x => x.Id == delivery).Outcome);
+            Assert.Empty(await db.ActivityLogs.ToListAsync());
+            op = await service.ResolveAsync(new(new(), "cancel", false, [delivery], []), "operator", admin);
+            Assert.True(await service.ConfirmAsync(op.Id, "operator", new("Synthetic concurrency", true)));
+        }
+        async Task Process()
+        {
+            await using var db = fixture.Open();
+            await new PendingEmailOperationService(db, fixture.Actions(db), fixture.Clock).ProcessAsync(op.Id, "operator", admin);
+        }
+        await Task.WhenAll(Process(), Process());
+        await using var verify = fixture.Open();
+        Assert.Single(await verify.ActivityLogs.ToListAsync());
+        Assert.Equal(1, (await new PendingEmailOperationService(verify, fixture.Actions(verify), fixture.Clock).GetAsync(op.Id, "operator"))!.Completed);
+        var removalService = new PendingEmailOperationService(verify, fixture.Actions(verify), fixture.Clock);
+        var removal = await removalService.ResolveAsync(new(new(Status: EmailDeliveryStatus.Cancelled), "remove", true, [], []), "operator", admin);
+        Assert.True(await removalService.ConfirmAsync(removal.Id, "operator", new("Synthetic revoked authority", true)));
+        var revoked = admin with { IsHelpdeskAdmin = false };
+        var denied = (await removalService.ProcessAsync(removal.Id, "operator", revoked))!;
+        Assert.Equal(1, denied.Skipped); Assert.Equal("Unavailable", Assert.Single(denied.Results).Outcome);
+        Assert.Equal(EmailDeliveryStatus.Cancelled, (await verify.TicketTimelineEvents.SingleAsync()).EmailStatus);
+        Assert.Single(await verify.ActivityLogs.ToListAsync());
+    }
+
     private sealed class FailAudit : SaveChangesInterceptor
     {
         public override ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData,

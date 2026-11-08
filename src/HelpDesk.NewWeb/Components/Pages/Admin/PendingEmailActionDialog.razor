@@ -3,7 +3,8 @@
 
 <MudDialog>
     <DialogContent>
-        <MudText Typo="Typo.subtitle1">@Records.Length explicitly selected record(s)</MudText>
+        <MudText Typo="Typo.subtitle1">@(Operation?.Total ?? Records.Length) explicitly selected record(s)</MudText>
+        @if (Operation is not null) { <MudText>@Operation.Eligible eligible · @(Operation.Total - Operation.Eligible) skipped or requiring review. Membership is fixed.</MudText> }
         @foreach (var text in Explanation)
         {
             <MudText Typo="Typo.body2" Class="my-2">@text</MudText>
@@ -39,6 +40,7 @@
 
 @code {
     [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+    [Parameter] public PendingEmailOperation? Operation { get; set; }
     [Parameter] public PendingEmailRow[] Records { get; set; } = [];
     [Parameter] public string[] Explanation { get; set; } = [];
     [Parameter] public string ConfirmLabel { get; set; } = "Confirm";
@@ -50,7 +52,7 @@
     private bool nonDeliveryVerified, submitted;
     // Match the authoritative MailboxOutgoingRetryService evidence-reference contract.
     private static readonly Regex EvidenceFormat = new(@"\A[A-Za-z0-9][A-Za-z0-9._:/-]{7,127}\z", RegexOptions.CultureInvariant);
-    private bool IsValid => (!RequireReason || !string.IsNullOrWhiteSpace(input) && input.Length <= 200) &&
+    private bool IsValid => Operation?.Total != 0 && (!RequireReason || !string.IsNullOrWhiteSpace(input) && input.Length <= 200 && !input.Any(char.IsControl)) &&
         (!RequireEvidence || EvidenceFormat.IsMatch(input) && nonDeliveryVerified);
 
     private void InputChanged(string value)
@@ -58,7 +60,7 @@
         input = value;
         validationError = RequireEvidence && !EvidenceFormat.IsMatch(input)
             ? "Enter a valid evidence reference (8–128 characters)."
-            : RequireReason && (string.IsNullOrWhiteSpace(input) || input.Length > 200)
+            : RequireReason && (string.IsNullOrWhiteSpace(input) || input.Length > 200 || input.Any(char.IsControl))
                 ? "Enter a reason of 1–200 characters." : null;
     }
     private void Submit()

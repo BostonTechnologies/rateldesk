@@ -62,3 +62,35 @@ for URL filters and paging behavior.
 Use the keyboard to inspect focus and options, including at narrow widths and
 200% zoom. Long labels remain human-readable; identifiers determine what is
 saved.
+
+## Guided change drafts
+
+Create a change through **Overview → Plan → Schedule & people → Review**. The
+steps share one draft. Back/Next and step navigation retain entered values and
+type-specific plans; changing organization still clears people/categories that
+require a new eligibility check. Dates and times in the guided editor are
+explicitly UTC. End must follow start. Review checks the whole draft, and error
+links open/focus the responsible section, including hidden steps.
+
+**Create draft** saves in Draft. Missing plan fields are shown as a completeness
+checklist and remain permitted for a draft; they do not become universal save
+requirements. The additive API `CreateChangeDto.SaveAsDraft=true` requests this
+behavior while existing consumers retain their creation semantics. Approval and
+submission remain separate authorized lifecycle actions. A failed save retains
+entered values; Cancel asks before discarding unsaved work.
+
+Change details default to a readable plan summary. **Edit plan** uses the same
+fields/help as creation. Save/Revert remain adjacent to the bounded metadata
+panel. Outside Draft, the record and plan remain read-only and existing approval,
+lifecycle, categories, activity, worklogs, attachments and return navigation
+retain their authority and behavior.
+
+## Task dashboard
+
+A fresh `/tasks` visit starts with **Assigned to me** off and queries all tasks
+the actor is already authorized to view. Opt in to restrict assignments. The
+server-backed pager offers 25/50/100 rows. Filter changes reset page/selection;
+exact request/service IDs remain under Advanced. Local task status, binding
+health and external orchestration/reconciliation are distinct. Running is a
+status. Start, Complete, Retry and Recovery icons retain eligibility and
+permission checks; uncertain execution still requires reconciliation.

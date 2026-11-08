@@ -2,6 +2,10 @@
 @using Helpdesk.Shared.DTOs.Organization
 @using Helpdesk.Shared.Models
 @using System.ComponentModel.DataAnnotations
+@using System.Text.Json
+@using Microsoft.AspNetCore.Components.Routing
+@inject IJSRuntime JS
+@inject IDialogService Dialogs
 @attribute [Authorize(Roles = "Change.User,Change.Read,Change.Write,Change.Manager,HelpdeskAdmin")]
 
 @inject ISnackbar Snackbar
@@ -10,206 +14,74 @@
 @inject ILogger<CreateChangeDialog> Logger
 @using HelpDesk.NewWeb.Services
 
-<MudDialog Class="change-create-dialog">
-    <TitleContent>
-        <MudText Typo="Typo.h6">
-            <MudIcon Icon="@Icons.Material.Filled.AddCircle" Class="mr-2 mb-n1" />
-            Create New Change
-        </MudText>
-    </TitleContent>
+<MudDialog Class="change-create-dialog premium-workspace">
+    <TitleContent><MudText Typo="Typo.h6">Create change draft</MudText></TitleContent>
     <DialogContent>
+        <NavigationLock ConfirmExternalNavigation="@IsDirty" OnBeforeInternalNavigation="ConfirmNavigation" />
+        <nav class="change-step-nav" aria-label="Change creation steps">
+            @for (var i = 0; i < Steps.Length; i++)
+            {
+                var index = i;
+                <MudButton Size="Size.Small" Variant="@(step == index ? Variant.Outlined : Variant.Text)" aria-current="@(step == index ? "step" : null)"
+                           OnClick="() => GoToStepAsync(index)" Disabled="isSubmitting">@(index + 1). @Steps[index]</MudButton>
+            }
+        </nav>
         <div class="change-create-dialog-content">
-            <MudForm Model="model" @ref="form" OnValidSubmit="Submit" Class="mt-4">
-                <MudGrid Spacing="2" Class="change-create-grid">
-                    <MudItem xs="12">
-                        <MudPaper Class="pa-4 change-create-section" Outlined="true">
-                            <MudText Typo="Typo.subtitle1" Class="mb-3">Details</MudText>
-                            <MudGrid Spacing="2">
-                                <MudItem xs="12" md="6">
-                                    <ChangeFieldHelp Label="Title"
-                                                     TooltipText="Use a short, specific summary of what will change."
-                                                     ExampleText="Example: 'Deploy updated firewall policy to branch office edge routers'" />
-                                    <MudTextField @bind-Value="model.Title"
-                                                  Label="Title"
-                                                  Variant="Variant.Outlined"
-                                                  Margin="Margin.Dense"
-                                                  For="@(() => model.Title)"
-                                                  Required="true"
-                                                  Immediate="true" />
-
-                                    <ChangeFieldHelp Label="Description"
-                                                     TooltipText="Describe the change in plain language so reviewers understand what is being changed and why."
-                                                     ExampleText="Example: 'Apply the approved hardening baseline to all domain controllers to reduce exposure and standardize security posture.'" />
-                                    <MudTextField @bind-Value="model.Description"
-                                                  Label="Description"
-                                                  Variant="Variant.Outlined"
-                                                  Margin="Margin.Dense"
-                                                  Lines="8"
-                                                  For="@(() => model.Description)"
-                                                  Required="true" />
-                                </MudItem>
-
-                                <MudItem xs="12" md="6">
-                                    <MudGrid Spacing="2">
-                                        <MudItem xs="12" sm="6">
-                                            <ChangeFieldHelp Label="Priority"
-                                                             TooltipText="Set the operational urgency of the change."
-                                                             ExampleText="Low = planned routine work, High = business-sensitive work, Critical = urgent/high-risk work." />
-                                            <MudSelect T="TicketPriority"
-                                                       @bind-Value="model.Priority"
-                                                       Label="Priority"
-                                                       Dense="true"
-                                                       Margin="Margin.Dense"
-                                                       Variant="Variant.Outlined"
-                                                       For="@(() => model.Priority)"
-                                                       Required="true">
-                                                @foreach (TicketPriority priority in Enum.GetValues(typeof(TicketPriority)))
-                                                {
-                                                    <MudSelectItem Value="priority">@priority.ToString()</MudSelectItem>
-                                                }
-                                            </MudSelect>
-                                        </MudItem>
-
-                                        <MudItem xs="12" sm="6">
-                                            <ChangeFieldHelp Label="Organization"
-                                                             TooltipText="Select the organization this change is being performed for."
-                                                             ExampleText="Example: 'Acme Manufacturing' or 'Internal IT Shared Services'" />
-                                            <OrganizationSearchPicker Module="change" Value="@model.OrganizationId"
-                                                                      SelectionChanged="OnOrganizationSelected" Disabled="isSubmitting" />
-                                        </MudItem>
-
-                                        <MudItem xs="12" sm="6">
-                                            <ChangeFieldHelp Label="Change Type"
-                                                             TooltipText="Choose the ITIL change type that best matches the work."
-                                                             ExampleText="Standard = pre-approved repeatable work, Normal = planned assessed work, Emergency = urgent work to restore/reduce impact." />
-                                            <MudSelect T="string"
-                                                       Label="Change Type"
-                                                       Dense="true"
-                                                       Margin="Margin.Dense"
-                                                       Variant="Variant.Outlined"
-                                                       Value="@model.ChangeType"
-                                                       ValueChanged="OnChangeTypeChanged"
-                                                       Required="true">
-                                                <MudSelectItem T="string" Value='@("Standard")'>Standard</MudSelectItem>
-                                                <MudSelectItem T="string" Value='@("Normal")'>Normal</MudSelectItem>
-                                                <MudSelectItem T="string" Value='@("Emergency")'>Emergency</MudSelectItem>
-                                            </MudSelect>
-                                        </MudItem>
-
-                                        <MudItem xs="12" sm="6">
-                                            <ChangeFieldHelp Label="Requested for"
-                                                             TooltipText="The person who requested the change"
-                                                             ExampleText="Select one user from the organization this change is for." />
-                                            <ChangeParticipantSearchPicker OrganizationId="@model.OrganizationId"
-                                                                           @bind-Value="model.RequestedForUserId" Disabled="isSubmitting" />
-                                        </MudItem>
-
-                                        <MudItem xs="12" sm="6">
-                                            <ChangeFieldHelp Label="Implementor"
-                                                             TooltipText="The person implementing the change"
-                                                             ExampleText="Select one user from the organization that manages IT for this organization." />
-                                            <AssigneeSelector Module="change" OrganizationId="@model.OrganizationId"
-                                                              Value="@model.ImplementorUserId" Label="Implementor" AllowUnassigned="false"
-                                                              Busy="isSubmitting" SelectionChanged="@(user => model.ImplementorUserId = user?.Id)" />
-                                        </MudItem>
-                                        <MudItem xs="12">
-                                            <ServiceCategoryPicker RequestedType="TicketCategoryType.Change" OrganizationId="@model.OrganizationId"
-                                                                   SelectedCategoryIds="@((model.CategoryIds ?? new()).ToHashSet())"
-                                                                   SelectedCategoryIdsChanged="@(ids => model.CategoryIds = ids.ToList())" />
-                                        </MudItem>
-
-                                        <MudItem xs="12" sm="6">
-                                            <ChangeFieldHelp Label="Approvers"
-                                                             TooltipText="Who needs to approve this change"
-                                                             ExampleText="Optional. Select one or more approvers from the organization this change is for." />
-                                            <ChangeParticipantSearchPicker OrganizationId="@model.OrganizationId" Label="Approvers"
-                                                                           Multiple="true" Required="false" SelectedIds="selectedApproverIds"
-                                                                           SelectedIdsChanged="OnApproversChanged" Disabled="isSubmitting" />
-                                        </MudItem>
-                                    </MudGrid>
-                                </MudItem>
-                            </MudGrid>
-                        </MudPaper>
-                    </MudItem>
-
-                    <MudItem xs="12">
-                        <MudPaper Class="pa-4 change-create-section" Outlined="true">
-                            <MudText Typo="Typo.subtitle1" Class="mb-3">Implementation Window</MudText>
-                            <MudGrid Spacing="2">
-                                <MudItem xs="12" md="6">
-                                    <MudGrid Spacing="2">
-                                        <MudItem xs="12">
-                                            <ChangeFieldHelp Label="Implementation Start"
-                                                             TooltipText="When should implementation begin?"
-                                                             ExampleText="Example: '2026-04-12 22:00' for an after-hours maintenance window." />
-                                            <MudGrid Spacing="1" Class="change-inline-date-group">
-                                                <MudItem xs="12" sm="6">
-                                                    <MudDatePicker Label="Start Date"
-                                                                   Date="@implementationStartDate"
-                                                                   DateChanged="OnImplementationStartDateChanged"
-                                                                   Margin="Margin.Dense"
-                                                                   Variant="Variant.Outlined" />
-                                                </MudItem>
-                                                <MudItem xs="12" sm="6">
-                                                    <MudTimePicker Label="Start Time"
-                                                                   Time="@implementationStartTime"
-                                                                   TimeChanged="OnImplementationStartTimeChanged"
-                                                                   Margin="Margin.Dense"
-                                                                   AmPm="false" />
-                                                </MudItem>
-                                            </MudGrid>
-                                        </MudItem>
-
-                                        <MudItem xs="12">
-                                            <ChangeFieldHelp Label="Implementation End"
-                                                             TooltipText="When should the planned implementation window finish?"
-                                                             ExampleText="Example: '2026-04-13 00:30' at the end of the approved maintenance window." />
-                                            <MudGrid Spacing="1" Class="change-inline-date-group">
-                                                <MudItem xs="12" sm="6">
-                                                    <MudDatePicker Label="End Date"
-                                                                   Date="@implementationEndDate"
-                                                                   DateChanged="OnImplementationEndDateChanged"
-                                                                   Margin="Margin.Dense"
-                                                                   Variant="Variant.Outlined" />
-                                                </MudItem>
-                                                <MudItem xs="12" sm="6">
-                                                    <MudTimePicker Label="End Time"
-                                                                   Time="@implementationEndTime"
-                                                                   TimeChanged="OnImplementationEndTimeChanged"
-                                                                   Margin="Margin.Dense"
-                                                                   AmPm="false" />
-                                                </MudItem>
-                                            </MudGrid>
-                                        </MudItem>
-                                    </MudGrid>
-                                </MudItem>
-
-                                <MudItem xs="12" md="6" Class="implementation-window-spacer" />
-                            </MudGrid>
-                        </MudPaper>
-                    </MudItem>
-
-                    @if (!string.IsNullOrWhiteSpace(model.ChangeType))
+            @if (draftErrors.Count > 0)
+            {
+                <MudAlert Severity="Severity.Error" Dense="true" role="alert">
+                    <MudText Typo="Typo.subtitle2">Review the draft</MudText>
+                    @foreach (var error in draftErrors) { <MudButton Class="change-error-link" OnClick="() => FocusErrorAsync(error)">@error.Message</MudButton> }
+                </MudAlert>
+            }
+            <MudForm Model="model" @ref="form">
+                <section class="change-step" hidden="@(step != 0)" aria-label="Overview">
+                    <MudGrid Spacing="2">
+                        <MudItem xs="12"><div id="change-title"><MudTextField T="string" @bind-Value="model.Title" Label="Title" Required="true" For="@(() => model.Title)" Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense" /></div></MudItem>
+                        <MudItem xs="12" sm="6"><div id="change-organization"><OrganizationSearchPicker Module="change" Value="@model.OrganizationId" SelectionChanged="OnOrganizationSelected" Disabled="isSubmitting" /></div></MudItem>
+                        <MudItem xs="12" sm="6"><MudSelect T="string" Label="Change type" Value="@model.ChangeType" ValueChanged="OnChangeTypeChanged" Variant="Variant.Outlined" Margin="Margin.Dense"><MudSelectItem Value='@("Standard")'>Standard</MudSelectItem><MudSelectItem Value='@("Normal")'>Normal</MudSelectItem><MudSelectItem Value='@("Emergency")'>Emergency</MudSelectItem></MudSelect></MudItem>
+                        <MudItem xs="12" sm="6"><MudSelect T="TicketPriority" Label="Priority" @bind-Value="model.Priority" Variant="Variant.Outlined" Margin="Margin.Dense">@foreach (var priority in Enum.GetValues<TicketPriority>()) { <MudSelectItem Value="priority">@priority</MudSelectItem> }</MudSelect></MudItem>
+                        <MudItem xs="12" sm="6"><div id="change-requested-for"><ChangeParticipantSearchPicker OrganizationId="@model.OrganizationId" Label="Requested for" @bind-Value="model.RequestedForUserId" Disabled="isSubmitting" /></div></MudItem>
+                        <MudItem xs="12"><div id="change-description"><MudTextField T="string" @bind-Value="model.Description" Label="Description" Required="true" For="@(() => model.Description)" Lines="3" Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense" /></div></MudItem>
+                    </MudGrid>
+                </section>
+                <section class="change-step" hidden="@(step != 1)" aria-label="Plan">
+                    <ChangeTemplateEditor ChangeType="@model.ChangeType" Model="model.ChangeTemplate" OnChanged="HandleTemplateChanged" ValidationErrors="templateErrors" />
+                </section>
+                <section class="change-step" hidden="@(step != 2)" aria-label="Schedule and people">
+                    <MudText Typo="Typo.subtitle2" Class="mb-2">Implementation window · UTC</MudText>
+                    <MudText Typo="Typo.caption">Enter all dates and times in UTC. Start and end are required to create the draft.</MudText>
+                    <div id="change-window"><MudGrid Spacing="2">
+                        <MudItem xs="12" sm="6"><MudDatePicker Editable="true" DateFormat="yyyy-MM-dd" Label="Start date (UTC)" Date="implementationStartDate" DateChanged="OnImplementationStartDateChanged" Variant="Variant.Outlined" Margin="Margin.Dense" /><MudTimePicker Editable="true" Label="Start time (UTC)" Time="implementationStartTime" TimeChanged="OnImplementationStartTimeChanged" AmPm="false" /></MudItem>
+                        <MudItem xs="12" sm="6"><MudDatePicker Editable="true" DateFormat="yyyy-MM-dd" Label="End date (UTC)" Date="implementationEndDate" DateChanged="OnImplementationEndDateChanged" Variant="Variant.Outlined" Margin="Margin.Dense" /><MudTimePicker Editable="true" Label="End time (UTC)" Time="implementationEndTime" TimeChanged="OnImplementationEndTimeChanged" AmPm="false" /></MudItem>
+                        <MudItem xs="12" sm="6"><div id="change-implementor"><AssigneeSelector Module="change" OrganizationId="@model.OrganizationId" Value="@model.ImplementorUserId" Label="Implementor" AllowUnassigned="false" Busy="isSubmitting" SelectionChanged="user => model.ImplementorUserId = user?.Id" /></div></MudItem>
+                        <MudItem xs="12" sm="6"><ChangeParticipantSearchPicker OrganizationId="@model.OrganizationId" Label="Approvers" Multiple="true" Required="false" SelectedIds="selectedApproverIds" SelectedIdsChanged="OnApproversChanged" Disabled="isSubmitting" /></MudItem>
+                        <MudItem xs="12"><ServiceCategoryPicker RequestedType="TicketCategoryType.Change" OrganizationId="@model.OrganizationId" SelectedCategoryIds="@((model.CategoryIds ?? new()).ToHashSet())" SelectedCategoryIdsChanged="ids => model.CategoryIds = ids.ToList()" /></MudItem>
+                    </MudGrid></div>
+                </section>
+                <section class="change-step" hidden="@(step != 3)" aria-label="Review">
+                    <MudText Typo="Typo.h6">@model.Title</MudText>
+                    <MudText Typo="Typo.body2">@model.ChangeType · @model.Priority · @model.Description</MudText>
+                    <MudText Typo="Typo.body2">Implementation (UTC): @CombineDateTime(implementationStartDate, implementationStartTime) → @CombineDateTime(implementationEndDate, implementationEndTime)</MudText>
+                    <MudAlert Severity="Severity.Info" Dense="true" Class="my-2">Create draft saves this record in Draft. Approval and lifecycle changes remain separate actions.</MudAlert>
+                    @if (completenessError is not null) { <MudAlert Severity="Severity.Warning">@completenessError</MudAlert> }
+                    @if (templateErrors.Count > 0)
                     {
-                        <MudItem xs="12">
-                            <ChangeTemplateEditor ChangeType="@model.ChangeType"
-                                                  Model="@model.ChangeTemplate"
-                                                  OnChanged="HandleTemplateChanged"
-                                                  ValidationErrors="@templateErrors" />
-                        </MudItem>
+                        <MudText Typo="Typo.subtitle2">Incomplete plan · optional for saving this draft</MudText>
+                        @foreach (var missing in templateErrors) { <MudButton Class="change-error-link" OnClick="() => GoToPlanErrorAsync(missing)">@missing</MudButton> }
                     }
-                </MudGrid>
+                    <ChangePlanSummary Model="model.ChangeTemplate" ChangeType="@model.ChangeType" />
+                </section>
             </MudForm>
         </div>
     </DialogContent>
     <DialogActions>
-        <MudButton OnClick="Cancel" Class="px-4">Cancel</MudButton>
-        <MudButton ButtonType="ButtonType.Submit"
-                   Variant="Variant.Filled"
-                   Color="Color.Primary"
-                   OnClick="Submit"
-                   Disabled="isSubmitting"
-                   Class="px-8">Create</MudButton>
+        <MudButton OnClick="Cancel" Disabled="isSubmitting">Cancel</MudButton>
+        <MudText Typo="Typo.caption">@(step + 1) / 4</MudText>
+        <MudSpacer />
+        <MudButton OnClick="() => GoToStepAsync(step - 1)" Disabled="@(isSubmitting || step == 0)">Back</MudButton>
+        @if (step < 3) { <MudButton OnClick="() => GoToStepAsync(step + 1)" Variant="Variant.Filled" Color="Color.Primary" Disabled="isSubmitting">Next</MudButton> }
+        else { <MudButton OnClick="Submit" Variant="Variant.Filled" Color="Color.Primary" Disabled="isSubmitting">Create draft</MudButton> }
     </DialogActions>
 </MudDialog>
 
@@ -222,7 +94,7 @@
     private MudForm form = default!;
     private CreateChangeDto model = new()
     {
-        ChangeType = "Standard"
+        ChangeType = "Standard", SaveAsDraft = true
     };
     private HashSet<string> selectedApproverIds = new(StringComparer.OrdinalIgnoreCase);
     private List<string> templateErrors = new();
@@ -234,6 +106,7 @@
 
     private Task OnChangeTypeChanged(string value)
     {
+        reviewGeneration++;
         model.ChangeType = value;
         templateErrors.Clear();
         return Task.CompletedTask;
@@ -284,6 +157,7 @@
 
     private Task HandleTemplateChanged()
     {
+        reviewGeneration++;
         templateErrors.Clear();
         return Task.CompletedTask;
     }
@@ -291,50 +165,16 @@
     private async Task Submit()
     {
         if (isSubmitting) return;
-        await form.ValidateAsync();
-        if (!form.IsValid)
-        {
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(model.ChangeType))
-        {
-            Snackbar.Add("Change type is required.", Severity.Warning);
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(model.OrganizationId))
-        {
-            Snackbar.Add("Organization is required.", Severity.Warning);
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(model.RequestedForUserId))
-        {
-            Snackbar.Add("Requested for is required.", Severity.Warning);
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(model.ImplementorUserId))
-        {
-            Snackbar.Add("Implementor is required.", Severity.Warning);
-            return;
-        }
-
-        model.ApproverUserIds = selectedApproverIds.ToList();
-
-        model.ImplementationStartAt = CombineDateTime(implementationStartDate, implementationStartTime);
-        model.ImplementationEndAt = CombineDateTime(implementationEndDate, implementationEndTime);
-        if (!model.ImplementationStartAt.HasValue || !model.ImplementationEndAt.HasValue)
-        {
-            Snackbar.Add("Implementation start and end date/time are required.", Severity.Warning);
-            return;
-        }
-
         isSubmitting = true;
         try
         {
-            var response = await HelpdeskApi.PostAsJsonAsync("api/v1/changes", model);
+            draftErrors = ValidateDraft();
+            await form.ValidateAsync();
+            if (draftErrors.Count > 0) { await FocusErrorAsync(draftErrors[0]); return; }
+            model.ApproverUserIds = selectedApproverIds.ToList();
+            model.ImplementationStartAt = CombineDateTime(implementationStartDate, implementationStartTime);
+            model.ImplementationEndAt = CombineDateTime(implementationEndDate, implementationEndTime);
+            using var response = await HelpdeskApi.PostAsJsonAsync("api/v1/changes", model);
             if (response.IsSuccessStatusCode)
             {
                 var created = await response.Content.ReadFromJsonAsync<ChangeDto>();
@@ -350,14 +190,16 @@
                     Snackbar.Add("Change logged. Finish the missing template fields on the change detail page before review or resolution.", Severity.Warning);
                 }
 
+                allowClose = true;
                 Dialog.Close(DialogResult.Ok<object?>(created is not null ? created : true));
                 return;
             }
 
             templateErrors = await ReadErrorsAsync(response);
             var error = await response.Content.ReadAsStringAsync();
+            step = templateErrors.Count > 0 ? 1 : 3;
             Snackbar.Add(
-                templateErrors.Count > 0 ? "Complete the required change template fields before creating the change." : $"Error creating change: {error}",
+                templateErrors.Count > 0 ? "The draft could not be saved. Review the returned errors; entered values are retained." : $"Error creating change: {error}",
                 Severity.Error);
         }
         catch (Exception ex)
@@ -381,7 +223,83 @@
         }
     }
 
-    private void Cancel() => Dialog.Cancel();
+    private static readonly string[] Steps = ["Overview", "Plan", "Schedule & people", "Review"];
+    private int step, reviewGeneration;
+    private string? pendingFocus, completenessError;
+    private bool allowClose;
+    private List<DraftError> draftErrors = [];
+    private static readonly string EmptyDraft = JsonSerializer.Serialize(new CreateChangeDto { ChangeType = "Standard", SaveAsDraft = true });
+    private bool IsDirty => !allowClose && (JsonSerializer.Serialize(model) != EmptyDraft ||
+        implementationStartDate.HasValue || implementationStartTime.HasValue || implementationEndDate.HasValue || implementationEndTime.HasValue);
+
+    protected override async Task OnInitializedAsync() => await Dialog.SetOptionsAsync(Dialog.Options with
+        { BackdropClick = false, CloseOnEscapeKey = false, CloseButton = false });
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (pendingFocus is not { } target) return;
+        pendingFocus = null;
+        await JS.InvokeVoidAsync("scrollToChangeTemplateField", target);
+    }
+
+    private List<DraftError> ValidateDraft()
+    {
+        var errors = new List<DraftError>();
+        if (string.IsNullOrWhiteSpace(model.Title)) errors.Add(new(0, "change-title", "Title is required."));
+        if (string.IsNullOrWhiteSpace(model.Description)) errors.Add(new(0, "change-description", "Description is required."));
+        if (string.IsNullOrWhiteSpace(model.OrganizationId)) errors.Add(new(0, "change-organization", "Organization is required."));
+        if (string.IsNullOrWhiteSpace(model.RequestedForUserId)) errors.Add(new(0, "change-requested-for", "Requested for is required."));
+        if (string.IsNullOrWhiteSpace(model.ImplementorUserId)) errors.Add(new(2, "change-implementor", "Implementor is required."));
+        var start = CombineDateTime(implementationStartDate, implementationStartTime);
+        var end = CombineDateTime(implementationEndDate, implementationEndTime);
+        if (start is null || end is null) errors.Add(new(2, "change-window", "Implementation start and end date/time are required."));
+        else if (end <= start) errors.Add(new(2, "change-window", "Implementation end must be later than start."));
+        return errors;
+    }
+
+    private Task FocusErrorAsync(DraftError error)
+    {
+        step = error.Step; pendingFocus = error.Target;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task GoToStepAsync(int next)
+    {
+        var revision = ++reviewGeneration;
+        step = Math.Clamp(next, 0, 3);
+        if (step != 3) return;
+        draftErrors = ValidateDraft();
+        completenessError = null;
+        try
+        {
+            using var response = await HelpdeskApi.PostAsJsonAsync("api/v1/changes/template-validation",
+                new ChangeTemplateValidationRequest(model.ChangeType, model.ChangeTemplate));
+            response.EnsureSuccessStatusCode();
+            var validation = await response.Content.ReadFromJsonAsync<ChangeTemplateValidationDto>();
+            if (revision == reviewGeneration) templateErrors = validation?.Errors ?? [];
+        }
+        catch (HttpRequestException) { if (revision == reviewGeneration) completenessError = "Plan completeness is unavailable. Your draft is retained and can still be saved."; }
+    }
+
+    private Task GoToPlanErrorAsync(string error)
+    {
+        step = 1; pendingFocus = ChangeTemplateEditor.TargetForError(error);
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task Cancel()
+    {
+        if (isSubmitting) return;
+        if (IsDirty && await Dialogs.ShowMessageBoxAsync("Discard change draft?", "Unsaved values will be discarded.", yesText: "Discard draft", cancelText: "Keep editing") != true) return;
+        allowClose = true; Dialog.Cancel();
+    }
+
+    private async Task ConfirmNavigation(LocationChangingContext context)
+    {
+        if (IsDirty && await Dialogs.ShowMessageBoxAsync("Discard change draft?", "Unsaved values will be discarded.", yesText: "Discard draft", cancelText: "Keep editing") != true) context.PreventNavigation();
+    }
+
+    private sealed record DraftError(int Step, string Target, string Message);
 
     private static DateTime? CombineDateTime(DateTime? date, TimeSpan? time)
     {
@@ -390,7 +308,7 @@
             return null;
         }
 
-        return date.Value.Date.Add(time.Value);
+        return DateTime.SpecifyKind(date.Value.Date.Add(time.Value), DateTimeKind.Utc);
     }
 
     private sealed class TemplateErrorResponseDto
@@ -401,20 +319,12 @@
 }
 
 <style>
-    .change-create-dialog {
-        width: min(96vw, 1600px);
-    }
-
-    .change-create-dialog-content {
-        max-height: 85vh;
-        overflow-y: auto;
-    }
-
-    .change-create-grid {
-        align-items: start;
-    }
-
-    .change-inline-date-group {
-        margin-top: -4px;
-    }
+    .change-create-dialog { width: min(96vw, 1040px); max-height: calc(100dvh - 24px); }
+    .change-create-dialog .mud-dialog-content { overflow: hidden; display: flex; flex-direction: column; min-height: 0; padding-top: 0; }
+    .change-step-nav { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--mud-palette-divider); padding-bottom: 8px; }
+    .change-create-dialog-content { overflow-y: auto; max-height: calc(100dvh - 260px); min-height: 12rem; padding: 16px 4px 8px; }
+    .change-step[hidden] { display: none !important; }
+    .change-error-link { display: block; text-align: left; text-transform: none; white-space: normal; }
+    .change-create-dialog .mud-dialog-actions { border-top: 1px solid var(--mud-palette-divider); background: var(--mud-palette-surface); flex-shrink: 0; flex-wrap: wrap; }
+    @@media (max-width:600px) { .change-create-dialog-content { max-height: calc(100dvh - 285px); } .change-step-nav .mud-button-root { padding: 4px 8px; } }
 </style>

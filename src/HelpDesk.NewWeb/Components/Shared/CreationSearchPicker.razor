@@ -72,6 +72,7 @@
     private long fetchVersion;
     private long scopeVersion;
     private long choiceVersion;
+    private Task<CreationLookupResult<TItem>?>? latestSearch;
     private bool choosing;
     private sealed record ItemScope(long Version);
     private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
@@ -96,6 +97,7 @@
             loading = failed = hasMore = false;
             query = "";
             searchVersion++;
+            latestSearch = null;
         }
         if (string.IsNullOrWhiteSpace(LookupUrl)) return;
         if (!initialized)
@@ -169,12 +171,23 @@
     private async Task<IEnumerable<TItem>> Search(string text, CancellationToken token)
     {
         var version = ++searchVersion;
+        var expectedScope = scopeVersion;
         var term = text ?? "";
         // Reopening an existing selection should offer the directory, rather than
         // search a composed display label that is not an individual name/email.
         if (selected is not null && term == ItemLabel(selected)) term = "";
-        var result = await Fetch(term, null, token);
-        if (disposed || token.IsCancellationRequested || version != searchVersion) return Array.Empty<TItem>();
+        var lookup = Fetch(term, null, token);
+        latestSearch = lookup;
+        var result = await lookup;
+        // MudAutocomplete 9.11 applies every completed callback, including cancelled
+        // older searches. Coalesce them onto the current result so a late empty
+        // callback cannot erase the newer visible suggestions.
+        while (!disposed && expectedScope == scopeVersion && version != searchVersion && latestSearch is { } newer)
+        {
+            version = searchVersion;
+            result = await newer;
+        }
+        if (disposed || expectedScope != scopeVersion) return Array.Empty<TItem>();
         await InvokeAsync(StateHasChanged);
         return result?.Items ?? [];
     }

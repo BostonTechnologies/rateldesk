@@ -1,0 +1,7 @@
+.change-workspace { min-width:0; }
+.change-workspace ::deep .ticket-details-panel { display:flex; flex-direction:column; max-height:calc(100dvh - 110px); }
+.change-workspace ::deep .details-fields { min-height:0; overflow-y:auto; overscroll-behavior:contain; }
+.change-workspace ::deep .details-save-actions, .change-workspace ::deep .details-lifecycle-actions { flex-shrink:0; background:var(--mud-palette-surface); }
+.change-record-metadata { margin:0; }
+.change-record-metadata dt { font-size:.8rem; color:var(--mud-palette-text-secondary); margin-top:12px; }
+.change-record-metadata dd { margin:2px 0 0; font-size:.875rem; overflow-wrap:anywhere; }

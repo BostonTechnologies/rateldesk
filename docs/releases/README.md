@@ -1,5 +1,19 @@
 # Releases
 
+## 0.1.3-beta.8 candidate — operations and change workspaces
+
+[Release notes and owner walkthrough](../release-notes/0.1.3-beta.8.md) cover
+Pending Emails, full-history Email Audit, guided Changes, Tasks and Notifications.
+The [delivery register](../implementation/367-371-premium-workspaces.md) retains
+the complete acceptance mapping and separates fixture, provider, hosted and
+distribution evidence. Both tag prefixes, all draft/public releases and all
+three anonymous image families were unused before root version preparation.
+After reviewed merge and all six successful normal jobs on exact current main,
+use the existing hosted `release.yml` with `tag=v0.1.3-beta.8` and that full
+`source_revision`. Verify the staged draft before public prerelease publication
+with `latest=false`, then independently verify downloads and both image
+architectures. Preserve stable latest and every previously published byte.
+
 ## 0.1.3-beta.7 candidate — OIDC administration and authoring editors
 
 [Release notes](../release-notes/0.1.3-beta.7.md) describe passwordless,

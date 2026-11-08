@@ -12,6 +12,54 @@ namespace Helpdesk.Tests.Api;
 
 public sealed partial class AuthenticatedChangeApprovalTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Explicit_draft_creation_keeps_all_three_types_in_Draft_with_complete_or_incomplete_plans(bool postgres)
+    {
+        await using var fixture = await Fixture.StartAsync(postgres);
+        using var client = fixture.Client("owner-a");
+        foreach (var type in new[] { "Standard", "Normal", "Emergency" })
+        foreach (var complete in new[] { false, true })
+        {
+            var plan = complete ? new ChangeTemplateDto
+            {
+                ScopeOfChange = "Synthetic scope", AffectedSystems = ["Fixture"], ImplementationSteps = ["Apply fixture"],
+                ValidationSteps = ["Verify fixture"], RollbackReference = "Restore fixture", IsPreApproved = true,
+                ExistingRunbookReference = "Synthetic runbook", BusinessJustification = "Fixture value", ImpactAssessment = "Fixture impact",
+                RiskAssessment = "Fixture risk", PreChangeChecks = ["Check fixture"], TestingPlan = "Verify fixture",
+                EmergencyReason = "Synthetic emergency", BusinessImpactIfNotImplemented = "Fixture impact",
+                ImmediateRiskAssessment = "Fixture risk", PostChangeValidation = "Verify stable fixture"
+            } : new ChangeTemplateDto();
+            var request = new CreateChangeDto
+            {
+                SaveAsDraft = true, ChangeType = type, Title = $"Synthetic {type} draft", Description = "Synthetic draft roundtrip",
+                OrganizationId = "org-a", RequestedForUserId = "owner-a", ImplementorUserId = "owner-b", ApproverUserIds = ["owner-a"],
+                ImplementationStartAt = new DateTime(2030, 11, 1, 10, 0, 0, DateTimeKind.Utc),
+                ImplementationEndAt = new DateTime(2030, 11, 1, 11, 0, 0, DateTimeKind.Utc), ChangeTemplate = plan
+            };
+            using var response = await client.PostAsJsonAsync("/api/v1/changes", request);
+            Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+            var created = (await response.Content.ReadFromJsonAsync<ChangeDto>())!;
+            Assert.Equal(ChangeLifecycleState.Draft, created.LifecycleState); Assert.Equal(complete, created.IsTemplateComplete);
+            var reread = (await client.GetFromJsonAsync<ChangeDto>($"/api/v1/changes/{created.Id}"))!;
+            Assert.Equal(type, reread.ChangeType); Assert.Equal(ChangeLifecycleState.Draft, reread.LifecycleState);
+            Assert.Equal(request.ImplementationStartAt, reread.ImplementationStartAt); Assert.Equal(request.ImplementationEndAt, reread.ImplementationEndAt);
+            Assert.Equal(plan.ScopeOfChange, reread.ChangeTemplate!.ScopeOfChange);
+            Assert.Equal(plan.BusinessJustification, reread.ChangeTemplate.BusinessJustification);
+            Assert.Equal(plan.EmergencyReason, reread.ChangeTemplate.EmergencyReason);
+            Assert.Equal("owner-a", reread.RequestedForUserId); Assert.Equal("owner-b", reread.ImplementorUserId);
+            await fixture.WithDbAsync(async db =>
+            {
+                var activity = await db.TicketTimelineEvents.Where(x => x.TicketId == created.Id).ToListAsync();
+                Assert.Contains(activity, x => x.MessageText!.Contains("saved as draft", StringComparison.OrdinalIgnoreCase));
+                Assert.DoesNotContain(activity, x => x.MessageText!.Contains("submitted for approval", StringComparison.OrdinalIgnoreCase));
+            });
+            using var validation = await client.PostAsJsonAsync("/api/v1/changes/template-validation", new ChangeTemplateValidationRequest(type, plan));
+            Assert.Equal(complete, (await validation.Content.ReadFromJsonAsync<ChangeTemplateValidationDto>())!.IsComplete);
+        }
+    }
+
     public enum DraftWriter { Assignee, BulkAssign, State, BulkState }
 
     [Theory]

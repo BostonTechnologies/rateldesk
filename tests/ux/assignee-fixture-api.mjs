@@ -89,12 +89,15 @@ http.createServer(async (req, res) => {
   if (url.pathname === '/api/v1/ticketing/organizations') return reply([{ id: 'org-1', name: 'Customer organization', state: 0 }, { id: 'org-2', name: 'Second organization', state: 0 }]);
   if (url.pathname === '/api/v1/ticketing/customers') return reply([{ id: 'customer', name: 'Customer Person', email: 'customer@example.test', organizationId: url.searchParams.get('organizationId'), state: 0 }]);
   if (url.pathname.endsWith('/change-participants')) return reply({ organizationId: 'org-1', requestedForUsers: users.slice(0, 2), approverUsers: users.slice(0, 2), implementorUsers: users });
+  if (url.pathname === '/api/v1/changes/template-validation') return reply({ isComplete: false, errors: ['Scope of change is required.', 'A rollback plan or rollback reference is required.'] });
   const match = url.pathname.match(/^\/api\/v1\/(incidents|requests|changes)(?:\/(.*))?$/);
   if (match) {
     const [, module, action] = match;
     const ticket = tickets[module];
     if (!action && req.method === 'POST') {
       const create = await body();
+      if (fault === 'save') { fault = ''; return reply({ message: 'Synthetic draft save rejected', errors: ['Scope of change needs review.'] }, 409); }
+      if (fault === 'slow-save') { fault = ''; await new Promise(resolve => setTimeout(resolve, 500)); }
       saves.push({ module, kind: 'create', ...create });
       Object.assign(ticket, create);
       return reply(ticket);
