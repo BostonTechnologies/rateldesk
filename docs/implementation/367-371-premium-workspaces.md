@@ -37,6 +37,14 @@ User authorization covers implementation, reviewed PR/merge, hosted release and 
   follow-up: ticket filters **84/84**, admin **32/32**, assignees **40/40**,
   and ticket-filter/request-editor native zoom **4/4 each**, without retries or
   skipped assertions. The first failed hosted attempt is not a passing receipt.
+- Notifications search uses one debounced value-change path. Leaving the field
+  cannot reload/remount a result between pointer-down and its details click.
+  The owning live/reconnect/receipt regression also verifies paste-to-search,
+  the exact result identity and reference, and no extra list request on blur.
+  Three repeated local reproductions, all **41** owning browser cases and all
+  **4** native zoom cases passed after the fix. AI incident-tab navigation also
+  waits for the existing interactive-ready signal before clicking. Hosted
+  receipts are maintained in the linked PR.
 - Light/dark matrices cover 1440×900, 1366×768 and mobile 320/390px, realistic
   long labels and dense synthetic rows. Before screenshots use baseline main
   `6a7e7fb`; after screenshots use the final owning suites. Reviewed images include

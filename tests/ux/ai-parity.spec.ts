@@ -185,6 +185,7 @@ for (const route of [...routes, '/incidents/ux-chat']) {
       await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('| Example |\n| --- |\n| fenced table |\n');
       await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
       await page.reload();
+      await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
       if (route.startsWith('/incidents')) await page.getByRole('tab', { name: 'AI Assistant', exact: true }).click();
       await expect(response.getByRole('table')).toHaveCount(2);
       expect((await (await request.get(`${fixture}/fixture/chat-counts`)).json()).sends).toBe(0);

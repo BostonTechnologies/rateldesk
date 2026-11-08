@@ -288,10 +288,13 @@ test('notification arrivals and reconnect retain identities, selection and posit
   await expect(page.getByRole('button', { name: 'Mark Selected Read (0)', exact: true })).toBeDisabled();
   expect((await (await request.get(`${fixture}/state`)).json()).receipts).toHaveLength(1);
   await page.getByRole('textbox', { name: 'Search', exact: true }).fill('56000000-0000-4000-8000-000000001001');
-  await page.getByRole('textbox', { name: 'Search', exact: true }).press('Enter');
   await expect(page.locator('.notifications-workspace tbody tr')).toHaveCount(1);
+  await expect(page.locator('[data-notification-id]')).toHaveAttribute('data-notification-id', '56000000-0000-4000-8000-000000000001');
+  const readsBeforeDetails = (await (await request.get(`${fixture}/state`)).json()).requests.filter((x: any) => x.path === '/api/v1/notifications').length;
   await page.getByRole('button', { name: 'Event details', exact: true }).click();
   await expect(page.getByText('Reference: 56000000-0000-4000-8000-000000001001', { exact: true })).toBeVisible();
+  // Blurring the search must not reload/remount the row between pointer down and click.
+  expect((await (await request.get(`${fixture}/state`)).json()).requests.filter((x: any) => x.path === '/api/v1/notifications')).toHaveLength(readsBeforeDetails);
 });
 
 for (const theme of ['light', 'dark']) for (const [width, height] of [[1440, 900], [1366, 768], [390, 844]]) {

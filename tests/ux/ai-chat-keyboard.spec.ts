@@ -9,6 +9,7 @@ for (const route of routes) for (const fullscreen of [false, true]) {
     await request.get(`${fixture}/fixture/reset?mode=completed`);
     await page.goto('/auth/development');
     await page.goto(route);
+    await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
     if (route.startsWith('/incidents/')) await page.getByRole('tab', { name: 'AI Assistant', exact: true }).click();
     const input = page.getByRole('textbox', { name: 'Message Netclaw' });
     await expect(input).toBeEnabled();

@@ -50,12 +50,10 @@
     <MudGrid Class="mb-4">
         <MudItem xs="12" md="3">
             <MudTextField T="string" Variant="Variant.Outlined" Margin="Margin.Dense"
-                          @bind-Value="searchTerm"
+                          Value="@searchTerm" ValueChanged="OnSearchChanged"
                           Label="Search"
                           Placeholder="Reference, correlation, or text"
-                          Immediate="true"
-                          OnBlur="ReloadTableAsync"
-                          OnKeyUp="@(async _ => await DebouncedReload())" />
+                          Immediate="true" />
         </MudItem>
         <MudItem xs="12" sm="6" md="2">
             <MudSelect T="NotificationSeverity?" Value="selectedSeverity" ValueChanged="OnSeverityChanged" Label="Severity" Clearable="true">
@@ -701,8 +699,9 @@
         return Task.CompletedTask;
     }
 
-    private async Task DebouncedReload()
+    private async Task OnSearchChanged(string? value)
     {
+        searchTerm = value;
         debounceCts?.Cancel();
         debounceCts = new CancellationTokenSource();
         try
