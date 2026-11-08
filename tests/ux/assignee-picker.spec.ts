@@ -1,5 +1,6 @@
 import { expect, test, Page } from '@playwright/test';
 import { assertNoHorizontalOverflow } from './auth';
+import { writeFile } from 'node:fs/promises';
 
 const fixture = 'http://127.0.0.1:18300/fixture';
 const trigger = (page: Page) => page.getByRole('button', { name: /^Choose (assignee|implementor):/ }).first();
@@ -16,11 +17,12 @@ test.beforeEach(async ({ page, request }) => {
   await page.goto('/auth/development', { waitUntil: 'domcontentloaded' });
 });
 
-test.afterEach(async ({ request }, info) => {
+test.afterEach(async ({ page, request }, info) => {
   if (info.status !== info.expectedStatus) {
-    await info.attach('synthetic-picker-state', {
-      body: await (await request.get(`${fixture}/state`)).body(), contentType: 'application/json'
-    });
+    const path = info.outputPath('synthetic-picker-state.json');
+    await writeFile(path, JSON.stringify({ fixture: await (await request.get(`${fixture}/state`)).json(),
+      focus: await page.evaluate(() => document.activeElement?.outerHTML) }));
+    await info.attach('synthetic-picker-state', { path, contentType: 'application/json' });
   }
 });
 
@@ -348,6 +350,9 @@ for (const theme of ['light', 'dark']) {
     await page.setViewportSize({ width: 390, height: 844 }); await grid(page, 'requests');
     await page.getByRole('button', { name: 'Create', exact: true }).click();
     const dialog = page.getByRole('dialog').first();
+    // MudDialog 9.11 defaults to its focus-trap fallback. Its asynchronous first
+    // focus must finish before typing; a late blur would coerce a partial query.
+    await expect(dialog.locator('.mud-focus-trap > .fixed[tabindex="-1"]')).toBeFocused();
     const organization = dialog.getByRole('combobox', { name: /^Organization\*?$/ });
     await organization.fill('Partner');
     await expect(page.getByRole('option', { name: /Zulu Partner/ })).toBeVisible();

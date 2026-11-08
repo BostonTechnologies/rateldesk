@@ -45,6 +45,13 @@ User authorization covers implementation, reviewed PR/merge, hosted release and 
   **4** native zoom cases passed after the fix. AI incident-tab navigation also
   waits for the existing interactive-ready signal before clicking. Hosted
   receipts are maintained in the linked PR.
+- Follow-up editor acceptance waits for the chosen task identity and name before
+  editing, and for the unnamed-task model to render before leaving that task.
+  Both whole-draft validation and drag/reorder assertions remain enabled; the
+  complete seven-case editor suite passed twice (**14 cases**). The mobile
+  creation search waits for MudDialog 9.11's actual initial focus fallback before
+  typing, avoiding the component's late opening focus/coercion. Twenty repeated
+  light/dark cases passed, without retries or fixed sleeps.
 - Light/dark matrices cover 1440×900, 1366×768 and mobile 320/390px, realistic
   long labels and dense synthetic rows. Before screenshots use baseline main
   `6a7e7fb`; after screenshots use the final owning suites. Reviewed images include
